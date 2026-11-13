@@ -76,3 +76,10 @@ jobs:
             cat "$lock"
             echo '```'
           } >>"$GITHUB_STEP_SUMMARY"
+          echo "::group::images.lock"; cat "$lock"; echo "::endgroup::"
+          cp "$lock" "$RUNNER_TEMP/images-lock-out.txt"
+      - name: Upload images.lock
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: images-lock
+          path: ${{ runner.temp }}/images-lock-out.txt
