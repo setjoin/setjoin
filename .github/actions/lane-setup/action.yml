@@ -1,0 +1,78 @@
+name: server-rust lane setup
+description: Free disk, set the job-owned paths, pull the pinned images (.github/ci/images.lock) and optionally start the lane Postgres.
+inputs:
+  postgres:
+    description: start the job-owned Postgres ('true' or 'false')
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - name: Free disk (preinstalled toolchains the lane never uses)
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+          /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell \
+          /usr/local/share/chromium /usr/local/lib/node_modules
+        docker image prune -af >/dev/null 2>&1 || true
+        df -h / | tail -1 | sed 's/^/disk after cleanup: /'
+    - name: Job-owned paths
+      shell: bash
+      run: |
+        set -euo pipefail
+        LANE_CACHE="$HOME/.cache/setjoin-server-rust-lane"
+        LANE_BUILD="$HOME/lane-build"
+        mkdir -p "$LANE_CACHE"/{go-mod,cargo-home,tmp} "$LANE_BUILD/target/tmp" "$GITHUB_WORKSPACE/lane-artifacts"
+        {
+          echo "LANE_CACHE=$LANE_CACHE"
+          echo "LANE_BUILD=$LANE_BUILD"
+          # identical absolute target dir in every job: CARGO_BIN_EXE_* paths are compiled in
+          echo "CARGO_TARGET_DIR=$LANE_BUILD/target"
+          echo "CARGO_HOME=$LANE_CACHE/cargo-home"
+          echo "GOFREE_GO_MOD_CACHE=$LANE_CACHE/go-mod"
+          echo "LANE_OWNER=$(id -u):$(id -g)"
+          echo "LANE_ARTIFACT_DIR=$GITHUB_WORKSPACE/lane-artifacts"
+          echo "PEBBLE_BIN=/usr/local/bin/pebble"
+          echo "LANE_PG_PORT=25432"
+          echo "LANE_PG_CONTAINER=setjoin-lane-pg-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-${LANE_JOB_TAG:-$GITHUB_JOB}"
+        } >> "$GITHUB_ENV"
+    - name: Pull the pinned images
+      shell: bash
+      run: |
+        set -euo pipefail
+        if grep -v '^#' .github/ci/images.lock | grep -q PLACEHOLDER; then
+          echo "::error::.github/ci/images.lock still holds PLACEHOLDER digests: run the ci-images workflow once and commit its summary"
+          exit 1
+        fi
+        pull() { for attempt in 1 2 3 4 5; do docker pull -q "$1" >/dev/null && return 0; sleep $((attempt * 10)); done; return 1; }
+        while IFS='=' read -r want pinned; do
+          case "$want" in ''|'#'*) continue ;; esac
+          pull "$pinned"
+          case "$want" in *@sha256:*) ;; *) docker tag "$pinned" "$want" ;; esac
+          [ "$want" != setjoin-server-rust-lane ] || echo "LANE_IMAGE=$pinned" >> "$GITHUB_ENV"
+        done < .github/ci/images.lock
+    - name: Start Postgres (job-owned, fsync off, loopback, SCRAM)
+      if: inputs.postgres == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        data="$RUNNER_TEMP/lane-pg"
+        mkdir -p "$data"
+        PW="$(openssl rand -hex 24)"
+        echo "::add-mask::$PW"
+        docker run -d --name "$LANE_PG_CONTAINER" --label "setjoin-lane-run=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+          -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD="$PW" -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
+          -e POSTGRES_INITDB_ARGS='--auth-host=scram-sha-256' --shm-size=1g -v "$data:/var/lib/postgresql/data" \
+          -p "127.0.0.1:${LANE_PG_PORT}:5432" setjoin-lane-pg:17 \
+          -c fsync=off -c synchronous_commit=off -c full_page_writes=off \
+          -c max_connections=1000 -c shared_buffers=1GB -c max_locks_per_transaction=512 \
+          -c wal_level=minimal -c max_wal_senders=0 -c max_wal_size=2GB -c min_wal_size=256MB -c checkpoint_timeout=5min >/dev/null
+        for _ in $(seq 1 60); do
+          docker exec "$LANE_PG_CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
+          sleep 2
+        done
+        docker exec "$LANE_PG_CONTAINER" pg_isready -h 127.0.0.1 -U postgres
+        echo "PGPASSWORD=$PW" >> "$GITHUB_ENV"
+        if env -u PGPASSWORD PGPASSFILE=/dev/null psql -w "postgres://postgres@127.0.0.1:${LANE_PG_PORT}/postgres?sslmode=disable" \
+            -c 'SELECT 1;' >/dev/null 2>&1; then
+          echo "FAIL: an uncredentialed local process connected"; exit 1
+        fi

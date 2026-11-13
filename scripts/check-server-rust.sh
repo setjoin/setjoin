@@ -131,7 +131,15 @@ nextest_tests() {
     python3 "$ROOT/scripts/server-rust-lane-groups.py" --root "$dir" >"$groups" || return 1
     leak_guard on || return 1
     lane_disk_sampler start
-    (cd "$dir" && "$CARGO" nextest run --workspace --locked --offline --no-fail-fast --profile lane \
+    # Hosted CI: run the build job's archive (extracted to the same absolute target dir) and
+    # only this shard's partition; doc tests then run in the roots stage.
+    local build=(--workspace --locked --offline) partition=()
+    if [[ -n "${SERVER_RUST_NEXTEST_ARCHIVE:-}" ]]; then
+      build=(--archive-file "$SERVER_RUST_NEXTEST_ARCHIVE" --workspace-remap "$dir"
+             --extract-to "${SERVER_RUST_NEXTEST_EXTRACT_TO:?SERVER_RUST_NEXTEST_EXTRACT_TO is required with an archive}" --extract-overwrite)
+    fi
+    [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" ]] && partition=(--partition "$SERVER_RUST_NEXTEST_PARTITION")
+    (cd "$dir" && "$CARGO" nextest run "${build[@]}" ${partition[@]+"${partition[@]}"} --no-fail-fast --profile lane \
       --tool-config-file "lane:$groups" -j "${LANE_JOBS:-5}" --success-output immediate --failure-output immediate-final \
       --color never 2>&1) || rc=1
     lane_disk_sampler stop
@@ -142,7 +150,9 @@ nextest_tests() {
     (cd "$dir" && "$CARGO" nextest run --workspace --locked --offline --no-fail-fast --success-output immediate \
       --failure-output immediate-final --color never 2>&1) || rc=1
   fi
-  (cd "$dir" && "$CARGO" test --doc --locked --offline --workspace --no-fail-fast --color never 2>&1) || rc=1
+  if [[ -z "${SERVER_RUST_NEXTEST_ARCHIVE:-}" ]]; then
+    (cd "$dir" && "$CARGO" test --doc --locked --offline --workspace --no-fail-fast --color never 2>&1) || rc=1
+  fi
   return "$rc"
 }
 
@@ -154,7 +164,8 @@ run_root() {
     echo "✗ server-rust: $label missing ($dir/Cargo.toml)" >&2
     return 1
   }
-  if [[ "$mode" == auto ]] && ! (cd "$dir" && "$CARGO" fetch --locked --offline >/dev/null 2>&1); then
+  # an archive run has no registry cache and compiles nothing: skip the fetch
+  if [[ "$mode" == auto && -z "${SERVER_RUST_NEXTEST_ARCHIVE:-}" ]] && ! (cd "$dir" && "$CARGO" fetch --locked --offline >/dev/null 2>&1); then
     echo "server-rust: $label dependencies not cached; fetching the locked versions"
     (cd "$dir" && "$CARGO" fetch --locked) || {
       echo "✗ server-rust: $label cargo fetch --locked failed" >&2
@@ -162,7 +173,14 @@ run_root() {
     }
   fi
   log="$(mktemp)"
-  if [[ "${SERVER_RUST_NEXTEST:-}" == 1 && ( "$label" == workspace || "${SERVER_RUST_NEXTEST_FIXTURE:-}" == 1 ) ]]; then
+  if [[ "$label" == workspace-doc ]]; then
+    nextest=0
+    if ! (cd "$dir" && "$CARGO" test --doc --locked --offline --workspace --no-fail-fast 2>&1) | tee "$log"; then
+      rm -f "$log"
+      echo "✗ server-rust: $label cargo test --doc failed" >&2
+      return 1
+    fi
+  elif [[ "${SERVER_RUST_NEXTEST:-}" == 1 && ( "$label" == workspace || "${SERVER_RUST_NEXTEST_FIXTURE:-}" == 1 ) ]]; then
     nextest=1
     if ! nextest_tests "$dir" "$label" 2>&1 | tee "$log"; then
       rm -f "$log"
@@ -193,6 +211,8 @@ run_root() {
     fi
     np="$(sed -nE 's/.* ([0-9]+) passed.*/\1/p' <<<"$summary")"
     nk="$(sed -nE 's/.* ([0-9]+) skipped.*/\1/p' <<<"$summary")"
+    # a partition shard counts the other shards' tests as skipped; the build job rejects ignored tests
+    [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" ]] && nk=0
     passed=$((passed + ${np:-0}))
     ignored=$((ignored + ${nk:-0}))
   fi
@@ -262,26 +282,44 @@ check_tree() {
     echo "SERVER-RUST-SKIP (reason=cargo-not-found cargo=$CARGO) — Rust server tests NOT run"
     return 0
   fi
+  # SERVER_RUST_STAGES (hosted CI spreads the lane over jobs): static (guards, cargo-deny, guard
+  # tests), workspace (nextest), roots (pilot, schema-simulation, bench-mark-read, plus the doc
+  # tests when the workspace stage runs elsewhere), adequacy. Default: every stage.
+  local stages=",${SERVER_RUST_STAGES:-static,workspace,roots,adequacy},"
   if [[ -z "$subset" ]]; then
-    # The fast static checks abort the lane at once: a red one must not cost the hours of
-    # tests after it.
-    python3 "$ROOT/scripts/check-rust-family-isolation.py" "$base" || return 1
-    python3 "$base/tests/family-isolation/test_guard.py" || return 1
-    python3 "$ROOT/scripts/check-rust-license-exceptions.py" "$base" || return 1
-    # Every cargo-deny check: licences, sources, bans and RustSec advisories (#388).
-    cargo_deny_retry "$base" || return 1
-    python3 "$base/tests/license-policy/test_policy.py" || return 1
-    run_root "$base" "workspace" auto || rc=1
-    run_root "$base/pilot" "pilot" auto || rc=1
-    run_root "$base/tools/schema-simulation" "schema-simulation" offline || rc=1
-    run_root "$base/tools/bench-mark-read" "bench-mark-read" offline || rc=1
+    if [[ "$stages" == *,static,* ]]; then
+      # The fast static checks abort the lane at once: a red one must not cost the hours of
+      # tests after it.
+      python3 "$ROOT/scripts/check-rust-family-isolation.py" "$base" || return 1
+      python3 "$base/tests/family-isolation/test_guard.py" || return 1
+      python3 "$ROOT/scripts/check-rust-license-exceptions.py" "$base" || return 1
+      # Every cargo-deny check: licences, sources, bans and RustSec advisories (#388).
+      cargo_deny_retry "$base" || return 1
+      python3 "$base/tests/license-policy/test_policy.py" || return 1
+    fi
+    if [[ "$stages" == *,workspace,* ]]; then
+      run_root "$base" "workspace" auto || rc=1
+    fi
+    if [[ "$stages" == *,roots,* ]]; then
+      if [[ "$stages" != *,workspace,* ]]; then
+        run_root "$base" "workspace-doc" auto || rc=1
+      fi
+      run_root "$base/pilot" "pilot" auto || rc=1
+      run_root "$base/tools/schema-simulation" "schema-simulation" offline || rc=1
+      run_root "$base/tools/bench-mark-read" "bench-mark-read" offline || rc=1
+    fi
   else
     echo "ADEQUACY-SUBSET (stages=$subset entries=${LANE_ADEQUACY_ENTRIES:-all}) — workspace tests NOT run; not a lane result"
   fi
-  python3 "$base/tests/conformance/tests/adequacy_guard_test.py" || rc=1
-  python3 "$base/tests/conformance/tests/coverage_report_test.py" || rc=1
+  if [[ "$stages" == *,static,* || -n "$subset" ]]; then
+    python3 "$base/tests/conformance/tests/adequacy_guard_test.py" || rc=1
+    python3 "$base/tests/conformance/tests/coverage_report_test.py" || rc=1
+  fi
+  if [[ "$stages" != *,adequacy,* && -z "$subset" ]]; then
+    return "$rc"
+  fi
   if [[ -n "${TEST_DB_DSN:-${DB_DSN:-}}" || "${REQUIRE_DB:-}" == 1 ]]; then
-    # The gate runs every replay and mutant singly. On the parallel lane each one gets its own
+    # The gate runs every replay and mutant in its own process. On the parallel lane each one gets its own
     # cloned database, like the nextest run, instead of the shared base that the doc tests,
     # pilot and schema-simulation have already written to (a leftover audit row broke the
     # chain check of `saml_oracle::unlink_floor_cross_tenant` there). `cargo test` hands the
@@ -296,15 +334,28 @@ check_tree() {
     lane_clones sweep "the adequacy gate"
     if [[ -n "${LANE_ADMIN_DSN:-}" && -n "${LANE_TEMPLATE_DB:-}" && -n "${LANE_BASE_DB:-}" ]]; then leak_guard on || rc=1; fi
     lane_disk_sampler start
-    # On the lane every run costs hours: run all replays and mutants and then coverage, and
-    # report every failure at the end (still red). LANE_ADEQUACY_KEEP_GOING=0 restores
-    # stop-at-first-failure.
-    local keep_going=()
+    # On the lane every run costs hours: run all replays and mutants (LANE_ADEQUACY_JOBS, default
+    # LANE_JOBS, at a time on per-replay clones) and then coverage, and report every failure at the
+    # end (still red). LANE_ADEQUACY_KEEP_GOING=0 restores stop-at-first-failure. LANE_COVERAGE=0
+    # (the hosted test shards) skips coverage; the coverage shards run it alone
+    # (LANE_ADEQUACY_COVERAGE_ONLY=1).
+    local keep_going=() coverage=(--coverage)
+    local shard_args=()
+    [[ -n "${LANE_ADEQUACY_SHARD:-}" ]] && shard_args+=(--shard "$LANE_ADEQUACY_SHARD")
+    [[ -n "${LANE_ADEQUACY_BINARIES:-}" ]] && shard_args+=(--binaries "$LANE_ADEQUACY_BINARIES")
+    # the item-level receipt merge-lane-shards.py checks against the manifest
+    [[ -n "${LANE_ARTIFACT_DIR:-}" ]] && shard_args+=(--receipt "$LANE_ARTIFACT_DIR/adequacy-receipt.json")
     [[ -n "${LANE_ADMIN_DSN:-}" && "${LANE_ADEQUACY_KEEP_GOING:-1}" != 0 ]] && keep_going=(--keep-going)
+    if [[ "${LANE_COVERAGE:-1}" == 0 ]]; then
+      coverage=()
+      [[ -z "$subset" ]] && echo "ADEQUACY-COVERAGE-NOT-RUN (LANE_COVERAGE=0) — replays and mutants run; coverage runs in the coverage shards"
+    fi
+    local stage_args=(--execute ${coverage[@]+"${coverage[@]}"})
+    [[ "${LANE_ADEQUACY_COVERAGE_ONLY:-}" == 1 ]] && stage_args=(--coverage)
     if [[ -n "$subset" ]]; then
       python3 "$ROOT/scripts/check-gofree-oracle-adequacy.py" --only "$subset" ${LANE_ADEQUACY_ENTRIES:+--entries "$LANE_ADEQUACY_ENTRIES"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
     else
-      python3 "$ROOT/scripts/check-gofree-oracle-adequacy.py" --execute --coverage --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
+      python3 "$ROOT/scripts/check-gofree-oracle-adequacy.py" "${stage_args[@]}" ${shard_args[@]+"${shard_args[@]}"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
     fi
     lane_disk_sampler stop
     leak_guard off || rc=1

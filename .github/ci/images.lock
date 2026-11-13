@@ -1,0 +1,13 @@
+# LOCAL NAME=PINNED REFERENCE, one per line; read by .github/actions/lane-setup.
+# PLACEHOLDER: the digests below do not exist yet. The first run of
+# .github/workflows/ci-images.yml (same-repo pull request, push to main or workflow_dispatch) prints the real file in
+# its job summary; replace this file with it, make the new GHCR packages public once
+# (Package settings, Change visibility), and commit. lane-setup refuses to run while any
+# line still says PLACEHOLDER.
+setjoin-ci-linux-tc:local-amd64=ghcr.io/setjoin/setjoin-ci-linux-tc@sha256:PLACEHOLDER-FILL-FROM-FIRST-CI-IMAGES-RUN
+setjoin-server-rust-lane=ghcr.io/setjoin/setjoin-server-rust-lane@sha256:PLACEHOLDER-FILL-FROM-FIRST-CI-IMAGES-RUN
+setjoin-lane-pg:17=ghcr.io/setjoin/setjoin-lane-pg@sha256:PLACEHOLDER-FILL-FROM-FIRST-CI-IMAGES-RUN
+alpine:3.24=ghcr.io/setjoin/mirror-alpine@sha256:PLACEHOLDER-FILL-FROM-FIRST-CI-IMAGES-RUN
+postgres:17=ghcr.io/setjoin/mirror-postgres@sha256:PLACEHOLDER-FILL-FROM-FIRST-CI-IMAGES-RUN
+kristophjunge/test-saml-idp@sha256:02a6e56c01f94b9ba3f2151f33acedf4606ac9b7eeb62a874c5a6b032c0fa9cc=kristophjunge/test-saml-idp@sha256:02a6e56c01f94b9ba3f2151f33acedf4606ac9b7eeb62a874c5a6b032c0fa9cc
+apache/james:demo-3.8.0@sha256:e7ac5b29e148b61adf8e9345c5ef011c85c39445b4223d5d75731250dd0a7fd2=apache/james:demo-3.8.0@sha256:e7ac5b29e148b61adf8e9345c5ef011c85c39445b4223d5d75731250dd0a7fd2

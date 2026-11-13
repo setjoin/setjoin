@@ -467,14 +467,45 @@ updater are #357–#359.
 
 ## Parallel full lane (#550)
 
-`scripts/server-rust-parallel-lane.sh` is the full-lane entry point. No CI workflow runs it
-until the GitHub-hosted lane lands; the old `server-rust-full-lane.yml` was retired with
-its runner. It runs
-`scripts/check-server-rust.sh` with `SERVER_RUST_NEXTEST=1`: the workspace root uses
-`cargo nextest run --profile lane` (`.config/nextest.toml`) plus `cargo test --doc`; family
-isolation, cargo-deny, pilot, schema-simulation, bench-mark-read, adequacy and every
-zero-test, ignored (nextest `skipped`) and `*-SKIP` marker check are unchanged and red as before.
-`LANE_MODE=serial` is the plain `cargo test` reference on the same cluster.
+`.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
+label) for every pull request and every push to `main`: always the FULL lane including oracle
+coverage. `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
+lane result. Jobs: `plan` (shard lists, debug or full); `build` (one `cargo nextest archive` of every
+workspace test binary plus the expected test list `nextest list`); `roots` (static guards,
+cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read: `SERVER_RUST_STAGES=static,roots`);
+`shard 1..N` (nextest `--partition hash:k/N` of the archive plus every N-th replay and mutant);
+`coverage-build` (instrumented archive of the coverage binaries only) and `coverage-shard 1..M`
+(every M-th coverage entry); `aggregate`, the required check. Each job is its own VM with its own
+Postgres, so host state cannot collide across shards; inside a shard the serial groups stay.
+`aggregate` runs `scripts/merge-lane-shards.py`: red unless every job wrote `lane-complete.txt`
+`rc=0`, every non-ignored test of the build's list ran exactly once and passed, no log prints a
+`*-SKIP (reason=` marker, the shards together replayed every replay and mutant of the manifest and
+the coverage shards measured every coverage entry (`python3 scripts/test-merge-lane-shards.py`).
+Evidence is the `lane-results-<sha>` artifact (30 days); there is no serial or compare mode on
+hosted runners (`LANE_MODE=serial` and `scripts/compare-lane-runs.py` stay for a dev host).
+
+`scripts/check-server-rust.sh` is unchanged by default; hosted CI selects with
+`SERVER_RUST_STAGES` (static, workspace, roots, adequacy), `SERVER_RUST_NEXTEST_ARCHIVE`/`_EXTRACT_TO`/
+`_PARTITION`, `LANE_ADEQUACY_SHARD=K/N`, `LANE_ADEQUACY_BINARIES` (replays and coverage launch the
+archive's binaries through the clone runner instead of `cargo test`), `LANE_COVERAGE=0` (no
+coverage) and `LANE_ADEQUACY_COVERAGE_ONLY=1`. `CARGO_BIN_EXE_*` and `CARGO_MANIFEST_DIR` are
+compiled in, so every job uses the same absolute `CARGO_TARGET_DIR` (`$HOME/lane-build/target`) and
+checkout path, and the archive is extracted to `$HOME/lane-build`. Replays and mutants run
+`LANE_ADEQUACY_JOBS` (default `LANE_JOBS`, else 5) at a time when the per-replay clone runner is set
+(1 without it; more is an error); each distinct test target is built once first (`--no-run`, outside
+`LANE_REPLAY_TIMEOUT`) unless prebuilt; replays whose binaries share a serial group never overlap.
+The summary and `--keep-going` failures are in manifest order, named
+`<entry> :: <package>::<target>::<test>`.
+
+Images: `.github/workflows/ci-images.yml` (only workflow with `packages: write`, job-scoped; runs on
+same-repo pull requests, pushes to `main` and dispatch for `.github/ci/**` changes, never on fork pull
+requests; `images.lock` is excluded from its path filter to avoid a digest loop; the lane's `plan`
+job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images and mirrors tag-referenced third-party images to
+`ghcr.io/setjoin`, printing `.github/ci/images.lock`; `.github/actions/lane-setup` pulls exactly
+those digests (and refuses `PLACEHOLDER` lines). The GHCR packages must be public. Fork pull
+requests get a read-only token and no secrets (the lane needs none); caches are saved only from
+`main`. Locally: `bash scripts/pre-ci.sh` checks the workflow `run:` blocks.
 
 - **Database per test, not per binary.** nextest runs each test in its own process; roughly 100
   gateway binaries serialise through an in-process `static SERIAL` mutex over shared database
@@ -502,26 +533,14 @@ zero-test, ignored (nextest `skipped`) and `*-SKIP` marker check are unchanged a
   collides when every id starts at 1, as in a fresh clone; the long-lived database the goldens were
   recorded on has large ids. The lane sets each template sequence to `LANE_SEQUENCE_FLOOR`
   (100000) plus a distinct offset, in both modes.
-- **Root container.** The workflow runs the lane as root in `setjoin-ci-linux-tc:local-amd64` on
-  the host network with the Docker socket, as on the dev host: oracles bind `:53`/`:80`/`:636`, assert
-  root ownership and start sibling containers. Workspace, cache and `/tmp` are mounted at identical paths;
-  ownership returns to the runner user on exit. `workflow_dispatch` `filter` runs only the matching
-  nextest filterset (debug, never a lane result).
-- **Postgres.** The workflow starts `postgres:17` on a job-owned on-disk data directory
-  (`~/.cache/setjoin-server-rust-lane-pg/<run>-<attempt>`, wiped at job start and in Cleanup; the
-  8 GB tmpfs it replaced filled during the adequacy gate) with `fsync=off`,
-  `synchronous_commit=off`, `full_page_writes=off`, autovacuum on, loopback publish and a per-run SCRAM
-  secret (CI only). Tools are pinned by `scripts/server-rust-lane-tools.sh` (nextest,
-  cargo-deny, pebble). The cargo target dir, tools and Go module cache persist under
-  `~/.cache/setjoin-server-rust-lane` on the runner.
-- **Evidence.** The log, `junit.xml` and `wall.txt` upload as an artifact;
-  `scripts/compare-lane-runs.py SERIAL_LOG JUNIT` proves the parallel run executed the same
-  tests and lists the per-test result differences against a serial `cargo test` log; the workflow
-  keeps each mode's result on the runner and prints the comparison when both exist for the same
-  test sources (the artifact store can be over quota); `mode: compare` reprints the full comparison.
-  Known differences at the integration tip are reported on #550: tests that pass serially only
-  through cross-binary database pollution or in-process order fail on a clean clone, and tests that
-  fail serially for pollution pass in parallel.
+- **Root container.** `scripts/lane-container.sh` runs each lane step as root in the pinned
+  `setjoin-server-rust-lane` image on the host network with the Docker socket, as on the dev host:
+  oracles bind `:53`/`:80`/`:636`, assert root ownership and start sibling containers. Workspace,
+  `$HOME` and `/tmp` are mounted at identical paths; ownership returns to the runner user on exit.
+- **Postgres.** `lane-setup` starts the baked `setjoin-lane-pg:17` (pgtap) on a job-owned data
+  directory under `$RUNNER_TEMP` with `fsync=off`, `synchronous_commit=off`, `full_page_writes=off`,
+  loopback publish and a per-job SCRAM secret (CI only, masked). Tools are pinned by
+  `scripts/server-rust-lane-tools.sh` (nextest, cargo-deny, pebble) inside the lane image.
 
 ## Rust guard self-test
 

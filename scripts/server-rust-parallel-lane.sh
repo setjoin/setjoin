@@ -18,6 +18,11 @@
 #   LANE_ARTIFACT_DIR where the log, junit.xml and test lists land
 #   LANE_QUICK        1 = debug run: only `cargo nextest run -E "$LANE_NEXTEST_FILTER"` on the
 #                     workspace (no other check, skipped tests allowed); never a lane result
+#   LANE_COVERAGE     0 = the replays and mutants run but oracle coverage does not (hosted test
+#                     shards); unset = coverage runs, as on a dev host. The hosted workflow also
+#                     sets SERVER_RUST_STAGES, SERVER_RUST_NEXTEST_ARCHIVE/_EXTRACT_TO/_PARTITION,
+#                     LANE_ADEQUACY_SHARD/_BINARIES/_COVERAGE_ONLY (see check-server-rust.sh)
+#   LANE_ADEQUACY_JOBS replays and mutants run side by side (default LANE_JOBS)
 #   LANE_SKIP_SCHEMA  1 = reuse an existing ${prefix}tpl (dev host iteration)
 #   LANE_LEAK_GUARD   0 = do not make the base database refuse connections during the nextest
 #                     and adequacy phases (default 1: a test that bypasses its clone fails loudly)
@@ -127,8 +132,11 @@ rc="${PIPESTATUS[0]}"
 stamp "check-server-rust.sh rc=$rc"
 
 # nextest keeps its store under the workspace (server-rust/target/nextest), not CARGO_TARGET_DIR.
-JUNIT="$ROOT/server-rust/target/nextest/lane/junit.xml"
-[[ -f "$JUNIT" ]] && cp "$JUNIT" "$ART/junit.xml"
+# An archive run keeps it under the extracted target dir instead.
+for JUNIT in "$ROOT/server-rust/target/nextest/lane/junit.xml" "${CARGO_TARGET_DIR:-/nonexistent}/nextest/lane/junit.xml" \
+  "${SERVER_RUST_NEXTEST_EXTRACT_TO:-/nonexistent}/target/nextest/lane/junit.xml"; do
+  [[ -f "$JUNIT" ]] && { cp "$JUNIT" "$ART/junit.xml"; break; }
+done
 
 # ── leak sweep: only this lane's clones ───────────────────────────────────────────────
 leaked="$(psql -h "$HOST" -p "$PORT" -U "$PGU" -d postgres -X -At -c "SELECT datname FROM pg_database WHERE datname ~ '^${PREFIX}[0-9a-f]{24}\$'")"

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # pre-ci.sh — run before any push that triggers the server-rust full lane (~2 min, no DB).
 # Catches what has cost whole lane runs: stale adequacy manifest, cargo-deny policy, workflow
-# shell syntax, bind-:0-then-drop port handoffs, tracked bytecode, context budgets.
+# shell syntax, bind-:0-then-drop port handoffs, tracked bytecode, context budgets, hosted-lane
+# shard merge.
 #
 #   bash scripts/pre-ci.sh                    run every check, one summary line each
 #   bash scripts/pre-ci.sh --lane <filter>    also print (not run) the LANE_QUICK command for
@@ -10,7 +11,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
-WF=.github/workflows/server-rust-full-lane.yml
+WF=(.github/workflows/server-rust-lane.yml .github/workflows/ci-images.yml .github/actions/lane-setup/action.yml)
 lane_filter=""
 case "${1:-}" in
   "") ;;
@@ -36,16 +37,19 @@ check() {
 }
 
 workflow_shell() {
-  python3 - "$WF" "$tmp" <<'PY' || return 1
+  python3 - "$tmp" "${WF[@]}" <<'PY' || return 1
 import re, sys, yaml
-doc = yaml.safe_load(open(sys.argv[1]))
 n = 0
-for job in doc["jobs"].values():
-    for step in job["steps"]:
-        if "run" in step:
-            n += 1
-            # GitHub expressions are not shell: swap in a placeholder for the syntax checks
-            open(f"{sys.argv[2]}/run{n}.sh", "w").write(re.sub(r"\$\{\{.*?\}\}", "GHA_EXPR", step["run"]))
+for path in sys.argv[2:]:
+    doc = yaml.safe_load(open(path))
+    # a workflow has jobs.<id>.steps, a composite action runs.steps
+    groups = [job["steps"] for job in doc["jobs"].values()] if "jobs" in doc else [doc["runs"]["steps"]]
+    for steps in groups:
+        for step in steps:
+            if "run" in step:
+                n += 1
+                # GitHub expressions are not shell: swap in a placeholder for the syntax checks
+                open(f"{sys.argv[1]}/run{n}.sh", "w").write(re.sub(r"\$\{\{.*?\}\}", "GHA_EXPR", step["run"]))
 print(n, "run blocks")
 PY
   local f rc=0
@@ -56,7 +60,7 @@ PY
     echo "WARN: shellcheck not installed, skipped"
   fi
   if command -v actionlint >/dev/null 2>&1; then
-    actionlint "$WF" || rc=1
+    actionlint "${WF[@]:0:2}" || rc=1
   else
     echo "WARN: actionlint not installed, skipped"
   fi
@@ -78,6 +82,7 @@ tracked_bytecode() {
 check "adequacy preflight" python3 scripts/check-gofree-oracle-adequacy.py --preflight-only
 check "adequacy_guard_test" python3 server-rust/tests/conformance/tests/adequacy_guard_test.py
 check "coverage_report_test" python3 server-rust/tests/conformance/tests/coverage_report_test.py
+check "merge-lane-shards test" python3 scripts/test-merge-lane-shards.py
 # cargo-deny: the pinned binary the lane uses (scripts/server-rust-lane-tools.sh puts it in
 # LANE_BIN_DIR), else one on PATH. Missing is a FAIL unless PRE_CI_SKIP_DENY=1 (then SKIP).
 cargo_deny() {
