@@ -107,7 +107,7 @@ selftest() {
     if [ "$rc" -eq 1 ] && grep -q "Diff in $d/bad.rs" <<<"$out"; then echo "ok   fmt flags misformatted"; else echo "FAIL fmt misformatted (rc=$rc): $out"; fails=1; fi
     rm -rf "$d"
   else
-    echo "skip fmt selftest (no rustfmt)"
+    echo "FAIL fmt selftest: rustfmt not installed (run it in the lane image)"; fails=1
   fi
   return "$fails"
 }
