@@ -16,7 +16,7 @@ on:
         description: Optional libtest case filter (empty = every case; existing goldens are only compared)
         default: ''
       go_source:
-        description: Frozen Go commit (40 hex) to build the coverage binary from (empty = this ref)
+        description: Must be empty or equal the dispatched ref's commit (dispatch with the frozen ref); recorded into the goldens
         default: ''
       go_upstream:
         description: none = gateway-style recorders (GOFREE_RECORD_GO_BINARY); authserverd = start the covered Go authserver and set GOFREE_RECORD_UPSTREAM (auth-listener oracles)
@@ -44,6 +44,7 @@ env:
 
 jobs:
   record:
+    if: github.repository == 'setjoin/setjoin'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -56,14 +57,23 @@ jobs:
       GO_SOURCE_INPUT: ${{ inputs.go_source }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
       - name: Validate inputs
         run: |
           [[ "$GOFREE_REC_PACKAGE$GOFREE_REC_TEST" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::package and test must be [A-Za-z0-9_-]"; exit 1; }
-          [[ -z "$GOFREE_REC_FILTER" || "$GOFREE_REC_FILTER" =~ ^[A-Za-z0-9_:.-]+$ ]] || { echo "::error::bad case_filter"; exit 1; }
+          [[ -z "$GOFREE_REC_FILTER" || "$GOFREE_REC_FILTER" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]*$ ]] || { echo "::error::bad case_filter"; exit 1; }
           [[ -z "$GO_SOURCE_INPUT" || "$GO_SOURCE_INPUT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::go_source must be 40 hex"; exit 1; }
-          echo "GOFREE_GO_SOURCE=${GO_SOURCE_INPUT:-$(git rev-parse HEAD)}" >> "$GITHUB_ENV"
+          head="$(git rev-parse HEAD)"
+          # Some recorders (drain) run `go test` on the current checkout, not a separate worktree, so the
+          # recorded source is always this checkout: dispatch with the frozen ref instead.
+          [[ -z "$GO_SOURCE_INPUT" || "$GO_SOURCE_INPUT" == "$head" ]] || { echo "::error::go_source $GO_SOURCE_INPUT is not the checked-out commit $head; dispatch this workflow on that ref"; exit 1; }
+          if [ "$GOFREE_REC_UPSTREAM" = authserverd ]; then
+            # per-target Go config is only established for these auth oracles (oidc, rp, saml, push need their own presets)
+            case "$GOFREE_REC_PACKAGE/$GOFREE_REC_TEST" in
+              setjoin-auth/oracle|setjoin-auth/token_oracle|setjoin-auth/mfa_oracle|setjoin-auth/webauthn_oracle) ;;
+              *) echo "::error::go_upstream=authserverd supports only setjoin-auth tests oracle, token_oracle, mfa_oracle, webauthn_oracle"; exit 1 ;;
+            esac
+          fi
+          echo "GOFREE_GO_SOURCE=$head" >> "$GITHUB_ENV"
       - uses: ./.github/actions/lane-setup
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -73,8 +83,7 @@ jobs:
       - name: Build the frozen Go coverage binary
         run: |
           set -euo pipefail
-          src="$RUNNER_TEMP/go-frozen" out="$RUNNER_TEMP/go-bin"
-          git worktree add --detach "$src" "$GOFREE_GO_SOURCE"
+          src="$GITHUB_WORKSPACE" out="$RUNNER_TEMP/go-bin"
           mkdir -p "$out"
           # setjoin-ci-linux-tc is also the image the oracle runs the binary in (same libc)
           docker run --rm -v "$src:/src:ro" -v "$out:/out" -v "$LANE_CACHE/go-mod:/go-mod" -e GOMODCACHE=/go-mod \
@@ -91,10 +100,6 @@ jobs:
           echo "frozen Go source $GOFREE_GO_SOURCE"
       - name: Record
         run: bash scripts/lane-container.sh bash scripts/gofree-record.sh
-      - name: Remove any owned auth oracle container
-        if: always()
-        run: |
-          docker ps -aq --filter "label=org.setjoin.task=gofree-record-auth" --filter "name=gofree-rec-${GITHUB_RUN_ID}-" | xargs -r docker rm -f >/dev/null
       - name: Collect new goldens and diff
         if: always()
         run: |
@@ -102,20 +107,38 @@ jobs:
           out=lane-artifacts/recorded
           mkdir -p "$out"
           git status --porcelain > lane-artifacts/git-status.txt
-          git add -N server-rust/tests 2>/dev/null || true
+          # manifests first: `git add -N` would turn the new files into tracked ones
+          git ls-files --others --exclude-standard server-rust > lane-artifacts/new-files.txt
+          { git diff --name-only --diff-filter=MD; git ls-files -d; } | sort -u > lane-artifacts/modified-tracked.txt
+          while IFS= read -r f; do mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"; done < lane-artifacts/new-files.txt
+          git add -N server-rust 2>/dev/null || true
           git diff > lane-artifacts/changes.diff || true
-          # new files are created exclusively; a modified tracked file is a harness bug: report it
-          git diff --name-only --diff-filter=M > lane-artifacts/modified-tracked.txt
-          git ls-files --others --exclude-standard server-rust | while IFS= read -r f; do mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"; done
           {
             echo "### gofree record: ${GOFREE_REC_PACKAGE} --test ${GOFREE_REC_TEST} ${GOFREE_REC_FILTER}"
-            echo "- frozen Go source \`${GOFREE_GO_SOURCE}\`"
-            echo "- new files: $(git ls-files --others --exclude-standard server-rust | wc -l), modified tracked files: $(wc -l < lane-artifacts/modified-tracked.txt)"
+            echo "- go_upstream \`${GOFREE_REC_UPSTREAM}\`, frozen Go source \`${GOFREE_GO_SOURCE:-unknown}\`"
+            echo "- new files: $(wc -l < lane-artifacts/new-files.txt), modified or deleted tracked files: $(wc -l < lane-artifacts/modified-tracked.txt)"
             echo '```'; head -60 lane-artifacts/git-status.txt; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Clean owned containers and Postgres
+        if: always()
+        run: |
+          set -u
+          ns="gofree-rec-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ids="$(docker ps -aq --filter "name=$ns" --filter "name=${LANE_PG_CONTAINER:-setjoin-lane-pg-none}")"
+          [ -z "$ids" ] || echo "$ids" | xargs docker rm -f >/dev/null || echo "::warning::container removal failed"
+          left="$(docker ps -aq --filter "name=$ns" --filter "name=${LANE_PG_CONTAINER:-setjoin-lane-pg-none}")"
+          [ -z "$left" ] || { echo "::error::owned containers remain after cleanup"; exit 1; }
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: gofree-record
           path: lane-artifacts/
           retention-days: 14
+      - name: Refuse changes to tracked files
+        if: always()
+        run: |
+          if [ -s lane-artifacts/modified-tracked.txt ]; then
+            echo "::error::recording modified or deleted committed files (only new goldens are allowed):"
+            cat lane-artifacts/modified-tracked.txt
+            exit 1
+          fi

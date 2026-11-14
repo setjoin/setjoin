@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 : "${LANE_PG_PORT:?}" "${PGPASSWORD:?}" "${LANE_ARTIFACT_DIR:?}"
 [[ "$GOFREE_REC_PACKAGE$GOFREE_REC_TEST" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "bad package or test name" >&2; exit 2; }
 [[ "$GOFREE_GO_SOURCE" =~ ^[0-9a-f]{40}$ ]] || { echo "GOFREE_GO_SOURCE must be a 40-hex commit" >&2; exit 2; }
-[[ -z "${GOFREE_REC_FILTER:-}" || "$GOFREE_REC_FILTER" =~ ^[A-Za-z0-9_:.-]+$ ]] || { echo "bad case_filter" >&2; exit 2; }
+[[ -z "${GOFREE_REC_FILTER:-}" || "$GOFREE_REC_FILTER" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]*$ ]] || { echo "bad case_filter" >&2; exit 2; }
 HOST=127.0.0.1 PORT="$LANE_PG_PORT" DB="gofree_e2e_record_$(openssl rand -hex 6)" ART="$LANE_ARTIFACT_DIR"
 dsn() { printf 'postgres://%s:%s@%s:%s/%s' "$1" "$2" "$HOST" "$PORT" "$DB"; }
 enc() { python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$1"; }
@@ -31,7 +31,7 @@ trap cleanup EXIT
 # Extra record variables (family-specific selectors such as GOFREE_RECORD_DRAIN=all), allowlisted.
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue
-  [[ "$line" =~ ^GOFREE_(RECORD|ORACLE|VERIFY)_[A-Z0-9_]+=[A-Za-z0-9_.,:/-]*$ && "$line" != GOFREE_RECORD_GO_BINARY=* ]] \
+  [[ "$line" =~ ^GOFREE_(RECORD|ORACLE|VERIFY)_[A-Z0-9_]+=[A-Za-z0-9_.,:/-]*$ && "$line" != GOFREE_RECORD_GO_BINARY=* && "$line" != GOFREE_RECORD_UPSTREAM=* ]] \
     || { echo "extra_env line rejected: $line" >&2; exit 2; }
   export "$line"
 done <<<"${GOFREE_REC_EXTRA:-}"
@@ -40,13 +40,16 @@ echo "== schema into $DB"
 DB_HOST="$HOST" DB_PORT="$PORT" DB_USER=postgres DB_NAME="$DB" bash scripts/load-test-schema.sh >"$ART/schema.log" 2>&1 \
   || { tail -40 "$ART/schema.log"; exit 1; }
 APP_PW="$(openssl rand -hex 16)"
-psql -h "$HOST" -p "$PORT" -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 -c "ALTER ROLE setjoin_app LOGIN PASSWORD '$APP_PW'" || exit 1
+echo "::add-mask::$APP_PW"
+# the secret travels on stdin, never in argv
+printf "ALTER ROLE setjoin_app LOGIN PASSWORD '%s'\n" "$APP_PW" | psql -h "$HOST" -p "$PORT" -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 || exit 1
 SUPER="$(enc "$PGPASSWORD")"
 export TEST_DB_DSN="$(dsn postgres "$SUPER")" REQUIRE_DB=1
 export DB_DSN="$TEST_DB_DSN" DB_DIRECT_DSN="$TEST_DB_DSN" DB_APP_DSN="$(dsn setjoin_app "$APP_PW")"
 
 # Owned-resource bookkeeping the harness appends to; the workflow prints it in the summary.
-export GOFREE_RESOURCE_PREFIX="gofree-rec-${GITHUB_RUN_ID:-local}"
+export GOFREE_RESOURCE_PREFIX="gofree-rec-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}"
+export GOFREE_ORACLE_CONTAINER_PREFIX="$GOFREE_RESOURCE_PREFIX"
 export GOFREE_RESOURCE_LEDGER="$ART/resource-ledger.txt"
 : >"$GOFREE_RESOURCE_LEDGER"
 export GOFREE_GO_COVERAGE_DIR="$ART/go-cover"
@@ -62,10 +65,9 @@ f = json.load(open(sys.argv[1]))
 print(f["kid"], f["envelope"], json.dumps(f["jwks"]["keys"][0]).replace(" ", ""), f["secret"])
 PY
 )
-  psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -X -q -v ON_ERROR_STOP=1 \
-    -c "DELETE FROM signing_keys" \
-    -c "INSERT INTO signing_keys(kid,alg,public_jwk,private_key_enc,status) VALUES('$KID','ES256','$JWKS'::text::jsonb,decode('$ENV_HEX','hex'),'active')" || exit 1
-  AUTH_PORT=47335 AUTH_NAME="gofree-rec-${GITHUB_RUN_ID:-local}-auth-oracle-$(openssl rand -hex 4)"
+  printf "DELETE FROM signing_keys;\nINSERT INTO signing_keys(kid,alg,public_jwk,private_key_enc,status) VALUES('%s','ES256','%s'::text::jsonb,decode('%s','hex'),'active');\n" "$KID" "$JWKS" "$ENV_HEX" \
+    | psql -h "$HOST" -p "$PORT" -U postgres -d "$DB" -X -q -v ON_ERROR_STOP=1 || exit 1
+  AUTH_PORT=47335 AUTH_NAME="gofree-rec-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-auth-oracle-$(openssl rand -hex 4)"
   ENVF="$(mktemp)"; chmod 600 "$ENVF"
   {
     echo "DB_DSN=$DB_APP_DSN"; echo "DB_WORKER_DSN=$TEST_DB_DSN"; echo "DB_OWNER_DSN=$TEST_DB_DSN"; echo "DB_DIRECT_DSN=$TEST_DB_DSN"
@@ -94,4 +96,8 @@ args=(--test-threads=1 --skip mutant --skip fault)
 [[ -n "${GOFREE_REC_FILTER:-}" ]] && args=("$GOFREE_REC_FILTER" "${args[@]}")
 echo "== record $GOFREE_REC_PACKAGE --test $GOFREE_REC_TEST ${GOFREE_REC_FILTER:-<all cases>}"
 (cd server-rust && cargo test --locked -p "$GOFREE_REC_PACKAGE" --test "$GOFREE_REC_TEST" -- "${args[@]}") 2>&1 | tee "$ART/record.log"
-exit "${PIPESTATUS[0]}"
+cargo_rc="${PIPESTATUS[0]}" tee_rc="${PIPESTATUS[1]}"
+[[ "$cargo_rc" == 0 ]] || { echo "cargo test failed ($cargo_rc)" >&2; exit "$cargo_rc"; }
+[[ "$tee_rc" == 0 ]] || { echo "tee failed ($tee_rc)" >&2; exit "$tee_rc"; }
+# evidence that at least one test actually executed (an over-narrow filter runs 0 and would pass silently)
+grep -Eq 'test result: ok\. [1-9][0-9]* passed' "$ART/record.log" || { echo "no test executed: check package, test and case_filter" >&2; exit 1; }
