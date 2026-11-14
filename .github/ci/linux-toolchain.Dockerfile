@@ -55,7 +55,7 @@ ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ARG RUST_MIN_VERSION=1.99.0
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rustup component add llvm-tools
+RUN rustup component add llvm-tools rustfmt clippy
 RUN have="$(rustc --version | awk '{print $2}')" \
   && if [ "$(printf '%s\n%s\n' "$RUST_MIN_VERSION" "$have" | sort -V | head -1)" != "$RUST_MIN_VERSION" ]; then \
        echo "rustc $have is older than the server-rust floor $RUST_MIN_VERSION" >&2; exit 1; \
