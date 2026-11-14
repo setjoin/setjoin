@@ -786,31 +786,41 @@ async fn observe_on(
         absent.push(value);
     }
 
-    // WS cross-check: the same call over the socket must answer identically.
+    // WS cross-check: the same call over the socket must answer identically
+    // and, observed on its own, must leave the same effects as HTTP did.
+    let mut ws_replay = None;
     if case.transport == Transport::Http && before == after && notify.is_empty() {
         let sent: Value = serde_json::from_str(&request)?;
         let frame = json!({"@type": "Request", "id": "ws-replay",
             "using": sent["using"], "methodCalls": sent["methodCalls"]})
         .to_string();
+        let ws_before = effects(owner, fx, case, &prior, &vars).await?;
+        let ws_marks = audit_marks(owner).await?;
+        let mut ws_listeners: Vec<(String, Listener)> = Vec::new();
+        for template in case.notify {
+            let channel = render(template, fx, &prior, &vars)?;
+            let listener = db.listen(&channel).await?;
+            ws_listeners.push((channel, listener));
+        }
         let mut ws = Some(ws_open(address, &token).await?);
         let (_, _, text) = exchange(Transport::Ws, address, &token, &mut ws, &frame).await?;
         if let Some(mut ws) = ws.take() {
             let _ = ws.close(None).await;
         }
-        let pick = |raw: &str| -> Result<Value, BoxError> {
-            let mut value: Value = serde_json::from_str(raw)?;
-            mask(&mut value, case.scrub);
-            let mut call = value["methodResponses"][0].clone();
-            if let Some(items) = call.as_array_mut() {
-                items.truncate(2);
+        let ws_after = effects(owner, fx, case, &prior, &vars).await?;
+        let ws_audit = audit_rows(owner, fx, ws_marks).await?;
+        let mut ws_notify = Vec::new();
+        for (channel, listener) in &mut ws_listeners {
+            for payload in listener.drain(owner).await? {
+                ws_notify.push(format!("{channel} {payload}"));
             }
-            Ok(call)
-        };
-        if pick(&first.2)? != pick(&text)? {
+        }
+        if !ws_answers_match(&first.2, &text, case.scrub)? {
             return Err(
                 format!("{}: WebSocket answer differs from HTTP: {text}", case.name).into(),
             );
         }
+        ws_replay = Some((ws_before, ws_after, ws_audit, ws_notify));
     }
     if !recording {
         let (_, _, metrics) = http(address, "GET", "/_gateway/metrics", None, "").await?;
@@ -855,6 +865,23 @@ async fn observe_on(
         replacements.push((value.clone(), format!("var.{name}")));
     }
     let scrub = Scrubber { replacements, ids };
+
+    if let Some((ws_before, ws_after, ws_audit, ws_notify)) = &ws_replay {
+        let scrubbed = |rows: &[String]| rows.iter().map(|r| scrub.apply(r)).collect::<Vec<_>>();
+        ws_replay_effects(
+            case.name,
+            ws_before,
+            ws_after,
+            &scrubbed(&audit),
+            &scrubbed(ws_audit),
+            &scrubbed(ws_notify),
+        )
+        .map_err(|diff| format!("{DIFF_PREFIX}{diff}"))?;
+    }
+    if denial {
+        raw_effects_unchanged(case.name, &before, &after)
+            .map_err(|diff| format!("{DIFF_PREFIX}{diff}"))?;
+    }
 
     let response = |r: &(u16, Value, String)| json!({"status": r.0, "headers": r.1, "body": scrub.apply(&r.2)});
     let mut effect_map = serde_json::Map::new();
@@ -922,6 +949,10 @@ async fn observe_on(
     if expected["kind"] != case.kind {
         return Err(format!("{}: golden kind differs from the case kind", case.name).into());
     }
+    if golden_says_no_effects(&expected["observation"]) {
+        raw_effects_unchanged(case.name, &before, &after)
+            .map_err(|diff| format!("{DIFF_PREFIX}{diff}"))?;
+    }
     golden::compare_reviewed(
         &route,
         case.name,
@@ -937,6 +968,131 @@ async fn observe_on(
     }
     println!("GOLDEN-REPLAY: {route} :: {}", case.name);
     Ok(())
+}
+
+/// Raw (unscrubbed) effect snapshots must be identical: scrubbing collapses
+/// timestamps and UUIDs, so a denial that rewrites one would otherwise pass.
+fn raw_effects_unchanged(
+    case: &str,
+    before: &[(String, String)],
+    after: &[(String, String)],
+) -> Result<(), String> {
+    if before == after {
+        return Ok(());
+    }
+    Err(format!(
+        "{case}: raw effects changed on a no-effect request: before {before:?} after {after:?}"
+    ))
+}
+
+/// True when the golden records no effect change, audit row or notification.
+fn golden_says_no_effects(observation: &Value) -> bool {
+    let empty = |key: &str| {
+        observation[key]
+            .as_array()
+            .map_or(true, |rows| rows.is_empty())
+    };
+    let unchanged = observation["effects"]
+        .as_object()
+        .is_some_and(|map| !map.is_empty() && map.values().all(|e| e["before"] == e["after"]));
+    unchanged && empty("audit") && empty("notify")
+}
+
+/// The WebSocket replay's own effects, audit rows and notifications must
+/// equal what the HTTP request produced (nothing, for a no-effect case).
+fn ws_replay_effects(
+    case: &str,
+    before: &[(String, String)],
+    after: &[(String, String)],
+    http_audit: &[String],
+    ws_audit: &[String],
+    ws_notify: &[String],
+) -> Result<(), String> {
+    raw_effects_unchanged(&format!("{case} (WebSocket)"), before, after)?;
+    if http_audit != ws_audit {
+        return Err(format!(
+            "{case}: WebSocket audit rows differ from HTTP: {ws_audit:?} vs {http_audit:?}"
+        ));
+    }
+    if !ws_notify.is_empty() {
+        return Err(format!(
+            "{case}: WebSocket sent notifications: {ws_notify:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// Every method response (name and arguments) must match across transports.
+fn ws_answers_match(http: &str, ws: &str, scrub: &[(&str, &str)]) -> Result<bool, BoxError> {
+    let pick = |raw: &str| -> Result<Vec<Value>, BoxError> {
+        let mut value: Value = serde_json::from_str(raw)?;
+        mask(&mut value, scrub);
+        let mut calls = value["methodResponses"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for call in &mut calls {
+            if let Some(items) = call.as_array_mut() {
+                items.truncate(2);
+            }
+        }
+        Ok(calls)
+    };
+    Ok(pick(http)? == pick(ws)?)
+}
+
+#[cfg(test)]
+mod harness_self_tests {
+    use super::*;
+
+    fn snap(value: &str) -> Vec<(String, String)> {
+        vec![("row".into(), value.into())]
+    }
+
+    #[test]
+    fn denial_timestamp_bump_mutant_is_rejected() {
+        let before = snap(r#"{"updated_at":"2026-01-01 00:00:00"}"#);
+        let after = snap(r#"{"updated_at":"2026-01-01 00:00:05"}"#);
+        // Scrubbed snapshots hide the bump; the raw check must not.
+        assert!(raw_effects_unchanged("c", &before, &after).is_err());
+        assert!(raw_effects_unchanged("c", &before, &before).is_ok());
+    }
+
+    #[test]
+    fn denial_uuid_swap_mutant_is_rejected() {
+        let before = snap("11111111-1111-1111-1111-111111111111");
+        let after = snap("22222222-2222-2222-2222-222222222222");
+        assert!(raw_effects_unchanged("c", &before, &after).is_err());
+    }
+
+    #[test]
+    fn websocket_write_mutant_is_rejected() {
+        let was = snap("n=1");
+        let wrote = snap("n=2");
+        assert!(ws_replay_effects("c", &was, &wrote, &[], &[], &[]).is_err());
+        let row = vec!["admin {}".to_owned()];
+        assert!(ws_replay_effects("c", &was, &was, &[], &row, &[]).is_err());
+        assert!(ws_replay_effects("c", &was, &was, &[], &[], &["ch x".into()]).is_err());
+        assert!(ws_replay_effects("c", &was, &was, &row, &row, &[]).is_ok());
+    }
+
+    #[test]
+    fn websocket_second_response_mutant_is_rejected() {
+        let http = r#"{"methodResponses":[["a",{},"0"],["b",{"x":1},"1"]]}"#;
+        let ws = r#"{"methodResponses":[["a",{},"0"],["b",{"x":2},"1"]]}"#;
+        assert!(!ws_answers_match(http, ws, &[]).unwrap());
+        assert!(ws_answers_match(http, http, &[]).unwrap());
+    }
+
+    #[test]
+    fn golden_no_effect_detection() {
+        let quiet =
+            json!({"effects": {"r": {"before": "a", "after": "a"}}, "audit": [], "notify": []});
+        let loud =
+            json!({"effects": {"r": {"before": "a", "after": "b"}}, "audit": [], "notify": []});
+        assert!(golden_says_no_effects(&quiet));
+        assert!(!golden_says_no_effects(&loud));
+    }
 }
 
 async fn cleanup(
