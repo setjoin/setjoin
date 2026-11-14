@@ -703,7 +703,9 @@ impl<K: KeySource + 'static> ContactsRoute<K> {
 }
 
 impl<K: KeySource + 'static> Intercept for ContactsRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         let path = r.uri().path();
         path.starts_with("/api/contacts/import/") || path.starts_with("/api/contacts/export/")
@@ -719,16 +721,17 @@ impl<K: KeySource + 'static> Intercept for ContactsRoute<K> {
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let this = self.clone_parts();
         Box::pin(async move {
-            let Some(auth) = setjoin_authz::authorize_request(
+            let verdict = crate::deny::admit(
                 &this.exec,
                 &this.keys,
                 &this.issuer,
-                r.headers(),
-                c.identity.proto,
+                &r,
+                crate::deny::Scope::Member,
             )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            .await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             // Go's RequireApp("contacts"): a refusal and its audit stay with Go.
             match setjoin_calendar::entitled_app(&this.exec, auth.context(), "contacts").await {

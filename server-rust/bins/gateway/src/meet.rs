@@ -262,7 +262,12 @@ fn kind_b(get: bool, post: bool, delete: bool, path: &str) -> Option<Kind> {
 }
 
 impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
-    fn requires_session(&self, r: &Request<Body>) -> bool { !matches!(kind(r.method(), r.uri().path()), Some(Kind::Webhook | Kind::PublicCreate | Kind::PublicPoll)) }
+    fn requires_session(&self, r: &Request<Body>) -> bool {
+        !matches!(
+            kind(r.method(), r.uri().path()),
+            Some(Kind::Webhook | Kind::PublicCreate | Kind::PublicPoll)
+        )
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         kind(r.method(), r.uri().path()).is_some()
     }
@@ -316,16 +321,11 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                 }
                 _ => {}
             }
-            let Some(auth) = setjoin_authz::authorize_user_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::User).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             if kind == Kind::AdminRecordings {
                 // Go mounts this under adminLimit and drive.view only: no
@@ -348,17 +348,29 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
             let decoded =
                 String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path())).into_owned();
             let path = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
-            let entitled=tokio::time::timeout(setjoin_authz::precheck_timeout(),
-                setjoin_meet::entitled(&exec,auth.context())).await;
-            if !matches!(entitled,Ok(Ok(true))) {
-                let actor=setjoin_contracts::ids::ActorId::new(auth.context().user_id()).expect("verified actor");
-                let ip=c.identity.client_ip.to_string();
-                let _=tokio::time::timeout(setjoin_authz::precheck_timeout(),
-                    exec.audit_app_blocked(actor,"meet",&ip)).await;
-                let detail="Access to this application is not permitted for your account.";
-                let mut response=problem(403,detail,&path,&c,id,&language);
-                crate::problem::set_body(&mut response,crate::problem::Problem::new(403,detail)
-                    .kind("https://setjoin.com/errors/forbidden").instance(&path).body());
+            let entitled = tokio::time::timeout(
+                setjoin_authz::precheck_timeout(),
+                setjoin_meet::entitled(&exec, auth.context()),
+            )
+            .await;
+            if !matches!(entitled, Ok(Ok(true))) {
+                let actor = setjoin_contracts::ids::ActorId::new(auth.context().user_id())
+                    .expect("verified actor");
+                let ip = c.identity.client_ip.to_string();
+                let _ = tokio::time::timeout(
+                    setjoin_authz::precheck_timeout(),
+                    exec.audit_app_blocked(actor, "meet", &ip),
+                )
+                .await;
+                let detail = "Access to this application is not permitted for your account.";
+                let mut response = problem(403, detail, &path, &c, id, &language);
+                crate::problem::set_body(
+                    &mut response,
+                    crate::problem::Problem::new(403, detail)
+                        .kind("https://setjoin.com/errors/forbidden")
+                        .instance(&path)
+                        .body(),
+                );
                 return response;
             }
             if !livekit.configured() {
@@ -645,7 +657,12 @@ fn void(
     }
 }
 
-pub(crate) fn unconfigured(path: &str, c: &RequestContext, id: String, language: &str) -> Response<Body> {
+pub(crate) fn unconfigured(
+    path: &str,
+    c: &RequestContext,
+    id: String,
+    language: &str,
+) -> Response<Body> {
     unconfigured_with(
         "meet is not configured (LIVEKIT_* missing)",
         path,
