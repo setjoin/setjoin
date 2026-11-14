@@ -323,9 +323,12 @@ pub(crate) fn claims_shape_ok(claims: &Map<String, Value>) -> Option<()> {
         }
     }
     for (name, fields) in [
-        ("device", &[("id",Kind::Str),("trust_tier",Kind::Str),("compliance_status",Kind::Str),("wipe_requested",Kind::Bool)][..]),
+        ("device", &[("id",Kind::Str),("platform",Kind::Str),("trust_tier",Kind::Str),("compliance_status",Kind::Str),("wipe_requested",Kind::Bool)][..]),
+        ("mam", &[("policy_version",Kind::Int),("copy_paste",Kind::Str),("screen_capture",Kind::Str),("encryption",Kind::Str),("watermark",Kind::Bool),("notification_profile",Kind::Str),("max_offline_days",Kind::Int)][..]),
         ("risk", &[("user_score",Kind::Int),("level",Kind::Str),("requires_mfa",Kind::Bool),("signals",Kind::StrList)][..]),
         ("cnf", &[("jkt",Kind::Str),("x5t#s256",Kind::Str)][..]),
+        ("identity_fence", &[("source_id",Kind::Int),("source_generation",Kind::Int),("link_id",Kind::Int),("link_generation",Kind::Int)][..]),
+        ("attachment", &[("sha256",Kind::Str),("account_id",Kind::Int),("mailbox_id",Kind::Int),("device_id",Kind::Int),("device_fingerprint",Kind::Str),("policy_generation",Kind::Str),("origin_jti",Kind::Str),("origin_iat",Kind::Int)][..]),
     ] {
         if let Some(object)=claims.get(name).and_then(Value::as_object) {
             for (key,value) in object {

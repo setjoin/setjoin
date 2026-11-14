@@ -582,6 +582,134 @@ async fn legacy_profiles_match_frozen_go() -> Result<(), BoxError> {
     result
 }
 
+/// #356a codex round 1: claim decoding that Go's `jwtutil.Claims` struct and
+/// jwt/v5 NumericDate decide. Fractional NumericDates are accepted (floored to
+/// whole seconds); a mistyped nested claim fails the whole token decode.
+fn claim_cases(user: i64) -> Vec<(&'static str, Via, String)> {
+    let secret = SECRET.as_bytes();
+    let now = now();
+    let with = |extra: Value| hs256(secret, KIDS[0], &claims(user, extra));
+    let mut out = vec![
+        (
+            "ws-fractional-exp",
+            Via::Ws,
+            with(json!({"exp":(now + 600) as f64 + 0.5})),
+        ),
+        (
+            "sse-fractional-exp",
+            Via::Sse,
+            with(json!({"exp":(now + 600) as f64 + 0.5})),
+        ),
+        (
+            "presence-fractional-exp",
+            Via::Presence,
+            with(json!({"exp":(now + 600) as f64 + 0.5})),
+        ),
+        (
+            "sse-fractional-exp-floors-to-expired",
+            Via::Sse,
+            with(json!({"exp":(now - 1) as f64 + 0.9})),
+        ),
+        (
+            "sse-fractional-iat",
+            Via::Sse,
+            with(json!({"iat":(now - 10) as f64 + 0.5})),
+        ),
+        (
+            "sse-fractional-nbf-past",
+            Via::Sse,
+            with(json!({"nbf":(now - 10) as f64 + 0.5})),
+        ),
+        (
+            "sse-fractional-nbf-future",
+            Via::Sse,
+            with(json!({"nbf":(now + 300) as f64 + 0.5})),
+        ),
+        (
+            "sse-exp-as-string",
+            Via::Sse,
+            with(json!({"exp":(now + 600).to_string()})),
+        ),
+    ];
+    for (name, via) in [
+        ("ws", Via::Ws),
+        ("sse", Via::Sse),
+        ("presence", Via::Presence),
+    ] {
+        let n: &'static str = match name {
+            "ws" => "ws-mam-policy-version-string",
+            "sse" => "sse-mam-policy-version-string",
+            _ => "presence-mam-policy-version-string",
+        };
+        out.push((n, via, with(json!({"mam":{"policy_version":"bad"}}))));
+    }
+    out.extend([
+        ("sse-mam-valid", Via::Sse, with(json!({"mam":{"policy_version":3,"copy_paste":"allow","watermark":true,"max_offline_days":7}}))),
+        ("sse-mam-max-offline-days-string", Via::Sse, with(json!({"mam":{"max_offline_days":"7"}}))),
+        ("sse-mam-watermark-string", Via::Sse, with(json!({"mam":{"watermark":"yes"}}))),
+        ("sse-mam-copy-paste-number", Via::Sse, with(json!({"mam":{"copy_paste":1}}))),
+        ("sse-mam-policy-version-fractional", Via::Sse, with(json!({"mam":{"policy_version":1.5}}))),
+        ("sse-device-platform-number", Via::Sse, with(json!({"device":{"platform":1}}))),
+        ("sse-identity-fence-source-id-string", Via::Sse, with(json!({"identity_fence":{"source_id":"1"}}))),
+        ("sse-attachment-account-id-string", Via::Sse, with(json!({"attachment":{"account_id":"1"}}))),
+        ("sse-attachment-sha256-number", Via::Sse, with(json!({"attachment":{"sha256":1}}))),
+        ("sse-risk-user-score-string", Via::Sse, with(json!({"risk":{"user_score":"9"}}))),
+    ]);
+    out
+}
+
+#[tokio::test]
+async fn legacy_claim_decoding_matches_frozen_go() -> Result<(), BoxError> {
+    let _serial = SERIAL.lock().await;
+    let Some(db) = Db::for_case("push-profiles-claims") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let account = fixture::account(&owner, "pushclaims").await?;
+    let saved_chat = chat_on(&owner).await?;
+    let result = async {
+        let key = SecretFile::sm2()?;
+        let pem = std::fs::read_to_string(&key.0)?;
+        let profile = "standard";
+        let s3 = common::fake_upstream(|_| async { Response::new(common::full("")) }).await;
+        let go_env = vec![("CRYPTO_ALGORITHM_PROFILE", profile.to_owned())];
+        let oracle =
+            common::go_oracle::start_named_with_env(&db, s3, "gofree-pushclaims", &go_env).await?;
+        let recording = oracle.is_some();
+        let routes = if recording {
+            RouteTable::proxy_all()
+        } else {
+            native_routes(&db, native_keys(profile, &pem)?)?
+        };
+        let served = serve(oracle.as_ref().map(|o| o.address), routes).await?;
+        let address = served.1;
+        let mut observed = serde_json::Map::new();
+        for (name, via, token) in claim_cases(account.user) {
+            let value = match via {
+                Via::Ws => websocket(address, &token).await?,
+                Via::Sse => eventsource(address, &token, account.mailbox).await?,
+                Via::Presence => presence(address, &token).await?,
+            };
+            observed.insert(name.to_owned(), value);
+        }
+        if !recording {
+            assert_zero_proxy(address).await?;
+        }
+        drop(served);
+        drop(oracle);
+        check("claims", recording, observed)
+    }
+    .await;
+    owner
+        .execute(
+            "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.chat'",
+            &[&saved_chat],
+        )
+        .await?;
+    fixture::remove(&owner, &account).await?;
+    result
+}
+
 async fn open_websocket(address: SocketAddr, token: &str) -> Result<Socket, BoxError> {
     let mut request = format!("ws://{address}/jmap/ws").into_client_request()?;
     request

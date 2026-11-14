@@ -68,6 +68,33 @@ async fn claim_separation_for_hs256_and_sm2() {
     let now = now();
     let mut missing_iat = base.clone();
     missing_iat.as_object_mut().unwrap().remove("iat");
+    for (name, c) in [
+        (
+            "fractional exp",
+            claims(json!({"exp":(now + 600) as f64 + 0.5})),
+        ),
+        (
+            "fractional iat",
+            claims(json!({"iat":(now - 10) as f64 + 0.5})),
+        ),
+        (
+            "fractional past nbf",
+            claims(json!({"nbf":(now - 10) as f64 + 0.5})),
+        ),
+        (
+            "valid mam",
+            claims(json!({"mam":{"policy_version":3,"watermark":true}})),
+        ),
+    ] {
+        assert!(
+            admitted(&sign_hs256(SECRET, &c.to_string()), "mailserver").await,
+            "HS256 {name}"
+        );
+        assert!(
+            admitted(&sign_sm2(&pem(), &c.to_string()).unwrap(), "mailserver").await,
+            "SM2 {name}"
+        );
+    }
     let refused = [
         ("wrong audience", claims(json!({"aud":["other-audience"]}))),
         ("wrong issuer", claims(json!({"iss":"other-issuer"}))),
@@ -79,14 +106,31 @@ async fn claim_separation_for_hs256_and_sm2() {
         ("nbf in the future", claims(json!({"nbf":now+300}))),
         ("expired", claims(json!({"exp":now-1}))),
         ("drive scope", claims(json!({"scp":"drive"}))),
-        // F9: integer-only NumericDate for every algorithm (fail closed).
+        // Fractional NumericDate is accepted by Go; one that floors to expired is not.
         (
-            "fractional exp",
-            claims(json!({"exp":(now + 600) as f64 + 0.5})),
+            "fractional exp floors to expired",
+            claims(json!({"exp":(now - 1) as f64 + 0.9})),
         ),
         (
-            "fractional iat",
-            claims(json!({"iat":(now - 10) as f64 + 0.5})),
+            "fractional future nbf",
+            claims(json!({"nbf":(now + 300) as f64 + 0.5})),
+        ),
+        // Go fails the whole decode on a mistyped nested claim.
+        (
+            "mam policy_version string",
+            claims(json!({"mam":{"policy_version":"bad"}})),
+        ),
+        (
+            "mam max_offline_days string",
+            claims(json!({"mam":{"max_offline_days":"7"}})),
+        ),
+        (
+            "identity_fence source_id string",
+            claims(json!({"identity_fence":{"source_id":"1"}})),
+        ),
+        (
+            "attachment account_id string",
+            claims(json!({"attachment":{"account_id":"1"}})),
         ),
         ("string exp", claims(json!({"exp":(now + 600).to_string()}))),
     ];
