@@ -869,7 +869,7 @@ F17 CalDAV HTTP method transfer (#426): [Calendar contract](../../crates/domains
 Persisted TLS ticket keys are sealed in the `system_config` secret envelope (`ticket_keys::codec`
 from `identity.deployment_id` plus `IDENTITY_CONFIG_SECRET_KEY`/`DB_ENCRYPTION_KEY`); legacy
 plaintext rows are never trusted and are replaced at startup; without key material the keys
-stay in memory only and a legacy plaintext row is deleted (a sealed row is kept) (#503). The global CSRF gate runs before the over-budget branch (#491).
+stay in memory only and a legacy plaintext row is deleted (a sealed row is kept) (#503). The global CSRF gate runs before the over-budget branch (#491). Every over-budget request (core and route buckets) is answered with Go's 429; nothing defers to Go (#357). An /auth spelling no inventory row claims gets the root mux's answer (decoded-segment slash redirect to an F21 subtree row, else the catch-all) after CSRF, budgets and admission (#357, #378, src/unmatched.rs). Adapter-less local rows still fall back to Go until DELETE (#142).
 Failed live authority lookups fail closed in rules, `system.config` and the JMAP session (#484).
 Tests: `secfix3_csrf`, `secfix3_rules`, `ticket_worker`; divergences in `tests/golden/secfix3-divergences.json`.
 OIDC OP public namespace closure (#339): `oidc_namespace::Namespace` is installed

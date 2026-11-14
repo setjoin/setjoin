@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "divergences": [
+    {
+      "id": "D-357a-1",
+      "surface": "guest belt without a deployment verifier (lib.rs; routes.admission is None: the no-DB table and custom embeddings)",
+      "go": "guestgate verifies the token: a guest on a non-allowlisted path gets 404, members and invalid tokens continue to the route",
+      "rust": "503 problem 'service unavailable' for every Bearer or access_token request on a route-limited path that the local adapter does not prove is a member, including rows rolled back to Go",
+      "reason": "no verifier is installed, so Go's belt cannot be evaluated; fail closed instead of forwarding",
+      "owner_ruling": "coordinator, PLAN 357 v2 (2026-11-14)",
+      "tests": [
+        "unmatched_recorded::belt_bearer_and_cookie_fail_closed_without_go",
+        "unmatched_recorded::belt_go_mail_row_fails_closed_without_go",
+        "unmatched_recorded::belt_admitted_member_and_tokenless_requests_pass"
+      ]
+    }
+  ]
+}
