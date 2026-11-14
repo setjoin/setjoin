@@ -1,0 +1,94 @@
+[
+  {
+    "case": "forgot-begin-success-keeps-lockout",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable 349a plan review (D4 approved); owner policy",
+    "review": "security Go bug fixed in Rust",
+    "reason": "Go's postAuth treats forgot-password/begin's 200 decoy as a successful authentication and clears ip:/user:/ip_user: lockout keys, so four wrong passwords plus one begin call reset the counter indefinitely. Rust writes Go's success attempt row but never clears lockout keys for this response.",
+    "go_source": "shared/threat/interceptor.go:907-913; shared/threat/lockout.go Reset; authserver/cmd/authserverd/main.go:1134",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::go_off_begin_lockout_divergence",
+    "baseline": "goldens/off-begin-lockout-divergence.json"
+  },
+  {
+    "case": "threat-username-handler-decode",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable 349a plan review F1; owner policy",
+    "review": "security Go bug fixed in Rust",
+    "reason": "Go derives the lockout/spray username with a whole-body json.Unmarshal while handlers accept trailing data, so `{...} x` authenticated with an empty username: no lockout check, no escalation, spray blind. Rust uses each route handler's own first-value decode (login ingress::Login; forgot-password and guest-invite ingress::fields email).",
+    "go_source": "shared/threat/interceptor.go:496-510; authserver/internal/handlers/json_ingress.go:18-20,41",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_trailing_bytes_login_failure_escalates_all_three_keys, native_trailing_bytes_failures_trip_spray; src/http_threat.rs::tests::route_usernames_use_the_handler_decode"
+  },
+  {
+    "case": "lockout-ip-key-without-username",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable 349a plan review F1; owner policy",
+    "review": "security Go bug fixed in Rust (HTTP only)",
+    "reason": "Go skips the lockout step when the username is empty. HTTP admission checks the ip: key alone in that case, so a spray-armed ip: lock always applies.",
+    "go_source": "shared/threat/lockout.go:33-36",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_trailing_bytes_cannot_skip_a_locked_user_or_armed_ip; crates/threat gate::tests::http_without_username_still_checks_the_ip_lock"
+  },
+  {
+    "case": "refresh-username-verified-token",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable 349a plan review F2; owner policy",
+    "review": "security Go bug fixed in Rust",
+    "reason": "Go keys /auth/refresh on the body email field or the unverified JWT email, so {\"email\":victim,\"refresh_token\":<own valid token>} clears the victim's lockout and forged JWTs escalate any account. Rust keys only the email claim of a refresh token that verifies; otherwise only the ip: key is checked.",
+    "go_source": "shared/threat/interceptor.go:496-515",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_refresh_clears_only_the_verified_identity, go_off_refresh_jwt_email",
+    "baseline": "goldens/off-refresh-jwt-email.json"
+  },
+  {
+    "case": "captcha-token-bound-single-use",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "owner policy via coordinator 2026-11-14 (Fable 349a F4)",
+    "review": "security Go bug fixed in Rust",
+    "reason": "Go's captcha token is unbound and reusable for 120 s. Rust's MAC binds answer|exp|source IP|route|username (digits-only answer and exp). A verified token is claimed once per auth process, only after the pipeline allows the request, in a bounded in-memory used set (65 536 entries; full refuses). A restart empties the set, so a token accepted before a restart is accepted once more within its remaining 120 s (still bound to IP, route and username); with several auth processes a token is accepted once per process (production runs one).",
+    "go_source": "shared/threat/interceptor.go:985-1029",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_bound_captcha_token_admits_once_and_only_where_bound; src/captcha.rs::tests, native_rate_limited_request_consumes_no_used_set_slot"
+  },
+  {
+    "case": "failed-captcha-runs-pipeline",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "owner policy via coordinator 2026-11-14 (Fable 349a F4)",
+    "review": "security Go bug fixed in Rust",
+    "reason": "Go answers a failed token before the pipeline, so failed checks are never rate limited or tarpitted. Rust runs the pipeline first (tarpit, rate limit, lockout, spray; no captcha threshold); its refusal wins, otherwise 403 CAPTCHA verification failed. A failed single-use claim counts as a failed token. A verified, claimed token runs Go's skip step.",
+    "go_source": "shared/threat/interceptor.go:412-418",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_failed_captcha_checks_are_rate_limited, go_off_login_captcha_bogus, go_threat_login_captcha_wrong, go_threat_login_captcha_expired"
+  },
+  {
+    "case": "captcha-key-needs-jwt-secret",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable 349a plan review F7",
+    "review": "security hardening",
+    "reason": "Go derives the captcha key from JWT_SECRET even when empty (a public key). Rust derives only from a non-empty secret; otherwise the key is empty and every solve fails.",
+    "go_source": "authserver/internal/config/config.go:271-273",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_threat_config_derives_captcha_secret_like_go"
+  },
+  {
+    "case": "threat-admission-requires-gate",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable 349a plan review",
+    "review": "new native invariant",
+    "reason": "An AuthServer without a Gate answers 503 'threat admission unavailable' on every credential route instead of serving it unadmitted.",
+    "go_source": "authserver/cmd/authserverd/main.go:971-978,1134-1136",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_missing_gate_refuses_every_349a_route"
+  },
+  {
+    "case": "admission-fail-closed-reasons",
+    "issue": "#367",
+    "reviewed": true,
+    "reviewer": "Fable #367 plan review",
+    "review": "inherited from crates/threat/oracle/divergences.json",
+    "reason": "HTTP maps ip_rules_unavailable, lockout_unavailable, spray_unavailable, rate_limit_unavailable and captcha_unavailable to 403 'Access denied by security policy' with no attempt row and no handler; Go proceeds.",
+    "go_source": "shared/threat/interceptor.go:668,731-733; lockout.go:46-50; spray.go:31-37; ratelimit.go:25-29",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_request_pool_fault_fails_closed_end_to_end, native_worker_pool_fault_fails_closed_end_to_end"
+  }
+]
