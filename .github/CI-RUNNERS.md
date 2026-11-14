@@ -23,3 +23,9 @@ Every workflow runs on GitHub-hosted runners. `scripts/check-workflow-log-hygien
 Steps print tool versions only (`go version`, `node --version`), never environment or
 host dumps (`env`, `printenv`, `go env`, `set -x`, `docker info`, `uname -a`, `ip addr`).
 The same guard enforces this.
+
+## server-rust lane (GitHub-hosted)
+
+`.github/workflows/server-rust-lane.yml` runs only on GitHub-hosted `ubuntu-latest` runners (no
+self-hosted label); the rows above do not apply to it. Images come from `ghcr.io/setjoin` as pinned
+in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.

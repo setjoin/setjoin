@@ -3,9 +3,12 @@
 
 import argparse
 import concurrent.futures
+import contextlib
+import hashlib
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import threading
@@ -327,24 +330,106 @@ def preflight(root, suites, replays):
 _REPLAY_BUILT = set()
 
 
-def run_replay(root, cargo, replay, receipt):
-    args = [cargo, "test", "--locked", "--offline", "-p", replay["package"],
-            "--test", replay["target"], replay["test"], "--", "--exact", "--nocapture"]
+def per_replay_clones():
+    """True when every test launch gets its own cloned database: the lane's target runner
+    (CARGO_TARGET_<triple>_RUNNER = scripts/nextest-db-wrapper.sh) and its clone settings."""
+    runner = any(name.startswith("CARGO_TARGET_") and name.endswith("_RUNNER") and value
+                 for name, value in os.environ.items())
+    return runner and all(os.environ.get(name) for name in ("LANE_ADMIN_DSN", "LANE_TEMPLATE_DB", "LANE_BASE_DB"))
+
+
+def replay_jobs(jobs=None):
+    """Replays and mutants run side by side only on per-replay database clones (on one shared
+    database two would see each other's rows): `jobs`, else LANE_ADEQUACY_JOBS, else LANE_JOBS,
+    else 5 there. Without clones one at a time, and asking for more is an error."""
+    if jobs is None and os.environ.get("LANE_ADEQUACY_JOBS"):
+        jobs = int(os.environ["LANE_ADEQUACY_JOBS"])
+    if not per_replay_clones():
+        if jobs is not None and jobs > 1:
+            raise ValueError("parallel replays need per-replay database clones (CARGO_TARGET_<triple>_RUNNER and "
+                             "LANE_ADMIN_DSN/LANE_TEMPLATE_DB/LANE_BASE_DB); run with --replay-jobs 1 here")
+        return 1
+    return max(1, jobs if jobs is not None else int(os.environ.get("LANE_JOBS") or "5"))
+
+
+def replay_env():
     env = dict(os.environ, REQUIRE_DB="1")
     for name in ("GOFREE_RECORD_UPSTREAM", "GOFREE_RECORD_GO_BINARY", "GOFREE_RECORD_EFFECTS", "GOFREE_GO_SOURCE"):
         env.pop(name, None)
+    return env
+
+
+def replay_label(replay, receipt):
+    """'<entry> :: <package>::<target>::<test>': a failure names its route entry and selector."""
+    return f"{receipt_entry(receipt)} :: {replay['package']}::{replay['target']}::{replay['test']}"
+
+
+def parse_shard(text):
+    """'K/N' -> (K, N), 1 <= K <= N."""
+    match = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", text or "")
+    if not match or int(match.group(1)) > int(match.group(2)):
+        raise ValueError(f"--shard takes K/N with 1 <= K <= N; got {text!r}")
+    return int(match.group(1)), int(match.group(2))
+
+
+def shard_items(items, shard):
+    """Every N-th item from the K-th, in manifest order: serial groups and big binaries spread over
+    all shards (each shard is its own machine, so host state never collides across shards)."""
+    k, n = shard
+    return [item for index, item in enumerate(items) if index % n == k - 1]
+
+
+_PACKAGE_DIRS = {}
+
+
+def package_dir(root, package):
+    if root not in _PACKAGE_DIRS:
+        _PACKAGE_DIRS[root] = {name: directory for name, (directory, _) in workspace_packages(root).items()}
+    if package not in _PACKAGE_DIRS[root]:
+        raise ValueError(f"package {package} is not in the workspace")
+    return _PACKAGE_DIRS[root][package]
+
+
+def runner_prefix():
+    """The lane's per-test clone runner, applied the way `cargo test` applies it."""
+    for name, value in sorted(os.environ.items()):
+        if name.startswith("CARGO_TARGET_") and name.endswith("_RUNNER") and value:
+            return shlex.split(value)
+    return []
+
+
+def build_replay_target(root, cargo, target, env):
+    """Compiles one (package, target) once, outside LANE_REPLAY_TIMEOUT: a cold target dir must
+    not time out the first replay (the limit is for the run only)."""
+    if target in _REPLAY_BUILT:
+        return
+    built = subprocess.run([cargo, "test", "--locked", "--offline", "-p", target[0], "--test", target[1], "--no-run"],
+                           cwd=root / "server-rust", env=env, capture_output=True, text=True, check=False)
+    if built.returncode:
+        raise ValueError(f"replay target {target[0]}::{target[1]} build failed:\n{(built.stdout + built.stderr)[-4000:]}")
+    _REPLAY_BUILT.add(target)
+
+
+def run_replay(root, cargo, replay, receipt, prebuilt=None):
+    env = replay_env()
     name = f"{replay['package']}::{replay['target']}::{replay['test']}"
     timeout = int(os.environ.get("LANE_REPLAY_TIMEOUT", "900"))
-    # Compile each distinct test target once, outside the timeout: a cold target dir must not
-    # time out the first replay (the limit is for the run only).
-    target = (replay["package"], replay["target"])
-    if target not in _REPLAY_BUILT:
-        built = subprocess.run([cargo, "test", "--locked", "--offline", "-p", target[0], "--test", target[1], "--no-run"],
-                               cwd=root / "server-rust", env=env, capture_output=True, text=True, check=False)
-        if built.returncode:
-            raise ValueError(f"replay {name} build failed:\n{(built.stdout + built.stderr)[-4000:]}")
-        _REPLAY_BUILT.add(target)
-    proc = subprocess.Popen(args, cwd=root / "server-rust", env=env, stdout=subprocess.PIPE,
+    if prebuilt is None:
+        args = [cargo, "test", "--locked", "--offline", "-p", replay["package"],
+                "--test", replay["target"], replay["test"], "--", "--exact", "--nocapture"]
+        cwd = root / "server-rust"
+        # execute_replays builds every target first; a direct call builds here (outside the timeout).
+        build_replay_target(root, cargo, (replay["package"], replay["target"]), env)
+    else:
+        # a prebuilt binary (hosted CI's nextest archive) launched like `cargo test` launches it:
+        # through the clone runner, from the package directory, with the manifest variables set
+        executable = prebuilt.get(f"{replay['package']}::{replay['target']}")
+        if not executable:
+            raise ValueError(f"replay {name}: no prebuilt test binary for {replay['package']}::{replay['target']} (--binaries)")
+        cwd = package_dir(root, replay["package"])
+        env.update(CARGO_MANIFEST_DIR=str(cwd), CARGO_PKG_NAME=replay["package"])
+        args = [*runner_prefix(), executable, replay["test"], "--exact", "--nocapture"]
+    proc = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, start_new_session=True)
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
@@ -366,23 +451,77 @@ def run_replay(root, cargo, replay, receipt):
     receipt_pattern = r"^(?:test [^\n]* \.\.\. )?" + re.escape(receipt) + r"$"
     if not re.search(receipt_pattern, output, re.MULTILINE):
         raise ValueError(f"replay or mutant {replay} did not emit receipt {receipt}")
-    print(f"replay PASS {name}", flush=True)
 
 
-def execute_replays(root, cargo, replays, failures=None):
-    """Runs every replay and mutant singly. By default the first failure raises; with a
-    `failures` list (--keep-going) each failure is recorded and the run goes on."""
-    for replay, receipt in replays:
+def execute_replays(root, cargo, replays, failures=None, jobs=None, prebuilt=None):
+    """Runs every replay and mutant, `jobs` at a time (replay_jobs), each in its own process on its
+    own cloned database. Each distinct test target is built once first. Replays whose binaries
+    share a nextest serial group (fixed ports, docker names, /tmp files: load_serial_groups) never
+    overlap; the larger groups start first. PASS/FAIL lines print as replays finish; the summary
+    and the recorded failures are in manifest order, named by route entry and selector. By
+    default the first failure raises; with a `failures` list (--keep-going) every failure is
+    recorded and the run goes on. With `prebuilt` ({package::target: executable}, hosted CI's
+    nextest archive) nothing is built and the binaries are launched directly."""
+    jobs = replay_jobs(jobs)
+    env = replay_env()
+    targets = []
+    for replay, _ in replays:
+        target = (replay["package"], replay["target"])
+        if target not in targets:
+            targets.append(target)
+    build_errors = {}
+    started = time.monotonic()
+    for number, target in enumerate(targets, 1):
+        if prebuilt is not None:
+            break
         try:
-            run_replay(root, cargo, replay, receipt)
+            build_replay_target(root, cargo, target, env)
         except ValueError as error:
-            if failures is None:
-                raise
-            failures.append(("replay/mutant", f"{replay['package']}::{replay['target']}::{replay['test']}", str(error)))
-            print(f"replay FAIL {replay['package']}::{replay['target']}::{replay['test']}", flush=True)
+            build_errors[target] = str(error)
+        print(f"replay build {number}/{len(targets)} {target[0]}::{target[1]} "
+              f"({time.monotonic() - started:.0f}s)", flush=True)
+    serial = load_serial_groups(root) if jobs > 1 and replays else {}
+    items = []
+    for index, (replay, _) in enumerate(replays):
+        binary = f"{replay['package']}::{replay['target']}"
+        items.append((index, frozenset({serial[binary]}) if binary in serial else frozenset()))
+    size = {}
+    for _, groups in items:
+        for group in groups:
+            size[group] = size.get(group, 0) + 1
+    # a serial group is a chain of one-at-a-time replays: start the longest chains first
+    items.sort(key=lambda item: -max((size[group] for group in item[1]), default=0))
+    if jobs > 1:
+        print(f"replay schedule: {len(replays)} replays and mutants, {jobs} at a time, "
+              f"{sum(1 for _, groups in items if groups)} in {len(size)} serial groups (one at a time per group)", flush=True)
+
+    def one(index):
+        replay, receipt = replays[index]
+        try:
+            if (replay["package"], replay["target"]) in build_errors:
+                raise ValueError(build_errors[(replay["package"], replay["target"])])
+            run_replay(root, cargo, replay, receipt, prebuilt)
+            return index, None
+        except ValueError as error:
+            return index, str(error)
+
+    errors = {}
+    for index, error in run_grouped(items, jobs, one):
+        label = replay_label(*replays[index])
+        print(f"replay {'PASS' if error is None else 'FAIL'} {label}", flush=True)
+        if error is None:
+            continue
+        if failures is None:
+            raise ValueError(f"{label}: {error}")
+        errors[index] = error
+    print(f"replay summary: {len(replays) - len(errors)} passed, {len(errors)} failed", flush=True)
+    for index in sorted(errors):
+        label = replay_label(*replays[index])
+        print(f"replay summary FAIL {label}", flush=True)
+        failures.append(("replay/mutant", label, errors[index]))
 
 
-def measure_coverage(root, cargo, suites, failures=None, jobs=None):
+def measure_coverage(root, cargo, suites, failures=None, jobs=None, prebuilt=None):
     """Builds each distinct test binary once, then measures the entries `jobs` at a time.
 
     The replays of one route may sit in several test binaries; every entry gets all of them
@@ -390,8 +529,8 @@ def measure_coverage(root, cargo, suites, failures=None, jobs=None):
     replay runs in its own cloned database, so running entries side by side changes no result.
     Progress lines every LANE_COVERAGE_HEARTBEAT seconds (default 300) separate a slow run from
     a hung one; one replay is limited by LANE_COVERAGE_REPLAY_TIMEOUT (default 900 s).
-    The singly-run replays and mutants (run_replay) build their test target first, then run under
-    LANE_REPLAY_TIMEOUT (default 900 s, run time only); a hang is killed and reported by name."""
+    The replays and mutants (execute_replays) build each test target first, then run side by side
+    under LANE_REPLAY_TIMEOUT (default 900 s, run time only); a hang is killed and reported by name."""
     env = dict(os.environ, REQUIRE_DB="1")
     env["RUSTFLAGS"] = (env.get("RUSTFLAGS", "") + " -C instrument-coverage").strip()
     for name in ("GOFREE_RECORD_UPSTREAM", "GOFREE_RECORD_GO_BINARY", "GOFREE_RECORD_EFFECTS", "GOFREE_GO_SOURCE"):
@@ -412,7 +551,7 @@ def measure_coverage(root, cargo, suites, failures=None, jobs=None):
     # profiles are not replay coverage and must never land in the worktree.
     with tempfile.TemporaryDirectory(prefix="gofree-oracle-build-") as directory:
         env["LLVM_PROFILE_FILE"] = str(Path(directory) / "%p-%m.profraw")
-        return measure_suites(root, cargo, suites, env, failures, jobs)
+        return measure_suites(root, cargo, suites, env, failures, jobs, prebuilt)
 
 
 def suite_targets(suite):
@@ -509,7 +648,7 @@ def run_grouped(items, jobs, work):
                 yield future.result()
 
 
-def measure_suites(root, cargo, suites, env, failures=None, jobs=1):
+def measure_suites(root, cargo, suites, env, failures=None, jobs=1, prebuilt=None):
     wanted = []
     for _, suite in suites:
         for target in suite_targets(suite):
@@ -520,7 +659,12 @@ def measure_suites(root, cargo, suites, env, failures=None, jobs=1):
     started = time.monotonic()
     for number, target in enumerate(wanted, 1):
         try:
-            binaries[target] = build_binary(root, cargo, target, env)
+            if prebuilt is None:
+                binaries[target] = build_binary(root, cargo, target, env)
+            elif f"{target[0]}::{target[1]}" in prebuilt:
+                binaries[target] = prebuilt[f"{target[0]}::{target[1]}"]
+            else:
+                raise ValueError(f"coverage binary {target[0]}::{target[1]} missing from --binaries")
         except ValueError as error:
             build_errors[target] = str(error)
         print(f"coverage build {number}/{len(wanted)} {target[0]}::{target[1]} "
@@ -702,6 +846,15 @@ def report_failures(failures):
 STAGES = ("replays", "coverage")
 
 
+def manifest_identity(replays, suites):
+    """Every replay/mutant label and coverage entry name of the whole manifest (before sharding)
+    and the sha256 of that list: what a shard receipt is bound to."""
+    labels = [replay_label(*item) for item in replays]
+    names = [name for name, _ in suites]
+    digest = hashlib.sha256(json.dumps([labels, names]).encode()).hexdigest()
+    return {"replays": labels, "coverage": names, "hash": digest}
+
+
 def receipt_entry(receipt):
     """The route entry a replay or mutant receipt belongs to: 'GOLDEN-REPLAY: GET /x :: case'
     and 'MUTANT-REJECTED: GET /x :: name' name it; platform-listener receipts name no entry."""
@@ -719,12 +872,29 @@ def main():
     parser.add_argument("--coverage-output", type=Path)
     parser.add_argument("--coverage-jobs", type=int, default=None,
                         help="entries measured side by side (default: LANE_COVERAGE_JOBS or the CPU count)")
+    parser.add_argument("--replay-jobs", type=int, default=None,
+                        help="replays and mutants run side by side (default: LANE_ADEQUACY_JOBS, else LANE_JOBS, "
+                             "else 5 with per-replay database clones; 1 without them)")
+    parser.add_argument("--shard", metavar="K/N",
+                        help="hosted CI: only every N-th replay/mutant and coverage entry from the K-th (manifest "
+                             "order); with --shard, --execute and --coverage may each run alone")
+    parser.add_argument("--binaries", type=Path,
+                        help="JSON {package::target: prebuilt test executable} (nextest archive): replays and "
+                             "coverage launch these instead of building with cargo")
+    parser.add_argument("--print-coverage-targets", action="store_true",
+                        help="print the `-p PACKAGE --test TARGET` arguments that build every coverage binary, then exit")
     parser.add_argument("--only", metavar="STAGES",
                         help="subset run, never a lane result: comma list of stages to run, from "
                              f"{', '.join(STAGES)} (replays = replays and mutants); the full gate is the default")
     parser.add_argument("--entries", metavar="ROUTES",
                         help="with --only: comma list of route entries to restrict the stages to, e.g. "
                              "'GET /health,POST /auth/login' (a replay belongs to the entry its receipt names)")
+    parser.add_argument("--print-manifest", action="store_true",
+                        help="print the manifest identity (JSON: every replay label, every coverage entry, "
+                             "their sha256) and exit; merge-lane-shards.py compares shard receipts to it")
+    parser.add_argument("--receipt", type=Path,
+                        help="write a JSON receipt naming every replay/mutant and coverage entry this run "
+                             "completed, bound to the manifest hash and the --shard selector")
     parser.add_argument("--preflight-only", action="store_true",
                         help="run only the static manifest checks and exit")
     parser.add_argument("--skip-preflight", action="store_true",
@@ -746,14 +916,25 @@ def main():
         args.execute, args.coverage = "replays" in stages, "coverage" in stages
     elif args.entries is not None:
         parser.error("--entries needs --only")
-    elif args.coverage and not args.execute:
+    elif args.coverage and not args.execute and args.shard is None:
         parser.error("--coverage requires --execute")
     entries = None
     if args.entries is not None:
         entries = {name.strip() for name in args.entries.split(",") if name.strip()}
         if not entries:
             parser.error("--entries names no route entry")
-    replays, suites = check(args.root, json.loads(inventory.read_text()), json.loads(catalog.read_text()))
+    if args.print_coverage_targets:
+        with contextlib.redirect_stdout(sys.stderr):  # check() prints not-applicable receipts
+            _, suites = check(args.root, json.loads(inventory.read_text()), json.loads(catalog.read_text()))
+        targets = sorted({target for _, suite in suites for target in suite_targets(suite)})
+        print(" ".join([f"-p {p}" for p in sorted({p for p, _ in targets})] + [f"--test {t}" for t in sorted({t for _, t in targets})]))
+        return
+    with contextlib.redirect_stdout(sys.stderr if args.print_manifest else sys.stdout):
+        replays, suites = check(args.root, json.loads(inventory.read_text()), json.loads(catalog.read_text()))
+    manifest = manifest_identity(replays, suites)
+    if args.print_manifest:
+        print(json.dumps(manifest))
+        return
     if not args.skip_preflight:
         errors = preflight(args.root, suites, replays)
         if errors:
@@ -775,17 +956,31 @@ def main():
               f"{len(suites)} coverage entries) — not a lane result", flush=True)
     elif args.only is not None:
         print(f"gofree-oracle-adequacy: SUBSET RUN (stages {args.only}) — not a lane result", flush=True)
+    if args.shard is not None:
+        shard = parse_shard(args.shard)
+        replays, suites = shard_items(replays, shard), shard_items(suites, shard)
+        print(f"gofree-oracle-adequacy: SHARD {args.shard} ({len(replays)} replays, {len(suites)} coverage entries)", flush=True)
+    prebuilt = json.loads(args.binaries.read_text()) if args.binaries else None
     failures = [] if args.keep_going else None
+    ran_replays, ran_coverage = None, None
     if args.execute:
         started = time.monotonic()
-        execute_replays(args.root, args.cargo, replays, failures)
+        execute_replays(args.root, args.cargo, replays, failures, args.replay_jobs, prebuilt)
         print(f"gofree-oracle-adequacy: replays and mutants took {time.monotonic() - started:.0f}s", flush=True)
+        failed_labels = {label for kind, label, _ in failures or [] if kind == "replay/mutant"}
+        ran_replays = [replay_label(*item) for item in replays if replay_label(*item) not in failed_labels]
     if args.coverage:
         started = time.monotonic()
-        reports = measure_coverage(args.root, args.cargo, suites, failures, args.coverage_jobs)
+        reports = measure_coverage(args.root, args.cargo, suites, failures, args.coverage_jobs, prebuilt)
+        print(f"coverage summary: {len(reports)} entries measured", flush=True)
         print(f"gofree-oracle-adequacy: coverage took {time.monotonic() - started:.0f}s", flush=True)
+        failed_names = {label for kind, label, _ in failures or [] if kind == "coverage"}
+        ran_coverage = [name for name, _ in suites if name not in failed_names]
         if args.coverage_output:
             args.coverage_output.write_text(json.dumps(reports, indent=2) + "\n")
+    if args.receipt:
+        args.receipt.write_text(json.dumps({"shard": args.shard, "manifest_hash": manifest["hash"],
+                                            "replays": ran_replays or [], "coverage": ran_coverage or []}, indent=1) + "\n")
     if failures:
         report_failures(failures)
         sys.exit(1)

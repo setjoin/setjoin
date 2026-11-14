@@ -856,10 +856,82 @@ echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
             replays = [({"package": "p", "target": "t", "test": name}, "GOLDEN-REPLAY: r :: c")
                        for name in ("good-1", "bad-1", "good-2", "bad-2")]
             failures = []
-            module.execute_replays(root, str(cargo), replays, failures)
-            self.assertEqual([name for _, name, _ in failures], ["p::t::bad-1", "p::t::bad-2"])
+            module.execute_replays(root, str(cargo), replays, failures, jobs=1)
+            self.assertEqual([name for _, name, _ in failures], ["r :: p::t::bad-1", "r :: p::t::bad-2"])
             with self.assertRaises(ValueError):
-                module.execute_replays(root, str(cargo), replays)
+                module.execute_replays(root, str(cargo), replays, jobs=1)
+
+    def test_replays_run_side_by_side_but_never_two_of_one_serial_group(self):
+        """On per-replay clones replays run `jobs` at a time; replays whose binaries share a serial
+        group never overlap; each target builds once; failures name entry and selector in manifest
+        order whatever order they finish in."""
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("adequacy", GUARD)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory(prefix="gofree-parallel-replays-") as directory:
+            root = Path(directory)
+            (root / "server-rust").mkdir()
+            spans = root / "spans"
+            spans.mkdir()
+            cargo = root / "cargo"
+            # argv: test --locked --offline -p P --test T (--no-run | NAME -- --exact --nocapture)
+            cargo.write_text('''#!/bin/sh
+spans="$(dirname "$0")/spans"
+if [ "$8" = --no-run ]; then echo "$5::$7" >>"$spans/builds"; exit 0; fi
+start=$(date +%s%N)
+case "$8" in *slow*) sleep 0.6 ;; *) sleep 0.25 ;; esac
+echo "$start $(date +%s%N)" >"$spans/$8"
+case "$8" in bad-*) echo "test $8 ... FAILED"; exit 101 ;; esac
+echo "GOLDEN-REPLAY: GET /$7 :: c"
+echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+''')
+            cargo.chmod(0o755)
+            names = {"free": ["bad-slow-free", "free-1", "free-2", "bad-free"],
+                     "grouped": ["grouped-1", "grouped-2", "grouped-3"]}
+            replays = [({"package": "p", "target": target, "test": name}, f"GOLDEN-REPLAY: GET /{target} :: c")
+                       for target in ("free", "grouped") for name in names[target]]
+            clones = {"LANE_ADMIN_DSN": "postgres://lane/postgres", "LANE_TEMPLATE_DB": "tpl", "LANE_BASE_DB": "base",
+                      "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER": "bash wrapper.sh"}
+            failures = []
+            with mock.patch.dict(os.environ, clones), \
+                    mock.patch.object(module, "load_serial_groups", lambda root: {"p::grouped": "host-00"}):
+                module.execute_replays(root, str(cargo), replays, failures, jobs=3)
+
+            def span(name):
+                start, end = (int(value) for value in (spans / name).read_text().split())
+                return start, end
+
+            def overlap(a, b):
+                return a[0] < b[1] and b[0] < a[1]
+
+            grouped = [span(name) for name in names["grouped"]]
+            for i in range(len(grouped)):
+                for j in range(i + 1, len(grouped)):
+                    self.assertFalse(overlap(grouped[i], grouped[j]), (names["grouped"][i], names["grouped"][j]))
+            free = [span(name) for name in names["free"]]
+            everything = free + grouped
+            self.assertTrue(any(overlap(everything[i], everything[j])
+                                for i in range(len(free)) for j in range(len(everything)) if i != j))
+            self.assertEqual(sorted((spans / "builds").read_text().split()), ["p::free", "p::grouped"])
+            self.assertEqual([name for _, name, _ in failures],
+                             ["GET /free :: p::free::bad-slow-free", "GET /free :: p::free::bad-free"])
+
+    def test_parallel_replays_need_per_replay_clones(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("adequacy", GUARD)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        env = {name: value for name, value in os.environ.items()
+               if not (name.startswith("CARGO_TARGET_") and name.endswith("_RUNNER"))
+               and name not in ("LANE_ADMIN_DSN", "LANE_TEMPLATE_DB", "LANE_BASE_DB", "LANE_ADEQUACY_JOBS")}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(ValueError) as caught:
+                module.execute_replays(Path("/nonexistent"), "cargo", [], [], jobs=2)
+            self.assertIn("per-replay database clones", str(caught.exception))
+            self.assertEqual(module.replay_jobs(None), 1)
 
 
 class Preflight(unittest.TestCase):
@@ -935,6 +1007,8 @@ class Preflight(unittest.TestCase):
             self.assertNotIn("--skip-preflight", text, name)
         text = (ROOT / "scripts/check-server-rust.sh").read_text()
         self.assertIn("--preflight-only", text)
+        # coverage stays on unless the lane's full tier turns it off explicitly
+        self.assertIn('"${LANE_COVERAGE:-1}" == 0', text)
 
     def test_entry_names_come_from_receipts(self):
         module = self.module()
@@ -1018,6 +1092,77 @@ class CoverageScheduler(unittest.TestCase):
                            {"replay": {"package": "setjoin-auth", "target": "no_such_binary", "test": "t"}}]}
         self.assertEqual(module.entry_groups(suite, groups),
                          frozenset({groups["setjoin-auth::rp_oracle"], groups["setjoin-auth::csrf"]}))
+
+
+class HostedShards(unittest.TestCase):
+    """Hosted CI: replay and coverage shards, prebuilt binaries launched directly."""
+
+    @staticmethod
+    def module():
+        return Preflight.module()
+
+    def test_round_robin_slices_cover_the_input_once(self):
+        module = self.module()
+        self.assertEqual(module.shard_items(list(range(10)), (2, 3)), [1, 4, 7])
+        union = sorted(item for k in (1, 2, 3) for item in module.shard_items(list(range(10)), (k, 3)))
+        self.assertEqual(union, list(range(10)))
+        self.assertEqual(module.parse_shard("2/3"), (2, 3))
+        for bad in ("0/3", "4/3", "x", "", None):
+            with self.assertRaises(ValueError):
+                module.parse_shard(bad)
+
+    def test_a_prebuilt_binary_is_launched_directly_through_the_clone_runner(self):
+        from unittest import mock
+        module = self.module()
+        with tempfile.TemporaryDirectory(prefix="gofree-prebuilt-") as directory:
+            root = Path(directory)
+            Preflight.workspace(root)
+            fake = root / "fake-test-binary"
+            fake.write_text("""#!/bin/sh
+echo "argv: $*"
+echo "pwd: $PWD"
+echo "manifest: $CARGO_MANIFEST_DIR"
+echo "runner: ${LANE_RUNNER_SEEN:-no}"
+echo "GOLDEN-REPLAY: r :: c"
+echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out"
+""")
+            fake.chmod(0o755)
+            replay = {"package": "demo", "target": "recorded", "test": "t"}
+            captured = []
+            real_popen = subprocess.Popen
+
+            def spy(args, *a, **kw):
+                captured.append((args, kw.get("cwd")))
+                return real_popen(args, *a, **kw)
+
+            package = (root / "server-rust/crates/demo").resolve()
+            env = {"CARGO_TARGET_X_RUNNER": "env LANE_RUNNER_SEEN=1"}
+            with mock.patch.dict(os.environ, env), mock.patch.object(module.subprocess, "Popen", spy):
+                module.run_replay(root, "cargo-unused", replay, "GOLDEN-REPLAY: r :: c", {"demo::recorded": str(fake)})
+            args, cwd = captured[0]
+            self.assertEqual(args[-3:], ["t", "--exact", "--nocapture"])
+            self.assertEqual(args[:2], ["env", "LANE_RUNNER_SEEN=1"])
+            self.assertEqual(Path(cwd).resolve(), package)
+            with self.assertRaises(ValueError) as caught:
+                module.run_replay(root, "cargo-unused", replay, "GOLDEN-REPLAY: r :: c", {})
+            self.assertIn("demo::recorded", str(caught.exception))
+
+    def test_the_cli_accepts_a_coverage_only_shard_and_prints_coverage_targets(self):
+        flags = ["--skip-preflight", "--cargo", "/nonexistent-cargo"]
+        alone = subprocess.run([sys.executable, str(GUARD), *flags, "--coverage"],
+                               capture_output=True, text=True, check=False, timeout=120)
+        self.assertNotEqual(alone.returncode, 0)
+        self.assertIn("requires --execute", alone.stderr)
+        sharded = subprocess.run([sys.executable, str(GUARD), *flags, "--coverage", "--shard", "1/2"],
+                                 capture_output=True, text=True, check=False, timeout=300)
+        self.assertNotIn("requires --execute", sharded.stderr)
+        printed = subprocess.run([sys.executable, str(GUARD), "--print-coverage-targets"],
+                                 capture_output=True, text=True, check=False, timeout=300)
+        self.assertEqual(printed.returncode, 0, printed.stderr)
+        tokens = printed.stdout.split()
+        self.assertTrue(tokens and all(token in ("-p", "--test") or not token.startswith("-") for token in tokens))
+        self.assertIn("setjoin-gateway", tokens)
+        self.assertIn("jmap_recorded", tokens)
 
 
 if __name__ == "__main__":

@@ -45,20 +45,12 @@ configuration error is an evidence failure, not a clean result.
   (runs route completeness, golden floor, per-route replay/coverage and mutant
   checks; Rust's `llvm-tools` component is required. With no DB the dynamic
   oracle reports a skip; `REQUIRE_DB=1` with disposable test DSNs requires all cases).
-- Before any push that triggers the Rust full lane: `bash scripts/pre-ci.sh` (~2 min, no DB:
-  adequacy preflight and guard tests, `cargo deny`, workflow `run:` block syntax, bind-:0-then-drop
-  ports, tracked bytecode, context budget; `--lane <filter|changed>` prints the quick-lane command).
-- Oracle adequacy timeouts: `LANE_REPLAY_TIMEOUT` (default 900 s, run time of one replay or mutant,
-  build excluded) and `LANE_COVERAGE_REPLAY_TIMEOUT`/`LANE_COVERAGE_HEARTBEAT` (coverage); a hung entry is killed and named.
-- Rust server full lane in parallel (#550): the `server-rust full lane` workflow in CI,
-  or locally `LANE_PG_PORT=<port> PGPASSWORD=<pw> bash scripts/server-rust-parallel-lane.sh`
-  against a throwaway Postgres (superuser, `LANE_DB_PREFIX` containing `_e2e_`) with
-  cargo-nextest, cargo-deny, `PEBBLE_BIN` and the CI image on the host
-  (`bash scripts/server-rust-lane-tools.sh`). `cargo nextest` runs one cloned database per
-  test with serial groups for docker/fixed-port/`/dev/shm` binaries; `LANE_MODE=serial` is the
-  plain `cargo test` reference and `python3 scripts/compare-lane-runs.py SERIAL_LOG JUNIT`
-  diffs the two. Missing, ignored or skipped cases stay red. Detail:
-  `server-rust/DOX.md#parallel-full-lane-550`.
+  ports, tracked bytecode, context budget, hosted-lane shard merge; `--lane <filter|changed>` prints the quick-lane command).
+- Oracle adequacy: replays and mutants run `LANE_ADEQUACY_JOBS` (default `LANE_JOBS`) at a time on per-replay clones; timeouts: `LANE_REPLAY_TIMEOUT` (default 900 s, run time of one replay or mutant,
+- Rust server full lane in parallel (#550): the `server-rust lane` workflow on GitHub-hosted
+  runners (every pull request and push to `main`: full lane plus coverage, sharded; `aggregate` is the
+  required check), or locally `LANE_PG_PORT=<port> PGPASSWORD=<pw> bash scripts/server-rust-parallel-lane.sh`
+  test with serial groups for docker/fixed-port/`/dev/shm` binaries; on a dev host `LANE_MODE=serial` is the
 - Upgrade contract guard: `bash scripts/check-upgrade-contracts.sh`
 - HTTP socket activation on a root/systemd host: `python3 scripts/test-gateway-systemd.py <built-setjoin-gateway>`
   (temporary `gofree-t13-*` units; checks capability-empty execution and queued

@@ -1,0 +1,378 @@
+name: server-rust lane
+
+# The Go-free Rust server lane on GitHub-hosted runners (no self-hosted runner anywhere).
+# Every pull request and every push to main runs the FULL lane including oracle coverage:
+#   plan            decides debug or full and the shard lists
+#   build           one nextest archive of every workspace test binary + the expected test list
+#   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
+#   shard 1..N      nextest partition k/N + every N-th replay/mutant, each shard its own VM and Postgres
+#   coverage-build  one instrumented archive of the coverage binaries only
+#   coverage 1..M   every M-th oracle coverage entry
+#   aggregate       the required check: every job green AND every test, replay, mutant and
+#                   coverage entry ran exactly once (scripts/merge-lane-shards.py)
+# workflow_dispatch keeps the debug inputs: filter or adequacy_only runs ONE job, never a lane result.
+# Fork pull requests get a read-only token and no secrets (the lane needs none: the Postgres
+# password is generated per job) and never save a cache; only pushes to main save caches.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: Test shards (1-12)
+        default: '8'
+      coverage_shards:
+        description: Coverage shards (1-12)
+        default: '6'
+      jobs:
+        description: Concurrent tests per shard
+        default: '4'
+      filter:
+        description: Debug only - nextest filterset; one job, never a lane result
+        default: ''
+      adequacy_only:
+        description: Debug only - adequacy stages (replays, coverage or replays,coverage); one job, never a lane result
+        default: ''
+      adequacy_entries:
+        description: With adequacy_only - comma-separated route entries (empty = all)
+        default: ''
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: server-rust-lane-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: never
+  CARGO_NET_RETRY: '5'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  LANE_JOBS: ${{ inputs.jobs || '4' }}
+  GOFREE_AIRGAP_FIXTURE_ROOT: /dev/shm
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      debug: ${{ steps.plan.outputs.debug }}
+      shards: ${{ steps.plan.outputs.shards }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+      coverage_shards: ${{ steps.plan.outputs.coverage_shards }}
+      coverage_count: ${{ steps.plan.outputs.coverage_count }}
+    steps:
+      # Fail fast and loudly while the image pins are still the bootstrap placeholders (every other
+      # job needs plan, so nothing else starts and nothing hangs).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/ci
+      - name: images.lock must be pinned
+        run: |
+          if grep -v '^#' .github/ci/images.lock | grep -q PLACEHOLDER; then
+            echo "::error title=images.lock not pinned::.github/ci/images.lock still has PLACEHOLDER digests. Open the 'CI images' workflow run for this change (it runs on same-repo pull requests), copy the images.lock block from its job summary into .github/ci/images.lock, make the new ghcr.io/setjoin packages public once, and push."
+            exit 1
+          fi
+      - id: plan
+        env:
+          DEBUG: ${{ inputs.filter }}${{ inputs.adequacy_only }}
+          SHARDS: ${{ inputs.shards || '8' }}
+          COVERAGE: ${{ inputs.coverage_shards || '6' }}
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, os
+          n, m = (max(1, min(12, int(os.environ[k]))) for k in ("SHARDS", "COVERAGE"))
+          print("debug=" + ("true" if os.environ["DEBUG"] else "false"))
+          print(f"shards={json.dumps(list(range(1, n + 1)))}\nshard_count={n}")
+          print(f"coverage_shards={json.dumps(list(range(1, m + 1)))}\ncoverage_count={m}")
+          PY
+
+  debug:
+    needs: plan
+    if: needs.plan.outputs.debug == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      LANE_JOB_TAG: debug
+      LANE_QUICK: ${{ inputs.filter && '1' || '' }}
+      LANE_NEXTEST_FILTER: ${{ inputs.filter }}
+      LANE_ADEQUACY_ONLY: ${{ inputs.adequacy_only }}
+      LANE_ADEQUACY_ENTRIES: ${{ inputs.adequacy_entries }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: lane
+          save-if: false
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/setjoin-server-rust-lane/go-mod
+          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: lane-go-mod-
+      - name: Run the lane (debug, not a lane result)
+        run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### server-rust lane (debug)"
+            echo "- **DEBUG run, not a lane result**: filter \`${LANE_NEXTEST_FILTER:0:300}\`, adequacy stages \`${LANE_ADEQUACY_ONLY}\`, entries \`${LANE_ADEQUACY_ENTRIES:0:300}\`"
+            { grep -E '^(✓|✗)|^replay summary|^coverage summary|Summary \[' lane-artifacts/lane.log | tail -30 | sed 's/^/- `/; s/$/`/'; } || true
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: lane-result-debug
+          path: lane-artifacts/
+          retention-days: 7
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      LANE_JOB_TAG: build
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+        with:
+          postgres: 'false'
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: lane
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the test archive and the expected test list
+        run: |
+          bash scripts/lane-container.sh bash -c 'set -euo pipefail; cd server-rust
+            cargo nextest archive --workspace --locked --archive-file "$LANE_BUILD/lane-tests.tar.zst"
+            cargo nextest list --workspace --locked --message-format json >"$LANE_ARTIFACT_DIR/lane-list.json"'
+          ls -la "$LANE_BUILD/lane-tests.tar.zst"
+          # an ignored test is red, as in run_root (the shards cannot see it: partitions count as skipped)
+          python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); bad=[f"{b}::{t}" for b,s in d["rust-suites"].items() for t,c in s["testcases"].items() if c.get("ignored")]; print("\n".join(bad)); sys.exit(f"{len(bad)} ignored test(s)" if bad else 0)' lane-artifacts/lane-list.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lane-archive
+          path: ${{ env.LANE_BUILD }}/lane-tests.tar.zst
+          retention-days: 1
+          compression-level: 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lane-list
+          path: lane-artifacts/lane-list.json
+          retention-days: 14
+
+  roots:
+    needs: plan
+    if: needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      LANE_JOB_TAG: roots
+      SERVER_RUST_STAGES: static,roots
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: lane
+          save-if: false
+      - name: Static guards, cargo-deny, pilot, schema-simulation, bench-mark-read, doc tests
+        run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: lane-result-roots
+          path: lane-artifacts/
+          retention-days: 14
+
+  shard:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    env:
+      LANE_JOB_TAG: shard-${{ matrix.shard }}
+      LANE_COVERAGE: '0'
+      SERVER_RUST_STAGES: workspace,adequacy
+      SERVER_RUST_NEXTEST_PARTITION: hash:${{ matrix.shard }}/${{ needs.plan.outputs.shard_count }}
+      LANE_ADEQUACY_SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.shard_count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lane-archive
+          path: ${{ runner.temp }}/archive
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lane-list
+          path: ${{ runner.temp }}/list
+      - id: gomod
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/setjoin-server-rust-lane/go-mod
+          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: lane-go-mod-
+      - name: Shard ${{ matrix.shard }} (nextest partition and replay slice)
+        run: |
+          python3 scripts/lane-binaries.py "$RUNNER_TEMP/list/lane-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
+          SERVER_RUST_NEXTEST_ARCHIVE="$RUNNER_TEMP/archive/lane-tests.tar.zst" \
+          SERVER_RUST_NEXTEST_EXTRACT_TO="$LANE_BUILD" \
+          LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
+            bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+      # one shard saves the Go module cache, and only from main (a pull request never writes a cache)
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: always() && github.ref == 'refs/heads/main' && matrix.shard == 1 && steps.gomod.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/setjoin-server-rust-lane/go-mod
+          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: lane-result-shard-${{ matrix.shard }}
+          path: lane-artifacts/
+          retention-days: 14
+
+  coverage-build:
+    needs: plan
+    if: needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      LANE_JOB_TAG: coverage-build
+      RUSTFLAGS: -C instrument-coverage
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+        with:
+          postgres: 'false'
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: lane-coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build the instrumented archive (coverage binaries only)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/build-profiles"
+          LANE_COVERAGE_TARGETS="$(python3 scripts/check-gofree-oracle-adequacy.py --print-coverage-targets)" \
+          LLVM_PROFILE_FILE="$RUNNER_TEMP/build-profiles/%p-%m.profraw" \
+            bash scripts/lane-container.sh bash -c 'set -euo pipefail; cd server-rust
+              read -r -a sel <<<"$LANE_COVERAGE_TARGETS"
+              cargo nextest archive "${sel[@]}" --locked --archive-file "$LANE_BUILD/coverage-tests.tar.zst"
+              cargo nextest list "${sel[@]}" --locked --message-format json >"$LANE_ARTIFACT_DIR/coverage-list.json"'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lane-coverage-archive
+          path: ${{ env.LANE_BUILD }}/coverage-tests.tar.zst
+          retention-days: 1
+          compression-level: 0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: lane-coverage-list
+          path: lane-artifacts/coverage-list.json
+          retention-days: 14
+
+  coverage-shard:
+    needs: [plan, coverage-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.coverage_shards) }}
+    env:
+      LANE_JOB_TAG: coverage-${{ matrix.shard }}
+      LANE_COVERAGE: '1'
+      LANE_ADEQUACY_COVERAGE_ONLY: '1'
+      SERVER_RUST_STAGES: adequacy
+      LANE_ADEQUACY_SHARD: ${{ matrix.shard }}/${{ needs.plan.outputs.coverage_count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lane-coverage-archive
+          path: ${{ runner.temp }}/archive
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: lane-coverage-list
+          path: ${{ runner.temp }}/list
+      - name: Coverage shard ${{ matrix.shard }}
+        run: |
+          python3 scripts/lane-binaries.py "$RUNNER_TEMP/list/coverage-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
+          LANE_COVERAGE_ARCHIVE="$RUNNER_TEMP/archive/coverage-tests.tar.zst" \
+          LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
+            bash scripts/lane-container.sh bash -c 'set -euo pipefail
+              (cd server-rust && cargo nextest list --archive-file "$LANE_COVERAGE_ARCHIVE" --workspace-remap . \
+                --extract-to "$LANE_BUILD" --extract-overwrite >/dev/null)
+              bash scripts/server-rust-parallel-lane.sh'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: lane-result-coverage-${{ matrix.shard }}
+          path: lane-artifacts/
+          retention-days: 14
+
+  # The required check. Red unless every job is green and the merge finds every test, replay,
+  # mutant and coverage entry run exactly once (a skipped job is never a pass).
+  aggregate:
+    needs: [plan, debug, build, roots, shard, coverage-build, coverage-shard]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Job results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS"])
+          debug = needs["plan"]["outputs"].get("debug") == "true"
+          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "shard", "coverage-build", "coverage-shard"}
+          results = {name: job["result"] for name, job in needs.items()}
+          print("debug" if debug else "full+coverage", "job results", results)
+          bad = {n: r for n, r in results.items() if r in ("failure", "cancelled") or (n in required and r != "success")}
+          sys.exit(f"red: {bad}" if bad else 0)
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: always() && needs.plan.outputs.debug == 'false'
+        with:
+          pattern: lane-result-*
+          path: results
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: always() && needs.plan.outputs.debug == 'false' && needs.build.result == 'success'
+        with:
+          name: lane-list
+          path: results/lane-list
+      - name: Merge the shards
+        if: always() && needs.plan.outputs.debug == 'false' && needs.build.result == 'success'
+        env:
+          SHARDS: ${{ needs.plan.outputs.shard_count }}
+          COVERAGE: ${{ needs.plan.outputs.coverage_count }}
+        run: |
+          set -o pipefail
+          python3 scripts/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
+            --shards "$SHARDS" --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && needs.plan.outputs.debug == 'false'
+        with:
+          name: lane-results-${{ github.sha }}
+          path: |
+            results/lane-result-*/
+            results/lane-list/
+          retention-days: 30
