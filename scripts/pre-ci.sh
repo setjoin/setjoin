@@ -83,6 +83,8 @@ check "adequacy preflight" python3 scripts/check-gofree-oracle-adequacy.py --pre
 check "adequacy_guard_test" python3 server-rust/tests/conformance/tests/adequacy_guard_test.py
 check "coverage_report_test" python3 server-rust/tests/conformance/tests/coverage_report_test.py
 check "merge-lane-shards test" python3 scripts/test-merge-lane-shards.py
+check "rehearsal guard test" python3 scripts/test-check-gofree-rehearsal.py
+check "rehearsal static" python3 scripts/check-gofree-rehearsal.py static
 # cargo-deny: the pinned binary the lane uses (scripts/server-rust-lane-tools.sh puts it in
 # LANE_BIN_DIR), else one on PATH. Missing is a FAIL unless PRE_CI_SKIP_DENY=1 (then SKIP).
 cargo_deny() {

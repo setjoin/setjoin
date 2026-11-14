@@ -542,6 +542,35 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   loopback publish and a per-job SCRAM secret (CI only, masked). Tools are pinned by
   `scripts/server-rust-lane-tools.sh` (nextest, cargo-deny, pebble) inside the lane image.
 
+## Go-deletion rehearsal (#141)
+
+`scripts/check-gofree-rehearsal.py` (self-test `scripts/test-check-gofree-rehearsal.py`) makes the hosted
+lane the rehearsal for deleting Go. `static` (static stage of `check-server-rust.sh`, so `roots`, and
+`aggregate`): every route-inventory entry is ON except the six `fedharness` test-tool entries (owner
+decision 2026-11-02) and the `PENDING` ratchet (OFF entries with their tickets; shrink only); no ON
+entry has a `go-*` upstream; `FORWARD_SITES` pins the exact count of forward-to-Go call sites in
+`server-rust/bins/*/src` (auth `.forward(`, gateway `.forward(`, `forward_body(`, `forward_unported(`,
+raw WebSocket `client_async(`): a new site is red, a removed one is red until the pin is lowered; every
+`*divergences.json` entry is reviewed; `worker_semantics.json` (51) is owned by Rust; every seam
+pattern matches. #141 criteria 1 and 4 stay open until `PENDING` is empty and `FORWARD_SITES` is 0.
+`env` (every lane job): any `GOFREE_RECORD*`, `GOFREE_GO_SOURCE`, `GOFREE_GO_COVERAGE_DIR`,
+`GOFREE_*SWAP_UPSTREAM`, `GATEWAY_UPSTREAM`, `GATEWAY_AUTH_UPSTREAM`, `AUTHSERVER_GO_UPSTREAM` or
+`AUTHSERVER_URL` present (even empty) is red, and with `LANE_GO_MASKED=1` a reachable `go` is red.
+`scripts/lane-container.sh` masks `/usr/local/go` (empty tmpfs) in the lane container. `lane_go_watch`
+in `check-server-rust.sh` wraps the nextest run and the adequacy gate: the watcher is ready only after
+a probe container's event came back through `docker events`, drains up to a second probe on stop, and
+its exit status is propagated. A container created from (or exec'd into) a Go-capable image
+(`setjoin-ci-linux-tc`, `setjoin-server-rust-lane`, or an image named by id) must carry an
+`org.setjoin.task` in `GO_TASKS` (`gofree-fed2` fedharness and `gofree-tlsfront` frozen TLS peer run
+Go and are Go counterparties DELETE must replace; `gofree-rel3` runs only the Rust updater). A 1 s
+process sample flags any Go-built ELF (`.go.buildinfo`) outside `/usr` among the lane shell's descendant processes (host daemons never count). Evidence
+per job: `rehearsal-containers.jsonl` (ready/stopped windows); `aggregate` runs `lane`: static, every
+shard and coverage shard watched with Go masked, no Go launch, no route whose handler sources all
+report 0 covered lines. The proxied-to-Go counter is not summed lane-wide: tests drive in-process
+fake upstreams by design; zero comes from the inventory and the `FORWARD_SITES` ratchet. The webmail
+Playwright e2e is outside the rehearsal: it needs a deployed stack (`E2E_SERVER`) and no hosted
+workflow runs it; the front-door goldens cover its HTTP surface.
+
 ## Rust guard self-test
 
 - `bash scripts/check-server-rust.sh --self-test` — proves the guard fires on a
