@@ -1,5 +1,5 @@
 # Linux CI toolchain for the Xinchuang unit-test lanes, built and cached on the
-# Mac runner by .github/workflows/xinchuang-ci.yml (build-once, reuse). The
+# Mac runner by the retired .github/workflows/xinchuang-ci.yml (removed; see webmail.yml, rust-floor.yml) (build-once, reuse). The
 # unit-tests and tagged-lane jobs run INSIDE this image: ubuntu 24.04 + Go
 # 1.26.6 + Node 26 + PostgreSQL 17 (server, pgtap, pg_prove) + Rust stable +
 # libopus + python3. No docker inside — postgres runs locally in
