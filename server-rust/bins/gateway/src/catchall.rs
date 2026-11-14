@@ -132,7 +132,9 @@ impl Intercept for CatchallRoute {
                             return reply;
                         };
                         let Some(exec) = exec else {
-                            return c.upstream.forward(r, &c.identity).await;
+                            // Unreachable: `with_auth_mode` installs the executor with the
+                            // verifier. Fail closed rather than hand the request to Go.
+                            return problem(&r, &c, 503, "service unavailable");
                         };
                         let app = match route.family {
                             12 => "chat",
@@ -146,7 +148,9 @@ impl Intercept for CatchallRoute {
                                 return problem(&r, &c, 404, "not found")
                             }
                             Ok(_) => {}
-                            Err(_) => return c.upstream.forward(r, &c.identity).await,
+                            // Go reads toggles from memory: an unreadable toggle fails closed
+                            // with #354's approved precondition-read answer (no Go counterpart).
+                            Err(_) => return problem(&r, &c, 503, "service unavailable"),
                         }
                         let user = auth.context().user_id();
                         let entitled = exec
@@ -155,8 +159,9 @@ impl Intercept for CatchallRoute {
                                 &[(&user, Type::INT8), (&app, Type::TEXT)],
                             )
                             .await;
+                        // Go's RequireApp: false and a reducer error are both a 403 (fail closed).
                         if !entitled.is_ok_and(|rows| rows[0].get::<_, bool>(0)) {
-                            return c.upstream.forward(r, &c.identity).await;
+                            return not_entitled(&r, &c, &exec, user, app, &stripped).await;
                         }
                         if app == "meet" && !configured {
                             let id = crate::jmap::reply::request_id(
@@ -257,6 +262,43 @@ fn problem(r: &Request<Body>, c: &RequestContext, status: u16, detail: &str) -> 
     );
     reply
 }
+
+/// Go's `RequireApp` denial (`middleware/app_entitlement.go:47-60`): a 403 problem whose
+/// instance is the stripped, decoded path, then the best-effort `app_blocked` audit.
+async fn not_entitled(
+    r: &Request<Body>,
+    c: &RequestContext,
+    exec: &ScopedExecutor,
+    user: i64,
+    app: &str,
+    stripped: &str,
+) -> Response<Body> {
+    if let Ok(actor) = setjoin_contracts::ids::ActorId::new(user) {
+        let ip = c.identity.client_ip.to_string();
+        let _ = tokio::time::timeout(
+            setjoin_authz::precheck_timeout(),
+            exec.audit_app_blocked(actor, app, &ip),
+        )
+        .await;
+    }
+    let path = String::from_utf8_lossy(&crate::inventory::unescape(stripped)).into_owned();
+    let id = crate::jmap::reply::request_id(
+        r.headers().get("x-request-id"),
+        crate::jmap::random().unwrap_or([0; 16]),
+    );
+    let language = crate::chat_channels::problem_language(r.headers());
+    let detail = "Access to this application is not permitted for your account.";
+    let mut response = crate::chat_channels::problem(403, detail, &path, c, id, &language);
+    crate::problem::set_body(
+        &mut response,
+        crate::problem::Problem::new(403, detail)
+            .kind("https://setjoin.com/errors/forbidden")
+            .instance(&path)
+            .body(),
+    );
+    response
+}
+
 fn mux_error(
     i: &Inventory,
     r: &Request<Body>,

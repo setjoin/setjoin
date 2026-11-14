@@ -14,6 +14,14 @@ use std::{
 mod assets;
 static SERIAL: Mutex<()> = Mutex::new(());
 
+/// Native-only faults injected through a shadowing schema on the catch-all's executor
+/// (the verifier reads the real tables): T9 toggle read, T8 entitlement read.
+#[derive(Clone, Copy, PartialEq)]
+enum Fault {
+    None,
+    Toggle,
+    Entitlement,
+}
 #[derive(Clone)]
 struct Case {
     website: bool,
@@ -22,6 +30,8 @@ struct Case {
     foreign: bool,
     enabled: bool,
     configured: bool,
+    entitled: bool,
+    fault: Fault,
     name: &'static str,
     method: &'static str,
     uri: &'static str,
@@ -37,6 +47,8 @@ fn cases() -> Vec<Case> {
         foreign: false,
         enabled: true,
         configured: false,
+        entitled: true,
+        fault: Fault::None,
     };
     vec![
         c("root_unknown", "GET", "/catchall-unknown"),
@@ -159,6 +171,33 @@ fn cases() -> Vec<Case> {
         Case {
             auth: true,
             ..c("meet_unconfigured", "GET", "/api/meet/phantom/path")
+        },
+        Case {
+            auth: true,
+            entitled: false,
+            ..c("chat_not_entitled", "GET", "/api/chat/phantom")
+        },
+        Case {
+            auth: true,
+            entitled: false,
+            ..c("drive_not_entitled", "GET", "/api/drive/phantom")
+        },
+        Case {
+            auth: true,
+            configured: true,
+            entitled: false,
+            ..c("meet_not_entitled", "GET", "/api/meet/phantom/path")
+        },
+        Case {
+            auth: true,
+            entitled: false,
+            fault: Fault::Entitlement,
+            ..c("chat_not_entitled_read_fault", "GET", "/api/chat/phantom")
+        },
+        Case {
+            auth: true,
+            fault: Fault::Toggle,
+            ..c("chat_toggle_read_fault", "GET", "/api/chat/phantom")
         },
         c("meet_exact_anonymous", "PATCH", "/api/meet"),
         Case {
@@ -378,7 +417,7 @@ fn cases() -> Vec<Case> {
 fn path(c: &Case) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
         "../../tests/conformance/catchall/goldens/{}.json",
-        c.name
+        c.name.strip_suffix("_read_fault").unwrap_or(c.name)
     ))
 }
 async fn run(name: &str) -> Result<(), BoxError> {
@@ -408,6 +447,9 @@ async fn run_inner(name: &str, mutant: bool) -> Result<(), BoxError> {
     };
     let result = std::panic::AssertUnwindSafe(async {
         for case in cases().into_iter().filter(|c| c.name == name || (name == "mux_paths" && c.name.starts_with("mux_"))) {
+            if case.fault != Fault::None && std::env::var_os("GOFREE_RECORD_GO_BINARY").is_some() {
+                continue; // native-only: Go reads toggles from memory; its reducer cannot be shadowed
+            }
             let app = if case.name.starts_with("chat_") {Some("chat")} else if case.name.starts_with("drive_") {Some("drive")} else if case.name.starts_with("meet_") {Some("meet")} else {None};
             let old = if let Some(app)=app {
                 let key=format!("feature.{app}");
@@ -415,7 +457,40 @@ async fn run_inner(name: &str, mutant: bool) -> Result<(), BoxError> {
                 owner.execute("INSERT INTO feature_toggles(key,enabled) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET enabled=$2", &[&key,&case.enabled]).await?;
                 Some((key,old))
             } else {None};
-            let response=observe(case.clone(), &db, if case.foreign {foreign.as_ref().map_or(1,|a|a.user)} else {actor.as_ref().map_or(1,|a|a.user)},mutant).await;
+            let user = if case.foreign {foreign.as_ref().map_or(1,|a|a.user)} else {actor.as_ref().map_or(1,|a|a.user)};
+            let blocked = if case.entitled { None } else { Some(app.ok_or("an entitlement case needs an app")?) };
+            if let Some(name) = blocked {
+                owner.execute("INSERT INTO user_app_entitlements(user_id,app,enabled) VALUES($1,$2,false)", &[&user, &name]).await?;
+            }
+            let fault_schema = if case.fault == Fault::None {
+                None
+            } else {
+                let id: String = owner.query_one("SELECT replace(gen_random_uuid()::text,'-','')", &[]).await?.get(0);
+                if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) { return Err("invalid fault schema ID".into()); }
+                let schema = format!("gofree_catchall_fault_{id}");
+                let body = match case.fault {
+                    Fault::Toggle => format!("CREATE VIEW {schema}.feature_toggles AS SELECT key, CASE WHEN key='feature.chat' THEN (1/(length(key)-length(key)))::boolean ELSE enabled END AS enabled FROM public.feature_toggles; GRANT SELECT ON {schema}.feature_toggles TO PUBLIC;"),
+                    _ => format!("CREATE FUNCTION {schema}.check_user_app_entitlement(bigint,text) RETURNS boolean LANGUAGE plpgsql AS $f$BEGIN RAISE EXCEPTION 'gofree catchall entitlement fault'; END$f$; GRANT EXECUTE ON FUNCTION {schema}.check_user_app_entitlement(bigint,text) TO PUBLIC;"),
+                };
+                owner.batch_execute(&format!("CREATE SCHEMA {schema}; GRANT USAGE ON SCHEMA {schema} TO PUBLIC; {body}")).await?;
+                Some(schema)
+            };
+            let base = db.app.as_deref().unwrap_or(&db.dsn).to_owned();
+            let dsn = match &fault_schema {
+                Some(schema) => {
+                    if base.contains("options=") { return Err("fault DSN already has options".into()); }
+                    format!("{base}{}options=-csearch_path%3D{schema}%2Cpublic", if base.contains('?') {'&'} else {'?'})
+                }
+                None => base,
+            };
+            let response=observe(case.clone(), &db, &owner, &dsn, user, mutant).await;
+            if let Some(schema) = fault_schema {
+                owner.batch_execute(&format!("DROP SCHEMA {schema} CASCADE")).await?;
+            }
+            if let Some(name) = blocked {
+                owner.execute("DELETE FROM user_app_entitlements WHERE user_id=$1 AND app=$2", &[&user, &name]).await?;
+                owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={user} AND action='app_blocked';COMMIT;")).await?;
+            }
             if let Some((key,old))=old {match old {Some(v)=>{owner.execute("UPDATE feature_toggles SET enabled=$2 WHERE key=$1",&[&key,&v]).await?;},None=>{owner.execute("DELETE FROM feature_toggles WHERE key=$1",&[&key]).await?;}}}
             response?;
         }
@@ -432,7 +507,7 @@ async fn run_inner(name: &str, mutant: bool) -> Result<(), BoxError> {
         Err(panic) => std::panic::resume_unwind(panic),
     }
 }
-async fn observe(c: Case, db: &Db, user: i64, mutant: bool) -> Result<(), BoxError> {
+async fn observe(c: Case, db: &Db, owner: &tokio_postgres::Client, dsn: &str, user: i64, mutant: bool) -> Result<(), BoxError> {
     let s3 = common::fake_upstream(|_| async { Response::builder().body(common::full("<ListMultipartUploadsResult><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>")).unwrap() }).await;
     let mut extra = if c.configured {
         vec![
@@ -458,7 +533,7 @@ async fn observe(c: Case, db: &Db, user: i64, mutant: bool) -> Result<(), BoxErr
         ));
     }
     let go = common::go_oracle::start_named_with_env(db, s3, "gofree-catchall", &extra).await?;
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(dsn, 2)
         .map_err(|e| e.0)?;
     let mut catchall = setjoin_gateway::catchall::CatchallRoute::new().with_auth(
         exec,
@@ -496,6 +571,10 @@ async fn observe(c: Case, db: &Db, user: i64, mutant: bool) -> Result<(), BoxErr
     let task = tokio::spawn(gateway.serve_until(listener, async {
         let _ = stopped.await;
     }));
+    let audit_floor: i64 = owner
+        .query_one("SELECT coalesce(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
     let mut request = Request::builder()
         .method(c.method)
         .uri(c.uri)
@@ -523,6 +602,7 @@ async fn observe(c: Case, db: &Db, user: i64, mutant: bool) -> Result<(), BoxErr
         }
     }
     let mut bytes = common::body_bytes(response).await.to_vec();
+    let audit = if c.entitled { json!([]) } else { app_blocked_rows(owner, audit_floor, user).await? };
     if let Some(content_type) = headers.get("content-type").and_then(Value::as_str) {
         if let Some(boundary) = content_type.strip_prefix("multipart/byteranges; boundary=") {
             assert!(
@@ -553,7 +633,7 @@ async fn observe(c: Case, db: &Db, user: i64, mutant: bool) -> Result<(), BoxErr
         "/"
     };
     let route = format!("* {logical}");
-    let mut observation = json!({"request":{"method":"*","path":logical,"wire_method":c.method,"wire_path":c.uri},"response":{"status":status,"headers":headers,"body":String::from_utf8_lossy(&bytes)},"effects":[],"audit":[],"notify":[]});
+    let mut observation = json!({"request":{"method":"*","path":logical,"wire_method":c.method,"wire_path":c.uri},"response":{"status":status,"headers":headers,"body":String::from_utf8_lossy(&bytes)},"effects":[],"audit":audit,"notify":[]});
     if c.website {
         use sha2::{Digest, Sha256};
         observation["response"]["body_sha256"] = json!(format!("{:x}", Sha256::digest(&bytes)));
@@ -574,6 +654,17 @@ async fn observe(c: Case, db: &Db, user: i64, mutant: bool) -> Result<(), BoxErr
     }
     let _ = stop.send(());
     task.await?;
+    if c.fault == Fault::Toggle {
+        let text = String::from_utf8_lossy(&bytes);
+        if status != 503
+            || !text.contains("\"detail\":\"service unavailable\"")
+            || headers.get("content-type").and_then(Value::as_str) != Some("application/problem+json")
+        {
+            return Err(format!("{}: expected the fail-closed 503, got {status} {text}", c.name).into());
+        }
+        println!("FAULT-REPLAY: * /chat/ :: {}", c.name);
+        return Ok(());
+    }
     if go.is_some() {
         std::fs::create_dir_all(path(&c).parent().unwrap())?;
         golden::record(
@@ -740,3 +831,41 @@ case_test!(spa_xml);
 case_test!(mux_legacy_absolute);
 
 case_test!(mux_clean_reserved, mux_inner_encoded_slash);
+
+/// Go writes the app_blocked row after its 403 (best effort): poll briefly for it.
+async fn app_blocked_rows(owner: &tokio_postgres::Client, after: i64, user: i64) -> Result<Value, BoxError> {
+    for _ in 0..50 {
+        let rows = owner
+            .query("SELECT jsonb_build_object('action',action,'target_type',target_type,'notes',notes)::text FROM admin_audit_log WHERE id>$1 AND user_id=$2 ORDER BY id", &[&after, &user])
+            .await?;
+        if !rows.is_empty() {
+            let values = rows
+                .iter()
+                .map(|r| serde_json::from_str::<Value>(r.get::<_, &str>(0)))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(Value::Array(values));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Ok(json!([]))
+}
+#[tokio::test]
+async fn chat_not_entitled() -> Result<(), BoxError> {
+    run("chat_not_entitled").await
+}
+#[tokio::test]
+async fn drive_not_entitled() -> Result<(), BoxError> {
+    run("drive_not_entitled").await
+}
+#[tokio::test]
+async fn meet_not_entitled() -> Result<(), BoxError> {
+    run("meet_not_entitled").await
+}
+#[tokio::test]
+async fn chat_not_entitled_read_fault() -> Result<(), BoxError> {
+    run("chat_not_entitled_read_fault").await
+}
+#[tokio::test]
+async fn chat_toggle_read_fault() -> Result<(), BoxError> {
+    run("chat_toggle_read_fault").await
+}
