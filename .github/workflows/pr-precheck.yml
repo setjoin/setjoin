@@ -1,0 +1,61 @@
+name: PR pre-check
+
+# The required `aggregate` check on a pull request. It is a LIGHT pre-check (one job): cargo check
+# --tests and cargo test --lib for the changed workspace packages plus cheap guards
+# (scripts/quick-check.sh, shared with quick-check.yml). The FULL 19-job server-rust lane does not
+# run on pull requests: it runs once per BATCH of queued pull requests on the merge queue's
+# merge_group commit (server-rust-lane.yml, whose job is also named `aggregate`).
+# This workflow deliberately has no merge_group trigger, so the queue's `aggregate` is the full
+# lane's. No path filters: a filtered-out run would leave the required check pending forever.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: pr-precheck-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: never
+  CARGO_NET_RETRY: '5'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  LANE_JOB_TAG: precheck
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/lane-setup
+        with:
+          postgres: 'false'
+      - name: Plan (changed workspace packages)
+        id: plan
+        run: |
+          git fetch -q origin main:refs/remotes/origin/main || true
+          bash scripts/lane-container.sh bash scripts/quick-check.sh plan
+          echo "key=$(sha256sum lane-artifacts/packages.txt | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: quick
+          key: ${{ steps.plan.outputs.key }}
+          save-if: false
+      - name: PR pre-check
+        run: bash scripts/lane-container.sh bash scripts/quick-check.sh run
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## PR pre-check; full lane runs in the merge queue"
+            echo "This job is the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs once per batch on the merge queue."
+            cat lane-artifacts/summary.md 2>/dev/null || echo "- FAIL: no summary produced (setup or plan failed)"
+          } >> "$GITHUB_STEP_SUMMARY"

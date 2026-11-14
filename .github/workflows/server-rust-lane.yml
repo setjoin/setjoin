@@ -1,7 +1,11 @@
 name: server-rust lane
 
 # The Go-free Rust server lane on GitHub-hosted runners (no self-hosted runner anywhere).
-# Every pull request and every push to main runs the FULL lane including oracle coverage:
+# The FULL lane including oracle coverage runs on the merge queue's merge-group commit (a BATCH of
+# up to 5 ready pull requests, one lane run per batch), on every push to main and on workflow_dispatch.
+# Pull requests do NOT run it: the required `aggregate` check on a PR comes from pr-precheck.yml
+# (a light pre-check), and the merge queue then requires this workflow's `aggregate` on the batch.
+# The lane jobs:
 #   plan            decides debug or full and the shard lists
 #   build           one nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
@@ -14,7 +18,7 @@ name: server-rust lane
 # Fork pull requests get a read-only token and no secrets (the lane needs none: the Postgres
 # password is generated per job) and never save a cache; only pushes to main save caches.
 on:
-  pull_request:
+  merge_group:
   push:
     branches: [main]
   workflow_dispatch:
@@ -44,7 +48,7 @@ permissions:
 
 concurrency:
   group: server-rust-lane-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   CARGO_INCREMENTAL: '0'

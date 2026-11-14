@@ -468,8 +468,10 @@ updater are #357–#359.
 ## Parallel full lane (#550)
 
 `.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
-label) for every pull request and every push to `main`: always the FULL lane including oracle
-coverage. `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+label) on the merge queue's `merge_group` commit (one run per BATCH of up to 5 queued pull requests),
+every push to `main` and `workflow_dispatch`: always the FULL lane including oracle coverage. Pull
+requests run only `pr-precheck.yml` (job `aggregate`: `scripts/quick-check.sh`, changed-package
+check/`--lib` tests and cheap guards); the ruleset requires `aggregate` on both, so the full lane gates every merge. `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
 lane result. Jobs: `plan` (shard lists, debug or full); `build` (one `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`); `roots` (static guards,

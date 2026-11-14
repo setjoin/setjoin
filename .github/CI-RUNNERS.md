@@ -30,5 +30,7 @@ The same guard enforces this.
 ## server-rust lane (GitHub-hosted)
 
 `.github/workflows/server-rust-lane.yml` runs only on GitHub-hosted `ubuntu-latest` runners (no
-self-hosted label); the rows above do not apply to it. Images come from `ghcr.io/setjoin` as pinned
+self-hosted label) and, on the `main` merge queue, runs on `merge_group` (once per batch of up to 5 PRs),
+not on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml` (one job, also named `aggregate`,
+`scripts/quick-check.sh`). The rows above do not apply to either. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
