@@ -72,7 +72,7 @@ run() {
   if [ "${#added[@]}" -eq 0 ]; then
     skip "rustfmt added files" "no Rust file added"
   else
-    step "rustfmt --check added files (${#added[@]})" rustfmt --edition 2021 --check "${added[@]}"
+    step "rustfmt --check added files (${#added[@]})" bash scripts/quick-check-tests.sh fmt "${added[@]}"
   fi
   cat "$SUMMARY"
   return "$FAILED"
