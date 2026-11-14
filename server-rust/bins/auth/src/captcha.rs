@@ -100,6 +100,16 @@ pub(crate) fn verify(
 pub(crate) struct UsedSet(std::sync::Mutex<std::collections::HashMap<Vec<u8>, i64>>);
 
 impl UsedSet {
+    /// Whether `mac` is already claimed (or the set is full, so no claim can succeed).
+    /// Read-only: lets admission treat a replay as a failed token before the pipeline.
+    pub(crate) fn unclaimable(&self, mac: &[u8], now: i64) -> bool {
+        let used = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        used.get(mac).is_some_and(|until| *until >= now) || used.len() >= USED_CAPACITY
+    }
+
     /// `true` exactly once per live token MAC.
     pub(crate) fn claim(&self, mac: &[u8], exp: i64, now: i64) -> bool {
         let mut used = self
@@ -280,7 +290,9 @@ mod tests {
     #[test]
     fn used_set_claims_each_token_once() {
         let used = UsedSet::default();
+        assert!(!used.unclaimable(b"m1", 50));
         assert!(used.claim(b"m1", 100, 50));
+        assert!(used.unclaimable(b"m1", 60));
         assert!(!used.claim(b"m1", 100, 60), "replay");
         assert!(used.claim(b"m2", 100, 60));
         assert!(used.claim(b"m1", 200, 101), "expired entries are pruned");
