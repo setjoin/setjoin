@@ -782,6 +782,35 @@ async fn member_drive_scope_token_is_admitted_only_on_drive_scope_and_drive_path
     .await;
 }
 
+/// Go chain.go:434: a scoped token is accepted when the request path is within its scope
+/// (`/<scp>` or `/<scp>/...`), on every scope variant; off its path it is `InvalidToken`.
+/// Admission then proceeds exactly as for an unscoped token, so the route's own permission
+/// check (403 in Go) is what a member without the permission meets, not a 401.
+#[tokio::test]
+async fn member_scoped_token_is_admitted_on_its_own_path_like_go() {
+    scenario("member-path-scp", |ctx| async move {
+        let keys = keys();
+        let m = ctx.member().await?;
+        let headers = bearer(&with(claims(m.user), "scp", json!("api/admit-test")));
+        for scope in [Scope::Member, Scope::Drive] {
+            for path in [PLAIN, "/api/admit-test/sub"] {
+                let what = format!("{scope:?} {path}: scp api/admit-test");
+                let a = admitted(run(&ctx, &keys, &headers, path, scope).await, &what);
+                assert_eq!(a.context().user_id(), m.user, "{what}");
+            }
+            for path in ["/api/admit-test2", "/api", "/api/other"] {
+                refused(
+                    run(&ctx, &keys, &headers, path, scope).await,
+                    Refusal::InvalidToken,
+                    &format!("{scope:?} {path}: scp api/admit-test"),
+                );
+            }
+        }
+        Ok::<(), BoxError>(())
+    })
+    .await;
+}
+
 /// `GuestUnavailable` (the guest status read errors) maps to `Unavailable`, never to an
 /// admit or to `GuestInactive`. Every scope reaches that read: the user scopes through
 /// the guest check, `Scope::Member` through `gates::caller`'s guest satellite belt.

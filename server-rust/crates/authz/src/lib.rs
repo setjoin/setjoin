@@ -286,7 +286,7 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
             Err(_) | Ok(Err(push::PushAuthError::GuestUnavailable)) => return Err(Refusal::Unavailable),
             Ok(Err(push::PushAuthError::GuestInactive)) => return Err(Refusal::GuestInactive),
             // Classify with the member verifier so iat/uid rules cannot be remapped away.
-            Ok(Err(push::PushAuthError::Invalid)) => return Err(verified(&token, issuer, now, keys, headers, drive).await.err().unwrap_or_else(|| remap(headers, Refusal::InvalidToken))),
+            Ok(Err(push::PushAuthError::Invalid)) => return Err(verified(&token, issuer, now, keys, headers, drive, path).await.err().unwrap_or_else(|| remap(headers, Refusal::InvalidToken))),
             Ok(Ok(identity)) => identity,
         };
         if identity.has_act() { return Err(Refusal::Impersonation); }
@@ -303,7 +303,7 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
             return identity.user_authorization().ok_or(Refusal::UnservedSubject);
         }
     }
-    let session = verified(&token, issuer, now, keys, headers, drive).await?;
+    let session = verified(&token, issuer, now, keys, headers, drive, path).await?;
     if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None)).await.unwrap_or(false) {
         return Err(Refusal::Unavailable);
     }
@@ -323,9 +323,9 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
 }
 
 /// Signature and claim rules under the precheck bound, refusal class kept (#354).
-async fn verified(token: &str, issuer: &str, now: f64, keys: &impl KeySource, headers: &HeaderMap, drive: bool)
+async fn verified(token: &str, issuer: &str, now: f64, keys: &impl KeySource, headers: &HeaderMap, drive: bool, path: &str)
     -> Result<token::Session, Refusal> {
-    match tokio::time::timeout(precheck_timeout(), token::verify_detailed(token, issuer, now, keys, drive)).await {
+    match tokio::time::timeout(precheck_timeout(), token::verify_detailed(token, issuer, now, keys, drive, path)).await {
         Err(_) => Err(Refusal::Unavailable),
         Ok(result) => result.map_err(|r| remap(headers, r)),
     }

@@ -37,7 +37,7 @@ pub(crate) fn native(
 ) -> Option<Response<Body>> {
     Some(match refusal {
         Refusal::NoCredential | Refusal::InvalidToken => unauthorized(headers, c),
-        // Approved divergences (authz-deny/divergences.json): Go's REST chain
+        // Approved divergences (tests/conformance/authz-deny/divergences.json): Go's REST chain
         // accepts these signed tokens; every first-party mint sets iat and uid>0.
         Refusal::MissingIssuedAt | Refusal::UnservedSubject => unauthorized(headers, c),
         Refusal::GuestInactive => crate::admission::problem(headers, &c.identity, 401, "Unauthorized"),

@@ -97,22 +97,33 @@ fn token_chars(t: &str) -> bool {
 /// revocation watermark compares it), no guest `acct`, no impersonation
 /// `act`, and every claim Go decodes has the JSON type Go expects.
 pub async fn verify(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,false).await}
+
+/// Go's `pathWithinScope` (chain.go:~455): a token with a non-empty `scp` is
+/// accepted only when the request path is `/<scp>` or under `/<scp>/`.
+pub(crate) fn path_within_scope(path:&str,scope:&str)->bool{
+    path.strip_prefix('/').and_then(|p|p.strip_prefix(scope)).is_some_and(|rest|rest.is_empty()||rest.starts_with('/'))
+}
+/// Scope containment (chain.go:434): empty scope, the Drive adapters' drive
+/// surface, or a request path the scope names.
+fn scope_admits(scope:&str,drive:bool,path:Option<&str>)->bool{
+    scope.is_empty()||(drive&&scope=="drive")||path.is_some_and(|p|path_within_scope(p,scope))
+}
 /// Drive adapters only: the ordinary guard still refuses every scoped mirror.
 pub async fn verify_drive(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,true).await}
 
 /// [`verify`]/[`verify_drive`] with the refusal class kept (#354); one signature
 /// check. A token Go's registered-claim boundary rejects is `InvalidToken`; a
 /// token Go accepts but Rust does not serve is named by the first rule it trips.
-pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)
+pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool,path:&str)
     ->Result<Session,crate::Refusal>{
     use crate::Refusal;
     let claims=signed_claims(token,keys).await.ok_or(Refusal::InvalidToken)?;
-    if let Some(session)=session_from(&claims,issuer,now_unix,drive){return Ok(session);}
+    if let Some(session)=session_from(&claims,issuer,now_unix,drive,Some(path)){return Ok(session);}
     if claims_shape_ok(&claims).is_none() || !crate::legacy_jwt::registered(&claims,issuer,AUDIENCE,now_unix) {
         return Err(Refusal::InvalidToken);
     }
     let scope=str_claim(&claims,"scp");
-    if str_claim(&claims,"typ")!="access" || (!scope.is_empty() && !(drive && scope=="drive")) {
+    if str_claim(&claims,"typ")!="access" || !scope_admits(scope,drive,Some(path)) {
         return Err(Refusal::InvalidToken);
     }
     if claims.get("act").is_some_and(|v|!v.is_null()) {return Err(Refusal::Impersonation);}
@@ -123,11 +134,11 @@ pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&im
 }
 async fn verify_scope(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)->Option<Session>{
     let claims = signed_claims(token, keys).await?;
-    session_from(&claims, issuer, now_unix, drive)
+    session_from(&claims, issuer, now_unix, drive, None)
 }
 
 /// The claim rules of [`verify`] over already signature-checked claims.
-fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool) -> Option<Session> {
+fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool, path: Option<&str>) -> Option<Session> {
     claims_shape_ok(claims)?;
 
     if claims.get("iss")?.as_str()? != issuer || issuer.is_empty() {
@@ -154,7 +165,7 @@ fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive:
         return None;
     }
     let scope=str_claim(claims,"scp");
-    if (!scope.is_empty() && !(drive && scope=="drive")) || str_claim(claims,"acct")=="guest" {
+    if !scope_admits(scope, drive, path) || str_claim(claims,"acct")=="guest" {
         return None;
     }
     if claims.get("act").is_some_and(|v| !v.is_null()) {
@@ -818,9 +829,13 @@ mod verify_detailed_tests {
     }
 
     async fn detailed(claims: Value, header: Value, drive: bool) -> Result<(), Refusal> {
+        detailed_at(claims, header, drive, "/x").await
+    }
+
+    async fn detailed_at(claims: Value, header: Value, drive: bool, path: &str) -> Result<(), Refusal> {
         let key = signing_key(1);
         let token = sign(&key, &header, &claims);
-        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive)
+        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive, path)
             .await
             .map(|_| ())
     }
@@ -865,6 +880,41 @@ mod verify_detailed_tests {
         }
     }
 
+    #[tokio::test]
+    async fn scoped_token_is_admitted_only_on_its_own_path_like_go() {
+        let scoped = |scp: &str| with("scp", json!(scp));
+        let cases: [(&str, &str, bool); 8] = [
+            ("admin", "/admin", true),
+            ("admin", "/admin/users", true),
+            ("api/admin", "/api/admin/users", true),
+            ("admin", "/api/admin/users", false),
+            ("admin", "/administrator", false),
+            ("admin", "/", false),
+            ("api/admin", "/api/admin2", false),
+            ("admin", "/x/admin", false),
+        ];
+        for (scp, path, ok) in cases {
+            let want = if ok { Ok(()) } else { Err(Refusal::InvalidToken) };
+            assert_eq!(detailed_at(scoped(scp), es256(), false, path).await, want, "{scp} {path}");
+        }
+        // The unscoped token never depends on the path.
+        assert_eq!(detailed_at(claims(), es256(), false, "/anything").await, Ok(()));
+    }
+
+    #[test]
+    fn cookie_name_is_trimmed_like_go() {
+        // Go 1.26 readCookies: `name = textproto.TrimString(name)` (net/http/cookie.go:400).
+        let get = |c: &str| {
+            let mut h = hyper::HeaderMap::new();
+            h.insert("cookie", c.parse().unwrap());
+            presented_cookie(&h)
+        };
+        assert_eq!(get("access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(get("a=1; access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(get("access_token =abc"), Some("abc".to_owned()));
+        assert_eq!(get("access_token2=x; access_token=abc"), Some("abc".to_owned()));
+    }
+
     struct Counted(VerifyingKey, std::sync::atomic::AtomicUsize);
     impl KeySource for Counted {
         async fn key(&self, _kid: &str) -> Option<VerifyingKey> {
@@ -878,7 +928,7 @@ mod verify_detailed_tests {
         let key = signing_key(1);
         let token = sign(&key, &es256(), &with("exp", json!(1_800_000_000)));
         let keys = Counted(public_key(&key), Default::default());
-        let got = verify_detailed(&token, "mailserver", NOW, &keys, false).await;
+        let got = verify_detailed(&token, "mailserver", NOW, &keys, false, "/x").await;
         assert_eq!(got.map(|_| ()), Err(Refusal::InvalidToken));
         assert_eq!(keys.1.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
