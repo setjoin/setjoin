@@ -15,7 +15,7 @@ plan() {
     printf '%s\n' $LANE_QC_PACKAGES > "$OUT/packages.txt"
     return 0
   fi
-  git diff --name-only "$BASE...HEAD" > "$OUT/changed.txt"
+  git diff --name-only "$BASE...HEAD" > "$OUT/changed.txt" || { echo "quick-check plan: git diff failed" >&2; exit 1; }
   cargo metadata --locked --no-deps --format-version 1 --manifest-path server-rust/Cargo.toml |
     python3 -c '
 import json, os, sys
@@ -28,7 +28,7 @@ if any(f in ("server-rust/Cargo.toml", "server-rust/Cargo.lock") or f.startswith
 else:
     hit = {n for n, d in dirs.items() if any(f == d or f.startswith(d + "/") for f in changed)}
 print("\n".join(sorted(hit)))
-' "$OUT/changed.txt" > "$OUT/packages.txt"
+' "$OUT/changed.txt" > "$OUT/packages.txt" || { echo "quick-check plan: cargo metadata failed" >&2; exit 1; }
 }
 
 SUMMARY="$OUT/summary.md"
