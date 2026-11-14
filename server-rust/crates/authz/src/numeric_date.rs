@@ -162,6 +162,8 @@ pub fn normalize_token_claims(
             }
         }
         if let Some(date) = last {
+            // Go decodes every folded spelling into the one field: keep only the canonical key.
+            claims.retain(|name, _| name == key || !go_json_field_matches(name, key));
             claims.insert(
                 key.into(),
                 date.map_or(serde_json::Value::Null, serde_json::Value::from),
@@ -408,6 +410,7 @@ mod tests {
         assert_eq!(normalized(r#"{"eXp":"x","exp":7}"#, "exp"), None);
         assert_eq!(normalized(r#"{"NBF":"3","IaT":4.5}"#, "nbf"), n(3));
         assert_eq!(normalized(r#"{"NBF":"3","IaT":4.5}"#, "iat"), n(4));
+        assert_eq!(normalized(r#"{"exp":7,"EXP":5}"#, "EXP"), Some(None));
         assert_eq!(normalized(r#"{"\u0045xp":6}"#, "exp"), n(6));
         assert_eq!(
             normalized(r#"{"expx":"bad","ex":"bad"}"#, "exp"),

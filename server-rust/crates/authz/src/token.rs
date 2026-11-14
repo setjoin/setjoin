@@ -1011,6 +1011,8 @@ mod verify_detailed_tests {
         assert_eq!(ok(with("exp", json!("1800000900.5"))).await, Ok(()));
         assert_eq!(ok(with("iat", json!("1799999000"))).await, Ok(()));
         assert_eq!(ok(with("nbf", json!("1.7e9"))).await, Ok(()));
+        // encoding/json folds key case: an `EXP` alias of the same date is admitted like Go.
+        assert_eq!(ok(with("EXP", json!(1_800_000_900))).await, Ok(()));
         for bad in [json!("abc"), json!(""), json!(" 1800000900"), json!("+1800000900"), json!("01800000900"), json!(true)] {
             assert_eq!(ok(with("exp", bad.clone())).await, Err(Refusal::InvalidToken), "exp {bad}");
         }
