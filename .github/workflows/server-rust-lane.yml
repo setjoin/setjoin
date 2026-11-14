@@ -252,20 +252,64 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/lane-setup
-      - name: Install psql, pg_prove, ripgrep and cargo-deny prerequisites
+      # Provisioning copied from the retired xinchuang-ci.yml unit-tests job (same pinned versions): the guards
+      # run on the host, and lane-setup only pulls the toolchain images.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.6'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install psql, pg_prove and ripgrep
         run: |
           { command -v psql && command -v pg_prove && command -v rg; } >/dev/null || {
             sudo apt-get update -qq
             sudo apt-get install -y -qq postgresql-client libtap-parser-sourcehandler-pgtap-perl libdbd-pg-perl ripgrep
           }
-      - name: Load test schema (the DB-backed guards run against it)
+      - name: Install webmail dependencies (guards shell into webmail tooling)
+        # check-app-catalog / check-harmony-bridge / check-native-contract-conformance / route-inventory self-tests
+        # invoke node_modules tooling under mailserver/webmail (ERR_MODULE_NOT_FOUND without it).
+        working-directory: mailserver/webmail
+        run: npm ci
+      - name: Install pinned quality tools
+        # Guards verify exact versions (config/quality-tool-versions.json); the errcheck ratchet is golangci-lint-version-sensitive.
         run: |
-          export DB_PORT="$LANE_PG_PORT"
-          bash scripts/load-test-schema.sh
+          TOOLS="$HOME/.local/setjoin-ci-tools"
+          mkdir -p "$TOOLS"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$TOOLS" v2.13.2
+          GOBIN="$TOOLS" go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          GOBIN="$TOOLS" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          RUFF_TMP="$(mktemp -d)"
+          curl -fsSL https://github.com/astral-sh/ruff/releases/download/0.16.4/ruff-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$RUFF_TMP"
+          install -m 0755 "$RUFF_TMP"/ruff-x86_64-unknown-linux-musl/ruff "$TOOLS/ruff"
+          rm -rf "$RUFF_TMP"
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C "$TOOLS" gitleaks
+          echo "$TOOLS" >> "$GITHUB_PATH"
+      - name: Build webmail (performance guard input)
+        working-directory: mailserver/webmail
+        run: npm run build
+      - name: Install cargo-deny for the Rust workspace policy
+        run: cargo install cargo-deny --locked --version 0.19.0
+      - name: Point the guards at the lane Postgres
+        # lane-setup exported PGPASSWORD for the postgres superuser on LANE_PG_PORT; check-guc-afterconnect reads DB_DSN.
+        run: |
+          {
+            echo "DB_PORT=$LANE_PG_PORT"
+            echo "DB_DSN=postgres://postgres:${PGPASSWORD}@127.0.0.1:${LANE_PG_PORT}/${DB_NAME}?sslmode=disable"
+            echo "TEST_DB_DSN=postgres://postgres:${PGPASSWORD}@127.0.0.1:${LANE_PG_PORT}/${DB_NAME}?sslmode=disable"
+          } >> "$GITHUB_ENV"
+      - name: Load test schema (the DB-backed guards run against it)
+        run: bash scripts/load-test-schema.sh
       - name: Run every guard (self-test first)
+        # check-server-rust.sh runs its static stage only (family isolation, cargo-deny, policy tests): the
+        # workspace, roots and adequacy stages belong to the build, roots and shard jobs of this lane.
+        env:
+          SERVER_RUST_STAGES: static
         run: |
           bash scripts/run-guards-selftest.sh
-          export DB_PORT="$LANE_PG_PORT"
           bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt
 
   shard:
