@@ -9188,12 +9188,16 @@
       "path": "/setup/status",
       "family": "F08",
       "slice": "terms-remaining",
-      "upstream": "go-mail",
-      "state": "OFF",
+      "upstream": "local-rust",
+      "state": "ON",
       "sources": [
         "mailserver/cmd/mailserverd/main.go",
         "mailserver/cmd/mailserverd/testdata/route_inventory.golden"
-      ]
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": []
     },
     {
       "listener": "gateway",
