@@ -41,3 +41,4 @@ Identity and entitlement-audit deferrals retain the existing family contracts.
 Frozen-Go quirks retained: `/api/chat` redirects to bare `/chat/`; the original
 request's cache table can cache an SPA fallback for one year under
 `/chat/unfurl/image/`. See `mux_inner_slash` and `spa_extra_legacy_cache`.
+357d: a denied app entitlement, including a failed entitlement read, is answered natively with Go's RequireApp 403 and app_blocked audit (*_not_entitled; chat_not_entitled_read_fault replays chat_not_entitled.json with a shadowed reducer). An unreadable app toggle answers 503 "service unavailable" (chat_toggle_read_fault; #354's approved precondition-read divergence; Go reads toggles from memory). Fault cases are native-only and inject through a temporary search_path schema on the catch-all's executor.

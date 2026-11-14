@@ -463,12 +463,9 @@ async fn handle(
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        // The executable answers over-budget requests; legacy injected limits
-        // can defer to Go while their pilot flags are off.
+        // Go's coreLimit answers every over-budget request with its own 429 (#357).
         if !limit.limiter.allow(identity.client_ip, now) {
-            if limit.answer_over_budget().await {
-                return jmap::limit::rate_limited(req.headers().get("x-request-id"));
-            }
+            return jmap::limit::rate_limited(req.headers().get("x-request-id"));
         } else {
             // Go mailserver's global CSRF gate runs before route-specific buckets.
             // Rejections are final before any route bucket or authentication.
@@ -528,12 +525,13 @@ async fn handle(
                     false
                 };
                 if !admitted {
-                    return go_mail.forward(req, &identity).await;
+                    // D-357a-1: without the deployment verifier (no DB_DSN, or a custom
+                    // embedding) Go's guest belt cannot run here; fail closed with
+                    // guestgate's lookup-failure answer (middleware.go:75).
+                    return admission::problem(req.headers(), &identity, 503, "service unavailable");
                 }
             }
-            if !limit.allow_route(req.method(), req.uri().path(), identity.client_ip, now)
-                && limit.answer_over_budget().await
-            {
+            if !limit.allow_route(req.method(), req.uri().path(), identity.client_ip, now) {
                 return jmap::limit::route_rate_limited(
                     req.headers().get("x-request-id"),
                     identity.proto,
@@ -556,6 +554,19 @@ async fn handle(
         };
         if let Some(reply) = catchall::root_redirect(&req, &ctx) {
             return reply;
+        }
+    }
+    // #357/#378: an `/auth/*` spelling no inventory row claims is answered by frozen
+    // Go's pinned-API root mux (slash redirect, else SPA/404), never by Go auth. This
+    // runs after CSRF, both budgets and admission, exactly as Go's root dispatch does.
+    if route.is_none() && auth_path && shared.inventory.root_on() {
+        if let Some(fallback) = shared.routes.mux_fallback() {
+            if let Some(reply) = unmatched::slash_redirect(&shared.inventory, &req, identity.proto) {
+                return reply;
+            }
+            return fallback
+                .handle(req, RequestContext { identity, upstream: go_mail })
+                .await;
         }
     }
     let target = route.map_or(
@@ -705,6 +716,7 @@ pub mod contacts;
 pub mod contacts_csv;
 pub mod contacts_vcard;
 mod go_time;
+mod unmatched;
 pub mod ics;
 mod ssrf;
 pub mod subscription_sync;

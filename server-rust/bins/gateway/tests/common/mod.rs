@@ -263,32 +263,10 @@ pub async fn body_bytes(resp: Response<Incoming>) -> Bytes {
     bytes
 }
 
-/// What the edge limit's "is any Rust route serving" read answers.
-#[derive(Clone, Copy, Debug)]
-pub enum Flags {
-    On,
-    Off,
-    /// Never answers (a stalled database).
-    Stalled,
-    /// The read failed: fail closed, i.e. OFF.
-    Failed,
-}
-
-/// An edge budget of `limit` per hour whose flag read answers `flags`.
-pub fn edge(limit: u64, flags: Flags) -> setjoin_gateway::jmap::limit::EdgeLimit {
+/// An edge budget of `limit` per hour. Over budget is always Go's 429 (#357).
+pub fn edge(limit: u64) -> setjoin_gateway::jmap::limit::EdgeLimit {
     use setjoin_gateway::jmap::limit::{EdgeLimit, Limiter};
-    EdgeLimit::new(
-        Limiter::new(limit, 3600),
-        Arc::new(move || -> setjoin_gateway::BoxFuture<bool> {
-            Box::pin(async move {
-                match flags {
-                    Flags::On => true,
-                    Flags::Off | Flags::Failed => false,
-                    Flags::Stalled => std::future::pending().await,
-                }
-            })
-        }),
-    )
+    EdgeLimit::new(Limiter::new(limit, 3600))
 }
 
 /// Public fixture key accepted by the covered Go HTTP recorder as well.

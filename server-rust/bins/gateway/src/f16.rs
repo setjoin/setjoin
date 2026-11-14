@@ -145,7 +145,11 @@ impl<K: KeySource + 'static> Intercept for F16Route<K> {
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         match self.adapter(&r) {
             Some(adapter) => adapter.handle(r, c),
-            None => Box::pin(async move { c.upstream.forward(r, &c.identity).await }),
+            // `matches` already declined: never reached through the route table (#357).
+            None => {
+                let reply = crate::surface::unregistered(&r, c.identity.proto);
+                Box::pin(async move { reply })
+            }
         }
     }
 }

@@ -247,6 +247,8 @@ async fn run(label: &str) -> Result<(), BoxError> {
         "missing-token" => String::new(),
         "foreign-mailbox" => sign(&url, &message_id, b.mailbox, FAR, SECRET, 1),
         "no-message-id" => sign(&url, "", a.mailbox, FAR, SECRET, 1),
+        "mailbox-zero" => sign(&url, &message_id, 0, FAR, SECRET, 1),
+        "mailbox-negative" => sign(&url, &message_id, -1, FAR, SECRET, 1),
         _ => sign(&url, &message_id, a.mailbox, FAR, SECRET, 1),
     };
     let query = match label {
@@ -289,7 +291,6 @@ async fn run(label: &str) -> Result<(), BoxError> {
             worker,
             keys: TokenKeys::new(SECRET.as_bytes(), previous.as_bytes(), version),
             scanners: Scanners { safe_browsing_key: String::new(), safe_browsing_endpoint: SAFE_BROWSING_ENDPOINT.into(), dns: Arc::new(FixedDns(dns)) },
-            forward: false,
         };
         let adapter = Probe { inner: route, changed_status: mutant };
         let mut inventory: Value = serde_json::from_str(include_str!("../route-inventory.json"))?;
@@ -363,6 +364,17 @@ async fn run(label: &str) -> Result<(), BoxError> {
             let source = std::env::var("GOFREE_GO_SOURCE")?;
             record(&file, &json!({"format":1,"route":route_name,"case":label,"go_source":source,"observation":observation}))?;
             record(&row_file, &json!({"format":1,"route":route_name,"case":format!("{label}-row-effects"),"go_source":source,"effects":observation["effects"]}))?;
+        } else if matches!(label, "mailbox-zero" | "mailbox-negative") {
+            // D-357e-1: Go audits under mailbox <= 0 and follows the verdict (recorded);
+            // Rust fails closed to the warn interstitial and writes nothing.
+            let expected: Value = serde_json::from_slice(&std::fs::read(&file)?)?;
+            if observation["response"]["status"] != json!(200) || !text.contains("<title>Warning") {
+                return Err(format!("{label}: expected the warn interstitial, got {observation}").into());
+            }
+            if observation["effects"][0]["after"] != observation["effects"][0]["before"] {
+                return Err(format!("{label}: an unscoped click wrote an audit row").into());
+            }
+            eprintln!("GOLDEN-DIVERGENCE: {route_name} :: {label} (Go status {})", expected["observation"]["response"]["status"]);
         } else {
             let expected: Value = serde_json::from_slice(&std::fs::read(&file)?)?;
             let compared = golden::compare(&expected["observation"], &observation);
@@ -468,6 +480,8 @@ case!(click_bad_escape, "bad-escape");
 case!(click_empty_url, "empty-url");
 case!(click_ftp, "ftp");
 case!(click_message_found, "message-found");
+case!(click_mailbox_zero, "mailbox-zero");
+case!(click_mailbox_negative, "mailbox-negative");
 case!(click_foreign_message, "foreign-message");
 case!(click_foreign_mailbox, "foreign-mailbox");
 case!(click_no_message_id, "no-message-id");
