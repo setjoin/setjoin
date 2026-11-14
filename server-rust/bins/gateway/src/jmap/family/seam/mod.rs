@@ -37,8 +37,8 @@ mod call;
 
 pub(crate) use account::resolve;
 pub(crate) use call::{
-    not_found, parse_id_list, read, set_batch, since_state, worker_read, worker_write, write,
-    SetSql, WorkerRead, WorkerWrite,
+    not_found, parse_id_list, query, read, set_batch, since_state, worker_read, worker_write,
+    write, ScopedQuery, SetSql, WorkerRead, WorkerWrite,
 };
 pub(crate) use setjoin_pg::{Param, Type};
 
@@ -175,11 +175,16 @@ impl Scope {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use regex::Regex;
+
     use super::{WORKER_METHODS, WORKER_TASK_METHODS};
 
     const GOLDEN: &str =
         include_str!("../../../../../../../mailserver/internal/jmap/testdata/methods.golden");
 
+    /// Substrings no scanned file may contain once its exact exceptions are removed.
     const FORBIDDEN: &[&str] = &[
         "setjoin_pg",
         "setjoin_db",
@@ -201,14 +206,177 @@ mod tests {
         "include_str!",
         "include_bytes!",
         "#[path",
+        "#[link",
+        "extern crate",
+        "env!(",
+        "asm!(",
+        "::std::",
         "std::env",
         "std::fs",
         "std::process",
         "std::net",
+        "std::os",
+        "std::io",
+        "std::ffi",
+        "tokio::",
+        "Command::new",
         "super::super",
+    ];
+    /// `crate::` may only continue with these.
+    const CRATE_PATHS: &[&str] = &["jmap::family", "problem::", "guests_input::"];
+    /// Allowed `use` path prefixes (whole segments).
+    const USE_PREFIXES: &[&str] = &[
+        "std::collections",
+        "std::fmt",
+        "std::future",
+        "std::pin",
+        "std::cmp",
+        "std::str",
+        "std::iter",
+        "std::borrow",
+        "std::convert",
+        "std::ops",
+        "std::sync::Arc",
+        "std::sync::OnceLock",
+        "serde",
+        "serde_json",
+        "base64",
+        "sha2",
+        "chrono",
+        "regex",
+        "super",
+        "self",
+        "crate::jmap::family",
+        "crate::problem",
+        "crate::guests_input",
     ];
     const WORKER_TOKENS: &[&str] = &["worker_read", "worker_write", "WorkerRead", "WorkerWrite"];
     const WORKER_FILES: &[&str] = &["calendar_delegate.rs", "task_list.rs"];
+    /// The reviewed core files next to the stubs.
+    const CORE_FILES: &[&str] = &["args.rs", "mod.rs", "reducer_error.rs"];
+    /// Narrow, exact exceptions for the core files (types and test-only harness use).
+    const MOD_EXCEPTIONS: &[&str] = &[
+        "pub(crate) use crate::jmap::get::parse_id;",
+        "pub use seam::ContinuitySigner;",
+        "pub(crate) use seam::Cx;",
+        "crate::jmap::JmapServices",
+        "crate::jmap::reply::go_compact",
+        "crate::jmap::ws_request::metadata",
+        "use setjoin_contracts::ids::{ActorId, Generation, MailboxId};",
+        "use setjoin_pg::{MailboxAuthContext, ScopedExecutor};",
+        "ScopedExecutor::from_dsn(",
+        "MailboxAuthContext::from_authenticated_session(",
+        "include_str!(",
+        "std::fs::read_dir",
+        "std::fs::read_to_string",
+        "env!(\"CARGO_MANIFEST_DIR\")",
+    ];
+    const REDUCER_ERROR_EXCEPTIONS: &[&str] = &[
+        "use setjoin_pg::StatementFailure;",
+        "use Class::{",
+        "include_str!(",
+    ];
+
+    fn exceptions(name: &str) -> &'static [&'static str] {
+        match name {
+            "mod.rs" => MOD_EXCEPTIONS,
+            "reducer_error.rs" => REDUCER_ERROR_EXCEPTIONS,
+            _ => &[],
+        }
+    }
+
+    /// Every path a `use` declaration names, braces expanded, aliases and `self` dropped.
+    fn use_paths(text: &str) -> Vec<String> {
+        let declaration =
+            Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);").expect("use pattern");
+        let alias = Regex::new(r"\s+as\s+[A-Za-z_][A-Za-z0-9_]*").expect("alias pattern");
+        let mut paths = Vec::new();
+        for captures in declaration.captures_iter(text) {
+            let tree: String = alias
+                .replace_all(&captures[1], "")
+                .chars()
+                .filter(|ch| !ch.is_whitespace())
+                .collect();
+            expand("", &tree, &mut paths);
+        }
+        paths
+    }
+
+    fn expand(prefix: &str, tree: &str, out: &mut Vec<String>) {
+        match tree.find('{') {
+            Some(open) if tree.ends_with('}') => {
+                let base = format!("{prefix}{}", &tree[..open]);
+                let inner = &tree[open + 1..tree.len() - 1];
+                let (mut depth, mut start) = (0usize, 0usize);
+                for (index, ch) in inner.char_indices() {
+                    match ch {
+                        '{' => depth += 1,
+                        '}' => depth = depth.saturating_sub(1),
+                        ',' if depth == 0 => {
+                            expand(&base, &inner[start..index], out);
+                            start = index + 1;
+                        }
+                        _ => {}
+                    }
+                }
+                expand(&base, &inner[start..], out);
+            }
+            _ if tree.is_empty() => {}
+            _ => {
+                let path = format!("{prefix}{tree}");
+                out.push(path.trim_end_matches("::self").to_owned());
+            }
+        }
+    }
+
+    fn use_allowed(path: &str) -> bool {
+        if path.ends_with('*') {
+            return path == "super::*";
+        }
+        if path.starts_with("::") || path.starts_with("super::super") {
+            return false;
+        }
+        USE_PREFIXES
+            .iter()
+            .any(|prefix| path == *prefix || path.starts_with(&format!("{prefix}::")))
+    }
+
+    /// Every rule a scanned file breaks (empty when it only uses the seam).
+    fn violations(name: &str, source: &str) -> Vec<String> {
+        let mut text = source.to_owned();
+        for exception in exceptions(name) {
+            text = text.replace(exception, "");
+        }
+        let mut found = Vec::new();
+        for token in FORBIDDEN {
+            if text.contains(token) {
+                found.push(format!("{name}: {token}"));
+            }
+        }
+        let mut rest = text.as_str();
+        while let Some(at) = rest.find("crate::") {
+            rest = &rest[at + "crate::".len()..];
+            if !CRATE_PATHS.iter().any(|allowed| rest.starts_with(allowed)) {
+                found.push(format!(
+                    "{name}: crate::{}",
+                    rest.chars().take(40).collect::<String>()
+                ));
+            }
+        }
+        for path in use_paths(&text) {
+            if !use_allowed(&path) {
+                found.push(format!("{name}: use {path}"));
+            }
+        }
+        if !WORKER_FILES.contains(&name) {
+            for token in WORKER_TOKENS {
+                if text.contains(token) {
+                    found.push(format!("{name}: {token}"));
+                }
+            }
+        }
+        found
+    }
 
     #[test]
     fn family_files_use_only_the_seam() {
@@ -230,42 +398,73 @@ mod tests {
                     stack.push(path);
                     continue;
                 }
-                if matches!(relative.as_str(), "mod.rs" | "args.rs" | "reducer_error.rs") {
-                    continue;
-                }
                 let text = std::fs::read_to_string(&path).expect("family file");
                 scanned.push((relative, text));
             }
         }
         scanned.sort();
-        let names: Vec<&str> = scanned.iter().map(|(name, _)| name.as_str()).collect();
-        let mut expected = super::super::FAMILY_FILES.to_vec();
-        expected.sort_unstable();
+        let names: BTreeSet<&str> = scanned.iter().map(|(name, _)| name.as_str()).collect();
+        let expected: BTreeSet<&str> = super::super::FAMILY_FILES
+            .iter()
+            .chain(CORE_FILES.iter())
+            .copied()
+            .collect();
         assert_eq!(
             names, expected,
-            "family/ may hold exactly the registered stub files"
+            "family/ may hold exactly the stub and core files"
         );
         for (name, text) in &scanned {
-            for token in FORBIDDEN {
-                assert!(
-                    !text.contains(token),
-                    "{name} uses {token}; go through family::seam"
-                );
-            }
-            let mut rest = text.as_str();
-            while let Some(at) = rest.find("crate::jmap::") {
-                rest = &rest[at + "crate::jmap::".len()..];
-                assert!(
-                    rest.starts_with("family"),
-                    "{name} reaches crate::jmap outside family"
-                );
-            }
-            if !WORKER_FILES.contains(&name.as_str()) {
-                for token in WORKER_TOKENS {
-                    assert!(!text.contains(token), "{name} may not use {token}");
-                }
-            }
+            let found = violations(name, text);
+            assert!(found.is_empty(), "{found:#?}");
         }
+    }
+
+    #[test]
+    fn the_guard_rejects_each_escape() {
+        for fixture in [
+            "use std::{env, process::Command};",
+            "use std as s;",
+            "use ::std::env::var;",
+            "use std::*;",
+            "use std::os::unix::process::CommandExt;",
+            "pub(crate) use crate::jmap::reply::response;",
+            "use crate::workers::Workers;",
+            "use setjoin_pg::Type;",
+            "use tokio::process::Command;",
+            "use super::super::Cx;",
+            "use serde_json as json; use json::Value; use crate::jmap::JmapServices;",
+            "fn f() { let _ = std::env::var(\"DB_WORKER_DSN\"); }",
+            "fn f() -> &'static str { env!(\"DB_DSN\") }",
+            "fn f() { let _ = crate::jmap::random(); }",
+            "include!(\"other.rs\");",
+            "#[path = \"x.rs\"]\nmod x;",
+            "extern crate std as s;",
+            "fn f(cx: &Cx<'_>) { let _ = &cx.exec; }",
+            "unsafe fn f() {}",
+            "const S: SetSql = SetSql::new(\"\", \"\", \"\");",
+            "fn f() { super::seam::worker_read(); }",
+            "fn f() { let _ = tokio::fs::read(\"x\"); }",
+        ] {
+            assert!(!violations("reminder.rs", fixture).is_empty(), "{fixture}");
+        }
+        for clean in [
+            "use super::Method;",
+            "use super::seam::{read, resolve, write, write_sql, Type};",
+            "use std::collections::{BTreeMap, BTreeSet};",
+            "use serde_json::{json, Value};",
+            "use std::fmt::{self, Write};",
+            "pub(super) const METHODS: &[super::Method] = &[];",
+            "fn f() -> String { crate::problem::go_string(\"x\") }",
+        ] {
+            let found = violations("reminder.rs", clean);
+            assert!(found.is_empty(), "{clean}: {found:?}");
+        }
+        assert!(violations("task_list.rs", "fn f() { super::seam::worker_read(); }").is_empty());
+        assert!(
+            !violations("mod.rs", "use std::{env, process::Command};").is_empty(),
+            "core files are scanned too"
+        );
+        assert!(!violations("args.rs", "fn f() { let _ = std::fs::read(\"x\"); }").is_empty());
     }
 
     #[test]

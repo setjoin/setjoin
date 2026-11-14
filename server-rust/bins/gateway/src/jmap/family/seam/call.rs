@@ -29,30 +29,22 @@ fn reducer_call() -> &'static Regex {
     })
 }
 
-fn owner_predicate() -> &'static Regex {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)\bWHERE\s+([a-z_]+\.)?mailbox_id\s*=\s*\$1\b")
-            .expect("owner predicate pattern")
-    })
-}
-
-fn set_operator() -> &'static Regex {
-    static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| {
-        Regex::new(r"(?i)\b(UNION|INTERSECT|EXCEPT|OR)\b").expect("set operator pattern")
-    })
-}
-
-/// The whole statement is a reducer call whose first argument is `$1` (Go
-/// `CallScoped`), or a ported Go query filtered by `mailbox_id = $1` with no
-/// set operator, OR or second statement (template requirement 3).
+/// The whole statement is one reducer call whose arguments are only
+/// placeholders, `$1` (the scope mailbox) first: Go `CallScoped`. Every other
+/// scoped statement is a reviewed [`ScopedQuery`] variant, never free SQL.
 pub(crate) fn owner_bound(sql: &str) -> bool {
     reducer_call().is_match(sql)
-        || (owner_predicate().is_match(sql) && !set_operator().is_match(sql) && !sql.contains(';'))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Seam refusals on this thread (the observable boundary for the refusal tests).
+    static REFUSALS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 fn refuse(cx: &Cx<'_>, what: &str) -> MethodError {
+    #[cfg(test)]
+    REFUSALS.with(|count| count.set(count.get() + 1));
     eprintln!(
         "setjoin-gateway: jmap {} {what} refused by the family seam",
         cx.method.name
@@ -286,6 +278,35 @@ pub(crate) async fn set_batch(
     let merged =
         crate::jmap::reply::marshal_sorted(&merged).ok_or_else(MethodError::server_fail)?;
     crate::jmap::set::add_not_destroyed(&merged, &bad).ok_or_else(MethodError::server_fail)
+}
+
+/// Reviewed non-reducer scoped statements: Go `h.pool` queries ported scoped
+/// (template requirement 3). Each variant names its method and its exact SQL
+/// with `$1` = scope mailbox, and carries only non-identity params. Adding a
+/// variant is a seam edit and needs a Fable review; family code passes a
+/// variant, never SQL. The table is empty until a family needs one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScopedQuery {}
+
+impl ScopedQuery {
+    /// `(method, sql)` of the variant.
+    fn spec(self) -> (&'static str, &'static str) {
+        match self {}
+    }
+}
+
+/// Run one reviewed scoped statement (READ ONLY, `$1` = scope mailbox).
+pub(crate) async fn query(
+    cx: &Cx<'_>,
+    scope: &Scope,
+    statement: ScopedQuery,
+) -> Result<String, MethodError> {
+    let (method, _sql) = statement.spec();
+    if method != cx.method.name {
+        return Err(refuse(cx, "scoped query"));
+    }
+    let _ = scope;
+    match statement {}
 }
 
 /// Go `parseIDList`: `None` (SQL NULL) when there are no valid and no bad ids.
@@ -619,13 +640,11 @@ mod tests {
     use crate::jmap::family::{always, Gate, Method, Reply};
 
     #[test]
-    fn owner_bound_accepts_reducer_calls_and_owned_queries() {
+    fn owner_bound_accepts_only_anchored_reducer_calls() {
         for sql in [
             "SELECT reminders_get($1,$2)::text",
             write_sql!("SELECT reminder_snooze($1,$4,$5::text::timestamptz)::text"),
             write_sql!("SELECT reminder_dismiss_all($1)::text"),
-            "SELECT x FROM t WHERE mailbox_id = $1",
-            "SELECT x FROM t a WHERE a.mailbox_id=$1 AND a.id = $2 ORDER BY a.id",
         ] {
             assert!(owner_bound(sql), "{sql}");
         }
@@ -645,6 +664,15 @@ mod tests {
             "SELECT x FROM t WHERE mailbox_id=$1; SELECT 1",
             "SELECT x FROM t WHERE mailbox_id=$2",
             "SELECT x FROM t WHERE owner=$1",
+            "SELECT x FROM t WHERE mailbox_id = $1",
+            "SELECT json_agg(c)::text FROM contacts c WHERE EXISTS (SELECT 1 FROM contacts x WHERE mailbox_id=$1)",
+            "SELECT x FROM t WHERE mailbox_id=$1+1",
+            "SELECT f($1) -- WHERE mailbox_id = $1",
+            "SELECT f($1)/* WHERE mailbox_id = $1 */",
+            "SELECT f($1,$2)::text WHERE true",
+            "select f($1)",
+            "SELECT public.f($1)",
+            "SELECT f($1, $2)",
         ] {
             assert!(!owner_bound(sql), "{sql}");
         }
@@ -748,6 +776,24 @@ mod tests {
         run: run_none,
     };
 
+    static WORKER_PROBE: Method = Method {
+        name: "TaskList/get",
+        capability: "urn:test",
+        app: "",
+        gate: Gate::Personal,
+        account: false,
+        mutator: false,
+        state: false,
+        ready: always,
+        run: run_none,
+    };
+
+    fn refusals() -> usize {
+        REFUSALS.with(|count| count.get())
+    }
+
+    /// Each bad statement is stopped by the seam (refusal counted), while a
+    /// well-formed one passes it and only then fails on the closed port.
     #[tokio::test]
     async fn the_seam_refuses_before_touching_the_database() {
         let exec = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=x dbname=x", 1)
@@ -767,39 +813,68 @@ mod tests {
             ),
             delegated: false,
         };
-        let refused = MethodError::server_fail();
+        let start = refusals();
+        assert!(read(&cx, &scope, "SELECT f($2,$1)::text", &[])
+            .await
+            .is_err());
+        assert_eq!(refusals(), start + 1, "rogue read refused by the seam");
+        assert!(read(&cx, &scope, "SELECT f($1)::text", &[]).await.is_err());
+        assert_eq!(refusals(), start + 1, "well-formed read passed the seam");
+        assert!(write(&cx, &scope, "probe", "SELECT f($1)::text", &[])
+            .await
+            .is_err());
         assert_eq!(
-            read(&cx, &scope, "SELECT f($2,$1)::text", &[])
-                .await
-                .unwrap_err(),
-            refused
+            refusals(),
+            start + 2,
+            "write without the receipt tail refused"
         );
-        assert_eq!(
-            write(&cx, &scope, "probe", "SELECT f($1)::text", &[])
+        assert!(
+            write(&cx, &scope, "probe", write_sql!("SELECT f($1)::text"), &[])
                 .await
-                .unwrap_err(),
-            refused
+                .is_err()
         );
+        assert_eq!(refusals(), start + 2, "well-formed write passed the seam");
         let rogue = SetSql::new(
             "SELECT f($2,$1)::text",
             "SELECT g($1,$2::text::jsonb)::text",
             "SELECT h($1,$2::bigint[])::text",
         );
-        assert_eq!(
+        assert!(
             set_batch(&cx, &scope, rogue, "probe", Some("{}"), None, None)
                 .await
-                .unwrap_err(),
-            refused
+                .is_err()
         );
+        assert_eq!(refusals(), start + 3, "rogue set statement refused");
+        assert!(worker_read(&cx, WorkerRead::TaskListGet).await.is_err());
         assert_eq!(
-            worker_read(&cx, WorkerRead::TaskListGet).await.unwrap_err(),
-            refused
+            refusals(),
+            start + 4,
+            "worker read under a foreign method refused"
         );
+        assert!(worker_write(&cx, WorkerWrite::TaskListDelete { list: 1 })
+            .await
+            .is_err());
         assert_eq!(
-            worker_write(&cx, WorkerWrite::TaskListDelete { list: 1 })
-                .await
-                .unwrap_err(),
-            refused
+            refusals(),
+            start + 5,
+            "worker write under a foreign method refused"
+        );
+        let worker_cx = Cx::new(&exec, None, &auth, 1, 2, &WORKER_PROBE, "{}");
+        assert!(worker_read(&worker_cx, WorkerRead::TaskListGet)
+            .await
+            .is_err());
+        assert_eq!(
+            refusals(),
+            start + 5,
+            "its own worker statement passes the seam (fails only for missing services)"
+        );
+        assert!(worker_read(&worker_cx, WorkerRead::TasksAssignedToMe)
+            .await
+            .is_err());
+        assert_eq!(
+            refusals(),
+            start + 6,
+            "another method's worker statement refused"
         );
     }
 }

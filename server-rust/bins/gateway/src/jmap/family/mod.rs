@@ -159,11 +159,27 @@ pub(crate) struct Method {
     /// Takes sinceState/ifInState/lease/revision (adequacy: state-mismatch).
     pub state: bool,
     /// Byte-independent readiness; `false` leaves the method to Go on both transports.
-    pub ready: fn(Option<&crate::jmap::JmapServices>) -> bool,
+    pub ready: fn(Ready) -> bool,
     pub run: for<'a> fn(&'a Cx<'a>) -> Reply<'a>,
 }
 
-pub(crate) fn always(_: Option<&crate::jmap::JmapServices>) -> bool {
+/// What readiness may depend on: never an executor, credential or key.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Ready {
+    /// The continuity signer and boot epoch are loaded.
+    pub continuity: bool,
+}
+
+impl Ready {
+    fn of(services: Option<&crate::jmap::JmapServices>) -> Self {
+        Self {
+            continuity: services
+                .is_some_and(|s| s.continuity_signer.is_some() && s.continuity_boot.is_some()),
+        }
+    }
+}
+
+pub(crate) fn always(_: Ready) -> bool {
     true
 }
 
@@ -211,7 +227,7 @@ fn classify_with(
         return None;
     };
     let method = find(name.as_str())?;
-    if !body.using.iter().any(|c| c == method.capability) || !(method.ready)(services) {
+    if !body.using.iter().any(|c| c == method.capability) || !(method.ready)(Ready::of(services)) {
         return None;
     }
     let raw = args.get();
@@ -312,6 +328,7 @@ fn check_fragments(registered: &[&Method], fragments: &[(String, Value)]) -> Res
     let by_name: BTreeMap<&str, &Method> = registered.iter().map(|m| (m.name, *m)).collect();
     let mut commands: BTreeSet<String> = BTreeSet::new();
     let mut mutators: BTreeSet<String> = BTreeSet::new();
+    let mut suited: BTreeSet<String> = BTreeSet::new();
     for (file, fragment) in fragments {
         let inventory = fragment
             .pointer("/inventory/0")
@@ -345,6 +362,7 @@ fn check_fragments(registered: &[&Method], fragments: &[(String, Value)]) -> Res
             let method = by_name
                 .get(command)
                 .ok_or_else(|| format!("{file}: {command} is not registered"))?;
+            suited.insert(command.to_owned());
             let expected = [
                 ("gate", Value::from(method.gate.word())),
                 ("app", Value::from(method.app)),
@@ -370,6 +388,11 @@ fn check_fragments(registered: &[&Method], fragments: &[(String, Value)]) -> Res
     if commands != names {
         return Err(format!(
             "fragment commands {commands:?} != registered {names:?}"
+        ));
+    }
+    if suited != names {
+        return Err(format!(
+            "fragment suites {suited:?} != registered {names:?}"
         ));
     }
     if mutators != writers {
@@ -403,7 +426,7 @@ mod tests {
         })
     }
 
-    fn never(_: Option<&crate::jmap::JmapServices>) -> bool {
+    fn never(_: Ready) -> bool {
         false
     }
 
@@ -609,6 +632,17 @@ mod tests {
                     "oracle_commands": commands, "oracle_mutators": mutators}],
                 "routes": [suite]}),
         )
+    }
+
+    #[test]
+    fn a_declared_command_without_a_suite_is_rejected() {
+        let set = &TESTS[2];
+        let good = json!({"command": "Test/set", "gate": "read", "app": "tests",
+            "account": true, "mutator": true, "state": true});
+        let (name, mut fragment) = fragment(&["Test/set"], &["Test/set"], good);
+        fragment["routes"] = json!([]);
+        let error = check_fragments(&[set], &[(name, fragment)]).unwrap_err();
+        assert!(error.contains("fragment suites"), "{error}");
     }
 
     #[test]

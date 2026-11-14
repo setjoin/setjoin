@@ -337,8 +337,10 @@ mod tests {
     }
 
     #[test]
-    fn undecodable_strings_are_method_errors_not_panics() {
-        assert!(decode(r#"{"accountId":"\ud800"}"#, "", ACCOUNT).is_err());
+    fn lone_surrogates_decode_like_go_and_non_objects_are_errors() {
+        // Go replaces an unpaired surrogate escape with U+FFFD (go_json_bytes).
+        let args = decode(r#"{"accountId":"\ud800"}"#, "", ACCOUNT).expect("decoded");
+        assert_eq!(args.str("accountId"), "\u{fffd}");
         assert!(decode("[1]", "", ACCOUNT).is_err());
     }
 }

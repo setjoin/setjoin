@@ -22,7 +22,22 @@ pub(crate) async fn resolve(cx: &Cx<'_>, raw: &str) -> Result<Scope, MethodError
             "accountId does not match authenticated user",
         )
     };
-    let delegated = account != cx.mailbox;
+    // Go `identity.ValidateAccountID`: the primary is re-resolved on every call
+    // (a WebSocket batch authorizes once). No primary falls through to the
+    // delegate arm; a lookup failure fails closed.
+    let rows = cx
+        .exec
+        .read(
+            "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
+            &[(&cx.user, Type::INT8)],
+        )
+        .await
+        .map_err(|_| mismatch())?;
+    let primary = match rows.first() {
+        None => None,
+        Some(row) => Some(row.try_get::<_, i64>(0).map_err(|_| mismatch())?),
+    };
+    let delegated = primary != Some(account);
     if delegated {
         // Go `delegateGrants`: user-scoped (FORCE RLS), per call, uncached.
         let rows = cx
@@ -236,6 +251,33 @@ mod db {
             Some(mismatch.clone()),
             "non-primary own mailbox"
         );
+        // The primary changes between calls: the former primary is no longer
+        // owned (no grant: mismatch) and the new one is.
+        owner
+            .batch_execute(&format!(
+                "BEGIN; UPDATE mailboxes SET is_primary = FALSE WHERE id = {}; \
+                 UPDATE mailboxes SET is_primary = TRUE WHERE id = {second}; COMMIT;",
+                a.mailbox
+            ))
+            .await
+            .expect("switch primary");
+        assert_eq!(
+            resolve(&cx(read), &a.mailbox.to_string()).await.err(),
+            Some(mismatch.clone()),
+            "former primary"
+        );
+        let scope = resolve(&cx(read), &second.to_string())
+            .await
+            .expect("new primary");
+        assert_eq!((scope.id(), scope.delegated()), (second, false));
+        owner
+            .batch_execute(&format!(
+                "BEGIN; UPDATE mailboxes SET is_primary = FALSE WHERE id = {second}; \
+                 UPDATE mailboxes SET is_primary = TRUE WHERE id = {}; COMMIT;",
+                a.mailbox
+            ))
+            .await
+            .expect("restore primary");
 
         for permission in [
             "read",
@@ -322,6 +364,13 @@ mod db {
             .catch_unwind()
             .await;
         let _ = owner
+            .batch_execute(&format!(
+                "BEGIN; UPDATE mailboxes SET is_primary = FALSE WHERE id = {second}; \
+                 UPDATE mailboxes SET is_primary = TRUE WHERE id = {}; COMMIT;",
+                a.mailbox
+            ))
+            .await;
+        let _ = owner
             .execute(
                 "UPDATE mailboxes SET enabled = true WHERE id = ANY($1)",
                 &[&vec![a.mailbox, f.mailbox]],
@@ -347,5 +396,50 @@ mod db {
         if let Err(panic) = outcome {
             std::panic::resume_unwind(panic);
         }
+    }
+}
+
+#[cfg(test)]
+mod offline {
+    use setjoin_contracts::ids::{ActorId, Generation};
+    use setjoin_pg::ScopedExecutor;
+
+    use super::*;
+    use crate::jmap::family::{always, Gate, Method, Reply};
+
+    fn run_none<'a>(_: &'a Cx<'a>) -> Reply<'a> {
+        Box::pin(async { Err(MethodError::server_fail()) })
+    }
+
+    static READ: Method = Method {
+        name: "Gate/read",
+        capability: "urn:test",
+        app: "",
+        gate: Gate::Read,
+        account: true,
+        mutator: false,
+        state: false,
+        ready: always,
+        run: run_none,
+    };
+
+    /// The authorized mailbox alone is not ownership: an unreadable primary fails closed.
+    #[tokio::test]
+    async fn a_failed_primary_lookup_fails_closed() {
+        let exec = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=x dbname=x", 1)
+            .expect("lazy pool");
+        let primary = MailboxAuthContext::from_authenticated_session(
+            ActorId::new(1).expect("actor"),
+            MailboxId::new(2).expect("mailbox"),
+            Generation(1),
+        );
+        let cx = Cx::new(&exec, None, &primary, 1, 2, &READ, "{}");
+        assert_eq!(
+            resolve(&cx, "2").await.err(),
+            Some(MethodError::new(
+                "accountNotFound",
+                "accountId does not match authenticated user"
+            ))
+        );
     }
 }
