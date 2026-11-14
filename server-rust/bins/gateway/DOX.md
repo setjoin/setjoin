@@ -1005,3 +1005,34 @@ served by the catch-all alone (`Inventory::is_subtree_row`): a request only they
 concrete adapter that merely matches it. A rolled-back F15/F16 request arrives under `/api` and is claimed
 only by the F22 `/api/` row; `Inventory::proxy_family` counts its Go forward under the owning family
 (F15/F16), not F22. Tests: `tests/subtree_dispatch.rs`.
+
+## JMAP families (#369-#377)
+
+The remaining frozen-Go JMAP methods are ported per family under
+`src/jmap/family/`. Each family owns exactly one stub file (two for #371 and
+#373) that exports `METHODS`. The rows must equal
+`mailserver/internal/jmap/testdata/methods.golden` (`registry_matches_frozen_go`).
+A listed, ready method is claimed for every well-formed single call, so
+`ws_request::needs_go` stops forwarding it, and it is answered in Go's
+`dispatchInvocation` order: args object check, app entitlement (`app_blocked`
+audit without IP), handler.
+
+Family files reach the database only through `family::seam`:
+- `resolve` (Go `parseAccountID`, including delegate gates and the lifecycle check) is the only way to obtain a `Scope`.
+- `read` / `write` / `set_batch` take static, owner-bound SQL with `$1` bound from the scope.
+- The worker credential is reachable only through the closed `WorkerRead` / `WorkerWrite` statement table, keyed to `WORKER_METHODS` and bound to the verified user.
+
+`seam::tests::family_files_use_only_the_seam` rejects any other access. Reducer
+errors map through `reducer_error` (a port of `shared/reducererr`, drift-tested).
+
+Oracles share `tests/jmap_family_oracle/mod.rs`. Goldens live in
+`tests/conformance/jmap/families/<family>/` and are recorded only by the
+dispatch-only `gofree-record.yml` (gateway mode,
+`-f test=jmap_family_<file> -f go_upstream=none -f go_source=<branch head>`).
+Catalog entries are per-issue fragments in
+`tests/conformance/route-catalog.d/jmap-<issue>.json`, merged by the adequacy
+gate. Each fragment suite declares gate/app/account/mutator/state, and the
+gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
+with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
+Continuity/* stays with Go while the continuity signing key is not loaded
+(`setjoin_gateway_jmap_continuity_signer_missing 1`).
