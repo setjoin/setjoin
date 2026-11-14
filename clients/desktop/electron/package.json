@@ -21,7 +21,7 @@
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^5.1.0"
   },
   "dependencies": {
     "@parcel/watcher": "^2.6.0"
