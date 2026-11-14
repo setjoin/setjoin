@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Quick check for agent branches (.github/workflows/quick-check.yml); CI-side, so nobody compiles Rust locally.
 #   quick-check.sh plan   write the changed workspace packages to $LANE_QC_OUT/packages.txt
-#   quick-check.sh run    cargo check --tests + cargo test --lib per package, cheap guards, rustfmt on added files
+#   quick-check.sh run    cargo clippy --all-targets (errors fail, lints warn) + cargo test --lib per package, cheap guards, rustfmt on added files
 # Env: LANE_QC_PACKAGES (space-separated override), LANE_QC_TESTS (extra test name filters; option-like args rejected, zero executed tests = FAIL), LANE_QC_OUT (artifact dir).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -57,7 +57,7 @@ run() {
   else
     echo "packages: ${pkgs[*]}"
     for p in "${pkgs[@]}"; do
-      step "cargo check --tests -p $p" bash -c 'cd server-rust && cargo check --locked --tests -p "$1"' _ "$p"
+      step "cargo clippy --all-targets -p $p" bash -c 'cd server-rust && cargo clippy --locked --all-targets -p "$1"' _ "$p"
     done
     for p in "${pkgs[@]}"; do
       # shellcheck disable=SC2086
