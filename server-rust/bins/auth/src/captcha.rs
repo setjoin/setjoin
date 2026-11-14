@@ -100,14 +100,12 @@ pub(crate) fn verify(
 pub(crate) struct UsedSet(std::sync::Mutex<std::collections::HashMap<Vec<u8>, i64>>);
 
 impl UsedSet {
-    /// Whether `mac` is already claimed (or the set is full, so no claim can succeed).
-    /// Read-only: lets admission treat a replay as a failed token before the pipeline.
-    pub(crate) fn unclaimable(&self, mac: &[u8], now: i64) -> bool {
-        let used = self
-            .0
+    /// Give back a claim this caller just made (its request was refused before use).
+    pub(crate) fn release(&self, mac: &[u8]) {
+        self.0
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        used.get(mac).is_some_and(|until| *until >= now) || used.len() >= USED_CAPACITY
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(mac);
     }
 
     /// `true` exactly once per live token MAC.
@@ -290,12 +288,24 @@ mod tests {
     #[test]
     fn used_set_claims_each_token_once() {
         let used = UsedSet::default();
-        assert!(!used.unclaimable(b"m1", 50));
         assert!(used.claim(b"m1", 100, 50));
-        assert!(used.unclaimable(b"m1", 60));
         assert!(!used.claim(b"m1", 100, 60), "replay");
         assert!(used.claim(b"m2", 100, 60));
         assert!(used.claim(b"m1", 200, 101), "expired entries are pruned");
+    }
+
+    #[test]
+    fn claim_race_has_one_winner_and_release_reopens() {
+        let used = UsedSet::default();
+        // Two requests with one token: the atomic claim picks a single winner; the
+        // loser (which then runs TarpitOnly) cannot claim while it is held.
+        assert!(used.claim(b"m", 100, 50));
+        assert!(!used.claim(b"m", 100, 50), "loser");
+        used.release(b"m");
+        assert!(
+            used.claim(b"m", 100, 50),
+            "released after a refused request"
+        );
     }
 
     #[test]

@@ -211,8 +211,8 @@ impl AuthServer {
 
     /// Stage 2: Go's pipeline (`Gate::decide_with`), with the #349 captcha
     /// divergences: a token is bound to IP, route and username and is single-use.
-    /// Order (Fable V2-2): verify, run the pipeline, claim only when it allows, so
-    /// a rate-limited request consumes no used-set slot. A verified and claimed
+    /// Order: verify, claim atomically, run the pipeline, release the claim if the
+    /// pipeline refuses (Fable V2-2), so a rate-limited request consumes no slot. A claimed
     /// token runs `Skip` (Go: a solve skips the captcha/tarpit step); a token that
     /// fails verification, is already claimed or loses the claim race runs `TarpitOnly` and, if everything else
     /// allows, gets 403 `captcha`. Every refusal first writes Go's attempt row
@@ -248,20 +248,26 @@ impl AuthServer {
                 .map_or(&[][..], |v| v.as_bytes());
             let now = captcha::now();
             let verified = captcha::verify(secret, token, answer, &binding, now);
-            // A token already claimed (replay, or a full set) is a failed token before
-            // the pipeline, so it keeps the tarpit like any other failed check.
-            let step = if verified
+            // Claim atomically before choosing the step, so exactly one concurrent
+            // request per token runs `Skip`; a replay, a claim-race loser, a full set
+            // or an unverified token all run `TarpitOnly` (failed-captcha-runs-pipeline).
+            let claimed = verified
                 .as_ref()
-                .is_some_and(|(mac, _)| !self.captcha_used.unclaimable(mac, now))
-            {
+                .is_some_and(|(mac, exp)| self.captcha_used.claim(mac, *exp, now));
+            let step = if claimed {
                 CaptchaStep::Skip
             } else {
                 CaptchaStep::TarpitOnly
             };
             let decision = gate.decide_with(&meta, step).await;
-            // Claim only on Allow (V2-2); a failed claim (replay, full set) is a failed token.
-            let solved = decision.action != ThreatAction::Allow
-                || verified.is_some_and(|(mac, exp)| self.captcha_used.claim(&mac, exp, now));
+            // V2-2: a claimed token whose request the pipeline refuses is released, so
+            // a rate-limited request consumes no used-set slot.
+            if claimed && decision.action != ThreatAction::Allow {
+                if let Some((mac, _)) = verified.as_ref() {
+                    self.captcha_used.release(mac);
+                }
+            }
+            let solved = decision.action != ThreatAction::Allow || claimed;
             if !solved {
                 gate.attempt(&meta, "captcha_needed").await;
                 return Err(threat_reply(
@@ -597,7 +603,11 @@ pub(super) async fn threat_reply(
 
 /// Go `writeResult`. `Reject + "captcha_needed"` is Go's ActionCaptchaNeeded; the
 /// challenge token is bound to this request's IP, route and username.
-async fn threat_result(secret: &[u8], binding: &captcha::Binding<'_>, decision: &Decision) -> Response<Body> {
+async fn threat_result(
+    secret: &[u8],
+    binding: &captcha::Binding<'_>,
+    decision: &Decision,
+) -> Response<Body> {
     match (decision.action, decision.reason.as_str()) {
         (ThreatAction::Reject, "captcha_needed") => {
             let Some((a, b)) = captcha::operands() else {
@@ -614,10 +624,24 @@ async fn threat_result(secret: &[u8], binding: &captcha::Binding<'_>, decision: 
             .await
         }
         (ThreatAction::RateLimited, _) => {
-            threat_reply(429, "rate_limited", "Too many requests", None, Duration::ZERO).await
+            threat_reply(
+                429,
+                "rate_limited",
+                "Too many requests",
+                None,
+                Duration::ZERO,
+            )
+            .await
         }
         (ThreatAction::Tarpitted, _) => {
-            threat_reply(429, "tarpit_applied", "Request throttled", None, decision.delay).await
+            threat_reply(
+                429,
+                "tarpit_applied",
+                "Request throttled",
+                None,
+                decision.delay,
+            )
+            .await
         }
         (_, reason) => threat_reply(403, reason, DENIED, None, decision.delay).await,
     }
@@ -788,7 +812,10 @@ mod tests {
             assert_eq!(reply.status().as_u16(), status, "{reason}");
             assert_eq!(reply.headers()["x-threat-reason"], reason);
             assert_eq!(
-                reply.headers().get("x-threat-delay").map(|v| v.to_str().unwrap()),
+                reply
+                    .headers()
+                    .get("x-threat-delay")
+                    .map(|v| v.to_str().unwrap()),
                 delay
             );
             assert_eq!(reply.headers()["content-type"], "application/json");
@@ -819,8 +846,13 @@ mod tests {
         let token = doc["captcha_token"].as_str().unwrap();
         let now = captcha::now();
         assert!(captcha::verify(b"secret", token.as_bytes(), sum.as_bytes(), &B, now).is_some());
-        let elsewhere = captcha::Binding { ip: "192.0.2.9", ..B };
-        assert!(captcha::verify(b"secret", token.as_bytes(), sum.as_bytes(), &elsewhere, now).is_none());
+        let elsewhere = captcha::Binding {
+            ip: "192.0.2.9",
+            ..B
+        };
+        assert!(
+            captcha::verify(b"secret", token.as_bytes(), sum.as_bytes(), &elsewhere, now).is_none()
+        );
         assert_eq!(doc["error"], "captcha");
         assert!(raw.ends_with(b"}\n"));
     }

@@ -523,9 +523,10 @@ A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests 
 - The username is the route handler's own decode, and HTTP checks the `ip:` lock without one.
 - Refresh keys only the verified token's identity.
 - Captcha tokens (`src/captcha.rs`) are bound to IP, route and username and single-use per
-  process. Order: verify, run the pipeline, claim only when the pipeline allows, so a rate-limited
-  request consumes no used-set slot. A verified, claimed token runs `CaptchaStep::Skip` (Go);
-  a failed token, an already-claimed token (checked read-only before the pipeline) or a lost claim race runs `TarpitOnly` and is rate limited. The used set is in
+  process. Order: verify, claim atomically, run the pipeline, release the claim if the pipeline
+  refuses, so a rate-limited request consumes no used-set slot. A verified, claimed token runs
+  `CaptchaStep::Skip` (Go); a failed token, a replay, a full set or a claim-race loser (the atomic
+  claim picks one winner among concurrent requests) runs `TarpitOnly` and is rate limited. The used set is in
   memory (65 536 entries, full refuses): a restart forgets it, so a token accepted before a
   restart is accepted once more within its 120 s life (still bound to IP, route and username),
   and with several auth processes a token is accepted once per process; production runs one.
