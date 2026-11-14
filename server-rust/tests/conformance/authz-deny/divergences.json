@@ -28,7 +28,7 @@
   },
   "front-door-revocation-read-503": {
     "reason": "Go answers from its in-memory revocation set; Rust's front door reads revocations from the DB and answers 503 when that read fails (LocalRust targets with requires_session), after the CAE cold-denylist answer.",
-    "review": "Fable code review #354 B0 (PR #380) lists it among the four approved entries; the written plan-review ruling names only the first three",
+    "review": "owner-approved 2026-11-14 (fail-closed on revocation read failure); Fable code review #354 B0 (PR #380) follow-up 3",
     "reviewed": true,
     "reviewer": "Fable",
     "review_reference": "FABLE-CODE-354B0.md follow-up 3 and 'Front door' paragraph (bins/gateway/src/admission.rs:115-139)",
