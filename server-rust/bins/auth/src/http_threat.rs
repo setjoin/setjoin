@@ -282,7 +282,12 @@ impl AuthServer {
             decision
         };
         if decision.action != ThreatAction::Allow {
-            gate.attempt(&meta, &decision.reason).await;
+            // Go records a failed token as `captcha_needed` before any pipeline, and the
+            // tarpit count reads it; `tarpit_applied` is no allowed outcome (the CHECK
+            // drops the row). A failed token the pipeline tarpits keeps Go's row.
+            let failed_token = !token.is_empty() && decision.action == ThreatAction::Tarpitted;
+            let reason = if failed_token { "captcha_needed" } else { &decision.reason };
+            gate.attempt(&meta, reason).await;
             return Err(threat_result(secret, &binding, &decision).await);
         }
         Ok((

@@ -47,7 +47,7 @@
     "reviewed": true,
     "reviewer": "owner policy via coordinator 2026-11-14 (Fable 349a F4)",
     "review": "security Go bug fixed in Rust",
-    "reason": "Go's captcha token is unbound and reusable for 120 s. Rust's MAC binds answer|exp|source IP|route|username (digits-only answer and exp). A verified token is claimed once per auth process, only after the pipeline allows the request, in a bounded in-memory used set (65 536 entries; full refuses). A restart empties the set, so a token accepted before a restart is accepted once more within its remaining 120 s (still bound to IP, route and username); with several auth processes a token is accepted once per process (production runs one).",
+    "reason": "Go's captcha token is unbound and reusable for 120 s. Rust's MAC binds answer|exp|source IP|route|username (digits-only answer and exp). A verified token is claimed once per auth process before the pipeline runs and released when the pipeline refuses the request, in a bounded in-memory used set (65 536 entries; full refuses). A restart empties the set, so a token accepted before a restart is accepted once more within its remaining 120 s (still bound to IP, route and username); with several auth processes a token is accepted once per process (production runs one).",
     "go_source": "shared/threat/interceptor.go:985-1029",
     "secure_test": "bins/auth/tests/threat_oracle.rs::native_bound_captcha_token_admits_once_and_only_where_bound; src/captcha.rs::tests, native_rate_limited_request_consumes_no_used_set_slot"
   },
@@ -57,7 +57,7 @@
     "reviewed": true,
     "reviewer": "owner policy via coordinator 2026-11-14 (Fable 349a F4)",
     "review": "security Go bug fixed in Rust",
-    "reason": "Go answers a failed token before the pipeline, so failed checks are never rate limited or tarpitted. Rust runs the pipeline first (tarpit, rate limit, lockout, spray; no captcha threshold); its refusal wins, otherwise 403 CAPTCHA verification failed. A failed single-use claim counts as a failed token. A verified, claimed token runs Go's skip step.",
+    "reason": "Go answers a failed token before the pipeline, so failed checks are never rate limited or tarpitted. Rust runs the pipeline first (tarpit, rate limit, lockout, spray; no captcha threshold); its refusal wins, otherwise 403 CAPTCHA verification failed. A failed single-use claim counts as a failed token. A failed token the tarpit refuses still writes Go's `captcha_needed` attempt row (not `tarpit_applied`, which the outcome CHECK rejects), so the tarpit count matches Go. A verified, claimed token runs Go's skip step.",
     "go_source": "shared/threat/interceptor.go:412-418",
     "secure_test": "bins/auth/tests/threat_oracle.rs::native_failed_captcha_checks_are_rate_limited, go_off_login_captcha_bogus, go_threat_login_captcha_wrong, go_threat_login_captcha_expired"
   },

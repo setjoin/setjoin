@@ -227,11 +227,12 @@ fn contract(status: u16, reason: Option<&'static str>, attempts: &[&'static str]
 }
 
 /// A token that fails verification or its claim still runs the tarpit (V2-1):
-/// 3 failures, threshold 3: 500*3+500 ms. A verified, claimed token skips it.
+/// 3 failures, threshold 3: 500*3+500 ms. A verified, claimed token skips it. The failed
+/// token still writes Go's `captcha_needed` row (it feeds the tarpit count).
 fn tarpitted() -> Contract {
     Contract {
         statuses: vec![(429, Some("tarpit_applied"))],
-        attempts: vec![],
+        attempts: vec!["captcha_needed"],
         delay: Some(("2s", Duration::from_secs(2))),
     }
 }

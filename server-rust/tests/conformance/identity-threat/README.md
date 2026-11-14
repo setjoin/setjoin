@@ -47,3 +47,10 @@ tarpit).
 - mapped peers and mapped forwarded sources;
 - duplicate keys, tarpit concurrency, the 15 s body cut, atomic counters, config derivation;
 - stamp and forward source checks.
+
+## Known limits
+
+Device headers (`lib.rs:1176-1187`), the `dpop_jwk` forward and guest-invite still hand the
+whole request to frozen Go's admission. The Rust-only hardening (trailing-bytes username,
+ip-only lockout, bound single-use CAPTCHA) can therefore be sidestepped through those paths
+until #350, #352 and #349b land.
