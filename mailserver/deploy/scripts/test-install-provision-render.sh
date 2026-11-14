@@ -325,7 +325,11 @@ arm_dsn_split_posture() {
   # Consumer sync: templates + upgrade.sh + get_env re-run reads address the
   # new path (r3-2: ALL consumers follow the relocation).
   require_in "$ROOT/mailserver/deploy/mailserver.service.template" 'gateway unit gains the credential EnvironmentFile' 'EnvironmentFile={{DB_CREDENTIALS_FILE}}'
-  require_in "$ROOT/mailserver/deploy/authserver.service.template" 'auth unit gains the credential EnvironmentFile (worker tier preserved, r2-2)' 'EnvironmentFile={{DB_CREDENTIALS_FILE}}'
+  require_in "$ROOT/mailserver/deploy/setjoin-authserverd.service.template" 'Go authserverd keeps the credential EnvironmentFile (worker tier, r2-2)' 'EnvironmentFile={{DB_CREDENTIALS_FILE}}'
+  if grep -q 'DB_CREDENTIALS_FILE' "$ROOT/mailserver/deploy/authserver.service.template"; then
+    echo "install provision render: the Rust auth unit must not load the privileged credential file (#359b F6)" >&2
+    exit 1
+  fi
   require_in "$UPGRADE" 'upgrade.sh consumes the relocated credential file' 'DB_CRED_FILE="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/db-credentials.d/db-credentials.env"'
   require_in "$UPGRADE" 'upgrade.sh selection consults the credential file' 'resolve_schema_dsn "$CONFIG_ENV" "$DB_CRED_FILE"'
   require_in "$UPGRADE" 'selection posture defaults pinned to production root literals' 'want_owner="${3:-root}"'
@@ -333,7 +337,7 @@ arm_dsn_split_posture() {
   require_in "$target" 're-run owner-DSN recovery reads the credential file' 'get_cred_env DB_OWNER_DSN'
   require_in "$target" 're-run worker-DSN recovery reads the credential file' 'get_cred_env DB_WORKER_DSN'
   local tpl cfg cred auth
-  for tpl in "$ROOT/mailserver/deploy/mailserver.service.template" "$ROOT/mailserver/deploy/authserver.service.template"; do
+  for tpl in "$ROOT/mailserver/deploy/mailserver.service.template" "$ROOT/mailserver/deploy/setjoin-authserverd.service.template"; do
     cfg="$(grep -n '^EnvironmentFile={{CONFIG_ENV}}$' "$tpl" | cut -d: -f1)"
     cred="$(grep -n '^EnvironmentFile={{DB_CREDENTIALS_FILE}}$' "$tpl" | cut -d: -f1)"
     if [ -z "$cfg" ] || [ -z "$cred" ] || [ "$cfg" -ge "$cred" ]; then
@@ -341,10 +345,10 @@ arm_dsn_split_posture() {
       exit 1
     fi
   done
-  auth="$(grep -n '^EnvironmentFile={{AUTH_ENV}}$' "$ROOT/mailserver/deploy/authserver.service.template" | cut -d: -f1)"
-  cred="$(grep -n '^EnvironmentFile={{DB_CREDENTIALS_FILE}}$' "$ROOT/mailserver/deploy/authserver.service.template" | cut -d: -f1)"
+  auth="$(grep -n '^EnvironmentFile={{AUTHSERVERD_ENV}}$' "$ROOT/mailserver/deploy/setjoin-authserverd.service.template" | cut -d: -f1)"
+  cred="$(grep -n '^EnvironmentFile={{DB_CREDENTIALS_FILE}}$' "$ROOT/mailserver/deploy/setjoin-authserverd.service.template" | cut -d: -f1)"
   if [ -z "$auth" ] || [ -z "$cred" ] || [ "$cred" -ge "$auth" ]; then
-    echo "install provision render: authserver.service.template — the credential EnvironmentFile must precede auth.env's (auth.env's override stays last)" >&2
+    echo "install provision render: setjoin-authserverd.service.template — the credential EnvironmentFile must precede authserverd.env's (its override stays last)" >&2
     exit 1
   fi
   # The REAL legacy ordering (Astra L2-C8 HOLD): every renderer input the
@@ -637,6 +641,7 @@ INSTALL_DIR="\$MG/opt"
 DATA_DIR="\$MG/var"
 CONFIG_ENV="\$MG/config.env"
 AUTH_ENV="\$MG/auth.env"
+AUTHSERVERD_ENV="\$MG/authserverd.env"
 GATEWAY_ENV="\$MG/gateway.env"
 DB_CREDENTIALS_FILE="\$MG/cred.d/db-credentials.env"
 UPDATER_DATA_DIR="\$MG/updater-data"
@@ -678,7 +683,7 @@ prepare_credential_migration "\$MG" "\$MG/cred.d" "\$DB_CREDENTIALS_FILE" "\$CON
   || { echo "migration returned non-zero on the old-layout fixture" >&2; exit 1; }
 cred="\$MG/cred.d/db-credentials.env"
 # The REAL renderer ran: every base unit exists at the sandboxed destination.
-for u in setjoin-valkey setjoin-sfu setjoin-egress setjoin-auth setjoin setjoin-updater; do
+for u in setjoin-valkey setjoin-sfu setjoin-egress setjoin-auth setjoin-authserverd setjoin setjoin-updater; do
   fn_assert "real render_runtime_units produced \$u.service" test -f "\$FX/units/\$u.service"
 done
 # The rendered gateway unit addresses config.env FIRST, the credential file
@@ -690,13 +695,14 @@ if [ -z "\$cfg_line" ] || [ -z "\$cred_line" ]; then
   echo "rendered gateway unit does not reference both env files" >&2; exit 1
 fi
 fn_assert "rendered gateway unit keeps config.env before the credential file" test "\$cfg_line" -lt "\$cred_line"
-au="\$FX/units/setjoin-auth.service"
+au="\$FX/units/setjoin-authserverd.service"
 cred_line="\$(grep -n '^EnvironmentFile=' "\$au" | grep -F "\$DB_CREDENTIALS_FILE" | cut -d: -f1)"
-auth_line="\$(grep -n '^EnvironmentFile=' "\$au" | grep -F "\$AUTH_ENV" | cut -d: -f1)"
+auth_line="\$(grep -n '^EnvironmentFile=' "\$au" | grep -F "\$AUTHSERVERD_ENV" | cut -d: -f1)"
 if [ -z "\$cred_line" ] || [ -z "\$auth_line" ]; then
-  echo "rendered auth unit does not reference both env files" >&2; exit 1
+  echo "rendered authserverd unit does not reference both env files" >&2; exit 1
 fi
-fn_assert "rendered auth unit keeps the credential file before auth.env" test "\$cred_line" -lt "\$auth_line"
+fn_assert "rendered authserverd unit keeps the credential file before authserverd.env" test "\$cred_line" -lt "\$auth_line"
+fn_assert "rendered Rust auth unit carries no privileged credential file" test -z "\$(grep -F "\$DB_CREDENTIALS_FILE" "\$FX/units/setjoin-auth.service" || true)"
 # The privileged-dir conversion ran FIRST: the ancestor is at the
 # root-controlled posture, and only then was the credential file born in it.
 fn_assert "entry conversion pinned the ancestor 0755" test "\$(port_stat "\$MG" | awk '{print \$3}')" = "755"

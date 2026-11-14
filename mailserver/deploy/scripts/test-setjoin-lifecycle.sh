@@ -29,6 +29,7 @@ done
 : > "$tmp/systemd/setjoin-acme.socket"
 : > "$tmp/systemd/setjoin-imap.socket"
 : > "$tmp/systemd/setjoin-imaps.socket"
+: > "$tmp/systemd/setjoin-authserverd.service"
 printf '{"version":1,"enabled":false}\n' > "$tmp/etc/execution.json"
 
 run_lifecycle() {
@@ -90,6 +91,7 @@ run_lifecycle uninstall --allow-updater-stop --confirm-preserve-data >/dev/null
 [ -f "$preserved" ] || { echo "uninstall removed preserved data" >&2; exit 1; }
 [ ! -e "$tmp/systemd/setjoin-federation.socket" ] || { echo "uninstall retained federation socket" >&2; exit 1; }
 [ ! -e "$tmp/systemd/setjoin-gateway.socket" ] || { echo "uninstall retained the front-door socket" >&2; exit 1; }
+[ ! -e "$tmp/systemd/setjoin-authserverd.service" ] || { echo "uninstall retained the transitional authserverd unit" >&2; exit 1; }
 for socket in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket; do
   [ ! -e "$tmp/systemd/$socket" ] || { echo "uninstall retained $socket" >&2; exit 1; }
 done
