@@ -214,10 +214,18 @@ impl Ctx {
         let query = "SELECT has_function_privilege('setjoin_app',$1::text::regprocedure,'EXECUTE')";
         let qualified = format!("public.{GUEST_STATUS_FN}");
         let before: bool = c.query_one(query, &[&qualified]).await?.get(0);
-        assert!(before, "setjoin_app must hold EXECUTE on {GUEST_STATUS_FN} before the fault");
-        self.revoked.lock().unwrap().push(GUEST_STATUS_FN.to_owned());
-        c.batch_execute(&format!("REVOKE EXECUTE ON FUNCTION public.{GUEST_STATUS_FN} FROM setjoin_app"))
-            .await?;
+        assert!(
+            before,
+            "setjoin_app must hold EXECUTE on {GUEST_STATUS_FN} before the fault"
+        );
+        self.revoked
+            .lock()
+            .unwrap()
+            .push(GUEST_STATUS_FN.to_owned());
+        c.batch_execute(&format!(
+            "REVOKE EXECUTE ON FUNCTION public.{GUEST_STATUS_FN} FROM setjoin_app"
+        ))
+        .await?;
         let after: bool = c.query_one(query, &[&qualified]).await?.get(0);
         assert!(!after, "REVOKE on {GUEST_STATUS_FN} did not take effect");
         Ok(())
@@ -287,8 +295,7 @@ impl Ctx {
                     } else {
                         format!("GRANT SELECT ON public.{table} TO setjoin_app")
                     };
-                    if let Err(e) = c.batch_execute(&grant).await
-                    {
+                    if let Err(e) = c.batch_execute(&grant).await {
                         errors.push(format!("regrant {table}: {e}"));
                     }
                 }
@@ -641,22 +648,51 @@ async fn user_and_drive_user_scopes_name_guest_states() {
         for scope in [Scope::User, Scope::DriveUser] {
             for (label, bad) in [("string", json!("12345")), ("float", json!(1.5))] {
                 refused(
-                    run(&ctx, &keys, &bearer(&with(guest_claims(active), "iat", bad.clone())), PLAIN, scope).await,
+                    run(
+                        &ctx,
+                        &keys,
+                        &bearer(&with(guest_claims(active), "iat", bad.clone())),
+                        PLAIN,
+                        scope,
+                    )
+                    .await,
                     Refusal::InvalidToken,
                     &format!("{scope:?}: guest with {label} iat"),
                 );
             }
-            for (label, act) in [("string", json!("admin")), ("float", json!(1.5)), ("object", json!({}))] {
+            for (label, act) in [
+                ("string", json!("admin")),
+                ("float", json!(1.5)),
+                ("object", json!({})),
+            ] {
                 refused(
-                    run(&ctx, &keys, &bearer(&with(guest_claims(active), "act", act)), PLAIN, scope).await,
+                    run(
+                        &ctx,
+                        &keys,
+                        &bearer(&with(guest_claims(active), "act", act)),
+                        PLAIN,
+                        scope,
+                    )
+                    .await,
                     Refusal::InvalidToken,
                     &format!("{scope:?}: guest with {label} act"),
                 );
             }
         }
-        let drive_string_iat = with(with(guest_claims(active), "scp", json!("drive")), "iat", json!("12345"));
+        let drive_string_iat = with(
+            with(guest_claims(active), "scp", json!("drive")),
+            "iat",
+            json!("12345"),
+        );
         refused(
-            run(&ctx, &keys, &bearer(&drive_string_iat), DRIVE, Scope::DriveUser).await,
+            run(
+                &ctx,
+                &keys,
+                &bearer(&drive_string_iat),
+                DRIVE,
+                Scope::DriveUser,
+            )
+            .await,
             Refusal::InvalidToken,
             "guest drive token with string iat on a drive path",
         );
@@ -733,7 +769,11 @@ async fn member_drive_scope_token_is_admitted_only_on_drive_scope_and_drive_path
                     let a = admitted(run(&ctx, &keys, &headers, path, scope).await, &what);
                     assert_eq!(a.context().user_id(), m.user, "{what}");
                 } else {
-                    refused(run(&ctx, &keys, &headers, path, scope).await, Refusal::InvalidToken, &what);
+                    refused(
+                        run(&ctx, &keys, &headers, path, scope).await,
+                        Refusal::InvalidToken,
+                        &what,
+                    );
                 }
             }
         }
@@ -754,8 +794,14 @@ async fn fault_guest_status_unreadable_is_unavailable() {
         let member = bearer(&claims(m.user));
         let guest = bearer(&guest_claims(g));
         for scope in [Scope::User, Scope::DriveUser] {
-            admitted(run(&ctx, &keys, &member, PLAIN, scope).await, &format!("{scope:?} member control"));
-            admitted(run(&ctx, &keys, &guest, PLAIN, scope).await, &format!("{scope:?} guest control"));
+            admitted(
+                run(&ctx, &keys, &member, PLAIN, scope).await,
+                &format!("{scope:?} member control"),
+            );
+            admitted(
+                run(&ctx, &keys, &guest, PLAIN, scope).await,
+                &format!("{scope:?} guest control"),
+            );
         }
         ctx.revoke_guest_status().await?;
         for scope in [Scope::User, Scope::DriveUser] {
@@ -785,7 +831,10 @@ async fn valid_cookie_with_negotiate_header_is_admitted() {
         let m = ctx.member().await?;
         let token = sign(&claims(m.user));
         let mut headers = HeaderMap::new();
-        headers.insert(COOKIE, HeaderValue::from_str(&format!("access_token={token}")).unwrap());
+        headers.insert(
+            COOKIE,
+            HeaderValue::from_str(&format!("access_token={token}")).unwrap(),
+        );
         headers.insert(AUTHORIZATION, HeaderValue::from_static("Negotiate YII="));
         for scope in [Scope::Member, Scope::User] {
             let a = admitted(
