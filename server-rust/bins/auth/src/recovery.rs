@@ -24,10 +24,19 @@ impl AuthServer {
         if !self.forgot_password {
             return Self::recovery_absent();
         }
-        let req = match self.totp_ingress(req).await {
+        let staged = match self.threat_stage(req, http_threat::Route::Begin).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
         };
+        // Divergence forgot-begin-success-keeps-lockout: the decoy 200 proves nothing.
+        let reply = Self::threat_unproven(self.recovery_begin_admitted(req).await);
+        self.threat_tail(admitted, reply).await
+    }
+    async fn recovery_begin_admitted(&self, req: Request<Body>) -> Response<Body> {
         let start = std::time::Instant::now();
         let ip = self.client_ip(&req).to_string();
         if !self.recovery_ip.allow(&ip) {
@@ -83,14 +92,22 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn recovery_verify(&self, req: Request<Body>) -> Response<Body> {
-        use setjoin_pg::CommandOutcome;
         if !self.forgot_password {
             return Self::recovery_absent();
         }
-        let req = match self.totp_ingress(req).await {
+        let staged = match self.threat_stage(req, http_threat::Route::Verify).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
         };
+        let reply = self.recovery_verify_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn recovery_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
+        use setjoin_pg::CommandOutcome;
         let ip = self.client_ip(&req).to_string();
         if !self.recovery_ip.allow(&ip) {
             return Self::recovery_json(

@@ -12,6 +12,7 @@ mod oidc;
 mod rp;
 mod saml;
 mod http_threat;
+mod captcha;
 mod guest_invite;
 use bytes::Bytes;
 pub use config::Config;
@@ -66,6 +67,11 @@ pub struct AuthServer {
     geo: Option<Arc<setjoin_authz::geoip::CountryDb>>,
     push_ip: setjoin_identity::push::IpBudget,
     native_push: setjoin_identity::push_delivery::Dispatch,
+    /// Shared threat gate (#349): watcher-fed in production; credential routes
+    /// answer 503 without one.
+    gate: Option<Arc<setjoin_threat::Gate>>,
+    /// Captcha tokens already accepted by this process (#349 single-use).
+    captcha_used: captcha::UsedSet,
 }
 impl AuthServer {
     fn oidc_cors(&self,req:&Request<Body>,mut reply:Response<Body>)->Response<Body> {
@@ -112,6 +118,8 @@ impl AuthServer {
             geo: None,
             push_ip: Default::default(),
             native_push: Default::default(),
+            gate: None,
+            captcha_used: Default::default(),
         }
     }
     pub async fn load(exec: setjoin_pg::ScopedExecutor, config: Config) -> Result<Self, String> {
@@ -223,6 +231,8 @@ impl AuthServer {
             geo,
             push_ip: Default::default(),
             native_push,
+            gate: None,
+            captcha_used: Default::default(),
             client: client(),
             exec,
             keys: Some(Arc::new(keys)),
@@ -244,6 +254,32 @@ impl AuthServer {
             },
         );
         self
+    }
+    /// Attach the shared threat gate (#349). main.rs passes the gate that the
+    /// feature/CA watchers keep fresh.
+    pub fn with_gate(mut self, gate: Arc<setjoin_threat::Gate>) -> Self {
+        self.gate = Some(gate);
+        self
+    }
+    /// Embedding/test seam (#349): build and attach a gate from this server's
+    /// threat configuration, with its request and worker pools on `dsn` and GeoIP
+    /// from `geoip_path`. Grants no identity authority.
+    pub async fn with_threat_gate(self, dsn: &str) -> Result<Self, Error> {
+        self.with_threat_gate_dsns(dsn, dsn).await
+    }
+    /// [`Self::with_threat_gate`] with separate request and worker DSNs.
+    pub async fn with_threat_gate_dsns(self, request_dsn: &str, worker_dsn: &str) -> Result<Self, Error> {
+        let request = setjoin_pg::ScopedExecutor::from_dsn(request_dsn, 4).map_err(|e| e.0)?;
+        let worker = setjoin_threat::WorkerPools::from_dsn(worker_dsn)?;
+        let geo = if self.config.geoip_path.is_empty() {
+            None
+        } else {
+            let bytes = std::fs::read(&self.config.geoip_path)?;
+            Some(setjoin_authz::geoip::CountryDb::from_bytes(bytes, false, "")?)
+        };
+        let gate =
+            setjoin_threat::Gate::load(request, worker, self.config.threat.clone(), geo).await?;
+        Ok(self.with_gate(gate))
     }
     /// Embed a native provider transport without granting it identity authority.
     pub fn with_native_push(
@@ -291,7 +327,9 @@ impl AuthServer {
             .extensions()
             .get::<ConnectionMeta>()
             .map_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), |m| {
-                m.peer.ip()
+                // A dual-stack listener reports an IPv4 proxy as ::ffff:a.b.c.d; Go's
+                // RemoteAddr prints the IPv4 form, so match on the canonical address.
+                m.peer.ip().to_canonical()
             });
         let trusted = if self.config.client_proxy == peer.to_string() {
             setjoin_authz::clientip::TrustedProxies::parse(&peer.to_string()).unwrap_or_default()
@@ -638,17 +676,24 @@ impl AuthServer {
         r
     }
     async fn reset_password(&self, req: Request<Body>) -> Response<Body> {
+        // Go registers the route only when feature.forgot_password is on at boot:
+        // an unregistered pattern is the mux 404, outside the middleware.
         if !self.forgot_password {
             return Self::not_found();
         }
-        if self.config.threat_controls.iter().any(|v| *v)
-            || !matches!(
-                login::enabled(&self.exec, "feature.rate_limit").await,
-                Ok(false)
-            )
-        {
-            return self.forward(req).await;
-        } // #420 pre-auth interception.
+        let staged = match self.threat_stage(req, http_threat::Route::Reset).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.reset_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    /// Go threat.Middleware(CSRF(ForgotPasswordReset)), inner handler.
+    async fn reset_admitted(&self, req: Request<Body>) -> Response<Body> {
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {
             return Response::builder()
@@ -727,12 +772,22 @@ impl AuthServer {
         }
     }
     async fn refresh(&self, req: Request<Body>) -> Response<Body> {
+        let staged = match self.threat_stage(req, http_threat::Route::Refresh).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.refresh_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    /// Go CSRF(Refresh) inside the dynamic threat mount. No stamp: the tail keys
+    /// the verified token's identity (divergence refresh-username-verified-token).
+    async fn refresh_admitted(&self, req: Request<Body>) -> Response<Body> {
         use setjoin_pg::CommandOutcome;
         use sha2::{Digest, Sha256};
-        let rate = login::enabled(&self.exec, "feature.rate_limit").await;
-        if self.config.threat_controls.iter().any(|v| *v) || !matches!(rate, Ok(false)) {
-            return self.forward(req).await;
-        } // #420
         let path = req.uri().path().to_owned();
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {
@@ -1115,8 +1170,9 @@ impl AuthServer {
         (headers, scheme)
     }
     async fn login(&self, req: Request<Body>) -> Response<Body> {
-        // Device proof consumes replay state in #420 even when CA permits the
-        // request. Preserve its original body for that owner's verification.
+        // #349 F7: every forward that headers or toggles decide runs first, on the
+        // raw request, so frozen Go never admits a request Rust already admitted.
+        // Device proof (#350) consumes replay state even when CA permits the request.
         if [
             "x-device-id",
             "x-device-hmac",
@@ -1129,9 +1185,33 @@ impl AuthServer {
         {
             return self.forward(req).await;
         }
-        if self.http_threat_pending().await {
+        if self.login_ca_pending().await {
             return self.forward(req).await;
         }
+        let staged = match self.threat_stage(req, http_threat::Route::Login).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        // A mounted request decides the dpop_jwk handoff (#352) from its buffered
+        // body before admission; an unmounted one keeps the late check below.
+        let dpop_decided = staged.raw().is_some();
+        if staged.raw().is_some_and(Self::login_dpop_requested)
+            && !matches!(
+                login::enabled(&self.exec, "feature.token_binding").await,
+                Ok(false)
+            )
+        {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.login_admitted(req, dpop_decided).await;
+        self.threat_tail(admitted, reply).await
+    }
+    /// Go CSRF(Login): the handler behind the dynamic threat mount.
+    async fn login_admitted(&self, req: Request<Body>, dpop_decided: bool) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let (csrf_headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&csrf_headers, scheme) {
@@ -1209,18 +1289,18 @@ impl AuthServer {
                 None,
             );
             return match self.sign(&claims) {
-                Ok(token) => Self::json(
+                Ok(token) => Self::threat_no_outcome(Self::json(
                     403,
                     json!({"status":"force_password_change","force_password_change":true,"force_token":token,"reason":"Administrator requires a password change before access is granted."}),
-                ),
+                )),
                 Err(_) => Self::failure(500, "token issue failed", &path),
             };
         }
         match login::mfa_policy(&self.exec,&proof).await {
             Ok(policy)=>{
-                if policy["status"]=="enrollment_required"{return self.totp_login_challenge(&proof,Some(&policy),&path).await;}
-                if proof.push{return self.push_login_challenge(&proof,&path).await;}
-                if proof.totp{return self.totp_login_challenge(&proof,None,&path).await;}
+                if policy["status"]=="enrollment_required"{return Self::threat_challenge(self.totp_login_challenge(&proof,Some(&policy),&path).await);}
+                if proof.push{return Self::threat_challenge(self.push_login_challenge(&proof,&path).await);}
+                if proof.totp{return Self::threat_challenge(self.totp_login_challenge(&proof,None,&path).await);}
             },
             Err(_)=>return Self::failure(503,"MFA policy verification unavailable. Please try again.",&path)
         }
@@ -1238,7 +1318,8 @@ impl AuthServer {
                 return Self::failure(500, "identity transition admission resolution failed", &path)
             }
         };
-        if input.dpop.as_object().is_some_and(|v| !v.is_empty())
+        if !dpop_decided
+            && input.dpop.as_object().is_some_and(|v| !v.is_empty())
             && !matches!(
                 login::enabled(&self.exec, "feature.token_binding").await,
                 Ok(false)
@@ -1368,7 +1449,7 @@ impl AuthServer {
             .parse()
             .unwrap(),
         );
-        response
+        Self::threat_user(response, proof.user)
     }
 }
 
