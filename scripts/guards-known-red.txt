@@ -1,0 +1,16 @@
+# Guards red on the public tree since the Go removal and the public export, tracked by issue #348
+# ("Xinchuang CI: 12 guards red on the public tree"). run-guards.sh --known-red still RUNS each one
+# (self-test first) and prints a warning; only these names may fail without failing the lane.
+# Fix or re-scope the guard, then delete its line. Never add a guard here without an issue reference.
+check-app-notify                  # #348
+check-audit-coverage              # #348 (175 Rust reducers unclassified in scripts/audit-coverage.tsv)
+check-deploy-doc-currency         # #348 (self-test)
+check-drive-memberscope           # #348 (self-test)
+check-guest-doors                 # #348
+check-identity-owner-migrations   # #348
+check-installer-migration-order   # #348
+check-mailbox-lifecycle-contracts # #348
+check-rls-allow                   # #348
+check-rls-denial                  # #348
+check-schema-determinism          # #348
+check-server-release-build        # #348

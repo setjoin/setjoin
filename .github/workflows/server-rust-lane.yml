@@ -6,6 +6,7 @@ name: server-rust lane
 #   build           one nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
 #   pgtap           reducer pgTAP suites (mailserver + authserver) on the lane Postgres
+#   guards          every scripts/check-*.sh structural/security guard via run-guards.sh, self-tests first
 #   shard 1..N      nextest partition k/N + every N-th replay/mutant, each shard its own VM and Postgres
 #   coverage-build  one instrumented archive of the coverage binaries only
 #   coverage 1..M   every M-th oracle coverage entry
@@ -235,6 +236,37 @@ jobs:
           path: test-results/pgtap/
           retention-days: 14
 
+  guards:
+    # The structural and security guards (audit coverage, RLS denial/allow, cargo supply chain, ...), self-tests first.
+    # The retired Xinchuang unit-tests job was the only CI that ran them. Guards red since the Go removal are listed
+    # in scripts/guards-known-red.txt (issue #348): they still run and warn, and any other guard failing is red.
+    needs: plan
+    if: needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LANE_JOB_TAG: guards
+      DB_HOST: 127.0.0.1
+      DB_USER: postgres
+      DB_NAME: mailserver_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+      - name: Install psql, pg_prove, ripgrep and cargo-deny prerequisites
+        run: |
+          { command -v psql && command -v pg_prove && command -v rg; } >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client libtap-parser-sourcehandler-pgtap-perl libdbd-pg-perl ripgrep
+          }
+      - name: Load test schema (the DB-backed guards run against it)
+        run: |
+          export DB_PORT="$LANE_PG_PORT"
+          bash scripts/load-test-schema.sh
+      - name: Run every guard (self-test first)
+        run: |
+          export DB_PORT="$LANE_PG_PORT"
+          bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt
+
   shard:
     needs: [plan, build]
     runs-on: ubuntu-latest
@@ -370,7 +402,7 @@ jobs:
   # The required check. Red unless every job is green and the merge finds every test, replay,
   # mutant and coverage entry run exactly once (a skipped job is never a pass).
   aggregate:
-    needs: [plan, debug, build, roots, pgtap, shard, coverage-build, coverage-shard]
+    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -384,7 +416,7 @@ jobs:
           import json, os, sys
           needs = json.loads(os.environ["NEEDS"])
           debug = needs["plan"]["outputs"].get("debug") == "true"
-          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "pgtap", "shard", "coverage-build", "coverage-shard"}
+          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
           results = {name: job["result"] for name, job in needs.items()}
           print("debug" if debug else "full+coverage", "job results", results)
           bad = {n: r for n, r in results.items() if r in ("failure", "cancelled") or (n in required and r != "success")}

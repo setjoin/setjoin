@@ -89,7 +89,10 @@ run_check() {
   require_literal "$WORKFLOW" 'run: node scripts/report-changed-coverage.mjs --mode enforce' 'Webmail changed-coverage enforcement' || failed=1
   require_literal "$LANE_WORKFLOW" 'scripts/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap' 'server-rust lane pgTAP execution' || failed=1
   require_literal "$LANE_WORKFLOW" '--verify tap' 'server-rust lane pgTAP evidence verification' || failed=1
-  require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap,' 'server-rust lane aggregate gates on pgTAP' || failed=1
+  require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
+  require_literal "$LANE_WORKFLOW" '"roots", "pgtap", "guards", "shard"' 'server-rust lane aggregate requires the guards job' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt' 'server-rust lane runs every guard through run-guards.sh' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' "needs.plan.outputs.debug != 'true'" 'server-rust lane guards job runs on every non-debug pull request' || failed=1
   require_literal "$PACKAGE_JSON" '"test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile.json=test-results/vitest.json"' 'Webmail package script' || failed=1
   require_literal "$VITE_CONFIG" "reporter: ['text', 'json', 'json-summary']" 'Webmail coverage reporters' || failed=1
   require_literal "$VITE_CONFIG" "include: ['src/**/*.{js,ts,svelte}']" 'Webmail whole-source denominator' || failed=1
@@ -136,6 +139,20 @@ if [[ "${1:-}" == "--self-test" ]]; then
     exit 1
   fi
   WORKFLOW="$original_workflow"
+  original_lane="$LANE_WORKFLOW"
+  sed 's/pgtap, guards,/pgtap,/; s/"pgtap", "guards"/"pgtap"/' "$original_lane" > "$tmp/lane-no-guards-gate.yml"
+  LANE_WORKFLOW="$tmp/lane-no-guards-gate.yml"
+  if run_check >/dev/null 2>&1; then
+    echo "test-gate-wiring self-test: lane aggregate without the guards job was accepted" >&2
+    exit 1
+  fi
+  sed 's#bash scripts/run-guards.sh --known-red#true --known-red#' "$original_lane" > "$tmp/lane-no-guards-run.yml"
+  LANE_WORKFLOW="$tmp/lane-no-guards-run.yml"
+  if run_check >/dev/null 2>&1; then
+    echo "test-gate-wiring self-test: lane guards job that does not run run-guards.sh was accepted" >&2
+    exit 1
+  fi
+  LANE_WORKFLOW="$original_lane"
   printf 'export default {}\n' > "$tmp/playwright.config.ts"
   original_playwright_config="$PLAYWRIGHT_CONFIG"
   PLAYWRIGHT_CONFIG="$tmp/playwright.config.ts"
