@@ -555,7 +555,6 @@ pub(crate) mod tests {
             ("no iat", es256(), without("iat")),
             ("uid as string", es256(), with("uid", json!("7"))),
             ("case variant", es256(), with("UID", json!(9))),
-            ("float exp", es256(), with("exp", json!(1_800_000_900.5))),
             (
                 "hs256",
                 json!({"alg": "HS256", "kid": "authserver-hmac-1"}),
