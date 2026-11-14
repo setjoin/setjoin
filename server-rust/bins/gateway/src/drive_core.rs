@@ -70,17 +70,10 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
         let language = locale(r.headers());
         Box::pin(async move {
             let mut response=async move {
-            let Some(auth) = setjoin_authz::authorize_drive_user_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-                r.uri().path(),
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::DriveUser).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return c.upstream.forward(r, &c.identity).await;

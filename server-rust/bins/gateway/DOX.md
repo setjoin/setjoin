@@ -740,7 +740,7 @@ and `uid<=0` divergences; `GuestInactive` as the plain 401; `Revoked` as
 forward from `answer` only. `native_or_unauthorized` is the fail-closed mapping for
 surfaces Go must never see (#365). The front-door revocation read now fails closed
 (503) after the CAE cold-denylist answer, so `denylist-cold.json` keeps its bytes.
-No adapter calls `deny::admit` yet; the sweep batches (#354 B1-B5) do.
+Drive adapters (`drive.rs`, `drive_core.rs`, `drive/acl.rs`, `drive/b.rs`) call `deny::admit` (B5); the other sweep batches (#354 B1-B4) follow.
 
 ## Gateway configuration (#414)
 

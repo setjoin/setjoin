@@ -90,17 +90,10 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                 return response;
             }
             let mut response = async move {
-                let Some(auth) = setjoin_authz::authorize_drive_user_request(
-                    &exec,
-                    &keys,
-                    &issuer,
-                    r.headers(),
-                    c.identity.proto,
-                    r.uri().path(),
-                )
-                .await
-                else {
-                    return c.upstream.forward(r, &c.identity).await;
+                let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::DriveUser).await;
+                let auth = match verdict {
+                    Ok(auth) => auth,
+                    Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
                 };
                 let mut random = [0; 16];
                 if getrandom::getrandom(&mut random).is_err() {

@@ -21,11 +21,10 @@ pub(super) async fn handle<K: KeySource + 'static>(
     issuer: String,
     store: Option<Arc<crate::recovery_worker::S3Store>>,
 ) -> Response<Body> {
-    let Some(auth) =
-        setjoin_authz::authorize_drive_request(&exec, &keys, &issuer, r.headers(), c.identity.proto,r.uri().path())
-            .await
-    else {
-        return c.upstream.forward(r, &c.identity).await;
+    let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Drive).await;
+    let auth = match verdict {
+        Ok(auth) => auth,
+        Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
     };
     let Some(random) = crate::jmap::random() else {
         return c.upstream.forward(r, &c.identity).await;
