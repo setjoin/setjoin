@@ -43,9 +43,21 @@ pub fn assert_go_problem_bytes(raw: &[u8]) {
     // shared/middleware.denyJSON and denyJSONRemediation encode maps, rather
     // than httputil.Problem structs. These exact runtime shapes are frozen Go.
     let runtime_status = match value["title"].as_str().unwrap_or("") {
-        "session_revoked" | "sign_in_frequency" | "step_up_required" | "token_binding_failed" => Some(401),
+        "session_revoked" | "sign_in_frequency" | "step_up_required" | "token_binding_failed" => {
+            Some(401)
+        }
         "access_blocked" | "device_compliance_unverifiable" | "csrf_failed" => Some(403),
-        "Forbidden" if matches!(value["detail"].as_str(), Some("Device has been wiped. Contact your administrator." | "Device is quarantined. Check compliance status in device settings.")) => Some(403),
+        "Forbidden"
+            if matches!(
+                value["detail"].as_str(),
+                Some(
+                    "Device has been wiped. Contact your administrator."
+                        | "Device is quarantined. Check compliance status in device settings."
+                )
+            ) =>
+        {
+            Some(403)
+        }
         _ => None,
     };
     if let Some(status) = runtime_status {
@@ -55,18 +67,34 @@ pub fn assert_go_problem_bytes(raw: &[u8]) {
             assert!(value["remediation"].is_string());
             if value.get("remediation_tou_id").is_some() {
                 assert!(value["remediation_tou_id"].as_i64().is_some_and(|n| n != 0));
-                vec!["detail", "remediation", "remediation_tou_id", "status", "title", "type"]
-            } else { vec!["detail", "remediation", "status", "title", "type"] }
+                vec![
+                    "detail",
+                    "remediation",
+                    "remediation_tou_id",
+                    "status",
+                    "title",
+                    "type",
+                ]
+            } else {
+                vec!["detail", "remediation", "status", "title", "type"]
+            }
         } else if value["title"] == "token_binding_failed" {
             assert_eq!(value["code"], "dpop_admission");
             vec!["code", "detail", "status", "title", "type"]
-        } else { vec!["detail", "status", "title", "type"] };
+        } else {
+            vec!["detail", "status", "title", "type"]
+        };
         assert_eq!(keys, expected, "runtime map keys: {text:?}");
         assert!(value["detail"].is_string());
         if keys == ["detail", "status", "title", "type"] {
-            assert_eq!(text, setjoin_gateway::problem::middleware(
-                status as u16, value["title"].as_str().unwrap(), value["detail"].as_str().unwrap(),
-            ));
+            assert_eq!(
+                text,
+                setjoin_gateway::problem::middleware(
+                    status as u16,
+                    value["title"].as_str().unwrap(),
+                    value["detail"].as_str().unwrap(),
+                )
+            );
         }
         return;
     }

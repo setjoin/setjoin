@@ -40,7 +40,7 @@ impl GoOracle {
     }
 
     /// Observe only descriptors in this owned recorder container.
-    pub fn has_open_file(&self,path:&str) -> Result<bool,BoxError> {
+    pub fn has_open_file(&self, path: &str) -> Result<bool, BoxError> {
         Ok(Command::new("docker").args(["exec",&self.name,"bash","-c",
             "for fd in /proc/[0-9]*/fd/*; do [ \"$(readlink \"$fd\" 2>/dev/null)\" = \"$1\" ] && exit 0; done; exit 1",
             "gofree-plat3b-open-probe",path]).stdout(Stdio::null()).stderr(Stdio::null()).status()?.success())

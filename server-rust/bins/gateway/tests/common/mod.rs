@@ -338,23 +338,49 @@ pub mod approval_probe;
 /// review against the baseline diff; it is never used in CI, and a run that does so always
 /// fails (the returned document cannot equal any replay).
 #[allow(dead_code)]
-pub fn security_expected(family: &std::path::Path, baseline: &std::path::Path, actual: &serde_json::Value) -> serde_json::Value {
+pub fn security_expected(
+    family: &std::path::Path,
+    baseline: &std::path::Path,
+    actual: &serde_json::Value,
+) -> serde_json::Value {
     use sha2::{Digest, Sha256};
     if std::env::var_os("SECFIX3_WRITE_SECURITY").is_some() {
         std::fs::create_dir_all(family.join("security")).unwrap();
         let text = format!("{}\n", serde_json::to_string_pretty(actual).unwrap());
-        std::fs::write(family.join("security").join(baseline.file_name().unwrap()), text).unwrap();
+        std::fs::write(
+            family.join("security").join(baseline.file_name().unwrap()),
+            text,
+        )
+        .unwrap();
         // Regenerating must never pass silently: hand back a document no replay can equal, so
         // the run fails (review the written diff, then rerun without the variable).
         return serde_json::json!({"REGENERATED": "SECFIX3_WRITE_SECURITY wrote this expectation: review the diff and rerun without it"});
     }
-    let entries: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(family.join("divergences.json")).unwrap()).unwrap();
+    let entries: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(family.join("divergences.json")).unwrap())
+            .unwrap();
     let relative = baseline.strip_prefix(family).unwrap().to_str().unwrap();
-    let entry = entries.as_array().unwrap().iter().find(|e| e["baseline"] == relative).expect("reviewed security divergence");
+    let entry = entries
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["baseline"] == relative)
+        .expect("reviewed security divergence");
     assert_eq!(entry["reviewed"], true);
-    assert!(["2026-11-05", "2026-11-06", "2026-11-07"].iter().any(|day| entry["reason"].as_str().unwrap().contains(&format!("owner-approved security fix {day}"))));
-    assert_eq!(entry["sha256"], format!("{:x}", Sha256::digest(std::fs::read(baseline).unwrap())));
-    serde_json::from_str(&std::fs::read_to_string(family.join(entry["expectation"].as_str().unwrap())).unwrap()).unwrap()
+    assert!(["2026-11-05", "2026-11-06", "2026-11-07"]
+        .iter()
+        .any(|day| entry["reason"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("owner-approved security fix {day}"))));
+    assert_eq!(
+        entry["sha256"],
+        format!("{:x}", Sha256::digest(std::fs::read(baseline).unwrap()))
+    );
+    serde_json::from_str(
+        &std::fs::read_to_string(family.join(entry["expectation"].as_str().unwrap())).unwrap(),
+    )
+    .unwrap()
 }
 
 /// The document a replay compares with. A baseline pinned in its family's divergences.json
@@ -369,11 +395,19 @@ pub fn is_pinned(baseline: &std::path::Path) -> bool {
     std::fs::read_to_string(family.join("divergences.json"))
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .is_some_and(|entries| entries.as_array().is_some_and(|a| a.iter().any(|e| e["baseline"] == relative)))
+        .is_some_and(|entries| {
+            entries
+                .as_array()
+                .is_some_and(|a| a.iter().any(|e| e["baseline"] == relative))
+        })
 }
 
 #[allow(dead_code)]
-pub fn golden_doc(baseline: &std::path::Path, key: &str, actual: &serde_json::Value) -> serde_json::Value {
+pub fn golden_doc(
+    baseline: &std::path::Path,
+    key: &str,
+    actual: &serde_json::Value,
+) -> serde_json::Value {
     let family = baseline.parent().unwrap().parent().unwrap();
     let pinned = is_pinned(baseline);
     if pinned {
