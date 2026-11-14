@@ -58,20 +58,44 @@ PENDING = {
 }
 # Call sites in server-rust/bins/*/src that forward a request to a Go upstream: the auth server's
 # `self.forward(` to Go auth, the gateway's `upstream.forward(` proxy, `forward_body(`, and the JMAP
-# WebSocket fallback (`forward_unported(`, its raw `client_async(` dial). Exact ratchet: a new site is
-# red; a removed site is red until the pin is lowered. #141 criterion 4 holds only when every count is 0.
+# WebSocket fallback (`forward_unported(`, its raw `client_async(` dial), plus Go-hop plumbing (#358: Go targets, the Go counter, auth `go_upstream`, `unported_push_target`). Exact ratchet: a new site is
+# red; a removed site is red until the pin is lowered; a pin of 0 is red (delete it). Once an entry is gone its kind is banned (DELETE gate, #358).
 FORWARD_PATTERNS = {
     "forward": re.compile(r"\.forward\("),
     "forward_body": re.compile(r"(?<!fn )\bforward_body\("),
     "forward_unported": re.compile(r"(?<!fn )\bforward_unported\("),
     "ws_client": re.compile(r"\bclient_async\("),
+    # #358: Go-hop plumbing that is not itself a `.forward(` call.
+    "go_target": re.compile(r"\bTarget::Go(?:Mail|Auth)\b"),
+    "go_counter": re.compile(r"\.with_go_counter\("),
+    "go_upstream": re.compile(r"\bgo_upstream\b"),
+    "unported_push_target": re.compile(r"\bunported_push_target\b"),
 }
+# The gateway's hop to the Rust identity process is Rust-to-Rust, not Go (#358 F11).
+# Exactly this two-line arm is exempt (N6): the match head on the previous line and a
+# single `.forward(` whose receiver is the matched binding. Any other line counts.
+RUST_TO_RUST_HEAD = "return match &shared.rust_auth_upstream {"
+RUST_TO_RUST_ARM = re.compile(r"^Some\((\w+)\) => \1\.forward\(req, &identity\)\.await,$")
+# #358: expected Go-hop CELLS in the DELETE matrices (sum over Hop rows of the row's
+# cell-group size, N4). Exact, shrink-only, reviewed: never raised to absorb CI output.
+# 0 = absolute ban.
+MATRIX_HOPS = {
+    "server-rust/bins/auth/tests/delete_gate.rs": 63,
+    "server-rust/bins/gateway/tests/delete_gate.rs": 35,
+}
+HOP_ENTRY = re.compile(r'\bHop\("')
+HOP_ROW = re.compile(r'\(\s*(&\[[^\]]*\]|[A-Z_]+)\s*,\s*"[^"]+"\s*,\s*Hop\("')
+CELL_GROUP = re.compile(r'const\s+([A-Z_]+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];', re.S)
 FORWARD_SITES = {
     ("auth", "forward"): 60,
-    ("gateway", "forward"): 197,
+    ("gateway", "forward"): 196,
     ("gateway", "forward_body"): 3,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,
+    ("auth", "go_upstream"): 4,
+    ("gateway", "go_counter"): 2,
+    ("gateway", "go_target"): 9,
+    ("gateway", "unported_push_target"): 2,
 }
 # The Go background workers (worker_semantics.json). The owner counted 49 on 2026-11-02; the file now
 # lists 51. A change here goes with the #141 evidence checklist.
@@ -93,6 +117,7 @@ SEAMS = {
                                      "server-rust/crates/protocols/smtp/tests/interop.rs"],
     "DAV": ["server-rust/bins/gateway/tests/caldav.rs", "server-rust/bins/gateway/tests/carddav.rs"],
     "LDAP": ["server-rust/crates/protocols/ldap/tests/interop.rs"],
+    "DELETE gate matrix": ["server-rust/bins/auth/tests/delete_gate.rs", "server-rust/bins/gateway/tests/delete_gate.rs"],
     "JMAP": ["server-rust/bins/gateway/tests/jmap_*.rs"],
     "worker oracles": ["server-rust/bins/gateway/tests/*_startup.rs", "server-rust/bins/gateway/tests/*worker*.rs"],
     "binary process-boundary oracles": ["server-rust/bins/gateway/tests/startup.rs",
@@ -172,8 +197,18 @@ def forward_sites(root):
     for path in sorted((root / "server-rust/bins").glob("*/src/**/*.rs")):
         binary = path.relative_to(root / "server-rust/bins").parts[0]
         text = path.read_text(errors="ignore")
+        lines = text.splitlines()
         for kind, pattern in FORWARD_PATTERNS.items():
-            found = len(pattern.findall(text))
+            if kind == "forward":
+                found = 0
+                for i, line in enumerate(lines):
+                    n = len(pattern.findall(line))
+                    if (n == 1 and i > 0 and lines[i - 1].strip() == RUST_TO_RUST_HEAD
+                            and RUST_TO_RUST_ARM.match(line.strip())):
+                        continue
+                    found += n
+            else:
+                found = len(pattern.findall(text))
             if found:
                 counts[(binary, kind)] = counts.get((binary, kind), 0) + found
     return counts
@@ -181,12 +216,53 @@ def forward_sites(root):
 
 def forward_problems(root):
     counts, problems = forward_sites(root), []
+    for key in sorted(k for k, v in FORWARD_SITES.items() if v <= 0):
+        problems.append(f"FORWARD_SITES {key[0]}/{key[1]}: pinned {FORWARD_SITES[key]}; delete the entry (absence is the ban)")
     for key in sorted(set(counts) | set(FORWARD_SITES)):
         now, pinned = counts.get(key, 0), FORWARD_SITES.get(key, 0)
-        if now > pinned:
+        if now > pinned and pinned <= 0:
+            problems.append(f"forward-to-Go sites {key[0]}/{key[1]}: {now} found; DELETE gate (#358): Go forwarding of this kind is banned")
+        elif now > pinned:
             problems.append(f"forward-to-Go sites {key[0]}/{key[1]}: {now} > pinned {pinned} (no new Go forwarding)")
         elif now < pinned:
             problems.append(f"forward-to-Go sites {key[0]}/{key[1]}: {now} < pinned {pinned}; lower FORWARD_SITES")
+    return problems, counts
+
+
+def hop_cells(text):
+    """Expected Go-hop cells: each Hop row counts its cell group's size (N4)."""
+    groups = {name: len(re.findall(r'"[^"]*"', body)) for name, body in CELL_GROUP.findall(text)}
+    rows = HOP_ROW.findall(text)
+    if len(rows) != len(HOP_ENTRY.findall(text)):
+        raise ValueError("a Hop entry is not a parsable (cells, \"shape\", Hop(\"owner\")) row")
+    total = 0
+    for group in rows:
+        if group.startswith("&["):
+            total += len(re.findall(r'"[^"]*"', group))
+        elif group in groups:
+            total += groups[group]
+        else:
+            raise ValueError(f"Hop row uses unknown cell group {group}")
+    return total
+
+
+def matrix_problems(root):
+    problems, counts = [], {}
+    for name, pinned in sorted(MATRIX_HOPS.items()):
+        path = root / name
+        if not path.is_file():
+            problems.append(f"{name}: missing (DELETE matrix, #358)")
+            continue
+        try:
+            now = hop_cells(path.read_text(errors="ignore"))
+        except ValueError as error:
+            problems.append(f"{name}: {error}")
+            continue
+        counts[name] = now
+        if now > pinned:
+            problems.append(f"{name}: {now} expected Go-hop cells > pinned {pinned} (EXPECT only shrinks; never fill it from CI output)")
+        elif now < pinned:
+            problems.append(f"{name}: {now} < pinned {pinned}; lower MATRIX_HOPS")
     return problems, counts
 
 
@@ -273,6 +349,12 @@ def static(root):
     problems += found
     lines.append(f"REHEARSAL-FORWARD-SITES (criterion 4 open until 0): {sum(sites.values())} "
                  f"({', '.join(f'{b}/{k} {n}' for (b, k), n in sorted(sites.items()))})")
+    lines.append("DELETE-GATE (#358): " + ("absolute ban, no forward-to-Go site may exist" if not FORWARD_SITES
+                                           else f"ratchet, {len(FORWARD_SITES)} pinned kinds may only shrink"))
+    found, hops = matrix_problems(root)
+    problems += found
+    lines.append("DELETE-GATE-MATRIX expected Go-hop cells: "
+                 + ", ".join(f"{Path(n).parts[2]} {c}" for n, c in sorted(hops.items())))
     found, references = peer_reference_problems(root)
     problems += found
     lines.append(f"frozen Go peer references: {references} (pinned, container-internal)")
