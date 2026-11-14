@@ -1833,7 +1833,6 @@ async fn captcha_header(ctx: &Ctx) -> Result<(), Err> {
         &[("x-captcha-token", "bogus".to_owned())],
     )
     .await?;
-    server.close().await;
     // Go's always-mounted middleware (interceptor.go:412-418) rejects a token that
     // fails verification with 403 before the handler, so the invite stays unused.
     let want = "{\"captcha_prompt\":\"CAPTCHA verification failed\",\"error\":\"captcha\"}\n";
