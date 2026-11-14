@@ -773,8 +773,11 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         if let Some(date) = headers.get_mut("date") {
             *date = json!(["<timestamp>"]);
         }
-        if let Some(length) = headers.get_mut("content-length") {
-            *length = json!([text.len().to_string()]);
+        // A HEAD answer has no body: its Content-Length is the one Go advertised, so keep it.
+        if case.method != "HEAD" {
+            if let Some(length) = headers.get_mut("content-length") {
+                *length = json!([text.len().to_string()]);
+            }
         }
         let (before, after) = (masked(before, &users, &names)?, masked(after, &users, &names)?);
         let effects = json!([{"table":case.table,"before":before,"after":after}]);

@@ -284,26 +284,39 @@ pub(crate) fn pinned_score(pattern: &str, path: &str) -> bool {
 
 /// Go's `setupStatusGate` around `SetupHandler.SetupStatus` (owner decision A3). The count
 /// runs on the worker credential, which sees every tenant's users once native RLS applies.
-/// Any user or a failed count is the mux's bare 404; only an empty table answers
+/// The gate counts once: any user or a failed count is the mux's bare 404. Only an empty
+/// table reaches the handler, which counts a second time and answers
+/// `{"initialized":true}` when a user appeared or that count failed, else
 /// `{"initialized":false}`.
 async fn setup_status(
     worker: &ScopedExecutor,
     r: &Request<Body>,
     c: &RequestContext,
 ) -> Response<Body> {
-    let count = worker
-        .read("SELECT COUNT(*) FROM users", &[])
-        .await
-        .ok()
-        .and_then(|rows| rows.first().and_then(|row| row.try_get::<_, i64>(0).ok()));
-    if count != Some(0) {
+    if user_count(worker).await != Some(0) {
         return crate::catchall::not_found(r, c);
     }
+    // `SetupStatus`: a failed count reads as initialized (fail closed), as does any user.
+    let initialized = user_count(worker).await != Some(0);
     let id = crate::jmap::reply::request_id(
         r.headers().get("x-request-id"),
         crate::jmap::random().unwrap_or([0; 16]),
     );
-    crate::jmap::reply::response("{\"initialized\":false}\n".into(), c.identity.proto, id)
+    let body = if initialized {
+        "{\"initialized\":true}\n"
+    } else {
+        "{\"initialized\":false}\n"
+    };
+    crate::jmap::reply::response(body.into(), c.identity.proto, id)
+}
+
+/// `SELECT COUNT(*) FROM users`; `None` when the query fails.
+async fn user_count(worker: &ScopedExecutor) -> Option<i64> {
+    worker
+        .read("SELECT COUNT(*) FROM users", &[])
+        .await
+        .ok()
+        .and_then(|rows| rows.first().and_then(|row| row.try_get::<_, i64>(0).ok()))
 }
 
 /// The permission a route's Go middleware requires.

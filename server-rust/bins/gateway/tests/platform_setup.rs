@@ -14,6 +14,16 @@ macro_rules! case {
 case!(status_empty_db, "setup-status", "empty-db");
 case!(status_initialized, "setup-status", "initialized");
 case!(status_count_fails, "setup-status", "count-fails");
+case!(
+    status_second_count_user,
+    "setup-status",
+    "second-count-user"
+);
+case!(
+    status_second_count_fails,
+    "setup-status",
+    "second-count-fails"
+);
 case!(status_head, "setup-status", "head");
 case!(status_head_empty_db, "setup-status", "head-empty-db");
 case!(status_api_alias, "setup-status", "api-alias");

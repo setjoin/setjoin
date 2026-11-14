@@ -8,8 +8,14 @@ const NONE: &str = "SELECT NULL::text WHERE false";
 const EMPTY: &str = "BEGIN; ALTER TABLE public.users RENAME TO gofree_setup_users; CREATE TABLE public.users (id bigint); GRANT SELECT ON public.users TO PUBLIC; COMMIT;";
 /// `users` replaced by a view whose function raises: the count fails for every role.
 const FAILING: &str = "BEGIN; CREATE FUNCTION public.gofree_setup_fault() RETURNS SETOF bigint LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'gofree setup count fault'; END $f$; ALTER TABLE public.users RENAME TO gofree_setup_users; CREATE VIEW public.users AS SELECT f.id FROM public.gofree_setup_fault() AS f(id); GRANT SELECT ON public.users TO PUBLIC; COMMIT;";
+/// `users` replaced by a view over a call-counting function: the first scan is empty, so the
+/// gate and the Rust count both see zero; the second scan (Go's `SetupStatus`) sees one row
+/// (`SECOND_USER`) or raises (`SECOND_FAILS`). The sequence is created inside the seed, so the
+/// first scan of the case is the request's own gate count.
+const SECOND_USER: &str = "BEGIN; CREATE SEQUENCE public.gofree_setup_calls; CREATE FUNCTION public.gofree_setup_flip() RETURNS SETOF bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $f$ BEGIN IF nextval('public.gofree_setup_calls') > 1 THEN RETURN NEXT 1::bigint; END IF; END $f$; ALTER TABLE public.users RENAME TO gofree_setup_users; CREATE VIEW public.users AS SELECT f.id FROM public.gofree_setup_flip() AS f(id); GRANT SELECT ON public.users TO PUBLIC; COMMIT;";
+const SECOND_FAILS: &str = "BEGIN; CREATE SEQUENCE public.gofree_setup_calls; CREATE FUNCTION public.gofree_setup_flip() RETURNS SETOF bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_catalog AS $f$ BEGIN IF nextval('public.gofree_setup_calls') > 1 THEN RAISE EXCEPTION 'gofree setup second count fault'; END IF; END $f$; ALTER TABLE public.users RENAME TO gofree_setup_users; CREATE VIEW public.users AS SELECT f.id FROM public.gofree_setup_flip() AS f(id); GRANT SELECT ON public.users TO PUBLIC; COMMIT;";
 /// Restores the real table only when this case moved it.
-const RESTORE: &str = "DO $r$ BEGIN IF to_regclass('public.gofree_setup_users') IS NOT NULL THEN IF EXISTS (SELECT 1 FROM pg_class WHERE oid = to_regclass('public.users') AND relkind = 'v') THEN DROP VIEW public.users; ELSE DROP TABLE IF EXISTS public.users; END IF; ALTER TABLE public.gofree_setup_users RENAME TO users; END IF; DROP FUNCTION IF EXISTS public.gofree_setup_fault(); END $r$";
+const RESTORE: &str = "DO $r$ BEGIN IF to_regclass('public.gofree_setup_users') IS NOT NULL THEN IF EXISTS (SELECT 1 FROM pg_class WHERE oid = to_regclass('public.users') AND relkind = 'v') THEN DROP VIEW public.users; ELSE DROP TABLE IF EXISTS public.users; END IF; ALTER TABLE public.gofree_setup_users RENAME TO users; END IF; DROP FUNCTION IF EXISTS public.gofree_setup_fault(); DROP FUNCTION IF EXISTS public.gofree_setup_flip(); DROP SEQUENCE IF EXISTS public.gofree_setup_calls; END $r$";
 
 pub fn specs(action: &str, label: &str) -> Option<Case> {
     if action != "setup-status" {
@@ -45,6 +51,13 @@ pub fn specs(action: &str, label: &str) -> Option<Case> {
             c.status = 200;
         }
         "count-fails" => c.seed.push(FAILING.into()),
+        // Go's gate counts zero, then `SetupStatus` counts again: a user appeared, or the
+        // second count fails. Both answer 200 `{"initialized":true}`.
+        "second-count-user" | "second-count-fails" => {
+            let sql = if label == "second-count-user" { SECOND_USER } else { SECOND_FAILS };
+            c.seed.push(sql.into());
+            c.status = 200;
+        }
         "escaped" => c.fill = vec!["!/s%65tup/status".into()],
         "escaped-empty-db" => {
             c.fill = vec!["!/s%65tup/status".into()];
