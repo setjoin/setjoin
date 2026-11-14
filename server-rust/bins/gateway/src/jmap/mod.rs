@@ -24,6 +24,7 @@ pub mod get;
 pub mod http;
 pub mod hub;
 mod identity;
+mod imip;
 pub mod limit;
 pub mod list;
 pub mod mailbox_set;
@@ -649,7 +650,8 @@ impl<K: KeySource> JmapCommands<K> {
                     mailbox,
                     request.method,
                     &request.args,
-                );
+                )
+                .with_email(identity.email());
                 let body = family::serve(&cx, &request.client_id, &state.encode()).await;
                 return Ok(reply::response(body, ctx.identity.proto, request_id));
             }

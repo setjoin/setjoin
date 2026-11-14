@@ -1,34 +1,65 @@
 //! The only database and identity seam family handlers get (#369-#377).
 //!
 //! [`Cx`], [`Scope`] and [`ContinuitySigner`] keep their fields private to
-//! this module tree, and family files are not inside it. Scoped SQL is
-//! `&'static str` checked by `call::owner_bound`; `$1` always comes from a
-//! [`Scope`] that only [`resolve`] (Go `parseAccountID`) creates. Worker
-//! (BYPASSRLS) statements are a closed table in `call.rs`: family code passes
-//! a variant and its non-identity params, never SQL, and `$1` is the verified
-//! user. `tests::family_files_use_only_the_seam` enforces the rest.
+//! this module tree, and family files are not inside it. Scoped SQL is one
+//! `&'static str` reducer call checked by `call::owner_bound`. The seam binds
+//! `$1` from a [`Scope`] that only [`resolve`] (Go `parseAccountID`) creates,
+//! `$2` from the verified actor (the session user) and, on a write, `$3` from
+//! the operation; family params follow and never take those places. A Go
+//! statement that is not one reducer call is a reviewed [`ScopedQuery`]
+//! variant; the delegate RSVP builds its manager scope only from a grant the
+//! caller holds and never hands it out; iMIP egress is one gated hop into
+//! `crate::jmap::imip`. Worker (BYPASSRLS) statements are a closed table in
+//! `call.rs`: family code passes a variant and its non-identity params, never
+//! SQL, and `$1` is the verified user. The registered method, never family
+//! code, selects the reducer-error projection ([`CALENDAR_A3_METHODS`]).
+//! `tests::family_files_use_only_the_seam` and
+//! `call::db::actor_arguments_are_seam_bound` enforce the rest.
 use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
 
 use super::Method;
 
+/// A scoped read statement: Go's reducer call plus the actor guard ($2 actor).
+/// Family params start at `$3`; `$2` may only be the reducer's second argument.
+macro_rules! read_sql {
+    ($sql:literal) => {
+        concat!($sql, " WHERE $2::bigint>0")
+    };
+}
+
 /// A scoped write statement: Go's reducer call plus the receipt guard ($2 actor, $3 operation).
+/// Family params start at `$4`.
 macro_rules! write_sql {
     ($sql:literal) => {
         concat!($sql, " WHERE $2::bigint>0 AND $3::text<>''")
     };
 }
 
-/// Go `dispatchSet` statements for reducer prefix `$p` (handler.go:1754).
+/// Go `dispatchSet` statements for reducer prefix `$p` (handler.go:1754):
+/// `$1` mailbox, `$2` actor (guard only), payload `$3`.
 macro_rules! set_sql {
     ($p:literal) => {
         $crate::jmap::family::seam::SetSql::new(
-            concat!("SELECT ", $p, "_set_create($1,$2::text::jsonb)::text"),
-            concat!("SELECT ", $p, "_set_update($1,$2::text::jsonb)::text"),
-            concat!("SELECT ", $p, "_set_destroy($1,$2::bigint[])::text"),
+            concat!(
+                "SELECT ",
+                $p,
+                "_set_create($1,$3::text::jsonb)::text WHERE $2::bigint>0"
+            ),
+            concat!(
+                "SELECT ",
+                $p,
+                "_set_update($1,$3::text::jsonb)::text WHERE $2::bigint>0"
+            ),
+            concat!(
+                "SELECT ",
+                $p,
+                "_set_destroy($1,$3::bigint[])::text WHERE $2::bigint>0"
+            ),
         )
     };
 }
 
+pub(crate) use read_sql;
 pub(crate) use set_sql;
 pub(crate) use write_sql;
 
@@ -37,9 +68,19 @@ mod call;
 
 pub(crate) use account::resolve;
 pub(crate) use call::{
-    not_found, parse_id_list, query, read, set_batch, since_state, worker_read, worker_write,
-    write, ScopedQuery, SetSql, WorkerRead, WorkerWrite,
+    not_found, parse_id_list, query, read, read_rows, rsvp_on_behalf, send_imip, set_batch,
+    since_state, worker_read, worker_write, write, ScopedQuery, SetSql, WorkerRead, WorkerWrite,
 };
+pub(crate) use crate::jmap::imip::Imip;
+
+/// Pure iCalendar helpers (Go `caldav`) family files may call. `load_location`
+/// reads only TZif files under the zoneinfo roots and refuses `..` and
+/// absolute names (calendar-format lib.rs:478).
+pub(crate) mod ics {
+    pub(crate) use setjoin_calendar_format::{
+        events_to_json, load_location, parse_component, split_components, Event, Zone,
+    };
+}
 pub(crate) use setjoin_pg::{Param, Type};
 
 /// The user-keyed worker methods without `parseAccountID` (task_lists.go:16-18).
@@ -51,6 +92,22 @@ pub(crate) const WORKER_TASK_METHODS: &[&str] = &[
     "TaskList/taskSet",
     "TaskList/tasks",
     "TaskListMember/set",
+];
+
+/// Go handlers whose reducer errors go through `calendarA3Error`
+/// (calendar_a3.go:30: BZ001 is `forbidden "not authorized for this
+/// calendar"`); every other method uses `mapReducerErr`. The seam selects the
+/// projection from this table by method; sorted and drift-tested against Go.
+pub(crate) const CALENDAR_A3_METHODS: &[&str] = &[
+    "Calendar/delegateList",
+    "Calendar/getShared",
+    "Calendar/shareGet",
+    "Calendar/shareSet",
+    "CalendarEvent/counter",
+    "CalendarEvent/getShared",
+    "CalendarEvent/resourceList",
+    "CalendarEvent/sendUpdate",
+    "CalendarEvent/setOccurrence",
 ];
 
 /// Every Go `h.workerPool` family handler (task_lists.go, calendar_a3.go:197).
@@ -105,6 +162,10 @@ pub(crate) struct Cx<'a> {
     mailbox: i64,
     method: &'static Method,
     args: &'a str,
+    /// Go `user.Email`: the verified token's email claim ("" until attached).
+    email: &'a str,
+    /// iMIP messages this method call (this `Cx`) has handed to egress (`imip::MAX_MESSAGES_PER_REQUEST`).
+    egress: std::sync::atomic::AtomicUsize,
 }
 
 impl<'a> Cx<'a> {
@@ -125,7 +186,16 @@ impl<'a> Cx<'a> {
             mailbox,
             method,
             args,
+            email: "",
+            egress: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    /// Attach the verified token email. jmap/mod.rs is the only caller; family
+    /// code holds `&Cx` (not `Clone`) and the guard forbids `with_email`.
+    pub(in crate::jmap) fn with_email(mut self, email: &'a str) -> Self {
+        self.email = email;
+        self
     }
 
     /// The call's arguments exactly as sent.
@@ -135,6 +205,11 @@ impl<'a> Cx<'a> {
 
     pub(crate) fn method(&self) -> &'static Method {
         self.method
+    }
+
+    /// Go `user.Email`: the verified token claim ("" when absent, Go's zero value).
+    pub(crate) fn email(&self) -> &'a str {
+        self.email
     }
 
     /// Go `h.continuity` (signer and boot epoch); `None` when the key did not load.
@@ -179,7 +254,7 @@ mod tests {
 
     use regex::Regex;
 
-    use super::{WORKER_METHODS, WORKER_TASK_METHODS};
+    use super::{CALENDAR_A3_METHODS, WORKER_METHODS, WORKER_TASK_METHODS};
 
     const GOLDEN: &str =
         include_str!("../../../../../../../mailserver/internal/jmap/testdata/methods.golden");
@@ -221,6 +296,11 @@ mod tests {
         "tokio::",
         "Command::new",
         "super::super",
+        "with_email",
+        "concat!",
+        "macro_rules!",
+        "stringify!",
+        "leak(",
     ];
     /// `crate::` may only continue with these.
     const CRATE_PATHS: &[&str] = &["jmap::family", "problem::", "guests_input::"];
@@ -252,6 +332,29 @@ mod tests {
     ];
     const WORKER_TOKENS: &[&str] = &["worker_read", "worker_write", "WorkerRead", "WorkerWrite"];
     const WORKER_FILES: &[&str] = &["calendar_delegate.rs", "task_list.rs"];
+    /// The files whose methods own a `ScopedQuery` variant (#369, #371, #376).
+    const SCOPED_QUERY_FILES: &[&str] = &["calendar.rs", "calendar_event.rs", "vendor_mail.rs"];
+    /// Delegate RSVP and iMIP egress: CalendarEvent/* only (#369).
+    const CALENDAR_EVENT_TOKENS: &[&str] = &["rsvp_on_behalf", "send_imip", "Imip"];
+
+    /// A string literal that starts like SQL must be one anchored reducer call
+    /// (D1 shape; the tail is optional because `read_sql!`/`write_sql!` add it).
+    fn sql_literal_violations(name: &str, text: &str, found: &mut Vec<String>) {
+        let literal = Regex::new(r#""\s*((?:SELECT|WITH|INSERT|UPDATE|DELETE) [^"]*)""#)
+            .expect("sql literal pattern");
+        let shape = Regex::new(
+            r"^SELECT [a-z_][a-z0-9_]*\(\$1(?:,\$[1-9][0-9]*(?:::[a-z0-9_]+(?:\[\])?)*)*\)(?:::text)?(?: WHERE \$2::bigint>0(?: AND \$3::text<>'')?)?$",
+        )
+        .expect("reducer call pattern");
+        for captures in literal.captures_iter(text) {
+            if !shape.is_match(&captures[1]) {
+                found.push(format!(
+                    "{name}: SQL {:?}",
+                    captures[1].chars().take(60).collect::<String>()
+                ));
+            }
+        }
+    }
     /// The reviewed core files next to the stubs.
     const CORE_FILES: &[&str] = &["args.rs", "mod.rs", "reducer_error.rs"];
     /// Narrow, exact exceptions for the core files (types and test-only harness use).
@@ -354,6 +457,7 @@ mod tests {
                 found.push(format!("{name}: {token}"));
             }
         }
+        sql_literal_violations(name, &text, &mut found);
         let mut rest = text.as_str();
         while let Some(at) = rest.find("crate::") {
             rest = &rest[at + "crate::".len()..];
@@ -367,6 +471,16 @@ mod tests {
         for path in use_paths(&text) {
             if !use_allowed(&path) {
                 found.push(format!("{name}: use {path}"));
+            }
+        }
+        if !SCOPED_QUERY_FILES.contains(&name) && text.contains("ScopedQuery") {
+            found.push(format!("{name}: ScopedQuery"));
+        }
+        if name != "calendar_event.rs" {
+            for token in CALENDAR_EVENT_TOKENS {
+                if text.contains(token) {
+                    found.push(format!("{name}: {token}"));
+                }
             }
         }
         if !WORKER_FILES.contains(&name) {
@@ -445,12 +559,28 @@ mod tests {
             "const S: SetSql = SetSql::new(\"\", \"\", \"\");",
             "fn f() { super::seam::worker_read(); }",
             "fn f() { let _ = tokio::fs::read(\"x\"); }",
+            "const S: &str = concat!(\"SELECT f(\", \"$2,$1)\");",
+            "macro_rules! q { () => { \"SELECT f($1)\" }; }",
+            "const S: &str = stringify!(SELECT f);",
+            "fn f() -> &'static str { String::from(\"x\").leak() }",
+            "fn f() -> &'static str { Box::leak(Box::new(String::new())) }",
+            "const S: &str = \"SELECT x FROM t WHERE mailbox_id = $1\";",
+            "const S: &str = \"SELECT f($2,$1)::text\";",
+            "const S: &str = \"WITH a AS (SELECT 1) SELECT f($1)\";",
+            "const S: &str = \"DELETE FROM t WHERE mailbox_id = $1\";",
+            "const S: &str = \"SELECT f($1,\\\n    $3)::text\";",
+            "fn f(cx: Cx<'_>) { let _ = cx.with_email(\"x\"); }",
         ] {
             assert!(!violations("reminder.rs", fixture).is_empty(), "{fixture}");
         }
         for clean in [
             "use super::Method;",
             "use super::seam::{read, resolve, write, write_sql, Type};",
+            "use super::seam::{query, read, read_rows, read_sql, resolve, write, write_sql};",
+            "use super::seam::ics::{load_location, parse_component};",
+            "const S: &str = read_sql!(\"SELECT f($1,$3::bigint[])::text\");",
+            "const S: &str = \"SELECT f($1,$4,$5::text::jsonb)::text\";",
+            "const T: &str = \"update must be an object\";",
             "use std::collections::{BTreeMap, BTreeSet};",
             "use serde_json::{json, Value};",
             "use std::fmt::{self, Write};",
@@ -461,6 +591,16 @@ mod tests {
             assert!(found.is_empty(), "{clean}: {found:?}");
         }
         assert!(violations("task_list.rs", "fn f() { super::seam::worker_read(); }").is_empty());
+        let scoped = "use super::seam::{query, ScopedQuery};";
+        assert!(!violations("reminder.rs", scoped).is_empty(), "ScopedQuery outside its files");
+        for file in ["calendar.rs", "calendar_event.rs", "vendor_mail.rs"] {
+            assert!(violations(file, scoped).is_empty(), "{file}");
+        }
+        for token in ["rsvp_on_behalf", "send_imip", "Imip"] {
+            let fixture = format!("use super::seam::{token};");
+            assert!(!violations("calendar.rs", &fixture).is_empty(), "{token}");
+            assert!(violations("calendar_event.rs", &fixture).is_empty(), "{token}");
+        }
         assert!(
             !violations("mod.rs", "use std::{env, process::Command};").is_empty(),
             "core files are scanned too"
@@ -497,6 +637,39 @@ mod tests {
             assert!(WORKER_METHODS.contains(name), "{name}");
         }
         for name in WORKER_METHODS {
+            assert!(
+                GOLDEN
+                    .lines()
+                    .any(|line| line.starts_with(&format!("{name}\t"))),
+                "{name} is not in methods.golden"
+            );
+        }
+    }
+
+    /// Frozen Go: `calendarA3Error` is defined in calendar_a3.go and called
+    /// there and in calendar.go only (delete with Go, #142).
+    #[test]
+    fn calendar_projection_methods_match_go() {
+        const CALENDAR_A3: &str =
+            include_str!("../../../../../../../mailserver/internal/jmap/calendar_a3.go");
+        const CALENDAR: &str =
+            include_str!("../../../../../../../mailserver/internal/jmap/calendar.go");
+        let call = Regex::new(r#"calendarA3Error\(err, h, "([A-Za-z]+/[A-Za-z]+)"\)"#)
+            .expect("call pattern");
+        let go: BTreeSet<String> = [CALENDAR_A3, CALENDAR]
+            .iter()
+            .flat_map(|text| call.captures_iter(text))
+            .map(|captures| captures[1].to_owned())
+            .collect();
+        let rust: BTreeSet<String> = CALENDAR_A3_METHODS
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect();
+        assert_eq!(rust, go, "CALENDAR_A3_METHODS must equal Go's calendarA3Error call sites");
+        let mut sorted = CALENDAR_A3_METHODS.to_vec();
+        sorted.sort_unstable();
+        assert_eq!(sorted, CALENDAR_A3_METHODS, "CALENDAR_A3_METHODS stays sorted");
+        for name in CALENDAR_A3_METHODS {
             assert!(
                 GOLDEN
                     .lines()
