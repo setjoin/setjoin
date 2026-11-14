@@ -960,24 +960,26 @@ mod tests {
     /// so an unreachable worker pool rejects it; protocol listeners keep Go's skip.
     #[tokio::test]
     async fn http_without_username_still_checks_the_ip_lock() {
+        // The request pool must be reachable so the ip-rule check passes and the
+        // no-username lockout branch is the one that rejects.
+        let Some(dsn) = std::env::var("TEST_DB_DSN").ok().filter(|v| !v.is_empty()) else {
+            assert!(
+                std::env::var("REQUIRE_DB").unwrap_or_default().is_empty(),
+                "TEST_DB_DSN (REQUIRE_DB lane)"
+            );
+            eprintln!("THREAT-DB-SKIP (reason=no-dsn) test=http_without_username_still_checks_the_ip_lock");
+            return;
+        };
         let mut http = meta("");
         http.protocol = "http".into();
         let gate = Gate {
-            exec: ScopedExecutor::from_dsn(
-                &std::env::var("TEST_DB_DSN").unwrap_or_else(|_| "host=127.0.0.1 port=1 user=gate dbname=gate".into()),
-                1,
-            )
-            .unwrap(),
+            exec: ScopedExecutor::from_dsn(&dsn, 1).unwrap(),
             ..gate()
         };
         let decision = tokio::time::timeout(Duration::from_secs(10), gate.decide(&http, true))
             .await
             .expect("bounded");
         assert_eq!(decision.action, ThreatAction::Reject);
-        assert!(
-            matches!(decision.reason.as_str(), "lockout_unavailable" | "ip_rules_unavailable"),
-            "{}",
-            decision.reason
-        );
+        assert_eq!(decision.reason, "lockout_unavailable");
     }
 }
