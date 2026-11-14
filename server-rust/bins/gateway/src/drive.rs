@@ -17,7 +17,9 @@ pub struct DriveRoute<K: KeySource + 'static> {
     pub issuer: String,
 }
 impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         b::matches(r)
             || acl::matches(r)
@@ -54,7 +56,7 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
     fn admits_member(&self, h: hyper::HeaderMap, s: &'static str) -> BoxFuture<bool> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         Box::pin(async move {
-            setjoin_authz::authorize_drive_user_request(&exec, &keys, &issuer, &h, s,"/api/drive/")
+            setjoin_authz::authorize_drive_user_request(&exec, &keys, &issuer, &h, s, "/api/drive/")
                 .await
                 .is_some()
         })
@@ -90,7 +92,9 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                 return response;
             }
             let mut response = async move {
-                let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::DriveUser).await;
+                let verdict =
+                    crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::DriveUser)
+                        .await;
                 let auth = match verdict {
                     Ok(auth) => auth,
                     Err(refusal) => return crate::deny::answer(refusal, r, &c).await,

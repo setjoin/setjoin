@@ -8,7 +8,9 @@ pub struct CoreRoute<K: KeySource + 'static> {
     pub store: Option<Arc<crate::recovery_worker::S3Store>>,
 }
 impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         (r.uri().path() == "/api/drive/spaces"
             && matches!(r.method().as_str(), "GET" | "HEAD" | "POST"))
@@ -54,7 +56,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
     fn admits_member(&self, h: hyper::HeaderMap, s: &'static str) -> BoxFuture<bool> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         Box::pin(async move {
-            setjoin_authz::authorize_drive_user_request(&exec, &keys, &issuer, &h, s,"/api/drive/")
+            setjoin_authz::authorize_drive_user_request(&exec, &keys, &issuer, &h, s, "/api/drive/")
                 .await
                 .is_some()
         })
