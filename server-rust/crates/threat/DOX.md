@@ -70,4 +70,4 @@ The OP oracle pins the same anonymous `agent|masked-IP` attempt metadata.
 `registry` (ProtocolSessionRegistry) and `tracker` (per-user ConnTracker) moved here from
 `setjoin-imap` (#501) so IMAP and SMTP submission share one implementation; IMAP re-exports them.
 
-`ip_rule_blocked` is the shared Go stepIPRules evaluation used by the protocol gate and the auth HTTP ingress (#342, #346).
+`ip_rule_blocked` is the shared Go stepIPRules evaluation (allow continues, block rejects); it returns `Err` when unanswered and every caller fails closed (`ip_rules_unavailable`, #367). `decide_with(CaptchaStep)` serves HTTP (#349): `Full` without a captcha token, `Skip` for a verified and claimed token (Go), `TarpitOnly` for a token that fails; `decide(_, true)` stays `Skip` for protocol listeners. HTTP lockout checks the `ip:` key even without a username (#349 divergence).

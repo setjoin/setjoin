@@ -75,6 +75,18 @@ impl Default for Config {
         }
     }
 }
+/// How the captcha/tarpit step runs (#349).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptchaStep {
+    /// Protocol listeners (Go `skipCaptcha=true`): neither captcha nor tarpit.
+    Skip,
+    /// HTTP without a captcha token: captcha threshold, then tarpit.
+    Full,
+    /// HTTP with a captcha token that failed verification or its single-use claim:
+    /// tarpit and every later step, no captcha threshold (#349 divergence
+    /// failed-captcha-runs-pipeline). A verified, claimed token runs `Skip`, as in Go.
+    TarpitOnly,
+}
 /// Pre-auth worker-credential connections (#367): lockout_check, detect_spray
 /// and the spray side effects. A full pool waits `Timeouts::pool_wait`, then
 /// the check fails closed.
@@ -246,6 +258,14 @@ impl Gate {
             format!("ip_user:{}:{name}", meta.source_ip),
         ]
     }
+    /// Keys `lockout_check` reads: all three, or only `ip:` without a username.
+    fn check_keys(&self, meta: &ConnectionMeta) -> Vec<String> {
+        if meta.username.is_empty() {
+            vec![format!("ip:{}", meta.source_ip)]
+        } else {
+            self.keys(meta)
+        }
+    }
     /// Boot check (#367): a worker credential that may not run the lockout
     /// accessors would make every login a fail-closed rejection. Refuse boot on
     /// SQLSTATE 42501 or a denied privilege only; an unreachable database still
@@ -290,7 +310,7 @@ impl Gate {
             .check
             .protocol_query(
                 "SELECT locked, remaining_seconds FROM lockout_check($1)",
-                &[(&self.keys(meta), Type::TEXT_ARRAY)],
+                &[(&self.check_keys(meta), Type::TEXT_ARRAY)],
             )
             .await
             .map_err(|_| ())?;
@@ -305,6 +325,14 @@ impl Gate {
     }
 
     pub async fn decide(&self, meta: &ConnectionMeta, skip_captcha: bool) -> Decision {
+        let step = if skip_captcha {
+            CaptchaStep::Skip
+        } else {
+            CaptchaStep::Full
+        };
+        self.decide_with(meta, step).await
+    }
+    pub async fn decide_with(&self, meta: &ConnectionMeta, step: CaptchaStep) -> Decision {
         let country = self.country(meta);
         let mut hits = 0_i64;
         if self.enabled("feature.threat_feed") {
@@ -326,7 +354,9 @@ impl Gate {
         {
             return Decision::reject("geo_blocked");
         }
-        if !meta.username.is_empty() {
+        // #349 divergence lockout-ip-key-without-username: HTTP answers to its
+        // `ip:` lock (spray-armed included) even without a username.
+        if !meta.username.is_empty() || self.protocol(meta) == "http" {
             match self.lockout_state(meta).await {
                 Ok(None) => {}
                 Ok(Some(secs)) => {
@@ -399,7 +429,7 @@ impl Gate {
                 }
             }
         }
-        if !skip_captcha && (self.enabled("feature.captcha") || self.enabled("feature.tarpit")) {
+        if step != CaptchaStep::Skip && (self.enabled("feature.captcha") || self.enabled("feature.tarpit")) {
             let counts=self.exec.read("SELECT COUNT(*) FILTER (WHERE outcome='failure' AND occurred_at>now()-make_interval(mins=>$2)),COUNT(*) FILTER (WHERE outcome IN ('failure','captcha_needed') AND occurred_at>now()-make_interval(mins=>$3)) FROM auth_attempts WHERE source_ip=$1::inet",&[(&meta.source_ip,Type::TEXT),(&self.config.captcha_window_mins,Type::INT4),(&self.config.tarpit_window_mins,Type::INT4)]).await;
             let counts = counts.ok().and_then(|rows| {
                 let row = rows.first()?;
@@ -410,7 +440,9 @@ impl Gate {
                 eprintln!("threat gate: captcha/tarpit count unavailable; failing closed");
                 return Decision::reject("captcha_unavailable");
             };
-            if self.enabled("feature.captcha") && fails >= i64::from(self.config.captcha_threshold)
+            if step == CaptchaStep::Full
+                && self.enabled("feature.captcha")
+                && fails >= i64::from(self.config.captcha_threshold)
             {
                 return Decision::reject("captcha_needed");
             }
@@ -877,5 +909,60 @@ mod tests {
             .await
             .expect("record stays bounded");
         }
+    }
+
+    #[tokio::test]
+    async fn shared_ip_rule_helper_reports_unanswered_lookups() {
+        let answer = tokio::time::timeout(
+            Duration::from_secs(5),
+            ip_rule_blocked(&unreachable(), "198.51.100.7"),
+        )
+        .await
+        .expect("ip rule lookup is bounded");
+        assert_eq!(answer, Err(()));
+    }
+
+    /// #349: auth's dynamic credential mount reads these six; a failed
+    /// authoritative reload must switch HTTP admission on, never leave it off.
+    #[tokio::test]
+    async fn failed_reload_turns_every_http_admission_control_on() {
+        let mut gate = gate();
+        gate.config.overrides.clear();
+        assert!(gate.reload_flags().await.is_err());
+        for key in ["threat_feed", "geo_block", "spray_detect", "captcha", "tarpit", "rate_limit"] {
+            assert!(gate.enabled(&format!("feature.{key}")), "{key}");
+        }
+    }
+
+    #[test]
+    fn lockout_check_keys_fall_back_to_the_ip_key() {
+        let gate = gate();
+        assert_eq!(gate.check_keys(&meta("")), vec!["ip:198.51.100.7".to_owned()]);
+        assert_eq!(gate.check_keys(&meta("a@example.test")).len(), 3);
+    }
+
+    /// An HTTP request without a username still pays the lockout check (#349),
+    /// so an unreachable worker pool rejects it; protocol listeners keep Go's skip.
+    #[tokio::test]
+    async fn http_without_username_still_checks_the_ip_lock() {
+        let mut http = meta("");
+        http.protocol = "http".into();
+        let gate = Gate {
+            exec: ScopedExecutor::from_dsn(
+                &std::env::var("TEST_DB_DSN").unwrap_or_else(|_| "host=127.0.0.1 port=1 user=gate dbname=gate".into()),
+                1,
+            )
+            .unwrap(),
+            ..gate()
+        };
+        let decision = tokio::time::timeout(Duration::from_secs(10), gate.decide(&http, true))
+            .await
+            .expect("bounded");
+        assert_eq!(decision.action, ThreatAction::Reject);
+        assert!(
+            matches!(decision.reason.as_str(), "lockout_unavailable" | "ip_rules_unavailable"),
+            "{}",
+            decision.reason
+        );
     }
 }

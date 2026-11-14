@@ -47,5 +47,12 @@
     "go_source": "shared/threat/interceptor.go:194-196 (W1b alias)",
     "test": "gate_pool::boot_probe_refuses_credential_without_lockout_execute",
     "original_evidence": "#367 + Fable review findings 1-5"
+  },
+  "http-lockout-ip-key-without-username": {
+    "reason": "Go skips the lockout step when the username is empty, so an unparseable or email-less credential body escaped an armed ip: lock. HTTP (protocol \"http\") now checks the ip: key alone in that case; protocol listeners are unchanged.",
+    "review": "#349a Fable plan review F1; owner policy: security Go bugs are fixed in Rust",
+    "go_source": "shared/threat/lockout.go:33-36",
+    "test": "gate::tests::http_without_username_still_checks_the_ip_lock, setjoin-auth threat_oracle::native_trailing_bytes_cannot_skip_a_locked_user_or_armed_ip",
+    "original_evidence": "notes/FABLE-PLAN-349a.md F1"
   }
 }
