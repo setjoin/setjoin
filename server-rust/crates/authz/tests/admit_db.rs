@@ -59,6 +59,9 @@ struct Ctx {
 }
 
 const TABLES: [&str; 3] = ["mailboxes", "session_revocations", "admin_role_assignments"];
+/// The guest read is a SECURITY DEFINER function, so revoking SELECT on `guest_accounts`
+/// from the app role would not fault it; the fault revokes EXECUTE on this function instead.
+const GUEST_STATUS_FN: &str = "guest_account_status(bigint)";
 
 impl Ctx {
     fn prefix(&self) -> String {
@@ -201,6 +204,25 @@ impl Ctx {
         Ok(())
     }
 
+    /// Fault: the app role loses EXECUTE on the guest status read (restored by `cleanup`).
+    async fn revoke_guest_status(&self) -> Result<(), BoxError> {
+        assert!(
+            self.db.app.is_some(),
+            "a privilege fault needs DB_APP_DSN (the setjoin_app credential)"
+        );
+        let c = self.db.connect().await?;
+        let query = "SELECT has_function_privilege('setjoin_app',$1::text::regprocedure,'EXECUTE')";
+        let qualified = format!("public.{GUEST_STATUS_FN}");
+        let before: bool = c.query_one(query, &[&qualified]).await?.get(0);
+        assert!(before, "setjoin_app must hold EXECUTE on {GUEST_STATUS_FN} before the fault");
+        self.revoked.lock().unwrap().push(GUEST_STATUS_FN.to_owned());
+        c.batch_execute(&format!("REVOKE EXECUTE ON FUNCTION public.{GUEST_STATUS_FN} FROM setjoin_app"))
+            .await?;
+        let after: bool = c.query_one(query, &[&qualified]).await?.get(0);
+        assert!(!after, "REVOKE on {GUEST_STATUS_FN} did not take effect");
+        Ok(())
+    }
+
     /// Fault: the registry singleton is gone (restored by `cleanup`).
     async fn drop_registry(&self) -> Result<(), BoxError> {
         assert!(self.registry.is_some(), "no registry row to drop");
@@ -233,6 +255,10 @@ impl Ctx {
             c.batch_execute(&format!("GRANT SELECT ON public.{table} TO setjoin_app"))
                 .await?;
         }
+        c.batch_execute(&format!(
+            "GRANT EXECUTE ON FUNCTION public.{GUEST_STATUS_FN} TO setjoin_app"
+        ))
+        .await?;
         self.registry = c
             .query_opt(
                 "SELECT row_to_json(s)::text FROM feature_toggle_registry_state s WHERE singleton",
@@ -256,9 +282,12 @@ impl Ctx {
             Ok(c) => {
                 let tables: Vec<String> = self.revoked.lock().unwrap().clone();
                 for table in tables {
-                    if let Err(e) = c
-                        .batch_execute(&format!("GRANT SELECT ON public.{table} TO setjoin_app"))
-                        .await
+                    let grant = if table == GUEST_STATUS_FN {
+                        format!("GRANT EXECUTE ON FUNCTION public.{table} TO setjoin_app")
+                    } else {
+                        format!("GRANT SELECT ON public.{table} TO setjoin_app")
+                    };
+                    if let Err(e) = c.batch_execute(&grant).await
                     {
                         errors.push(format!("regrant {table}: {e}"));
                     }
@@ -677,6 +706,102 @@ async fn zero_uid_cookie_with_basic_is_unserved_never_remapped() {
             run(&ctx, &keys, &bad, PLAIN, Scope::Member).await,
             Refusal::AlternativeCredential,
             "invalid cookie + Basic",
+        );
+        Ok::<(), BoxError>(())
+    })
+    .await;
+}
+
+// ---- #387 items 1, 2, 6 ----
+
+/// A member `scp:drive` token is admitted only when the scope is a drive scope AND the
+/// path is a drive path. Pins the `&&` in `admit`'s `let drive = matches!(scope, Drive | DriveUser)
+/// && drive_path(path)` (lib.rs:275 at this head; #387 cites it as :403): a `&&`->`||` mutant
+/// would admit the token on a non-drive scope with a drive path, and on a drive scope with a
+/// non-drive path.
+#[tokio::test]
+async fn member_drive_scope_token_is_admitted_only_on_drive_scope_and_drive_path() {
+    scenario("member-drive-scp", |ctx| async move {
+        let keys = keys();
+        let m = ctx.member().await?;
+        let headers = bearer(&with(claims(m.user), "scp", json!("drive")));
+        for scope in ALL_SCOPES {
+            for path in [PLAIN, DRIVE] {
+                let drive_scope = matches!(scope, Scope::Drive | Scope::DriveUser);
+                let what = format!("{scope:?} {path}: member scp:drive");
+                if drive_scope && path == DRIVE {
+                    let a = admitted(run(&ctx, &keys, &headers, path, scope).await, &what);
+                    assert_eq!(a.context().user_id(), m.user, "{what}");
+                } else {
+                    refused(run(&ctx, &keys, &headers, path, scope).await, Refusal::InvalidToken, &what);
+                }
+            }
+        }
+        Ok::<(), BoxError>(())
+    })
+    .await;
+}
+
+/// `GuestUnavailable` (the guest status read errors) maps to `Unavailable`, never to an
+/// admit or to `GuestInactive`. Both a member and a guest token reach that read on the
+/// user scopes; `Scope::Member` never does and stays admitted.
+#[tokio::test]
+async fn fault_guest_status_unreadable_is_unavailable() {
+    scenario("fault-guest-status", |ctx| async move {
+        let keys = keys();
+        let m = ctx.member().await?;
+        let g = ctx.guest("active").await?;
+        let member = bearer(&claims(m.user));
+        let guest = bearer(&guest_claims(g));
+        for scope in [Scope::User, Scope::DriveUser] {
+            admitted(run(&ctx, &keys, &member, PLAIN, scope).await, &format!("{scope:?} member control"));
+            admitted(run(&ctx, &keys, &guest, PLAIN, scope).await, &format!("{scope:?} guest control"));
+        }
+        ctx.revoke_guest_status().await?;
+        for scope in [Scope::User, Scope::DriveUser] {
+            for (who, headers) in [("member", &member), ("guest", &guest)] {
+                refused(
+                    run(&ctx, &keys, headers, PLAIN, scope).await,
+                    Refusal::Unavailable,
+                    &format!("{scope:?}: {who}, guest status unreadable"),
+                );
+            }
+        }
+        admitted(
+            run(&ctx, &keys, &member, PLAIN, Scope::Member).await,
+            "Member scope does not read guest status",
+        );
+        Ok::<(), BoxError>(())
+    })
+    .await;
+}
+
+/// A valid cookie with a `Negotiate` Authorization header is an `Ok` from `admit`, as Go's
+/// JWT method runs first and succeeds (the `credential` unit test covers only the string).
+#[tokio::test]
+async fn valid_cookie_with_negotiate_header_is_admitted() {
+    scenario("cookie-negotiate", |ctx| async move {
+        let keys = keys();
+        let m = ctx.member().await?;
+        let token = sign(&claims(m.user));
+        let mut headers = HeaderMap::new();
+        headers.insert(COOKIE, HeaderValue::from_str(&format!("access_token={token}")).unwrap());
+        headers.insert(AUTHORIZATION, HeaderValue::from_static("Negotiate YII="));
+        for scope in [Scope::Member, Scope::User] {
+            let a = admitted(
+                run(&ctx, &keys, &headers, PLAIN, scope).await,
+                &format!("{scope:?}: cookie + Negotiate"),
+            );
+            assert_eq!(a.context().user_id(), m.user);
+        }
+        // The control: an invalid cookie with the same header falls through to Negotiate.
+        let mut bad = HeaderMap::new();
+        bad.insert(COOKIE, HeaderValue::from_static("access_token=not-a-jwt"));
+        bad.insert(AUTHORIZATION, HeaderValue::from_static("Negotiate YII="));
+        refused(
+            run(&ctx, &keys, &bad, PLAIN, Scope::Member).await,
+            Refusal::AlternativeCredential,
+            "invalid cookie + Negotiate",
         );
         Ok::<(), BoxError>(())
     })
