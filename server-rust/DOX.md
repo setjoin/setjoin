@@ -550,7 +550,20 @@ lane the rehearsal for deleting Go. `static` (`roots` and `aggregate`): every ro
 except the six `fedharness` test-tool entries (owner decision 2026-11-02) and the shrink-only `PENDING`
 list; no ON entry with a `go-*` upstream; `FORWARD_SITES` pins the exact count of forward-to-Go call
 sites in `server-rust/bins/*/src` (auth `.forward(`, gateway `.forward(`, `forward_body(`,
-`forward_unported(`, raw WebSocket `client_async(`); `GO_PEER_REFERENCES` pins every source reference
+`forward_unported(`, raw WebSocket `client_async(`, plus the Go-hop plumbing `Target::GoMail/GoAuth`,
+`.with_go_counter(`, auth `go_upstream`, `unported_push_target`; only the exact gateway arm
+`Some(upstream) => upstream.forward(req, &identity).await,` under `match &shared.rust_auth_upstream`
+is exempt, as a Rust-to-Rust hop). A pin of 0 is red and an unpinned kind is banned: the proof
+that Go can be deleted is this static ratchet reaching `FORWARD_SITES = {}` (DELETE gate, #358).
+The DELETE matrices are a behavioural supplement, not the proof:
+`bins/auth/tests/delete_gate.rs` covers login (plain, device proof, captcha, DPoP, guest) and refresh
+across 12 toggle cells, about 15 of the 60 auth hop sites; `bins/gateway/tests/delete_gate.rs`
+covers Basic/Negotiate on `/caldav/`, `/carddav/` and `/api/drive/native-token`, guest and member
+drive tokens and member CalDAV/CardDAV PROPFIND controls across 5 cells. Every cell has a reviewed
+expected outcome (`Native(status)` or `Hop(owner)`); `MATRIX_HOPS` pins the number of expected
+Go-hop cells, which only shrinks. The #359b auth-unit lifecycle (stop waits for authserverd,
+credential-free readiness) has only unit-text checks in CI; its systemd behaviour is proven by the
+manual root lane `python3 scripts/test-auth-chain-systemd.py`. `GO_PEER_REFERENCES` pins every source reference
 to a frozen Go peer binary (each runs it only inside its labelled container, at container paths
 `/src/...` or `/output/...` that do not exist in the lane container); reviewed divergences; the 51
 `worker_semantics.json` workers owned by Rust; every seam present. #141 criteria 1 and 4 stay open until
