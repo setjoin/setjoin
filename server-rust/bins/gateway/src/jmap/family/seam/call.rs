@@ -1765,7 +1765,7 @@ mod db {
                 for phase in ["create", "update", "destroy"] {
                     statements.push(format!("SELECT {argument}_set_{phase}($1,$3)"));
                 }
-            } else {
+            } else if !statements.contains(&argument.trim_start().to_owned()) {
                 statements.push(argument.trim_start().to_owned());
             }
         }
@@ -1804,7 +1804,7 @@ mod db {
         let raw = "const S: &str = write_sql!(r#\"SELECT f($1,$4)::text\"#);";
         assert_eq!(
             statements_in(raw).expect("raw literal"),
-            ["SELECT f($1,$4)::text", "SELECT f($1,$4)::text"]
+            ["SELECT f($1,$4)::text"]
         );
         let escaped = "const S: &str = \"SELECT f($1,\\\n   $3)\\n\";";
         assert_eq!(statements_in(escaped).expect("escapes"), ["SELECT f($1,$3)\n"]);
