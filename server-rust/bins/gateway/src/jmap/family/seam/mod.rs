@@ -2,7 +2,10 @@
 //!
 //! [`Cx`], [`Scope`] and [`ContinuitySigner`] keep their fields private to
 //! this module tree, and family files are not inside it. Scoped SQL is one
-//! `&'static str` reducer call checked by `call::owner_bound`. The seam binds
+//! reducer call in an [`Sql`] that only `read_sql!`/`write_sql!` (and
+//! `set_sql!`'s `SetSql`) make from a source literal, checked again by
+//! `call::owner_bound`; family code can never hand the seam a runtime-built
+//! string, so the literals the source guards see are every statement. The seam binds
 //! `$1` from a [`Scope`] that only [`resolve`] (Go `parseAccountID`) creates,
 //! `$2` from the verified actor (the session user) and, on a write, `$3` from
 //! the operation; family params follow and never take those places. A Go
@@ -23,7 +26,7 @@ use super::Method;
 /// Family params start at `$3`; `$2` may only be the reducer's second argument.
 macro_rules! read_sql {
     ($sql:literal) => {
-        concat!($sql, " WHERE $2::bigint>0")
+        $crate::jmap::family::seam::Sql::from_seam_macro(concat!($sql, " WHERE $2::bigint>0"))
     };
 }
 
@@ -31,7 +34,10 @@ macro_rules! read_sql {
 /// Family params start at `$4`.
 macro_rules! write_sql {
     ($sql:literal) => {
-        concat!($sql, " WHERE $2::bigint>0 AND $3::text<>''")
+        $crate::jmap::family::seam::Sql::from_seam_macro(concat!(
+            $sql,
+            " WHERE $2::bigint>0 AND $3::text<>''"
+        ))
     };
 }
 
@@ -71,7 +77,8 @@ mod literals;
 pub(crate) use account::resolve;
 pub(crate) use call::{
     not_found, parse_id_list, query, read, read_rows, rsvp_on_behalf, send_imip, set_batch,
-    since_state, worker_read, worker_write, write, ScopedQuery, SetSql, WorkerRead, WorkerWrite,
+    since_state, worker_read, worker_write, write, ScopedQuery, SetSql, Sql, WorkerRead,
+    WorkerWrite,
 };
 pub(crate) use crate::jmap::imip::Imip;
 
@@ -279,6 +286,7 @@ mod tests {
         ".services",
         ".worker",
         "SetSql",
+        "from_seam_macro",
         "unsafe",
         "include!",
         "include_str!",
@@ -340,42 +348,8 @@ mod tests {
     /// Delegate RSVP and iMIP egress: CalendarEvent/* only (#369).
     const CALENDAR_EVENT_TOKENS: &[&str] = &["rsvp_on_behalf", "send_imip", "Imip"];
 
-    /// A string literal that starts like SQL must be one anchored reducer call
-    /// (D1 shape; the tail is optional because `read_sql!`/`write_sql!` add it).
-    fn sql_literal_violations(name: &str, text: &str, found: &mut Vec<String>) {
-        let statement = Regex::new(r"^(?:SELECT|WITH|INSERT|UPDATE|DELETE) ").expect("sql start");
-        let shape = Regex::new(
-            r"^SELECT [a-z_][a-z0-9_]*\(\$1(?:,\$[1-9][0-9]*(?:::[a-z0-9_]+(?:\[\])?)*)*\)(?:::text)?(?: WHERE \$2::bigint>0(?: AND \$3::text<>'')?)?$",
-        )
-        .expect("reducer call pattern");
-        let mut candidates = Vec::new();
-        // Fail closed: an SQL macro argument that is not one plain literal.
-        match literals::macro_arguments(text, &["read_sql", "write_sql", "set_sql"]) {
-            Ok(arguments) => candidates.extend(
-                arguments
-                    .into_iter()
-                    .filter(|(macro_name, _)| macro_name != "set_sql")
-                    .map(|(_, sql)| sql),
-            ),
-            Err(error) => found.push(format!("{name}: {error}")),
-        }
-        candidates.extend(
-            literals::literals(text)
-                .into_iter()
-                .filter(|literal| statement.is_match(literal.trim_start())),
-        );
-        for sql in candidates {
-            let sql = sql.trim_start();
-            if !shape.is_match(sql) {
-                found.push(format!(
-                    "{name}: SQL {:?}",
-                    sql.chars().take(60).collect::<String>()
-                ));
-            }
-        }
-    }
-    /// The reviewed core files next to the stubs.
-    const CORE_FILES: &[&str] = &["args.rs", "mod.rs", "reducer_error.rs"];
+    // The reviewed core files next to the stubs.
+    use literals::CORE_FILES;
     /// Narrow, exact exceptions for the core files (types and test-only harness use).
     const MOD_EXCEPTIONS: &[&str] = &[
         "pub(crate) use crate::jmap::get::parse_id;",
@@ -408,15 +382,22 @@ mod tests {
         }
     }
 
-    /// Every path a `use` declaration names, braces expanded, aliases and `self` dropped.
-    fn use_paths(text: &str) -> Vec<String> {
-        let declaration =
-            Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);").expect("use pattern");
+    /// Every path a `use` declaration names, braces expanded, aliases and `self`
+    /// dropped. Token-based: a comment inside the tree hides nothing.
+    fn use_paths(tokens: &[literals::Token]) -> Vec<String> {
         let alias = Regex::new(r"\s+as\s+[A-Za-z_][A-Za-z0-9_]*").expect("alias pattern");
         let mut paths = Vec::new();
-        for captures in declaration.captures_iter(text) {
+        for (index, token) in tokens.iter().enumerate() {
+            if *token != literals::Token::Ident("use".to_owned()) {
+                continue;
+            }
+            let rest = &tokens[index + 1..];
+            let end = rest
+                .iter()
+                .position(|token| *token == literals::Token::Punct(';'))
+                .unwrap_or(rest.len());
             let tree: String = alias
-                .replace_all(&captures[1], "")
+                .replace_all(&literals::render(&rest[..end]), "")
                 .chars()
                 .filter(|ch| !ch.is_whitespace())
                 .collect();
@@ -465,18 +446,25 @@ mod tests {
     }
 
     /// Every rule a scanned file breaks (empty when it only uses the seam).
+    /// The rules read the comment-free token stream (exceptions removed as
+    /// token runs), so no comment, spacing or literal form hides a token.
     fn violations(name: &str, source: &str) -> Vec<String> {
-        let mut text = source.to_owned();
+        let mut found = literals::family_sql(name, source).violations;
+        let mut tokens = match literals::tokens(source) {
+            Ok(tokens) => tokens,
+            Err(_) => return found,
+        };
         for exception in exceptions(name) {
-            text = text.replace(exception, "");
+            let run = literals::tokens(exception).expect("exceptions lex");
+            tokens = literals::remove_runs(&tokens, &run);
         }
-        let mut found = Vec::new();
+        let text = literals::render(&tokens);
         for token in FORBIDDEN {
-            if text.contains(token) {
+            let token = literals::render(&literals::tokens(token).expect("forbidden tokens lex"));
+            if text.contains(&token) {
                 found.push(format!("{name}: {token}"));
             }
         }
-        sql_literal_violations(name, &text, &mut found);
         let mut rest = text.as_str();
         while let Some(at) = rest.find("crate::") {
             rest = &rest[at + "crate::".len()..];
@@ -487,7 +475,7 @@ mod tests {
                 ));
             }
         }
-        for path in use_paths(&text) {
+        for path in use_paths(&tokens) {
             if !use_allowed(&path) {
                 found.push(format!("{name}: use {path}"));
             }
@@ -595,6 +583,18 @@ mod tests {
             "const S: &str = write_sql!(concat!(\"SELECT f(\", \"$1)\"));",
             "const S: &str = set_sql!(PREFIX);",
             "fn f(cx: Cx<'_>) { let _ = cx.with_email(\"x\"); }",
+            // Comments between tokens hide nothing; the scan reads tokens.
+            "include/**/!(\"other.rs\");",
+            "fn f() { let _ = std/**/::env::var(\"DB_DSN\"); }",
+            "const S: &str = concat/**/!(\"SELECT f(\", \"$2,$1)\");",
+            "fn f(cx: &Cx<'_>) { let _ = &cx./* */exec; }",
+            "r#unsafe fn f() {}",
+            "/* /* */ \" */ const S: &str = \"SELECT f($2,$1)::text\";",
+            "use super::seam::read_sql as q; const S: Sql = q!(\"SELECT f($1,$3)::text\");",
+            "use super::seam::{write_sql as read_sql};",
+            "const S: Sql = super::seam::Sql::from_seam_macro(\"SELECT f($1)\");",
+            "fn f() -> String { format!(\"{}\", 1) }",
+            "const S: &str = \"open;",
         ] {
             assert!(!violations("reminder.rs", fixture).is_empty(), "{fixture}");
         }
@@ -613,20 +613,29 @@ mod tests {
             "use std::fmt::{self, Write};",
             "pub(super) const METHODS: &[super::Method] = &[];",
             "fn f() -> String { crate::problem::go_string(\"x\") }",
+            "const S: Sql = read_sql/**/!(\"SELECT f($1,$3)::text\");",
+            "const S: Sql = super::seam::write_sql!(\"SELECT f($1,$4)::text\");",
+            "fn f(x: u8) -> String { format!(\"{x} /* not a comment */\") }",
         ] {
             let found = violations("reminder.rs", clean);
             assert!(found.is_empty(), "{clean}: {found:?}");
         }
         assert!(violations("task_list.rs", "fn f() { super::seam::worker_read(); }").is_empty());
         let scoped = "use super::seam::{query, ScopedQuery};";
-        assert!(!violations("reminder.rs", scoped).is_empty(), "ScopedQuery outside its files");
+        assert!(
+            !violations("reminder.rs", scoped).is_empty(),
+            "ScopedQuery outside its files"
+        );
         for file in ["calendar.rs", "calendar_event.rs", "vendor_mail.rs"] {
             assert!(violations(file, scoped).is_empty(), "{file}");
         }
         for token in ["rsvp_on_behalf", "send_imip", "Imip"] {
             let fixture = format!("use super::seam::{token};");
             assert!(!violations("calendar.rs", &fixture).is_empty(), "{token}");
-            assert!(violations("calendar_event.rs", &fixture).is_empty(), "{token}");
+            assert!(
+                violations("calendar_event.rs", &fixture).is_empty(),
+                "{token}"
+            );
         }
         assert!(
             !violations("mod.rs", "use std::{env, process::Command};").is_empty(),
@@ -692,10 +701,16 @@ mod tests {
             .iter()
             .map(|name| (*name).to_owned())
             .collect();
-        assert_eq!(rust, go, "CALENDAR_A3_METHODS must equal Go's calendarA3Error call sites");
+        assert_eq!(
+            rust, go,
+            "CALENDAR_A3_METHODS must equal Go's calendarA3Error call sites"
+        );
         let mut sorted = CALENDAR_A3_METHODS.to_vec();
         sorted.sort_unstable();
-        assert_eq!(sorted, CALENDAR_A3_METHODS, "CALENDAR_A3_METHODS stays sorted");
+        assert_eq!(
+            sorted, CALENDAR_A3_METHODS,
+            "CALENDAR_A3_METHODS stays sorted"
+        );
         for name in CALENDAR_A3_METHODS {
             assert!(
                 GOLDEN

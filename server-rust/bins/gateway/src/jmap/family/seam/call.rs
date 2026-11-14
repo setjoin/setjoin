@@ -178,9 +178,10 @@ fn projection(method: &str) -> fn(&StatementFailure) -> MethodError {
 pub(crate) async fn read(
     cx: &Cx<'_>,
     scope: &Scope,
-    sql: &'static str,
+    sql: Sql,
     params: &[Param<'_>],
 ) -> Result<String, MethodError> {
+    let Sql(sql) = sql;
     if !owner_bound(sql, Shape::Read, params.len()) {
         return Err(refuse(cx, "read"));
     }
@@ -192,9 +193,10 @@ pub(crate) async fn read(
 pub(crate) async fn read_rows(
     cx: &Cx<'_>,
     scope: &Scope,
-    sql: &'static str,
+    sql: Sql,
     params: &[Param<'_>],
 ) -> Result<Vec<String>, MethodError> {
+    let Sql(sql) = sql;
     if !owner_bound(sql, Shape::Read, params.len()) {
         return Err(refuse(cx, "read rows"));
     }
@@ -243,9 +245,10 @@ pub(crate) async fn write(
     cx: &Cx<'_>,
     scope: &Scope,
     command: &'static str,
-    sql: &'static str,
+    sql: Sql,
     params: &[Param<'_>],
 ) -> Result<String, MethodError> {
+    let Sql(sql) = sql;
     if !owner_bound(sql, Shape::Write, params.len()) {
         return Err(refuse(cx, "write"));
     }
@@ -279,6 +282,19 @@ async fn scoped_write(
     )
     .await;
     settle(outcome, projection(cx.method.name))
+}
+
+/// One scoped reducer statement; made only by `read_sql!`/`write_sql!` from a
+/// source literal (the family guard forbids naming the constructor), so every
+/// statement a family runs is a literal the source guards check.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Sql(&'static str);
+
+impl Sql {
+    #[doc(hidden)]
+    pub(in crate::jmap::family) const fn from_seam_macro(sql: &'static str) -> Self {
+        Self(sql)
+    }
 }
 
 /// Go `dispatchSet` statements; built only by `set_sql!`.
@@ -468,14 +484,14 @@ impl ScopedQuery<'_> {
             ScopedQuery::CalendarGetShared { .. } => {
                 ("Calendar/getShared", None, CALENDAR_GET_SHARED)
             }
-            ScopedQuery::CalendarEventGetShared { .. } => (
-                "CalendarEvent/getShared",
-                None,
-                CALENDAR_EVENT_GET_SHARED,
-            ),
-            ScopedQuery::QuickStepApply { .. } => {
-                ("QuickStep/apply", Some("quick_step_apply"), QUICK_STEP_APPLY)
+            ScopedQuery::CalendarEventGetShared { .. } => {
+                ("CalendarEvent/getShared", None, CALENDAR_EVENT_GET_SHARED)
             }
+            ScopedQuery::QuickStepApply { .. } => (
+                "QuickStep/apply",
+                Some("quick_step_apply"),
+                QUICK_STEP_APPLY,
+            ),
         }
     }
 
@@ -628,11 +644,13 @@ pub(crate) fn send_imip(cx: &Cx<'_>, mail: Imip) {
         let _ = refuse(cx, "imip egress");
         return;
     }
-    let sent = cx
-        .egress
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let sent = cx.egress.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     if sent >= crate::jmap::imip::MAX_MESSAGES_PER_REQUEST {
-        crate::jmap::imip::dropped(cx.method.name, &mail.message_id, "per-request message bound");
+        crate::jmap::imip::dropped(
+            cx.method.name,
+            &mail.message_id,
+            "per-request message bound",
+        );
         return;
     }
     let Some(store) = cx.services.and_then(|services| services.store.clone()) else {
@@ -1031,17 +1049,18 @@ mod tests {
     #[test]
     fn owner_bound_accepts_only_anchored_reducer_calls() {
         for (sql, params) in [
-            (read_sql!("SELECT reminders_get($1,$3)::text"), 1),
-            (read_sql!("SELECT reminder_list($1)::text"), 0),
-            (read_sql!("SELECT mail_work_get($1,$2,$3)::text"), 1),
+            (read_sql!("SELECT reminders_get($1,$3)::text").0, 1),
+            (read_sql!("SELECT reminder_list($1)::text").0, 0),
+            (read_sql!("SELECT mail_work_get($1,$2,$3)::text").0, 1),
             (
-                read_sql!("SELECT mail_draft_get($1,$2,$3::text[]::uuid[])::text"),
+                read_sql!("SELECT mail_draft_get($1,$2,$3::text[]::uuid[])::text").0,
                 1,
             ),
             (
                 read_sql!(
                     "SELECT mail_work_metrics_get($1,$2,$3::text::date,$4::text::date,$5)::text"
-                ),
+                )
+                .0,
                 3,
             ),
         ] {
@@ -1049,13 +1068,13 @@ mod tests {
         }
         for (sql, params) in [
             (
-                write_sql!("SELECT reminder_snooze($1,$4,$5::text::timestamptz)::text"),
+                write_sql!("SELECT reminder_snooze($1,$4,$5::text::timestamptz)::text").0,
                 2,
             ),
-            (write_sql!("SELECT reminder_dismiss_all($1)::text"), 0),
-            (write_sql!("SELECT mail_work_set($1,$2,$4)::text"), 1),
+            (write_sql!("SELECT reminder_dismiss_all($1)::text").0, 0),
+            (write_sql!("SELECT mail_work_set($1,$2,$4)::text").0, 1),
             (
-                write_sql!("SELECT mail_draft_replace($1,$2,$3::text::uuid,$4)::text"),
+                write_sql!("SELECT mail_draft_replace($1,$2,$3::text::uuid,$4)::text").0,
                 1,
             ),
         ] {
@@ -1071,30 +1090,30 @@ mod tests {
     fn owner_bound_rejects_everything_else() {
         for (sql, params) in [
             ("SELECT f($1)::text", 0),
-            (read_sql!("SELECT f($1) UNION SELECT g($2)"), 0),
-            (read_sql!("SELECT f($2,$1)::text"), 0),
-            (read_sql!("SELECT f($10)::text"), 0),
-            (read_sql!("SELECT f($1,(SELECT 1))::text"), 0),
+            (read_sql!("SELECT f($1) UNION SELECT g($2)").0, 0),
+            (read_sql!("SELECT f($2,$1)::text").0, 0),
+            (read_sql!("SELECT f($10)::text").0, 0),
+            (read_sql!("SELECT f($1,(SELECT 1))::text").0, 0),
             ("SELECT f($1)::text WHERE $2::bigint>0; SELECT 1", 0),
-            (read_sql!("SELECT x FROM t WHERE mailbox_id=$1"), 0),
-            (read_sql!("SELECT f($1,$0)::text"), 0),
-            (read_sql!("SELECT f($1,$02)::text"), 0),
+            (read_sql!("SELECT x FROM t WHERE mailbox_id=$1").0, 0),
+            (read_sql!("SELECT f($1,$0)::text").0, 0),
+            (read_sql!("SELECT f($1,$02)::text").0, 0),
             ("SELECT f($1)::text WHERE $2::bigint>0 -- x", 0),
             ("SELECT f($1)::text/* x */ WHERE $2::bigint>0", 0),
-            (read_sql!("select f($1)::text"), 0),
-            (read_sql!("SELECT public.f($1)::text"), 0),
-            (read_sql!("SELECT f($1, $3)::text"), 1),
+            (read_sql!("select f($1)::text").0, 0),
+            (read_sql!("SELECT public.f($1)::text").0, 0),
+            (read_sql!("SELECT f($1, $3)::text").0, 1),
             ("SELECT f($1)::text WHERE $2::bigint>0 OR TRUE", 0),
-            (write_sql!("SELECT f($1)::text"), 0),
+            (write_sql!("SELECT f($1)::text").0, 0),
         ] {
             assert!(!owner_bound(sql, Shape::Read, params), "{sql}");
         }
         assert!(
-            !owner_bound(read_sql!("SELECT f($1)::text"), Shape::Write, 0),
+            !owner_bound(read_sql!("SELECT f($1)::text").0, Shape::Write, 0),
             "a read tail on a write"
         );
-        assert!(read_sql!("SELECT f($1)::text").ends_with(READ_TAIL));
-        assert!(write_sql!("SELECT f($1)::text").ends_with(WRITE_TAIL));
+        assert!(read_sql!("SELECT f($1)::text").0.ends_with(READ_TAIL));
+        assert!(write_sql!("SELECT f($1)::text").0.ends_with(WRITE_TAIL));
     }
 
     /// `$2` is the seam-bound actor and `$1`/`$3` the seam's mailbox and
@@ -1104,17 +1123,21 @@ mod tests {
     #[test]
     fn the_actor_slot_takes_only_the_seam_actor() {
         for (sql, shape, params) in [
-            (read_sql!("SELECT f($1,$3,$2)::text"), Shape::Read, 1),
-            (read_sql!("SELECT f($1,$2,$2)::text"), Shape::Read, 0),
-            (write_sql!("SELECT f($1,$4,$2)::text"), Shape::Write, 1),
-            (read_sql!("SELECT f($1,$2,$1)::text"), Shape::Read, 0),
-            (write_sql!("SELECT f($1,$3,$4)::text"), Shape::Write, 1),
-            (write_sql!("SELECT f($1,$4,$5,$3)::text"), Shape::Write, 2),
-            (read_sql!("SELECT f($1,$2::bigint[])::text"), Shape::Read, 1),
-            (read_sql!("SELECT f($1,$3)::text"), Shape::Read, 0),
-            (read_sql!("SELECT f($1,$3)::text"), Shape::Read, 2),
-            (write_sql!("SELECT f($1,$4)::text"), Shape::Write, 0),
-            (write_sql!("SELECT f($1,$2)::text"), Shape::Write, 1),
+            (read_sql!("SELECT f($1,$3,$2)::text").0, Shape::Read, 1),
+            (read_sql!("SELECT f($1,$2,$2)::text").0, Shape::Read, 0),
+            (write_sql!("SELECT f($1,$4,$2)::text").0, Shape::Write, 1),
+            (read_sql!("SELECT f($1,$2,$1)::text").0, Shape::Read, 0),
+            (write_sql!("SELECT f($1,$3,$4)::text").0, Shape::Write, 1),
+            (write_sql!("SELECT f($1,$4,$5,$3)::text").0, Shape::Write, 2),
+            (
+                read_sql!("SELECT f($1,$2::bigint[])::text").0,
+                Shape::Read,
+                1,
+            ),
+            (read_sql!("SELECT f($1,$3)::text").0, Shape::Read, 0),
+            (read_sql!("SELECT f($1,$3)::text").0, Shape::Read, 2),
+            (write_sql!("SELECT f($1,$4)::text").0, Shape::Write, 0),
+            (write_sql!("SELECT f($1,$2)::text").0, Shape::Write, 1),
         ] {
             assert!(
                 !owner_bound(sql, shape, params),
@@ -1212,7 +1235,14 @@ mod tests {
                 "{sql}"
             );
             let upper = sql.to_ascii_uppercase();
-            for word in [" OR ", " UNION ", " INTERSECT ", " EXCEPT ", " INTO ", "SET_CONFIG"] {
+            for word in [
+                " OR ",
+                " UNION ",
+                " INTERSECT ",
+                " EXCEPT ",
+                " INTO ",
+                "SET_CONFIG",
+            ] {
                 assert!(!upper.contains(word), "{sql}: {word}");
             }
             for registered in crate::jmap::family::registered() {
@@ -1374,7 +1404,9 @@ mod tests {
             .await
             .is_err());
         assert_eq!(refusals(), start + 1, "rogue read refused by the seam");
-        assert!(read(&cx, &scope, "SELECT f($1)::text", &[]).await.is_err());
+        assert!(read(&cx, &scope, Sql("SELECT f($1)::text"), &[])
+            .await
+            .is_err());
         assert_eq!(refusals(), start + 2, "read without the actor tail refused");
         assert!(read(
             &cx,
@@ -1398,7 +1430,7 @@ mod tests {
         .await
         .is_err());
         assert_eq!(refusals(), start + 3, "well-formed read passed the seam");
-        assert!(write(&cx, &scope, "probe", "SELECT f($1)::text", &[])
+        assert!(write(&cx, &scope, "probe", Sql("SELECT f($1)::text"), &[])
             .await
             .is_err());
         assert_eq!(
@@ -1444,23 +1476,31 @@ mod tests {
                 .is_err()
         );
         assert_eq!(refusals(), start + 6, "set_sql! passes the seam");
-        assert!(
-            query(&cx, &scope, ScopedQuery::QuickStepApply { id: 1, message: 1 })
-                .await
-                .is_err()
-        );
+        assert!(query(
+            &cx,
+            &scope,
+            ScopedQuery::QuickStepApply { id: 1, message: 1 }
+        )
+        .await
+        .is_err());
         assert_eq!(
             refusals(),
             start + 7,
             "scoped query under a foreign method refused"
         );
         let apply_cx = Cx::new(&exec, None, &auth, 1, 2, &APPLY_PROBE, "{}");
-        assert!(
-            query(&apply_cx, &scope, ScopedQuery::QuickStepApply { id: 1, message: 1 })
-                .await
-                .is_err()
+        assert!(query(
+            &apply_cx,
+            &scope,
+            ScopedQuery::QuickStepApply { id: 1, message: 1 }
+        )
+        .await
+        .is_err());
+        assert_eq!(
+            refusals(),
+            start + 7,
+            "its own scoped query passes the seam"
         );
-        assert_eq!(refusals(), start + 7, "its own scoped query passes the seam");
         assert!(query(
             &apply_cx,
             &scope,
@@ -1505,7 +1545,7 @@ mod tests {
             "another method's worker statement refused"
         );
         assert!(
-            read_rows(&cx, &scope, "SELECT f($1) UNION SELECT g($1)", &[])
+            read_rows(&cx, &scope, Sql("SELECT f($1) UNION SELECT g($1)"), &[])
                 .await
                 .is_err()
         );
@@ -1518,8 +1558,14 @@ mod tests {
         )
         .await
         .is_err());
-        assert_eq!(refusals(), start + 12, "well-formed read_rows passed the seam");
-        assert!(rsvp_on_behalf(&cx, "o@x.test", 1, "accepted").await.is_err());
+        assert_eq!(
+            refusals(),
+            start + 12,
+            "well-formed read_rows passed the seam"
+        );
+        assert!(rsvp_on_behalf(&cx, "o@x.test", 1, "accepted")
+            .await
+            .is_err());
         assert_eq!(
             refusals(),
             start + 13,
@@ -1534,7 +1580,11 @@ mod tests {
                 mime: String::new(),
             },
         );
-        assert_eq!(refusals(), start + 14, "egress under a foreign method refused");
+        assert_eq!(
+            refusals(),
+            start + 14,
+            "egress under a foreign method refused"
+        );
         assert!(query(
             &cx,
             &scope,
@@ -1738,44 +1788,10 @@ mod db {
         found
     }
 
-    /// Statements in one family file's source, decoded the way the compiler reads
-    /// them (shared decoder): every string literal that starts `SELECT`, every
-    /// `read_sql!`/`write_sql!` argument, and the statements a `set_sql!` prefix
-    /// expands to. An SQL macro argument that is not one plain literal is an
-    /// error, never skipped.
-    fn statements_in(text: &str) -> Result<Vec<String>, String> {
-        let mut statements = Vec::new();
-        for literal in literals::literals(text) {
-            if literal.trim_start().starts_with("SELECT ") {
-                statements.push(literal.trim_start().to_owned());
-            }
-        }
-        for (name, argument) in
-            literals::macro_arguments(text, &["read_sql", "write_sql", "set_sql"])?
-        {
-            if name == "set_sql" {
-                let valid = !argument.is_empty()
-                    && argument
-                        .chars()
-                        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
-                    && !argument.starts_with(|ch: char| ch.is_ascii_digit());
-                if !valid {
-                    return Err(format!("set_sql! prefix {argument:?}"));
-                }
-                for phase in ["create", "update", "destroy"] {
-                    statements.push(format!("SELECT {argument}_set_{phase}($1,$3)"));
-                }
-            } else if !statements.contains(&argument.trim_start().to_owned()) {
-                statements.push(argument.trim_start().to_owned());
-            }
-        }
-        Ok(statements)
-    }
-
-    /// Statements in the family files (the seam excluded).
-    fn family_statements() -> Vec<(String, String)> {
+    /// The family files (the seam excluded), by file name.
+    fn family_sources() -> Vec<(String, String)> {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/jmap/family");
-        let mut statements = Vec::new();
+        let mut sources = Vec::new();
         for entry in std::fs::read_dir(&root).expect("family directory") {
             let path = entry.expect("family entry").path();
             if path.is_dir() {
@@ -1786,36 +1802,78 @@ mod db {
                 .and_then(|name| name.to_str())
                 .unwrap_or("?")
                 .to_owned();
-            let text = std::fs::read_to_string(&path).expect("family file");
-            for sql in statements_in(&text).unwrap_or_else(|error| panic!("{name}: {error}")) {
-                statements.push((name.clone(), sql));
-            }
+            sources.push((name, std::fs::read_to_string(&path).expect("family file")));
         }
-        statements
+        sources.sort();
+        sources
     }
 
+    /// The whole guard for one family source: the shared token scan (every
+    /// SQL-looking literal and every seam macro expansion, fail closed on a
+    /// lexing error or a non-canonical SQL identifier), then the actor and
+    /// mailbox rules on each statement it found.
+    async fn source_violations(owner: &Client, name: &str, text: &str) -> Vec<String> {
+        let scan = literals::family_sql(name, text);
+        let mut found = scan.violations;
+        for sql in &scan.statements {
+            found.extend(violations(owner, name, sql, 2, true).await);
+        }
+        found
+    }
+
+    /// End-to-end negatives (source text through `source_violations`); each
+    /// names the statement the scan must surface when it does not refuse the
+    /// source outright. `$3` in `mail_work_get`'s second argument is a family
+    /// param in the actor slot.
+    const SOURCE_FIXTURES: &[(&str, &str, Option<&str>)] = &[
+        (
+            "nested block comment (Codex round 2)",
+            "/* /* */ \" */\nconst S: Sql = read_sql!(\"SELECT mail_work_get($1,$3,$4)::text\");",
+            Some("SELECT mail_work_get($1,$3,$4)::text WHERE $2::bigint>0"),
+        ),
+        (
+            "comment between read_sql and !",
+            "const S: Sql = read_sql/**/!(\"SELECT mail_work_get($1,$3,$4)::text\");",
+            Some("SELECT mail_work_get($1,$3,$4)::text WHERE $2::bigint>0"),
+        ),
+        (
+            "comment between set_sql and !",
+            "const S: SetSql = set_sql/**/!(\"no_such_seam_probe\");",
+            Some("SELECT no_such_seam_probe_set_create($1,$3::text::jsonb)::text WHERE $2::bigint>0"),
+        ),
+        (
+            "alias import",
+            "use super::seam::read_sql as q;\nconst S: Sql = q!(\"SELECT mail_work_get($1,$3,$4)::text\");",
+            Some("SELECT mail_work_get($1,$3,$4)::text"),
+        ),
+        (
+            "bare literal outside any macro",
+            "const S: &str = \"SELECT mail_work_get($1,$3,$4)::text\";",
+            Some("SELECT mail_work_get($1,$3,$4)::text"),
+        ),
+        (
+            "concat!-built SQL",
+            "const S: &str = concat!(\"SELECT mail_work_get($1,\", \"$3,$4)::text\");",
+            None,
+        ),
+    ];
+
     #[test]
-    fn statement_extraction_decodes_and_fails_closed() {
-        let continued = "const S: &str = read_sql!(\"\\\n    SELECT mail_work_get($1,$3,$4)::text\");";
-        assert_eq!(
-            statements_in(continued).expect("literal"),
-            ["SELECT mail_work_get($1,$3,$4)::text"]
-        );
-        let raw = "const S: &str = write_sql!(r#\"SELECT f($1,$4)::text\"#);";
-        assert_eq!(
-            statements_in(raw).expect("raw literal"),
-            ["SELECT f($1,$4)::text"]
-        );
-        let escaped = "const S: &str = \"SELECT f($1,\\\n   $3)\\n\";";
-        assert_eq!(statements_in(escaped).expect("escapes"), ["SELECT f($1,$3)\n"]);
-        assert_eq!(statements_in("set_sql!(\"task\")").expect("set").len(), 3);
-        for unrecognized in [
-            "const S: &str = read_sql!(QUERY);",
-            "const S: &str = read_sql!(concat!(\"SELECT f(\", \"$1,$3)\"));",
-            "const S: &str = write_sql!(\"SELECT f($1)\" );\nlet _ = set_sql!(PREFIX);",
-            "let _ = set_sql!(\"Bad Prefix\");",
-        ] {
-            assert!(statements_in(unrecognized).is_err(), "{unrecognized}");
+    fn the_scan_surfaces_every_fixture_statement() {
+        for (why, text, statement) in SOURCE_FIXTURES {
+            let scan = literals::family_sql("reminder.rs", text);
+            match statement {
+                Some(statement) => assert!(
+                    scan.statements.iter().any(|found| found == statement),
+                    "{why}: {:?}",
+                    scan.statements
+                ),
+                None => assert!(!scan.violations.is_empty(), "{why}"),
+            }
+        }
+        for (name, text) in family_sources() {
+            let scan = literals::family_sql(&name, &text);
+            assert!(scan.violations.is_empty(), "{:?}", scan.violations);
         }
     }
 
@@ -1834,7 +1892,12 @@ mod db {
         assert_eq!(classify("p_member_user_id"), Ok(false));
         assert_eq!(classify("p_mailbox_id"), Ok(false));
         assert_eq!(classify("p_ids"), Ok(false));
-        for unknown in ["p_delegate_id", "p_sender_user_id", "p_principal", "p_caller"] {
+        for unknown in [
+            "p_delegate_id",
+            "p_sender_user_id",
+            "p_principal",
+            "p_caller",
+        ] {
             assert!(classify(unknown).is_err(), "{unknown}");
         }
     }
@@ -1846,8 +1909,8 @@ mod db {
         };
         let owner = db.connect().await.expect("owner connection");
         let mut found = Vec::new();
-        for (origin, sql) in family_statements() {
-            found.extend(violations(&owner, &origin, &sql, 2, true).await);
+        for (name, text) in family_sources() {
+            found.extend(source_violations(&owner, &name, &text).await);
         }
         for statement in SCOPED_QUERIES {
             let (method, _, sql) = statement.spec();
@@ -1926,6 +1989,22 @@ mod db {
             .await
             .is_empty(),
             "a reviewed known-missing function"
+        );
+        for (why, text, _) in SOURCE_FIXTURES {
+            assert!(
+                !source_violations(&owner, "reminder.rs", text)
+                    .await
+                    .is_empty(),
+                "end to end: {why}"
+            );
+        }
+        let clean = "use super::seam::{read_sql, write_sql};\n\
+            const A: Sql = read_sql!(\"SELECT mail_work_get($1,$2,$3)::text\");\n\
+            const B: Sql = write_sql!(\"SELECT mail_work_set($1,$2,$4)::text\");";
+        let found = source_violations(&owner, "mail_work.rs", clean).await;
+        assert!(
+            found.is_empty(),
+            "legitimate family code passes: {found:#?}"
         );
     }
 
@@ -2193,12 +2272,7 @@ mod db {
         revoke(owner, f).await;
     }
 
-    async fn finish(
-        owner: &Client,
-        a: &Account,
-        f: &Account,
-        outcome: std::thread::Result<()>,
-    ) {
+    async fn finish(owner: &Client, a: &Account, f: &Account, outcome: std::thread::Result<()>) {
         let mailboxes = vec![a.mailbox, f.mailbox];
         let _ = owner
             .execute(
