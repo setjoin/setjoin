@@ -5,7 +5,7 @@ use setjoin_authz::{
     geoip::CountryDb,
     policy::eval::{Context, Engine},
 };
-use setjoin_pg::{workers::WorkerDatabase, ScopedExecutor, Type};
+use setjoin_pg::{ScopedExecutor, Type};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -75,9 +75,40 @@ impl Default for Config {
         }
     }
 }
+/// Pre-auth worker-credential connections (#367): lockout_check, detect_spray
+/// and the spray side effects. A full pool waits `Timeouts::pool_wait`, then
+/// the check fails closed.
+pub const WORKER_POOL_SIZE: usize = 8;
+/// Reserved connections for lockout_clear/lockout_escalate after a real
+/// credential verification, so pre-auth floods cannot starve failure accounting.
+pub const RECORD_POOL_SIZE: usize = 2;
+
+/// The two bounded worker-credential pools a [`Gate`] uses (#367).
+#[derive(Clone)]
+pub struct WorkerPools {
+    pub check: ScopedExecutor,
+    pub record: ScopedExecutor,
+}
+
+impl WorkerPools {
+    /// `DB_WORKER_DSN` when set, otherwise Go's request-DSN fallback.
+    pub fn from_dsns(request_dsn: &str, worker_dsn: Option<&str>) -> Result<Self, Error> {
+        Self::from_dsn(worker_dsn.filter(|s| !s.is_empty()).unwrap_or(request_dsn))
+    }
+
+    /// Both pools on one worker DSN, with `Timeouts::resolved()`.
+    pub fn from_dsn(dsn: &str) -> Result<Self, Error> {
+        Ok(Self {
+            check: ScopedExecutor::from_dsn(dsn, WORKER_POOL_SIZE).map_err(|e| e.0)?,
+            record: ScopedExecutor::from_dsn(dsn, RECORD_POOL_SIZE).map_err(|e| e.0)?,
+        })
+    }
+}
+
+pub struct Gate {
 pub struct Gate {
     pub(crate) exec: ScopedExecutor,
-    pub(crate) worker: WorkerDatabase,
+    pub(crate) worker: WorkerPools,
     pub(crate) config: Config,
     pub(crate) flags: RwLock<HashMap<String, bool>>,
     pub(crate) engine: Engine,
@@ -107,7 +138,7 @@ impl Decision {
 impl Gate {
     pub async fn load(
         exec: ScopedExecutor,
-        worker: WorkerDatabase,
+        worker: WorkerPools,
         config: Config,
         geo: Option<CountryDb>,
     ) -> Result<Arc<Self>, Error> {
@@ -140,6 +171,7 @@ impl Gate {
         if !missing.is_empty() {
             return Err(format!("feature_toggles rows missing for security toggles {missing:?}; restore the seeded baseline").into());
         }
+        gate.probe_worker().await?;
         gate.engine.initialize().await;
         Ok(gate)
     }
@@ -215,25 +247,98 @@ impl Gate {
             format!("ip_user:{}:{name}", meta.source_ip),
         ]
     }
+    /// Boot check (#367): a worker credential that may not run the lockout
+    /// accessors would make every login a fail-closed rejection. Refuse boot on
+    /// SQLSTATE 42501 or a denied privilege only; an unreachable database still
+    /// boots and fails closed per request.
+    async fn probe_worker(&self) -> Result<(), Error> {
+        let mut probes: Vec<(&ScopedExecutor, &'static str)> = vec![
+            (&self.worker.check, "SELECT locked FROM lockout_check('{}'::text[])"),
+            (&self.worker.record, "SELECT lockout_clear('{}'::text[])"),
+            (
+                &self.worker.record,
+                "SELECT has_function_privilege('lockout_escalate(text,integer)','EXECUTE') AND has_function_privilege('lockout_arm(text,integer)','EXECUTE')",
+            ),
+        ];
+        if self.enabled("feature.spray_detect") {
+            probes.push((
+                &self.worker.check,
+                "SELECT detect_spray('192.0.2.1'::inet,1,1)",
+            ));
+        }
+        for (pool, sql) in probes {
+            let denied = match pool.protocol_query(sql, &[]).await {
+                Err(e) => e.sqlstate.as_deref() == Some("42501"),
+                Ok(rows) => {
+                    sql.contains("has_function_privilege")
+                        && rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()) == Some(false)
+                }
+            };
+            if denied {
+                return Err(format!(
+                    "threat worker credential may not run the lockout accessors ({sql}); set DB_WORKER_DSN to setjoin_worker"
+                )
+                .into());
+            }
+        }
+        Ok(())
+    }
+
+    /// `Ok(Some(seconds))` when locked; `Err` means no answer, so fail closed.
+    async fn lockout_state(&self, meta: &ConnectionMeta) -> Result<Option<f64>, ()> {
+        let rows = self
+            .worker
+            .check
+            .protocol_query(
+                "SELECT locked, remaining_seconds FROM lockout_check($1)",
+                &[(&self.keys(meta), Type::TEXT_ARRAY)],
+            )
+            .await
+            .map_err(|_| ())?;
+        let row = match rows.first() {
+            None => None,
+            Some(row) => Some((
+                row.try_get::<_, Option<bool>>(0).map_err(|_| ())?,
+                row.try_get::<_, Option<f64>>(1).ok().flatten(),
+            )),
+        };
+        lockout_from(row)
+    }
+
+    pub async fn decide(&self, meta: &ConnectionMeta, skip_captcha: bool) -> Decision {
     pub async fn decide(&self, meta: &ConnectionMeta, skip_captcha: bool) -> Decision {
         let country = self.country(meta);
         let mut hits = 0_i64;
         if self.enabled("feature.threat_feed") {
+            // Go parity (interceptor.go:619-624): a failed feed lookup scores 0 hits; see DOX (#367).
             hits=tokio::time::timeout(Duration::from_secs(3),self.exec.read("SELECT COUNT(*) FROM (SELECT 1 FROM threat_feed_blocks WHERE cidr >>= $1::inet LIMIT 2) AS hits",&[(&meta.source_ip,Type::TEXT)])).await.ok().and_then(Result::ok).and_then(|r|r.first().map(|r|r.get(0))).unwrap_or(0);
         }
-        if tokio::time::timeout(
+        let rule = tokio::time::timeout(
             Duration::from_secs(3),
             self.exec.read(
                 "SELECT action FROM ip_rules WHERE cidr >>= $1::inet ORDER BY action ASC LIMIT 1",
                 &[(&meta.source_ip, Type::TEXT)],
             ),
         )
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .is_some_and(|r| r.first().is_some_and(|r| r.get::<_, String>(0) == "block"))
-        {
-            return Decision::reject("ip_blocked");
+        .await;
+        match rule {
+            Ok(Ok(rows)) => match rows.first() {
+                None => {}
+                Some(row) => match row.try_get::<_, String>(0) {
+                    Ok(action) if action == "block" => return Decision::reject("ip_blocked"),
+                    Ok(_) => {}
+                    Err(_) => {
+                        // Divergence (#367): Go proceeds (interceptor.go:668).
+                        eprintln!("threat gate: ip rule check unavailable; failing closed");
+                        return Decision::reject("ip_rules_unavailable");
+                    }
+                },
+            },
+            _ => {
+                // Divergence (#367): Go proceeds (interceptor.go:668).
+                eprintln!("threat gate: ip rule check unavailable; failing closed");
+                return Decision::reject("ip_rules_unavailable");
+            }
         }
         if self.enabled("feature.geo_block")
             && !country.is_empty()
@@ -242,42 +347,41 @@ impl Gate {
             return Decision::reject("geo_blocked");
         }
         if !meta.username.is_empty() {
-            if let Ok(db) = self.worker.connect().await {
-                if let Ok(rows) = db
-                    .query(
-                        "SELECT locked, remaining_seconds FROM lockout_check($1)",
-                        &[(&self.keys(meta), Type::TEXT_ARRAY)],
-                    )
-                    .await
-                {
-                    if rows[0].get::<_, bool>(0) {
-                        let secs: f64 = rows[0].get(1);
-                        return Decision::new(
-                            ThreatAction::Reject,
-                            "lockout",
-                            Duration::from_secs((secs.max(0.) as u64).min(15)),
-                        );
-                    }
+            match self.lockout_state(meta).await {
+                Ok(None) => {}
+                Ok(Some(secs)) => {
+                    return Decision::new(ThreatAction::Reject, "lockout", lockout_delay(secs));
+                }
+                Err(()) => {
+                    // Divergence (#367): Go fails open (shared/threat/lockout.go:46-50).
+                    eprintln!("threat gate: lockout check unavailable; failing closed");
+                    return Decision::reject("lockout_unavailable");
                 }
             }
         }
         if self.enabled("feature.spray_detect") {
-            if let Ok(db) = self.worker.connect().await {
-                let detected = db
-                    .query(
-                        "SELECT detect_spray($1::inet,$2,$3)",
-                        &[
-                            (&meta.source_ip, Type::TEXT),
-                            (&self.config.spray_window_secs, Type::INT4),
-                            (&self.config.spray_max_users, Type::INT4),
-                        ],
-                    )
-                    .await
-                    .ok()
-                    .is_some_and(|r| r[0].get::<_, bool>(0));
-                if detected {
-                    let _ = db
-                        .query(
+            let detected = self
+                .worker
+                .check
+                .protocol_query(
+                    "SELECT detect_spray($1::inet,$2,$3)",
+                    &[
+                        (&meta.source_ip, Type::TEXT),
+                        (&self.config.spray_window_secs, Type::INT4),
+                        (&self.config.spray_max_users, Type::INT4),
+                    ],
+                )
+                .await
+                .ok()
+                .and_then(|rows| rows.first().and_then(|row| row.try_get::<_, bool>(0).ok()));
+            match detected {
+                Some(false) => {}
+                Some(true) => {
+                    // Go's best-effort side effects, in order, one checkout each.
+                    let _ = self
+                        .worker
+                        .check
+                        .protocol_statement(
                             "SELECT lockout_arm($1,$2)",
                             &[
                                 (&format!("ip:{}", meta.source_ip), Type::TEXT),
@@ -285,24 +389,47 @@ impl Gate {
                             ],
                         )
                         .await;
-                    let metadata=serde_json::json!({"unique_usernames":self.config.spray_max_users,"window":self.config.spray_window_secs}).to_string();
-                    let _=db.execute("INSERT INTO audit_log(source_ip,event_type,metadata) VALUES($1::inet,'spray_detected',$2::jsonb)",&[(&meta.source_ip,Type::TEXT),(&metadata,Type::TEXT)]).await;
-                    let _ = db
-                        .query(
+                    let metadata = serde_json::json!({
+                        "unique_usernames": self.config.spray_max_users,
+                        "window": self.config.spray_window_secs,
+                    })
+                    .to_string();
+                    let _ = self
+                        .worker
+                        .check
+                        .protocol_statement(
+                            "INSERT INTO audit_log(source_ip,event_type,metadata) VALUES($1::inet,'spray_detected',$2::jsonb)",
+                            &[(&meta.source_ip, Type::TEXT), (&metadata, Type::TEXT)],
+                        )
+                        .await;
+                    let _ = self
+                        .worker
+                        .check
+                        .protocol_statement(
                             "SELECT pg_notify('alert:spray',$1)",
                             &[(&meta.source_ip, Type::TEXT)],
                         )
                         .await;
                     return Decision::reject("spray_detected");
                 }
+                None => {
+                    // Divergence (#367): Go fails open (shared/threat/spray.go:31-37).
+                    eprintln!("threat gate: spray check unavailable; failing closed");
+                    return Decision::reject("spray_unavailable");
+                }
             }
         }
         if !skip_captcha && (self.enabled("feature.captcha") || self.enabled("feature.tarpit")) {
             let counts=self.exec.read("SELECT COUNT(*) FILTER (WHERE outcome='failure' AND occurred_at>now()-make_interval(mins=>$2)),COUNT(*) FILTER (WHERE outcome IN ('failure','captcha_needed') AND occurred_at>now()-make_interval(mins=>$3)) FROM auth_attempts WHERE source_ip=$1::inet",&[(&meta.source_ip,Type::TEXT),(&self.config.captcha_window_mins,Type::INT4),(&self.config.tarpit_window_mins,Type::INT4)]).await;
-            let (fails, tarpit) = counts
-                .ok()
-                .map(|r| (r[0].get::<_, i64>(0), r[0].get::<_, i64>(1)))
-                .unwrap_or_default();
+            let counts = counts.ok().and_then(|rows| {
+                let row = rows.first()?;
+                Some((row.try_get::<_, i64>(0).ok()?, row.try_get::<_, i64>(1).ok()?))
+            });
+            let Some((fails, tarpit)) = counts else {
+                // Divergence (#367): Go scores 0 (interceptor.go:731-733).
+                eprintln!("threat gate: captcha/tarpit count unavailable; failing closed");
+                return Decision::reject("captcha_unavailable");
+            };
             if self.enabled("feature.captcha") && fails >= i64::from(self.config.captcha_threshold)
             {
                 return Decision::reject("captcha_needed");
@@ -321,11 +448,19 @@ impl Gate {
         if self.enabled("feature.rate_limit") {
             let key = format!("auth:{}:{}", self.protocol(meta), meta.source_ip);
             let rows=self.exec.protocol_query("INSERT INTO rate_limit_counters(key,count,window_start) VALUES($1,1,now()) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN rate_limit_counters.window_start+INTERVAL '1 minute'<now() THEN 1 ELSE rate_limit_counters.count+1 END, window_start=CASE WHEN rate_limit_counters.window_start+INTERVAL '1 minute'<now() THEN now() ELSE rate_limit_counters.window_start END RETURNING count",&[(&key,Type::TEXT)]).await;
-            if rows
+            match rows
                 .ok()
-                .is_some_and(|r| r[0].get::<_, i32>(0) > self.config.rate_limit_per_min)
+                .and_then(|r| r.first().and_then(|row| row.try_get::<_, i32>(0).ok()))
             {
-                return Decision::new(ThreatAction::RateLimited, "rate_limited", Duration::ZERO);
+                Some(count) if count > self.config.rate_limit_per_min => {
+                    return Decision::new(ThreatAction::RateLimited, "rate_limited", Duration::ZERO);
+                }
+                Some(_) => {}
+                None => {
+                    // Divergence (#367): Go fails open (shared/threat/ratelimit.go:25-29).
+                    eprintln!("threat gate: rate limit unavailable; failing closed");
+                    return Decision::reject("rate_limit_unavailable");
+                }
             }
         }
         if self.enabled("feature.conditional_access") {
@@ -380,17 +515,30 @@ impl Gate {
                 .await;
         }
         if !meta.username.is_empty() {
-            if let Ok(db) = self.worker.connect().await {
-                let keys = self.keys(meta);
-                if success {
-                    let _ = db
-                        .query("SELECT lockout_clear($1)", &[(&keys, Type::TEXT_ARRAY)])
-                        .await;
-                } else {
-                    for key in keys {
-                        let _ = db
-                            .query("SELECT lockout_escalate($1)", &[(&key, Type::TEXT)])
-                            .await;
+            // Reserved record pool (#367). Keep ONE statement per key (Go
+            // lockout.go:61-63): a failing `user:` key (NUL, oversized index
+            // entry) must not roll back the `ip:` key. Never fold into unnest.
+            let keys = self.keys(meta);
+            if success {
+                if self
+                    .worker
+                    .record
+                    .protocol_statement("SELECT lockout_clear($1)", &[(&keys, Type::TEXT_ARRAY)])
+                    .await
+                    .is_err()
+                {
+                    eprintln!("threat gate: lockout clear failed");
+                }
+            } else {
+                for key in &keys {
+                    if self
+                        .worker
+                        .record
+                        .protocol_statement("SELECT lockout_escalate($1)", &[(key, Type::TEXT)])
+                        .await
+                        .is_err()
+                    {
+                        eprintln!("threat gate: lockout escalate failed");
                     }
                 }
             }
@@ -481,6 +629,23 @@ impl ThreatGate for Gate {
         Box::pin(self.post_auth(m))
     }
 }
+/// Decode one `lockout_check` row (#367). No row or a NULL `locked` is an
+/// error (fail closed); locked with an unreadable remainder stays locked
+/// (Go lockout.go:38-44).
+fn lockout_from(row: Option<(Option<bool>, Option<f64>)>) -> Result<Option<f64>, ()> {
+    match row {
+        None | Some((None, _)) => Err(()),
+        Some((Some(false), _)) => Ok(None),
+        Some((Some(true), remaining)) => Ok(Some(remaining.unwrap_or(0.).max(0.))),
+    }
+}
+
+/// Go's tarpit-convention bound on the lockout response delay (15 s).
+fn lockout_delay(secs: f64) -> Duration {
+    Duration::from_secs((secs.max(0.) as u64).min(15))
+}
+
+pub fn mask_ip(ip: &str) -> String {
 pub fn mask_ip(ip: &str) -> String {
     let ip = ip
         .parse::<std::net::IpAddr>()
@@ -608,5 +773,104 @@ fn client_type<'a>(protocol: &'a str, agent: &str, post: bool) -> &'a str {
             }
         }
         _ => "web",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lockout_row_decoding_fails_closed() {
+        assert_eq!(lockout_from(None), Err(()));
+        assert_eq!(lockout_from(Some((None, Some(5.)))), Err(()));
+        assert_eq!(lockout_from(Some((Some(false), Some(5.)))), Ok(None));
+        assert_eq!(lockout_from(Some((Some(true), None))), Ok(Some(0.)));
+        assert_eq!(lockout_from(Some((Some(true), Some(-3.)))), Ok(Some(0.)));
+        assert_eq!(lockout_from(Some((Some(true), Some(90.)))), Ok(Some(90.)));
+    }
+
+    #[test]
+    fn lockout_delay_keeps_go_bound() {
+        assert_eq!(lockout_delay(0.), Duration::ZERO);
+        assert_eq!(lockout_delay(3.9), Duration::from_secs(3));
+        assert_eq!(lockout_delay(900.), Duration::from_secs(15));
+        assert_eq!(lockout_delay(-1.), Duration::ZERO);
+        assert_eq!(lockout_delay(f64::NAN), Duration::ZERO);
+    }
+
+    /// Port 1 refuses at once: these paths need no database.
+    fn unreachable() -> ScopedExecutor {
+        ScopedExecutor::from_dsn_with(
+            "host=127.0.0.1 port=1 user=gate dbname=gate",
+            1,
+            setjoin_pg::Timeouts {
+                pool_wait: Duration::from_millis(100),
+                create: Duration::from_millis(500),
+                statement: Duration::from_millis(500),
+            },
+        )
+        .unwrap()
+    }
+
+    /// Built without `load`, so the boot probe is not involved; all toggles off.
+    fn gate() -> Gate {
+        let mut config = Config::default();
+        for key in [
+            "threat_feed",
+            "geo_block",
+            "spray_detect",
+            "captcha",
+            "tarpit",
+            "rate_limit",
+            "conditional_access",
+        ] {
+            config.overrides.insert(format!("feature.{key}"), false);
+        }
+        let exec = unreachable();
+        Gate {
+            engine: Engine::new(exec.clone()),
+            exec,
+            worker: WorkerPools {
+                check: unreachable(),
+                record: unreachable(),
+            },
+            config,
+            flags: Default::default(),
+            geo: None,
+        }
+    }
+
+    fn meta(username: &str) -> ConnectionMeta {
+        ConnectionMeta {
+            source_ip: "198.51.100.7".into(),
+            username: username.into(),
+            protocol: "ldap".into(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn unavailable_request_pool_rejects_instead_of_skipping_ip_rules() {
+        for user in ["", "alice@example.test"] {
+            let decision = tokio::time::timeout(Duration::from_secs(5), gate().decide(&meta(user), true))
+                .await
+                .expect("ip rule check is bounded");
+            assert_eq!(decision.action, ThreatAction::Reject);
+            assert_eq!(decision.reason, "ip_rules_unavailable");
+        }
+    }
+
+    #[tokio::test]
+    async fn record_with_unavailable_pools_is_bounded_best_effort() {
+        let gate = gate();
+        for success in [false, true] {
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                gate.record(&meta("alice@example.test"), success, 0),
+            )
+            .await
+            .expect("record stays bounded");
+        }
     }
 }
