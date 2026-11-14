@@ -15,8 +15,8 @@ plan() {
     printf '%s\n' $LANE_QC_PACKAGES > "$OUT/packages.txt"
     return 0
   fi
-  git diff --name-only "$BASE...HEAD" > "$OUT/changed.txt" || : > "$OUT/changed.txt"
-  cargo metadata --locked --no-deps --format-version 1 --manifest-path server-rust/Cargo.toml 2>/dev/null |
+  git diff --name-only "$BASE...HEAD" > "$OUT/changed.txt"
+  cargo metadata --locked --no-deps --format-version 1 --manifest-path server-rust/Cargo.toml |
     python3 -c '
 import json, os, sys
 meta = json.load(sys.stdin)

@@ -51,9 +51,8 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 
 ## Builds and tests
 
-- CI-first: heavy builds and tests run on GitHub-hosted runners (the `server-rust lane`).
-  Locally run only `cargo check -p <crate>` and `cargo fmt`.
-- Local cargo runs one at a time under a host-wide lock (for example `flock`).
+- CI-first: builds and tests run on GitHub-hosted runners (`quick check` per branch push, the
+  `server-rust lane` per merge). Local Rust work is limited to `rustfmt` on files you add.
 - Do not compile Rust locally: push your `gofree/**`, `ci/**` or `docs/**` branch and read the `quick check` result through the shared poller (the workflow takes ~minutes and covers changed packages, `--lib` tests and cheap guards).
 - Before fixing a failing test, search open issues and other branches for its name.
 
