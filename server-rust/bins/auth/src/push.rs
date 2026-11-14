@@ -620,18 +620,17 @@ impl AuthServer {
         let Some(pending) = self.totp_pending(token) else {
             return Self::push_named_problem(401, "invalid MFA token", "unauthorized", &path);
         };
-        if self.totp_guest(&pending).await
-            || (fields
-                .get("dpop_jwk")
-                .and_then(Value::as_object)
-                .is_some_and(|v| !v.is_empty())
-                && !matches!(
-                    login::enabled(&self.exec, "feature.token_binding").await,
-                    Ok(false)
-                ))
+        if fields
+            .get("dpop_jwk")
+            .and_then(Value::as_object)
+            .is_some_and(|v| !v.is_empty())
+            && !matches!(
+                login::enabled(&self.exec, "feature.token_binding").await,
+                Ok(false)
+            )
         {
             return self.forward(Request::from_parts(parts, body(raw))).await;
-        } // #406/#405.
+        } // #405.
         match push::harvest(&self.exec, &pending, nonce, token).await {
             setjoin_pg::CommandOutcome::Committed(true) => {}
             setjoin_pg::CommandOutcome::Unknown { operation } => {

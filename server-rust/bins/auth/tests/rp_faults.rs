@@ -244,3 +244,160 @@ async fn link_finish_after_commit() {
         .await
         .unwrap();
 }
+
+/// Fable 353-2: no N7 case may run against a replaced is_guest_account. Restore
+/// from the reducer source, or fail hard.
+async fn guest_function_pristine(c: &tokio_postgres::Client) -> Result<(), Err> {
+    async fn def(c: &tokio_postgres::Client) -> Result<String, tokio_postgres::Error> {
+        c.query_one(
+            "SELECT pg_get_functiondef('is_guest_account(bigint)'::regprocedure)",
+            &[],
+        )
+        .await
+        .map(|r| r.get::<_, String>(0))
+    }
+    let ok = |d: &str| {
+        d.contains("SECURITY DEFINER")
+            && d.contains("public.guest_accounts")
+            && !d.contains("gofree_")
+    };
+    if ok(&def(c).await?) {
+        return Ok(());
+    }
+    c.batch_execute(include_str!(
+        "../../../../mailserver/sql/reducers/guest_account.sql"
+    ))
+    .await?;
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_idmfa1_guest_calls; DROP SEQUENCE IF EXISTS gofree_guest353_calls").await?;
+    if ok(&def(c).await?) {
+        Ok(())
+    } else {
+        Err("is_guest_account is not pristine after restore; refusing to run".into())
+    }
+}
+/// Replaces is_guest_account with a counting function; `branch` runs after the
+/// call number is stored in `n` (1-based).
+async fn install_counting_guest(c: &tokio_postgres::Client, branch: &str) -> Result<(), Err> {
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_guest353_calls;CREATE SEQUENCE gofree_guest353_calls;GRANT USAGE ON SEQUENCE gofree_guest353_calls TO setjoin_app").await?;
+    c.batch_execute(&format!("CREATE OR REPLACE FUNCTION is_guest_account(p_user_id bigint) RETURNS boolean LANGUAGE plpgsql AS $$DECLARE n bigint; BEGIN n := nextval('gofree_guest353_calls'); {branch} END$$")).await?;
+    Ok(())
+}
+fn jwt_claims(token: &str) -> Result<Value, Err> {
+    use base64::Engine;
+    let segment = token.split('.').nth(1).ok_or("jwt without payload")?;
+    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(segment)?;
+    Ok(serde_json::from_slice(&raw)?)
+}
+/// One OIDC SSO completion for an existing member; returns the callback response.
+async fn sso_once(
+    env: &flows::Env,
+    email: &str,
+    subject: &str,
+) -> Result<(u16, Value, String), Err> {
+    let response = request(
+        env.gw.addr,
+        "GET",
+        "/auth/oidc/login?provider=idfed2",
+        String::new(),
+        &[],
+    )
+    .await?;
+    let (_, flow) = flows::normalize_flow(response)?;
+    let cookie = flow
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let code = env.idp.state.code(
+        &flow["oidc_verifier"],
+        &flow["oidc_nonce"],
+        json!({"sub":subject,"email":email,"email_verified":true}),
+    );
+    let path = setjoin_identity::oidc::query_response(
+        "/auth/oidc/callback",
+        &[("state", &flow["oidc_state"]), ("code", &code)],
+        false,
+    );
+    request(env.gw.addr, "GET", &path, String::new(), &[("cookie", &cookie)]).await
+}
+async fn sso_effects(c: &tokio_postgres::Client, user: i64) -> Result<(i64, i64), Err> {
+    let r = c
+        .query_one(
+            "SELECT (SELECT count(*) FROM oauth_tokens WHERE user_id=$1),(SELECT count(*) FROM sessions WHERE user_id=$1)",
+            &[&user],
+        )
+        .await?;
+    Ok((r.get(0), r.get(1)))
+}
+/// N7 (#353): SSO completion for a member carries no `acct`; a guest row seen
+/// only at the mint-time admission lookup is refused with 503.
+async fn n7_sso_guest_scope() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let env = flows::Env::start(false).await?;
+    guest_function_pristine(&env.c).await?;
+    settlement::cleanup_leftovers(&env.c).await?;
+    let a = fixture::account(&env.c, "guest353-n7-member").await?;
+    let result = async {
+        let email: String = env
+            .c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+        env.c.execute("UPDATE users SET oidc_subject='guest353-n7-subject',oidc_issuer=$2 WHERE id=$1", &[&a.user, &idp::ISSUER]).await?;
+        // (i) member SSO, counting function that never says guest: learn k.
+        install_counting_guest(&env.c, "RETURN false;").await?;
+        let before = sso_effects(&env.c, a.user).await?;
+        let (status, headers, raw) = sso_once(&env, &email, "guest353-n7-subject").await?;
+        if status != 302 && status != 200 {
+            return Err(format!("member SSO status {status}: {raw}").into());
+        }
+        let jar = flows::cookies(&headers);
+        let access = jar.get("access_token").filter(|v| !v.is_empty()).ok_or("member SSO set no access cookie")?;
+        if jwt_claims(access)?.get("acct").is_some() {
+            return Err("member SSO access token must not carry acct".into());
+        }
+        let after = sso_effects(&env.c, a.user).await?;
+        if after.0 != before.0 + 1 {
+            return Err(format!("member SSO should add one oauth_tokens row: {before:?} -> {after:?}").into());
+        }
+        let k: i64 = env.c.query_one("SELECT last_value FROM gofree_guest353_calls", &[]).await?.get(0);
+        if k < 1 {
+            return Err("member SSO never called is_guest_account".into());
+        }
+        // (ii) race: false until the k-th (mint-time) lookup, which says guest.
+        install_counting_guest(&env.c, &format!("RETURN n = {k};")).await?;
+        let before = sso_effects(&env.c, a.user).await?;
+        let (status, headers, raw) = sso_once(&env, &email, "guest353-n7-subject").await?;
+        if status != 503 || !raw.contains("conditional access context unavailable") {
+            return Err(format!("race: want 503 conditional access context unavailable, got {status} {raw}").into());
+        }
+        if raw.contains("access_token") || raw.contains("refresh_token") || headers.get("location").is_some() || flows::cookies(&headers).get("access_token").is_some_and(|v| !v.is_empty()) {
+            return Err("race: refused SSO leaked credentials".into());
+        }
+        let after = sso_effects(&env.c, a.user).await?;
+        if after != before {
+            return Err(format!("race: refused SSO left rows: {before:?} -> {after:?}").into());
+        }
+        let calls: i64 = env.c.query_one("SELECT last_value FROM gofree_guest353_calls", &[]).await?.get(0);
+        if calls != k {
+            return Err(format!("race: expected {k} lookups, saw {calls}").into());
+        }
+        Ok::<(), Err>(())
+    }
+    .await;
+    guest_function_pristine(&env.c).await?;
+    settlement::cleanup_identity(&env.c, a.user).await?;
+    fixture::remove(&env.c, &a).await?;
+    env.c
+        .execute(
+            "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
+            &[],
+        )
+        .await?;
+    env.close().await?;
+    result
+}
+#[tokio::test]
+async fn n7_sso_refuses_guest_rows_at_mint() {
+    n7_sso_guest_scope().await.unwrap();
+}

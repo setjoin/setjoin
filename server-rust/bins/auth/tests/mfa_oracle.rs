@@ -11,6 +11,43 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 type Err = Box<dyn std::error::Error + Send + Sync>;
+
+/// #353: new captures stamp the dispatching commit (R0 provenance); replays read it back.
+fn recorded_source(golden: &std::path::Path, recording: bool) -> Result<String, Err> {
+    if golden.exists() {
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(golden)?)?;
+        return Ok(doc["go_source"].as_str().ok_or("golden without go_source")?.to_owned());
+    }
+    if !recording {
+        return Err(format!("missing golden {}", golden.display()).into());
+    }
+    let source = std::env::var("GOFREE_GO_SOURCE")?;
+    if source.len() != 40 || !source.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return Err("GOFREE_GO_SOURCE must be 40 lowercase hex".into());
+    }
+    Ok(source)
+}
+
+/// Fable 353-2: no case (and above all no Go recording) may run against a
+/// replaced is_guest_account. Restore from the reducer source, or fail hard.
+async fn guest_function_pristine(c: &tokio_postgres::Client) -> Result<(), Err> {
+    async fn def(c: &tokio_postgres::Client) -> Result<String, tokio_postgres::Error> {
+        c.query_one("SELECT pg_get_functiondef('is_guest_account(bigint)'::regprocedure)", &[])
+            .await
+            .map(|r| r.get::<_, String>(0))
+    }
+    let ok = |d: &str| d.contains("SECURITY DEFINER") && d.contains("public.guest_accounts") && !d.contains("gofree_");
+    if ok(&def(c).await?) {
+        return Ok(());
+    }
+    c.batch_execute(include_str!("../../../../mailserver/sql/reducers/guest_account.sql")).await?;
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_idmfa1_guest_calls; DROP SEQUENCE IF EXISTS gofree_guest353_calls").await?;
+    if ok(&def(c).await?) {
+        Ok(())
+    } else {
+        Err("is_guest_account is not pristine after restore; refusing to run".into())
+    }
+}
 struct Server {
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
@@ -196,6 +233,7 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         while let Some(start)=restored.find(begin){let finish=start+restored[start..].find(end).unwrap()+end.len();restored.replace_range(start..finish,"");}
         c.batch_execute(&restored).await?;
     }
+    guest_function_pristine(&c).await?;
     common::signing_key(&c).await;
     let receipt_ids = common::receipt_ids(&c).await;
     let saved_rate = c
@@ -259,6 +297,20 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
     assert!(!mutant || record.is_none());
     let gw = gateway(auth.addr, record.clone()).await;
     let fault = fault_plan(route, kind, a.user);
+    let guest_body = match kind {
+        "guest-scope-unavailable" => Some("RAISE EXCEPTION 'gofree-idmfa1 guest scope fault';"),
+        "guest-account-type-unavailable" => Some("IF nextval('gofree_idmfa1_guest_calls')>1 THEN RAISE EXCEPTION 'gofree-idmfa1 account type fault'; END IF; RETURN true;"),
+        _ => None,
+    };
+    let guest_original: Option<String> = match guest_body {
+        Some(branch) => {
+            let original: String = c.query_one("SELECT pg_get_functiondef('is_guest_account(bigint)'::regprocedure)", &[]).await?.get(0);
+            c.batch_execute("DROP SEQUENCE IF EXISTS gofree_idmfa1_guest_calls;CREATE SEQUENCE gofree_idmfa1_guest_calls;GRANT USAGE ON SEQUENCE gofree_idmfa1_guest_calls TO setjoin_app").await?;
+            c.batch_execute(&format!("CREATE OR REPLACE FUNCTION is_guest_account(p_user_id bigint) RETURNS boolean LANGUAGE plpgsql AS $$BEGIN {branch} END$$")).await?;
+            Some(original)
+        }
+        None => None,
+    };
     let result=async {
   let actor_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&a.user]).await?.get(0);
   let foreign_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&b.user]).await?.get(0);
@@ -331,7 +383,7 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
   }
   let issued_claims=if matches!(route,"verify"|"bootstrap-confirm")&&serde_json::from_str::<Value>(&raw).ok().is_some_and(|v|v.get("access_token").is_some()) {Some(issued(&c,&a,&signature_keys,&keys,&mut headers,&mut raw).await?)}else{None};
   let challenge=if route.starts_with("login-")&&serde_json::from_str::<Value>(&raw).ok().is_some_and(|v|v.get("mfa_token").is_some()){Some(challenge(&c,&a,&signature_keys,&keys,&mut raw,route=="login-bootstrap").await?)}else{None};
-  let repeat=if matches!(kind,"repeat"|"elapsed-code-replay") {
+  let repeat=if matches!(kind,"repeat"|"elapsed-code-replay"|"guest-scope-unavailable"|"guest-account-type-unavailable") {
     if kind=="elapsed-code-replay"{c.execute("UPDATE users SET last_totp_used_at=now()-interval '31 seconds' WHERE id=$1",&[&a.user]).await?;}
     let pending_before=if matches!(route,"setup"|"bootstrap-setup"){Some(pending_exact(&c,a.user).await?)}else{None};
     let (status,mut headers,mut raw_repeat)=request(gw.addr,method,path,payload.clone(),&headers_in).await?;
@@ -355,7 +407,7 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
     golden::compare(&serde_json::from_str::<Value>(&std::fs::read_to_string(&legacy_file)?)?,&actual)?;
     golden::compare(&serde_json::from_str::<Value>(&std::fs::read_to_string(legacy.join(format!("{route}-{kind}-rows.json")))?)?,&effects)?;
   }
-  let source=if kind=="elapsed-code-replay"{"e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec"}else{GO_SOURCE};
+  let source=if kind.starts_with("guest"){recorded_source(&corpus().join(format!("{route}-{kind}.json")),record.is_some())?}else if kind=="elapsed-code-replay"{"e6af2a7f075f5d6b86d33fdb3dbedd794e3158ec".to_owned()}else{GO_SOURCE.to_owned()};
   actual["go_source"]=json!(source);effects["go_source"]=json!(source);
   if route=="subtree"{actual["route"]=json!("* /auth/totp/");effects["route"]=json!("* /auth/totp/");}
   actual["observation"]["request"]=json!({"method":method,"path":path,"body":normalize_input(&payload,&bearer,&a,&b).replace(&actor_email,"actor@idmfa1.test").replace(&foreign_email,"foreign@idmfa1.test")});
@@ -394,6 +446,11 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
     if let Some(fault) = &fault {
         remove_fault(&c, fault).await?;
     }
+    if let Some(original) = &guest_original {
+        c.batch_execute(original).await?;
+        c.batch_execute("DROP SEQUENCE IF EXISTS gofree_idmfa1_guest_calls").await?;
+    }
+    guest_function_pristine(&c).await?;
     for uid in [a.user, b.user] {
         c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={uid};COMMIT")).await?;
         c.execute(
@@ -410,6 +467,7 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         .await?;
     }
     for uid in [a.user, b.user] {
+        c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&uid]).await?;
         c.execute("DELETE FROM auth_event_log WHERE user_id=$1", &[&uid])
             .await?;
         c.execute("DELETE FROM login_events WHERE user_id=$1", &[&uid])
@@ -1031,6 +1089,9 @@ async fn seed_mode(
         "revoked-challenge" => {
             let sid = claims["jti"].as_str().unwrap();
             c.execute("INSERT INTO session_revocations(user_id,scope,jti,reason,not_before,expires_at) VALUES($1,'jti',$2,'fixture',now(),now()+interval '1 hour')",&[&uid,&sid]).await?;
+        }
+        "guest" | "guest-scope-unavailable" | "guest-account-type-unavailable" => {
+            c.execute("INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) SELECT id,email,'inviter@idmfa1.test',$2,'active' FROM users WHERE id=$1",&[&uid,&a.domain]).await?;
         }
         "optional-policy" => {
             c.execute("UPDATE users SET mfa_exempt=true WHERE id=$1", &[&uid])
@@ -1790,3 +1851,13 @@ async fn edge_verify_elapsed_code_replay(){run("verify","elapsed-code-replay",fa
 async fn mutant_elapsed_totp_replay_restores_go_bug(){run_security("verify","elapsed-code-replay",false,true).await.unwrap();}
 #[tokio::test]
 async fn mutant_legacy_totp_counter_gap_restores_go_bug(){run_security("verify","rolling-replay",false,true).await.unwrap();}
+#[tokio::test]
+async fn guest_verify_ok() { run("verify", "guest", false).await.unwrap(); }
+#[tokio::test]
+async fn guest_verify_scope_503() { run("verify", "guest-scope-unavailable", false).await.unwrap(); }
+#[tokio::test]
+async fn guest_verify_acct_500() { run("verify", "guest-account-type-unavailable", false).await.unwrap(); }
+#[tokio::test]
+async fn guest_bootstrap_confirm_ok() { run("bootstrap-confirm", "guest", false).await.unwrap(); }
+#[tokio::test]
+async fn guest_login_totp_challenge() { run("login-totp", "guest", false).await.unwrap(); }
