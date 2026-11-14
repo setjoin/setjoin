@@ -40,7 +40,7 @@ const TOGGLES: [&str; 3] = [
 const CONFIG_KEYS: [&str; 2] = ["installation.locality", "guest.disclosure_addendum"];
 /// Catalog cases; each uses source IP 127.0.0.(10 + index) so Go's process-wide
 /// enumeration guard is never shared between cases.
-const CASES: [&str; 46] = [
+const CASES: [&str; 50] = [
     "guest-get-success",
     "guest-get-repeat",
     "guest-get-cross-tenant",
@@ -75,6 +75,10 @@ const CASES: [&str; 46] = [
     "guest-post-password-1mib",
     "guest-post-password-multibyte",
     "guest-post-password-nul",
+    "guest-post-password-nul-used",
+    "guest-post-password-nul-expired",
+    "guest-post-password-nul-revoked",
+    "guest-post-password-nul-federated",
     "guest-post-password-too-long-used",
     "guest-post-unknown-field",
     "guest-post-trailing-data",
@@ -99,8 +103,8 @@ BEGIN
     ALTER FUNCTION rust_guest_invite_disclosure_absent_342(bigint, text)
       RENAME TO rust_guest_invite_disclosure;
   END IF;
-  IF to_regprocedure('rust_guest_invite_accept_read_absent_342(bigint,text,text,boolean)') IS NOT NULL THEN
-    ALTER FUNCTION rust_guest_invite_accept_read_absent_342(bigint, text, text, boolean)
+  IF to_regprocedure('rust_guest_invite_accept_read_absent_342(bigint,text,text,boolean,boolean)') IS NOT NULL THEN
+    ALTER FUNCTION rust_guest_invite_accept_read_absent_342(bigint, text, text, boolean, boolean)
       RENAME TO rust_guest_invite_accept_read;
   END IF;
   IF to_regprocedure('rust_guest_invite_accept_finish_absent_342(bigint,bigint,text,text,inet)') IS NOT NULL THEN
@@ -111,7 +115,7 @@ END $$;";
 const HIDE_REDUCERS: &str = "
 ALTER FUNCTION rust_guest_invite_disclosure(bigint, text)
   RENAME TO rust_guest_invite_disclosure_absent_342;
-ALTER FUNCTION rust_guest_invite_accept_read(bigint, text, text, boolean)
+ALTER FUNCTION rust_guest_invite_accept_read(bigint, text, text, boolean, boolean)
   RENAME TO rust_guest_invite_accept_read_absent_342;
 ALTER FUNCTION rust_guest_invite_accept_finish(bigint, bigint, text, text, inet)
   RENAME TO rust_guest_invite_accept_finish_absent_342;";
@@ -680,12 +684,12 @@ async fn rows(c: &Client, fx: &Fx, since: &str, password: &str) -> Result<Value,
 
 fn state(method: &str, kind: &str) -> &'static str {
     match kind {
-        "expired" => "expired",
+        "expired" | "password-nul-expired" => "expired",
         "lifecycle-expired" => "lifecycle-expired",
-        "used" | "password-too-long-used" => "used",
+        "used" | "password-too-long-used" | "password-nul-used" => "used",
         "rate-limited" if method == "POST" => "used",
-        "revoked" => "revoked",
-        "federated" => "federated",
+        "revoked" | "password-nul-revoked" => "revoked",
+        "federated" | "password-nul-federated" => "federated",
         "localized" => "localized",
         _ => "valid",
     }
@@ -701,7 +705,11 @@ fn password_of(kind: &str) -> String {
         }
         "password-1mib" => "a".repeat((1 << 20) - 200),
         "password-multibyte" => format!("Aa1!{}", "é".repeat(35)),
-        "password-nul" => "Aa1!\u{0}bcdefgh".to_owned(),
+        "password-nul"
+        | "password-nul-used"
+        | "password-nul-expired"
+        | "password-nul-revoked"
+        | "password-nul-federated" => "Aa1!\u{0}bcdefgh".to_owned(),
         _ => PASSWORD.to_owned(),
     }
 }
@@ -855,7 +863,12 @@ fn check_effects(
                 return Err(format!("{kind}: exactly one accept audit expected").into());
             }
         }
-        ("POST", 401) if matches!(kind, "expired" | "lifecycle-expired") => {
+        ("POST", 401)
+            if matches!(
+                kind,
+                "expired" | "lifecycle-expired" | "password-nul-expired"
+            ) =>
+        {
             if actor["invite"]["terminal_reason"] != "expired"
                 || actor["invite"]["used_at_is_expiry"] != true
                 || before["audit"] != after["audit"]
@@ -1249,6 +1262,10 @@ cases! {
     guest_post_password_1mib => "POST", "password-1mib";
     guest_post_password_multibyte => "POST", "password-multibyte";
     guest_post_password_nul => "POST", "password-nul";
+    guest_post_password_nul_used => "POST", "password-nul-used";
+    guest_post_password_nul_expired => "POST", "password-nul-expired";
+    guest_post_password_nul_revoked => "POST", "password-nul-revoked";
+    guest_post_password_nul_federated => "POST", "password-nul-federated";
     guest_post_password_too_long_used => "POST", "password-too-long-used";
     guest_post_unknown_field => "POST", "unknown-field";
     guest_post_trailing_data => "POST", "trailing-data";
@@ -1294,6 +1311,7 @@ native!(
     locks_released
 );
 native!(guest_get_post_wins_race, post_wins);
+native!(guest_get_expiry_sampled_after_read, expiry_after_read);
 native!(guest_post_deadline_rolls_back, deadline);
 native!(
     guest_post_ca_and_threat_toggles_follow_login,
@@ -1768,6 +1786,61 @@ async fn without_bypassrls(ctx: &Ctx) -> Result<(), Err> {
     }
     if get.status != 401 || get.body != TERMINAL || post.status != 401 || post.body != TERMINAL {
         return Err(format!("no BYPASSRLS: get {} post {}", get.status, post.status).into());
+    }
+    Ok(())
+}
+
+/// Blocks the disclosure reducer's join (not Go's unlocked id discovery) across the
+/// invite's expiry. With time sampled before the read the old reducer stamped and
+/// disclosed; Go (time.Now after the read) rejects.
+async fn expiry_after_read(ctx: &Ctx) -> Result<(), Err> {
+    let fx = seed(&ctx.c, "valid").await?;
+    let server = native_server(ctx).await?;
+    let probe = ctx.db.connect().await?;
+    ctx.c
+        .execute(
+            "UPDATE guest_invites SET expires_at = clock_timestamp() + interval '700 milliseconds' WHERE id=$1",
+            &[&fx.invite],
+        )
+        .await?;
+    probe
+        .batch_execute("BEGIN; LOCK TABLE guest_accounts IN ACCESS EXCLUSIVE MODE")
+        .await?;
+    let addr = server.addr;
+    let target = format!("{PATH}?token={}", fx.token);
+    let get = tokio::spawn(async move {
+        request(
+            addr,
+            Ipv4Addr::new(127, 0, 0, 154),
+            "GET",
+            &target,
+            Vec::new(),
+            &[],
+        )
+        .await
+    });
+    wait_for_lock(&ctx.c, "rust_guest_invite_disclosure").await?;
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    probe.batch_execute("ROLLBACK").await?;
+    let reply = get.await??;
+    let version: Option<String> = ctx
+        .c
+        .query_one(
+            "SELECT disclosure_version FROM guest_invites WHERE id=$1",
+            &[&fx.invite],
+        )
+        .await?
+        .get(0);
+    server.close().await;
+    if reply.status != 401 || reply.body != TERMINAL {
+        return Err(format!(
+            "expiry crossed while blocked: {} {}",
+            reply.status, reply.body
+        )
+        .into());
+    }
+    if version.is_some() {
+        return Err("an expired invite was stamped after a blocked read".into());
     }
     Ok(())
 }

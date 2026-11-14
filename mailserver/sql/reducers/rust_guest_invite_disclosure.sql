@@ -6,7 +6,7 @@ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 DECLARE
   v_invite_id bigint; v_host_domain_id bigint; v_email text; v_status text;
   v_invite_expires timestamptz; v_guest_expires timestamptz; v_used_at timestamptz;
-  v_version text; v_federated boolean; v_now timestamptz := clock_timestamp();
+  v_version text; v_federated boolean; v_now timestamptz;
   v_org text; v_locality text; v_addendum text; v_channels jsonb;
 BEGIN
   SELECT gi.id, gi.host_domain_id, u.email, ga.status, gi.expires_at, ga.expires_at,
@@ -19,6 +19,8 @@ BEGIN
     JOIN guest_accounts ga ON ga.user_id = gi.guest_user_id
     JOIN users u ON u.id = gi.guest_user_id
    WHERE gi.token_hash = p_token_hash AND gi.guest_user_id = p_guest_user_id;
+  -- Go samples time.Now() after its read; a read blocked across expiry must reject.
+  v_now := clock_timestamp();
   IF NOT FOUND OR v_used_at IS NOT NULL OR v_invite_expires <= v_now
      OR (v_guest_expires IS NOT NULL AND v_guest_expires <= v_now)
      OR v_status <> 'invited' OR v_federated THEN

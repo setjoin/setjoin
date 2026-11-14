@@ -413,7 +413,7 @@ controls ON state, per registration, in the route inventory and catalog.
 discovery, then one user-scoped `rust_guest_invite_disclosure` (no receipt).
 POST: discovery, then the read reducer's guest->user->invite locks held through
 profile hashing and one token-bound `rust_guest_invite_accept_finish` write
-(receipted). Passwords over 72 bytes are never bound. Deadline/failure: 500 after
+(receipted). Passwords over 72 bytes or containing NUL are never bound (flags). Deadline/failure: 500 after
 acknowledged rollback or discarded connection, zero partial writes; lost COMMIT:
 500 plus X-Operation-ID. No notify (frozen Go emits none). `readiness` reports
 BYPASSRLS/reducer posture.

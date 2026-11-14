@@ -489,4 +489,4 @@ always-on `ip_rules` (Go's 403 bytes), strict closed JSON, and the `auth_attempt
 postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
 the transaction settled (additive; per-class timing differs as in Go). Own
 two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
-missing reducers). Residuals: CAPTCHA header and username lockout (#346).
+missing reducers). Residuals: CAPTCHA header, username lockout, and threat-username JSON nesting beyond serde's 128 levels (#346).

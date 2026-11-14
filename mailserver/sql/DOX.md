@@ -1831,7 +1831,7 @@ mirror frozen Go's pre-auth acceptance on the worker credential (FORCE-RLS
 deny-all table). Token possession is the authority: every predicate binds the
 SHA-256 hash and its pinned guest. Terminal verdicts roll back before the caller's
 delay; an elapsed link commits only its `expired` settlement. Passwords over 72
-bytes are never bound (flag). Rust hashes under the read reducer's locks; finish
+bytes or containing NUL are never bound (flags). Rust hashes under the read reducer's locks; finish
 consumes, activates and audits in one commit, no notify. Tests:
 `tests/rust_guest_invite_accept.pg`.
 

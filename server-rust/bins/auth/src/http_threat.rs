@@ -84,41 +84,132 @@ impl AuthServer {
     }
 }
 
-/// Go extractMeta username: a top-level string `email` (case-folded key), else the
-/// email inside a `refresh_token` JWT payload (RawURL, then padded Std base64).
-pub(super) fn threat_username(raw: &[u8]) -> String {
-    use base64::Engine as _;
-    fn folded(map: &serde_json::Map<String, Value>, name: &str) -> Option<String> {
-        let mut out = None;
-        for (k, v) in map {
-            if ingress::fold_name(k) == name {
-                match v {
-                    Value::String(s) => out = Some(s.clone()),
+/// Go `json.Unmarshal` into `struct { F string }` (encoding/json v1): the whole
+/// document must be valid with only whitespace after it; object keys are visited in
+/// document order and every key folding to `name` (exact or case-insensitive,
+/// including the Kelvin/long-s folds) assigns the same field, so the last string
+/// wins and `null` keeps the earlier value; any other value type is an
+/// UnmarshalTypeError that fails the whole call even if a later key is a string.
+/// A top-level `null` decodes to the zero value; any other non-object fails.
+fn go_string_field(raw: &[u8], name: &str) -> Option<String> {
+    use serde::de::{DeserializeSeed, Deserializer, Error as _, IgnoredAny, MapAccess, Visitor};
+    struct Field<'a>(&'a str);
+    impl<'de> Visitor<'de> for Field<'_> {
+        type Value = String;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("object or null")
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<String, E> {
+            Ok(String::new())
+        }
+        fn visit_map<M: MapAccess<'de>>(self, mut m: M) -> Result<String, M::Error> {
+            let mut out = String::new();
+            let mut mismatch = false;
+            while let Some(key) = m.next_key::<String>()? {
+                if ingress::fold_name(&key) != self.0 {
+                    m.next_value::<IgnoredAny>()?;
+                    continue;
+                }
+                match m.next_value::<Value>()? {
+                    Value::String(s) => out = s,
                     Value::Null => {}
-                    _ => return None,
+                    _ => mismatch = true,
                 }
             }
+            if mismatch {
+                Err(M::Error::custom("type mismatch"))
+            } else {
+                Ok(out)
+            }
         }
-        out.filter(|s| !s.is_empty())
     }
-    let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&ingress::go_decode_bytes(raw))
-    else {
-        return String::new();
-    };
-    if let Some(email) = folded(&map, "email") {
+    impl<'de> DeserializeSeed<'de> for Field<'_> {
+        type Value = String;
+        fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<String, D::Error> {
+            d.deserialize_any(self)
+        }
+    }
+    let decoded = ingress::go_decode_bytes(raw);
+    let mut de = serde_json::Deserializer::from_slice(&decoded);
+    let value = Field(name).deserialize(&mut de).ok()?;
+    de.end().ok()?;
+    Some(value)
+}
+
+/// Go extractMeta (shared/threat/interceptor.go): a non-empty `email` from a
+/// successful Unmarshal of the whole body, else a non-empty `refresh_token` whose
+/// JWT payload segment (RawURLEncoding, then StdEncoding; both skip CR/LF and accept
+/// non-zero trailing bits) Unmarshals into `email`.
+pub(super) fn threat_username(raw: &[u8]) -> String {
+    use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
+    use base64::engine::DecodePaddingMode;
+    use base64::{alphabet, Engine as _};
+    if let Some(email) = go_string_field(raw, "email").filter(|s| !s.is_empty()) {
         return email;
     }
-    let Some(token) = folded(&map, "refresh_token") else {
+    let Some(token) = go_string_field(raw, "refresh_token").filter(|s| !s.is_empty()) else {
         return String::new();
     };
-    let Some(payload) = token.split('.').nth(1) else {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() < 2 {
+        return String::new();
+    }
+    let segment: String = parts[1]
+        .chars()
+        .filter(|c| !matches!(c, '\r' | '\n'))
+        .collect();
+    let raw_url = GeneralPurpose::new(
+        &alphabet::URL_SAFE,
+        GeneralPurposeConfig::new()
+            .with_decode_allow_trailing_bits(true)
+            .with_decode_padding_mode(DecodePaddingMode::RequireNone),
+    );
+    let std = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new()
+            .with_decode_allow_trailing_bits(true)
+            .with_decode_padding_mode(DecodePaddingMode::RequireCanonical),
+    );
+    let Ok(payload) = raw_url.decode(&segment).or_else(|_| std.decode(&segment)) else {
         return String::new();
     };
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(payload))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|v| v.as_object().and_then(|m| folded(m, "email")))
-        .unwrap_or_default()
+    go_string_field(&payload, "email").unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::threat_username;
+
+    fn jwt(payload: &str) -> String {
+        use base64::Engine as _;
+        format!(
+            "h.{}.s",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload)
+        )
+    }
+
+    #[test]
+    fn username_follows_go_unmarshal() {
+        let token = jwt(r#"{"email":"j@x","EMAIL":null}"#);
+        let cases = [
+            (r#"{"email":"a@x","email":null}"#.to_owned(), "a@x"),
+            (r#"{"Email":"a@x","email":"b@x"}"#.to_owned(), "b@x"),
+            (r#"{"email":"b@x","EMAIL":"a@x"}"#.to_owned(), "a@x"),
+            (r#"{"email":"a@x","email":1}"#.to_owned(), ""),
+            (r#"{"email":"a@x"} {}"#.to_owned(), ""),
+            (r#"{"email":""}"#.to_owned(), ""),
+            ("null".to_owned(), ""),
+            ("[]".to_owned(), ""),
+            (format!(r#"{{"email":1,"refresh_token":"{token}"}}"#), "j@x"),
+            (format!(r#"{{"refreſh_token":"{token}"}}"#), "j@x"),
+            (
+                format!(r#"{{"REFRESH_TOKEN":"{token}","refresh_token":null}}"#),
+                "j@x",
+            ),
+            (r#"{"refresh_token":"no-dot"}"#.to_owned(), ""),
+        ];
+        for (body, want) in cases {
+            assert_eq!(threat_username(body.as_bytes()), want, "{body}");
+        }
+    }
 }

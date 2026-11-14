@@ -1,9 +1,11 @@
 -- #342: frozen Go GuestInviteAcceptPost (guest_invite.go:265). The read reducer takes
 -- Go's canonical guest -> user -> invite locks and returns every verdict; Rust
 -- hashes under those locks; finish is the one consuming write, audited in-commit.
+-- Retire the pre-release four-argument overload so defaulted calls stay unambiguous.
+DROP FUNCTION IF EXISTS rust_guest_invite_accept_read(bigint, text, text, boolean);
 CREATE OR REPLACE FUNCTION rust_guest_invite_accept_read(
   p_guest_user_id bigint, p_token_hash text, p_new_password text DEFAULT NULL,
-  p_password_too_long boolean DEFAULT false
+  p_password_too_long boolean DEFAULT false, p_password_invalid_text boolean DEFAULT false
 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 DECLARE
   v_invite_id bigint; v_email text; v_status text; v_guest_expires timestamptz;
@@ -40,6 +42,11 @@ BEGIN
   -- Rust never binds more than 72 bytes; the flag carries Go's ceiling verdict.
   IF COALESCE(p_password_too_long, false) OR octet_length(COALESCE(p_new_password, '')) > 72 THEN
     RETURN jsonb_build_object('status', 'invalid', 'error', 'password exceeds the 72-byte limit');
+  END IF;
+  -- Go binds a NUL-bearing password to validate_password and PostgreSQL refuses it
+  -- (22021) only after every terminal verdict: same position, same rollback, 500.
+  IF COALESCE(p_password_invalid_text, false) THEN
+    RAISE EXCEPTION 'guest invite acceptance: password is not valid text' USING ERRCODE = '22021';
   END IF;
   v_policy := validate_password(p_new_password, false)::jsonb;
   IF NOT COALESCE((v_policy ->> 'valid')::boolean, false) THEN

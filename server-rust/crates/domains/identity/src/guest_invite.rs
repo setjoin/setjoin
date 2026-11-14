@@ -101,7 +101,7 @@ pub async fn readiness(worker: &ScopedExecutor) -> Result<(), String> {
     let rows = worker.read(
         "SELECT COALESCE((SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname=current_user),false), \
          to_regprocedure('rust_guest_invite_disclosure(bigint,text)') IS NOT NULL \
-         AND to_regprocedure('rust_guest_invite_accept_read(bigint,text,text,boolean)') IS NOT NULL \
+         AND to_regprocedure('rust_guest_invite_accept_read(bigint,text,text,boolean,boolean)') IS NOT NULL \
          AND to_regprocedure('rust_guest_invite_accept_finish(bigint,bigint,text,text,inet)') IS NOT NULL",
         &[],
     ).await.map_err(|e| format!("readiness query failed: {}", e.message))?;
@@ -183,7 +183,9 @@ pub async fn accept(
         return Outcome::Reject;
     };
     let too_long = password.len() > PASSWORD_MAX_BYTES;
-    let bound: Option<&str> = (!too_long).then_some(password);
+    // PostgreSQL TEXT cannot carry NUL; never bind it (Go fails at its later bind).
+    let invalid_text = password.contains('\0');
+    let bound: Option<&str> = (!too_long && !invalid_text).then_some(password);
     let candidate = bound.unwrap_or("").to_owned();
     let token = hash.clone();
     let worker = worker.clone().with_user_receipt(ReceiptCommand {
@@ -192,8 +194,14 @@ pub async fn accept(
     });
     settle(worker.run_user_async_proof_command_with_tail(
         actor, operation,
-        "SELECT rust_guest_invite_accept_read($1,$2,$3,$4)::text",
-        &[(&guest, Type::INT8), (&hash, Type::TEXT), (&bound, Type::TEXT), (&too_long, Type::BOOL)],
+        "SELECT rust_guest_invite_accept_read($1,$2,$3,$4,$5)::text",
+        &[
+            (&guest, Type::INT8),
+            (&hash, Type::TEXT),
+            (&bound, Type::TEXT),
+            (&too_long, Type::BOOL),
+            (&invalid_text, Type::BOOL),
+        ],
         move |rows: &[Row]| {
             let v = verdict(rows);
             let invite = v["invite_id"].as_i64();
