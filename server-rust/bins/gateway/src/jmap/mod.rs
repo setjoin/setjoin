@@ -18,6 +18,7 @@ pub mod changes;
 pub mod device_cache;
 mod download;
 pub mod envelope;
+pub mod family;
 pub mod gates;
 pub mod get;
 pub mod http;
@@ -92,6 +93,8 @@ pub struct JmapServices {
     pub worker: ScopedExecutor,
     pub store: Option<Arc<crate::recovery_worker::S3Store>>,
     pub continuity_boot: Option<String>,
+    /// Continuity/get|present signer, loaded together with `continuity_boot` (#377).
+    pub continuity_signer: Option<Arc<family::ContinuitySigner>>,
     pub attachment_signer: Option<Arc<transfer::Signer>>,
     pub grace: i32,
     pub quota: i64,
@@ -106,6 +109,7 @@ impl JmapServices {
             max_upload,
             store: None,
             continuity_boot: None,
+            continuity_signer: None,
             attachment_signer: None,
             grace: 1440,
             quota: 0,
@@ -121,7 +125,19 @@ impl JmapServices {
                 .unwrap_or(52428800),
         );
         services.attachment_signer = transfer::Signer::from_env().map(Arc::new);
-        services.continuity_boot = recovery::boot_from_env();
+        match recovery::continuity_from_env() {
+            Some((boot, signer)) => {
+                services.continuity_boot = Some(boot);
+                services.continuity_signer = Some(Arc::new(signer));
+            }
+            None => {
+                eprintln!(
+                    "setjoin-gateway: continuity signing key unavailable; Continuity/* stays with Go"
+                );
+                crate::metrics::CONTINUITY_SIGNER_MISSING
+                    .store(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         services.store = crate::recovery_worker::S3Store::from_env()
             .ok()
             .map(Arc::new);
@@ -190,10 +206,12 @@ enum Claimed {
     Dismiss(batch::DismissRequest),
     Receipt(batch::ReceiptRequest),
     Submission(submission::SubmissionRequest),
+    /// #369-#377: a registered per-family method; it resolves `accountId` itself, in Go's order.
+    Family(family::Request),
 }
 
 /// The command a body is exactly expressible as, most specific shape first.
-fn claim(bytes: &[u8]) -> Option<Claimed> {
+fn claim(bytes: &[u8], services: Option<&JmapServices>) -> Option<Claimed> {
     identity::classify(bytes)
         .map(Claimed::Identity)
         .or_else(|| mailbox_set::classify_identity(bytes).map(Claimed::MailboxSet))
@@ -202,6 +220,7 @@ fn claim(bytes: &[u8]) -> Option<Claimed> {
         .or_else(|| changes::classify(bytes).map(Claimed::Changes))
         .or_else(|| get::classify(bytes).map(Claimed::Get))
         .or_else(|| claim_general(bytes))
+        .or_else(|| family::classify(bytes, services).map(Claimed::Family))
 }
 
 /// The general shapes beyond the specialized mark-read and inbox-list adapters.
@@ -280,7 +299,7 @@ impl<K: KeySource> JmapCommands<K> {
         bytes: &Bytes,
         ctx: &RequestContext,
     ) -> Result<Response<Body>, &'static str> {
-        claim(bytes).ok_or(NOT_CLAIMED)?;
+        claim(bytes, self.services.as_deref()).ok_or(NOT_CLAIMED)?;
         let authorized = setjoin_authz::authorize_request(
             &self.exec,
             &self.keys,
@@ -302,7 +321,7 @@ impl<K: KeySource> JmapCommands<K> {
         ctx: &RequestContext,
         authorized: &setjoin_authz::Authorized,
     ) -> Result<Response<Body>, &'static str> {
-        let claimed = claim(bytes).ok_or(NOT_CLAIMED)?;
+        let claimed = claim(bytes, self.services.as_deref()).ok_or(NOT_CLAIMED)?;
         let identity = authorized.context();
         if let Some(denylist) = &self.denylist {
             let issued =
@@ -348,7 +367,9 @@ impl<K: KeySource> JmapCommands<K> {
             }
         }
         let account_id = match &claimed {
-            Claimed::Echo(_) | Claimed::Blob(_) | Claimed::Identity(_) => mailbox,
+            Claimed::Echo(_) | Claimed::Blob(_) | Claimed::Identity(_) | Claimed::Family(_) => {
+                mailbox
+            }
             Claimed::Other(r) => r.account_id,
             Claimed::MailboxSet(r) => r.account_id,
             Claimed::Seen(seen) => seen.account_id,
@@ -617,6 +638,19 @@ impl<K: KeySource> JmapCommands<K> {
                     )
                     .ok_or("mailbox read")?,
                 };
+                return Ok(reply::response(body, ctx.identity.proto, request_id));
+            }
+            Claimed::Family(request) => {
+                let cx = family::Cx::new(
+                    &self.exec,
+                    self.services.as_deref(),
+                    &auth,
+                    identity.user_id(),
+                    mailbox,
+                    request.method,
+                    &request.args,
+                );
+                let body = family::serve(&cx, &request.client_id, &state.encode()).await;
                 return Ok(reply::response(body, ctx.identity.proto, request_id));
             }
             Claimed::Seen(seen) => seen,

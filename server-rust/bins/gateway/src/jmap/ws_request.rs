@@ -133,7 +133,7 @@ pub async fn needs_go<K: super::token::KeySource>(
         if args.keys().any(|k| k.starts_with('#')) {
             return true;
         }
-        let Some(claimed) = super::claim(single_body(env, call, call.args.get()).as_bytes()) else {
+        let Some(claimed) = super::claim(single_body(env, call, call.args.get()).as_bytes(), commands.services.as_deref()) else {
             return true;
         };
         if auth.is_none() {
@@ -148,7 +148,7 @@ pub async fn needs_go<K: super::token::KeySource>(
             .and_then(Value::as_str)
             .and_then(|s| s.parse::<i64>().ok())
         {
-            if account!=mailbox && commands.exec.read(
+            if account!=mailbox && !matches!(claimed, super::Claimed::Family(_)) && commands.exec.read(
                 "SELECT EXISTS(SELECT 1 FROM mailbox_delegates WHERE mailbox_id=$1 AND user_id=$2)",
                 &[(&account,setjoin_pg::Type::INT8),(&identity.user_id(),setjoin_pg::Type::INT8)]
             ).await.is_ok_and(|r|r[0].get::<_,bool>(0)){return true}
@@ -708,7 +708,7 @@ fn server_fail() -> String {
 }
 
 // Frozen Go registerMethods metadata; unknown names retain core.
-fn metadata(name: &str) -> Option<&'static str> {
+pub(super) fn metadata(name: &str) -> Option<&'static str> {
     Some(match name {
         "Core/echo" => "urn:ietf:params:jmap:core",
         "Continuity/get"
