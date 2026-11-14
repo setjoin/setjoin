@@ -554,7 +554,7 @@ container) loads one disposable DB, sets `REQUIRE_DB=1`, `TEST_DB_DSN`/`DB_DSN`/
 `DB_APP_DSN`, `GOFREE_RESOURCE_PREFIX`, a created `GOFREE_RESOURCE_LEDGER` and runs
 `cargo test -p <package> --test <test> -- --test-threads=1 --skip mutant --skip fault`. Goldens are
 exclusive-create, so existing ones are only compared; new files, `git status --porcelain` and the
-diff upload as artifact `gofree-record` and are never committed; any modified or deleted tracked file (drain's recorder deletes before it records) fails the run after the upload. `go_upstream=authserverd` accepts only setjoin-auth `oracle`, `token_oracle`, `mfa_oracle` and `webauthn_oracle`. Input `go_upstream=authserverd` also
+diff upload as artifact `gofree-record` and are never committed; any modified or deleted tracked file (drain's recorder deletes before it records) fails the run after the upload. After recording, every new file must be JSON whose `go_source` fields equal the checked-out commit, so new oracles (#341, #342 and later) must stamp `GOFREE_GO_SOURCE` (older auth oracles hardcode a historical constant and fail this check for new cases). `*_LEARN` variables are rejected, a run needs at least one `GOLDEN-` line or new file, and all job-started containers are removed and verified. `go_upstream=authserverd` accepts only setjoin-auth `oracle`, `token_oracle`, `mfa_oracle` and `webauthn_oracle`. Input `go_upstream=authserverd` also
 builds `authserverd`, installs the synthetic `identity-login/keys.json` signing row, starts it on
 `127.0.0.1:47335` (host network, fixture DB only, ledgered, stopped always) and exports
 `GOFREE_RECORD_UPSTREAM` for auth-listener `*_oracle` targets.

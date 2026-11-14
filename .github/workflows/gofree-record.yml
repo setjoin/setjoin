@@ -35,6 +35,10 @@ concurrency:
   group: gofree-record
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash   # bash -eo pipefail
+
 env:
   CARGO_INCREMENTAL: '0'
   CARGO_TERM_COLOR: never
@@ -59,6 +63,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Validate inputs
         run: |
+          set -euo pipefail
+          [[ "$GOFREE_REC_EXTRA" != *LEARN*=* ]] || { echo "::error::learning mode (*_LEARN) cannot be requested"; exit 1; }
+          # containers that exist before this job starts anything (the hosted VM is job-owned)
+          docker ps -aq | sort > "$RUNNER_TEMP/containers-before.txt"
           [[ "$GOFREE_REC_PACKAGE$GOFREE_REC_TEST" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::package and test must be [A-Za-z0-9_-]"; exit 1; }
           [[ -z "$GOFREE_REC_FILTER" || "$GOFREE_REC_FILTER" =~ ^[A-Za-z0-9_][A-Za-z0-9_:.-]*$ ]] || { echo "::error::bad case_filter"; exit 1; }
           [[ -z "$GO_SOURCE_INPUT" || "$GO_SOURCE_INPUT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::go_source must be 40 hex"; exit 1; }
@@ -100,10 +108,26 @@ jobs:
           echo "frozen Go source $GOFREE_GO_SOURCE"
       - name: Record
         run: bash scripts/lane-container.sh bash scripts/gofree-record.sh
+      - name: Stop and remove every container this job started
+        if: always()
+        run: |
+          set -uo pipefail
+          # exact owned set: every container not present before the job (lane execution container, lane Postgres,
+          # auth recorder, oracle containers such as the fixed-name office recorder)
+          owned() { docker ps -aq | sort | comm -13 "$RUNNER_TEMP/containers-before.txt" - ; }
+          ids="$(owned)"
+          if [ -n "$ids" ]; then
+            echo "$ids" | xargs docker stop --time 10 >/dev/null 2>&1 || echo "::warning::stop reported failures"
+            echo "$ids" | xargs docker rm -f >/dev/null 2>&1 || echo "::warning::removal reported failures"
+          fi
+          left="$(owned)"
+          [ -z "$left" ] || { echo "::error::owned containers remain after cleanup: $(echo "$left" | tr '\n' ' ')"; exit 1; }
       - name: Collect new goldens and diff
         if: always()
         run: |
-          set -u
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          rm -f lane-artifacts/manifest.ok
           out=lane-artifacts/recorded
           mkdir -p "$out"
           git status --porcelain > lane-artifacts/git-status.txt
@@ -111,34 +135,39 @@ jobs:
           git ls-files --others --exclude-standard server-rust > lane-artifacts/new-files.txt
           { git diff --name-only --diff-filter=MD; git ls-files -d; } | sort -u > lane-artifacts/modified-tracked.txt
           while IFS= read -r f; do mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"; done < lane-artifacts/new-files.txt
-          git add -N server-rust 2>/dev/null || true
-          git diff > lane-artifacts/changes.diff || true
+          git add -N server-rust
+          git diff > lane-artifacts/changes.diff
+          # provenance: every new file must stamp go_source == the checked-out commit
+          if python3 -I scripts/gofree-record-check.py "$(git rev-parse HEAD)" lane-artifacts/new-files.txt > lane-artifacts/provenance-failures.txt; then
+            : > lane-artifacts/provenance.ok
+          else
+            rm -f lane-artifacts/provenance.ok
+          fi
           {
             echo "### gofree record: ${GOFREE_REC_PACKAGE} --test ${GOFREE_REC_TEST} ${GOFREE_REC_FILTER}"
             echo "- go_upstream \`${GOFREE_REC_UPSTREAM}\`, frozen Go source \`${GOFREE_GO_SOURCE:-unknown}\`"
             echo "- new files: $(wc -l < lane-artifacts/new-files.txt), modified or deleted tracked files: $(wc -l < lane-artifacts/modified-tracked.txt)"
             echo '```'; head -60 lane-artifacts/git-status.txt; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Clean owned containers and Postgres
-        if: always()
-        run: |
-          set -u
-          ns="gofree-rec-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          ids="$(docker ps -aq --filter "name=$ns" --filter "name=${LANE_PG_CONTAINER:-setjoin-lane-pg-none}")"
-          [ -z "$ids" ] || echo "$ids" | xargs docker rm -f >/dev/null || echo "::warning::container removal failed"
-          left="$(docker ps -aq --filter "name=$ns" --filter "name=${LANE_PG_CONTAINER:-setjoin-lane-pg-none}")"
-          [ -z "$left" ] || { echo "::error::owned containers remain after cleanup"; exit 1; }
+          : > lane-artifacts/manifest.ok
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: gofree-record
           path: lane-artifacts/
           retention-days: 14
-      - name: Refuse changes to tracked files
+      - name: Refuse unsafe results
         if: always()
         run: |
+          set -euo pipefail
+          [ -e lane-artifacts/manifest.ok ] || { echo "::error::the evidence step did not complete; cannot vouch for tracked files"; exit 1; }
           if [ -s lane-artifacts/modified-tracked.txt ]; then
             echo "::error::recording modified or deleted committed files (only new goldens are allowed):"
             cat lane-artifacts/modified-tracked.txt
+            exit 1
+          fi
+          if [ ! -e lane-artifacts/provenance.ok ]; then
+            echo "::error::new files without go_source provenance equal to the checked-out commit (oracles must stamp GOFREE_GO_SOURCE):"
+            cat lane-artifacts/provenance-failures.txt
             exit 1
           fi
