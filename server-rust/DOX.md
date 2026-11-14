@@ -501,7 +501,8 @@ The summary and `--keep-going` failures are in manifest order, named
 Images: `.github/workflows/ci-images.yml` (only workflow with `packages: write`, job-scoped; runs on
 same-repo pull requests, pushes to `main` and dispatch for `.github/ci/**` changes, never on fork pull
 requests; `images.lock` is excluded from its path filter to avoid a digest loop; the lane's `plan`
-job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images and mirrors tag-referenced third-party images to
+job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images, the protocol interop client images
+(`scripts/build-interop-images.sh`: `setjoin-interop-imap`, `-smtp`, `-ldap`; tests never build images) and mirrors tag-referenced third-party images to
 `ghcr.io/setjoin`, printing `.github/ci/images.lock`; `.github/actions/lane-setup` pulls exactly
 those digests (and refuses `PLACEHOLDER` lines). The GHCR packages must be public. Fork pull
 requests get a read-only token and no secrets (the lane needs none); caches are saved only from
@@ -541,6 +542,39 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   directory under `$RUNNER_TEMP` with `fsync=off`, `synchronous_commit=off`, `full_page_writes=off`,
   loopback publish and a per-job SCRAM secret (CI only, masked). Tools are pinned by
   `scripts/server-rust-lane-tools.sh` (nextest, cargo-deny, pebble) inside the lane image.
+
+## Go-deletion rehearsal (#141)
+
+`scripts/check-gofree-rehearsal.py` (self-test `scripts/test-check-gofree-rehearsal.py`) makes the hosted
+lane the rehearsal for deleting Go. `static` (`roots` and `aggregate`): every route-inventory entry ON
+except the six `fedharness` test-tool entries (owner decision 2026-11-02) and the shrink-only `PENDING`
+list; no ON entry with a `go-*` upstream; `FORWARD_SITES` pins the exact count of forward-to-Go call
+sites in `server-rust/bins/*/src` (auth `.forward(`, gateway `.forward(`, `forward_body(`,
+`forward_unported(`, raw WebSocket `client_async(`); `GO_PEER_REFERENCES` pins every source reference
+to a frozen Go peer binary (each runs it only inside its labelled container, at container paths
+`/src/...` or `/output/...` that do not exist in the lane container); reviewed divergences; the 51
+`worker_semantics.json` workers owned by Rust; every seam present. #141 criteria 1 and 4 stay open until
+`PENDING` is empty and `FORWARD_SITES` is 0. `env` (every lane job): any Go upstream or recording
+variable present (even empty) is red; with `LANE_GO_MASKED=1` a reachable `go` is red.
+`scripts/lane-container.sh` masks `/usr/local/go` in the lane container. `lane_go_watch` wraps the
+nextest run and the adequacy gate: ready only after a probe's event came back through `docker events`
+(container and image events, no event filter); the ready line holds the image id of every
+`.github/ci/images.lock` entry (a tag that does not resolve to its pinned digest is red), a snapshot of
+every existing container, and a scan of the whole lane-container filesystem for executable Go-built ELFs
+(`.go.buildinfo`); stop drains up to a second probe and scans again. Red: a container create, start or
+exec whose image is not pinned in `images.lock`; one from a Go-capable image (`setjoin-ci-linux-tc`,
+`setjoin-server-rust-lane`) without a `GO_TASKS` label (`gofree-fed2` fedharness and `gofree-tlsfront`
+frozen TLS peer run Go and are counterparties DELETE must replace; `gofree-rel3` runs the Rust updater)
+other than the lane container itself; an image tag/untag/delete/load/import or a pull by tag during the
+lane; any Go ELF other than the docker CLI, pebble, the TLS peer and the fedharness build output; an
+incomplete window. Every docker call is bounded (60 s) and probes are removed and checked. Residuals,
+not claimed: `exec()` is not traced, so a Go ELF created and deleted within one window and run in the
+lane tree would be missed (only allowlisted sibling tasks can produce one; the toolchain is masked);
+running an allowlisted Go ELF from the lane tree is excluded by the source pin, not by tracing;
+`gofree-rel3` runs no Go by script review. The proxied-to-Go counter is not summed lane-wide (tests
+drive in-process fake upstreams by design); zero comes from the inventory and `FORWARD_SITES`. The
+webmail Playwright e2e is outside the rehearsal (needs a deployed stack via `E2E_SERVER`, no hosted
+workflow); the front-door goldens cover its HTTP surface.
 
 ## Frozen Go recording workflow
 

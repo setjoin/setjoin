@@ -1,49 +1,15 @@
 //! Containerised independent SMTP client against the real listener/database.
 #[path = "support/auth_dns.rs"]
 mod auth_dns;
-use std::{
-    process::{Command, Stdio},
-    sync::Arc,
-};
+use std::{process::Command, sync::Arc};
 use tokio::{net::TcpListener, sync::watch};
 use tokio_rustls::rustls::{
     pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
     ServerConfig,
 };
-struct Image(String);
-impl Drop for Image {
-    fn drop(&mut self) {
-        if Command::new("docker")
-            .args(["image", "inspect", &self.0])
-            .output()
-            .unwrap()
-            .status
-            .success()
-        {
-            let out = Command::new("docker")
-                .args(["image", "rm", &self.0])
-                .output()
-                .unwrap();
-            assert!(
-                out.status.success(),
-                "remove owned image {}: {}",
-                self.0,
-                String::from_utf8_lossy(&out.stderr)
-            );
-        }
-    }
-}
-fn build(args: &[&str]) {
-    let out = Command::new("docker")
-        .args(args)
-        .output()
-        .expect("Docker required for interop");
-    assert!(
-        out.status.success(),
-        "docker build: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
+/// Pinned in `.github/ci/images.lock` and preloaded by the lane (`scripts/build-interop-images.sh`
+/// on a dev host); the test never builds, tags or removes images (#141).
+const IMAGE: &str = "setjoin-interop-smtp:local";
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_smtp_container_clients() {
     let Some(db) = setjoin_conformance::harness::Db::for_case("smtp1-container") else {
@@ -51,51 +17,7 @@ async fn test_smtp_container_clients() {
     };
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let pid = std::process::id();
-    let base = Image(format!("gofree-smtp6-interop-base-{pid}"));
-    let image = Image(format!("gofree-smtp6-interop-client-{pid}"));
-    eprintln!(
-        "owned images: {}, {}; --rm client gofree-smtp6-interop-{pid}",
-        base.0, image.0
-    );
-    build(&[
-        "build",
-        "--label",
-        "org.setjoin.task=gofree-smtp6",
-        "-q",
-        "-t",
-        &base.0,
-        root.join("../../../../mailserver/deploy/docker/test-smtp")
-            .to_str()
-            .unwrap(),
-    ]);
-    let mut child = Command::new("docker")
-        .args([
-            "build",
-            "--label",
-            "org.setjoin.task=gofree-smtp6",
-            "-q",
-            "-t",
-            &image.0,
-            "-",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    use std::io::Write;
-    writeln!(
-        child.stdin.take().unwrap(),
-        "FROM {}\nRUN apk add --no-cache python3",
-        base.0
-    )
-    .unwrap();
-    let out = child.wait_with_output().unwrap();
-    assert!(
-        out.status.success(),
-        "Python layer: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    eprintln!("pinned client image {IMAGE}; --rm client gofree-smtp6-interop-{pid}");
     let owner = db.connect().await.unwrap();
     owner
         .batch_execute(include_str!("../oracle/cleanup.sql"))
@@ -157,7 +79,7 @@ async fn test_smtp_container_clients() {
         };
         tasks.push(tokio::spawn(Arc::new(server).serve(l, rx.clone())));
     }
-    let image_name = image.0.clone();
+    let image_name = IMAGE.to_string();
     let script = format!(
         "{}:/smtp2-client.py:ro",
         root.join("tests/interop_client.py").display()
@@ -195,6 +117,8 @@ async fn test_smtp_container_clients() {
         Command::new("docker")
             .args([
                 "run",
+                "--pull",
+                "never",
                 "--rm",
                 "--name",
                 &format!("gofree-smtp6-interop-{pid}"),

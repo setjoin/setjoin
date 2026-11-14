@@ -80,6 +80,8 @@ workspace.
   `SERVER_RUST_NEXTEST=1` runs the workspace through nextest with a database per test;
   the CI full lane is [DOX.md](DOX.md#parallel-full-lane-550).
 - Oracle adequacy gate and coverage: [DOX.md](DOX.md#oracle-adequacy).
+- Go-deletion rehearsal guard (#141): `python3 scripts/check-gofree-rehearsal.py static`, self-test
+  `python3 scripts/test-check-gofree-rehearsal.py`; contract in [DOX.md](DOX.md#go-deletion-rehearsal-141).
 - `setjoin-pg` DB tests (`crates/pg/tests/db_scope.rs`) need a schema from
   `scripts/load-test-schema.sh`, owner DSN in `TEST_DB_DSN`/`DB_DSN` and the
   `setjoin_app` credential in `DB_APP_DSN`; absent → `SETJOIN-PG-DB-SKIP
