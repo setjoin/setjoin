@@ -117,7 +117,7 @@ async fn escalated(db: &tokio_postgres::Client, ip: &str, user: &str) -> Vec<Str
 
 async fn lock_waiters(db: &tokio_postgres::Client, app: &str) -> i64 {
     db.query_one(
-        "SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND wait_event_type='Lock'",
+        "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND wait_event_type='Lock'",
         &[&app],
     )
     .await
@@ -136,6 +136,38 @@ async fn wait_for_waiters(db: &tokio_postgres::Client, app: &str, n: i64) {
     }
 }
 
+/// Application name unique per process and run, so concurrent runs against a
+/// shared cluster never observe each other's sessions.
+fn uniq(base: &str) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    format!("{base}-{}-{nanos:08x}", std::process::id())
+}
+
+/// Wait (bounded) until at least one session of `app` in this database is running a query.
+async fn wait_for_active(db: &tokio_postgres::Client, app: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let n: i64 = db
+            .query_one(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND state='active' AND pid<>pg_backend_pid()",
+                &[&app],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        if n > 0 {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{app}: attacker never became active"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 async fn load(exec: ScopedExecutor, worker: WorkerPools, config: Config) -> std::sync::Arc<Gate> {
     Gate::load(exec, worker, config, None).await.unwrap()
 }
@@ -143,7 +175,9 @@ async fn load(exec: ScopedExecutor, worker: WorkerPools, config: Config) -> std:
 #[tokio::test]
 async fn gate_reuses_pooled_worker_connections() {
     let _s = SERIAL.lock().await;
-    let (dsn, app) = (dsn(), "gate367-reuse");
+    let dsn = dsn();
+    let app = uniq("gate367-reuse");
+    let app = app.as_str();
     let db = connect(&dsn).await;
     let (ip, user) = ("198.18.36.7", "gate367-reuse@example.test");
     forget(&db, ip, user).await;
@@ -154,7 +188,7 @@ async fn gate_reuses_pooled_worker_connections() {
     let gate = load(ScopedExecutor::from_dsn(&dsn, 2).unwrap(), worker, quiet()).await;
     let pids = || async {
         db.query(
-            "SELECT pid FROM pg_stat_activity WHERE application_name=$1 ORDER BY pid",
+            "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 ORDER BY pid",
             &[&app],
         )
         .await
@@ -187,13 +221,15 @@ async fn gate_reuses_pooled_worker_connections() {
 #[tokio::test]
 async fn exhausted_check_pool_rejects_lockout_and_recovers() {
     let _s = SERIAL.lock().await;
-    let (dsn, app) = (dsn(), "gate367-exhaust");
+    let dsn = dsn();
+    let app = uniq("gate367-exhaust");
+    let app = app.as_str();
     let (db, probe) = (connect(&dsn).await, connect(&dsn).await);
     let (ip, user) = ("198.18.36.8", "gate367-exhaust@example.test");
     forget(&db, ip, user).await;
     let worker = WorkerPools {
         check: pool(&tagged(&dsn, app), 1, 300, 10_000),
-        record: pool(&tagged(&dsn, "gate367-exhaust-rec"), 1, 300, 500),
+        record: pool(&tagged(&dsn, &format!("{app}-rec")), 1, 300, 500),
     };
     let gate = load(ScopedExecutor::from_dsn(&dsn, 2).unwrap(), worker, quiet()).await;
     assert_eq!(
@@ -243,7 +279,9 @@ async fn exhausted_check_pool_rejects_lockout_and_recovers() {
 #[tokio::test]
 async fn timed_out_lockout_check_is_cancelled_server_side() {
     let _s = SERIAL.lock().await;
-    let (dsn, app) = (dsn(), "gate367-cancel");
+    let dsn = dsn();
+    let app = uniq("gate367-cancel");
+    let app = app.as_str();
     let (db, probe) = (connect(&dsn).await, connect(&dsn).await);
     let (ip, user) = ("198.18.36.9", "gate367-cancel@example.test");
     forget(&db, ip, user).await;
@@ -310,7 +348,9 @@ async fn boot_probe_refuses_credential_without_lockout_execute() {
 #[tokio::test]
 async fn reserved_record_pool_escalates_while_check_pool_is_saturated() {
     let _s = SERIAL.lock().await;
-    let (dsn, app) = (dsn(), "gate367-reserve");
+    let dsn = dsn();
+    let app = uniq("gate367-reserve");
+    let app = app.as_str();
     let (db, probe) = (connect(&dsn).await, connect(&dsn).await);
     let (ip, user) = ("198.18.36.11", "gate367-reserve@example.test");
     forget(&db, ip, user).await;
@@ -350,6 +390,8 @@ async fn reserved_record_pool_escalates_while_check_pool_is_saturated() {
 async fn rate_limited_flood_does_not_starve_another_source() {
     let _s = SERIAL.lock().await;
     let dsn = dsn();
+    let app = uniq("gate367-flood");
+    let app = app.as_str();
     let db = connect(&dsn).await;
     let (attacker, victim, user) = (
         "198.18.36.20",
@@ -361,8 +403,8 @@ async fn rate_limited_flood_does_not_starve_another_source() {
     let mut config = with(quiet(), "rate_limit");
     config.rate_limit_per_min = 3;
     let gate = load(
-        ScopedExecutor::from_dsn(&dsn, 8).unwrap(),
-        WorkerPools::from_dsn(&dsn).unwrap(),
+        ScopedExecutor::from_dsn(&tagged(&dsn, app), 8).unwrap(),
+        WorkerPools::from_dsn(&tagged(&dsn, app)).unwrap(),
         config,
     )
     .await;
@@ -376,6 +418,7 @@ async fn rate_limited_flood_does_not_starve_another_source() {
             })
         })
         .collect();
+    wait_for_active(&db, app).await;
     let started = Instant::now();
     let decision = gate.decide(&meta(victim, user), true).await;
     gate.record(&meta(victim, user), false, 0).await;
@@ -402,6 +445,8 @@ async fn rate_limited_flood_does_not_starve_another_source() {
 async fn large_attacker_history_does_not_block_other_sources() {
     let _s = SERIAL.lock().await;
     let dsn = dsn();
+    let app = uniq("gate367-flood");
+    let app = app.as_str();
     let db = connect(&dsn).await;
     let (attacker, victim) = ("198.18.36.30", "198.18.36.31");
     db.batch_execute("SELECT create_monthly_partitions()")
@@ -416,8 +461,8 @@ async fn large_attacker_history_does_not_block_other_sources() {
     let mut config = with(quiet(), "spray_detect");
     config.spray_max_users = 1_000_000;
     let gate = load(
-        ScopedExecutor::from_dsn(&dsn, 8).unwrap(),
-        WorkerPools::from_dsn(&dsn).unwrap(),
+        ScopedExecutor::from_dsn(&tagged(&dsn, app), 8).unwrap(),
+        WorkerPools::from_dsn(&tagged(&dsn, app)).unwrap(),
         config,
     )
     .await;
@@ -431,6 +476,7 @@ async fn large_attacker_history_does_not_block_other_sources() {
             })
         })
         .collect();
+    wait_for_active(&db, app).await;
     let started = Instant::now();
     let decision = gate
         .decide(&meta(victim, "gate367-big@example.test"), true)

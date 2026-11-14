@@ -106,7 +106,6 @@ impl WorkerPools {
 }
 
 pub struct Gate {
-pub struct Gate {
     pub(crate) exec: ScopedExecutor,
     pub(crate) worker: WorkerPools,
     pub(crate) config: Config,
@@ -305,7 +304,6 @@ impl Gate {
         lockout_from(row)
     }
 
-    pub async fn decide(&self, meta: &ConnectionMeta, skip_captcha: bool) -> Decision {
     pub async fn decide(&self, meta: &ConnectionMeta, skip_captcha: bool) -> Decision {
         let country = self.country(meta);
         let mut hits = 0_i64;
@@ -645,7 +643,6 @@ fn lockout_delay(secs: f64) -> Duration {
     Duration::from_secs((secs.max(0.) as u64).min(15))
 }
 
-pub fn mask_ip(ip: &str) -> String {
 pub fn mask_ip(ip: &str) -> String {
     let ip = ip
         .parse::<std::net::IpAddr>()
