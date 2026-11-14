@@ -1,0 +1,51 @@
+{
+  "case": "threat-login-rate-limited",
+  "format": 1,
+  "go_source": "9b1b37304a76a3e81f8aef7e5a5daf90c7da8a44",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "rate_limited",
+          "protocol": "http",
+          "source_ip": "127.0.0.72",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": [
+        {
+          "count": 4,
+          "key": "auth:http:127.0.0.72"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Wrong-password-1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"Too many requests\",\"error\":\"rate_limited\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "rate_limited"
+          },
+          "status": 429
+        }
+      }
+    ]
+  },
+  "preset": "threat",
+  "route": "POST /auth/login"
+}
