@@ -1635,7 +1635,15 @@ async fn unreadable_revocations_with_cae_off_is_503_without_go() -> Result<(), B
     c.batch_execute("REVOKE SELECT ON session_revocations FROM setjoin_app")
         .await?;
     let result = std::panic::AssertUnwindSafe(async {
-        let native = Process::start(&db).await?;
+        // Session admission reads revocations on DB_WORKER_DSN: make it the app credential
+        // the REVOKE affects, and prove that credential cannot read the table.
+        let app = db.connect_command().await?;
+        assert!(
+            app.query("SELECT 1 FROM session_revocations LIMIT 1", &[]).await.is_err(),
+            "setjoin_app must be unable to SELECT session_revocations"
+        );
+        let extra = vec![("DB_WORKER_DSN", db.app.clone().ok_or("app DSN required")?)];
+        let native = Process::start_with(&db, &extra).await?;
         let token = member_token(actor.user, false, &[], None);
         let response = send(
             native.address,

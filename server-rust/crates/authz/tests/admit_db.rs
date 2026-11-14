@@ -608,19 +608,19 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                 &format!("{scope:?} {path}: guest without iat"),
             );
         }
-        // A non-integer iat is not an issued-at; a non-integer act is still impersonation.
+        // Malformed (non-integer) iat/act fail the claims-shape check before the accessors run.
         for scope in [Scope::User, Scope::DriveUser] {
             for (label, bad) in [("string", json!("12345")), ("float", json!(1.5))] {
                 refused(
                     run(&ctx, &keys, &bearer(&with(guest_claims(active), "iat", bad.clone())), PLAIN, scope).await,
-                    Refusal::MissingIssuedAt,
+                    Refusal::InvalidToken,
                     &format!("{scope:?}: guest with {label} iat"),
                 );
             }
             for (label, act) in [("string", json!("admin")), ("float", json!(1.5)), ("object", json!({}))] {
                 refused(
                     run(&ctx, &keys, &bearer(&with(guest_claims(active), "act", act)), PLAIN, scope).await,
-                    Refusal::Impersonation,
+                    Refusal::InvalidToken,
                     &format!("{scope:?}: guest with {label} act"),
                 );
             }
@@ -628,7 +628,7 @@ async fn user_and_drive_user_scopes_name_guest_states() {
         let drive_string_iat = with(with(guest_claims(active), "scp", json!("drive")), "iat", json!("12345"));
         refused(
             run(&ctx, &keys, &bearer(&drive_string_iat), DRIVE, Scope::DriveUser).await,
-            Refusal::MissingIssuedAt,
+            Refusal::InvalidToken,
             "guest drive token with string iat on a drive path",
         );
         // The drive-scoped guest token without iat is parsed on a drive path and still refused.

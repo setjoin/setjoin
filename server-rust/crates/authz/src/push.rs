@@ -235,3 +235,31 @@ impl PushIdentity {
         })
     }
 }
+
+#[cfg(test)]
+mod accessor_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn identity(claims: Value) -> PushIdentity {
+        PushIdentity { claims: claims.as_object().cloned().unwrap_or_default(), guest: true }
+    }
+
+    #[test]
+    fn has_act_is_true_for_any_non_null_type() {
+        for act in [json!(1), json!("admin"), json!(1.5), json!({}), json!([]), json!(true)] {
+            assert!(identity(json!({"act": act.clone()})).has_act(), "act {act}");
+        }
+        assert!(!identity(json!({"act": null})).has_act());
+        assert!(!identity(json!({})).has_act());
+    }
+
+    #[test]
+    fn has_issued_at_requires_an_integer() {
+        assert!(identity(json!({"iat": 12345})).has_issued_at());
+        for iat in [json!("12345"), json!(1.5), json!(null), json!({})] {
+            assert!(!identity(json!({"iat": iat.clone()})).has_issued_at(), "iat {iat}");
+        }
+        assert!(!identity(json!({})).has_issued_at());
+    }
+}
