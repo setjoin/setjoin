@@ -59,6 +59,9 @@ jobs:
               set -euo pipefail
               export PATH="/opt/rust/bin:$PATH" CARGO_HOME=/tmp/cargo
               if [ "$FLOOR_TARGET" != loongarch64-unknown-linux-gnu ]; then
+                # Vendored openssl-sys runs OpenSSL Configure, which needs these
+                # Perl modules; the minimal AlmaLinux 8 image does not ship them.
+                dnf install -y perl-IPC-Cmd perl-FindBin perl-Time-Piece
                 test "$(getconf GNU_LIBC_VERSION)" = "glibc $FLOOR_VERSION"
               else
                 /usr/local/bin/qemu-loongarch64 -L "$CROSS_SYSROOT" "$CROSS_SYSROOT/lib64/libc.so.6" | head -1 | grep -F "version $FLOOR_VERSION"
