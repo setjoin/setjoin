@@ -59,13 +59,17 @@ async fn verified_claims(
     drive_scope:bool,
 ) -> Option<Map<String, Value>> {
     let claims = token::signed_claims(token, keys).await?;
+    // exp/nbf/iat are integer-only for every algorithm (claims_shape_ok), the
+    // same rule as token::verify; a fractional NumericDate Go would accept is
+    // refused here (fail closed, #356a F9).
     token::claims_shape_ok(&claims)?;
     let text = |key: &str| claims.get(key).and_then(Value::as_str).unwrap_or("");
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_secs() as i64;
-    if text("iss") != issuer
+    if issuer.is_empty()
+        || text("iss") != issuer
         || text("typ") != "access"
         || (!text("scp").is_empty() && !(drive_scope && text("scp")=="drive"))
         || (!drive_scope && claims.get("iat")?.as_i64().is_none())

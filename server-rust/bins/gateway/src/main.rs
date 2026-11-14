@@ -1074,6 +1074,11 @@ async fn routes(
             &["authserver-hmac-1","mailserver-drive-native-1"],
             sm2_pem.as_deref(),
         )?);
+    } else {
+        // #356a: without JWT_SECRET every HS256/SM2 credential is refused
+        // natively (push, SSE, presence and every other family); nothing is
+        // handed to Go. Installs share the authserver's config.env secret.
+        eprintln!("setjoin-gateway: JWT_SECRET is unset; HS256/SM2 tokens will be refused (401). Set the authserver's JWT_SECRET in config.env.");
     }
     let keys = Arc::new(keys);
     let issuer = env("JWT_ISSUER").unwrap_or_else(|| "mailserver".into());
