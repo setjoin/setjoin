@@ -10,6 +10,9 @@ Every workflow runs on GitHub-hosted runners. `scripts/check-workflow-log-hygien
 | `ubuntu-24.04` | xinchuang-ci (all jobs), rust-floor (x86_64, loongarch64), meet-renderer-qualification |
 | `ubuntu-24.04-arm` | rust-floor (aarch64) |
 
+rust-floor runs `scripts/cross-build.sh --rust` in glibc 2.28 (x86_64/arm64) and a glibc 2.36 loong64
+sysroot, checks ELF version needs and smokes the gateway in a scratch loong64 runtime.
+
 ## Rules
 
 - Pin the image (`ubuntu-24.04`, not `ubuntu-latest`) so an image bump is a reviewed change.

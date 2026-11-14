@@ -31,6 +31,7 @@ configuration error is an evidence failure, not a clean result.
 - Complete verification matrix: `bash scripts/verify-all.sh list`; `all` runs deterministic local lanes and `extended` adds an explicitly bounded live browser origin plus iOS/Android runtime probes.
 - Browser lanes route through `scripts/playwright-supported.sh`: supported hosts run locally, unsupported Linux fails closed unless an explicit loopback endpoint reaches a separate supported browser host; the exact-version container is diagnostic because it still shares the host kernel.
 - Fresh test DB: `bash scripts/load-test-schema.sh`
+- Server archive staging (no publishing): `scripts/package-server-release.sh`; contract test `python3 scripts/test-package-server-release.py`
 - Toolchain-upgrade smoke: `bash scripts/post-upgrade-smoke.sh`
 - Fixed deployment-unit catalog/projection: `bash scripts/check-deploy-unit-catalog.sh --self-test`
 - Architecture R4 focused lanes: `bash scripts/verify-architecture-r4.sh --doctor`; CLI/self-test contract: `bash scripts/verify-architecture-r4.test.sh`
