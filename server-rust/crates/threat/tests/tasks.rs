@@ -123,7 +123,7 @@ async fn listeners_replay_go_notifications_and_reconcile_after_disconnect() {
         .insert("feature.conditional_access".into(), true);
     let gate = Gate::load(
         setjoin_pg::ScopedExecutor::from_dsn(&dsn, 4).unwrap(),
-        setjoin_pg::workers::WorkerDatabase::new(&dsn).unwrap(),
+        setjoin_threat::WorkerPools::from_dsn(&dsn).unwrap(),
         config,
         None,
     )
@@ -379,7 +379,7 @@ async fn ip_rule_lookup_uses_go_three_second_query_budget() {
             },
         )
         .unwrap(),
-        setjoin_pg::workers::WorkerDatabase::new(&dsn).unwrap(),
+        setjoin_threat::WorkerPools::from_dsn(&dsn).unwrap(),
         config,
         None,
     )
@@ -409,10 +409,11 @@ async fn ip_rule_lookup_uses_go_three_second_query_budget() {
         elapsed >= Duration::from_secs(2),
         "test did not exercise a stalled query"
     );
+    let decision = decision.unwrap();
+    assert_eq!(decision.action, ThreatAction::Reject);
     assert_eq!(
-        decision.unwrap().action,
-        ThreatAction::Allow,
-        "Go continues its pipeline after query timeout"
+        decision.reason, "ip_rules_unavailable",
+        "#367: an unanswered ip_rules lookup fails closed"
     );
     assert_eq!(
         gate.decide(&meta, true).await.action,

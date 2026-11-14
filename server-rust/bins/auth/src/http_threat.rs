@@ -67,18 +67,21 @@ impl AuthServer {
         agent: &str,
         username: &str,
     ) -> Option<Response<Body>> {
-        if !setjoin_threat::ip_rule_blocked(&self.exec, ip).await {
-            return None;
-        }
-        self.http_attempt(ip, agent, username, "ip_blocked").await;
+        let reason = match setjoin_threat::ip_rule_blocked(&self.exec, ip).await {
+            Ok(false) => return None,
+            Ok(true) => "ip_blocked",
+            // #367: an unanswered lookup rejects, as the protocol gate does.
+            Err(()) => "ip_rules_unavailable",
+        };
+        self.http_attempt(ip, agent, username, reason).await;
         Some(
             Response::builder()
                 .status(403)
                 .header("content-type", "application/json")
-                .header("x-threat-reason", "ip_blocked")
-                .body(body(
-                    "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"ip_blocked\"}\n",
-                ))
+                .header("x-threat-reason", reason)
+                .body(body(format!(
+                    "{{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"{reason}\"}}\n"
+                )))
                 .unwrap(),
         )
     }
