@@ -5,7 +5,7 @@ pub use denylist::AuthDenylist;
 mod watchers;
 pub use watchers::Watchers;
 mod gate;
-pub use gate::{Config, ConnectionMeta, Decision, Gate, ThreatAction, ThreatGate, WorkerPools, RECORD_POOL_SIZE, WORKER_POOL_SIZE};
+pub use gate::{CaptchaStep, Config, ConnectionMeta, Decision, Gate, ThreatAction, ThreatGate, WorkerPools, RECORD_POOL_SIZE, WORKER_POOL_SIZE};
 pub use gate::{fingerprint, ip_rule_blocked, mask_ip};
 // Shared authentication runtime tasks and protocol threat admission (#420).
 use setjoin_pg::{workers::WorkerDatabase, Type};
