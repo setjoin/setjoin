@@ -335,3 +335,20 @@ upload and connection tests require user authority only. A suspended/detached or
 non-primary owned mailbox cannot use this case. Other authorization APIs are
 unchanged.
 The F21 route's no-mailbox oracle and native revoked/no-mailbox denial protect it.
+
+## Refusal classes for native admission (#354)
+
+`admit` (with `Scope` Member, User, Drive or DriveUser) returns `Authorized` or a
+`Refusal`, one frozen-Go outcome class each. `credential` picks the bearer Go's
+`jwtAuthMethod` reads: the first Authorization value, case-sensitively, where a
+non-empty `Bearer ` value is final (no cookie fallback, even when it is not UTF-8);
+otherwise the first valid `access_token` cookie (`token::presented_cookie`).
+Evaluation order follows Go: credential, then token validation (`verify_detailed`,
+one signature check, the refusal class named by the first rule tripped), then live
+reads. Only `InvalidToken` is remapped to `AlternativeCredential`, and only when the
+first Authorization value is `Basic ` or `Negotiate `. `AlternativeCredential`,
+`Impersonation`, `Guest`, `NoPrimaryMailbox` and `MailboxBlocked` are never native
+denials; the gateway forwards them from one site (`bins/gateway/src/deny.rs`). A
+verify timeout is `Unavailable` (503); an unknown kid, including inside the JWKS
+refresh cooldown, is `InvalidToken` (401). The flagged `authorize_*` helpers are
+unchanged for the callers that still use them.

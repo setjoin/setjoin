@@ -13,6 +13,7 @@
 
 pub mod acme;
 mod admission;
+mod deny;
 mod guest_allowlist;
 pub mod activation;
 pub mod attachment;

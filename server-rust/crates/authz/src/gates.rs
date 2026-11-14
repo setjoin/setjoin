@@ -88,9 +88,16 @@ impl SessionState {
 pub(crate) enum Caller {
     /// Not a guest, not revoked, primary mailbox `mailbox` reachable.
     Member { mailbox: i64, state: SessionState },
-    /// Anything Go handles differently (guest belt, revoked session, no
-    /// primary mailbox, suspended/detached mailbox, unreadable state).
-    Defer,
+    /// Live guest satellite row (`chain.go:265-290`).
+    Guest,
+    /// Durable revocation matched (`runtime_access.go:135-145`).
+    Revoked,
+    /// No `is_primary` mailbox (`identity.ErrNoPrimaryMailbox`).
+    NoMailbox,
+    /// `mailbox_lifecycle_access_allowed` false or NULL.
+    Blocked,
+    /// Read error, empty result or NULL state component (no Go equivalent).
+    Unavailable,
 }
 
 /// One round trip: the guest satellite belt (`guest_account_status`), the
@@ -125,57 +132,28 @@ pub(crate) async fn caller(exec: &ScopedExecutor, s: &Session) -> Caller {
           FROM mailboxes m JOIN users u ON u.id = m.user_id \
          WHERE m.user_id = $1 AND m.is_primary = TRUE LIMIT 1) st ON TRUE";
     let iat = s.issued_at as f64;
-    let rows = match exec
-        .read(
-            SQL,
-            &[
-                (&s.user_id, Type::INT8),
-                (&iat, Type::FLOAT8),
-                (&s.jti, Type::TEXT),
-                (&s.family, Type::TEXT),
-            ],
-        )
+    let Ok(rows) = exec
+        .read(SQL, &[(&s.user_id, Type::INT8), (&iat, Type::FLOAT8), (&s.jti, Type::TEXT), (&s.family, Type::TEXT)])
         .await
-    {
-        Ok(rows) => rows,
-        Err(_) => return Caller::Defer,
+    else {
+        return Caller::Unavailable;
     };
-    let Some(r) = rows.first() else {
-        return Caller::Defer;
-    };
+    let Some(r) = rows.first() else { return Caller::Unavailable };
     let guest_rows: i64 = r.get(0);
     let revoked: bool = r.get(1);
     let mailbox: Option<i64> = r.get(2);
     let allowed: Option<bool> = r.get(3);
-    // Columns 4..=11 in `SessionState` field order; any NULL defers.
+    if guest_rows != 0 { return Caller::Guest; }
+    if revoked { return Caller::Revoked; }
+    let Some(mailbox) = mailbox else { return Caller::NoMailbox };
+    if allowed != Some(true) { return Caller::Blocked; }
     let c = |i: usize| r.get::<_, Option<i64>>(i);
-    let (
-        Some(email),
-        Some(mailbox_state),
-        Some(thread),
-        Some(tag),
-        Some(calendar),
-        Some(contact),
-        Some(task),
-        Some(identity),
-    ) = (c(4), c(5), c(6), c(7), c(8), c(9), c(10), c(11))
+    let (Some(email), Some(mailbox_state), Some(thread), Some(tag), Some(calendar), Some(contact), Some(task), Some(identity)) =
+        (c(4), c(5), c(6), c(7), c(8), c(9), c(10), c(11))
     else {
-        return Caller::Defer;
+        return Caller::Unavailable;
     };
-    let state = SessionState {
-        email,
-        mailbox: mailbox_state,
-        thread,
-        tag,
-        calendar,
-        contact,
-        task,
-        identity,
-    };
-    match (guest_rows, revoked, mailbox, allowed) {
-        (0, false, Some(mailbox), Some(true)) => Caller::Member { mailbox, state },
-        _ => Caller::Defer,
-    }
+    Caller::Member { mailbox, state: SessionState { email, mailbox: mailbox_state, thread, tag, calendar, contact, task, identity } }
 }
 
 /// Active actor roles, using `shared/permissions.ResolveAuthority`'s live

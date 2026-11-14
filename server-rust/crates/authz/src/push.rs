@@ -16,6 +16,8 @@ impl PushIdentity {
     pub fn has_device_binding(&self)->bool{self.claims.get("device").is_some_and(|v|!v.is_null())}
     /// Signed impersonation provenance (the acting admin's uid), if any.
     pub fn act(&self)->Option<i64>{self.claims.get("act").and_then(Value::as_i64)}
+    /// Whether the signed token carries `iat` (drive-scoped push admission does not require it).
+    pub fn has_issued_at(&self)->bool{self.claims.get("iat").is_some_and(|v|!v.is_null())}
     pub fn account_type(&self)->&str{if self.guest{"guest"}else{self.text("acct")}}
     pub fn user_id(&self) -> i64 {
         self.claims.get("uid").and_then(Value::as_i64).unwrap_or(0)
@@ -136,15 +138,16 @@ pub async fn http_admission_allowed(exec: &ScopedExecutor) -> bool {
     crate::gates::admission_allowed(exec, None).await
 }
 
+/// Durable twin of Go's process-local denylist; read failure kept distinct (#354).
+pub async fn revocation(exec: &ScopedExecutor, identity: &PushIdentity) -> Result<bool, setjoin_pg::StatementFailure> {
+    let (user, iat, jti, family) = (identity.user_id(), identity.issued_at() as f64, identity.token_id(), identity.token_family());
+    let rows = exec.read("SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
+        &[(&user,Type::INT8),(&iat,Type::FLOAT8),(&jti,Type::TEXT),(&family,Type::TEXT)]).await?;
+    Ok(rows[0].get::<_, bool>(0))
+}
 /// Durable twin of Go's process-local denylist; also closes the subscribe race.
 pub async fn revoked(exec: &ScopedExecutor, identity: &PushIdentity) -> bool {
-    let (user, iat, jti, family) = (
-        identity.user_id(),
-        identity.issued_at() as f64,
-        identity.token_id(),
-        identity.token_family(),
-    );
-    !exec.read("SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",&[(&user,Type::INT8),(&iat,Type::FLOAT8),(&jti,Type::TEXT),(&family,Type::TEXT)]).await.is_ok_and(|r|!r[0].get::<_,bool>(0))
+    revocation(exec, identity).await.unwrap_or(true)
 }
 
 impl PushIdentity {
