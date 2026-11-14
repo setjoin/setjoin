@@ -65,6 +65,8 @@ pub(crate) use write_sql;
 
 mod account;
 mod call;
+#[cfg(test)]
+mod literals;
 
 pub(crate) use account::resolve;
 pub(crate) use call::{
@@ -254,6 +256,7 @@ mod tests {
 
     use regex::Regex;
 
+    use super::literals;
     use super::{CALENDAR_A3_METHODS, WORKER_METHODS, WORKER_TASK_METHODS};
 
     const GOLDEN: &str =
@@ -340,17 +343,33 @@ mod tests {
     /// A string literal that starts like SQL must be one anchored reducer call
     /// (D1 shape; the tail is optional because `read_sql!`/`write_sql!` add it).
     fn sql_literal_violations(name: &str, text: &str, found: &mut Vec<String>) {
-        let literal = Regex::new(r#""\s*((?:SELECT|WITH|INSERT|UPDATE|DELETE) [^"]*)""#)
-            .expect("sql literal pattern");
+        let statement = Regex::new(r"^(?:SELECT|WITH|INSERT|UPDATE|DELETE) ").expect("sql start");
         let shape = Regex::new(
             r"^SELECT [a-z_][a-z0-9_]*\(\$1(?:,\$[1-9][0-9]*(?:::[a-z0-9_]+(?:\[\])?)*)*\)(?:::text)?(?: WHERE \$2::bigint>0(?: AND \$3::text<>'')?)?$",
         )
         .expect("reducer call pattern");
-        for captures in literal.captures_iter(text) {
-            if !shape.is_match(&captures[1]) {
+        let mut candidates = Vec::new();
+        // Fail closed: an SQL macro argument that is not one plain literal.
+        match literals::macro_arguments(text, &["read_sql", "write_sql", "set_sql"]) {
+            Ok(arguments) => candidates.extend(
+                arguments
+                    .into_iter()
+                    .filter(|(macro_name, _)| macro_name != "set_sql")
+                    .map(|(_, sql)| sql),
+            ),
+            Err(error) => found.push(format!("{name}: {error}")),
+        }
+        candidates.extend(
+            literals::literals(text)
+                .into_iter()
+                .filter(|literal| statement.is_match(literal.trim_start())),
+        );
+        for sql in candidates {
+            let sql = sql.trim_start();
+            if !shape.is_match(sql) {
                 found.push(format!(
                     "{name}: SQL {:?}",
-                    captures[1].chars().take(60).collect::<String>()
+                    sql.chars().take(60).collect::<String>()
                 ));
             }
         }
@@ -568,7 +587,13 @@ mod tests {
             "const S: &str = \"SELECT f($2,$1)::text\";",
             "const S: &str = \"WITH a AS (SELECT 1) SELECT f($1)\";",
             "const S: &str = \"DELETE FROM t WHERE mailbox_id = $1\";",
-            "const S: &str = \"SELECT f($1,\\\n    $3)::text\";",
+            "const S: &str = \"\\\n    SELECT f($2,$1)::text\";",
+            "const S: &str = read_sql!(\"\\\n    SELECT f($2,$1)::text\");",
+            "const S: &str = read_sql!(r#\"SELECT f($2,$1)::text\"#);",
+            "const S: &str = read_sql!(r\"SELECT x FROM t\");",
+            "const Q: &str = \"SELECT f($1)::text\"; const S: &str = read_sql!(Q);",
+            "const S: &str = write_sql!(concat!(\"SELECT f(\", \"$1)\"));",
+            "const S: &str = set_sql!(PREFIX);",
             "fn f(cx: Cx<'_>) { let _ = cx.with_email(\"x\"); }",
         ] {
             assert!(!violations("reminder.rs", fixture).is_empty(), "{fixture}");
@@ -579,6 +604,8 @@ mod tests {
             "use super::seam::{query, read, read_rows, read_sql, resolve, write, write_sql};",
             "use super::seam::ics::{load_location, parse_component};",
             "const S: &str = read_sql!(\"SELECT f($1,$3::bigint[])::text\");",
+            "const S: &str = read_sql!(\"\\\n    SELECT f($1,$3)::text\");",
+            "const S: &str = read_sql!(r#\"SELECT f($1,$3)::text\"#);",
             "const S: &str = \"SELECT f($1,$4,$5::text::jsonb)::text\";",
             "const T: &str = \"update must be an object\";",
             "use std::collections::{BTreeMap, BTreeSet};",
