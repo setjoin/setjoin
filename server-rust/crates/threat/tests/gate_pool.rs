@@ -1,6 +1,8 @@
 //! #367: pooled, bounded, fail-closed Gate worker statements.
 use setjoin_pg::{ScopedExecutor, Timeouts};
 use setjoin_threat::{Config, ConnectionMeta, Gate, ThreatAction, WorkerPools};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -145,14 +147,16 @@ fn uniq(base: &str) -> String {
     format!("{base}-{}-{nanos:08x}", std::process::id())
 }
 
-/// Wait (bounded) until at least one session of `app` in this database is running a query.
-async fn wait_for_active(db: &tokio_postgres::Client, app: &str) {
+/// Wait (bounded) until a session of `app` in this database is actively running
+/// a statement whose text contains `needle` (the specific workload, not an
+/// incidental preliminary query such as the ip_rules check).
+async fn wait_for_active(db: &tokio_postgres::Client, app: &str, needle: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let n: i64 = db
             .query_one(
-                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND state='active' AND pid<>pg_backend_pid()",
-                &[&app],
+                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name=$1 AND state='active' AND pid<>pg_backend_pid() AND position($2 in query)>0",
+                &[&app, &needle],
             )
             .await
             .unwrap()
@@ -162,10 +166,66 @@ async fn wait_for_active(db: &tokio_postgres::Client, app: &str) {
         }
         assert!(
             Instant::now() < deadline,
-            "{app}: attacker never became active"
+            "{app}: no active `{needle}` statement"
         );
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        tokio::time::sleep(Duration::from_millis(1)).await;
     }
+}
+
+/// Sets the shared stop flag on drop, so attackers end on every path
+/// (including a failed assertion); each also self-limits by a deadline.
+struct Stop(Arc<AtomicBool>);
+
+impl Drop for Stop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// `n` attackers looping on `decide` from `ip` until the stop flag is set or
+/// the deadline passes, so load stays outstanding for the whole victim probe.
+/// Each task returns (decisions made, decisions allowed).
+fn attackers(
+    gate: &Arc<Gate>,
+    n: usize,
+    ip: &'static str,
+    stop: &Arc<AtomicBool>,
+) -> Vec<tokio::task::JoinHandle<(usize, usize)>> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    (0..n)
+        .map(|t| {
+            let (gate, stop) = (gate.clone(), stop.clone());
+            tokio::spawn(async move {
+                let (mut total, mut allowed) = (0, 0);
+                while !stop.load(Ordering::SeqCst) && Instant::now() < deadline {
+                    let user = format!("flood{t}-{total}@example.test");
+                    if gate.decide(&meta(ip, &user), true).await.action == ThreatAction::Allow {
+                        allowed += 1;
+                    }
+                    total += 1;
+                }
+                (total, allowed)
+            })
+        })
+        .collect()
+}
+
+/// Stop the attackers and join them (bounded); returns summed (total, allowed).
+async fn stop_attackers(
+    stop: &Stop,
+    tasks: Vec<tokio::task::JoinHandle<(usize, usize)>>,
+) -> (usize, usize) {
+    stop.0.store(true, Ordering::SeqCst);
+    let (mut total, mut allowed) = (0, 0);
+    for task in tasks {
+        let (t, a) = tokio::time::timeout(Duration::from_secs(20), task)
+            .await
+            .expect("attacker did not stop")
+            .unwrap();
+        total += t;
+        allowed += a;
+    }
+    (total, allowed)
 }
 
 async fn load(exec: ScopedExecutor, worker: WorkerPools, config: Config) -> std::sync::Arc<Gate> {
@@ -408,27 +468,16 @@ async fn rate_limited_flood_does_not_starve_another_source() {
         config,
     )
     .await;
-    let flood: Vec<_> = (0..64)
-        .map(|i| {
-            let gate = gate.clone();
-            tokio::spawn(async move {
-                gate.decide(&meta(attacker, &format!("flood{i}@example.test")), true)
-                    .await
-                    .action
-            })
-        })
-        .collect();
-    wait_for_active(&db, app).await;
+    let stop = Stop(Arc::new(AtomicBool::new(false)));
+    let flood = attackers(&gate, 64, attacker, &stop.0);
+    // The attacker's own rate-limit statement must be in flight, and the
+    // attackers keep looping until the victim's decision has been measured.
+    wait_for_active(&db, app, "rate_limit_counters").await;
     let started = Instant::now();
     let decision = gate.decide(&meta(victim, user), true).await;
     gate.record(&meta(victim, user), false, 0).await;
     let elapsed = started.elapsed();
-    let mut allowed = 0;
-    for task in flood {
-        if task.await.unwrap() == ThreatAction::Allow {
-            allowed += 1;
-        }
-    }
+    let (total, allowed) = stop_attackers(&stop, flood).await;
     let counted = escalated(&db, victim, user).await;
     forget(&db, attacker, "").await;
     forget(&db, victim, user).await;
@@ -437,6 +486,7 @@ async fn rate_limited_flood_does_not_starve_another_source() {
         elapsed < Duration::from_secs(3),
         "victim waited {elapsed:?}"
     );
+    assert!(total > 64, "attackers did not keep load up: {total}");
     assert!(allowed <= 3, "flood passed the rate limit {allowed} times");
     assert_eq!(counted.len(), 3, "victim failure counted on all keys");
 }
@@ -466,27 +516,19 @@ async fn large_attacker_history_does_not_block_other_sources() {
         config,
     )
     .await;
-    let load_tasks: Vec<_> = (0..16)
-        .map(|i| {
-            let gate = gate.clone();
-            tokio::spawn(async move {
-                gate.decide(&meta(attacker, &format!("a{i}@example.test")), true)
-                    .await
-                    .action
-            })
-        })
-        .collect();
-    wait_for_active(&db, app).await;
+    let stop = Stop(Arc::new(AtomicBool::new(false)));
+    let load_tasks = attackers(&gate, 16, attacker, &stop.0);
+    // The slow spray statement itself must be running under the victim probe.
+    wait_for_active(&db, app, "detect_spray").await;
     let started = Instant::now();
     let decision = gate
         .decide(&meta(victim, "gate367-big@example.test"), true)
         .await;
     let elapsed = started.elapsed();
-    for task in load_tasks {
-        task.await.unwrap();
-    }
+    let (total, _) = stop_attackers(&stop, load_tasks).await;
     forget(&db, attacker, "").await;
     forget(&db, victim, "gate367-big@example.test").await;
+    assert!(total >= 16, "attackers did not keep load up: {total}");
     assert_eq!(decision.action, ThreatAction::Allow, "{decision:?}");
     assert!(
         elapsed < Duration::from_secs(3),
