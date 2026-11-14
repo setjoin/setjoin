@@ -22,5 +22,5 @@ append-only); emails, tokens and expiry are masked after validation.
 
 Non-catalog tests pin the terminal-delay floor and ceiling, lock release before
 the delay, the GET/POST stamp race, the executor deadline, login-shared threat
-toggles, the #346 residual shapes (CAPTCHA header, username keys) and upgrade
+toggles, the CAPTCHA header (a failed token is 403, as in Go) and the #346 residual shape (username keys) and upgrade
 posture (reducers absent, worker without BYPASSRLS).
