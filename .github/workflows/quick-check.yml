@@ -1,0 +1,69 @@
+name: quick check
+
+# Fast single-job check for agent branches so nobody compiles Rust on a small dev host.
+# Push to gofree/**, ci/** or docs/** (never main; pull requests run the full server-rust lane),
+# or run it by hand with workflow_dispatch. ONE job on purpose: it must not compete with the
+# 19-job full lane for the free-plan concurrency limit.
+on:
+  push:
+    branches: ['gofree/**', 'ci/**', 'docs/**']
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Space-separated cargo packages (empty = packages changed vs origin/main)
+        default: ''
+      tests:
+        description: Optional cargo test filter args (after --)
+        default: ''
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: quick-check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: never
+  CARGO_NET_RETRY: '5'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  LANE_JOB_TAG: quick
+
+jobs:
+  quick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LANE_QC_PACKAGES: ${{ inputs.packages }}
+      LANE_QC_TESTS: ${{ inputs.tests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/lane-setup
+        with:
+          postgres: 'false'
+      - name: Plan (changed workspace packages)
+        id: plan
+        run: |
+          git fetch -q origin main:refs/remotes/origin/main || true
+          bash scripts/lane-container.sh bash scripts/quick-check.sh plan
+          echo "key=$(sha256sum lane-artifacts/packages.txt | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: quick
+          key: ${{ steps.plan.outputs.key }}
+          save-if: true
+      - name: Quick check
+        run: bash scripts/lane-container.sh bash scripts/quick-check.sh run
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Quick check"
+            cat lane-artifacts/summary.md 2>/dev/null || echo "- FAIL: no summary produced (setup or plan failed)"
+          } >> "$GITHUB_STEP_SUMMARY"

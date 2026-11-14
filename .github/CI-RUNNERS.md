@@ -32,3 +32,8 @@ The same guard enforces this.
 `.github/workflows/server-rust-lane.yml` runs only on GitHub-hosted `ubuntu-latest` runners (no
 self-hosted label); the rows above do not apply to it. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
+
+## quick check (agent branches)
+
+`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on pushes to `gofree/**`, `ci/**`, `docs/**` and on `workflow_dispatch` (`packages`, `tests`): `cargo check --tests` + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
+It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests and main run only the full lane.
