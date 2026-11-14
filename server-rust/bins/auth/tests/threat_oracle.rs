@@ -1564,6 +1564,69 @@ fn native_check(name: &str, check: Check, effects: &Value) -> Result<(), Err> {
     }
 }
 
+/// Replay of a case whose response and attempt rows are approved divergences: every
+/// other part of the observation must equal the Go golden. Exempt: each step's
+/// status, `x-threat-reason`/`x-threat-delay` headers and body (pinned by the Rust
+/// contract; the body must still be a well-formed threat reply) and `effects.attempts`
+/// (pinned by the contract). Rate counters, lockouts, devices, audit rows, requests and
+/// any other response header must match Go.
+fn native_compare(
+    name: &str,
+    expected: &Value,
+    actual: &Value,
+    rust: &Contract,
+) -> Result<(), Err> {
+    let (want, got) = (&expected["observation"], &actual["observation"]);
+    for part in ["audit", "devices", "lockouts", "rate"] {
+        if want["effects"][part] != got["effects"][part] {
+            return Err(format!(
+                "{name}: effects.{part} differ from Go: {} vs {}",
+                got["effects"][part], want["effects"][part]
+            )
+            .into());
+        }
+    }
+    let (ws, gs) = (
+        want["steps"].as_array().ok_or("golden steps")?,
+        got["steps"].as_array().ok_or("actual steps")?,
+    );
+    if ws.len() != gs.len() {
+        return Err(format!("{name}: {} steps, golden has {}", gs.len(), ws.len()).into());
+    }
+    for (i, (w, g)) in ws.iter().zip(gs).enumerate() {
+        if w["request"] != g["request"] {
+            return Err(format!("{name} step {i}: request differs from the golden").into());
+        }
+        let strip_headers = |r: &Value| {
+            let mut h = r["headers"].clone();
+            if let Value::Object(m) = &mut h {
+                m.remove("x-threat-reason");
+                m.remove("x-threat-delay");
+            }
+            h
+        };
+        if strip_headers(&w["response"]) != strip_headers(&g["response"]) {
+            return Err(format!(
+                "{name} step {i}: response headers {} differ from Go {}",
+                g["response"]["headers"], w["response"]["headers"]
+            )
+            .into());
+        }
+        let text = g["response"]["body"].as_str().unwrap_or("");
+        let doc: Value = serde_json::from_str(text.trim_end_matches('\n'))
+            .map_err(|e| format!("{name} step {i}: body is not JSON ({e}): {text:?}"))?;
+        let reason = rust.statuses.get(i).and_then(|(_, r)| *r);
+        if !text.ends_with('\n')
+            || !doc.is_object()
+            || doc["error"].as_str() != reason
+            || (rust.delay.is_some() && !doc["retry_after"].is_u64())
+        {
+            return Err(format!("{name} step {i}: malformed threat body {text:?}").into());
+        }
+    }
+    Ok(())
+}
+
 /// Go half of an approved divergence: the golden must show the Go behaviour.
 fn go_check(name: &str, check: Check, effects: &Value) -> Result<(), Err> {
     let ok = match check {
@@ -1662,8 +1725,11 @@ async fn exercise(
         }
     }
     if !file.exists() {
-        println!("GOLDEN-PENDING {name}: contract only");
-        return Ok(());
+        return Err(format!(
+            "{name}: golden {} is missing; record it from frozen Go (GOFREE_RECORD_UPSTREAM)",
+            file.display()
+        )
+        .into());
     }
     let mut expected: Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
     actual["go_source"] = expected["go_source"].clone();
@@ -1697,6 +1763,12 @@ async fn exercise(
                 format!("{name}: Go evidence golden shows {got:?}, expected {want:?}").into(),
             );
         }
+        native_compare(
+            name,
+            &expected,
+            &actual,
+            plan.native.as_ref().unwrap_or(&plan.go),
+        )?;
         println!("GOLDEN-EVIDENCE {name}");
         return Ok(());
     }
