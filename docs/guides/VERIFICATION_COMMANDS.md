@@ -41,6 +41,7 @@ configuration error is an evidence failure, not a clean result.
   consume its projections while retaining lane-specific artifact and CGO policy.
 - Three-stack deployment rehearsal: `RUN_PREFIX=<unique> bash scripts/unified-deployment-readiness.sh provision`; use `resume-provision` only for its guarded pre-install retry path.
 - Portable rewind after successful A/B provisioning and updater rehearsal: `RUN_PREFIX=<same> REWIND_ATTEMPT=<new> bash scripts/transactional-upgrade-rehearsal.sh rewind`.
+- Structural guards: `bash scripts/run-guards-selftest.sh && bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt` (the lane's `guards` job; plain `run-guards.sh` treats every red guard as failure)
 - Hot-context guard: `bash scripts/check-agent-context-budget.sh`
 - Rust server, front-door inventory and oracle adequacy: `bash scripts/check-server-rust.sh`
   (runs route completeness, golden floor, per-route replay/coverage and mutant

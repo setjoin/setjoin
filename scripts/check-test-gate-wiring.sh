@@ -92,6 +92,7 @@ run_check() {
   require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
   require_literal "$LANE_WORKFLOW" '"roots", "pgtap", "guards", "shard"' 'server-rust lane aggregate requires the guards job' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt' 'server-rust lane runs every guard through run-guards.sh' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards-selftest.sh' 'server-rust lane proves the known-red ratchet before the guards' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' "needs.plan.outputs.debug != 'true'" 'server-rust lane guards job runs on every non-debug pull request' || failed=1
   require_literal "$PACKAGE_JSON" '"test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile.json=test-results/vitest.json"' 'Webmail package script' || failed=1
   require_literal "$VITE_CONFIG" "reporter: ['text', 'json', 'json-summary']" 'Webmail coverage reporters' || failed=1

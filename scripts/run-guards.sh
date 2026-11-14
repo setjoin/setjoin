@@ -54,6 +54,7 @@ if [ -n "$KNOWN_RED_FILE" ]; then
 fi
 is_known_red() { local n; for n in "${known_red[@]:-}"; do [ "$n" = "$1" ] && return 0; done; return 1; }
 tolerated=()
+stale_red=()
 
 fail=()
 no_selftest=()
@@ -71,6 +72,7 @@ if [[ -f "$route_guard" ]]; then
     if is_known_red check-route-inventory; then tolerated+=("check-route-inventory (self-test)"); else fail+=("check-route-inventory (self-test)"); fi
   elif bash "$route_guard"; then
     ran=$((ran + 1))
+    ! is_known_red check-route-inventory || stale_red+=("check-route-inventory")
   else
     echo "✗ GUARD FAILED: check-route-inventory"
     if is_known_red check-route-inventory; then tolerated+=("check-route-inventory"); else fail+=("check-route-inventory"); fi
@@ -115,6 +117,7 @@ for g in "$ROOT"/scripts/check-*.sh; do
 
   if bash "$g"; then
     ran=$((ran + 1))
+    ! is_known_red "$name" || stale_red+=("$name")
   else
     echo "✗ GUARD FAILED: $name"
     if is_known_red "$name"; then tolerated+=("$name"); else fail+=("$name"); fi
@@ -129,6 +132,11 @@ echo "  passed:  $ran"
 if [ ${#tolerated[@]} -gt 0 ]; then
   echo "  KNOWN RED (tolerated via $KNOWN_RED_FILE): ${tolerated[*]}"
   [ -z "${GITHUB_ACTIONS:-}" ] || echo "::warning title=known-red guards::${tolerated[*]} (see $KNOWN_RED_FILE)"
+fi
+if [ ${#stale_red[@]} -gt 0 ]; then
+  # Ratchet: the allowlist can only shrink.
+  echo "  STALE known-red (now PASS): ${stale_red[*]} — remove from $KNOWN_RED_FILE"
+  fail+=("stale known-red: ${stale_red[*]}")
 fi
 if [ ${#fail[@]} -gt 0 ]; then
   echo "  FAILED:  ${fail[*]}"

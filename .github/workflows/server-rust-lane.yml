@@ -264,6 +264,7 @@ jobs:
           bash scripts/load-test-schema.sh
       - name: Run every guard (self-test first)
         run: |
+          bash scripts/run-guards-selftest.sh
           export DB_PORT="$LANE_PG_PORT"
           bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt
 

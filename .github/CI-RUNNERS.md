@@ -12,7 +12,7 @@ Every workflow runs on GitHub-hosted runners. `scripts/check-workflow-log-hygien
 
 `webmail.yml` runs svelte-check and the Vitest coverage ratchet on `mailserver/webmail/**` changes
 (pull_request, push to main, manual). The legacy Go `xinchuang-ci.yml` was removed (#142); the
-structural guards run locally (`scripts/run-guards.sh`), not in CI.
+structural guards run in the server-rust lane's `guards` job (below) and locally (`scripts/run-guards.sh`).
 
 rust-floor runs on push to main and manual dispatch only (no pull_request trigger) and runs `scripts/cross-build.sh --rust` in glibc 2.28 (x86_64/arm64) and a glibc 2.36 loong64
 sysroot, checks ELF version needs and smokes the gateway in a scratch loong64 runtime.
@@ -33,9 +33,15 @@ The same guard enforces this.
 
 ## server-rust lane (GitHub-hosted)
 
-`.github/workflows/server-rust-lane.yml` (its `pgtap` job runs the mailserver/authserver reducer pgTAP suites and gates `aggregate`) runs only on GitHub-hosted `ubuntu-latest` runners (no
+`.github/workflows/server-rust-lane.yml` (its `pgtap` job runs the mailserver/authserver reducer pgTAP suites and its `guards` job runs `scripts/run-guards.sh --known-red scripts/guards-known-red.txt`; both gate `aggregate`) runs only on GitHub-hosted `ubuntu-latest` runners (no
 self-hosted label); the rows above do not apply to it. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
+
+`run-guards.sh --known-red FILE` tolerates the guards named in `scripts/guards-known-red.txt` (each with an
+issue reference, today #348): they still run and warn. The allowlist only shrinks: a listed guard that
+passes fails the run until its line is removed; a name with no guard file is an error.
+`scripts/run-guards-selftest.sh` proves these cases and runs before the guards in the job;
+`scripts/check-test-gate-wiring.sh` asserts the job and its `aggregate` requirement.
 
 ## gofree record (manual, deleted with Go)
 
