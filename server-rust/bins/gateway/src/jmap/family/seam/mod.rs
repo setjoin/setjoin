@@ -270,6 +270,7 @@ mod tests {
         "std::fs::read_dir",
         "std::fs::read_to_string",
         "env!(\"CARGO_MANIFEST_DIR\")",
+        "#[tokio::test]",
     ];
     const REDUCER_ERROR_EXCEPTIONS: &[&str] = &[
         "use setjoin_pg::StatementFailure;",

@@ -520,7 +520,7 @@ mod tests {
     fn go_map_sorts_and_escapes() {
         assert_eq!(
             go_map(vec![("b", json!("<")), ("a", json!(1))]),
-            r#"{"a":1,"b":"<"}"#
+            r#"{"a":1,"b":"\u003c"}"#
         );
     }
 
