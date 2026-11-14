@@ -71,6 +71,10 @@ enum Case {
     Large,
     Range,
     CachedRange,
+    InvalidUtf8,
+    StorageGetFails,
+    OwnershipReadFails,
+    Truncated,
 }
 
 #[tokio::test]
@@ -113,6 +117,13 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
     let encoded = matches!(case, Case::Encoded);
     let large = matches!(case, Case::Large);
     let ranged = matches!(case, Case::Range | Case::CachedRange);
+    let invalid_utf8 = matches!(case, Case::InvalidUtf8);
+    let get_fails = matches!(case, Case::StorageGetFails);
+    let ownership_fails = matches!(case, Case::OwnershipReadFails);
+    let truncated = matches!(case, Case::Truncated);
+    if (ownership_fails || truncated) && std::env::var_os("GOFREE_RECORD_GO_BINARY").is_some() {
+        return Ok(()); // native-only: Go's pool and a mid-body S3 abort cannot be faulted identically
+    }
     let Some(db) = Db::for_case("blob-download-owned") else {
         return Ok(());
     };
@@ -134,6 +145,8 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
     let encoded_hash = format!("%{:02X}{}", hash.as_bytes()[0], &hash[1..]);
     let target = if invalid_hash {
         "not-a-sha256"
+    } else if invalid_utf8 {
+        "%FF"
     } else if encoded {
         &encoded_hash
     } else {
@@ -151,6 +164,13 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
                     Response::new(common::full(
                         "<LocationConstraint>us-east-1</LocationConstraint>",
                     ))
+                } else if get_fails && request.method() == hyper::Method::GET {
+                    Response::builder().status(403).header("content-type","application/xml")
+                        .body(common::full("<Error><Code>AccessDenied</Code><Message>denied</Message></Error>")).unwrap()
+                } else if truncated && request.method() == hyper::Method::GET {
+                    let short = content.as_bytes()[..content.len() - 3].to_vec();
+                    Response::builder().header("content-type","text/plain").header("content-length", short.len())
+                        .header("last-modified","Sat, 31 Oct 2026 00:00:00 GMT").body(common::full(short)).unwrap()
                 } else if missing {
                     Response::builder().status(404).header("content-type","application/xml")
                         .body(common::full("<Error><Code>NoSuchKey</Code><Message>missing object</Message></Error>")).unwrap()
@@ -198,7 +218,7 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
             mutant_schema=Some(schema.clone());
             if db.dsn.contains("options="){return Err("mutant DSN already has options".into());}
             format!("{}{}options=-csearch_path%3D{schema}%2Cpublic",db.dsn,if db.dsn.contains('?'){'&'}else{'?'})
-        }else{db.dsn.clone()};
+        }else if ownership_fails{"host=127.0.0.1 port=1 user=none dbname=none connect_timeout=1".into()}else{db.dsn.clone()};
         let adapter = BlobRoute(Arc::new(BlobCommands {
             exec: ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
                 .map_err(|e| e.0)?,
@@ -271,6 +291,20 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
                 .body(common::full(""))?,
         )
         .await;
+        if truncated {
+            use http_body_util::BodyExt;
+            let status = response.status().as_u16();
+            let length = response.headers().get("content-length").and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let collected = response.into_body().collect().await;
+            server.abort();
+            if status != 200 || length.as_deref() != Some(bytes.len().to_string().as_str()) {
+                return Err(format!("truncated object should stream like ServeContent: {status} {length:?}").into());
+            }
+            if collected.is_ok_and(|c| c.to_bytes().len() >= bytes.len()) {
+                return Err("a truncated object produced a complete body".into());
+            }
+            return Ok(());
+        }
         let status = response.status();
         let headers = response.headers().clone();
         let content_type = response.headers().get("content-type").cloned();
@@ -285,7 +319,11 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
                 format!("cache-hit should advertise byte ranges: {accept_ranges:?}").into(),
             );
         }
-        if foreign_caller || invalid_hash || missing {
+        if invalid_utf8 || ownership_fails {
+            if status != 500 || actual != "internal error\n" {
+                return Err(format!("blob read failure: {status} {actual:?}").into());
+            }
+        } else if foreign_caller || invalid_hash || missing || get_fails {
             if status != 404 || actual != "blob not found\n" {
                 return Err(format!("cross-mailbox download: {status} {actual:?}").into());
             }
@@ -306,7 +344,8 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
             }
         }
         }
-        let case = if ranged {if repeat {"blob-download-cached-range"} else {"blob-download-cold-range"}} else if large { "blob-download-large" } else if encoded { "blob-download-encoded" } else if missing { "blob-download-missing" } else if head { "blob-download-head" } else if invalid_hash { "blob-download-invalid-hash" } else if foreign_caller { "blob-download-foreign" } else if repeat { "blob-download-repeat" } else { "blob-download-owned" };
+        if ownership_fails { return Ok(()); }
+        let case = if invalid_utf8 { "blob-download-invalid-utf8" } else if get_fails { "blob-download-storage-get-fails" } else if ranged {if repeat {"blob-download-cached-range"} else {"blob-download-cold-range"}} else if large { "blob-download-large" } else if encoded { "blob-download-encoded" } else if missing { "blob-download-missing" } else if head { "blob-download-head" } else if invalid_hash { "blob-download-invalid-hash" } else if foreign_caller { "blob-download-foreign" } else if repeat { "blob-download-repeat" } else { "blob-download-owned" };
         let observation = serde_json::json!({
             "request": {"method":"GET", "path":"/blobs/{sha256}", "external_path":"/api/blobs/{sha256}", "external_method":if head {"HEAD"} else {"GET"}, "headers":{"host":"mail.test", "origin":"http://mail.test", "authorization":"<fixture-access-token>"}, "body":""},
             "response":responses[0], "responses": responses, "effects":[], "audit":[], "notify":[],
@@ -416,4 +455,21 @@ async fn blob_oracle_rejects_missing_tenant_filter() -> Result<(), common::BoxEr
     assert!(e.to_string().contains("/response/status"), "{e}");
     eprintln!("MUTANT-REJECTED: GET /blobs/{{sha256}} :: no-tenant-filter");
     Ok(())
+}
+
+#[tokio::test]
+async fn go357_non_utf8_hash_is_internal_error() -> Result<(), common::BoxError> {
+    run_case(Case::InvalidUtf8, false).await
+}
+#[tokio::test]
+async fn go357_storage_get_failure_is_not_found() -> Result<(), common::BoxError> {
+    run_case(Case::StorageGetFails, false).await
+}
+#[tokio::test]
+async fn go357_ownership_read_failure_is_internal_error() -> Result<(), common::BoxError> {
+    run_case(Case::OwnershipReadFails, false).await
+}
+#[tokio::test]
+async fn go357_truncated_body_streams_like_serve_content() -> Result<(), common::BoxError> {
+    run_case(Case::Truncated, false).await
 }

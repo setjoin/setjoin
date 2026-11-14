@@ -23,8 +23,14 @@ impl<K: KeySource + 'static> Intercept for BlobRoute<K> {
         true
     }
     fn matches(&self, req: &Request<Body>) -> bool {
+        // Go's `/blobs/{sha256}` claims exactly one non-empty escaped segment; any other
+        // spelling is the API mux's 404/405 and belongs to the catch-all (#357).
         matches!(*req.method(), Method::GET | Method::HEAD | Method::PUT)
-            && req.uri().path().starts_with("/api/blobs/")
+            && req
+                .uri()
+                .path()
+                .strip_prefix("/api/blobs/")
+                .is_some_and(|hash| !hash.is_empty() && !hash.contains('/'))
     }
 
     fn handle(&self, mut req: Request<Body>, ctx: RequestContext) -> BoxFuture<Response<Body>> {
@@ -44,6 +50,7 @@ impl<K: KeySource + 'static> Intercept for BlobRoute<K> {
 
 impl<K: KeySource> BlobCommands<K> {
     async fn try_serve(&self, req: &Request<Body>, ctx: &RequestContext) -> Option<Response<Body>> {
+        // `None` is left only for an authorize refusal (#354 B7 owns that answer).
         let authorized = setjoin_authz::authorize_request(
             &self.exec,
             &self.keys,
@@ -52,32 +59,22 @@ impl<K: KeySource> BlobCommands<K> {
             ctx.identity.proto,
         )
         .await?;
-        let hash = req.uri().path().strip_prefix("/api/blobs/")?;
-        if hash.is_empty() || hash.contains('/') {
-            return None;
+        let raw = req.uri().path().strip_prefix("/api/blobs/").unwrap_or_default();
+        if raw.is_empty() || raw.contains('/') {
+            // `matches` excludes these spellings; never reached through the route table.
+            return Some(crate::surface::unregistered(req, ctx.identity.proto));
         }
-        // Go ServeMux keeps escaped segment boundaries, then PathValue decodes
-        // the selected hash. Decode only after matching the single segment.
-        let hash = String::from_utf8(crate::inventory::unescape(hash)).ok()?;
-        if !setjoin_blobs::blob_owned(&self.worker_exec, authorized.context(), &hash)
-            .await
-            .ok()?
-        {
-            let request_id = crate::jmap::reply::request_id(
-                req.headers().get("x-request-id"),
-                crate::jmap::random()?,
-            );
-            let mut response = crate::jmap::reply::response(
-                "blob not found\n".into(),
-                ctx.identity.proto,
-                request_id,
-            );
-            *response.status_mut() = hyper::StatusCode::NOT_FOUND;
-            response.headers_mut().insert(
-                "content-type",
-                hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
-            );
-            return Some(response);
+        // Go ServeMux keeps escaped segment boundaries, then PathValue decodes the selected
+        // hash. A hash that is not UTF-8 fails Go's ownership query (Postgres rejects the
+        // parameter): handler.go:541-544 `internal error` (recorded: invalid-utf8).
+        let Ok(hash) = String::from_utf8(crate::inventory::unescape(raw)) else {
+            return Some(text(req, ctx, 500, "internal error\n"));
+        };
+        match setjoin_blobs::blob_owned(&self.worker_exec, authorized.context(), &hash).await {
+            Ok(true) => {}
+            Ok(false) => return Some(text(req, ctx, 404, "blob not found\n")),
+            // handler.go:541-544: the ownership read failed.
+            Err(_) => return Some(text(req, ctx, 500, "internal error\n")),
         }
         let object = match self
             .store
@@ -90,34 +87,24 @@ impl<K: KeySource> BlobCommands<K> {
             .await
         {
             Ok(blob) => blob,
-            Err(crate::recovery_worker::BlobReadError::Incomplete) => return None,
+            // Stat or GET failed before any body: handler.go:574-583 (recorded: storage-get-fails).
             Err(crate::recovery_worker::BlobReadError::Unavailable) => {
-                let request_id = crate::jmap::reply::request_id(
-                    req.headers().get("x-request-id"),
-                    crate::jmap::random()?,
-                );
-                let mut response = crate::jmap::reply::response(
-                    "blob not found\n".into(),
-                    ctx.identity.proto,
-                    request_id,
-                );
-                *response.status_mut() = hyper::StatusCode::NOT_FOUND;
-                response.headers_mut().insert(
-                    "content-type",
-                    hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
-                );
-                return Some(response);
+                return Some(text(req, ctx, 404, "blob not found\n"))
+            }
+            // `download` never yields this (short bodies fall back to streaming).
+            Err(crate::recovery_worker::BlobReadError::Incomplete) => {
+                return Some(text(req, ctx, 500, "internal error\n"))
             }
         };
         let request_id = crate::jmap::reply::request_id(
             req.headers().get("x-request-id"),
-            crate::jmap::random()?,
+            crate::jmap::random().unwrap_or([0; 16]),
         );
         let mut response =
             crate::jmap::reply::response(String::new(), ctx.identity.proto, request_id);
         response.headers_mut().insert(
             "content-security-policy",
-            "default-src 'none'; sandbox".parse().ok()?,
+            hyper::header::HeaderValue::from_static("default-src 'none'; sandbox"),
         );
         let (total, buffered) = match object {
             crate::recovery_worker::BlobDownload::Buffered {
@@ -126,9 +113,9 @@ impl<K: KeySource> BlobCommands<K> {
                 cached,
             } => {
                 let total = bytes.len() as u64;
-                response
-                    .headers_mut()
-                    .insert("content-type", content_type.parse().ok()?);
+                if let Ok(value) = hyper::header::HeaderValue::from_bytes(content_type.as_bytes()) {
+                    response.headers_mut().insert("content-type", value);
+                }
                 let bytes = bytes::Bytes::from(bytes);
                 // Frozen Go's first small non-ranged read writes directly,
                 // bypassing ServeContent and all conditional headers.
@@ -152,29 +139,30 @@ impl<K: KeySource> BlobCommands<K> {
                 content_type,
                 modified,
             } => {
-                response
-                    .headers_mut()
-                    .insert("content-type", content_type.parse().ok()?);
+                if let Ok(value) = hyper::header::HeaderValue::from_bytes(content_type.as_bytes()) {
+                    response.headers_mut().insert("content-type", value);
+                }
                 if let Some(modified) = modified
                     .and_then(|v| chrono::DateTime::parse_from_rfc2822(&v).ok())
                     .filter(|v| v.timestamp() != 0)
                 {
-                    response.headers_mut().insert(
-                        "last-modified",
-                        modified
-                            .with_timezone(&chrono::Utc)
-                            .format("%a, %d %b %Y %H:%M:%S GMT")
-                            .to_string()
-                            .parse()
-                            .ok()?,
-                    );
+                    let stamp = modified
+                        .with_timezone(&chrono::Utc)
+                        .format("%a, %d %b %Y %H:%M:%S GMT")
+                        .to_string();
+                    if let Ok(value) = hyper::header::HeaderValue::from_str(&stamp) {
+                        response.headers_mut().insert("last-modified", value);
+                    }
                 }
                 (size, None)
             }
         };
-        crate::blob_content::serve_ranges(req, response, self.store.clone(), &hash, total, buffered)
-            .await
-            .ok()
+        // Only the multipart boundary's RNG can fail here.
+        Some(
+            crate::blob_content::serve_ranges(req, response, self.store.clone(), &hash, total, buffered)
+                .await
+                .unwrap_or_else(|_| text(req, ctx, 500, "internal error\n")),
+        )
     }
 }
 
@@ -187,13 +175,8 @@ impl<K: KeySource> BlobCommands<K> {
         use crate::recovery_worker::ObjectStore;
         use sha2::{Digest, Sha256};
         use tokio::io::AsyncWriteExt;
-        // Go's retention registry (#301): applied after the upload when `WORM_MODE` is
-        // set; a configuration Go would refuse to start with stays with Go.
-        let worm = match crate::blob_retention::config() {
-            crate::blob_retention::Config::Off => None,
-            crate::blob_retention::Config::On(worm) => Some(worm),
-            crate::blob_retention::Config::Invalid => return None,
-        };
+        // Go's retention registry (#301): applied after the upload when `WORM_MODE` is set.
+        let worm = crate::blob_retention::config();
         let actor = setjoin_authz::authorize_request(
             &self.exec,
             &self.keys,
@@ -202,7 +185,19 @@ impl<K: KeySource> BlobCommands<K> {
             ctx.identity.proto,
         )
         .await?;
-        let operation = crate::jmap::random()?;
+        let worm = match worm {
+            crate::blob_retention::Config::Off => None,
+            crate::blob_retention::Config::On(worm) => Some(worm),
+            // Go refuses to start with this configuration, so no Go answer exists:
+            // fail closed without storing (owner decision D-357f-2).
+            crate::blob_retention::Config::Invalid => {
+                return Some(text(req, ctx, 500, "upload failed\n"));
+            }
+        };
+        // A failed OS RNG leaves no idempotency key: Go's generic upload failure.
+        let Some(operation) = crate::jmap::random() else {
+            return Some(text(req, ctx, 500, "upload failed\n"));
+        };
         let request_id =
             crate::jmap::reply::request_id(req.headers().get("x-request-id"), operation);
         let reply = |status: u16, body: &str| {
@@ -218,9 +213,10 @@ impl<K: KeySource> BlobCommands<K> {
             }
             response
         };
-        let hash = req.uri().path().strip_prefix("/api/blobs/")?;
-        if hash.contains('/') {
-            return None;
+        let hash = req.uri().path().strip_prefix("/api/blobs/").unwrap_or_default();
+        if hash.is_empty() || hash.contains('/') {
+            // `matches` excludes these spellings; never reached through the route table.
+            return Some(crate::surface::unregistered(req, ctx.identity.proto));
         }
         let hash = String::from_utf8(crate::inventory::unescape(hash)).unwrap_or_default();
         if hash.len() != 64
@@ -297,10 +293,11 @@ impl<K: KeySource> BlobCommands<K> {
             }
             setjoin_pg::CommandOutcome::Unknown { operation } => {
                 let mut response = reply(503, "upload outcome unknown\n");
-                response.headers_mut().insert(
-                    "x-operation-id",
-                    setjoin_pg::operation_hex(operation).parse().ok()?,
-                );
+                if let Ok(value) =
+                    setjoin_pg::operation_hex(operation).parse::<hyper::header::HeaderValue>()
+                {
+                    response.headers_mut().insert("x-operation-id", value);
+                }
                 return Some(response);
             }
         }
@@ -318,6 +315,21 @@ impl<K: KeySource> BlobCommands<K> {
         }
         Some(reply(201, ""))
     }
+}
+
+/// `http.Error`: the text and newline as text/plain under Go's middleware envelope.
+fn text(req: &Request<Body>, ctx: &RequestContext, status: u16, body: &str) -> Response<Body> {
+    let request_id = crate::jmap::reply::request_id(
+        req.headers().get("x-request-id"),
+        crate::jmap::random().unwrap_or([0; 16]),
+    );
+    let mut response = crate::jmap::reply::response(body.into(), ctx.identity.proto, request_id);
+    *response.status_mut() = hyper::StatusCode::from_u16(status).expect("static status");
+    response.headers_mut().insert(
+        "content-type",
+        hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    response
 }
 
 struct UploadTemporary(std::path::PathBuf);

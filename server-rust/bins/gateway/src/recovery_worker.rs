@@ -104,7 +104,7 @@ pub struct S3Store {
 pub(crate) enum BlobReadError {
     /// Bucket discovery or object stat failed before consuming object data.
     Unavailable,
-    /// The staged reader cannot reproduce Go's seek/error path yet.
+    /// A streamed or ranged read failed after headers (surfaces as a body error, as in Go).
     Incomplete,
 }
 
@@ -329,7 +329,7 @@ impl S3Store {
             let cache = self
                 .small_cache
                 .lock()
-                .map_err(|_| BlobReadError::Incomplete)?;
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(blob) = cache
                 .entries
                 .get(key)
@@ -364,30 +364,38 @@ impl S3Store {
                 modified: head.last_modified,
             });
         }
-        let mut response = bucket
-            .get_object_stream(key)
-            .await
-            .map_err(|_| BlobReadError::Incomplete)?;
-        if response.status_code != 200 {
-            return Err(BlobReadError::Incomplete);
-        }
-        let mut bytes = Vec::with_capacity(size as usize);
-        while let Some(chunk) = response.bytes.next().await {
-            let chunk = chunk.map_err(|_| BlobReadError::Incomplete)?;
-            if bytes.len() + chunk.len() > size as usize {
-                return Err(BlobReadError::Incomplete);
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        if bytes.len() != size as usize {
-            return Err(BlobReadError::Incomplete);
-        }
         let content_type = head.content_type.unwrap_or_default();
+        // Go's first S3 call is minio-go's lazy GET (`obj.Stat()`): a failed or non-200
+        // GET is Go's `blob not found` (handler.go:574-583).
+        let Ok(mut response) = bucket.get_object_stream(key).await else {
+            return Err(BlobReadError::Unavailable);
+        };
+        if response.status_code != 200 {
+            return Err(BlobReadError::Unavailable);
+        }
+        // Go's io.ReadFull fills exactly `size` bytes; a short or failed body falls
+        // through to http.ServeContent, which streams the object again (writeBlobContent).
+        let mut bytes = Vec::with_capacity(size as usize);
+        while bytes.len() < size as usize {
+            match response.bytes.next().await {
+                Some(Ok(chunk)) => {
+                    let take = chunk.len().min(size as usize - bytes.len());
+                    bytes.extend_from_slice(&chunk[..take]);
+                }
+                Some(Err(_)) | None => {
+                    return Ok(BlobDownload::Streaming {
+                        size: size as u64,
+                        content_type,
+                        modified: head.last_modified,
+                    });
+                }
+            }
+        }
         {
             let mut cache = self
                 .small_cache
                 .lock()
-                .map_err(|_| BlobReadError::Incomplete)?;
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             while cache.bytes + bytes.len() > 512 << 20 && !cache.entries.is_empty() {
                 let oldest = cache
                     .entries

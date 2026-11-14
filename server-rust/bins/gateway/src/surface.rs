@@ -590,7 +590,9 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
 
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let Some(kind) = classify(r.method(), r.uri().path()) else {
-            return Box::pin(async move { c.upstream.forward(r, &c.identity).await });
+            // `matches` already declined: never reached through the route table (#357).
+            let reply = unregistered(&r, c.identity.proto);
+            return Box::pin(async move { reply });
         };
         let this = Self {
             exec: self.exec.clone(),
@@ -602,10 +604,8 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
             fallback: self.fallback.clone(),
         };
         Box::pin(async move {
-            let mut nonce = [0; 16];
-            if getrandom::getrandom(&mut nonce).is_err() {
-                return c.upstream.forward(r, &c.identity).await;
-            }
+            // The nonce only seeds a fallback request ID; Go's middleware never fails here.
+            let nonce = crate::jmap::random().unwrap_or([0; 16]);
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), nonce);
             if kind == Kind::Telemetry {
                 return crate::telemetry::serve(&this.exec, r, &c, id).await;
