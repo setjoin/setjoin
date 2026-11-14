@@ -39,3 +39,5 @@ process test also retains Go's warning-and-continue policy on migration error.
 `interop-go-tokens.json` records live access and refresh acceptance in both
 swap directions; Go-free replay checks signatures at their recorded issuance
 instant so artifact expiry does not weaken verification or break replay.
+
+SSO completion refuses guest rows at mint time (Go P17, auth.go:1576-1589; `GuestMint::Refuse`): this is parity with Go, not a divergence.

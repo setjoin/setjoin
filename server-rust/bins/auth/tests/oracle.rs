@@ -31,11 +31,11 @@ fn recorded_source(golden: &std::path::Path, recording: bool) -> Result<String, 
 /// Fable 353-2: no case (and above all no Go recording) may run against a
 /// replaced is_guest_account. Restore from the reducer source, or fail hard.
 async fn guest_function_pristine(c: &tokio_postgres::Client) -> Result<(), Err> {
-    let def = |c: &tokio_postgres::Client| async move {
+    async fn def(c: &tokio_postgres::Client) -> Result<String, tokio_postgres::Error> {
         c.query_one("SELECT pg_get_functiondef('is_guest_account(bigint)'::regprocedure)", &[])
             .await
             .map(|r| r.get::<_, String>(0))
-    };
+    }
     let ok = |d: &str| d.contains("SECURITY DEFINER") && d.contains("public.guest_accounts") && !d.contains("gofree_");
     if ok(&def(c).await?) {
         return Ok(());
