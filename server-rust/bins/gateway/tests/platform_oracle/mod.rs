@@ -26,6 +26,7 @@ pub mod dns;
 pub mod domains;
 pub mod federation;
 pub mod monitor;
+pub mod setup;
 pub mod terms;
 mod b;
 
@@ -58,6 +59,13 @@ impl Intercept for Probe {
 /// A token Go and Rust both treat as an admin whose real permissions are the governed
 /// grants (the signed `forged.permission` claim must never matter).
 pub fn admin_token(user: i64) -> String {
+    admin_token_with(user, &[0x11; 32], |_| {})
+}
+
+/// [`admin_token`] with edited claims, signed by `key` (`[0x11; 32]` is the key Go and Rust
+/// trust; any other key forges the signature).
+#[allow(dead_code)]
+pub fn admin_token_with(user: i64, key: &[u8; 32], edit: impl FnOnce(&mut Value)) -> String {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use p256::ecdsa::{signature::Signer, SigningKey};
     let source = common::recovery_token(user);
@@ -66,8 +74,9 @@ pub fn admin_token(user: i64) -> String {
         serde_json::from_slice(&URL_SAFE_NO_PAD.decode(fields[1]).unwrap()).unwrap();
     claims["admin"] = json!(true);
     claims["perms"] = json!(["forged.permission"]);
+    edit(&mut claims);
     let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
-    let key = SigningKey::from_slice(&[0x11; 32]).unwrap();
+    let key = SigningKey::from_slice(key).unwrap();
     let signature: p256::ecdsa::Signature = key.sign(format!("{}.{payload}", fields[0]).as_bytes());
     format!(
         "{}.{payload}.{}",
