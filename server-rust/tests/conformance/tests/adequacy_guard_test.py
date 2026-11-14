@@ -1165,5 +1165,162 @@ echo "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
         self.assertIn("jmap_recorded", tokens)
 
 
+class JmapFragments(unittest.TestCase):
+    """Synthetic #369-#377 JMAP catalog fragments on POST /jmap; the gate checks them, nothing runs."""
+    FRAGMENTS = "server-rust/tests/conformance/route-catalog.d"
+    GOLDENS = "server-rust/tests/conformance/jmap/families/reminder"
+    COMMAND = "Reminder/get"
+    ACCOUNT_KINDS = ("success", "cross-tenant", "invalid-input", "delegate-allowed",
+                     "delegate-insufficient", "delegate-revoked", "suspended")
+    DENIAL = {"cross-tenant": "accountNotFound", "delegate-revoked": "accountNotFound",
+              "delegate-insufficient": "forbidden", "suspended": "forbidden"}
+
+    def scaffold(self, directory):
+        root = Path(directory)
+        (root / "server-rust").mkdir()
+        (root / "inventory.json").write_text(json.dumps({"version": 1, "routes": [{
+            "listener": "gateway", "method": "POST", "path": "/jmap", "family": "F18",
+            "state": "ON", "upstream": "local-rust"}]}))
+        (root / "catalog.json").write_text(json.dumps({"version": 1, "routes": []}))
+        (root / self.GOLDENS).mkdir(parents=True)
+        (root / self.FRAGMENTS).mkdir(parents=True)
+        return root
+
+    def golden(self, root, kind, *, golden_kind=None, effects=None, body=None):
+        if effects is None:
+            effects = {"owner": {"before": "1", "after": "1"}} if kind in self.DENIAL else {}
+        if body is None:
+            body = (json.dumps({"methodResponses": [["error", {"type": "urn:ietf:params:jmap:error:" + self.DENIAL[kind]}, "c0"]]},
+                               separators=(",", ":")) if kind in self.DENIAL else "{}")
+        (root / self.GOLDENS / f"{kind}.json").write_text(json.dumps({
+            "format": 1, "route": f"POST /jmap {self.COMMAND}", "case": kind, "kind": golden_kind or kind,
+            "go_source": "a" * 40,
+            "observation": {"request": {"method": "POST", "path": "/jmap", "body": "{}"}, "setup": [],
+                            "response": {"status": 200, "headers": {}, "body": body}, "repeat": None,
+                            "effects": effects, "audit": [], "notify": []},
+        }))
+
+    def fragment(self, root, name="jmap-369.json", *, kinds=ACCOUNT_KINDS, account=True, mutants=None,
+                 command=COMMAND, extras_path="/jmap", suite_path="/jmap"):
+        mutants = [{"name": "no-tenant-filter", "package": "fake-package", "target": "recorded",
+                    "test": "reminder_get_no_tenant_filter"}] if mutants is None else mutants
+        cases = []
+        for kind in kinds:
+            self.golden(root, kind)
+            cases.append({"kind": kind, "golden": f"{self.GOLDENS}/{kind}.json",
+                          "replay": {"package": "fake-package", "target": "recorded",
+                                     "test": "reminder_" + kind.replace("-", "_")}})
+        (root / self.FRAGMENTS / name).write_text(json.dumps({
+            "version": 1,
+            "inventory": [{"listener": "gateway", "method": "POST", "path": extras_path, "family": "F18",
+                           "oracle_commands": [command], "oracle_mutators": []}],
+            "routes": [{"listener": "gateway", "method": "POST", "path": suite_path, "family": "F18",
+                        "command": command, "gate": "read", "app": "", "state": False, "account": account,
+                        "cases": cases, "family_mutants": mutants,
+                        "mutant": {"package": "fake-package", "target": "recorded", "test": "reminder-mutant"}}],
+        }))
+
+    def run_gate(self, root):
+        return subprocess.run(
+            [sys.executable, str(GUARD), "--skip-preflight", "--root", str(root),
+             "--inventory", str(root / "inventory.json"), "--catalog", str(root / "catalog.json")],
+            capture_output=True, text=True, check=False)
+
+    def assert_rejected(self, result, message):
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(message, result.stderr)
+
+    def test_fragment_names_are_jmap_issue_numbers(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root, "jmap-x.json")
+            self.assert_rejected(self.run_gate(root), "fragment names are jmap-<issue>.json")
+
+    def test_fragment_may_only_extend_the_jmap_route(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root, extras_path="/other")
+            self.assert_rejected(self.run_gate(root), "fragments may only extend")
+
+    def test_fragment_suite_on_another_route_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root, suite_path="/other")
+            self.assert_rejected(self.run_gate(root), "invalid fragment suite Reminder/get")
+
+    def test_two_fragments_cannot_declare_one_command(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root, "jmap-369.json")
+            self.fragment(root, "jmap-370.json")
+            self.assert_rejected(self.run_gate(root), "oracle_commands already declared")
+
+    def test_each_fragment_needs_exactly_one_no_tenant_filter_mutant(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root, mutants=[])
+            self.assert_rejected(self.run_gate(root), "needs exactly one no-tenant-filter family mutant")
+
+    def test_account_false_suite_must_record_foreign_object(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root, kinds=("success", "cross-tenant", "invalid-input"), account=False)
+            self.assert_rejected(self.run_gate(root), "missing recorded cases: foreign-object")
+
+    def test_denial_case_that_changed_state_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root)
+            self.golden(root, "cross-tenant", effects={"owner": {"before": "1", "after": "2"}})
+            self.assert_rejected(self.run_gate(root), "denial case cross-tenant changed or did not observe effects")
+
+    def test_denial_case_with_empty_effects_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root)
+            self.golden(root, "cross-tenant", effects={})
+            self.assert_rejected(self.run_gate(root), "denial case cross-tenant changed or did not observe effects")
+
+    def test_effects_must_be_named_per_effect_not_one_before_after_pair(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root)
+            self.golden(root, "cross-tenant", effects={"before": "1", "after": "1"})
+            self.assert_rejected(self.run_gate(root), "denial case cross-tenant changed or did not observe effects")
+
+    def test_golden_kind_must_match_the_catalog_kind(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root)
+            self.golden(root, "suspended", golden_kind="cross-tenant")
+            self.assert_rejected(self.run_gate(root), "golden kind cross-tenant != catalog kind suspended")
+
+    def test_denial_case_cannot_carry_a_divergence_record(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root)
+            (root / self.GOLDENS / "divergences.json").write_text(json.dumps([{
+                "route": f"POST /jmap {self.COMMAND}", "case": "cross-tenant", "field": "/response/body",
+                "reason": "reviewed", "reviewer": "test", "reviewed": True,
+                "from": "a", "to": "b"}]))
+            self.assert_rejected(self.run_gate(root), "divergence recorded on denial case cross-tenant")
+
+    def test_success_body_on_a_denial_case_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root)
+            self.golden(root, "cross-tenant", body="{}")
+            self.assert_rejected(self.run_gate(root), "denial case cross-tenant is not the expected method error")
+
+    def test_fragment_no_tenant_filter_satisfies_the_family_requirement(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-jmapa2-") as directory:
+            root = self.scaffold(directory)
+            self.fragment(root)
+            result = self.run_gate(root)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertRegex(result.stderr, r"missing family mutants: double-bump\n")
+            self.assertNotIn("no-tenant-filter", result.stderr.split("missing family mutants:")[-1].splitlines()[0])
+
+
 if __name__ == "__main__":
     unittest.main()

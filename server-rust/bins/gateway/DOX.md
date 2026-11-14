@@ -1005,3 +1005,42 @@ served by the catch-all alone (`Inventory::is_subtree_row`): a request only they
 concrete adapter that merely matches it. A rolled-back F15/F16 request arrives under `/api` and is claimed
 only by the F22 `/api/` row; `Inventory::proxy_family` counts its Go forward under the owning family
 (F15/F16), not F22. Tests: `tests/subtree_dispatch.rs`.
+
+## JMAP families (#369-#377)
+
+The remaining frozen-Go JMAP methods are ported per family under
+`src/jmap/family/`. Each family owns exactly one stub file (two for #371 and
+#373) that exports `METHODS`. The rows must equal
+`mailserver/internal/jmap/testdata/methods.golden` (`registry_matches_frozen_go`).
+A listed, ready method is claimed for every well-formed single call, so
+`ws_request::needs_go` stops forwarding it, and it is answered in Go's
+`dispatchInvocation` order: args object check, app entitlement (`app_blocked`
+audit without IP), handler.
+
+Family files reach the database only through `family::seam`:
+- `resolve` (Go `parseAccountID`, including delegate gates and the lifecycle check) is the only way to obtain a `Scope`.
+- `read` / `read_rows` / `write` / `set_batch` take static SQL that is exactly one reducer call (`read_sql!`, `write_sql!`, `set_sql!`; a single-line literal, never `concat!`, a macro or leaked text). The seam binds `$1` (scope mailbox) and `$2` (the verified actor, the session user) on every scoped statement and `$3` (operation) on a write; family params follow and `$2` may only be a reducer's second argument. `call::db::actor_arguments_are_seam_bound` fails closed: an actor-named argument gets `$2` only, `$1` lands only on `p_mailbox_id`/`p_account_id`, unknown user-shaped names and missing signatures fail (reviewed `KNOWN_MISSING`).
+- A Go statement that is not one reducer call is a reviewed, method-bound `ScopedQuery` variant run by `query` (Calendar/getShared, CalendarEvent/getShared, QuickStep/apply).
+- `rsvp_on_behalf` builds the manager scope only from a `full_access`/`manage_calendar` grant on a primary mailbox the caller holds and never returns it; `Cx::email` is the verified token email.
+- iMIP egress lives in `src/jmap/imip.rs` (`deliver`: sender = caller or a `send_as`/`full_access` mailbox, exact addr-specs, Go's closed seven-header head with an exact From, 500 recipients, 10 MiB); families reach it only through `seam::send_imip` (100 messages per method call (per `Cx`)). One non-ASCII or quoted attendee address drops the whole invite (follow-up #398); an organizer-only invite (no recipients) is logged as a drop and counts toward the bound. Bounds: `tests/conformance/jmap/seam-security-fixes.json`.
+- The reducer-error projection is chosen by the method: `CALENDAR_A3_METHODS` (drift-tested against Go `calendarA3Error`) map BZ001 to `forbidden`; all others use `mapReducerErr`.
+- The worker credential is reachable only through the closed `WorkerRead` / `WorkerWrite` statement table, keyed to `WORKER_METHODS` and bound to the verified user.
+
+`seam::tests::family_files_use_only_the_seam` rejects any other access. Reducer
+errors map through `reducer_error` (a port of `shared/reducererr`, drift-tested).
+
+Oracles share `tests/jmap_family_oracle/mod.rs`. It owns one sequence floor
+per table (`FLOORS`, distinct by test; families never set floors) and its
+cleanup removes comment edit chains, calendars (then their journal),
+creator-pinned sharing defaults and seeded shared mailboxes before the
+fixtures. Goldens live in
+`tests/conformance/jmap/families/<family>/` and are recorded only by the
+dispatch-only `gofree-record.yml` (gateway mode,
+`-f test=jmap_family_<file> -f go_upstream=none -f go_source=<branch head>`).
+Catalog entries are per-issue fragments in
+`tests/conformance/route-catalog.d/jmap-<issue>.json`, merged by the adequacy
+gate. Each fragment suite declares gate/app/account/mutator/state, and the
+gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
+with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
+Continuity/* stays with Go while the continuity signing key is not loaded
+(`setjoin_gateway_jmap_continuity_signer_missing 1`).
