@@ -15,8 +15,15 @@ SPEC = importlib.util.spec_from_file_location("check_gofree_rehearsal", SCRIPT)
 guard = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(guard)
 GO = "setjoin-ci-linux-tc:local-amd64"
-READY = {"watch": "ready", "go_masked": True, "pid": 1}
-STOPPED = {"watch": "stopped", "records": 0}
+GO_PINNED = "ghcr.io/setjoin/setjoin-ci-linux-tc@sha256:" + "0" * 64
+LOCK = ("# comment\nsetjoin-ci-linux-tc:local-amd64=" + GO_PINNED + "\n"
+        "setjoin-lane-pg:17=ghcr.io/setjoin/setjoin-lane-pg@sha256:" + "1" * 64 + "\n")
+IMAGES = {GO: "sha256:" + "a" * 64, GO_PINNED: "sha256:" + "a" * 64,
+          "setjoin-lane-pg:17": "sha256:" + "b" * 64,
+          "ghcr.io/setjoin/setjoin-lane-pg@sha256:" + "1" * 64: "sha256:" + "b" * 64}
+READY = {"watch": "ready", "go_masked": True, "scan": "/", "root": "/w", "images": IMAGES, "identity": [],
+         "go_elves": []}
+STOPPED = {"watch": "stopped", "records": 0, "go_elves": []}
 
 
 def route(listener, method, path, state="ON", upstream="local-rust"):
@@ -35,12 +42,16 @@ def jsonl(records):
     return "".join(json.dumps(record) + "\n" for record in records)
 
 
-def created(image, task="", kind="create", name="c"):
-    attributes = {"name": name, "image": image}
+def event(image, task="", action="create", name="c", **labels):
+    attributes = {"name": name, "image": image, **labels}
     if task:
         attributes["org.setjoin.task"] = task
-    action = "exec_create: bash -c true" if kind == "exec" else "create"
-    return guard.event_record({"Action": action, "Actor": {"ID": "0123456789abcdef", "Attributes": attributes}})
+    return guard.event_record({"Type": "container", "Action": action,
+                               "Actor": {"ID": "0123456789abcdef", "Attributes": attributes}})
+
+
+def image_event(action, ref):
+    return guard.event_record({"Type": "image", "Action": action, "Actor": {"ID": ref, "Attributes": {"name": ref}}})
 
 
 def elf(names):
@@ -176,59 +187,105 @@ class Elf(unittest.TestCase):
         self.assertFalse(guard.is_go_elf(sys.executable))
 
 
-class Scope(unittest.TestCase):
-    def test_only_the_lane_tree_is_sampled(self):
-        parents = {1: 0, 50: 1, 100: 1, 101: 100, 102: 101, 200: 1, 201: 200}
-        self.assertEqual(guard.descendants(parents, 100), {101, 102})
-        self.assertEqual(guard.descendants({5: 6, 6: 5}, 100), set())
-        self.assertEqual(guard.descendants(parents, 999), set())
+class Lock(unittest.TestCase):
+    def test_entries_and_go_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), guard.IMAGES_LOCK, LOCK)
+            self.assertEqual(len(guard.lock_entries(Path(tmp))), 2)
+            self.assertEqual(guard.go_image_ids(Path(tmp), IMAGES), {"sha256:" + "a" * 64})
+        self.assertEqual(guard.normalize("setjoin-server-rust-lane"), "setjoin-server-rust-lane:latest")
+        self.assertEqual(guard.normalize(GO_PINNED), GO_PINNED)
 
 
 class Classify(unittest.TestCase):
     def test_rules(self):
+        go_ids = {"sha256:" + "a" * 64}
         cases = [
-            (created(GO, "gofree-fed2"), "allowed"),
-            (created(GO, "gofree-rel3", kind="exec"), "allowed"),
-            (created(GO), "go"),
-            (created(GO, "gofree-guests1"), "go"),
-            (created("ghcr.io/setjoin/setjoin-server-rust-lane@sha256:" + "a" * 64), "go"),
-            (created("sha256:" + "b" * 64, "x"), "go"),
-            (created(""), "go"),
-            (created("setjoin-lane-pg:17", kind="exec"), "other"),
-            (created("postgres:17"), "other"),
-            ({"kind": "process", "pid": 7, "exe": "/w/test-results/peer"}, "go-process"),
+            (event(GO, "gofree-fed2"), "allowed"),
+            (event(GO_PINNED, "gofree-rel3", action="exec_start: bash -c true"), "allowed"),
+            (event(GO, action="start"), "go"),
+            (event(GO, "gofree-guests1"), "go"),
+            (event("a" * 12), "go"),
+            (event(GO, name="setjoin-lane-run-1-1-shard-1", action="exec_create: ls", **{"setjoin-lane-run": "1-1"}),
+             "lane"),
+            (event(GO, name="impostor", **{"setjoin-lane-run": "1-1"}), "go"),
+            (event("setjoin-lane-pg:17", action="exec_start: df"), "other"),
+            (event("golang:1.26"), "unpinned-image"),
+            (event("postgres:17"), "unpinned-image"),
+            (event(""), "unpinned-image"),
+            (image_event("tag", GO), "image-mutation"),
+            (image_event("pull", "golang:1.26"), "image-mutation"),
+            (image_event("pull", GO_PINNED), "other"),
             (READY, "watch-ready"),
-            ({"watch": "timeout", "state": "starting"}, "watch-timeout"),
         ]
         for record, kind in cases:
-            self.assertEqual(guard.classify(record), kind, record)
+            self.assertEqual(guard.classify(record, IMAGES, go_ids), kind, record)
 
 
 class Windows(unittest.TestCase):
     def check(self, records, require_masked=True):
         with tempfile.TemporaryDirectory() as tmp:
+            write(Path(tmp), guard.IMAGES_LOCK, LOCK)
             path = write(Path(tmp), "w.jsonl", jsonl(records))
-            return guard.container_problems([path], require_masked)[0]
+            return guard.container_problems([path], Path(tmp), require_masked)[0]
 
     def test_clean_windows_pass(self):
-        allowed = created(GO, "gofree-tlsfront")
-        self.assertEqual(self.check([READY, allowed, STOPPED, READY, created("postgres:17"), STOPPED]), [])
+        existing = dict(event("setjoin-lane-pg:17"), kind="existing")
+        self.assertEqual(self.check([READY, existing, event(GO, "gofree-tlsfront", action="start"), STOPPED,
+                                     READY, image_event("pull", GO_PINNED), STOPPED]), [])
 
     def test_empty_or_crashed_watch_is_red(self):
         self.assertIn("no watch window", self.check([])[0])
-        self.assertIn("never stopped cleanly", self.check([READY, created("postgres:17")])[0])
-        self.assertIn("watch failed", self.check([READY, {"watch": "ended", "state": "ready", "rc": 1}])[0])
-        self.assertIn("outside a ready/stopped window", self.check([created("postgres:17"), READY, STOPPED])[0])
+        self.assertIn("never stopped cleanly", self.check([READY])[0])
+        self.assertIn("watch failed", self.check([READY, {"watch": "error", "detail": "probe rm failed"}])[0])
+        self.assertIn("outside a ready/stopped window", self.check([event("setjoin-lane-pg:17"), READY, STOPPED])[0])
 
-    def test_go_launch_and_process_are_red(self):
-        self.assertIn("outside GO_TASKS", self.check([READY, created(GO), STOPPED])[0])
-        process = {"kind": "process", "pid": 9, "exe": "/w/test-results/gofree-tlsfront/gofree-tlsfront-peer"}
-        self.assertIn("Go-built process", self.check([READY, process, STOPPED])[0])
+    def test_launches_and_mutations_are_red(self):
+        self.assertIn("outside GO_TASKS", self.check([READY, event(GO, action="exec_start: go"), STOPPED])[0])
+        self.assertIn("not pinned", self.check([READY, event("golang:1.26", "gofree-fed2"), STOPPED])[0])
+        self.assertIn("during the lane", self.check([READY, image_event("tag", GO), STOPPED])[0])
 
-    def test_unmasked_go_is_red_when_required(self):
-        unmasked = dict(READY, go_masked=False)
-        self.assertIn("toolchain was reachable", self.check([unmasked, STOPPED])[0])
-        self.assertEqual(self.check([unmasked, STOPPED], require_masked=False), [])
+    def test_ready_line_proofs(self):
+        self.assertIn("toolchain was reachable", self.check([dict(READY, go_masked=False), STOPPED])[0])
+        self.assertIn("whole lane container", self.check([dict(READY, scan="/w"), STOPPED])[0])
+        mismatch = ["image x: tag and pinned digest resolve to different images"]
+        self.assertIn("different images", self.check([dict(READY, identity=mismatch), STOPPED])[0])
+        self.assertEqual(self.check([dict(READY, scan="/w"), STOPPED], require_masked=False), [])
+
+    def test_go_elves(self):
+        ok = ["/usr/local/bin/docker", "/w/test-results/gofree-tlsfront/gofree-tlsfront-peer",
+              "/home/runner/.cache/x/tmp/gofree-fed2-peer-77/fedharness"]
+        self.assertEqual(self.check([dict(READY, go_elves=ok), dict(STOPPED, go_elves=ok)]), [])
+        bad = self.check([READY, dict(STOPPED, go_elves=["/usr/local/bin/mailserverd"])])
+        self.assertIn("mailserverd is not allowed", bad[0])
+
+
+class Scan(unittest.TestCase):
+    def test_finds_executable_go_elves_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            go = write(Path(tmp), "bin/peer", "")
+            go.write_bytes(elf(b"\x00.shstrtab\x00.go.buildinfo\x00"))
+            go.chmod(0o755)
+            data = write(Path(tmp), "cache/obj", "")
+            data.write_bytes(elf(b"\x00.go.buildinfo\x00"))
+            rust = write(Path(tmp), "bin/rust", "")
+            rust.write_bytes(elf(b"\x00.text\x00"))
+            rust.chmod(0o755)
+            hidden = write(Path(tmp), ".git/hooks/x", "")
+            hidden.write_bytes(elf(b"\x00.go.buildinfo\x00"))
+            hidden.chmod(0o755)
+            self.assertEqual(guard.go_elves(tmp), [str(go)])
+
+
+class PeerReferences(unittest.TestCase):
+    def test_real_tree_pinned(self):
+        self.assertEqual(guard.peer_reference_problems(guard.ROOT), ([], 8))
+
+    def test_new_reference_is_red(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(guard, "GO_PEER_REFERENCES", {}):
+            write(Path(tmp), "server-rust/tests/x.rs",
+                  'Command::new(root.join("test-results/gofree-tlsfront/gofree-tlsfront-peer"))')
+            self.assertIn("review that the peer runs only inside", guard.peer_reference_problems(Path(tmp))[0][0])
 
 
 class Lane(unittest.TestCase):
@@ -238,6 +295,7 @@ class Lane(unittest.TestCase):
     def run_lane(self, shard_records, coverage_log, watch_coverage=True):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(guard, "static", lambda root: ([], [])):
             results = Path(tmp)
+            write(results, guard.IMAGES_LOCK, LOCK)
             write(results, "lane-result-shard-1/rehearsal-containers.jsonl", jsonl(shard_records))
             if watch_coverage:
                 write(results, "lane-result-coverage-1/rehearsal-containers.jsonl", jsonl([READY, STOPPED]))
@@ -245,7 +303,7 @@ class Lane(unittest.TestCase):
             return guard.lane(results, results, 1, 1)[0]
 
     def test_green(self):
-        self.assertEqual(self.run_lane([READY, created(GO, "gofree-rel3"), STOPPED], self.COVERED), [])
+        self.assertEqual(self.run_lane([READY, event(GO, "gofree-rel3"), STOPPED], self.COVERED), [])
 
     def test_missing_watch_is_red(self):
         self.assertIn("container watch did not run", self.run_lane([READY, STOPPED], self.COVERED, False)[0])

@@ -103,13 +103,27 @@ lane_disk_sampler() {
   fi
 }
 
-# lane_go_watch start|stop (#141, Go-deletion rehearsal): while the nextest run and the adequacy gate
-# go, scripts/check-gofree-rehearsal.py records every container create/exec event and samples the
-# process table into $LANE_ARTIFACT_DIR/rehearsal-containers.jsonl. `start` returns only once a probe
-# event proved the docker event stream live (red after 60 s); `stop` drains the stream, propagates the
-# watcher's exit status and is red on an incomplete window or a Go launch outside GO_TASKS.
-# A no-op without LANE_ARTIFACT_DIR or docker.
+# lane_go_watch start|stop (#141, Go-deletion rehearsal): around the nextest run and the adequacy gate,
+# scripts/check-gofree-rehearsal.py records container create/start/exec and image events, pinned image
+# identities, a container snapshot and a whole-container Go-ELF scan into
+# $LANE_ARTIFACT_DIR/rehearsal-containers.jsonl. `start` returns once a probe proved the event stream
+# live (red after 600 s); `stop` drains, reaps the watcher within 600 s, propagates its exit status and
+# is red on any finding. A no-op without LANE_ARTIFACT_DIR or docker.
 LANE_GO_WATCH_PID=""
+lane_go_watch_reap() {
+  local pid="$1" i
+  kill -TERM "$pid" 2>/dev/null || true
+  for i in $(seq 1 1200); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  if kill -KILL "$pid" 2>/dev/null; then
+    echo "✗ server-rust: the rehearsal container watch did not stop within 600 s" >&2
+    wait "$pid" 2>/dev/null
+    return 1
+  fi
+  wait "$pid"
+}
 lane_go_watch() {
   [[ -n "${LANE_ARTIFACT_DIR:-}" ]] && command -v docker >/dev/null 2>&1 || return 0
   local file="$LANE_ARTIFACT_DIR/rehearsal-containers.jsonl" ready="$LANE_ARTIFACT_DIR/rehearsal-watch.ready" rc=0 i
@@ -117,14 +131,13 @@ lane_go_watch() {
     rm -f "$ready"
     python3 "$ROOT/scripts/check-gofree-rehearsal.py" watch "$file" --ready "$ready" &
     LANE_GO_WATCH_PID=$!
-    for i in $(seq 1 150); do
+    for i in $(seq 1 1200); do
       [[ -f "$ready" ]] && return 0
       kill -0 "$LANE_GO_WATCH_PID" 2>/dev/null || break
       sleep 0.5
     done
     echo "✗ server-rust: the rehearsal container watch did not become ready" >&2
-    kill "$LANE_GO_WATCH_PID" 2>/dev/null || true
-    wait "$LANE_GO_WATCH_PID" 2>/dev/null || true
+    lane_go_watch_reap "$LANE_GO_WATCH_PID" || true
     LANE_GO_WATCH_PID=""
     return 1
   fi
@@ -132,16 +145,7 @@ lane_go_watch() {
     echo "✗ server-rust: the rehearsal container watch was not running" >&2
     return 1
   fi
-  kill -TERM "$LANE_GO_WATCH_PID" 2>/dev/null || true
-  for i in $(seq 1 300); do
-    kill -0 "$LANE_GO_WATCH_PID" 2>/dev/null || break
-    sleep 0.5
-  done
-  if kill -KILL "$LANE_GO_WATCH_PID" 2>/dev/null; then
-    echo "✗ server-rust: the rehearsal container watch did not drain" >&2
-    rc=1
-  fi
-  wait "$LANE_GO_WATCH_PID" || rc=1
+  lane_go_watch_reap "$LANE_GO_WATCH_PID" || rc=1
   LANE_GO_WATCH_PID=""
   python3 "$ROOT/scripts/check-gofree-rehearsal.py" containers ${LANE_GO_MASKED:+--require-masked} "$file" || rc=1
   return "$rc"

@@ -8,11 +8,13 @@
   check-gofree-rehearsal.py env           red if a Go upstream or Go recording variable is present, or (with
                                           LANE_GO_MASKED=1) if a Go toolchain is reachable
   check-gofree-rehearsal.py watch FILE --ready PATH
-                                          record container create/exec events and sample the process table
-                                          into FILE until SIGTERM; PATH appears once the docker event stream
-                                          is proven live (scripts/check-server-rust.sh lane_go_watch)
+                                          record container create/start/exec and image events into FILE until
+                                          SIGTERM, with image identities, a container snapshot and a Go-ELF
+                                          scan at ready and stop; PATH appears once the event stream is proven
+                                          live (scripts/check-server-rust.sh lane_go_watch)
   check-gofree-rehearsal.py containers [--require-masked] FILE...
-                                          red on an incomplete watch or a Go launch
+                                          red on an incomplete watch, an unpinned or mutated image, a Go-capable
+                                          container outside GO_TASKS, or an unallowed Go ELF
   check-gofree-rehearsal.py lane DIR --shards N --coverage-shards M
                                           the aggregate job: static, every shard watched with Go masked, no
                                           Go launch, no route whose handler sources all report 0 covered lines
@@ -26,6 +28,7 @@ import queue
 import re
 import shutil
 import signal
+import stat
 import struct
 import subprocess
 import sys
@@ -99,17 +102,36 @@ SEAMS = {
 FORBIDDEN_ENV = re.compile(r"^(GOFREE_RECORD\w*|GOFREE_GO_SOURCE|GOFREE_GO_COVERAGE_DIR|GOFREE_\w*SWAP_UPSTREAM"
                            r"|GATEWAY_UPSTREAM|GATEWAY_AUTH_UPSTREAM|AUTHSERVER_GO_UPSTREAM|AUTHSERVER_URL)$")
 GO_TOOLCHAIN = "/usr/local/go/bin/go"
-# Images that carry the Go toolchain (the lane image is built FROM the CI toolchain image). A container
-# from one of them, or from an image named only by id, must carry a reviewed org.setjoin.task label.
+IMAGES_LOCK = ".github/ci/images.lock"
+# images.lock entries (local name) that carry the Go toolchain; the lane image is built FROM the CI image.
 GO_IMAGES = ("setjoin-ci-linux-tc", "setjoin-server-rust-lane")
-# Reviewed tasks allowed to create (or exec into) a Go-capable container during the lane.
+# Reviewed tasks allowed to create, start or exec into a Go-capable container during the lane.
 GO_TASKS = {
     "gofree-fed2": "go: fedharness interop peer, build and run (owner decision 2026-11-02: test tooling)",
     "gofree-tlsfront": "go: frozen Go TLS client peer of the TLS front interchange replay",
-    "gofree-rel3": "no Go: bash runs the Rust setjoin-updater installer/office oracles (bins/updater/tests)",
-    "gofree-rehearsal-probe": "no Go: this guard's never-started readiness probe",
+    "gofree-rel3": "no Go (reviewed scripts): bash runs the Rust setjoin-updater installer/office oracles",
 }
 PROBE_TASK = "gofree-rehearsal-probe"
+LANE_LABEL, LANE_NAME = "setjoin-lane-run", "setjoin-lane-run-"
+CONTAINER_ACTIONS = {"create", "start", "exec_create", "exec_start", "existing"}
+IMAGE_MUTATIONS = {"tag", "untag", "delete", "load", "import"}
+DOCKER_TIMEOUT = 60
+# Go-built executables allowed to exist where the lane container can execute them.
+GO_ELF_ALLOW = {
+    "/usr/local/bin/docker": "host docker CLI (bind mount in scripts/lane-container.sh)",
+    "/usr/local/bin/pebble": "pinned ACME test server (scripts/server-rust-lane-tools.sh)",
+}
+TLS_PEER = "test-results/gofree-tlsfront/gofree-tlsfront-peer"
+FEDHARNESS_BUILD = re.compile(r"/gofree-fed2-peer-\d+/fedharness$")
+# Every source reference to a frozen Go peer binary, pinned per file. Each reviewed reference runs the
+# binary only inside its labelled sibling container (container paths /src/..., /output/..., absent in the
+# lane container) or only checks it exists; a new reference is red until reviewed.
+GO_PEER_PATTERN = re.compile(r"gofree-tlsfront-peer|/fedharness\b")
+GO_PEER_REFERENCES = {
+    "server-rust/crates/protocols/federation/tests/interop.rs": 3,
+    "server-rust/tests/conformance/tlsfront/build-peer.py": 3,
+    "server-rust/tests/conformance/tlsfront/peer.rs": 2,
+}
 COVERAGE_LINE = re.compile(r"^coverage (?P<route>.+) (?P<file>[^ ]+): lines (?P<covered>\d+)/(?P<count>\d+); regions")
 PRUNE = {"target", "node_modules", ".git"}
 
@@ -225,6 +247,20 @@ def seam_problems(root):
     return problems, counts
 
 
+def peer_reference_problems(root):
+    counts = {}
+    for suffix in (".rs", ".py", ".sh"):
+        for path in walk(root / "server-rust", suffix):
+            found = len(GO_PEER_PATTERN.findall(path.read_text(errors="ignore")))
+            if found:
+                counts[str(path.relative_to(root))] = found
+    problems = [f"frozen Go peer references in {name}: {counts.get(name, 0)}, pinned {GO_PEER_REFERENCES.get(name, 0)}; "
+                "review that the peer runs only inside its labelled container, then update GO_PEER_REFERENCES"
+                for name in sorted(set(counts) | set(GO_PEER_REFERENCES))
+                if counts.get(name, 0) != GO_PEER_REFERENCES.get(name, 0)]
+    return problems, sum(counts.values())
+
+
 def static(root):
     problems, lines = [], []
     found, inv = inventory_problems(root)
@@ -237,6 +273,9 @@ def static(root):
     problems += found
     lines.append(f"REHEARSAL-FORWARD-SITES (criterion 4 open until 0): {sum(sites.values())} "
                  f"({', '.join(f'{b}/{k} {n}' for (b, k), n in sorted(sites.items()))})")
+    found, references = peer_reference_problems(root)
+    problems += found
+    lines.append(f"frozen Go peer references: {references} (pinned, container-internal)")
     found, div = divergence_problems(root)
     problems += found
     lines.append(f"divergences: {div['entries']} entries in {div['files']} files, every one reviewed"
@@ -283,79 +322,148 @@ def is_go_elf(path):
         return False
 
 
-def ppid_map(proc=Path("/proc")):
-    parents = {}
-    for entry in proc.iterdir():
-        if entry.name.isdigit():
-            try:
-                stat = (entry / "stat").read_text()
-                parents[int(entry.name)] = int(stat.rsplit(")", 1)[1].split()[1])
-            except (OSError, ValueError, IndexError):
-                continue
-    return parents
-
-
-def descendants(parents, root):
-    """PIDs whose parent chain reaches ROOT (ROOT itself excluded)."""
-    found = set()
-    for pid in parents:
-        seen, current = set(), pid
-        while current in parents and current not in seen and current != root:
-            seen.add(current)
-            current = parents[current]
-        if current == root and pid != root:
-            found.add(pid)
-    return found
-
-
-def go_processes(cache, root):
-    """Go-built executables outside /usr among ROOT's descendants: the lane's own process tree (nextest,
-    test binaries, the adequacy gate). Host daemons and other sessions are never sampled."""
+def go_elves(top="/"):
+    """Every executable Go-built ELF under TOP. TOP "/" is the whole lane container (its image, the
+    workspace, $HOME, /tmp, the build and cache dirs), skipping /proc, /sys and /dev except /dev/shm."""
     found = []
-    for pid in sorted(descendants(ppid_map(), root)):
-        try:
-            exe = os.readlink(f"/proc/{pid}/exe").removesuffix(" (deleted)")
-        except OSError:
-            continue
-        if exe.startswith("/usr/"):
-            continue
-        if exe not in cache:
-            cache[exe] = is_go_elf(f"/proc/{pid}/exe")
-        if cache[exe]:
-            found.append({"kind": "process", "pid": pid, "exe": exe})
-    return found
+    for start in [top] + (["/dev/shm"] if top == "/" else []):
+        for directory, dirs, files in os.walk(start):
+            if directory == "/":
+                dirs[:] = [d for d in dirs if d not in ("proc", "sys", "dev")]
+            dirs[:] = [d for d in dirs if d != ".git"]
+            for name in files:
+                path = os.path.join(directory, name)
+                try:
+                    info = os.lstat(path)
+                except OSError:
+                    continue
+                if stat.S_ISREG(info.st_mode) and info.st_mode & 0o111 and is_go_elf(path):
+                    found.append(path)
+    return sorted(found)
+
+
+def elf_allowed(path, root):
+    return path in GO_ELF_ALLOW or path == str(Path(root) / TLS_PEER) or FEDHARNESS_BUILD.search(path) is not None
+
+
+class WatchError(Exception):
+    pass
+
+
+def docker(*args, timeout=DOCKER_TIMEOUT):
+    try:
+        return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout, check=False)
+    except (subprocess.TimeoutExpired, OSError) as error:
+        return subprocess.CompletedProcess(["docker", *args], 124, "", str(error))
+
+
+def normalize(ref):
+    return ref if "@" in ref or ":" in ref.rsplit("/", 1)[-1] else ref + ":latest"
+
+
+def lock_entries(root):
+    entries = []
+    for line in (Path(root) / IMAGES_LOCK).read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            entries.append(tuple(line.split("=", 1)))
+    return entries
+
+
+def image_identities(root):
+    """Image id of every images.lock name and pinned reference; a tag that does not resolve to its pinned
+    digest's image is a problem."""
+    images, problems = {}, []
+    for want, pinned in lock_entries(root):
+        ids = {}
+        for ref in dict.fromkeys((want, pinned)):
+            result = docker("image", "inspect", "--format", "{{.Id}}", ref)
+            if result.returncode:
+                problems.append(f"image {ref}: not present ({result.stderr.strip()[:200]})")
+            else:
+                ids[normalize(ref)] = result.stdout.strip()
+        if len(set(ids.values())) > 1:
+            problems.append(f"image {want}: tag and pinned digest resolve to different images {ids}")
+        images.update(ids)
+    return images, problems
+
+
+def go_image_ids(root, images):
+    return {images[normalize(ref)] for want, pinned in lock_entries(root) if want.startswith(GO_IMAGES)
+            for ref in (want, pinned) if normalize(ref) in images}
+
+
+def container_record(kind, cid, name, image, labels):
+    return {"kind": kind, "id": cid[:12], "name": name, "image": image,
+            "task": labels.get("org.setjoin.task", ""), "lane": LANE_LABEL in labels and name.startswith(LANE_NAME)}
+
+
+def existing_containers():
+    result = docker("ps", "-a", "--no-trunc", "--format", "{{json .}}")
+    if result.returncode:
+        raise WatchError(f"docker ps failed: {result.stderr.strip()[:200]}")
+    records = []
+    for line in result.stdout.splitlines():
+        row = json.loads(line)
+        labels = dict(item.split("=", 1) for item in (row.get("Labels") or "").split(",") if "=" in item)
+        records.append(container_record("existing", row.get("ID", ""), row.get("Names", ""), row.get("Image", ""), labels))
+    return records
 
 
 def event_record(event):
-    attributes = (event.get("Actor") or {}).get("Attributes") or {}
-    action = event.get("Action") or event.get("status") or ""
-    return {"kind": "exec" if action.startswith("exec_") else "create",
-            "id": ((event.get("Actor") or {}).get("ID") or event.get("id") or "")[:12],
-            "name": attributes.get("name", ""), "image": attributes.get("image", event.get("from", "")),
-            "task": attributes.get("org.setjoin.task", "")}
+    actor = event.get("Actor") or {}
+    attributes = actor.get("Attributes") or {}
+    action = (event.get("Action") or event.get("status") or "").split(":", 1)[0].strip()
+    if event.get("Type") == "image":
+        return {"kind": "image", "action": action, "ref": attributes.get("name") or actor.get("ID") or ""}
+    return container_record(action, actor.get("ID") or event.get("id") or "", attributes.get("name", ""),
+                            attributes.get("image", event.get("from", "")), attributes)
 
 
 def probe(tag):
     name = f"{PROBE_TASK}-{os.getpid()}-{tag}"
     image = os.environ.get("LANE_IMAGE") or "setjoin-ci-linux-tc:local-amd64"
-    subprocess.run(["docker", "create", "--name", name, "--label", f"org.setjoin.task={PROBE_TASK}", image, "true"],
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    created = docker("create", "--name", name, "--label", f"org.setjoin.task={PROBE_TASK}", image, "true")
+    if created.returncode:
+        raise WatchError(f"probe {name}: docker create failed ({created.stderr.strip()[:200]})")
+    removed = docker("rm", "-f", name)
+    if removed.returncode:
+        raise WatchError(f"probe {name}: docker rm failed ({removed.stderr.strip()[:200]})")
     return name
 
 
+def remove_probes():
+    listed = docker("ps", "-aq", "--filter", f"label=org.setjoin.task={PROBE_TASK}",
+                    "--filter", f"name={PROBE_TASK}-{os.getpid()}-")
+    for cid in listed.stdout.split():
+        docker("rm", "-f", cid)
+
+
+def stop_events(proc):
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def watch(path, ready):
-    """Ready only after a probe container's create event came back through the stream; on SIGTERM a second
-    probe drains every earlier event before the stream closes, so a clean `stopped` line proves the window
-    was covered end to end. Any other ending writes a failure line and exits 1."""
+    """Ready only after a probe container's create event came back through the stream; then the image
+    identities, a snapshot of every existing container and a Go-ELF scan go into the `ready` line. On
+    SIGTERM a second probe drains every earlier event, a second scan runs, and `stopped` is written. Any
+    other ending writes a failure line and exits 1."""
     path, ready = Path(path), Path(ready)
     path.parent.mkdir(parents=True, exist_ok=True)
+    scan = os.environ.get("LANE_GO_SCAN_ROOT") or "/"
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
-    proc = subprocess.Popen(["docker", "events", "--filter", "type=container", "--filter", "event=create",
-                             "--filter", "event=exec_create", "--format", "{{json .}}"],
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    proc = subprocess.Popen(["docker", "events", "--filter", "type=container", "--filter", "type=image",
+                             "--format", "{{json .}}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     lines = queue.Queue()
 
     def pump():
@@ -364,94 +472,98 @@ def watch(path, ready):
         lines.put(None)
 
     threading.Thread(target=pump, daemon=True).start()
-    cache, seen, records, state = {}, set(), 0, "starting"
-    # The lane shell that started the watcher; only its descendants are sampled.
-    scope = int(os.environ.get("LANE_GO_WATCH_ROOT") or os.getppid())
-    markers, attempt = set(), 0
-    deadline, next_probe, next_sample = time.monotonic() + 60, 0.0, 0.0
+    probes, records, state = [], 0, "starting"
+    deadline, next_probe = time.monotonic() + 60, 0.0
     with path.open("a") as sink:
         def put(record):
             sink.write(json.dumps(record, sort_keys=True) + "\n")
             sink.flush()
 
-        def finish(record, code):
-            put(record)
-            proc.terminate()
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-            return code
-
-        while True:
-            now = time.monotonic()
-            if state == "starting" and stop.is_set():
-                return finish({"watch": "timeout", "state": state}, 1)
-            if state == "starting" and now >= next_probe:
-                attempt += 1
-                markers.add(probe(f"ready{attempt}"))
-                next_probe = now + 2
-            if state != "starting" and now >= next_sample:
-                next_sample = now + 1
-                for record in go_processes(cache, scope):
-                    if (record["pid"], record["exe"]) not in seen:
-                        seen.add((record["pid"], record["exe"]))
-                        put(record)
-                        records += 1
-            if state == "ready" and stop.is_set():
-                markers, deadline, state = {probe("stop")}, now + 120, "draining"
-            if state != "ready" and now > deadline:
-                return finish({"watch": "timeout", "state": state}, 1)
-            try:
-                line = lines.get(timeout=0.5)
-            except queue.Empty:
-                continue
-            if line is None:
-                return finish({"watch": "ended", "state": state, "rc": proc.poll()}, 1)
-            try:
-                record = event_record(json.loads(line))
-            except ValueError:
-                continue
-            if record["name"] in markers:
-                if state == "starting":
-                    state = "ready"
-                    put({"watch": "ready", "go_masked": not go_reachable(), "pid": os.getpid()})
-                    ready.touch()
-                elif state == "draining":
-                    return finish({"watch": "stopped", "records": records}, 0)
-                continue
-            if record["task"] == PROBE_TASK:
-                continue
-            if state != "starting":
-                put(record)
-                records += 1
-
-
-def go_capable(image):
-    return (not image or image.startswith("sha256:") or re.fullmatch(r"[0-9a-f]{12,64}", image) is not None
-            or any(name in image for name in GO_IMAGES))
+        try:
+            while True:
+                now = time.monotonic()
+                if state == "starting" and stop.is_set():
+                    put({"watch": "timeout", "state": state})
+                    return 1
+                if state == "starting" and now >= next_probe:
+                    probes.append(probe(f"ready{len(probes) + 1}"))
+                    next_probe = now + 2
+                if state == "ready" and stop.is_set():
+                    probes.append(probe("stop"))
+                    deadline, state = now + 120, "draining"
+                if state != "ready" and now > deadline:
+                    put({"watch": "timeout", "state": state})
+                    return 1
+                try:
+                    line = lines.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if line is None:
+                    put({"watch": "ended", "state": state, "rc": proc.poll()})
+                    return 1
+                try:
+                    record = event_record(json.loads(line))
+                except ValueError:
+                    continue
+                if record["kind"] == "create" and record["name"] in probes:
+                    if state == "starting":
+                        images, identity = image_identities(ROOT)
+                        snapshot = existing_containers()
+                        put({"watch": "ready", "go_masked": not go_reachable(), "root": str(ROOT), "scan": scan,
+                             "images": images, "identity": identity, "go_elves": go_elves(scan)})
+                        for item in snapshot:
+                            if item["task"] != PROBE_TASK:
+                                put(item)
+                        state = "ready"
+                        ready.touch()
+                    elif state == "draining" and record["name"] == probes[-1]:
+                        put({"watch": "stopped", "records": records, "go_elves": go_elves(scan)})
+                        return 0
+                    continue
+                if record.get("task") == PROBE_TASK or state == "starting":
+                    continue
+                if record["kind"] in CONTAINER_ACTIONS or record["kind"] == "image":
+                    put(record)
+                    records += 1
+        except WatchError as error:
+            put({"watch": "error", "detail": str(error)[:500]})
+            return 1
+        finally:
+            remove_probes()
+            stop_events(proc)
 
 
-def classify(record):
+def classify(record, images, go_ids):
     if "watch" in record:
         return "watch-" + record["watch"]
-    if record.get("kind") == "process":
-        return "go-process"
-    if not go_capable(record.get("image", "")):
+    if record.get("kind") == "image":
+        action, ref = record.get("action"), record.get("ref", "")
+        if action in IMAGE_MUTATIONS or (action == "pull" and "@sha256:" not in ref):
+            return "image-mutation"
         return "other"
+    ref = record.get("image", "")
+    image_id = images.get(normalize(ref)) if ref else None
+    bare = ref.removeprefix("sha256:")
+    if image_id is None and re.fullmatch(r"[0-9a-f]{12,64}", bare):
+        image_id = next((value for value in images.values() if value.removeprefix("sha256:").startswith(bare)), None)
+    if image_id is None:
+        return "unpinned-image"
+    if image_id not in go_ids:
+        return "other"
+    if record.get("lane"):
+        return "lane"
     return "allowed" if record.get("task") in GO_TASKS else "go"
 
 
-def container_problems(paths, require_masked=False):
+def container_problems(paths, root, require_masked=False):
     problems, counts = [], {}
     for path in paths:
-        state, windows = "closed", 0
+        state, windows, images, go_ids, lane_root = "closed", 0, {}, set(), str(root)
         for number, line in enumerate(Path(path).read_text().splitlines(), 1):
             if not line.strip():
                 continue
             record = json.loads(line)
-            kind = classify(record)
+            kind = classify(record, images, go_ids)
             counts[kind] = counts.get(kind, 0) + 1
             where = f"{path}:{number}"
             if kind == "watch-ready":
@@ -459,6 +571,13 @@ def container_problems(paths, require_masked=False):
                     problems.append(f"{where}: a watch window never stopped cleanly")
                 if require_masked and record.get("go_masked") is not True:
                     problems.append(f"{where}: the Go toolchain was reachable in the lane container")
+                if require_masked and record.get("scan") != "/":
+                    problems.append(f"{where}: the Go-ELF scan did not cover the whole lane container")
+                problems += [f"{where}: {item}" for item in record.get("identity", [])]
+                images, lane_root = record.get("images") or {}, record.get("root") or str(root)
+                go_ids = go_image_ids(root, images)
+                if not go_ids:
+                    problems.append(f"{where}: no Go-capable image identity resolved")
                 state = "open"
                 windows += 1
             elif kind == "watch-stopped":
@@ -474,8 +593,14 @@ def container_problems(paths, require_masked=False):
                 problems.append(f"{where}: {record['kind']} of Go-capable container {record.get('name')} "
                                 f"(image {record.get('image') or 'unknown'}, task {record.get('task') or 'none'}) "
                                 "outside GO_TASKS")
-            elif kind == "go-process":
-                problems.append(f"{where}: Go-built process {record.get('exe')} ran in the lane container")
+            elif kind == "unpinned-image":
+                problems.append(f"{where}: {record['kind']} of {record.get('name')} from image "
+                                f"{record.get('image') or 'unknown'} not pinned in {IMAGES_LOCK}")
+            elif kind == "image-mutation":
+                problems.append(f"{where}: image {record.get('action')} {record.get('ref')} during the lane")
+            if kind in ("watch-ready", "watch-stopped"):
+                problems += [f"{where}: Go-built executable {elf} is not allowed"
+                             for elf in record.get("go_elves", []) if not elf_allowed(elf, lane_root)]
         if state == "open":
             problems.append(f"{path}: the last watch window never stopped cleanly")
         if windows == 0:
@@ -508,7 +633,7 @@ def lane(root, results, shards, coverage_shards):
             watched.append(path)
         else:
             problems.append(f"{name}: no rehearsal-containers.jsonl (the container watch did not run)")
-    found, counts = container_problems(watched, require_masked=True)
+    found, counts = container_problems(watched, root, require_masked=True)
     problems += found
     lines.append(f"containers: {len(watched)} jobs watched: "
                  + ", ".join(f"{kind} {count}" for kind, count in sorted(counts.items())))
@@ -553,7 +678,7 @@ def main(argv=None):
     if args.command == "watch":
         return watch(args.file, args.ready)
     if args.command == "containers":
-        problems, counts = container_problems(args.files, args.require_masked)
+        problems, counts = container_problems(args.files, args.root, args.require_masked)
         return report(problems, [f"containers: {counts}"], "Go-deletion rehearsal: containers")
     return report(*lane(args.root, args.results, args.shards, args.coverage_shards), "Go-deletion rehearsal (#141)")
 
