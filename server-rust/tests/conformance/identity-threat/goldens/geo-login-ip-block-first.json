@@ -1,0 +1,37 @@
+{
+  "case": "geo-login-ip-block-first",
+  "format": 1,
+  "go_source": "79a0f3220b59b7b1c78b7ae1d49ff82f8415be54",
+  "observation": {
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Wrong-password-1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"ip_blocked\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "ip_blocked"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "geo",
+  "route": "POST /auth/login"
+}
