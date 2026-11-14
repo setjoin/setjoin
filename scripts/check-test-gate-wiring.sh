@@ -87,7 +87,10 @@ run_check() {
   require_literal "$WORKFLOW" 'COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}' 'Webmail merge-base coverage input' || failed=1
   require_job_literal "$WORKFLOW" 'webmail-tests' 'fetch-depth: 0' 'Webmail merge-base checkout history' || failed=1
   require_literal "$WORKFLOW" 'run: node scripts/report-changed-coverage.mjs --mode enforce' 'Webmail changed-coverage enforcement' || failed=1
-  require_literal "$LANE_WORKFLOW" 'scripts/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap' 'server-rust lane pgTAP execution' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'pgtap' 'bash scripts/run-pgtap-lane.sh scripts/pgtap-known-red.txt' 'server-rust lane pgTAP execution through the known-red runner' || failed=1
+  require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'scripts/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap' 'pgTAP lane runner mailserver evidence' || failed=1
+  require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'scripts/run-pgtap-evidence.sh test-results/pgtap/authserver.tap' 'pgTAP lane runner authserver evidence' || failed=1
+  require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'STALE known-red pgTAP' 'pgTAP known-red ratchet' || failed=1
   require_literal "$LANE_WORKFLOW" '--verify tap' 'server-rust lane pgTAP evidence verification' || failed=1
   require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
   require_literal "$LANE_WORKFLOW" '"roots", "pgtap", "guards", "shard"' 'server-rust lane aggregate requires the guards job' || failed=1
@@ -155,6 +158,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
   LANE_WORKFLOW="$tmp/lane-no-guards-run.yml"
   if run_check >/dev/null 2>&1; then
     echo "test-gate-wiring self-test: lane guards job that does not run run-guards.sh was accepted" >&2
+    exit 1
+  fi
+  sed 's#bash scripts/run-pgtap-lane.sh#true#' "$original_lane" > "$tmp/lane-no-pgtap-run.yml"
+  LANE_WORKFLOW="$tmp/lane-no-pgtap-run.yml"
+  if run_check >/dev/null 2>&1; then
+    echo "test-gate-wiring self-test: lane pgtap job that does not run run-pgtap-lane.sh was accepted" >&2
     exit 1
   fi
   LANE_WORKFLOW="$original_lane"

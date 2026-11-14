@@ -42,6 +42,7 @@ configuration error is an evidence failure, not a clean result.
 - Three-stack deployment rehearsal: `RUN_PREFIX=<unique> bash scripts/unified-deployment-readiness.sh provision`; use `resume-provision` only for its guarded pre-install retry path.
 - Portable rewind after successful A/B provisioning and updater rehearsal: `RUN_PREFIX=<same> REWIND_ATTEMPT=<new> bash scripts/transactional-upgrade-rehearsal.sh rewind`.
 - Structural guards: `bash scripts/run-guards-selftest.sh && bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt` (the lane's `guards` job; plain `run-guards.sh` treats every red guard as failure)
+- pgTAP suites: `bash scripts/run-pgtap-lane.sh scripts/pgtap-known-red.txt -h HOST -p PORT -U USER -d DB` (the lane's `pgtap` job; suites listed in `scripts/pgtap-known-red.txt` run and warn, and a listed suite that passes fails the ratchet)
 - Hot-context guard: `bash scripts/check-agent-context-budget.sh`
 - Rust server, front-door inventory and oracle adequacy: `bash scripts/check-server-rust.sh`
   (runs route completeness, golden floor, per-route replay/coverage and mutant

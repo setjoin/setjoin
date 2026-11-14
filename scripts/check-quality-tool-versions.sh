@@ -33,8 +33,12 @@ done
 
 expected_psa="$(jq -r '.tools.PSScriptAnalyzer' "$LOCK")"
 if command -v pwsh >/dev/null 2>&1; then
-  actual_psa="$(pwsh -NoProfile -Command '(Get-Module -ListAvailable PSScriptAnalyzer | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()')"
-  if [[ "$actual_psa" == "$expected_psa" ]]; then
+  actual_psa="$(pwsh -NoProfile -Command '$m = Get-Module -ListAvailable PSScriptAnalyzer | Sort-Object Version -Descending | Select-Object -First 1; if ($m) { $m.Version.ToString() }')"
+  if [[ -z "$actual_psa" ]]; then
+    # pwsh without the module (GitHub-hosted Linux runners ship pwsh only): same posture as no pwsh.
+    echo "quality-version: MISSING PSScriptAnalyzer@$expected_psa"
+    echo "quality-version: INFO PSScriptAnalyzer is enforced on Windows CI"
+  elif [[ "$actual_psa" == "$expected_psa" ]]; then
     echo "quality-version: PASS PSScriptAnalyzer@$expected_psa"
   else
     echo "quality-version: FAIL PSScriptAnalyzer expected=$expected_psa actual=${actual_psa:-missing}" >&2
