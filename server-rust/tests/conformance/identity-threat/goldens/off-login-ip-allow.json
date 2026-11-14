@@ -1,0 +1,70 @@
+{
+  "case": "off-login-ip-allow",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "failure",
+          "protocol": "http",
+          "source_ip": "127.0.0.43",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [],
+      "devices": [],
+      "lockouts": [
+        {
+          "failed_count": 1,
+          "key": "ip:127.0.0.43",
+          "level": 0,
+          "locked": false
+        },
+        {
+          "failed_count": 1,
+          "key": "ip_user:127.0.0.43:<actor>",
+          "level": 0,
+          "locked": false
+        },
+        {
+          "failed_count": 1,
+          "key": "user:<actor>",
+          "level": 0,
+          "locked": false
+        }
+      ],
+      "rate": [
+        {
+          "count": 1,
+          "key": "auth:http:127.0.0.43"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Wrong-password-1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"invalid credentials\",\"instance\":\"/auth/login\"}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/problem+json"
+          },
+          "status": 401
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/login"
+}

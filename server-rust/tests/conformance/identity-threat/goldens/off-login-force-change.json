@@ -1,0 +1,41 @@
+{
+  "case": "off-login-force-change",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": [
+        {
+          "count": 1,
+          "key": "auth:http:127.0.0.49"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Password1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"force_password_change\":true,\"force_token\":\"<force_token>\",\"reason\":\"Administrator requires a password change before access is granted.\",\"status\":\"force_password_change\"}\n",
+          "headers": {
+            "content-type": "application/json"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/login"
+}

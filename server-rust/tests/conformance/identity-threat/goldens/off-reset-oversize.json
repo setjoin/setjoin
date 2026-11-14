@@ -1,0 +1,37 @@
+{
+  "case": "off-reset-oversize",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "<1048577 bytes>",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/forgot-password/reset",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"request body exceeds the security limit\",\"error\":\"body_too_large\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "body_too_large"
+          },
+          "status": 413
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/forgot-password/reset"
+}
