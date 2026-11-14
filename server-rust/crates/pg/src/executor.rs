@@ -615,6 +615,19 @@ impl ScopedExecutor {
         .await
     }
 
+    /// Go's JMAP dispatch app-denial audit (`audit.Entry` without IP, handler.go:1550).
+    pub async fn audit_app_blocked_without_ip(
+        &self,
+        actor: setjoin_contracts::ids::ActorId,
+        app: &str,
+    ) -> Result<(), StatementFailure> {
+        self.protocol_write(
+            "SELECT audit_write($1,'app_blocked','app',NULL,NULL,NULL,NULL::inet,$2,'routine')",
+            &[(&actor.get(), Type::INT8), (&app, Type::TEXT)],
+        )
+        .await
+    }
+
     pub(crate) async fn read_scoped_with_lock(
         &self,
         auth: &MailboxAuthContext,
