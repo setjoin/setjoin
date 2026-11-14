@@ -731,6 +731,17 @@ outcomes finish locally. Its RequireAuth classification names only the outer
 Chat/Drive/Meet mounts. The existing injected with_auth builder retains its
 member-only contract; no deployment rollback control is added.
 
+## Native refusals for `admit` (#354)
+
+`bins/gateway/src/deny.rs` maps each `setjoin_authz::Refusal` to Go's bytes: 401 RA
+with `WWW-Authenticate` for no or invalid credentials and the approved missing-`iat`
+and `uid<=0` divergences; `GuestInactive` as the plain 401; `Revoked` as
+`session_revoked`; `Unavailable` as 503. The five owned classes return `None` and
+forward from `answer` only. `native_or_unauthorized` is the fail-closed mapping for
+surfaces Go must never see (#365). The front-door revocation read now fails closed
+(503) after the CAE cold-denylist answer, so `denylist-cold.json` keeps its bytes.
+No adapter calls `deny::admit` yet; the sweep batches (#354 B1-B5) do.
+
 ## Gateway configuration (#414)
 
 `inventory_guard::platform_slice_ownership_is_exhaustive_and_disjoint` pins
