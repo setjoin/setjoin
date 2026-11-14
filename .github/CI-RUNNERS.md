@@ -7,10 +7,14 @@ Every workflow runs on GitHub-hosted runners. `scripts/check-workflow-log-hygien
 
 | Label | Used by |
 |---|---|
-| `ubuntu-24.04` | xinchuang-ci (all jobs), rust-floor (x86_64, loongarch64), meet-renderer-qualification |
+| `ubuntu-24.04` | webmail, rust-floor (x86_64, loongarch64), meet-renderer-qualification |
 | `ubuntu-24.04-arm` | rust-floor (aarch64) |
 
-rust-floor runs `scripts/cross-build.sh --rust` in glibc 2.28 (x86_64/arm64) and a glibc 2.36 loong64
+`webmail.yml` runs svelte-check and the Vitest coverage ratchet on `mailserver/webmail/**` changes
+(pull_request, push to main, manual). The legacy Go `xinchuang-ci.yml` was removed (#142); the
+structural guards run locally (`scripts/run-guards.sh`), not in CI.
+
+rust-floor runs on push to main and manual dispatch only (no pull_request trigger) and runs `scripts/cross-build.sh --rust` in glibc 2.28 (x86_64/arm64) and a glibc 2.36 loong64
 sysroot, checks ELF version needs and smokes the gateway in a scratch loong64 runtime.
 
 ## Rules

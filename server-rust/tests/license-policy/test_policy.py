@@ -13,26 +13,6 @@ EXCEPTION_GUARD = pathlib.Path(__file__).resolve().parents[3] / "scripts/check-r
 
 
 class LicensePolicy(unittest.TestCase):
-    def test_rust_workspace_changes_trigger_ci_for_pushes_and_pull_requests(self):
-        workflow = (POLICY.parents[1] / ".github/workflows/xinchuang-ci.yml").read_text()
-        trigger_match = re.search(r"(?ms)^on:\n(.*?)(?=^[^\s#]|\Z)", workflow)
-        self.assertIsNotNone(trigger_match)
-        triggers = trigger_match.group(1)
-        for event in ("push", "pull_request"):
-            with self.subTest(event=event):
-                section = re.search(rf"(?ms)^  {event}:\n(.*?)(?=^  [a-z_]+:|\Z)", triggers)
-                self.assertIsNotNone(section)
-                self.assertRegex(section.group(1), r"(?m)^      - ['\"]server-rust/\*\*['\"]$")
-                self.assertRegex(section.group(1), r"(?m)^      - ['\"]\.github/ci/\*\*['\"]$")
-
-    def test_ci_provides_a_python_with_toml_support_for_the_policy_checks(self):
-        workflow = (POLICY.parents[1] / ".github/workflows/xinchuang-ci.yml").read_text()
-        job = re.search(r"(?ms)^  unit-tests-amd64:\n(.*?)(?=^  [a-z][\w-]*:\n|\Z)", workflow)
-        self.assertIsNotNone(job)
-        self.assertRegex(job.group(1), r"(?s)uses: actions/setup-python@v6\s+with:\s+python-version: ['\"]3\.12['\"]")
-        self.assertLess(job.group(1).index("uses: actions/setup-python@v6"),
-                        job.group(1).index("run: bash scripts/run-guards.sh"))
-
     def test_exception_without_a_written_reason_is_rejected(self):
         with tempfile.TemporaryDirectory(prefix="gofree-t1-exception-") as tmp:
             root = pathlib.Path(tmp)

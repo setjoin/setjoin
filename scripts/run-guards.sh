@@ -23,7 +23,7 @@
 #             for environments without Postgres.
 #
 # Consumers: scripts/test.sh (merge gate) · scripts/ci-local.sh (--no-db path)
-#            · .github/workflows/xinchuang-ci.yml (unit-tests-amd64 job).
+#            (the xinchuang-ci.yml unit-tests job that also ran it was retired).
 # ──────────────────────────────────────────────────────────────────────────
 source "$(dirname "$0")/_base.sh"
 

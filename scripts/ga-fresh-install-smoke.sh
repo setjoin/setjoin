@@ -253,7 +253,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends valkey-server p
 # three small containers.
 RUN mkdir -p /etc/containers \
   && printf '[storage]\ndriver = "vfs"\nrunroot = "/run/containers/storage"\ngraphroot = "/var/lib/containers/storage"\n' > /etc/containers/storage.conf
-# Go (matches .github/workflows/xinchuang-ci.yml's go-version). Arch-detected
+# Go (matches the retired .github/workflows/xinchuang-ci.yml (removed; see webmail.yml, rust-floor.yml)'s go-version). Arch-detected
 # so the smoke also runs on arm64 Docker hosts (Apple-silicon dev boxes), not
 # just the amd64 CI runner (dpkg arch names == Go tarball arch names here).
 RUN curl -fsSL "https://go.dev/dl/go1.26.6.linux-$(dpkg --print-architecture).tar.gz" -o /tmp/go.tgz \

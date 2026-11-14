@@ -1,0 +1,62 @@
+# webmail.yml — SPA merge gate: svelte-check (0/0) + Vitest coverage ratchet.
+# Extracted from the retired xinchuang-ci.yml; Go and Rust lanes live elsewhere.
+name: Webmail
+
+on:
+  push:
+    branches: [main]
+    paths: ['mailserver/webmail/**', '.github/workflows/webmail.yml']
+  pull_request:
+    paths: ['mailserver/webmail/**', '.github/workflows/webmail.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  webmail-tests:
+    name: Webmail (svelte-check + coverage)
+    runs-on: ubuntu-24.04
+    # The SPA's merge gate (npm run check must be 0/0, npm run test:coverage) previously ran
+    # only on developer laptops — CI shipped webmail changes untested. The
+    # coverage command includes the full Vitest run and enforces the measured
+    # no-regression floors from vite.config.js.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+          cache: 'npm'
+          cache-dependency-path: mailserver/webmail/package-lock.json
+      - name: Install dependencies
+        working-directory: mailserver/webmail
+        run: npm ci
+      - name: svelte-check + tsc (0 errors / 0 warnings)
+        working-directory: mailserver/webmail
+        run: npm run check
+      - name: Vitest coverage ratchet
+        working-directory: mailserver/webmail
+        run: npm run test:coverage
+      - name: Verify named Vitest evidence
+        if: always()
+        env:
+          TEST_EVIDENCE_OUTPUT: mailserver/webmail/test-results/test-evidence.json
+        run: bash scripts/check-test-evidence-results.sh --verify vitest-json
+      - name: Enforce changed-code coverage
+        if: always()
+        env:
+          COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/report-changed-coverage.mjs --mode enforce
+      - name: Upload Webmail verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: webmail-evidence-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            mailserver/webmail/test-results/vitest.json
+            mailserver/webmail/test-results/test-evidence.json
+            mailserver/webmail/test-results/changed-coverage.json
+            mailserver/webmail/coverage/coverage-summary.json

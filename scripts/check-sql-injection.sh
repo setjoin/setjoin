@@ -3,7 +3,7 @@
 # check-sql-injection.sh — no fmt.Sprintf-composed SQL (DATABASE_SECURITY.md).
 #
 # One home for a decision that previously lived as TWO divergent grep spellings
-# (ci-local.sh stage 1 vs xinchuang-ci.yml's four-clause variant). Any Go file
+# (ci-local.sh stage 1 vs the retired xinchuang-ci.yml four-clause variant). Any Go file
 # that string-formats a %s into a SELECT/INSERT/UPDATE/DELETE is a fail — user
 # input belongs in bind parameters, never in the SQL text.
 #
