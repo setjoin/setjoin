@@ -783,8 +783,8 @@ async fn member_drive_scope_token_is_admitted_only_on_drive_scope_and_drive_path
 }
 
 /// `GuestUnavailable` (the guest status read errors) maps to `Unavailable`, never to an
-/// admit or to `GuestInactive`. Both a member and a guest token reach that read on the
-/// user scopes; `Scope::Member` never does and stays admitted.
+/// admit or to `GuestInactive`. Every scope reaches that read: the user scopes through
+/// the guest check, `Scope::Member` through `gates::caller`'s guest satellite belt.
 #[tokio::test]
 async fn fault_guest_status_unreadable_is_unavailable() {
     scenario("fault-guest-status", |ctx| async move {
@@ -813,9 +813,10 @@ async fn fault_guest_status_unreadable_is_unavailable() {
                 );
             }
         }
-        admitted(
+        refused(
             run(&ctx, &keys, &member, PLAIN, Scope::Member).await,
-            "Member scope does not read guest status",
+            Refusal::Unavailable,
+            "Member scope: gates::caller reads guest status too",
         );
         Ok::<(), BoxError>(())
     })
