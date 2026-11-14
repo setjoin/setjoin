@@ -58,6 +58,8 @@ jobs:
           shared-key: quick
           key: ${{ steps.plan.outputs.key }}
           save-if: true
+      - name: Quick-check self-test
+        run: bash scripts/quick-check-tests.sh selftest
       - name: Quick check
         run: bash scripts/lane-container.sh bash scripts/quick-check.sh run
       - name: Summary

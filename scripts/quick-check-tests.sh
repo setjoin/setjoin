@@ -20,6 +20,25 @@ verify() {
   fi
 }
 
+# Cargo test target flags for PKG from `cargo metadata --no-deps` JSON on stdin:
+# --lib if it has a lib target, else --bins (+ --tests when it has integration tests).
+targets() {
+  python3 -c '
+import json, sys
+pkg = sys.argv[1]
+for p in json.load(sys.stdin)["packages"]:
+    if p["name"] == pkg:
+        kinds = {k for t in p["targets"] for k in t["kind"]}
+        libs = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
+        if kinds & libs:
+            print("--lib")
+        else:
+            print("--bins" + (" --tests" if "test" in kinds else ""))
+        sys.exit(0)
+sys.exit(1)
+' "$1"
+}
+
 run() {
   local pkg="$1"; shift
   local a
@@ -27,7 +46,11 @@ run() {
     case "$a" in -*) echo "quick-check-tests: FAIL: option-like test argument '$a' rejected" >&2; return 2 ;; esac
   done
   local tmp rc; tmp="$(mktemp)"
-  ( cd server-rust && cargo test --locked -p "$pkg" --lib ${1:+--} "$@" ) > "$tmp" 2>&1
+  local tflags
+  tflags="$(cd server-rust && cargo metadata --locked --no-deps --format-version 1 | targets "$pkg")" \
+    || { echo "quick-check-tests: FAIL: cannot determine test targets for $pkg" >&2; rm -f "$tmp"; return 2; }
+  # shellcheck disable=SC2086
+  ( cd server-rust && cargo test --locked -p "$pkg" $tflags ${1:+--} "$@" ) > "$tmp" 2>&1
   rc=$?
   cat "$tmp"
   if [ "$rc" -ne 0 ]; then rm -f "$tmp"; return "$rc"; fi
@@ -46,7 +69,14 @@ selftest() {
   expect normal-pass 0 $'running 2 tests\ntest a ... ok\ntest b ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s'
   expect multi-binary 0 $'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
   expect skip-marker-line 0 $'SETJOIN-PG-DB-SKIP (reason=no-dsn)\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
-  if run pkg --list >/dev/null 2>&1; then echo "FAIL option-arg accepted"; fails=1; else echo "ok   option-arg rejected"; fi
+  out="$(run pkg --list 2>&1)"; local rc=$?
+  if [ "$rc" -eq 2 ] && grep -q "option-like test argument '--list' rejected" <<<"$out"; then echo "ok   option-arg rejected"; else echo "FAIL option-arg (rc=$rc): $out"; fails=1; fi
+  local meta='{"packages":[{"name":"binonly","targets":[{"kind":["bin"]},{"kind":["test"]}]},{"name":"binplain","targets":[{"kind":["bin"]}]},{"name":"libpkg","targets":[{"kind":["lib"]},{"kind":["bin"]},{"kind":["test"]}]}]}'
+  local want got
+  for want in "binonly=--bins --tests" "binplain=--bins" "libpkg=--lib"; do
+    got="$(printf '%s' "$meta" | targets "${want%%=*}")"
+    if [ "$got" = "${want#*=}" ]; then echo "ok   targets ${want%%=*}"; else echo "FAIL targets ${want%%=*}: got '$got'"; fails=1; fi
+  done
   return "$fails"
 }
 
