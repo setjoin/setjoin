@@ -89,11 +89,9 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
             },
         );
         Box::pin(async move {
-            // Identity #331 owns these key profiles. Header inspection chooses
-            // a transport only; it grants no authority to unverified claims.
-            if unported_identity(request.headers()) {
-                return context.upstream.forward(request, &context.identity).await;
-            }
+            // #356a: HS256/SM2 and ES256 push credentials share one verifier
+            // (`setjoin_authz::push` with the configured legacy keys). Header
+            // shape never selects a path and grants no authority.
             // Go's outer guest belt reads the ordinary credential before the
             // push handler reads its cookie. It must not lend the cookie identity
             // any authority from a different Authorization header.
@@ -557,27 +555,6 @@ pub(super) fn cookie(headers: &hyper::HeaderMap) -> Option<String> {
         }
     }
     None
-}
-
-pub(super) fn unported_identity(headers: &hyper::HeaderMap) -> bool {
-    use base64::Engine;
-    let ordinary = setjoin_authz::token::extract(headers);
-    [ordinary, cookie(headers)]
-        .into_iter()
-        .flatten()
-        .any(|token| {
-            let Some(header) = token.split('.').next() else {
-                return false;
-            };
-            let Some(value) = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(header)
-                .ok()
-                .and_then(|h| serde_json::from_slice::<serde_json::Value>(&h).ok())
-            else {
-                return false;
-            };
-            matches!(value["alg"].as_str(), Some("HS256" | "SM2"))
-        })
 }
 
 pub(super) fn plain(

@@ -19,9 +19,6 @@ impl<K: KeySource + 'static> Intercept for PresenceRoute<K> {
         let commands = self.commands.clone();
         let registry = self.registry.clone();
         Box::pin(async move {
-            if super::push::unported_identity(r.headers()) {
-                return c.upstream.forward(r, &c.identity).await;
-            }
             // The shared HTTP conditional-access/device interceptor is #420's
             // unported shape. No request writes before this whole-request handoff.
             if !setjoin_authz::push::http_admission_allowed(&commands.exec).await {
