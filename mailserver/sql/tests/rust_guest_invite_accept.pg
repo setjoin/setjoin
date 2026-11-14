@@ -1,0 +1,88 @@
+BEGIN;
+SELECT plan(38);
+DO $$ BEGIN PERFORM set_config('app.encryption_key', repeat('22', 32), true); END $$;
+INSERT INTO domains(name, is_local) VALUES ('guestaccept-a.test', true), ('guestaccept-b.test', true);
+INSERT INTO users(username, email, domain_id, display_name, enabled)
+ SELECT v.email, v.email, d.id, 'Guest', false
+   FROM (VALUES ('ga-ok@outside.test'), ('ga-expired@outside.test'), ('ga-life@outside.test'),
+                ('ga-fed@outside.test'), ('ga-foreign@outside.test'), ('ga-disabled@outside.test'),
+                ('ga-reinv@outside.test'), ('ga-nulexp@outside.test')) v(email)
+   CROSS JOIN domains d WHERE d.name = 'guest.invalid';
+UPDATE users SET saml_name_id = 'ga-fed-subject' WHERE email = 'ga-fed@outside.test';
+INSERT INTO guest_accounts(user_id, invited_email, invited_by_email, host_domain_id, status, expires_at)
+ SELECT u.id, u.email, 'inviter@guestaccept-a.test', d.id,
+        CASE u.email WHEN 'ga-disabled@outside.test' THEN 'disabled' ELSE 'invited' END,
+        CASE u.email WHEN 'ga-life@outside.test' THEN now() - interval '1 minute' END
+   FROM users u JOIN domains d
+     ON d.name = CASE u.email WHEN 'ga-foreign@outside.test' THEN 'guestaccept-b.test' ELSE 'guestaccept-a.test' END
+  WHERE u.email LIKE 'ga-%@outside.test';
+INSERT INTO guest_invites(guest_user_id, token_hash, host_domain_id, created_by_email, expires_at)
+ SELECT ga.user_id, encode(sha256(convert_to('tok-' || split_part(ga.invited_email, '@', 1), 'UTF8')), 'hex'),
+        ga.host_domain_id, 'inviter@guestaccept-a.test',
+        CASE WHEN ga.invited_email IN ('ga-expired@outside.test', 'ga-nulexp@outside.test') THEN now() - interval '1 hour' ELSE now() + interval '1 hour' END
+   FROM guest_accounts ga WHERE ga.invited_email LIKE 'ga-%@outside.test';
+CREATE TEMP TABLE ga_fx AS SELECT
+ (SELECT id FROM users WHERE email = 'ga-ok@outside.test') ok_user,
+ (SELECT id FROM users WHERE email = 'ga-expired@outside.test') exp_user,
+ (SELECT id FROM users WHERE email = 'ga-life@outside.test') life_user,
+ (SELECT id FROM users WHERE email = 'ga-fed@outside.test') fed_user,
+ (SELECT id FROM users WHERE email = 'ga-foreign@outside.test') foreign_user,
+ (SELECT id FROM users WHERE email = 'ga-disabled@outside.test') dis_user,
+ (SELECT id FROM users WHERE email = 'ga-reinv@outside.test') reinv_user,
+ (SELECT id FROM users WHERE email = 'ga-nulexp@outside.test') nulexp_user,
+ encode(sha256(convert_to('tok-ga-ok', 'UTF8')), 'hex') ok_hash,
+ encode(sha256(convert_to('tok-ga-expired', 'UTF8')), 'hex') exp_hash,
+ encode(sha256(convert_to('tok-ga-life', 'UTF8')), 'hex') life_hash,
+ encode(sha256(convert_to('tok-ga-fed', 'UTF8')), 'hex') fed_hash,
+ encode(sha256(convert_to('tok-ga-foreign', 'UTF8')), 'hex') foreign_hash,
+ encode(sha256(convert_to('tok-ga-disabled', 'UTF8')), 'hex') dis_hash,
+ encode(sha256(convert_to('tok-ga-reinv', 'UTF8')), 'hex') reinv_old_hash,
+ encode(sha256(convert_to('tok-ga-reinv-2', 'UTF8')), 'hex') reinv_new_hash,
+ encode(sha256(convert_to('tok-ga-nulexp', 'UTF8')), 'hex') nulexp_hash;
+CREATE TEMP TABLE ga_inv AS SELECT guest_user_id, id FROM guest_invites
+ WHERE guest_user_id IN (SELECT id FROM users WHERE email LIKE 'ga-%@outside.test');
+SELECT is(rust_guest_invite_disclosure(ok_user, repeat('0', 64)) ->> 'status', 'reject', 'unknown hash rejects') FROM ga_fx;
+SELECT is(rust_guest_invite_disclosure(ok_user, ok_hash) ->> 'status', 'ok', 'live invite renders the disclosure') FROM ga_fx;
+SELECT is((SELECT disclosure_version FROM guest_invites WHERE guest_user_id = ok_user), 'v1', 'GET stamps v1') FROM ga_fx;
+SELECT is(rust_guest_invite_disclosure(ok_user, ok_hash) ->> 'org_name', 'guestaccept-a.test', 'organization is the host domain') FROM ga_fx;
+SELECT is(rust_guest_invite_disclosure(exp_user, exp_hash) ->> 'status', 'reject', 'elapsed link rejects on GET') FROM ga_fx;
+SELECT ok((SELECT disclosure_version IS NULL AND used_at IS NULL FROM guest_invites WHERE guest_user_id = exp_user), 'GET never stamps or settles an elapsed link') FROM ga_fx;
+SELECT is(rust_guest_invite_disclosure(fed_user, fed_hash) ->> 'status', 'reject', 'federated guest rejects on GET') FROM ga_fx;
+SELECT is(rust_guest_invite_disclosure(foreign_user, ok_hash) ->> 'status', 'reject', 'hash bound to another guest rejects (R1)') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(ok_user, ok_hash, 'short') ->> 'status', 'invalid', 'policy failure is invalid') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(ok_user, ok_hash, NULL, true) ->> 'error', 'password exceeds the 72-byte limit', 'too-long flag refuses before policy') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(foreign_user, ok_hash, 'ValidGuestPass1!') ->> 'status', 'reject', 'token bound to another guest rejects') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(ok_user, ok_hash, 'ValidGuestPass1!') ->> 'status', 'ready', 'valid token and password are ready') FROM ga_fx;
+SELECT throws_ok(format('SELECT rust_guest_invite_accept_finish(%s,%s,%L,%L,NULL)', ok_user, (SELECT id FROM ga_inv WHERE guest_user_id = ok_user), repeat('f', 64), 'x'), 'P0001', NULL, 'finish refuses a wrong token hash') FROM ga_fx;
+SELECT throws_ok(format('SELECT rust_guest_invite_accept_finish(%s,%s,%L,%L,NULL)', ok_user, (SELECT id FROM ga_inv WHERE guest_user_id = foreign_user), foreign_hash, 'x'), 'P0001', NULL, 'finish refuses a foreign invite') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_finish(ok_user, (SELECT id FROM ga_inv WHERE guest_user_id = ok_user), ok_hash, '$2a$10$fixturehash', '198.51.100.7') ->> 'status', 'accepted', 'finish consumes and activates') FROM ga_fx;
+SELECT ok((SELECT used_at IS NOT NULL AND disclosure_accepted_at IS NOT NULL AND terminal_reason = 'accepted' FROM guest_invites WHERE guest_user_id = ok_user), 'invite consumed as accepted') FROM ga_fx;
+SELECT is((SELECT status FROM guest_accounts WHERE user_id = ok_user), 'active', 'satellite active') FROM ga_fx;
+SELECT ok((SELECT enabled AND password_hash = '$2a$10$fixturehash' AND NOT must_change_password FROM users WHERE id = ok_user), 'identity enabled with new hash') FROM ga_fx;
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action = 'guest.invite_accept' AND target_type = 'guest_invite' AND target_id = (SELECT id FROM ga_inv WHERE guest_user_id = ok_user) AND user_id = ok_user AND after_state ->> 'guestUserId' = ok_user::text AND ip = '198.51.100.7'::inet), 1, 'one correlated audit') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(ok_user, ok_hash, 'ValidGuestPass1!') ->> 'status', 'reject', 'replayed token rejects') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(ok_user, ok_hash, NULL, true) ->> 'status', 'reject', 'validity precedes the length verdict on a used token') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(ok_user, ok_hash, NULL, false, true) ->> 'status', 'reject', 'invalid-text password on a used token is a terminal reject') FROM ga_fx;
+SELECT throws_ok(format('SELECT rust_guest_invite_accept_finish(%s,%s,%L,%L,NULL)', ok_user, (SELECT id FROM ga_inv WHERE guest_user_id = ok_user), ok_hash, 'x'), 'P0001', NULL, 'finish refuses a consumed invite') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(exp_user, exp_hash, 'ValidGuestPass1!') ->> 'status', 'expired', 'elapsed link settles as expired') FROM ga_fx;
+SELECT ok((SELECT used_at = expires_at AND terminal_reason = 'expired' FROM guest_invites WHERE guest_user_id = exp_user), 'stamped at its effective expiry') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(life_user, life_hash, 'ValidGuestPass1!') ->> 'status', 'expired', 'lifecycle expiry settles the link') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(fed_user, fed_hash, 'ValidGuestPass1!') ->> 'status', 'reject', 'federated guest cannot set a local password') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(fed_user, fed_hash, NULL, false, true) ->> 'status', 'reject', 'invalid-text password on a federated guest is a terminal reject') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(nulexp_user, nulexp_hash, NULL, false, true) ->> 'status', 'expired', 'invalid-text password still settles an elapsed link') FROM ga_fx;
+SELECT throws_ok(format('SELECT rust_guest_invite_accept_finish(%s,%s,%L,%L,NULL)', fed_user, (SELECT id FROM ga_inv WHERE guest_user_id = fed_user), fed_hash, 'x'), 'P0001', NULL, 'finish refuses a federated identity') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(dis_user, dis_hash, 'ValidGuestPass1!') ->> 'status', 'reject', 'disabled guest rejects') FROM ga_fx;
+SELECT throws_ok(format('SELECT rust_guest_invite_accept_finish(%s,%s,%L,%L,NULL)', dis_user, (SELECT id FROM ga_inv WHERE guest_user_id = dis_user), dis_hash, 'x'), 'P0001', NULL, 'finish refuses a disabled guest') FROM ga_fx;
+UPDATE guest_invites SET used_at = now(), terminal_reason = 'revoked' WHERE guest_user_id = (SELECT reinv_user FROM ga_fx);
+INSERT INTO guest_invites(guest_user_id, token_hash, host_domain_id, created_by_email, expires_at)
+ SELECT reinv_user, reinv_new_hash, (SELECT id FROM domains WHERE name = 'guestaccept-a.test'), 'inviter@guestaccept-a.test', now() + interval '1 hour' FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(reinv_user, reinv_old_hash, 'ValidGuestPass1!') ->> 'status', 'reject', 'superseded token rejects') FROM ga_fx;
+SELECT throws_ok(format('SELECT rust_guest_invite_accept_finish(%s,%s,%L,%L,NULL)', reinv_user, (SELECT id FROM ga_inv WHERE guest_user_id = reinv_user), reinv_old_hash, 'x'), 'P0001', NULL, 'finish refuses the superseded invite') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(reinv_user, reinv_new_hash, 'ValidGuestPass1!') ->> 'status', 'ready', 'replacement token is ready') FROM ga_fx;
+SELECT is(rust_guest_invite_accept_read(reinv_user, reinv_old_hash, NULL, false, true) ->> 'status', 'reject', 'invalid-text password on a revoked token is a terminal reject') FROM ga_fx;
+SELECT throws_ok(format('SELECT rust_guest_invite_accept_read(%s, %L, NULL, false, true)', reinv_user, reinv_new_hash), '22021', NULL, 'invalid-text password on a live token fails like Go''s validate_password bind') FROM ga_fx;
+SELECT ok((SELECT ga.status = 'invited' AND NOT u.enabled AND u.password_hash IS NULL AND gi.used_at IS NULL
+             FROM guest_accounts ga JOIN users u ON u.id = ga.user_id JOIN guest_invites gi ON gi.guest_user_id = ga.user_id
+            WHERE ga.user_id = foreign_user), 'foreign guest untouched (R3/R4)') FROM ga_fx;
+SELECT * FROM finish();
+ROLLBACK;

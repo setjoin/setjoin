@@ -43,9 +43,22 @@ or enforce mode, matching Go’s boot and reconnect validation. Only the fixed
 registered threat/CA keys are consumed by this crate.
 
 Admission query budgets: threat-feed and `ip_rules` reads each use Go's
-three-second `queryTimeout`. A timeout continues the pipeline with no match;
-cancelling the query must leave the request pool reusable. The blocked-table
+three-second `queryTimeout`. A feed timeout or error scores no hits (Go parity:
+the feed is optional reputation data and pool exhaustion is caught by ip_rules on
+the same pool); an `ip_rules` timeout or error rejects (`ip_rules_unavailable`,
+#367). Cancelling a query must leave the pool reusable;
 `tasks::ip_rule_lookup_uses_go_three_second_query_budget` exercises that boundary.
+
+Worker pools (#367): `WorkerPools` holds two bounded `ScopedExecutor`s on
+DB_WORKER_DSN (fallback DB_DSN): `check` (8) for lockout_check, detect_spray and
+the spray side effects, and a reserved `record` (2) for lockout_clear/escalate so
+pre-auth floods cannot starve failure accounting. Checkout waits 1 s, creation
+2 s, statement 2 s (server-side cancel on timeout). Fail closed on any error:
+`lockout_unavailable`, `spray_unavailable`, `rate_limit_unavailable`,
+`captcha_unavailable` (HTTP only). Side-effect writes stay best-effort, one
+statement per key. `Gate::load` refuses boot when the worker credential lacks
+EXECUTE on the lockout accessors (SQLSTATE 42501); an unreachable DB still boots.
+Deployments must point DB_WORKER_DSN at setjoin_worker. Tests: `tests/gate_pool.rs`.
 
 `oracle/divergences.json` records the owner-requested immediate gateway session
 reconciliation after a LISTEN gap; the auth-process cache keeps Go's independent
@@ -56,3 +69,5 @@ The OP oracle pins the same anonymous `agent|masked-IP` attempt metadata.
 
 `registry` (ProtocolSessionRegistry) and `tracker` (per-user ConnTracker) moved here from
 `setjoin-imap` (#501) so IMAP and SMTP submission share one implementation; IMAP re-exports them.
+
+`ip_rule_blocked` is the shared Go stepIPRules evaluation (allow continues, block rejects); it returns `Err` when unanswered and every caller fails closed (`ip_rules_unavailable`, #367). `decide_with(CaptchaStep)` serves HTTP (#349): `Full` without a captcha token, `Skip` for a verified and claimed token (Go), `TarpitOnly` for a token that fails; `decide(_, true)` stays `Skip` for protocol listeners. HTTP lockout checks the `ip:` key even without a username (#349 divergence).

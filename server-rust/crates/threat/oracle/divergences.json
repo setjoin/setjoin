@@ -5,5 +5,54 @@
     "go_source": "mailserver/cmd/mailserverd/main.go:698-722",
     "test": "setjoin-gateway::workers::listener_reconnect_repairs_revocations_missed_during_disconnect",
     "original_evidence": "Original test observed no closure within 5s; periodic refresh closed the session at 30s (AUTHRT-review-imap-reconnect-red.log)."
+  },
+  "lockout-check-fail-closed": {
+    "reason": "Go treats a failed lockout_check (pool exhaustion included) as not locked; an attacker-driven stall must not disable lockout.",
+    "review": "#367 Fable plan review 2026-11",
+    "go_source": "shared/threat/lockout.go:46-50",
+    "test": "gate_pool::exhausted_check_pool_rejects_lockout_and_recovers",
+    "original_evidence": "#367 + Fable review findings 1-5"
+  },
+  "spray-detect-fail-closed": {
+    "reason": "Same attack class. Consequence: an unparseable source_ip (IMAP \"unknown\" with no peer, imap/src/auth.rs:125-128) is rejected; ip_rules rejects it first.",
+    "review": "#367 Fable plan review 2026-11",
+    "go_source": "shared/threat/spray.go:31-37",
+    "test": "gate_pool::unreachable_worker_boots_and_fails_closed, gate_pool::unknown_source_ip_is_rejected",
+    "original_evidence": "#367 + Fable review findings 1-5"
+  },
+  "ip-rules-fail-closed": {
+    "reason": "Saturating the request pool must not bypass an operator IP block; same unparseable-IP consequence.",
+    "review": "#367 Fable plan review 2026-11",
+    "go_source": "shared/threat/interceptor.go:668",
+    "test": "tasks::ip_rule_lookup_uses_go_three_second_query_budget, gate::tests::unavailable_request_pool_rejects_instead_of_skipping_ip_rules",
+    "original_evidence": "#367 + Fable review findings 1-5"
+  },
+  "rate-limit-fail-closed": {
+    "reason": "A rate-limit store failure must not lift the limit.",
+    "review": "#367 Fable plan review 2026-11",
+    "go_source": "shared/threat/ratelimit.go:25-29",
+    "test": "gate_pool::unanswered_rate_limit_and_captcha_counts_fail_closed",
+    "original_evidence": "#367 + Fable review findings 1-5"
+  },
+  "captcha-count-fail-closed": {
+    "reason": "An attacker can slow their own count; HTTP only (`skip_captcha=false`), no current caller.",
+    "review": "#367 Fable plan review 2026-11",
+    "go_source": "shared/threat/interceptor.go:731-733",
+    "test": "gate_pool::unanswered_rate_limit_and_captcha_counts_fail_closed",
+    "original_evidence": "#367 + Fable review findings 1-5"
+  },
+  "worker-credential-boot-probe": {
+    "reason": "Go silently fails open when the lockout pool lacks EXECUTE; Rust refuses boot on 42501.",
+    "review": "#367 Fable plan review 2026-11",
+    "go_source": "shared/threat/interceptor.go:194-196 (W1b alias)",
+    "test": "gate_pool::boot_probe_refuses_credential_without_lockout_execute",
+    "original_evidence": "#367 + Fable review findings 1-5"
+  },
+  "http-lockout-ip-key-without-username": {
+    "reason": "Go skips the lockout step when the username is empty, so an unparseable or email-less credential body escaped an armed ip: lock. HTTP (protocol \"http\") now checks the ip: key alone in that case; protocol listeners are unchanged.",
+    "review": "#349a Fable plan review F1; owner policy: security Go bugs are fixed in Rust",
+    "go_source": "shared/threat/lockout.go:33-36",
+    "test": "gate::tests::http_without_username_still_checks_the_ip_lock, setjoin-auth threat_oracle::native_trailing_bytes_cannot_skip_a_locked_user_or_armed_ip",
+    "original_evidence": "notes/FABLE-PLAN-349a.md F1"
   }
 }

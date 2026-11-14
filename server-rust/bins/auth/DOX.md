@@ -19,9 +19,8 @@ SIGINT/SIGTERM drain owned connections with Go's 30-second bound.
 
 The front door selects `rust-auth` for qualified entries using
 GATEWAY_RUST_AUTH_UPSTREAM. AUTHSERVER_GO_UPSTREAM is only for shapes not yet
-ported: stateful threat interception and device proof/trust (#420), conditional
-access/DPoP controls (#405), guest identity
-completion (#406), or federation (#339–#341).
+ported: device proof/trust (#420; HTTP threat admission is native, #349a), conditional
+access/DPoP controls (#405), or federation (#339–#341).
 Forwarding happens before any effect and preserves the whole request/body. An
 unset upstream fails closed. Completed shapes have no return-to-Go flag.
 
@@ -45,7 +44,12 @@ through the shared authz clientip parser. Cookie Secure trust is unchanged;
 these two Go trust settings must not be conflated.
 The five X-Device proof headers select #420 before buffering/decoding. Ordinary
 login still resolves guest CA context before force-password/MFA, mirroring Go's
-fail-closed 503 even when conditional-access policies are disabled.
+fail-closed 503 even when conditional-access policies are disabled. Guest login and
+MFA/WebAuthn/push completion are native (#353). Only the access token carries `acct: guest`.
+A guest-scope lookup failure (error, no row or NULL) is Go's 503 `conditional access context
+unavailable`; a mint-time account-type failure is Go's 500. SSO completion keeps refusing guest
+rows (Go P17, `GuestMint::Refuse`). With CA or device trust not explicitly off, or on a flag read
+error, the whole request forwards before effects.
 The DB test common fixture installs the recorded synthetic Go key under the
 family advisory lock before listeners load, including fresh-schema runs. It
 never changes runtime key custody or the immutable recorded public key.
@@ -120,7 +124,7 @@ and checks them against the returned secret before masking random ciphertext.
 
 WebPush-only `POST /auth/device/register` (#333) keeps outer 64KiB buffering,
 full session/CSRF, provider/subscription bounds and shared Go URL admission.
-Stateful threat, rate and device proof shapes remain #420; native push providers
+Device proof shapes remain #420 (threat and rate admission is native, #349a); native push providers
 use #336’s possession-gated transaction below. DB_ENCRYPTION_KEY and AUDIT_HMAC_KEY are startup-bound
 pool configuration and use the executor's protected transaction-local context.
 Configured DB encryption keys keep Go's profile-specific strength floor before
@@ -200,7 +204,7 @@ validate the signed mfa_pending type directly; authenticated management shares
 the existing revocation snapshot, CSRF and impersonation rejection. Go's verify
 endpoint has its distinct admission, preserved by the oracle. Completion bodies
 retain Go duplicate-map merging and null reset for dpop_jwk. Only unported
-threat/device, CA/DPoP and guest shapes forward to their
+device, CA/DPoP and guest shapes forward to their
 named owners before effects. The MFA corpus checks the real front door with
 Go unset, raw JSON/cookie bytes, audited factor state and signed anchor links.
 
@@ -291,7 +295,6 @@ person/users fence. Unknown commits return an actor-bound opaque operation ID.
 Owner-approved security fix 2026-11-05 rejects counter regression and repeated
 login challenges through the atomic live-key claim reducer (including zero counters).
 Immutable Go captures and reviewed security expectations retain the divergence trail.
-Pending threat admission (#420), guest completion (#406) and
 DPoP/CA completion (#405) shapes retain their named upstream owner before writes.
 
 Public recovery begin (#336) snapshots the same startup feature mount as reset.
@@ -477,3 +480,43 @@ never carried them) and the callback's flow-cookie clears are Lax too; the sessi
 cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test `rp_oidclax`
 (callback with Lax-eligible cookies only); mutants `scripts/test-oidclax-mutants.py`.
 
+
+## Guest invitation acceptance (#342)
+
+`src/guest_invite.rs` mirrors frozen Go GET/HEAD/POST `/auth/guest-invite/accept`.
+The gateway alias adds its global CSRF gate and authLimit; the handler has no CSRF
+(the single-use token authorizes). Both methods share recovery's enumeration
+budget. POST: login's shared pending boundary (`src/http_threat.rs`, #420/#405,
+resolved by DELETE #142 together with login), Go's outer 1 MiB cap, native
+always-on `ip_rules` (Go's 403 bytes), strict closed JSON, and the `auth_attempts`
+postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
+the transaction settled (additive; per-class timing differs as in Go). Own
+two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
+missing reducers). Residuals: CAPTCHA header, username lockout, and threat-username JSON nesting beyond serde's 128 levels (#346).
+
+## Native HTTP threat admission (#349a)
+
+`src/http_threat.rs` is Go's `threat.Middleware` for POST /auth/login, /auth/refresh and
+/auth/forgot-password/{begin,verify,reset}. It runs in three stages:
+- `threat_stage`: mount check, OPTIONS, the 1 MiB / 15 s body read, and the username.
+- `threat_admit`: `Gate::decide_with`, Go's response bytes and the attempt row.
+- `threat_tail`: `Gate::record` and `ThreatOutcome`.
+Login and refresh are admitted only while one of the six gate toggles is on (env overrides
+included). The forgot-password routes are always admitted. Forwards decided by headers or
+toggles run before admission: device proof, CA/device trust, and `dpop_jwk` plus token binding.
+A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests use
+`with_threat_gate`. Security divergences
+([identity-threat](../../tests/conformance/identity-threat/divergences.json)):
+- The username is the route handler's own decode, and HTTP checks the `ip:` lock without one.
+- Refresh keys only the verified token's identity.
+- Captcha tokens (`src/captcha.rs`) are bound to IP, route and username and single-use per
+  process. Order: verify, run the pipeline, claim only when the pipeline allows, so a rate-limited
+  request consumes no used-set slot. A verified, claimed token runs `CaptchaStep::Skip` (Go);
+  a failed token or failed claim runs `TarpitOnly` and is rate limited. The used set is in
+  memory (65 536 entries, full refuses): a restart forgets it, so a token accepted before a
+  restart is accepted once more within its 120 s life (still bound to IP, route and username),
+  and with several auth processes a token is accepted once per process; production runs one.
+- The begin decoy 200 never clears lockout.
+CAPTCHA_SECRET defaults to Go's HKDF of a non-empty JWT_SECRET. Peers are canonicalized before
+the TRUSTED_PROXY_IP match. Fail-closed reasons come from `setjoin-threat` (#367). Oracle:
+`tests/threat_oracle.rs`.

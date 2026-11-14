@@ -65,3 +65,7 @@ Rust claims the counter in V278 `totp_counter_claims` (FORCE RLS), so the replay
 legacy rolling replay get 401. Mutants `mutant_elapsed_totp_replay_restores_go_bug` and
 `mutant_legacy_totp_counter_gap_restores_go_bug` remove the `SECURITY-COUNTER` blocks,
 reproduce Go's bytes and fail the secure expectation.
+
+#353 guest completion cases (`guest*` kinds in `mfa_oracle`: verify, bootstrap-confirm and login-totp)
+replay recorded goldens. A new capture stamps `go_source` from `GOFREE_GO_SOURCE`. Every `guest*` run first
+proves `is_guest_account` pristine (`guest_function_pristine`) and restores it after any fault.

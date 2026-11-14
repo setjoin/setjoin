@@ -66,7 +66,7 @@ The password verifier alone does not implement lockout. `login_lockout_disabled`
 records ten wrong passwords followed by a successful proof with threat controls
 disabled. Stateful spray/lockout/CAPTCHA/tarpit, feed, GeoIP/device proof/trust
 belong to #420 and forward whole before effects. Conditional access/DPoP belongs
-to #405, MFA to #334–#336, and guest completion/verification to #406. Handoff tests
+to #405, MFA to #334–#336. Handoff tests
 assert exact original method/query/body and zero local writes. Reset tokens
 belong to #332; PKCE belongs to federation #339/#340. These are named unported
 shapes, with no completed-shape switch.
@@ -86,7 +86,7 @@ recorded; threat/MFA/federation internals remain with the owners above.
 
 The last covered Go function report (frozen source from keys.json) records
 password-policy 100%, Login and issueTokensWithFactors partial because their
-MFA, policy and guest-completion branches are owned by the tickets above.
+MFA and policy branches are owned by the tickets above.
 Reachable ordinary-login error statuses have wire records for JSON/credentials,
 CSRF, forced change, MFA query failure, initial guest-context lookup (503), later
 account-type/scope/transition lookup (500), transition admission (409), mint-time
@@ -195,3 +195,8 @@ The existing slice-A HTTP/effect, route-status and notification mutants,
 password COMMIT cuts, key-custody and bidirectional session-swap targets qualify
 the complete reachable connector surface. No new recording, dormant-library
 implementation or completed-shape return-to-Go switch is introduced.
+
+#353 guest login cases (`login-guest-success`, `login-guest-repeat`, `login-guest-expired`) are
+DB-replayed like the rest. A new capture stamps `go_source` from `GOFREE_GO_SOURCE` (the dispatching
+commit, 40 lowercase hex); replays read it back from the golden. Native guest token claims live in
+`bins/auth/tests/guest_scope.rs`.

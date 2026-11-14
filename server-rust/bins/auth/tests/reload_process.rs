@@ -105,6 +105,7 @@ async fn run(empty: bool) {
         Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
             .arg0(format!("{}-auth-reload", std::env::var("GOFREE_RESOURCE_PREFIX").unwrap_or_else(|_| "gofree-idlogin3".into())))
             .env("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn))
+            .env("DB_WORKER_DSN", &db.dsn)
             .env("JWT_SECRET", f["secret"].as_str().unwrap())
             .env("JWT_SIGNING_ALG", "HS256")
             .env("SETJOIN_CONFIG", &file.0)
