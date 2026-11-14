@@ -1005,3 +1005,15 @@ served by the catch-all alone (`Inventory::is_subtree_row`): a request only they
 concrete adapter that merely matches it. A rolled-back F15/F16 request arrives under `/api` and is claimed
 only by the F22 `/api/` row; `Inventory::proxy_family` counts its Go forward under the owning family
 (F15/F16), not F22. Tests: `tests/subtree_dispatch.rs`.
+
+## Unauthenticated zero-Go-hop ratchet (#354)
+
+`tests/authz_deny_unauth_recorded.rs` probes every `gateway`/ON/`local-rust` inventory row (concrete
+paths, method `*` as GET, `{}` body on non-GET) with six variants: no credentials, garbage Bearer,
+`access_token` cookie, expired HS256, Basic, Negotiate. It runs the native executable with
+`GATEWAY_UPSTREAM` unset and records each request whose `setjoin_gateway_proxied_to_go_total` delta is
+positive. The set must equal `tests/conformance/authz-deny/known-go-hops.json` (`variant`, `method`,
+`path`, `owner` in #355/#356/#357; Basic/Negotiate rows are #355). A new hop fails; a row that no longer
+hops must be removed, so the list only shrinks. Variants 1-4 are recorded from frozen Go into
+`unauthenticated.json` (gofree-record.yml, `test=authz_deny_unauth_recorded`, stamps `go_source`); replay
+compares bytes only where Go answered 401. Replay skips byte comparison while that corpus is absent.
