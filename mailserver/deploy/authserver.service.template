@@ -1,16 +1,20 @@
 [Unit]
-Description=SetJoin Auth Server
+Description=SetJoin Auth Server (Rust setjoin-auth)
 Documentation=https://github.com/setjoin/setjoin
 After=network.target postgresql.service
-Wants=postgresql.service
-# The gateway (setjoin.service) proxies every /auth/* route to this process
-# (mailserver/internal/authproxy). Order auth up first so the gateway's first
-# requests don't 502 — but this is ordering only (Wants, not Requires) on the
-# gateway side, so a gateway restart never hard-depends on auth being healthy.
+# #359b: shapes setjoin-auth does not serve yet (#349–#353) are handed whole to
+# the transitional Go authserverd (setjoin-authserverd.service). Wants= starts it
+# with this unit; it is PartOf= and BindsTo= this unit, so it never runs alone.
+# There is deliberately NO ordering between the two (an ordering would deadlock
+# these waits): ExecStartPost waits until the credential-free hand-off answers,
+# and ExecStopPost waits while authserverd is deactivating (BindsTo=/PartOf= stop
+# it; an explicit stop here would replace the restart job on `systemctl restart`
+# and leave authserverd down, N8), so `systemctl start|stop setjoin-auth`
+# (setjoinctl, the updater) returns only when both are settled.
+Wants=postgresql.service setjoin-authserverd.service
+# Gateway ordering only (Wants, not Requires, on the gateway side).
 Before=setjoin.service
-# StartLimit* live in [Unit] (systemd ignores them under [Service]) — the
-# 25bef473 lesson; caught here by systemd-analyze verify on the 2026-07-16
-# fresh-VM gate.
+# StartLimit* live in [Unit] (systemd ignores them under [Service]).
 StartLimitBurst=5
 StartLimitIntervalSec=60
 
@@ -19,21 +23,29 @@ Type=simple
 User={{USER|setjoin}}
 Group={{GROUP|setjoin}}
 WorkingDirectory={{RUNTIME_DIR}}
-ExecStart={{RUNTIME_DIR}}/authserverd
+ExecStart={{RUNTIME_DIR}}/setjoin-auth
 
 ExecStartPre=/bin/sh -c 'until pg_isready -U mail -d mailserver -h 127.0.0.1; do sleep 2; done'
+# Readiness through the auth path, without credentials (N1): authserverd answers
+# /health, and the unknown GET /_setjoin/readiness, which setjoin-auth hands to
+# Go on its fallthrough forward, comes back as Go's 404 (a broken chain is
+# 502/503). Never a login: a failed login from 127.0.0.1 feeds captcha/tarpit.
+ExecStartPost=/bin/sh -c 'i=0; while [ $$i -lt 150 ]; do if curl -sf --max-time 2 "${AUTHSERVER_GO_UPSTREAM}/health" >/dev/null 2>&1 && [ "$$(curl -s -o /dev/null -w "%%{http_code}" --max-time 3 "http://${LISTEN_ADDR}/_setjoin/readiness")" = 404 ]; then exit 0; fi; i=$$((i+1)); sleep 1; done; echo "setjoin-auth: auth path to authserverd not ready" >&2; exit 1'
+# No explicit stop of authserverd here (N8). On every stop or restart PartOf=
+# propagates it, and BindsTo= stops it whenever this unit ends inactive or
+# failed; this wait holds the deactivation until its exit (F3, N2).
+ExecStopPost=+/bin/sh -c 'i=0; while [ "$$(systemctl show -p ActiveState --value setjoin-authserverd.service)" = deactivating ]; do i=$$((i+1)); [ $$i -lt 1100 ] || exit 1; sleep 0.1; done'
+TimeoutStartSec=300
+TimeoutStopSec=150
 
-# Restart policy (StartLimit* are in [Unit], above)
 Restart=always
 RestartSec=5
 
-# Resource limits
 MemoryMax=512M
 CPUQuota=200%
 TasksMax=1024
 LimitNOFILE=65536
 
-# Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -47,38 +59,18 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictRealtime=true
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
-# No CAP_NET_BIND_SERVICE: unlike the gateway (:443), auth listens on an
-# unprivileged loopback-only port (see the auth.env LISTEN_ADDR override below).
+# No CAP_NET_BIND_SERVICE: loopback-only unprivileged port (auth.env LISTEN_ADDR).
 
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=setjoin-auth
 
-# Environment
-# Shares the gateway's config.env (DB_DSN, JWT_SECRET, INTERNAL_API_KEY,
-# WEBAUTHN_*, DB_ENCRYPTION_KEY, CRYPTO_ALGORITHM_PROFILE all use the SAME
-# env var names on both sides of the gateway<->auth split) — the {{CONFIG_ENV}}
-# token, same as the gateway unit.
+# Least privilege (#359b F6): config.env (app-role DB_DSN/DB_DIRECT_DSN, shared
+# JWT/keys), then auth.env: root-only 0600, carrying the only DB credential
+# setjoin-auth reads beyond config.env (DB_WORKER_DSN). The privileged
+# credential file (owner tiers) is NOT loaded by this internet-facing process.
+# ORDER-SENSITIVE: auth.env stays LAST (later EnvironmentFile wins).
 EnvironmentFile={{CONFIG_ENV}}
-# Privileged DB tiers (DEPLOY-004 split, r2-2): the WORKER credential is
-# load-bearing for authserverd (identity_links serves user_identity_links —
-# FORCE RLS deny-all to setjoin_app — from the dedicated worker pool), so this
-# unit MUST keep receiving the worker-tier DSN: it lives only in this
-# root-owned 0600 credential file now. Whether authserverd should also retain
-# the owner-tier DSNs from the same file is a recorded,
-# separately-adjudicated owner decision — today it receives the same file the
-# gateway does. EnvironmentFile order is precedence order (later wins) and
-# {{DB_CREDENTIALS_FILE}} is read AFTER config.env, BEFORE auth.env.
-EnvironmentFile={{DB_CREDENTIALS_FILE}}
-# auth.env is read AFTER config.env — EnvironmentFile order is precedence
-# order, and EnvironmentFile always beats Environment= lines. ORDER-SENSITIVE:
-# this {{AUTH_ENV}} line must stay LAST — it overrides the shared file's
-# LISTEN_ADDR (that value is the gateway's public :443) to bind auth
-# loopback-only on an unprivileged port, never reachable except through the
-# gateway's proxy. render_authserver_unit (lib-livekit.sh) never reorders
-# template lines, so this ordering is preserved by construction; install.sh
-# keeps AUTH_ENV in sync with the AUTHSERVER_URL it writes into config.env.
 EnvironmentFile={{AUTH_ENV}}
 
 [Install]

@@ -1011,8 +1011,9 @@ so an old Go binary in a source checkout cannot satisfy its prerequisite; source
 builds use `cargo build --release --locked -p setjoin-mailctl`. Installed paths,
 unit names and `.prev` rollback remain unchanged. The Go module catalog keeps
 mailctl for oracle testing but no longer builds it as a customer artifact.
-`package-server-release.sh` requires seven inputs: architecture, Go binary directory,
-Rust gateway, Rust mailctl, Rust asrbotd (the captions bot, #356; staged as
+`package-server-release.sh` now requires nine inputs (Rust setjoin-auth added, #359b; see
+`server-rust/bins/updater/DOX.md`): architecture, Go binary directory,
+Rust gateway, Rust setjoin-auth, Rust mailctl, Rust asrbotd (the captions bot, #356; staged as
 `server-rust/asrbotd` and installed to `bin/asrbotd` by the optional captions leg),
 webmail build and output archive. All supplied ELF
 machines are checked; the caller remains responsible for source provenance and
@@ -1152,7 +1153,7 @@ capability-empty service, restart and FTRL startup/live posture), and the existi
 TLS/IMAP/federation/lifecycle/rollback scripts. The rehearsal uses its own private
 resolv.conf mount and loopback DNS/S3/clamd peers; it changes no installed unit.
 
-## Native IMAP deployment (#420)
+## Native IMAP deployment (#202)
 
 When the installation has TLS_CERT/TLS_KEY, the renderer transfers configured
 IMAP_ADDR (default :143) and IMAP_TLS_ADDR (default :993) to systemd's optional

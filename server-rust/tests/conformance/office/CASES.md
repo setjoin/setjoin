@@ -31,7 +31,7 @@ list input; that floor is a recorded 200. WOPI authenticates the opaque launch
 bearer, not a browser JWT. The reducer derives its actor and repeats current
 file membership/fence checks. Browser routes use shared verified session/CSRF
 admission plus fresh Office permissions. Unsupported identity/security modes
-still forward under ARCH-027 pending the identity slices (#331–#333).
+still forward under ARCH-027 pending the identity slices (#112–#114).
 
 Every route has a changed-status mutant. Family SQL mutants execute actual
 mutated function bodies in private, disposable schemas: missing audit, missing

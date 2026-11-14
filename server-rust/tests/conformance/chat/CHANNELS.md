@@ -57,7 +57,7 @@ non-URL corpus and operation-recovery cases remain authoritative.
 Typing with federation enabled stays native (#347); admitted signals use the
 detached, user-scoped federation producer and its socket-level regression.
 Shared authz's unsupported tokens and security preconditions retain their existing
-Go deferrals pending identity #331–#333. No shared-effect worker transfers here.
+Go deferrals pending identity #112–#114. No shared-effect worker transfers here.
 
 Recording requires a covered frozen-Go executable, `GOFREE_RECORD_GO_BINARY`,
 `GOFREE_GO_SOURCE`, optional `GOFREE_GO_COVERAGE_DIR`, an existing

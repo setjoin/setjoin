@@ -305,7 +305,7 @@ digests against the formula, so Go and Rust are compared with the same independe
 (preview, step-up, request, approve, execute, effect claim and fail, rollback preview); ids, digests and sequence numbers become
 placeholders (`trans.rs::volatile`). Cases: `tests/conformance/admin-identity/CASES.md`.
 
-Conditional-access runtime (#405): preview, execute and rebind preview keep `feature.cae_runtime`
+Conditional-access runtime (#187): preview, execute and rebind preview keep `feature.cae_runtime`
 ON through the real gateway runtime chain and request credential. The oracle no longer creates
 or selects a private toggle view; its frozen Go recordings remain unchanged. Go quirks kept: approve/deny with a stale digest answer 403 (BZ236
 precedes BZ235), a repeated cancel is 409, a repeated request is 409, a preview of a missing user is the reducer's 409 (reach

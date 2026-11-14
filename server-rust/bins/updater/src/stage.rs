@@ -49,6 +49,8 @@ fn target(a: &Artifact) -> Result<PathBuf> {
         "core_authserverd" => "authserverd".into(),
         "core_mailctl" => "mailctl".into(),
         "core_setjoin_gateway" => "setjoin-gateway".into(),
+        // #359b: required wherever a core unit runs it (host::require_unit_binaries).
+        "core_setjoin_auth" => "setjoin-auth".into(),
         "core_migrations" => {
             ensure!(
                 a.media_type == "application/sql",
@@ -166,6 +168,7 @@ pub fn stage(store: &Path, root: &Path, id: &str, digest_value: &str) -> Result<
                         | "core_authserverd"
                         | "core_mailctl"
                         | "core_setjoin_gateway"
+                        | "core_setjoin_auth"
                         | "compatible_sidecar"
                 );
                 let mut out = std::fs::OpenOptions::new()
@@ -342,7 +345,7 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
         let map = e["artifacts"]
             .as_object()
             .ok_or_else(|| anyhow::anyhow!("missing adoption artifacts"))?;
-        ensure!((4..=5).contains(&map.len()), "invalid adoption inventory");
+        ensure!((4..=6).contains(&map.len()), "invalid adoption inventory");
         ensure!(
             fs::read_dir(&dir)?.count() == map.len() + 1,
             "adoption inventory differs"
@@ -354,7 +357,12 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
             ensure!(
                 matches!(
                     name.as_str(),
-                    "mailserverd" | "authserverd" | "mailctl" | "setjoin-gateway" | "webmail"
+                    "mailserverd"
+                        | "authserverd"
+                        | "mailctl"
+                        | "setjoin-auth"
+                        | "setjoin-gateway"
+                        | "webmail"
                 ),
                 "unknown adoption artifact"
             );
@@ -379,9 +387,7 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
 /// match its signed artifact size and SHA-256. Local `manifest.digest` and
 /// `installed.evidence.json` are only self-consistency and prove nothing alone.
 pub fn verify_authentic(dir: &Path, id: &str, roots: &Path) -> Result<()> {
-    use setjoin_release_format::{
-        Purpose, TrustStore, VerifyOptions, MIN_VERIFICATION_THRESHOLD,
-    };
+    use setjoin_release_format::{Purpose, TrustStore, VerifyOptions, MIN_VERIFICATION_THRESHOLD};
     let raw = read(&dir.join("manifest.json"), 1 << 20, false)?;
     let roots_raw = read(roots, 1 << 20, false).with_context(|| {
         format!(
@@ -397,7 +403,10 @@ pub fn verify_authentic(dir: &Path, id: &str, roots: &Path) -> Result<()> {
         ..Default::default()
     };
     let verified = store.verify_manifest(&raw, &options)?;
-    ensure!(verified.manifest.release_id == id, "signed release identity differs");
+    ensure!(
+        verified.manifest.release_id == id,
+        "signed release identity differs"
+    );
     let arch = match std::env::consts::ARCH {
         "x86_64" => "amd64",
         "aarch64" => "arm64",
@@ -414,10 +423,14 @@ pub fn verify_authentic(dir: &Path, id: &str, roots: &Path) -> Result<()> {
         .filter(|a| a.target != "core_webmail")
     {
         let mut file = open(&dir.join(target(a)?), false)?;
-        verify_artifact(&mut file, a).with_context(|| format!("installed {} differs from the signed manifest", a.id))?;
+        verify_artifact(&mut file, a)
+            .with_context(|| format!("installed {} differs from the signed manifest", a.id))?;
         checked += 1;
     }
-    ensure!(checked > 0, "signed manifest lists no installable artifact for this host");
+    ensure!(
+        checked > 0,
+        "signed manifest lists no installable artifact for this host"
+    );
     Ok(())
 }
 pub fn activate(root: &Path, id: &str) -> Result<()> {

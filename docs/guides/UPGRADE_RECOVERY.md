@@ -116,3 +116,10 @@ schema compatibility, gateway/auth readiness, mail send/receive/fetch, required
 workers, and the immutable audit/event generations. Record whether the outcome
 was forward verified, executable rollback, or explicit data recovery. A service
 restart alone is not proof.
+
+## Updater probe credential
+
+A wrong or expired updater probe credential records login failures from
+127.0.0.1, so after fixing it a retry can still be challenged or tarpitted for up
+to 15 minutes; wait it out rather than retrying in a loop. Only the probe's own
+loopback address is affected, and no readiness probe sends credentials.

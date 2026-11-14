@@ -405,6 +405,11 @@ render_runtime_units() {
     "$renderer" "$template" "$destination" \
       || die "failed to render $destination — see the error above."
   done
+  # Transitional (#359b): Go authserverd behind setjoin-auth. Outside the compiled
+  # catalog; PartOf/BindsTo=setjoin-auth.service carry its lifecycle. Deleted in #359.
+  render_authserverd_unit "$ROOT/mailserver/deploy/setjoin-authserverd.service.template" \
+    "${SETJOIN_UNIT_DESTINATION[setjoin-auth]%/*}/setjoin-authserverd.service" \
+    || die "failed to render setjoin-authserverd.service — see the error above."
 }
 
 # prepare_credential_migration ANCESTOR CRED_DIR CRED_FILE CONFIG_ENV RERENDER_FN ROOT_OWNER ROOT_GROUP RUNTIME_GROUP
@@ -501,6 +506,9 @@ fi
 # recovery) can trust the credential file, and before the fresh-install render
 # below. The production posture literals live here and at the posture block.
 AUTH_ENV="$CONFIG_DIR/auth.env"
+# Transitional Go authserverd behind setjoin-auth (#359b): a render_authserverd_unit
+# input, so it is assigned before the entry migration re-renders the units.
+AUTHSERVERD_ENV="$CONFIG_DIR/authserverd.env"
 # The Rust front door's own env file (#264) — a render_gateway_unit input, so
 # it is assigned before the entry migration re-renders the units.
 GATEWAY_ENV="$CONFIG_DIR/gateway.env"
@@ -581,6 +589,13 @@ DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN"
 # squats 8443 — do not copy that port here.
 AUTHSERVER_URL="$(get_env AUTHSERVER_URL)"; AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
 AUTH_LISTEN="${AUTHSERVER_URL#http://}"; AUTH_LISTEN="${AUTH_LISTEN#https://}"; AUTH_LISTEN="${AUTH_LISTEN%%/*}"
+# Each auth hop trusts its peer only as exactly 127.0.0.1 (TRUSTED_PROXY_IP):
+# localhost or [::1] would collapse every client onto one loopback IP (F4).
+[[ "$AUTH_LISTEN" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]] || die "AUTHSERVER_URL must be http://127.0.0.1:<port> (got $AUTHSERVER_URL)"
+AUTHSERVERD_LISTEN="$(get_env_from "$AUTHSERVERD_ENV" LISTEN_ADDR)"; AUTHSERVERD_LISTEN="${AUTHSERVERD_LISTEN:-127.0.0.1:8444}"
+[[ "$AUTHSERVERD_LISTEN" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]] || die "authserverd must listen on 127.0.0.1:<port> (got $AUTHSERVERD_LISTEN)"
+[ "$AUTHSERVERD_LISTEN" != "$AUTH_LISTEN" ] || die "authserverd ($AUTHSERVERD_LISTEN) and setjoin-auth ($AUTH_LISTEN) need distinct listeners"
+AUTHSERVERD_URL="http://$AUTHSERVERD_LISTEN"
 # AUTH_ENV itself is assigned at the entry block above (a pure path constant
 # and a required renderer input — the migration's unit re-render fires before
 # this point and render_authserver_unit refuses an unassigned AUTH_ENV).
@@ -684,6 +699,15 @@ if [ ! -x "$GATEWAY_SOURCE" ]; then
   info "Building setjoin-gateway (cargo build --release)…"
   ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="$ROOT/server-rust/target" cargo build --release --locked -p setjoin-gateway )
   install -m 0755 "$ROOT/server-rust/target/release/setjoin-gateway" "$GATEWAY_SOURCE"
+fi
+# setjoin-auth (Rust identity process, #359b) ships beside the gateway: a release
+# archive stages it at server-rust/setjoin-auth; a source checkout builds it.
+AUTH_SOURCE="$ROOT/server-rust/setjoin-auth"
+if [ ! -x "$AUTH_SOURCE" ]; then
+  command -v cargo >/dev/null 2>&1 || die "setjoin-auth missing ($AUTH_SOURCE) and 'cargo' not found — use a release archive or install the Rust toolchain."
+  info "Building setjoin-auth (cargo build --release)…"
+  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="$ROOT/server-rust/target" cargo build --release --locked -p setjoin-auth )
+  install -m 0755 "$ROOT/server-rust/target/release/setjoin-auth" "$AUTH_SOURCE"
 fi
 
 # setjoin-sfu (LiveKit) — pinned v1.13.5 release binary, sha256-verified
@@ -823,8 +847,10 @@ if [ "$PERMISSIVE_DSN" != "1" ]; then
 # setjoin privileged DB credential tier — generated $(date -u +%Y-%m-%dT%H:%M:%SZ) by deploy/scripts/install.sh.
 # Mode 0600 root:root below the root-owned $DB_CRED_DIR — NEVER merged back
 # into config.env (the runtime-account-readable config surface). Consumers:
-#   - EnvironmentFile= of setjoin.service and setjoin-auth.service (systemd
+#   - EnvironmentFile= of setjoin.service and setjoin-authserverd.service (systemd
 #     parses EnvironmentFile manager-side, as root)
+#   - setjoin-auth.service never loads this file: install.sh copies only
+#     DB_WORKER_DSN into the root-only auth.env (#359b least privilege)
 #   - upgrade.sh's schema-apply DSN probe (owner keys preferred)
 #   - install.sh re-runs (owner/worker DSN + password recovery)
 DB_WORKER_DSN=$RUNTIME_WORKER_DSN
@@ -1394,6 +1420,7 @@ install -o root -g root -m 0644 \
 install -m 0755 "$ROOT/authserver/authserverd"  "$INSTALL_DIR/authserverd"
 install -m 0755 "$ROOT/server-rust/mailctl"          "$INSTALL_DIR/mailctl"
 install -m 0755 "$GATEWAY_SOURCE" "$INSTALL_DIR/setjoin-gateway"
+install -m 0755 "$AUTH_SOURCE" "$INSTALL_DIR/setjoin-auth"
 if [ "$MEET_CAPTIONS_ENABLED" = "true" ]; then
   mkdir -p "$INSTALL_DIR/bin"
   install -m 0755 "$ROOT/server-rust/asrbotd" "$INSTALL_DIR/bin/asrbotd"
@@ -1591,19 +1618,45 @@ SETJOIN_ADMIN_EMAIL=$ADMIN_EMAIL
 ENV
 chmod 600 "$CONFIG_ENV"
 
-# auth.env — read by setjoin-auth.service AFTER config.env, so these values
-# win there. Overrides the shared LISTEN_ADDR (the gateway's :443) to bind
-# authserverd loopback-only; must stay in sync with AUTHSERVER_URL above.
-cat > "$AUTH_ENV" <<ENV
-# setjoin auth-server overrides — generated by deploy/scripts/install.sh.
+# auth.env — read by setjoin-auth.service (Rust) AFTER config.env. Root-only
+# 0600 (systemd reads it manager-side): it carries the single DB credential
+# setjoin-auth needs beyond config.env, DB_WORKER_DSN, and never the owner
+# tiers (#359b least privilege). Built in a fresh 0600 root-owned temp file and
+# renamed into place, so an existing inode is never reused for the credential.
+_auth_tmp="$(mktemp "$AUTH_ENV.XXXXXX")" || die "could not create a temporary auth.env"
+chown root:root "$_auth_tmp"
+chmod 600 "$_auth_tmp"
+cat > "$_auth_tmp" <<ENV
+# setjoin-auth overrides — generated by deploy/scripts/install.sh.
 # Read by setjoin-auth.service after config.env (later file wins).
 LISTEN_ADDR=$AUTH_LISTEN
 # Plain HTTP on loopback: the gateway terminates TLS and proxies
 # AUTHSERVER_URL over http — auth must NOT inherit the gateway's cert.
 TLS_CERT=
 TLS_KEY=
+# Shapes setjoin-auth does not serve yet (#349–#353) are handed whole to the
+# transitional Go authserverd. Removed with Go (#359).
+AUTHSERVER_GO_UPSTREAM=$AUTHSERVERD_URL
+# authserverd runs every auth background task until the swap; setjoin-auth must
+# not start its own copies (double feed/token-GC/SAML effects).
+RUST_WORKERS_ON=
+GO_WORKERS_OFF=
 ENV
-chmod 600 "$AUTH_ENV"
+_auth_worker_dsn="$(get_cred_env DB_WORKER_DSN)"
+if [ -n "$_auth_worker_dsn" ]; then printf 'DB_WORKER_DSN=%s\n' "$_auth_worker_dsn" >> "$_auth_tmp"; fi
+unset _auth_worker_dsn
+mv -f "$_auth_tmp" "$AUTH_ENV" || { rm -f "$_auth_tmp"; die "could not install $AUTH_ENV"; }
+unset _auth_tmp
+
+# authserverd.env — read LAST by setjoin-authserverd.service (Go, transitional). No secrets.
+cat > "$AUTHSERVERD_ENV" <<ENV
+# Transitional Go authserverd (#359b) — generated by deploy/scripts/install.sh.
+# Reached only by setjoin-auth and the gateway's go-auth rows. Removed with Go (#359).
+LISTEN_ADDR=$AUTHSERVERD_LISTEN
+TLS_CERT=
+TLS_KEY=
+ENV
+chmod 600 "$AUTHSERVERD_ENV"
 
 # gateway.env — the Rust front door's own settings (no secrets): Go's internal
 # plain listener as its upstream, authserverd for /auth/*, and the local TLS
@@ -1695,7 +1748,7 @@ chown root:root "$INSTALL_DIR"
 chown setjoin:setjoin "$DATA_DIR"
 chown -R setjoin:setjoin "$DATA_DIR"
 install -d -o setjoin -g setjoin -m 0750 /run/setjoin
-for managed_path in mailserverd authserverd mailctl setjoin-gateway webmail bin; do
+for managed_path in mailserverd authserverd mailctl setjoin-auth setjoin-gateway webmail bin; do
   [ ! -e "$INSTALL_DIR/$managed_path" ] || chown -R setjoin:setjoin "$INSTALL_DIR/$managed_path"
 done
 # CONFIG_DIR itself is the root-controlled ANCESTOR of the privileged DB
@@ -1717,7 +1770,10 @@ chown root:root "$CONFIG_DIR"
 chmod 0755 "$CONFIG_DIR"
 # config.env and the other runtime-readable secret files stay with the runtime
 # account — only their containing directory changed hands.
-chown setjoin:setjoin "$CONFIG_ENV" "$AUTH_ENV" "$LIVEKIT_YAML" "$VALKEY_CONF" "$BACKUP_SIGNING_KEY_FILE"
+chown setjoin:setjoin "$CONFIG_ENV" "$AUTHSERVERD_ENV" "$LIVEKIT_YAML" "$VALKEY_CONF" "$BACKUP_SIGNING_KEY_FILE"
+# auth.env carries DB_WORKER_DSN: root-only, read by systemd manager-side (#359b).
+chown root:root "$AUTH_ENV"
+chmod 600 "$AUTH_ENV"
 # The privileged credential namespace: directory 0750 root:setjoin (traverse/
 # list for the runtime group, no write — mirroring the updater credential
 # tree's root-only reasoning), file 0600 root:root (systemd parses
@@ -1765,7 +1821,10 @@ install_release_roots "$ROOT/server-rust/release-roots.json" "$CONFIG_DIR/releas
   --install-root "$INSTALL_DIR" \
   --config-file "$CONFIG_ENV" \
   --quarantine-dir "$UPDATER_DATA_DIR/legacy-prev" >/dev/null \
-  || die "could not adopt the immutable release layout; a complete mailserverd/authserverd/mailctl/setjoin-gateway/webmail cohort is required."
+  || die "could not adopt the immutable release layout; a complete mailserverd/authserverd/mailctl/setjoin-auth/setjoin-gateway/webmail cohort is required."
+# No upgrade path (owner decision 2026-11-14): a `current` adopted before #359b
+# has no setjoin-auth and cannot run the auth unit. Reinstall from scratch.
+[ -x "$RUNTIME_DIR/setjoin-auth" ] || die "the active release ($RUNTIME_DIR) has no setjoin-auth; installations from before #359b are not upgradable — reinstall on a fresh host."
 # Repair installations created by the short-lived U2 preview whose restrictive
 # config umask made this root 0700. Release cohorts remain immutable 0555; only
 # the namespace root is traversable by the setjoin runtime account.
@@ -1891,6 +1950,12 @@ if command -v systemctl >/dev/null 2>&1; then
     [ "$asrbot_ok" = "1" ] || die "setjoin-asr-bot did not answer http://127.0.0.1:7890/healthz — check: journalctl -u setjoin-asr-bot -n 50"
     info "Captions bot healthy at http://127.0.0.1:7890/healthz (loopback-only)."
   fi
+  authserverd_ok=0
+  for _ in $(seq 1 15); do
+    curl -sf --max-time 3 "http://$AUTHSERVERD_LISTEN/health" >/dev/null 2>&1 && { authserverd_ok=1; break; }
+    sleep 2
+  done
+  [ "$authserverd_ok" = "1" ] || die "transitional authserverd did not answer http://$AUTHSERVERD_LISTEN/health — check: journalctl -u setjoin-authserverd -n 50"
   # Auth answers /health on loopback before we let the gateway steps proceed —
   # a dead auth process here means every login will 502, so fail LOUD now.
   auth_ok=0
@@ -1912,6 +1977,12 @@ if command -v systemctl >/dev/null 2>&1; then
     _tls_probe=$(tls_front_probe_url "$CONFIG_ENV")
     curl -skf --max-time 5 "$_tls_probe" >/dev/null || die "native HTTPS front door did not answer $_tls_probe"
   fi
+  # Credential-free chain probe (N1), straight to setjoin-auth: its fallthrough
+  # forward hands the unknown GET to authserverd, which answers 404; a broken
+  # chain answers 502/503. Never a login: a failed login from 127.0.0.1 feeds
+  # captcha/tarpit and would lock out re-installs and updates.
+  _chain_code="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://$AUTH_LISTEN/_setjoin/readiness" 2>/dev/null || true)"
+  [ "$_chain_code" = 404 ] || die "auth chain setjoin-auth -> authserverd answered HTTP ${_chain_code:-none} on /_setjoin/readiness, want Go's 404 — check: journalctl -u setjoin-auth -u setjoin-authserverd -n 50"
   info "Rust front door healthy (native HTTPS and loopback HTTP)."
 else
   info "systemd not available — start manually (valkey + SFU + egress + auth first):"
@@ -1931,7 +2002,8 @@ else
   # above, B3 Task 18 / REDISCLI_AUTH precedent) forbids. Sourcing the file with
   # `set -a` passes the values through the environment, which the kernel scopes
   # to the process owner (same as a systemd EnvironmentFile).
-  info "  sudo -u setjoin bash -c 'set -a; . $CONFIG_ENV; . $DB_CRED_FILE; export LISTEN_ADDR=$AUTH_LISTEN TLS_CERT= TLS_KEY=; exec $INSTALL_DIR/authserverd'"
+  info "  sudo -u setjoin bash -c 'set -a; . $CONFIG_ENV; . $DB_CRED_FILE; . $AUTHSERVERD_ENV; exec $INSTALL_DIR/authserverd'"
+  info "  sudo bash -c 'set -a; . $CONFIG_ENV; . $AUTH_ENV; exec setpriv --reuid=setjoin --regid=setjoin --init-groups $INSTALL_DIR/setjoin-auth'"
   info "  sudo -u setjoin bash -c 'set -a; . $CONFIG_ENV; . $DB_CRED_FILE; exec $INSTALL_DIR/mailserverd'"
   info "  sudo -u setjoin bash -c 'set -a; . $GATEWAY_ENV; exec $INSTALL_DIR/setjoin-gateway'"
 fi

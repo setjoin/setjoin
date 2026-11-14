@@ -411,32 +411,36 @@ for _var in INSTALL_DIR DATA_DIR CONFIG_ENV DB_CREDENTIALS_FILE; do
   export "$_var=$_saved"
 done
 
-# ── Case 14: render_authserver_unit — order-sensitive EnvironmentFile pair
-#    (config.env must render BEFORE auth.env — later EnvironmentFile wins) ──
+# ── Case 14: render_authserver_unit — Rust setjoin-auth (#359b) ──
 export AUTH_ENV="/etc/setjoin/auth.env"
 render_authserver_unit "$AUTHSERVER_UNIT_TMPL" "$WORK/authserver.service"
-assert_contains "$WORK/authserver.service" "WorkingDirectory=/opt/setjoin/current" "authserver unit points at immutable current (WorkingDirectory)"
-assert_contains "$WORK/authserver.service" "ExecStart=/opt/setjoin/current/authserverd" "authserver unit points at immutable current (ExecStart)"
-assert_contains "$WORK/authserver.service" "ReadWritePaths=/tmp" "authserver unit cannot write the immutable release"
-assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/config.env" "authserver unit substitutes CONFIG_ENV"
-assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env" "authserver unit substitutes DB_CREDENTIALS_FILE (worker tier preserved, DEPLOY-004 r2-2)"
-assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/auth.env" "authserver unit substitutes AUTH_ENV"
-assert_contains "$WORK/authserver.service" "User=setjoin" "authserver unit defaults USER to setjoin"
-assert_contains "$WORK/authserver.service" "Group=setjoin" "authserver unit defaults GROUP to setjoin"
+assert_contains "$WORK/authserver.service" "WorkingDirectory=/opt/setjoin/current" "auth unit points at immutable current (WorkingDirectory)"
+assert_contains "$WORK/authserver.service" "ExecStart=/opt/setjoin/current/setjoin-auth" "auth unit runs the Rust setjoin-auth from immutable current"
+assert_contains "$WORK/authserver.service" "ReadWritePaths=/tmp" "auth unit cannot write the immutable release"
+assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/config.env" "auth unit substitutes CONFIG_ENV"
+assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/auth.env" "auth unit substitutes AUTH_ENV"
+assert_not_contains "$WORK/authserver.service" "db-credentials" "Rust auth unit never loads the privileged credential file (F6)"
+assert_contains "$WORK/authserver.service" "Wants=postgresql.service setjoin-authserverd.service" "setjoin-auth pulls authserverd"
+assert_not_contains "$WORK/authserver.service" "After=network.target postgresql.service setjoin-authserverd" "no ordering against authserverd (F3)"
+assert_not_contains "$WORK/authserver.service" "systemctl stop setjoin-authserverd" "no explicit stop of authserverd: it would replace the restart job (N8)"
+assert_contains "$WORK/authserver.service" "ExecStopPost=+/bin/sh -c 'i=0; while" "ExecStopPost holds the deactivation (F3)"
+assert_contains "$WORK/authserver.service" 'ActiveState --value setjoin-authserverd.service)" = deactivating' "while authserverd is still deactivating"
+assert_contains "$WORK/authserver.service" '${AUTHSERVER_GO_UPSTREAM}/health' "readiness reaches authserverd (F7)"
+assert_contains "$WORK/authserver.service" '/_setjoin/readiness")" = 404 ]' "readiness requires Go's 404 through setjoin-auth (N1)"
+assert_not_contains "$WORK/authserver.service" "auth/login" "readiness sends no credential request (N1)"
+assert_contains "$WORK/authserver.service" "User=setjoin" "auth unit defaults USER to setjoin"
+assert_contains "$WORK/authserver.service" "Group=setjoin" "auth unit defaults GROUP to setjoin"
 assert_not_contains "$WORK/authserver.service" "{{" "no leftover {{...}} placeholders (authserver.service)"
 assert_unit_section_has_startlimit "$WORK/authserver.service" "authserver.service: StartLimit* lives in [Unit] (rendered)"
 _cfg_line="$(grep -n '^EnvironmentFile=/etc/setjoin/config.env$' "$WORK/authserver.service" | cut -d: -f1)"
-_cred_line="$(grep -n '^EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env$' "$WORK/authserver.service" | cut -d: -f1)"
 _auth_line="$(grep -n '^EnvironmentFile=/etc/setjoin/auth.env$' "$WORK/authserver.service" | cut -d: -f1)"
-if [ -n "$_cfg_line" ] && [ -n "$_cred_line" ] && [ -n "$_auth_line" ] \
-   && [ "$_cfg_line" -lt "$_cred_line" ] && [ "$_cred_line" -lt "$_auth_line" ]; then
-  printf 'ok   - %s\n' "authserver unit: config.env < db-credentials < auth.env EnvironmentFile order (later wins)"
+if [ -n "$_cfg_line" ] && [ -n "$_auth_line" ] && [ "$_cfg_line" -lt "$_auth_line" ]; then
+  printf 'ok   - %s\n' "auth unit: config.env < auth.env (later wins)"
 else
-  printf 'FAIL - %s (cfg_line=%s cred_line=%s auth_line=%s)\n' "authserver unit: config.env < db-credentials < auth.env EnvironmentFile order" "$_cfg_line" "$_cred_line" "$_auth_line"
+  printf 'FAIL - %s (cfg_line=%s auth_line=%s)\n' "auth unit: config.env < auth.env" "$_cfg_line" "$_auth_line"
   fail=1
 fi
-
-for _var in INSTALL_DIR CONFIG_ENV AUTH_ENV DB_CREDENTIALS_FILE; do
+for _var in INSTALL_DIR CONFIG_ENV AUTH_ENV; do
   _saved="$(eval "echo \${$_var}")"
   unset "$_var"
   if render_authserver_unit "$AUTHSERVER_UNIT_TMPL" "$WORK/should-not-exist-12-$_var.service" 2>"$WORK/err12-$_var.txt"; then
@@ -444,6 +448,39 @@ for _var in INSTALL_DIR CONFIG_ENV AUTH_ENV DB_CREDENTIALS_FILE; do
     fail=1
   else
     printf 'ok   - %s\n' "render_authserver_unit fails loud on missing $_var"
+  fi
+  export "$_var=$_saved"
+done
+
+# ── Case 14b: render_authserverd_unit — transitional Go authserverd (#359b) ──
+export AUTHSERVERD_ENV="/etc/setjoin/authserverd.env"
+render_authserverd_unit "$SCRIPT_DIR/../setjoin-authserverd.service.template" "$WORK/setjoin-authserverd.service"
+assert_contains "$WORK/setjoin-authserverd.service" "ExecStart=/opt/setjoin/current/authserverd" "authserverd unit runs immutable current"
+assert_contains "$WORK/setjoin-authserverd.service" "PartOf=setjoin-auth.service" "authserverd follows setjoin-auth's stop/restart"
+assert_contains "$WORK/setjoin-authserverd.service" "BindsTo=setjoin-auth.service" "authserverd never runs without setjoin-auth (N2)"
+assert_not_contains "$WORK/setjoin-authserverd.service" "Before=setjoin-auth" "no ordering against setjoin-auth (F3)"
+assert_not_contains "$WORK/setjoin-authserverd.service" "After=network.target postgresql.service setjoin-auth" "no ordering against setjoin-auth (F3)"
+assert_contains "$WORK/setjoin-authserverd.service" "EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env" "authserverd keeps the worker tier (identity_links)"
+assert_contains "$WORK/setjoin-authserverd.service" "EnvironmentFile=/etc/setjoin/authserverd.env" "authserverd unit substitutes AUTHSERVERD_ENV"
+assert_not_contains "$WORK/setjoin-authserverd.service" "[Install]" "authserverd is pulled by setjoin-auth, never enabled alone"
+assert_not_contains "$WORK/setjoin-authserverd.service" "{{" "no leftover {{...}} placeholders (setjoin-authserverd.service)"
+assert_unit_section_has_startlimit "$WORK/setjoin-authserverd.service" "setjoin-authserverd.service: StartLimit* lives in [Unit] (rendered)"
+_cfg_line="$(grep -n '^EnvironmentFile=/etc/setjoin/config.env$' "$WORK/setjoin-authserverd.service" | cut -d: -f1)"
+_cred_line="$(grep -n '^EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env$' "$WORK/setjoin-authserverd.service" | cut -d: -f1)"
+_own_line="$(grep -n '^EnvironmentFile=/etc/setjoin/authserverd.env$' "$WORK/setjoin-authserverd.service" | cut -d: -f1)"
+if [ -n "$_cfg_line" ] && [ -n "$_cred_line" ] && [ -n "$_own_line" ] \
+   && [ "$_cfg_line" -lt "$_cred_line" ] && [ "$_cred_line" -lt "$_own_line" ]; then
+  printf 'ok   - %s\n' "authserverd unit: config.env < db-credentials < authserverd.env"
+else
+  printf 'FAIL - %s\n' "authserverd unit: config.env < db-credentials < authserverd.env"; fail=1
+fi
+for _var in INSTALL_DIR CONFIG_ENV AUTHSERVERD_ENV DB_CREDENTIALS_FILE; do
+  _saved="$(eval "echo \${$_var}")"
+  unset "$_var"
+  if render_authserverd_unit "$SCRIPT_DIR/../setjoin-authserverd.service.template" "$WORK/should-not-exist-14b-$_var.service" 2>/dev/null; then
+    printf 'FAIL - %s\n' "render_authserverd_unit must fail when $_var is unset"; fail=1
+  else
+    printf 'ok   - %s\n' "render_authserverd_unit fails loud on missing $_var"
   fi
   export "$_var=$_saved"
 done

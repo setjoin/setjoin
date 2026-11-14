@@ -17,7 +17,7 @@ printability. Its range data is recorded from the pinned Go 1.26.6 toolchain;
 it never follows the Rust host's Unicode version. F04 export HTTP records cover
 controls, nonprintable BMP/supplementary runes and malformed UTF-8 query bytes.
 
-`ResourceScope::User(actor)` (#406) represents mailbox-less authenticated user
+`ResourceScope::User(actor)` (#188) represents mailbox-less authenticated user
 transactions. Actor and scope are checked by the existing command lifecycle;
 mail commands continue requiring `ResourceScope::Mailbox(real_mailbox)`.
 

@@ -30,3 +30,5 @@ map `mailserver/internal/updater/testutil/rel1_{record,edges}_test.go` to the
 corresponding `record_{go,edges}_test.go.txt`, run `TestREL1Record`/`TestREL1Edges`
 in the CI image with `REL1_RECORD_DIR` pointing at an empty directory and
 `GOFREE_GO_SOURCE` set to the frozen full commit. Recordings refuse overwrite.
+
+Rust-only artifact class `setjoin-auth` → `core_setjoin_auth` (#359b). Frozen Go maps it to the empty target and rejects such manifests; no Go updater is deployed. Recorded divergence: new capability, not parity.

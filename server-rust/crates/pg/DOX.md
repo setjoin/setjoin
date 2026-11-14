@@ -254,7 +254,7 @@ The real-socket `setjoin-smtp --test session reducer_error_projection_matches_fr
 oracle exercises these errors from PostgreSQL, including private diagnostics
 that must never appear on the SMTP wire.
 
-## Authentication-time user transactions (#331)
+## Authentication-time user transactions (#112)
 
 `ScopedExecutor::run_user_command` accepts an ActorId from a proved credential,
 an operation ID, one admitted SQL statement/reducer, and a pre-commit decoder.
@@ -319,7 +319,7 @@ actor cannot recover a receipt from the operation UUID. No user payload is
 stored. Ordinary executors retain their prior behavior. TOTP HTTP COMMIT cuts
 exercise absent/committed results, foreign-user isolation and disabled authority.
 
-## Mailbox-less user transactions (#406)
+## Mailbox-less user transactions (#188)
 
 The compatibility-named `MailboxAuthContext` can also carry a verified user with
 `mailbox_optional() == None` and `ResourceScope::User(actor)`. Only the auth boundary
@@ -335,19 +335,19 @@ command guards assert `$2 > 0`; receipts, authority checks, rollback and Unknown
 COMMIT behavior remain in the same executor/lifecycle. HTTP guest Chat/Meet/Drive
 recordings exercise reads and reducer-refused writes without mailbox rows.
 
-`audit_console_denied` (#406) executes one canonical `audit_write` statement with
+`audit_console_denied` (#188) executes one canonical `audit_write` statement with
 trusted before-state JSON and a verified ActorId. As in Go's WriteSystem callback,
 user_id/IP/target_id remain NULL; actor email, target and missing permission are
 before_state, target type is console, notes is the Go path, tier is core. Audit
 failure remains best effort and never grants access or changes the denial.
 
-`protocol_query` (#420) is the returned-row form of the existing best-effort
+`protocol_query` (#202) is the returned-row form of the existing best-effort
 `protocol_statement` authentication seam. Fixed SQL only, same request pool,
 unnamed statement, deadline/cancellation behavior; callers supply verified
 principal IDs. Threat rate counters and the scoped device reducer consume its
 result. It grants no request-derived identity or success after query loss.
 
-Revocation snapshot cancellation (#420): `active_session_revocations` owns its
+Revocation snapshot cancellation (#202): `active_session_revocations` owns its
 PostgreSQL driver with a drop guard. A cancelled/timed-out snapshot sends a
 bounded CancelRequest and aborts the driver, including during IMAP cold-start
 retry/shutdown. Successful reads disarm cancellation before graceful close.

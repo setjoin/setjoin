@@ -54,6 +54,7 @@ configuration error is an evidence failure, not a clean result.
   test with serial groups for docker/fixed-port/`/dev/shm` binaries; on a dev host `LANE_MODE=serial` is the
 - Upgrade contract guard: `bash scripts/check-upgrade-contracts.sh`
 - HTTP socket activation on a root/systemd host: `python3 scripts/test-gateway-systemd.py <built-setjoin-gateway>`
+- Auth chain lifecycle on a root/systemd host (#359b; CI checks only the unit text): `python3 scripts/test-auth-chain-systemd.py`
   (temporary `gofree-t13-*` units; checks capability-empty execution and queued
   connections during restart; public TLS/installer handover is not covered).
 - Installer front door (#264): `bash mailserver/deploy/scripts/test-install-front-door.sh [<built-setjoin-gateway>]`

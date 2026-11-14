@@ -35,7 +35,7 @@ worker inside its own named container. Run `python3 .../gateway-config/catalog.p
 to generate immutable reload projections and update only the gateway reload
 suite in route-catalog. The auth listener's reload suite remains separate.
 
-A JWT sent as a SCIM bearer retains the named #406 guest-belt handoff; the
+A JWT sent as a SCIM bearer retains the named #188 guest-belt handoff; the
 boot-registration probe uses an opaque invalid SCIM token. Reload's scoped
 `system.config` grant succeeds in Go. LDAP on-demand clients come from stored
 `ldap_sync_*` rows; Go's startup ReloadConfig clears an initial YAML worker
