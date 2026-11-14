@@ -124,7 +124,7 @@ if [[ "${LANE_QUICK:-}" == 1 ]]; then
     stress_args=(--failure-output immediate-final)
   fi
   for ((i = 0; i < ${LANE_BURN:-0}; i++)); do (while :; do :; done) & burn_pids+=("$!"); done
-  (cd server-rust && cargo nextest run --workspace --locked --offline --no-fail-fast --profile lane \
+  (cd server-rust && cargo nextest run --workspace --locked ${LANE_REPEAT:+} $([[ "${LANE_REPEAT:-1}" -gt 1 ]] || echo --offline) --no-fail-fast --profile lane \
     --tool-config-file "lane:$groups" -j "$LANE_JOBS" --color never --success-output never \
     "${stress_args[@]}" ${LANE_NEXTEST_FILTER:+-E "$LANE_NEXTEST_FILTER"}) 2>&1 | tee "$ART/lane.log"
   rc="${PIPESTATUS[0]}"
