@@ -65,8 +65,9 @@ runs:
         mkdir -p "$data"
         PW="$(openssl rand -hex 24)"
         echo "::add-mask::$PW"
+        export POSTGRES_PASSWORD="$PW"  # name-only -e below: the value never reaches argv
         docker run -d --name "$LANE_PG_CONTAINER" --label "setjoin-lane-run=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
-          -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD="$PW" -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
+          -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
           -e POSTGRES_INITDB_ARGS='--auth-host=scram-sha-256' --shm-size=1g -v "$data:/var/lib/postgresql/data" \
           -p "127.0.0.1:${LANE_PG_PORT}:5432" setjoin-lane-pg:17 \
           -c fsync=off -c synchronous_commit=off -c full_page_writes=off \

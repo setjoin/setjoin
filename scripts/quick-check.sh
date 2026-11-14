@@ -2,7 +2,7 @@
 # Quick check for agent branches (.github/workflows/quick-check.yml); CI-side, so nobody compiles Rust locally.
 #   quick-check.sh plan   write the changed workspace packages to $LANE_QC_OUT/packages.txt
 #   quick-check.sh run    cargo check --tests + cargo test --lib per package, cheap guards, rustfmt on added files
-# Env: LANE_QC_PACKAGES (space-separated override), LANE_QC_TESTS (extra cargo test filter args), LANE_QC_OUT (artifact dir).
+# Env: LANE_QC_PACKAGES (space-separated override), LANE_QC_TESTS (extra test name filters; option-like args rejected, zero executed tests = FAIL), LANE_QC_OUT (artifact dir).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -15,8 +15,8 @@ plan() {
     printf '%s\n' $LANE_QC_PACKAGES > "$OUT/packages.txt"
     return 0
   fi
-  git diff --name-only "$BASE...HEAD" > "$OUT/changed.txt" || : > "$OUT/changed.txt"
-  cargo metadata --locked --no-deps --format-version 1 --manifest-path server-rust/Cargo.toml 2>/dev/null |
+  git diff --name-only "$BASE...HEAD" > "$OUT/changed.txt" || { echo "quick-check plan: git diff failed" >&2; exit 1; }
+  cargo metadata --locked --no-deps --format-version 1 --manifest-path server-rust/Cargo.toml |
     python3 -c '
 import json, os, sys
 meta = json.load(sys.stdin)
@@ -28,7 +28,7 @@ if any(f in ("server-rust/Cargo.toml", "server-rust/Cargo.lock") or f.startswith
 else:
     hit = {n for n, d in dirs.items() if any(f == d or f.startswith(d + "/") for f in changed)}
 print("\n".join(sorted(hit)))
-' "$OUT/changed.txt" > "$OUT/packages.txt"
+' "$OUT/changed.txt" > "$OUT/packages.txt" || { echo "quick-check plan: cargo metadata failed" >&2; exit 1; }
 }
 
 SUMMARY="$OUT/summary.md"
@@ -61,7 +61,7 @@ run() {
     done
     for p in "${pkgs[@]}"; do
       # shellcheck disable=SC2086
-      step "cargo test --lib -p $p ${LANE_QC_TESTS:-}" bash -c 'cd server-rust && cargo test --locked -p "$1" --lib ${LANE_QC_TESTS:+-- $LANE_QC_TESTS}' _ "$p"
+      step "cargo test --lib -p $p ${LANE_QC_TESTS:-}" bash scripts/quick-check-tests.sh run "$p" ${LANE_QC_TESTS:-}
     done
   fi
   step "check-gofree-route-inventory" python3 scripts/check-gofree-route-inventory.py

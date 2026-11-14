@@ -46,7 +46,7 @@ async fn activated_sockets_are_served_by_the_runtime_on_the_shared_gate() {
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
     let gate = setjoin_threat::Gate::load(
         exec,
-        setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap(),
+        setjoin_threat::WorkerPools::from_dsn(&db.dsn).unwrap(),
         setjoin_threat::Config::default(),
         None,
     )
@@ -132,7 +132,7 @@ async fn disabled_admin_toggles_close_the_listeners() {
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
     let gate = setjoin_threat::Gate::load(
         exec,
-        setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap(),
+        setjoin_threat::WorkerPools::from_dsn(&db.dsn).unwrap(),
         setjoin_threat::Config::default(),
         None,
     )
