@@ -16,6 +16,10 @@ impl PushIdentity {
     pub fn has_device_binding(&self)->bool{self.claims.get("device").is_some_and(|v|!v.is_null())}
     /// Signed impersonation provenance (the acting admin's uid), if any.
     pub fn act(&self)->Option<i64>{self.claims.get("act").and_then(Value::as_i64)}
+    /// Whether the token carries a non-null `act` of any type (Go: present and non-null).
+    pub fn has_act(&self)->bool{self.claims.get("act").is_some_and(|v|!v.is_null())}
+    /// Whether the signed token carries `iat` (drive-scoped push admission does not require it).
+    pub fn has_issued_at(&self)->bool{self.claims.get("iat").is_some_and(|v|v.as_i64().is_some())}
     pub fn account_type(&self)->&str{if self.guest{"guest"}else{self.text("acct")}}
     pub fn user_id(&self) -> i64 {
         self.claims.get("uid").and_then(Value::as_i64).unwrap_or(0)
@@ -140,15 +144,16 @@ pub async fn http_admission_allowed(exec: &ScopedExecutor) -> bool {
     crate::gates::admission_allowed(exec, None).await
 }
 
+/// Durable twin of Go's process-local denylist; read failure kept distinct (#354).
+pub async fn revocation(exec: &ScopedExecutor, identity: &PushIdentity) -> Result<bool, setjoin_pg::StatementFailure> {
+    let (user, iat, jti, family) = (identity.user_id(), identity.issued_at() as f64, identity.token_id(), identity.token_family());
+    let rows = exec.read("SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
+        &[(&user,Type::INT8),(&iat,Type::FLOAT8),(&jti,Type::TEXT),(&family,Type::TEXT)]).await?;
+    Ok(rows[0].get::<_, bool>(0))
+}
 /// Durable twin of Go's process-local denylist; also closes the subscribe race.
 pub async fn revoked(exec: &ScopedExecutor, identity: &PushIdentity) -> bool {
-    let (user, iat, jti, family) = (
-        identity.user_id(),
-        identity.issued_at() as f64,
-        identity.token_id(),
-        identity.token_family(),
-    );
-    !exec.read("SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",&[(&user,Type::INT8),(&iat,Type::FLOAT8),(&jti,Type::TEXT),(&family,Type::TEXT)]).await.is_ok_and(|r|!r[0].get::<_,bool>(0))
+    revocation(exec, identity).await.unwrap_or(true)
 }
 
 impl PushIdentity {
@@ -232,5 +237,33 @@ impl PushIdentity {
             issued_at:self.issued_at(),token_id:self.token_id().into(),token_family:self.token_family().into(),
             acr:self.text("acr").into(),amr:strings("amr"),device_id:self.device_id().into(),
         })
+    }
+}
+
+#[cfg(test)]
+mod accessor_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn identity(claims: Value) -> PushIdentity {
+        PushIdentity { claims: claims.as_object().cloned().unwrap_or_default(), guest: true }
+    }
+
+    #[test]
+    fn has_act_is_true_for_any_non_null_type() {
+        for act in [json!(1), json!("admin"), json!(1.5), json!({}), json!([]), json!(true)] {
+            assert!(identity(json!({"act": act.clone()})).has_act(), "act {act}");
+        }
+        assert!(!identity(json!({"act": null})).has_act());
+        assert!(!identity(json!({})).has_act());
+    }
+
+    #[test]
+    fn has_issued_at_requires_an_integer() {
+        assert!(identity(json!({"iat": 12345})).has_issued_at());
+        for iat in [json!("12345"), json!(1.5), json!(null), json!({})] {
+            assert!(!identity(json!({"iat": iat.clone()})).has_issued_at(), "iat {iat}");
+        }
+        assert!(!identity(json!({})).has_issued_at());
     }
 }
