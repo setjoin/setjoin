@@ -50,4 +50,4 @@ No accepted divergences.
 
 SQL seam: `rust_mdm_policy.pg`, `rust_device_enroll_transition.pg` and the existing
 device lifecycle/wipe/RLS suites. MAM (#311), offline and MDM notify (#312), and
-request-time device/CAE gates (#405) remain outside this ticket.
+request-time device/CAE gates (#187) remain outside this ticket.

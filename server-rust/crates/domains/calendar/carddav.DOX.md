@@ -13,7 +13,7 @@ Oracle: `setjoin-gateway --test carddav`, with assigned owner/app DSNs and
 snapshots `feature.carddav` as Go does. A disabled bridge uses the native root
 mux (including website/SPA behavior); it never becomes a Go rollback.
 GAL visibility is a live flag.
-Shared Basic/Negotiate proof remains with #420/#339, as in CalDAV.
+Shared Basic/Negotiate proof remains with #355, as in CalDAV.
 
 Personal CardDAV reads use verified-user predicates through the owning mailbox.
 GET and PROPFIND reuse the CAL2 vCard serializer, retaining Go's projection and

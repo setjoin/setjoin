@@ -117,7 +117,7 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Rust JMAP native discovery (#316)](DOX.md#rust-jmap-native-discovery-316) — mailbox-only native registration scope parity.
 
 - [Rust JMAP Identity batch (#316)](DOX.md#rust-jmap-identity-batch-316) — atomic alias/user timestamp edits.
-- [Rust identity password login (#331)](DOX.md#rust-identity-password-login-331) — credential-fenced refresh mint and independent sign-in recording.
+- [Rust identity password login (#112)](DOX.md#rust-identity-password-login-112) — credential-fenced refresh mint and independent sign-in recording.
 
 - [Rust identity refresh (#332)](DOX.md#rust-identity-refresh-332) — fenced proposal validation and atomic linear rotation.
 
@@ -133,7 +133,7 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Rust recovery push (#336)](DOX.md#rust-recovery-push-336) — worker account lock and owned challenge verdict.
 - [Rust WebAuthn possession (#336)](DOX.md#rust-webauthn-possession-336) — UV management ceremonies under verified token scope.
 
-- [Rust OIDC Provider transactions (#339)](DOX.md#rust-oidc-provider-transactions-339) — scoped one-time code consumption and atomic refresh rotation.
+- [Rust OIDC Provider transactions (#120)](DOX.md#rust-oidc-provider-transactions-120) — scoped one-time code consumption and atomic refresh rotation.
 
 - [OIDC RP settlement (#340)](DOX.md#oidc-rp-settlement-340)
 

@@ -1153,7 +1153,7 @@ capability-empty service, restart and FTRL startup/live posture), and the existi
 TLS/IMAP/federation/lifecycle/rollback scripts. The rehearsal uses its own private
 resolv.conf mount and loopback DNS/S3/clamd peers; it changes no installed unit.
 
-## Native IMAP deployment (#420)
+## Native IMAP deployment (#202)
 
 When the installation has TLS_CERT/TLS_KEY, the renderer transfers configured
 IMAP_ADDR (default :143) and IMAP_TLS_ADDR (default :993) to systemd's optional

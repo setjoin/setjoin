@@ -1005,7 +1005,7 @@ Workers use the established worker credential; these wrappers add no grants.
 |----------|------|---------|----------------|----------------------|
 | `jmap_identity_set_batch` | jmap_identity_set_batch.sql | Atomic frozen-Go Identity/set create → update → destroy merge. Existing update owns alias scope and users.updated_at. | authenticated mailbox, create/update JSONB, destroy ids | none; user identity timestamp only |
 
-### Rust identity login (#331)
+### Rust identity login (#112)
 
 | Function | File | Purpose | Key Parameters | Notifies/State Bumps |
 |----------|------|---------|----------------|----------------------|
@@ -1061,12 +1061,12 @@ Workers use the established worker credential; these wrappers add no grants.
 |----------|------|---------|----------------|----------------------|
 | `boot_config_secret_apply` | boot_config_secret_apply.sql | Apply an authenticated startup EK01 batch under caller-held row locks; connector and named batches commit separately as frozen Go does. Invoker privileges. | JSON changes (key, sealed value, replacement/flag-only) | none beyond existing table triggers |
 
-### Rust OIDC Provider (#339)
+### Rust OIDC Provider (#120)
 
 | Function | File | Purpose | Key Parameters | Notifies/State Bumps |
 | --- | --- | --- | --- | --- |
 | `rust_identity_oidc_consume` | rust_identity_oidc_consume.sql | Frozen OP code SELECT FOR UPDATE + DELETE transaction; repeats hash, verified candidate owner and (#523) the presenting client, so another client cannot burn a code. PKCE/redirect checks stay after the committed consume. | credential-derived user, presented SHA-256 code hash | none |
-| `rust_identity_oidc_rotate` | rust_identity_oidc_rotate.sql | #339/#523 OP owned refresh lock, successor mint/hash and predecessor revocation in one transaction; successor inherits the refresh family and its 90-day absolute cap; takes the per-family advisory lock shared with reuse revocation | credential user/client/hash | none |
+| `rust_identity_oidc_rotate` | rust_identity_oidc_rotate.sql | #120/#523 OP owned refresh lock, successor mint/hash and predecessor revocation in one transaction; successor inherits the refresh family and its 90-day absolute cap; takes the per-family advisory lock shared with reuse revocation | credential user/client/hash | none |
 | `rust_identity_oidc_refresh_anchor` | rust_identity_oidc_lookup.sql | #525 DEFINER (worker-owned) refresh-grant anchor: the oidc_tokens row a presented refresh hash names, with spent/live flags; the credential-keyed read (oidc_tokens FORCE RLS is staged for the Go-deletion ticket, see sql/staged/) | presented SHA-256 refresh hash (derives user) | none |
 | `rust_identity_oidc_token_owner` | rust_identity_oidc_lookup.sql | #525 DEFINER owner of an access-token row (UserInfo, introspection); caller verifies the subject equals it | verified token id (derives user) | none |
 | `rust_identity_oidc_revoke_target` | rust_identity_oidc_lookup.sql | #525 DEFINER owner of an unrevoked token (refresh hash or id) of the authenticated client, for the revocation UPDATE | presented credential + client (derives user) | none |

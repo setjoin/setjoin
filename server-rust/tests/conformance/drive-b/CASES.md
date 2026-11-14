@@ -6,7 +6,7 @@ recordings are exclusive-create. Ordinary replay has no Go upstream.
 
 The inventory assigns 29 registrations here. Native-token issuance retains
 whole-request forwarding pending the shared Postgres signing-key implementation
-in identity #331; ARCH-027 requires this rather than an independent signer.
+in identity #112; ARCH-027 requires this rather than an independent signer.
 
 Each transferred route requires success, foreign caller and malformed input.
 Mutators also repeat. The authored cases follow these Go handlers:
@@ -54,7 +54,7 @@ owner connection and verify both audit chains plus chunk refcounts.
 Parity details: the audit-action catalog is visible to every authenticated
 caller; foreign search/version lists are empty rather than errors. Go's
 version list never populates `branchId` and always emits empty `labels`.
-Native-token is explicitly deferred to identity #331 under ARCH-027, with an
+Native-token is explicitly deferred to identity #112 under ARCH-027, with an
 executable exact-forwarding proof. No accepted behavioral divergences.
 
 The [coverage receipt](COVERAGE.md) records source, instrumentation, case counts

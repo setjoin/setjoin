@@ -58,7 +58,7 @@ Windows-epoch timestamp window and three permitted key/header combinations.
 Its native TLS request preserves Go's discovery headers and simple Unicode
 uppercase proof payload. Qualification retains the separate explicit paired
 hostname/private-CIDR exception; runtime proof discovery has no such exception.
-The request-scoped browser auth deferrals remain owned by identity #331–#333.
+The request-scoped browser auth deferrals remain owned by identity #112–#114.
 
 All canonical mutator observations validate complete business rows, audit
 chains, notifications and S3/provider effects. Only Rust operation receipts

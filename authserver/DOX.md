@@ -656,7 +656,7 @@ Authserver schema/reducers are covered by the combined mailserver pgTAP suite (w
 
 None.
 
-## Auth runtime recording (#420)
+## Auth runtime recording (#202)
 
 `cmd/authserverd/authrt_oracle_test.go` (`gofree_record`) observes the public
 rotated/OIDC cleanup ticks against AUTHRT_ORACLE_DIR/seed.sql in the assigned
