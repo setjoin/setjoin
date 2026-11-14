@@ -214,7 +214,7 @@ impl AuthServer {
     /// Order (Fable V2-2): verify, run the pipeline, claim only when it allows, so
     /// a rate-limited request consumes no used-set slot. A verified and claimed
     /// token runs `Skip` (Go: a solve skips the captcha/tarpit step); a token that
-    /// fails verification or its claim runs `TarpitOnly` and, if everything else
+    /// fails verification, is already claimed or loses the claim race runs `TarpitOnly` and, if everything else
     /// allows, gets 403 `captcha`. Every refusal first writes Go's attempt row
     /// (outcomes outside auth_attempts_outcome_check write none).
     pub(super) async fn threat_admit(
@@ -248,7 +248,12 @@ impl AuthServer {
                 .map_or(&[][..], |v| v.as_bytes());
             let now = captcha::now();
             let verified = captcha::verify(secret, token, answer, &binding, now);
-            let step = if verified.is_some() {
+            // A token already claimed (replay, or a full set) is a failed token before
+            // the pipeline, so it keeps the tarpit like any other failed check.
+            let step = if verified
+                .as_ref()
+                .is_some_and(|(mac, _)| !self.captcha_used.unclaimable(mac, now))
+            {
                 CaptchaStep::Skip
             } else {
                 CaptchaStep::TarpitOnly

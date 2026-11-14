@@ -2436,8 +2436,9 @@ async fn native_bound_captcha_token_admits_once_and_only_where_bound() {
         server.close().await;
         let statuses: Vec<u16> = statuses.into_iter().collect::<Result<_, _>>()?;
         // Wrong IP (a fresh address: 403 captcha), wrong route and wrong username
-        // (failed tokens keep the tarpit: 429), the solve (200), the replay (403).
-        if statuses != [403, 429, 429, 200, 403] {
+        // (failed tokens keep the tarpit: 429), the solve (200), the replay (a failed
+        // claim keeps the tarpit: 429, never an immediate 403).
+        if statuses != [403, 429, 429, 200, 429] {
             return Err(format!("wrong IP, route, username, solve, replay: {statuses:?}").into());
         }
         Ok::<_, Err>(())
