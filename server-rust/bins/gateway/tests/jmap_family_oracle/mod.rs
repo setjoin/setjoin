@@ -815,12 +815,13 @@ async fn observe_on(
                 ws_notify.push(format!("{channel} {payload}"));
             }
         }
-        if !ws_answers_match(&first.2, &text, case.scrub)? {
-            return Err(
-                format!("{}: WebSocket answer differs from HTTP: {text}", case.name).into(),
-            );
-        }
-        ws_replay = Some((ws_before, ws_after, ws_audit, ws_notify));
+        ws_replay = Some(WsObs {
+            before: ws_before,
+            after: ws_after,
+            audit: ws_audit,
+            notify: ws_notify,
+            response: text,
+        });
     }
     if !recording {
         let (_, _, metrics) = http(address, "GET", "/_gateway/metrics", None, "").await?;
@@ -866,23 +867,6 @@ async fn observe_on(
     }
     let scrub = Scrubber { replacements, ids };
 
-    if let Some((ws_before, ws_after, ws_audit, ws_notify)) = &ws_replay {
-        let scrubbed = |rows: &[String]| rows.iter().map(|r| scrub.apply(r)).collect::<Vec<_>>();
-        ws_replay_effects(
-            case.name,
-            ws_before,
-            ws_after,
-            &scrubbed(&audit),
-            &scrubbed(ws_audit),
-            &scrubbed(ws_notify),
-        )
-        .map_err(|diff| format!("{DIFF_PREFIX}{diff}"))?;
-    }
-    if denial {
-        raw_effects_unchanged(case.name, &before, &after)
-            .map_err(|diff| format!("{DIFF_PREFIX}{diff}"))?;
-    }
-
     let response = |r: &(u16, Value, String)| json!({"status": r.0, "headers": r.1, "body": scrub.apply(&r.2)});
     let mut effect_map = serde_json::Map::new();
     let mut effect_rows = Vec::new();
@@ -925,6 +909,24 @@ async fn observe_on(
         return Err(format!("{}: denial cases may not carry divergences", case.name).into());
     }
     let path = directory.join(format!("{}.json", case.name));
+    let golden_doc: Option<Value> = match std::fs::read(&path) {
+        Ok(bytes) => Some(serde_json::from_slice(&bytes)?),
+        Err(_) => None,
+    };
+    validate_observations(
+        case.name,
+        denial,
+        case.scrub,
+        &scrub,
+        golden_doc.as_ref().map(|doc| &doc["observation"]),
+        &HttpObs {
+            before: &before,
+            after: &after,
+            audit: &audit,
+            response: &first.2,
+        },
+        ws_replay.as_ref(),
+    )?;
     let row_path = directory.join(format!("{}-row-effects.json", case.name));
     if recording && !path.exists() {
         std::fs::create_dir_all(&directory)?;
@@ -949,10 +951,6 @@ async fn observe_on(
     if expected["kind"] != case.kind {
         return Err(format!("{}: golden kind differs from the case kind", case.name).into());
     }
-    if golden_says_no_effects(&expected["observation"]) {
-        raw_effects_unchanged(case.name, &before, &after)
-            .map_err(|diff| format!("{DIFF_PREFIX}{diff}"))?;
-    }
     golden::compare_reviewed(
         &route,
         case.name,
@@ -967,6 +965,65 @@ async fn observe_on(
             .map_err(|diff| format!("{DIFF_PREFIX}row effects: {diff}"))?;
     }
     println!("GOLDEN-REPLAY: {route} :: {}", case.name);
+    Ok(())
+}
+
+/// What the HTTP (or native-transport) request observed.
+struct HttpObs<'a> {
+    before: &'a [(String, String)],
+    after: &'a [(String, String)],
+    /// Unscrubbed audit rows.
+    audit: &'a [String],
+    response: &'a str,
+}
+
+/// What the WebSocket replay of the same call observed (unscrubbed).
+struct WsObs {
+    before: Vec<(String, String)>,
+    after: Vec<(String, String)>,
+    audit: Vec<String>,
+    notify: Vec<String>,
+    response: String,
+}
+
+/// The one validation every real case and every self-test runs after the
+/// observations are collected: WebSocket effects and answers, then raw
+/// no-effect equality for denial kinds and for goldens that record no effect.
+fn validate_observations(
+    case: &str,
+    denial: bool,
+    rules: &[(&str, &str)],
+    scrub: &Scrubber,
+    golden: Option<&Value>,
+    http: &HttpObs,
+    ws: Option<&WsObs>,
+) -> Result<(), String> {
+    let diff = |text: String| format!("{DIFF_PREFIX}{text}");
+    if let Some(ws) = ws {
+        let scrubbed = |rows: &[String]| rows.iter().map(|r| scrub.apply(r)).collect::<Vec<_>>();
+        ws_replay_effects(
+            case,
+            &ws.before,
+            &ws.after,
+            &scrubbed(http.audit),
+            &scrubbed(&ws.audit),
+            &scrubbed(&ws.notify),
+        )
+        .map_err(diff)?;
+        match ws_answers_match(http.response, &ws.response, rules) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(diff(format!(
+                    "{case}: WebSocket answer differs from HTTP: {}",
+                    ws.response
+                )))
+            }
+            Err(error) => return Err(diff(format!("{case}: unreadable answer: {error}"))),
+        }
+    }
+    if denial || golden.is_some_and(golden_says_no_effects) {
+        raw_effects_unchanged(case, http.before, http.after).map_err(diff)?;
+    }
     Ok(())
 }
 
@@ -1022,21 +1079,16 @@ fn ws_replay_effects(
     Ok(())
 }
 
-/// Every method response (name and arguments) must match across transports.
+/// Every complete method-response tuple (name, arguments and call id) must
+/// match across transports; the replay sends the original method calls.
 fn ws_answers_match(http: &str, ws: &str, scrub: &[(&str, &str)]) -> Result<bool, BoxError> {
     let pick = |raw: &str| -> Result<Vec<Value>, BoxError> {
         let mut value: Value = serde_json::from_str(raw)?;
         mask(&mut value, scrub);
-        let mut calls = value["methodResponses"]
+        Ok(value["methodResponses"]
             .as_array()
             .cloned()
-            .unwrap_or_default();
-        for call in &mut calls {
-            if let Some(items) = call.as_array_mut() {
-                items.truncate(2);
-            }
-        }
-        Ok(calls)
+            .unwrap_or_default())
     };
     Ok(pick(http)? == pick(ws)?)
 }
@@ -1049,39 +1101,134 @@ mod harness_self_tests {
         vec![("row".into(), value.into())]
     }
 
+    const HTTP_ANSWER: &str = r#"{"methodResponses":[["a",{},"0"],["b",{"x":1},"1"]]}"#;
+
+    fn scrub() -> Scrubber {
+        Scrubber {
+            replacements: Vec::new(),
+            ids: Vec::new(),
+        }
+    }
+
+    fn ws_same(before: &[(String, String)]) -> WsObs {
+        WsObs {
+            before: before.to_vec(),
+            after: before.to_vec(),
+            audit: Vec::new(),
+            notify: Vec::new(),
+            response: HTTP_ANSWER.to_owned(),
+        }
+    }
+
+    /// Run the assembled validation the real cases run.
+    fn assemble(
+        denial: bool,
+        before: &[(String, String)],
+        after: &[(String, String)],
+        ws: Option<&WsObs>,
+    ) -> Result<(), String> {
+        validate_observations(
+            "c",
+            denial,
+            &[],
+            &scrub(),
+            None,
+            &HttpObs {
+                before,
+                after,
+                audit: &[],
+                response: HTTP_ANSWER,
+            },
+            ws,
+        )
+    }
+
+    fn rejected(result: Result<(), String>) {
+        let error = result.expect_err("the mutant must be rejected");
+        assert!(error.starts_with(DIFF_PREFIX), "{error}");
+    }
+
+    #[test]
+    fn clean_observations_are_accepted() {
+        let was = snap("n=1");
+        assert!(assemble(true, &was, &was, Some(&ws_same(&was))).is_ok());
+    }
+
     #[test]
     fn denial_timestamp_bump_mutant_is_rejected() {
         let before = snap(r#"{"updated_at":"2026-01-01 00:00:00"}"#);
         let after = snap(r#"{"updated_at":"2026-01-01 00:00:05"}"#);
-        // Scrubbed snapshots hide the bump; the raw check must not.
-        assert!(raw_effects_unchanged("c", &before, &after).is_err());
-        assert!(raw_effects_unchanged("c", &before, &before).is_ok());
+        rejected(assemble(true, &before, &after, None));
+        // Not a denial kind and no golden: the bump is not checked.
+        assert!(assemble(false, &before, &after, None).is_ok());
     }
 
     #[test]
     fn denial_uuid_swap_mutant_is_rejected() {
         let before = snap("11111111-1111-1111-1111-111111111111");
         let after = snap("22222222-2222-2222-2222-222222222222");
-        assert!(raw_effects_unchanged("c", &before, &after).is_err());
+        rejected(assemble(true, &before, &after, None));
+    }
+
+    #[test]
+    fn golden_no_effect_mutant_is_rejected() {
+        let quiet =
+            json!({"effects": {"r": {"before": "a", "after": "a"}}, "audit": [], "notify": []});
+        let before = snap("2026-01-01 00:00:00");
+        let after = snap("2026-01-01 00:00:05");
+        rejected(validate_observations(
+            "c",
+            false,
+            &[],
+            &scrub(),
+            Some(&quiet),
+            &HttpObs {
+                before: &before,
+                after: &after,
+                audit: &[],
+                response: HTTP_ANSWER,
+            },
+            None,
+        ));
     }
 
     #[test]
     fn websocket_write_mutant_is_rejected() {
         let was = snap("n=1");
-        let wrote = snap("n=2");
-        assert!(ws_replay_effects("c", &was, &wrote, &[], &[], &[]).is_err());
-        let row = vec!["admin {}".to_owned()];
-        assert!(ws_replay_effects("c", &was, &was, &[], &row, &[]).is_err());
-        assert!(ws_replay_effects("c", &was, &was, &[], &[], &["ch x".into()]).is_err());
-        assert!(ws_replay_effects("c", &was, &was, &row, &row, &[]).is_ok());
+        let mut ws = ws_same(&was);
+        ws.after = snap("n=2");
+        rejected(assemble(false, &was, &was, Some(&ws)));
+        let stamp = snap("2026-01-01 00:00:00");
+        let mut ws = ws_same(&stamp);
+        ws.after = snap("2026-01-01 00:00:05");
+        rejected(assemble(false, &stamp, &stamp, Some(&ws)));
+        let mut ws = ws_same(&was);
+        ws.audit = vec!["admin {}".to_owned()];
+        rejected(assemble(false, &was, &was, Some(&ws)));
     }
 
     #[test]
-    fn websocket_second_response_mutant_is_rejected() {
-        let http = r#"{"methodResponses":[["a",{},"0"],["b",{"x":1},"1"]]}"#;
-        let ws = r#"{"methodResponses":[["a",{},"0"],["b",{"x":2},"1"]]}"#;
-        assert!(!ws_answers_match(http, ws, &[]).unwrap());
-        assert!(ws_answers_match(http, http, &[]).unwrap());
+    fn websocket_notification_mutant_is_rejected() {
+        let was = snap("n=1");
+        let mut ws = ws_same(&was);
+        ws.notify = vec!["ch x".to_owned()];
+        rejected(assemble(false, &was, &was, Some(&ws)));
+    }
+
+    #[test]
+    fn websocket_wrong_response_mutants_are_rejected() {
+        let was = snap("n=1");
+        let mutants = [
+            r#"{"methodResponses":[["a",{},"0"],["b",{"x":2},"1"]]}"#,
+            r#"{"methodResponses":[["a",{},"wrong"],["b",{"x":1},"1"]]}"#,
+            r#"{"methodResponses":[["a",{}],["b",{"x":1},"1"]]}"#,
+            r#"{"methodResponses":[["a",{},"0"]]}"#,
+        ];
+        for answer in mutants {
+            let mut ws = ws_same(&was);
+            ws.response = answer.to_owned();
+            rejected(assemble(false, &was, &was, Some(&ws)));
+        }
     }
 
     #[test]
