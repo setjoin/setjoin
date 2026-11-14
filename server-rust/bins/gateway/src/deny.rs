@@ -16,7 +16,16 @@ pub(crate) async fn admit(
     r: &Request<Body>,
     scope: Scope,
 ) -> Result<setjoin_authz::Authorized, Refusal> {
-    setjoin_authz::admit(exec, keys, issuer, r.headers(), r.uri().path(), scope).await
+    setjoin_authz::admit(
+        exec,
+        keys,
+        issuer,
+        r.headers(),
+        r.method().as_str(),
+        r.uri().path(),
+        scope,
+    )
+    .await
 }
 
 /// Go's RequireAuth 401 (`mailserver/internal/middleware/auth.go:23-28`).

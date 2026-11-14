@@ -872,7 +872,7 @@ mod verify_detailed_tests {
 
     /// `path` is the raw request path; Go's handler path is derived from it as `admit` does.
     async fn detailed_at(claims: Value, header: Value, drive: bool, path: &str) -> Result<(), Refusal> {
-        let path = crate::go_url::mailserver_handler_path(path);
+        let path = crate::go_url::mailserver_handler_path("GET", path);
         let key = signing_key(1);
         let token = sign(&key, &header, &claims);
         verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive, path.as_deref())
@@ -925,14 +925,22 @@ mod verify_detailed_tests {
         let scoped = |scp: &str| with("scp", json!(scp));
         // Raw request paths; Go strips `/api` (main.go:5069-5093) and decodes like
         // url.URL.Path before chain.go:434 compares.
+        // Bare paths reach a handler only under apiPinnedPrefixes; unclean paths redirect.
         let cases: &[(&str, &str, bool)] = &[
-            ("admin", "/admin", true),
-            ("admin", "/admin/users", true),
+            ("admin", "/admin", false),
+            ("admin", "/admin/users", false),
+            ("jmap", "/jmap", true),
+            ("jmap", "/jmap/x", true),
+            ("admin", "/admin/migration/m365", true),
+            ("admin", "/api/x/../admin/users", false),
+            ("admin", "/api//admin/users", false),
+            ("admin", "/api%2Fadmin/users", false),
+            ("docs", "/api/docs", false),
             ("admin", "/api/admin/users", true),
             ("api/admin", "/api/admin/users", false),
             ("admin", "/api/admin", true),
             ("admin", "/api/admin/users/", true),
-            ("admin", "/admin/", true),
+            ("admin", "/admin/", false),
             ("admin", "/administrator", false),
             ("admin", "/api/administrator", false),
             ("admin", "/api/adm%69n/users", true),

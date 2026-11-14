@@ -374,6 +374,8 @@ where
     Fut: Future<Output = Result<(), BoxError>>,
 {
     let _serial = SERIAL.lock().await;
+    // `Db::for_case` prints the counted `CONFORMANCE-SKIP (reason=no-db case=…)` marker
+    // when no DSN is set and panics under REQUIRE_DB, so this return is never silent.
     let Some(db) = db(case) else { return };
     let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).expect("executor");
     let mut ctx = Ctx {
@@ -472,7 +474,7 @@ async fn run(
     path: &str,
     scope: Scope,
 ) -> Result<Authorized, Refusal> {
-    admit(&ctx.exec, keys, ISSUER, headers, path, scope).await
+    admit(&ctx.exec, keys, ISSUER, headers, "GET", path, scope).await
 }
 
 #[track_caller]
@@ -776,8 +778,9 @@ async fn zero_uid_cookie_with_basic_is_unserved_never_remapped() {
 
 /// A member `scp:drive` token is admitted exactly where Go's chain.go:434 admits it: on a
 /// drive handler path, on every scope, and never on another path. A `&&`->`||` mutant of
-/// `admit`'s `let drive = matches!(scope, Drive | DriveUser) && drive_path(path)` would
-/// admit it on a drive scope with the non-drive path.
+/// `admit`'s `drive_surface` (`matches!(scope, Drive | DriveUser) && <drive handler path>`) would
+/// admit it on a drive scope with the non-drive path. Requests Go answers before any
+/// handler (400, clean-path redirect, SPA) are off the Drive surface and refused.
 #[tokio::test]
 async fn member_drive_scope_token_is_admitted_only_on_a_drive_path() {
     scenario("member-drive-scp", |ctx| async move {
@@ -785,7 +788,14 @@ async fn member_drive_scope_token_is_admitted_only_on_a_drive_path() {
         let m = ctx.member().await?;
         let headers = bearer(&with(claims(m.user), "scp", json!("drive")));
         for scope in ALL_SCOPES {
-            for path in [PLAIN, DRIVE] {
+            for path in [
+                PLAIN,
+                DRIVE,
+                "/api/drive/a%zz",
+                "/api/drive/../drive/admit-test",
+                "/api%2Fdrive/admit-test",
+                "/drive/admit-test",
+            ] {
                 // Go accepts scp=drive wherever the handler path is /drive/... (the
                 // stripped /api/drive/...), on every scope (chain.go:434).
                 let what = format!("{scope:?} {path}: member scp:drive");
@@ -826,12 +836,19 @@ async fn scoped_token_is_admitted_on_its_go_handler_path_on_every_scope() {
             PLAIN,
             "/api/admit-test/sub",
             "/api/admit-test/",
-            "/admit-test",
             "/api/admit%2Dtest",
         ];
+        // Go reaches no handler for these (or a handler outside the scope): a bare
+        // unpinned path is the SPA/308, `/api` and dot segments redirect, `/api%2F...`
+        // misses the `/api/` mount, `%zz` is a 400.
         let off = [
+            "/admit-test",
             "/api/admit-test2",
             "/api",
+            "/api/other/../admit-test",
+            "/api//admit-test",
+            "/api%2Fadmit-test",
+            "/api/admit-test/a%zz",
             "/api/other",
             "/admit-testing",
             "/%61pi/admit-test",

@@ -132,10 +132,22 @@ pub fn claim_seconds(v: &serde_json::Value) -> Option<i64> {
         .or_else(|| v.as_f64().filter(|f| f.is_finite()).map(from_seconds))
 }
 
+/// `encoding/json` (decode.go:699-701, Go 1.26) field lookup for one object key against a
+/// struct field named `name`: `byExactName`, else `byFoldedName[foldName(key)]`. Every
+/// key that either finds selects the field, so the per-key exact-first rule never makes
+/// one spelling win over another: each matching member is decoded in input order and the
+/// last one wins. `foldName` maps a non-ASCII rune to the smallest rune of its
+/// `unicode.SimpleFold` orbit; no orbit of e/x/p/n/b/f/i/a/t holds a non-ASCII rune
+/// (checked with Go 1.26.6), so for these names folding is ASCII case-insensitivity.
+fn go_json_field_matches(key: &str, name: &str) -> bool {
+    key.eq_ignore_ascii_case(name)
+}
+
 /// Rewrites `exp`/`nbf`/`iat` in `claims` to what Go decodes from the signed payload of
-/// `token`: whole Unix seconds, or `null` for a nil date. Every occurrence of a key is
-/// decoded in order (Go fails on the first bad one; the last one wins), from the raw
-/// JSON text so number parsing is exact. `None` = Go rejects the token.
+/// `token`: whole Unix seconds, or `null` for a nil date. Every member whose key Go maps
+/// to the field (case-folded, [`go_json_field_matches`]) is decoded in order (Go fails on
+/// the first bad one; the last one wins), from the raw JSON text so number parsing is
+/// exact. `None` = Go rejects the token.
 pub fn normalize_token_claims(
     token: &str,
     claims: &mut serde_json::Map<String, serde_json::Value>,
@@ -145,7 +157,7 @@ pub fn normalize_token_claims(
     for key in ["exp", "nbf", "iat"] {
         let mut last = None;
         for (name, raw) in &entries {
-            if name == key {
+            if go_json_field_matches(name, key) {
                 last = Some(from_json(raw)?);
             }
         }
@@ -371,5 +383,35 @@ mod tests {
             Some(Some(serde_json::json!(12)))
         );
         assert_eq!(normalized(r#"{"sub":"x"}"#), Some(None));
+    }
+
+    #[test]
+    fn claim_keys_fold_case_like_go_encoding_json() {
+        // Go 1.26.6 json.Unmarshal into a struct with `json:"exp"`: {"EXP":5} -> 5;
+        // {"Exp":5,"exp":7} -> 7; {"exp":7,"EXP":5} -> 5; {"eXp":"x","exp":7} fails
+        // (NumericDate.UnmarshalJSON error aborts the decode).
+        let normalized = |payload: &str, key: &str| {
+            use base64::Engine;
+            let body = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload);
+            let mut claims = serde_json::from_str::<serde_json::Value>(payload)
+                .unwrap()
+                .as_object()
+                .cloned()
+                .unwrap();
+            normalize_token_claims(&format!("h.{body}.s"), &mut claims)
+                .map(|_| claims.get(key).cloned())
+        };
+        let n = |v: i64| Some(Some(serde_json::json!(v)));
+        assert_eq!(normalized(r#"{"EXP":5}"#, "exp"), n(5));
+        assert_eq!(normalized(r#"{"Exp":5,"exp":7}"#, "exp"), n(7));
+        assert_eq!(normalized(r#"{"exp":7,"EXP":5}"#, "exp"), n(5));
+        assert_eq!(normalized(r#"{"eXp":"x","exp":7}"#, "exp"), None);
+        assert_eq!(normalized(r#"{"NBF":"3","IaT":4.5}"#, "nbf"), n(3));
+        assert_eq!(normalized(r#"{"NBF":"3","IaT":4.5}"#, "iat"), n(4));
+        assert_eq!(normalized(r#"{"\u0045xp":6}"#, "exp"), n(6));
+        assert_eq!(
+            normalized(r#"{"expx":"bad","ex":"bad"}"#, "exp"),
+            Some(None)
+        );
     }
 }

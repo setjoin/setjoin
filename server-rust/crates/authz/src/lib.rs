@@ -238,8 +238,12 @@ impl Refusal {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope { Member, User, Drive, DriveUser }
 
-fn drive_path(path: &str) -> bool {
-    path == "/drive" || path.starts_with("/drive/") || path == "/api/drive" || path.starts_with("/api/drive/")
+/// The Drive adapters' surface: Go's Drive handlers see `/drive` or `/drive/...`
+/// ([`go_url::mailserver_handler_path`]). A request Go answers before any handler
+/// (400 for a malformed escape, a clean-path redirect, the SPA) is not on it.
+fn drive_surface(scope: Scope, handler_path: Option<&[u8]>) -> bool {
+    matches!(scope, Scope::Drive | Scope::DriveUser)
+        && handler_path.is_some_and(|p| p == b"/drive" || p.starts_with(b"/drive/"))
 }
 
 /// Go reads only the first Authorization value, case-sensitively (basic.go:27, kerberos.go:99).
@@ -271,13 +275,15 @@ pub fn credential(headers: &HeaderMap) -> Result<String, Refusal> {
 
 /// `authorize_request` and friends with the refusal class kept (#354).
 /// Order follows Go: credential, token validation, then live state reads.
-/// `path` is the raw request path; a scoped token is judged on the path Go's
-/// handler sees ([`go_url::mailserver_handler_path`], chain.go:434).
+/// `method` and `path` (raw) are the request's; a scoped token is judged on the path
+/// Go's handler sees ([`go_url::mailserver_handler_path`], chain.go:434). Where Go
+/// reaches no handler that path is `None`: a scoped token is refused and the request is
+/// off the Drive surface. Answering Go's 400/redirect/SPA itself is the router's job.
 pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
-    headers: &HeaderMap, path: &str, scope: Scope) -> Result<Authorized, Refusal> {
-    let drive = matches!(scope, Scope::Drive | Scope::DriveUser) && drive_path(path);
-    let handler_path = go_url::mailserver_handler_path(path);
+    headers: &HeaderMap, method: &str, path: &str, scope: Scope) -> Result<Authorized, Refusal> {
+    let handler_path = go_url::mailserver_handler_path(method, path);
     let handler_path = handler_path.as_deref();
+    let drive = drive_surface(scope, handler_path);
     let token = credential(headers)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| Refusal::Unavailable)?.as_secs_f64();
     // Signature + claim rules, bounded: a JWKS fetch stuck in flight is 503; an
@@ -522,6 +528,39 @@ mod admit_credential {
             );
         }
         map
+    }
+
+    /// The Drive surface (which admits `scp=drive`) follows the handler path Go reaches:
+    /// a malformed escape is Go's 400, a dot segment or `//` its clean-path redirect, a
+    /// bare unpinned `/drive/...` the SPA or the legacy 308 — none is on it.
+    #[test]
+    fn drive_surface_follows_the_go_handler_path() {
+        let on = |method: &str, raw: &str, scope: Scope| {
+            drive_surface(scope, go_url::mailserver_handler_path(method, raw).as_deref())
+        };
+        for scope in [Scope::Drive, Scope::DriveUser] {
+            for raw in ["/api/drive", "/api/drive/x", "/api/dr%69ve/x", "/api/drive%2Fx"] {
+                assert!(on("GET", raw, scope), "{scope:?} {raw}");
+            }
+            for raw in [
+                "/api/drive/a%zz",
+                "/api/drive/a%2",
+                "/api/drive/../drive/x",
+                "/api//drive/x",
+                "/api%2Fdrive/x",
+                "/drive/x",
+                "/drive",
+                "/api/drivex",
+                "/%61pi/drive/x",
+            ] {
+                for method in ["GET", "POST"] {
+                    assert!(!on(method, raw, scope), "{scope:?} {method} {raw}");
+                }
+            }
+        }
+        for scope in [Scope::Member, Scope::User] {
+            assert!(!on("GET", "/api/drive/x", scope), "{scope:?}");
+        }
     }
 
     #[test]
