@@ -251,6 +251,7 @@ jobs:
       DB_NAME: mailserver_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { fetch-depth: 0 } # check-architecture-r5-collisions.sh needs origin/main
       - uses: ./.github/actions/lane-setup
       # Provisioning copied from the retired xinchuang-ci.yml unit-tests job (same pinned versions): the guards
       # run on the host, and lane-setup only pulls the toolchain images.
@@ -292,7 +293,9 @@ jobs:
         working-directory: mailserver/webmail
         run: npm run build
       - name: Install cargo-deny for the Rust workspace policy
-        run: cargo install cargo-deny --locked --version 0.19.0
+        run: |
+          cargo install cargo-deny --locked --version 0.19.0
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH" # the license-policy test replaces CARGO_HOME
       - name: Point the guards at the lane Postgres
         # lane-setup exported PGPASSWORD for the postgres superuser on LANE_PG_PORT; check-guc-afterconnect reads DB_DSN.
         run: |
