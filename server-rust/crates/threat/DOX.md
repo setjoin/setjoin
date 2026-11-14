@@ -56,3 +56,5 @@ The OP oracle pins the same anonymous `agent|masked-IP` attempt metadata.
 
 `registry` (ProtocolSessionRegistry) and `tracker` (per-user ConnTracker) moved here from
 `setjoin-imap` (#501) so IMAP and SMTP submission share one implementation; IMAP re-exports them.
+
+`ip_rule_blocked` is the shared Go stepIPRules evaluation used by the protocol gate and the auth HTTP ingress (#342, #346).

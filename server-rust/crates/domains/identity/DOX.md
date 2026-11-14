@@ -406,3 +406,14 @@ its routes must not be mistaken for authserver aliases. Recorded qualification
 controls ON state, per registration, in the route inventory and catalog.
 [Transaction map and parity details](SELF_SERVICE.md);
 [HTTP/effect recording and replay](../../../tests/conformance/identity-self-service/README.md).
+
+## Guest invitation acceptance (#342)
+
+`guest_invite` runs on the auth worker credential (Go's workerPool). GET:
+discovery, then one user-scoped `rust_guest_invite_disclosure` (no receipt).
+POST: discovery, then the read reducer's guest->user->invite locks held through
+profile hashing and one token-bound `rust_guest_invite_accept_finish` write
+(receipted). Passwords over 72 bytes are never bound. Deadline/failure: 500 after
+acknowledged rollback or discarded connection, zero partial writes; lost COMMIT:
+500 plus X-Operation-ID. No notify (frozen Go emits none). `readiness` reports
+BYPASSRLS/reducer posture.

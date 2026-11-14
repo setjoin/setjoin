@@ -477,3 +477,16 @@ never carried them) and the callback's flow-cookie clears are Lax too; the sessi
 cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test `rp_oidclax`
 (callback with Lax-eligible cookies only); mutants `scripts/test-oidclax-mutants.py`.
 
+
+## Guest invitation acceptance (#342)
+
+`src/guest_invite.rs` mirrors frozen Go GET/HEAD/POST `/auth/guest-invite/accept`.
+The gateway alias adds its global CSRF gate and authLimit; the handler has no CSRF
+(the single-use token authorizes). Both methods share recovery's enumeration
+budget. POST: login's shared pending boundary (`src/http_threat.rs`, #420/#405,
+resolved by DELETE #142 together with login), Go's outer 1 MiB cap, native
+always-on `ip_rules` (Go's 403 bytes), strict closed JSON, and the `auth_attempts`
+postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
+the transaction settled (additive; per-class timing differs as in Go). Own
+two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
+missing reducers). Residuals: CAPTCHA header and username lockout (#346).

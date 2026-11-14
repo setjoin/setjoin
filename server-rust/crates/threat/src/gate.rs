@@ -221,18 +221,7 @@ impl Gate {
         if self.enabled("feature.threat_feed") {
             hits=tokio::time::timeout(Duration::from_secs(3),self.exec.read("SELECT COUNT(*) FROM (SELECT 1 FROM threat_feed_blocks WHERE cidr >>= $1::inet LIMIT 2) AS hits",&[(&meta.source_ip,Type::TEXT)])).await.ok().and_then(Result::ok).and_then(|r|r.first().map(|r|r.get(0))).unwrap_or(0);
         }
-        if tokio::time::timeout(
-            Duration::from_secs(3),
-            self.exec.read(
-                "SELECT action FROM ip_rules WHERE cidr >>= $1::inet ORDER BY action ASC LIMIT 1",
-                &[(&meta.source_ip, Type::TEXT)],
-            ),
-        )
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .is_some_and(|r| r.first().is_some_and(|r| r.get::<_, String>(0) == "block"))
-        {
+        if ip_rule_blocked(&self.exec, &meta.source_ip).await {
             return Decision::reject("ip_blocked");
         }
         if self.enabled("feature.geo_block")
@@ -481,6 +470,23 @@ impl ThreatGate for Gate {
         Box::pin(self.post_auth(m))
     }
 }
+/// Go stepIPRules (shared/threat/interceptor.go:652): first rule by action, 3 s
+/// bound, fail-open on error; `expires_at` is ignored exactly as Go does. Shared by
+/// the protocol gate and the auth HTTP ingress (#342, #346).
+pub async fn ip_rule_blocked(exec: &ScopedExecutor, source_ip: &str) -> bool {
+    tokio::time::timeout(
+        Duration::from_secs(3),
+        exec.read(
+            "SELECT action FROM ip_rules WHERE cidr >>= $1::inet ORDER BY action ASC LIMIT 1",
+            &[(&source_ip, Type::TEXT)],
+        ),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .is_some_and(|r| r.first().is_some_and(|r| r.get::<_, String>(0) == "block"))
+}
+
 pub fn mask_ip(ip: &str) -> String {
     let ip = ip
         .parse::<std::net::IpAddr>()
