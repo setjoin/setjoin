@@ -1637,10 +1637,41 @@ async fn captcha_header(ctx: &Ctx) -> Result<(), Err> {
     )
     .await?;
     server.close().await;
-    if reply.status != 200 {
+    // Go's always-mounted middleware (interceptor.go:412-418) rejects a token that
+    // fails verification with 403 before the handler, so the invite stays unused.
+    let want = "{\"captcha_prompt\":\"CAPTCHA verification failed\",\"error\":\"captcha\"}\n";
+    if reply.status != 403 || reply.body != want {
+        server.close().await;
         return Err(format!(
-            "captcha header (ignored like native login): {}",
-            reply.status
+            "bogus captcha header: {} {:?}",
+            reply.status,
+            reply.body
+        )
+        .into());
+    }
+    let rows: i64 = ctx
+        .c
+        .query_one(
+            "SELECT count(*) FROM auth_attempts WHERE source_ip='127.0.0.165'::inet AND outcome='captcha_needed'",
+            &[],
+        )
+        .await?
+        .get(0);
+    let (target, payload) = shape("POST", "success", &fx.token);
+    let again = request(
+        server.addr,
+        Ipv4Addr::new(127, 0, 0, 166),
+        "POST",
+        &target,
+        payload,
+        &[],
+    )
+    .await?;
+    server.close().await;
+    if rows < 1 || again.status != 200 {
+        return Err(format!(
+            "captcha_needed rows {rows}; later request without the header: {}",
+            again.status
         )
         .into());
     }
