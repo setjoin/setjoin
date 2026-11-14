@@ -235,8 +235,8 @@ pre-authentication writes: one autocommit statement each on the pool credential,
 no tenant scope, fixed SQL (`auth_event_log` insert with the IP cast through text
 to INET as Go's text parameter behaves; `app_passwords.last_used_at` and
 `users.last_login_at` guarded by the verified user and token hash). Callers
-ignore failures, as `pwhash.LogAuthEvent` does. Used by `setjoin-imap`; new
-protocol listeners (SMTP submission, DAV basic auth) reuse them.
+ignore failures, as `pwhash.LogAuthEvent` does. Called through
+`setjoin_authz::basic` (#355-0); new protocol listeners reuse that module.
 
 `ScopedExecutor::record_mailbox_audit` (#344) is the post-authentication twin: one
 autocommit `mailbox_audit_log` insert (mailbox and actor from the authenticated
