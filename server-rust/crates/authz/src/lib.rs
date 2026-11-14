@@ -533,6 +533,7 @@ mod admit_credential {
             ),
             (vec![("authorization", "Bearer é"), ("cookie", "access_token=valid")], Ok("é")),
             (vec![("cookie", "access_token=; access_token=B")], Err(Refusal::NoCredential)),
+            (vec![("cookie", "access_token; access_token=B")], Err(Refusal::NoCredential)),
             (vec![("cookie", "access_token=\"A\"")], Ok("A")),
             (vec![("cookie", "access_token=a\\b; access_token=B")], Ok("B")),
             (vec![("authorization", "Basic x"), ("cookie", "access_token=T")], Ok("T")),
