@@ -1,0 +1,13 @@
+{
+  "case": "ignored-query-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "none"
+    }
+  ],
+  "format": 1,
+  "go_source": "b9c1971f63927339cbead555e7bdc643e20a0482",
+  "route": "GET /setup/status"
+}
