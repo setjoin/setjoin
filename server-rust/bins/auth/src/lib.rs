@@ -1449,7 +1449,7 @@ impl AuthServer {
             .parse()
             .unwrap(),
         );
-        Self::threat_user(response, proof.user)
+        Self::threat_user(response, proof.user())
     }
 }
 
