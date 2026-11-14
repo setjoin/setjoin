@@ -67,6 +67,21 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
   findings. Non-blocking findings become follow-up issues; do not widen the ticket.
 - Gate the integration tip itself after several merges.
 
+## GitHub API usage
+
+The REST limit is 5,000 calls per hour per user account, shared by every token, login and machine; going over blocks every agent until the reset.
+
+1. Agents never poll GitHub (no `gh run watch`, no loops over `gh run view`, `gh api` or `gh issue list`). Wait for the one shared poller or a task notification.
+2. One shared poller per machine, not one per job: waiters read its cache, refreshed at most every ~100 s under a file lock.
+3. Use conditional requests: keep the `ETag` and send `If-None-Match`; a 304 is free.
+4. Read the rate-limit headers and back off: under 1,000 left poll every 5 min, under 200 every 15 min, after a 403/429 wait for the reset.
+5. An API error is never a result: retry later; never report a test, run or gate as failed because GitHub did not answer.
+6. Slow intervals: CI at least every 100 s, issue/label watchers at least every 180 s.
+7. Cache results per commit; fetch logs only on failure, filtered.
+8. Batch reads: one list call over many single calls; GraphQL (separate budget) for issues, labels and PR checks.
+9. `gh api rate_limit` is free: check it before a burst and after a 403.
+10. If the limit is still too small, use a GitHub App (its own limit); a second token for the same user does not help.
+
 ## Flake rule
 
 Re-run a failing test alone. Passes alone: flake, file it, re-gate once. Fails twice: real.
