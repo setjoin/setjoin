@@ -24,7 +24,7 @@ on:
         options: [none, authserverd]
         default: none
       extra_env:
-        description: Optional GOFREE_RECORD_*, GOFREE_ORACLE_* or GOFREE_VERIFY_* NAME=value lines (newline-separated)
+        description: Optional GOFREE_RECORD_*, GOFREE_ORACLE_* or GOFREE_VERIFY_* NAME=value lines (newline-separated); GOFREE_RECORD_AUTH_PRESET=off|threat|tarpit|ca selects Go's threat env (authserverd mode)
         default: ''
 
 permissions:
@@ -74,11 +74,17 @@ jobs:
           # Some recorders (drain) run `go test` on the current checkout, not a separate worktree, so the
           # recorded source is always this checkout: dispatch with the frozen ref instead.
           [[ -z "$GO_SOURCE_INPUT" || "$GO_SOURCE_INPUT" == "$head" ]] || { echo "::error::go_source $GO_SOURCE_INPUT is not the checked-out commit $head; dispatch this workflow on that ref"; exit 1; }
+          # GOFREE_RECORD_AUTH_PRESET (Go threat env, authserverd mode only): strict value, at most one line
+          preset_lines="$(printf '%s\n' "$GOFREE_REC_EXTRA" | grep -c '^GOFREE_RECORD_AUTH_PRESET=' || true)"
+          [[ "$preset_lines" -le 1 ]] || { echo "::error::GOFREE_RECORD_AUTH_PRESET given more than once"; exit 1; }
+          preset="$(printf '%s\n' "$GOFREE_REC_EXTRA" | sed -n 's/^GOFREE_RECORD_AUTH_PRESET=//p')"
+          [[ -z "$preset" || "$preset" =~ ^(off|threat|tarpit|ca)$ ]] || { echo "::error::GOFREE_RECORD_AUTH_PRESET must be off, threat, tarpit or ca"; exit 1; }
+          [[ -z "$preset" || "$preset" == off || "$GOFREE_REC_UPSTREAM" == authserverd ]] || { echo "::error::GOFREE_RECORD_AUTH_PRESET=$preset needs go_upstream=authserverd"; exit 1; }
           if [ "$GOFREE_REC_UPSTREAM" = authserverd ]; then
             # per-target Go config is only established for these auth oracles (oidc, rp, saml, push need their own presets)
             case "$GOFREE_REC_PACKAGE/$GOFREE_REC_TEST" in
-              setjoin-auth/oracle|setjoin-auth/token_oracle|setjoin-auth/mfa_oracle|setjoin-auth/webauthn_oracle) ;;
-              *) echo "::error::go_upstream=authserverd supports only setjoin-auth tests oracle, token_oracle, mfa_oracle, webauthn_oracle"; exit 1 ;;
+              setjoin-auth/oracle|setjoin-auth/token_oracle|setjoin-auth/mfa_oracle|setjoin-auth/webauthn_oracle|setjoin-auth/guest_invite_oracle|setjoin-auth/threat_oracle|setjoin-auth/device_proof_oracle|setjoin-auth/ca_issuance_oracle) ;;
+              *) echo "::error::go_upstream=authserverd supports only setjoin-auth tests oracle, token_oracle, mfa_oracle, webauthn_oracle, guest_invite_oracle, threat_oracle, device_proof_oracle, ca_issuance_oracle"; exit 1 ;;
             esac
           fi
           echo "GOFREE_GO_SOURCE=$head" >> "$GITHUB_ENV"

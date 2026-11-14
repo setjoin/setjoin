@@ -554,10 +554,15 @@ container) loads one disposable DB, sets `REQUIRE_DB=1`, `TEST_DB_DSN`/`DB_DSN`/
 `DB_APP_DSN`, `GOFREE_RESOURCE_PREFIX`, a created `GOFREE_RESOURCE_LEDGER` and runs
 `cargo test -p <package> --test <test> -- --test-threads=1 --skip mutant --skip fault`. Goldens are
 exclusive-create, so existing ones are only compared; new files, `git status --porcelain` and the
-diff upload as artifact `gofree-record` and are never committed; any modified or deleted tracked file (drain's recorder deletes before it records) fails the run after the upload. After recording, every new file must be JSON whose `go_source` fields equal the checked-out commit, so new oracles (#341, #342 and later) must stamp `GOFREE_GO_SOURCE` (older auth oracles hardcode a historical constant and fail this check for new cases). `*_LEARN` variables are rejected, a run needs at least one `GOLDEN-` line or new file, and all job-started containers are removed and verified. `go_upstream=authserverd` accepts only setjoin-auth `oracle`, `token_oracle`, `mfa_oracle` and `webauthn_oracle`. Input `go_upstream=authserverd` also
+diff upload as artifact `gofree-record` and are never committed; any modified or deleted tracked file (drain's recorder deletes before it records) fails the run after the upload. After recording, every new file must be JSON whose `go_source` fields equal the checked-out commit, so new oracles (#341, #342 and later) must stamp `GOFREE_GO_SOURCE` (older auth oracles hardcode a historical constant and fail this check for new cases). `*_LEARN` variables are rejected, a run needs at least one `GOLDEN-` line or new file, and all job-started containers are removed and verified. `go_upstream=authserverd` accepts only setjoin-auth `oracle`, `token_oracle`, `mfa_oracle`, `webauthn_oracle`, `guest_invite_oracle`, `threat_oracle`, `device_proof_oracle` and `ca_issuance_oracle` (targets may not exist yet). Input `go_upstream=authserverd` also
 builds `authserverd`, installs the synthetic `identity-login/keys.json` signing row, starts it on
 `127.0.0.1:47335` (host network, fixture DB only, ledgered, stopped always) and exports
 `GOFREE_RECORD_UPSTREAM` for auth-listener `*_oracle` targets.
+
+`extra_env` `GOFREE_RECORD_AUTH_PRESET` (strict `off|threat|tarpit|ca`, default `off`, authserverd mode only) sets Go's threat env in its 0600 env file:
+`off` and `ca` = the five `*_ENABLED=false` (`ca`: the oracle seeds CA DB toggles); `threat` = all five true, fixture `CAPTCHA_SECRET`,
+`GEO_BLOCK_COUNTRIES=US`, `GEOIP_DB_PATH=server-rust/tests/conformance/authzgates/us.mmdb`, `TRUSTED_PROXY_IP=127.0.0.1`, `THREAT_RATE_LIMIT_PER_MIN=3`,
+`THREAT_CAPTCHA_THRESHOLD=3`, `THREAT_SPRAY_MAX_USERS=3`; `tarpit` = `threat` with `CAPTCHA_ENABLED=false`, `THREAT_TARPIT_THRESHOLD=2`.
 
 ## Rust guard self-test
 
