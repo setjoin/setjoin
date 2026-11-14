@@ -344,7 +344,8 @@ The F21 route's no-mailbox oracle and native revoked/no-mailbox denial protect i
 non-empty `Bearer ` value is final (no cookie fallback, even when it is not UTF-8);
 otherwise the first valid `access_token` cookie (`token::presented_cookie`).
 Evaluation order follows Go: credential, then token validation (`verify_detailed`,
-one signature check, the refusal class named by the first rule tripped), then live
+one signature check for Member/Drive; User and DriveUser verify twice, a follow-up;
+the refusal class named by the first rule tripped), then live
 reads. Only `InvalidToken` is remapped to `AlternativeCredential`, and only when the
 first Authorization value is `Basic ` or `Negotiate `. `AlternativeCredential`,
 `Impersonation`, `Guest`, `NoPrimaryMailbox` and `MailboxBlocked` are never native

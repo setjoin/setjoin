@@ -16,8 +16,10 @@ impl PushIdentity {
     pub fn has_device_binding(&self)->bool{self.claims.get("device").is_some_and(|v|!v.is_null())}
     /// Signed impersonation provenance (the acting admin's uid), if any.
     pub fn act(&self)->Option<i64>{self.claims.get("act").and_then(Value::as_i64)}
+    /// Whether the token carries a non-null `act` of any type (Go: present and non-null).
+    pub fn has_act(&self)->bool{self.claims.get("act").is_some_and(|v|!v.is_null())}
     /// Whether the signed token carries `iat` (drive-scoped push admission does not require it).
-    pub fn has_issued_at(&self)->bool{self.claims.get("iat").is_some_and(|v|!v.is_null())}
+    pub fn has_issued_at(&self)->bool{self.claims.get("iat").is_some_and(|v|v.as_i64().is_some())}
     pub fn account_type(&self)->&str{if self.guest{"guest"}else{self.text("acct")}}
     pub fn user_id(&self) -> i64 {
         self.claims.get("uid").and_then(Value::as_i64).unwrap_or(0)

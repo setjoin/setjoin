@@ -289,7 +289,7 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
             Ok(Err(push::PushAuthError::Invalid)) => return Err(verified(&token, issuer, now, keys, headers, drive).await.err().unwrap_or_else(|| remap(headers, Refusal::InvalidToken))),
             Ok(Ok(identity)) => identity,
         };
-        if identity.act().is_some() { return Err(Refusal::Impersonation); }
+        if identity.has_act() { return Err(Refusal::Impersonation); }
         if identity.is_guest() {
             if !identity.has_issued_at() { return Err(Refusal::MissingIssuedAt); }
             if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None)).await.unwrap_or(false) {

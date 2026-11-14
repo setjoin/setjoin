@@ -228,6 +228,11 @@ impl Ctx {
 
     async fn prepare(&mut self) -> Result<(), BoxError> {
         let c = self.db.connect().await?;
+        // A killed earlier run may have left a revoked table: always start granted.
+        for table in TABLES {
+            c.batch_execute(&format!("GRANT SELECT ON public.{table} TO setjoin_app"))
+                .await?;
+        }
         self.registry = c
             .query_opt(
                 "SELECT row_to_json(s)::text FROM feature_toggle_registry_state s WHERE singleton",
@@ -235,6 +240,9 @@ impl Ctx {
             )
             .await?
             .map(|r| r.get(0));
+        if self.registry.is_none() {
+            return Err("the feature_toggle_registry_state singleton is missing at start".into());
+        }
         drop(c);
         self.sweep().await
     }
@@ -348,7 +356,12 @@ where
         .await;
     let cleanup = ctx.cleanup().await;
     match result {
-        Err(panic) => std::panic::resume_unwind(panic),
+        Err(panic) => {
+            if let Err(e) = cleanup {
+                eprintln!("cleanup after a panicking case {case} also failed: {e}");
+            }
+            std::panic::resume_unwind(panic)
+        }
         Ok(outcome) => {
             outcome.expect("case body");
             cleanup.expect("cleanup");
@@ -595,6 +608,29 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                 &format!("{scope:?} {path}: guest without iat"),
             );
         }
+        // A non-integer iat is not an issued-at; a non-integer act is still impersonation.
+        for scope in [Scope::User, Scope::DriveUser] {
+            for (label, bad) in [("string", json!("12345")), ("float", json!(1.5))] {
+                refused(
+                    run(&ctx, &keys, &bearer(&with(guest_claims(active), "iat", bad.clone())), PLAIN, scope).await,
+                    Refusal::MissingIssuedAt,
+                    &format!("{scope:?}: guest with {label} iat"),
+                );
+            }
+            for (label, act) in [("string", json!("admin")), ("float", json!(1.5)), ("object", json!({}))] {
+                refused(
+                    run(&ctx, &keys, &bearer(&with(guest_claims(active), "act", act)), PLAIN, scope).await,
+                    Refusal::Impersonation,
+                    &format!("{scope:?}: guest with {label} act"),
+                );
+            }
+        }
+        let drive_string_iat = with(with(guest_claims(active), "scp", json!("drive")), "iat", json!("12345"));
+        refused(
+            run(&ctx, &keys, &bearer(&drive_string_iat), DRIVE, Scope::DriveUser).await,
+            Refusal::MissingIssuedAt,
+            "guest drive token with string iat on a drive path",
+        );
         // The drive-scoped guest token without iat is parsed on a drive path and still refused.
         let drive_guest = without(with(guest_claims(active), "scp", json!("drive")), "iat");
         refused(
@@ -680,12 +716,27 @@ async fn fault_registry_singleton_missing_is_unavailable() {
             run(&ctx, &keys, &headers, PLAIN, Scope::Member).await,
             "control",
         );
+        let g = ctx.guest("active").await?;
+        let guest_headers = bearer(&guest_claims(g));
+        for scope in [Scope::User, Scope::DriveUser] {
+            admitted(
+                run(&ctx, &keys, &guest_headers, PLAIN, scope).await,
+                &format!("{scope:?} guest control"),
+            );
+        }
         ctx.drop_registry().await?;
         refused(
             run(&ctx, &keys, &headers, PLAIN, Scope::Member).await,
             Refusal::Unavailable,
             "registry singleton deleted",
         );
+        for scope in [Scope::User, Scope::DriveUser] {
+            refused(
+                run(&ctx, &keys, &guest_headers, PLAIN, scope).await,
+                Refusal::Unavailable,
+                &format!("{scope:?}: guest, registry singleton deleted"),
+            );
+        }
         Ok::<(), BoxError>(())
     })
     .await;
@@ -766,6 +817,37 @@ async fn fault_table_lock_past_the_bound_is_unavailable() {
             "the bound did not cut the wait: {:?}",
             started.elapsed()
         );
+        Ok::<(), BoxError>(())
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn fault_guest_revocation_lock_past_the_bound_is_unavailable() {
+    scenario("fault-guest-lock", |ctx| async move {
+        let keys = keys();
+        let g = ctx.guest("active").await?;
+        let headers = bearer(&guest_claims(g));
+        for scope in [Scope::User, Scope::DriveUser] {
+            admitted(
+                run(&ctx, &keys, &headers, PLAIN, scope).await,
+                &format!("{scope:?} control"),
+            );
+        }
+        ctx.lock("session_revocations").await?;
+        for scope in [Scope::User, Scope::DriveUser] {
+            let started = Instant::now();
+            refused(
+                run(&ctx, &keys, &headers, PLAIN, scope).await,
+                Refusal::Unavailable,
+                &format!("{scope:?}: guest, session_revocations locked past the bound"),
+            );
+            assert!(
+                started.elapsed() < setjoin_authz::precheck_timeout() + Duration::from_secs(5),
+                "the bound did not cut the wait: {:?}",
+                started.elapsed()
+            );
+        }
         Ok::<(), BoxError>(())
     })
     .await;

@@ -1603,6 +1603,86 @@ async fn cold_denylist_with_cae_matches_go() -> Result<(), BoxError> {
     }
 }
 
+/// #354 B0: unreadable durable revocation state fails closed natively (503, no Go hop)
+/// for a valid member token on a requires-session route, with CAE off.
+#[tokio::test]
+async fn unreadable_revocations_with_cae_off_is_503_without_go() -> Result<(), BoxError> {
+    let _serial = SERIAL.lock().await;
+    use futures_util::FutureExt;
+    use setjoin_conformance::fixture;
+    let db = Db::for_case("authzdefer-revocations-503").expect("assigned DB required");
+    let c = db.connect().await?;
+    let actor = fixture::account(&c, "authzdefer-rev503").await?;
+    let saved: bool = c
+        .query_one(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.cae_runtime'",
+            &[],
+        )
+        .await?
+        .get(0);
+    assert!(c
+        .query_one(
+            "SELECT has_table_privilege('setjoin_app','session_revocations','SELECT')",
+            &[]
+        )
+        .await?
+        .get::<_, bool>(0));
+    c.execute(
+        "UPDATE feature_toggles SET enabled=false WHERE key='feature.cae_runtime'",
+        &[],
+    )
+    .await?;
+    c.batch_execute("REVOKE SELECT ON session_revocations FROM setjoin_app")
+        .await?;
+    let result = std::panic::AssertUnwindSafe(async {
+        let native = Process::start(&db).await?;
+        let token = member_token(actor.user, false, &[], None);
+        let response = send(
+            native.address,
+            Request::builder()
+                .method("GET")
+                .uri("/api/me/approvals")
+                .header("host", "mail.test")
+                .header("authorization", format!("Bearer {token}"))
+                .header("x-request-id", "authzdefer-rev503")
+                .body(full("{}"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(response.status(), 503);
+        let body = String::from_utf8(body_bytes(response).await.to_vec())?;
+        assert!(body.contains("service unavailable"), "{body}");
+        assert_zero_proxy(native.address).await?;
+        Ok::<_, BoxError>(())
+    })
+    .catch_unwind()
+    .await;
+    let restore = async {
+        c.batch_execute("GRANT SELECT ON session_revocations TO setjoin_app")
+            .await?;
+        c.execute(
+            "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.cae_runtime'",
+            &[&saved],
+        )
+        .await?;
+        fixture::remove(&c, &actor).await?;
+        Ok::<_, BoxError>(())
+    }
+    .await;
+    match result {
+        Ok(value) => {
+            restore?;
+            value
+        }
+        Err(panic) => {
+            if let Err(e) = restore {
+                eprintln!("restore after panic failed: {e}");
+            }
+            std::panic::resume_unwind(panic)
+        }
+    }
+}
+
 #[tokio::test]
 async fn csrf_ordering_and_origin_shapes_match_go() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
