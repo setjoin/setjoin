@@ -501,7 +501,8 @@ The summary and `--keep-going` failures are in manifest order, named
 Images: `.github/workflows/ci-images.yml` (only workflow with `packages: write`, job-scoped; runs on
 same-repo pull requests, pushes to `main` and dispatch for `.github/ci/**` changes, never on fork pull
 requests; `images.lock` is excluded from its path filter to avoid a digest loop; the lane's `plan`
-job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images and mirrors tag-referenced third-party images to
+job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images, the protocol interop client images
+(`scripts/build-interop-images.sh`: `setjoin-interop-imap`, `-smtp`, `-ldap`; tests never build images) and mirrors tag-referenced third-party images to
 `ghcr.io/setjoin`, printing `.github/ci/images.lock`; `.github/actions/lane-setup` pulls exactly
 those digests (and refuses `PLACEHOLDER` lines). The GHCR packages must be public. Fork pull
 requests get a read-only token and no secrets (the lane needs none); caches are saved only from

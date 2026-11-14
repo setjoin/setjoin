@@ -1,8 +1,9 @@
 //! A third-party IMAP client (CPython `imaplib`) runs in a container derived from
 //! the existing `test-imap` image and exercises the Rust sockets: plaintext
-//! profile, STARTTLS and implicit TLS with CA verification. The images are owned
-//! PID-specific `gofree-imap1-interop-*` tags removed afterwards; the client
-//! container is named with that prefix, bounded and `--rm`. Docker is required,
+//! profile, STARTTLS and implicit TLS with CA verification. The client image is the pinned
+//! `setjoin-interop-imap:local` (`.github/ci/images.lock`, `scripts/build-interop-images.sh`), never
+//! built, tagged or removed here (#141); the client container is named
+//! `gofree-imap1-interop-client-*`, bounded and `--rm`. Docker is required,
 //! never skipped. Dovecot's own `imapc` client is not usable here: it insists on
 //! IMAP4rev1 in CAPABILITY, which frozen Go (and so Rust) deliberately does not
 //! advertise. Staged scope: login, capability, namespace, SELECT/EXAMINE;
@@ -12,23 +13,9 @@ use common::*;
 use std::{process::Command, sync::Arc};
 use tokio::{net::TcpListener, sync::watch};
 
-struct Image(String);
-impl Drop for Image {
-    fn drop(&mut self) {
-        let output = Command::new("docker")
-            .args(["image", "rm", "-f", &self.0])
-            .output()
-            .expect("remove owned interop image");
-        if !output.status.success() {
-            eprintln!(
-                "owned image cleanup failed: {}: {}",
-                self.0,
-                String::from_utf8_lossy(&output.stderr)
-            );
-            assert!(std::thread::panicking(), "owned image cleanup failed");
-        }
-    }
-}
+/// Pinned in `.github/ci/images.lock` and preloaded by the lane (`scripts/build-interop-images.sh`
+/// on a dev host); the test never builds, tags or removes images (#141).
+const IMAGE: &str = "setjoin-interop-imap:local";
 
 #[tokio::test]
 async fn test_imap_container_client_session() {
@@ -41,44 +28,6 @@ async fn test_imap_container_client_session() {
         serde_json::from_str(include_str!("../oracle/password-hashes.json")).unwrap();
     reset_fixture(&owner, &hashes).await;
     let pid = std::process::id();
-    let base = Image(format!("gofree-imap1-interop-base-{pid}"));
-    let image = Image(format!("gofree-imap1-interop-{pid}"));
-    let context = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../../mailserver/deploy/docker/test-imap"
-    );
-    let built = Command::new("docker")
-        .args(["build", "-q", "-t", &base.0, context])
-        .output()
-        .expect("docker is required for the interop suite");
-    assert!(
-        built.status.success(),
-        "docker build: {}",
-        String::from_utf8_lossy(&built.stderr)
-    );
-    // The derived layer only adds a Python runtime for the client script.
-    let mut derived = Command::new("docker")
-        .args(["build", "-q", "-t", &image.0, "-"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    {
-        use std::io::Write;
-        write!(
-            derived.stdin.take().unwrap(),
-            "FROM {}\nRUN apk add --no-cache python3\n",
-            base.0
-        )
-        .unwrap();
-    }
-    let derived = derived.wait_with_output().unwrap();
-    assert!(
-        derived.status.success(),
-        "derived build: {}",
-        String::from_utf8_lossy(&derived.stderr)
-    );
 
     let mut ports = Vec::new();
     let mut tasks = Vec::new();
@@ -91,7 +40,7 @@ async fn test_imap_container_client_session() {
         ));
     }
     let name = format!("gofree-imap1-interop-client-{pid}");
-    let image_name = image.0.clone();
+    let image_name = IMAGE.to_string();
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/interop_client.py");
     let ca = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -101,6 +50,8 @@ async fn test_imap_container_client_session() {
         Command::new("docker")
             .args([
                 "run",
+                "--pull",
+                "never",
                 "--rm",
                 "--name",
                 &name,

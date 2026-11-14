@@ -82,8 +82,9 @@ shutdown aborts/joins its sessions and sweeps only the IDs it registered.
 
 ## Container interop and shared webhooks
 
-`tests/interop.rs` builds the existing `test-smtp` image and a Python client
-layer. CPython smtplib sends real messages over plaintext and implicit TLS
+`tests/interop.rs` runs the pinned `setjoin-interop-smtp:local` image (the existing `test-smtp`
+image plus a Python client layer, `scripts/build-interop-images.sh`, `.github/ci/images.lock`; never
+built or removed by the test, #141). CPython smtplib sends real messages over plaintext and implicit TLS
 (CA verified), checks capabilities, refuses remote relay, and exercises dot
 stuffing. A real Postfix queue from that image also delivers through the native
 listener (all inet services removed, so the fixture binds no other host port).
