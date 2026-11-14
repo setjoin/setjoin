@@ -99,9 +99,35 @@ fn token_chars(t: &str) -> bool {
 pub async fn verify(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,false).await}
 /// Drive adapters only: the ordinary guard still refuses every scoped mirror.
 pub async fn verify_drive(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,true).await}
+
+/// [`verify`]/[`verify_drive`] with the refusal class kept (#354); one signature
+/// check. A token Go's registered-claim boundary rejects is `InvalidToken`; a
+/// token Go accepts but Rust does not serve is named by the first rule it trips.
+pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)
+    ->Result<Session,crate::Refusal>{
+    use crate::Refusal;
+    let claims=signed_claims(token,keys).await.ok_or(Refusal::InvalidToken)?;
+    if let Some(session)=session_from(&claims,issuer,now_unix,drive){return Ok(session);}
+    if claims_shape_ok(&claims).is_none() || !crate::legacy_jwt::registered(&claims,issuer,AUDIENCE,now_unix) {
+        return Err(Refusal::InvalidToken);
+    }
+    let scope=str_claim(&claims,"scp");
+    if str_claim(&claims,"typ")!="access" || (!scope.is_empty() && !(drive && scope=="drive")) {
+        return Err(Refusal::InvalidToken);
+    }
+    if claims.get("act").is_some_and(|v|!v.is_null()) {return Err(Refusal::Impersonation);}
+    if claims.get("iat").is_none_or(Value::is_null) {return Err(Refusal::MissingIssuedAt);}
+    if claims.get("uid").and_then(Value::as_i64).is_none_or(|u|u<=0) {return Err(Refusal::UnservedSubject);}
+    if str_claim(&claims,"acct")=="guest" {return Err(Refusal::Guest);}
+    Err(Refusal::InvalidToken)
+}
 async fn verify_scope(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)->Option<Session>{
     let claims = signed_claims(token, keys).await?;
-    let claims = &claims;
+    session_from(&claims, issuer, now_unix, drive)
+}
+
+/// The claim rules of [`verify`] over already signature-checked claims.
+fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool) -> Option<Session> {
     claims_shape_ok(claims)?;
 
     if claims.get("iss")?.as_str()? != issuer || issuer.is_empty() {
@@ -728,6 +754,11 @@ pub fn presented(headers: &hyper::HeaderMap) -> Option<String> {
     {
         return Some(token.to_owned());
     }
+    presented_cookie(headers)
+}
+
+/// The first valid `access_token` cookie (quoted values unwrapped; invalid pairs skipped).
+pub(crate) fn presented_cookie(headers: &hyper::HeaderMap) -> Option<String> {
     for line in headers.get_all("cookie") {
         let Ok(line) = line.to_str() else { continue };
         for pair in line.split(';') {
@@ -753,4 +784,102 @@ pub fn presented(headers: &hyper::HeaderMap) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod verify_detailed_tests {
+    use super::tests::{public_key, sign, signing_key, OneKey};
+    use super::*;
+    use crate::Refusal;
+    use serde_json::json;
+
+    const NOW: f64 = 1_800_000_000.0;
+
+    fn claims() -> Value {
+        json!({"uid": 7, "email": "a@x.test", "typ": "access", "jti": "j1", "fam": "f1",
+               "iss": "mailserver", "aud": ["mailserver-gateway"],
+               "iat": 1_799_999_000, "exp": 1_800_000_900})
+    }
+
+    fn es256() -> Value {
+        json!({"alg": "ES256", "kid": "k1", "typ": "JWT"})
+    }
+
+    fn with(k: &str, v: Value) -> Value {
+        let mut c = claims();
+        c[k] = v;
+        c
+    }
+
+    fn without(k: &str) -> Value {
+        let mut c = claims();
+        c.as_object_mut().unwrap().remove(k);
+        c
+    }
+
+    async fn detailed(claims: Value, header: Value, drive: bool) -> Result<(), Refusal> {
+        let key = signing_key(1);
+        let token = sign(&key, &header, &claims);
+        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive)
+            .await
+            .map(|_| ())
+    }
+
+    #[tokio::test]
+    async fn verify_detailed_names_the_refusal_class_in_go_rule_order() {
+        let act_without_iat = {
+            let mut c = without("iat");
+            c["act"] = json!(3);
+            c
+        };
+        let guest_without_iat = {
+            let mut c = without("iat");
+            c["acct"] = json!("guest");
+            c
+        };
+        let guest_uid_zero = {
+            let mut c = with("uid", json!(0));
+            c["acct"] = json!("guest");
+            c
+        };
+        let cases: Vec<(&str, Value, Value, bool, Result<(), Refusal>)> = vec![
+            ("valid", claims(), es256(), false, Ok(())),
+            ("act", with("act", json!(3)), es256(), false, Err(Refusal::Impersonation)),
+            ("act without iat", act_without_iat, es256(), false, Err(Refusal::Impersonation)),
+            ("no iat", without("iat"), es256(), false, Err(Refusal::MissingIssuedAt)),
+            ("acct guest", with("acct", json!("guest")), es256(), false, Err(Refusal::Guest)),
+            ("acct guest without iat", guest_without_iat, es256(), false, Err(Refusal::MissingIssuedAt)),
+            ("acct guest with uid 0", guest_uid_zero, es256(), false, Err(Refusal::UnservedSubject)),
+            ("uid 0", with("uid", json!(0)), es256(), false, Err(Refusal::UnservedSubject)),
+            ("uid absent", without("uid"), es256(), false, Err(Refusal::UnservedSubject)),
+            ("refresh typ", with("typ", json!("refresh")), es256(), false, Err(Refusal::InvalidToken)),
+            ("mfa_pending typ", with("typ", json!("mfa_pending")), es256(), false, Err(Refusal::InvalidToken)),
+            ("drive scope off a drive path", with("scp", json!("drive")), es256(), false, Err(Refusal::InvalidToken)),
+            ("drive scope on a drive path", with("scp", json!("drive")), es256(), true, Ok(())),
+            ("expired", with("exp", json!(1_800_000_000)), es256(), false, Err(Refusal::InvalidToken)),
+            ("wrong audience", with("aud", json!("other")), es256(), false, Err(Refusal::InvalidToken)),
+            ("unknown kid", claims(), json!({"alg": "ES256", "kid": "k2"}), false, Err(Refusal::InvalidToken)),
+        ];
+        for (name, claims, header, drive, expected) in cases {
+            assert_eq!(detailed(claims, header, drive).await, expected, "{name}");
+        }
+    }
+
+    struct Counted(VerifyingKey, std::sync::atomic::AtomicUsize);
+    impl KeySource for Counted {
+        async fn key(&self, _kid: &str) -> Option<VerifyingKey> {
+            self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(self.0)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_failed_token_costs_exactly_one_key_lookup() {
+        let key = signing_key(1);
+        let token = sign(&key, &es256(), &with("exp", json!(1_800_000_000)));
+        let keys = Counted(public_key(&key), Default::default());
+        let got = verify_detailed(&token, "mailserver", NOW, &keys, false).await;
+        assert_eq!(got.map(|_| ()), Err(Refusal::InvalidToken));
+        assert_eq!(keys.1.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
 }
