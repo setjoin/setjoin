@@ -11,6 +11,43 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 type Err = Box<dyn std::error::Error + Send + Sync>;
+
+/// #353: new captures stamp the dispatching commit (R0 provenance); replays read it back.
+fn recorded_source(golden: &std::path::Path, recording: bool) -> Result<String, Err> {
+    if golden.exists() {
+        let doc: Value = serde_json::from_str(&std::fs::read_to_string(golden)?)?;
+        return Ok(doc["go_source"].as_str().ok_or("golden without go_source")?.to_owned());
+    }
+    if !recording {
+        return Err(format!("missing golden {}", golden.display()).into());
+    }
+    let source = std::env::var("GOFREE_GO_SOURCE")?;
+    if source.len() != 40 || !source.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return Err("GOFREE_GO_SOURCE must be 40 lowercase hex".into());
+    }
+    Ok(source)
+}
+
+/// Fable 353-2: no case (and above all no Go recording) may run against a
+/// replaced is_guest_account. Restore from the reducer source, or fail hard.
+async fn guest_function_pristine(c: &tokio_postgres::Client) -> Result<(), Err> {
+    let def = |c: &tokio_postgres::Client| async move {
+        c.query_one("SELECT pg_get_functiondef('is_guest_account(bigint)'::regprocedure)", &[])
+            .await
+            .map(|r| r.get::<_, String>(0))
+    };
+    let ok = |d: &str| d.contains("SECURITY DEFINER") && d.contains("public.guest_accounts") && !d.contains("gofree_");
+    if ok(&def(c).await?) {
+        return Ok(());
+    }
+    c.batch_execute(include_str!("../../../../mailserver/sql/reducers/guest_account.sql")).await?;
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_idmfa1_guest_calls; DROP SEQUENCE IF EXISTS gofree_guest353_calls").await?;
+    if ok(&def(c).await?) {
+        Ok(())
+    } else {
+        Err("is_guest_account is not pristine after restore; refusing to run".into())
+    }
+}
 struct Server {
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
@@ -164,6 +201,15 @@ async fn seed(c: &tokio_postgres::Client, id: &str) -> Result<Seed, Err> {
         &[&bcrypt::hash("Foreign1!", 4)?, &b.user],
     )
     .await?;
+    c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&a.user])
+        .await?;
+    if id.starts_with("login-guest") {
+        c.execute(
+            "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status,expires_at) SELECT id,email,'inviter@idlogin1.test',$2,'active',CASE WHEN $3 THEN now()-interval '1 minute' END FROM users WHERE id=$1",
+            &[&a.user, &a.domain, &(id == "login-guest-expired")],
+        )
+        .await?;
+    }
     if id.starts_with("password-connector-") {
         // Frozen authserver warms only the local connector. An AD source row
         // still changes its local credential; CachedGet("ad") is empty.
@@ -403,6 +449,7 @@ async fn run_mutated(id: &str, mutation: Option<Mutation>) -> Result<(), Err> {
         &[],
     )
     .await?;
+    guest_function_pristine(&c).await?;
     let reset_markers: Vec<String> = c
         .query("SELECT token_hash FROM used_password_reset_tokens", &[])
         .await?
@@ -510,6 +557,9 @@ async fn run_mutated(id: &str, mutation: Option<Mutation>) -> Result<(), Err> {
         c.batch_execute(&format!("CREATE FUNCTION gofree_idlogin1_reject_mint() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RAISE EXCEPTION 'gofree-idlogin1 store fault' USING ERRCODE='23514'; END$$; CREATE TRIGGER gofree_idlogin1_reject_mint BEFORE INSERT ON oauth_tokens FOR EACH ROW WHEN (NEW.user_id={}) EXECUTE FUNCTION gofree_idlogin1_reject_mint()",s.a.user)).await?;
     }
     let result = run_case(id, &db, &c, &s, mutation).await;
+    c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&s.a.user])
+        .await?;
+    guest_function_pristine(&c).await?;
     if let Some(original) = notify_function {
         c.batch_execute(&original).await?;
     }
@@ -573,6 +623,15 @@ async fn run_case(
     ))?;
     if id.starts_with("password-connector-") {
         f["go_source"] = json!("af212c01cfcb9ed599ea9f7f297f1402682718f4");
+    }
+    if id.starts_with("login-guest") {
+        let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/conformance/identity-login/goldens")
+            .join(format!("{id}.json"));
+        f["go_source"] = json!(recorded_source(
+            &golden,
+            std::env::var("GOFREE_RECORD_UPSTREAM").is_ok()
+        )?);
     }
     let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
     if id == "login-hybrid" {
@@ -1241,6 +1300,7 @@ fn case<'a>(
         "login-case-fold"=>payload=json!({"EMAIL":s.email.to_uppercase(),"PASSWORD":"Password1!","uid":s.b.user,"mailbox_id":s.b.mailbox}).to_string(),
         "login-trailing-value"=>payload += " {}trailing ignored by first Decode",
         "login-repeat"=>count=2,
+        "login-guest-repeat"=>count=2,
         "login-lockout-disabled"=>count=11,
         "login-csrf-origin"=>headers.push(("origin","https://evil.idlogin1.test")),
         "login-csrf-fetch"=>headers.push(("sec-fetch-site","cross-site")),
@@ -1293,6 +1353,9 @@ case_test!(login_csrf_origin, "login-csrf-origin");
 case_test!(login_csrf_fetch, "login-csrf-fetch");
 case_test!(login_disabled, "login-disabled");
 case_test!(login_force_change, "login-force-change");
+case_test!(guest_login_ok, "login-guest-success");
+case_test!(guest_login_repeat, "login-guest-repeat");
+case_test!(guest_login_expired, "login-guest-expired");
 case_test!(policy_success, "policy-success");
 case_test!(policy_cross_tenant, "policy-cross-tenant");
 case_test!(policy_invalid_input, "policy-invalid-input");

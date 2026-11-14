@@ -609,6 +609,15 @@ pub(super) struct MfaTokens {
     pub(super) jti: String,
     pub(super) factors: Vec<String>,
 }
+/// Whether a completion mint may proceed for a guest principal. MFA completions
+/// mint `acct: guest` (Go issueTokensWithFactors). SSO refuses: Go P17
+/// (auth.go:1576-1589) never issues an SSO token to a guest row, and this is the
+/// mint-time belt behind identity/src/rp/account.rs:215-244.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum GuestMint {
+    Allow,
+    Refuse,
+}
 impl AuthServer {
     pub(super) async fn totp_completion_unported(&self, req: &Request<Body>) -> bool {
         if self.totp_threat_pending().await {
@@ -636,14 +645,28 @@ impl AuthServer {
         }
         false
     }
-    pub(super) async fn totp_guest(&self, session: &Session) -> bool {
-        self.exec
+    /// Go evaluateCompletionConditionalAccess → populateGuestCAScope (auth.go:2603,
+    /// 2499-2517): every factor completion resolves guest scope before domain
+    /// scope. An error, no row or a NULL is Go's 503 (a Scan failure). The value
+    /// only feeds CA, which forwards whole while on (#351).
+    pub(super) async fn completion_guest_scope(
+        &self,
+        user: i64,
+        path: &str,
+    ) -> Result<(), Response<Body>> {
+        let rows = self
+            .exec
             .read(
                 "SELECT is_guest_account($1)",
-                &[(&session.user(), setjoin_pg::Type::INT8)],
+                &[(&user, setjoin_pg::Type::INT8)],
             )
-            .await
-            .is_ok_and(|r| r[0].get::<_, bool>(0))
+            .await;
+        match rows {
+            Ok(rows) if rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()).is_some() => {
+                Ok(())
+            }
+            _ => Err(Self::failure(503, "conditional access context unavailable", path)),
+        }
     }
     pub(super) fn totp_secure(&self, req: &Request<Body>) -> bool {
         let (_, scheme) = Self::csrf_context(req);
@@ -668,22 +691,43 @@ impl AuthServer {
         family: Option<String>,
         factors: Option<Vec<String>>,
     ) -> Result<MfaTokens, Response<Body>> {
-        self.completion_tokens(user,path,family,factors.unwrap_or_else(||totp::factors(pending))).await
+        self.completion_guest_scope(user.user(), path).await?;
+        self.completion_tokens(
+            user,
+            path,
+            family,
+            factors.unwrap_or_else(|| totp::factors(pending)),
+            GuestMint::Allow,
+        )
+        .await
     }
     pub(super) async fn completion_tokens(
-        &self,user:&totp::CompletionUser,path:&str,family:Option<String>,factors:Vec<String>,
+        &self,user:&totp::CompletionUser,path:&str,family:Option<String>,factors:Vec<String>,guest_mint:GuestMint,
     )->Result<MfaTokens,Response<Body>> {
         let scope = user
             .scope(&self.exec)
             .await
             .map_err(|_| Self::failure(500, "authorization scope resolution failed", path))?;
-        match user.admission(&self.exec).await{
-            Ok((true,false))=>{},
-            Ok((false,_))=>return Err(Response::builder().status(409).header("content-type","application/problem+json").header("cache-control","no-store").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(path).body())).unwrap()),
-            Ok((_,true))=>return Err(Self::failure(503,"conditional access context unavailable",path)),// #406, preflight normally forwards before effects.
-            Err(login::AdmissionFailure::AccountType(_))=>return Err(Self::failure(500,"account type resolution failed",path)),
-            _=>return Err(Self::failure(500,"identity transition admission resolution failed",path))
-        }
+        let guest = match user.admission(&self.exec).await {
+            Ok((true, false)) => false,
+            Ok((true, true)) if guest_mint == GuestMint::Allow => true,
+            // Go P17 (auth.go:1576-1589): an SSO-resolved guest row never gets a
+            // token; mint-time belt behind identity/src/rp/account.rs:215-244.
+            Ok((true, true)) => {
+                return Err(Self::failure(503, "conditional access context unavailable", path))
+            }
+            Ok((false, _)) => return Err(Response::builder().status(409).header("content-type","application/problem+json").header("cache-control","no-store").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(path).body())).unwrap()),
+            Err(login::AdmissionFailure::AccountType(_)) => {
+                return Err(Self::failure(500, "account type resolution failed", path))
+            }
+            Err(_) => {
+                return Err(Self::failure(
+                    500,
+                    "identity transition admission resolution failed",
+                    path,
+                ))
+            }
+        };
         let family = family.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let jti =
             login::random_jti().map_err(|_| Self::failure(500, "token issue failed", path))?;
@@ -705,6 +749,9 @@ impl AuthServer {
         );
         if let Some(risk) = user.risk(&self.exec).await {
             access["risk"] = risk;
+        }
+        if guest {
+            access["acct"] = Value::from("guest");
         }
         let refresh = user.claims(
             "refresh",
@@ -799,9 +846,6 @@ impl AuthServer {
         let Some(pending) = self.totp_pending(token) else {
             return Self::failure(401, "invalid MFA token", &path);
         };
-        if self.totp_guest(&pending).await {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
-        } // #406 before effects.
         if input
             .get("dpop_jwk")
             .and_then(Value::as_object)
@@ -965,9 +1009,6 @@ impl AuthServer {
         if code.is_empty() || id.is_empty() {
             return Self::failure(400, "code and enrollment_id are required", &path);
         }
-        if self.totp_guest(&pending).await {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
-        } // #406 before effects.
         if input
             .get("dpop_jwk")
             .and_then(Value::as_object)
@@ -1201,9 +1242,6 @@ impl AuthServer {
         let Some(pending) = self.totp_pending(token) else {
             return Self::failure(401, "invalid MFA token", &path);
         };
-        if self.totp_guest(&pending).await {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
-        } // #406 before effects.
         if input
             .get("dpop_jwk")
             .and_then(Value::as_object)

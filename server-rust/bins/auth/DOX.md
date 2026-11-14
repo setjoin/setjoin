@@ -20,8 +20,7 @@ SIGINT/SIGTERM drain owned connections with Go's 30-second bound.
 The front door selects `rust-auth` for qualified entries using
 GATEWAY_RUST_AUTH_UPSTREAM. AUTHSERVER_GO_UPSTREAM is only for shapes not yet
 ported: stateful threat interception and device proof/trust (#420), conditional
-access/DPoP controls (#405), guest identity
-completion (#406), or federation (#339–#341).
+access/DPoP controls (#405), or federation (#339–#341).
 Forwarding happens before any effect and preserves the whole request/body. An
 unset upstream fails closed. Completed shapes have no return-to-Go flag.
 
@@ -45,7 +44,12 @@ through the shared authz clientip parser. Cookie Secure trust is unchanged;
 these two Go trust settings must not be conflated.
 The five X-Device proof headers select #420 before buffering/decoding. Ordinary
 login still resolves guest CA context before force-password/MFA, mirroring Go's
-fail-closed 503 even when conditional-access policies are disabled.
+fail-closed 503 even when conditional-access policies are disabled. Guest login and
+MFA/WebAuthn/push completion are native (#353). Only the access token carries `acct: guest`.
+A guest-scope lookup failure (error, no row or NULL) is Go's 503 `conditional access context
+unavailable`; a mint-time account-type failure is Go's 500. SSO completion keeps refusing guest
+rows (Go P17, `GuestMint::Refuse`). With CA or device trust not explicitly off, or on a flag read
+error, the whole request forwards before effects.
 The DB test common fixture installs the recorded synthetic Go key under the
 family advisory lock before listeners load, including fresh-schema runs. It
 never changes runtime key custody or the immutable recorded public key.
@@ -291,7 +295,7 @@ person/users fence. Unknown commits return an actor-bound opaque operation ID.
 Owner-approved security fix 2026-11-05 rejects counter regression and repeated
 login challenges through the atomic live-key claim reducer (including zero counters).
 Immutable Go captures and reviewed security expectations retain the divergence trail.
-Pending threat admission (#420), guest completion (#406) and
+Pending threat admission (#420) and
 DPoP/CA completion (#405) shapes retain their named upstream owner before writes.
 
 Public recovery begin (#336) snapshots the same startup feature mount as reset.

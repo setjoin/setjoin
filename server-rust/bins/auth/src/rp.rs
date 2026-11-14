@@ -349,7 +349,7 @@ impl AuthServer {
                     worker,
                     |family| async {
                         match self
-                            .completion_tokens(&user, path, Some(family), vec!["pwd".into()])
+                            .completion_tokens(&user, path, Some(family), vec!["pwd".into()], super::totp::GuestMint::Refuse)
                             .await
                         {
                             Ok(tokens) => {
@@ -390,7 +390,7 @@ impl AuthServer {
                 .await
         } else {
             let tokens = match self
-                .completion_tokens(&user, path, None, vec!["pwd".into()])
+                .completion_tokens(&user, path, None, vec!["pwd".into()], super::totp::GuestMint::Refuse)
                 .await
             {
                 Ok(t) => t,
