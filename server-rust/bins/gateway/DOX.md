@@ -854,6 +854,8 @@ only. HTTP/1 absolute-form requests without a Host header retain that absence,
 including the frozen SSE cookie-origin 403. The unchanged SSE golden and native
 TLS HTTP/2 authority test cover both wire shapes.
 
+The shared Gate uses an 8-connection request pool and two worker pools (8 check, 2 record) on DB_WORKER_DSN, and refuses boot if that credential cannot run the lockout accessors (#367; see crates/threat/DOX.md).
+
 ## Static and Assist leftovers (#417)
 
 `surface`, `assist`, `translate` and public `telemetry` share the existing
