@@ -88,10 +88,10 @@ Total: ~12 weeks from self-assessment to certificate issuance.
 
 ## 6. CI Pipeline
 
-The Xinchuang CI pipeline (`.github/workflows/xinchuang-ci.yml`) runs on every push to main
-and on PRs touching authserver, gateway, or shared code. It builds for arm64 and loong64
-architectures with QEMU user-mode smoke tests. The `compliance-check` job gates certification
-readiness — all artifacts must build and pass tests before submission.
+The legacy Go Xinchuang CI workflow (`xinchuang-ci.yml`) was removed; Go is being deleted (#142).
+Cross-arch evidence now comes from `.github/workflows/rust-floor.yml` (push to main and manual
+dispatch only: x86_64, aarch64 and loongarch64 glibc-floor builds), and the webmail merge gate
+runs in `.github/workflows/webmail.yml`. The structural guards run locally via `scripts/run-guards.sh`.
 
 ## 7. Post-Certification
 
