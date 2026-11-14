@@ -575,6 +575,23 @@ drive in-process fake upstreams by design); zero comes from the inventory and `F
 webmail Playwright e2e is outside the rehearsal (needs a deployed stack via `E2E_SERVER`, no hosted
 workflow); the front-door goldens cover its HTTP surface.
 
+## Frozen Go recording workflow
+
+`.github/workflows/gofree-record.yml` (#339) is `workflow_dispatch` only (`contents: read`,
+`packages: read`, never pull_request or push) and is deleted with Go (#142). Inputs: `package`,
+`test`, optional `case_filter`, `go_source` (empty or the dispatched ref's own commit: dispatch on the frozen ref, since recorders such as drain run `go test` on the checkout) and `extra_env`
+(allowlisted `GOFREE_RECORD_*|ORACLE_*|VERIFY_*` lines, e.g. `GOFREE_RECORD_DRAIN=all`). It builds
+`go build -cover ./mailserver/cmd/mailserverd` in `setjoin-ci-linux-tc`, exports
+`GOFREE_RECORD_GO_BINARY` and `GOFREE_GO_SOURCE`, and `scripts/gofree-record.sh` (in the lane
+container) loads one disposable DB, sets `REQUIRE_DB=1`, `TEST_DB_DSN`/`DB_DSN`/`DB_DIRECT_DSN`/
+`DB_APP_DSN`, `GOFREE_RESOURCE_PREFIX`, a created `GOFREE_RESOURCE_LEDGER` and runs
+`cargo test -p <package> --test <test> -- --test-threads=1 --skip mutant --skip fault`. Goldens are
+exclusive-create, so existing ones are only compared; new files, `git status --porcelain` and the
+diff upload as artifact `gofree-record` and are never committed; any modified or deleted tracked file (drain's recorder deletes before it records) fails the run after the upload. After recording, every new file must be JSON whose `go_source` fields equal the checked-out commit, so new oracles (#341, #342 and later) must stamp `GOFREE_GO_SOURCE` (older auth oracles hardcode a historical constant and fail this check for new cases). `*_LEARN` variables are rejected, a run needs at least one `GOLDEN-` line or new file, and all job-started containers are removed and verified. `go_upstream=authserverd` accepts only setjoin-auth `oracle`, `token_oracle`, `mfa_oracle` and `webauthn_oracle`. Input `go_upstream=authserverd` also
+builds `authserverd`, installs the synthetic `identity-login/keys.json` signing row, starts it on
+`127.0.0.1:47335` (host network, fixture DB only, ledgered, stopped always) and exports
+`GOFREE_RECORD_UPSTREAM` for auth-listener `*_oracle` targets.
+
 ## Rust guard self-test
 
 - `bash scripts/check-server-rust.sh --self-test` — proves the guard fires on a

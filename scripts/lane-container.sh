@@ -10,7 +10,7 @@ name="setjoin-lane-run-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-${LANE_J
 docker rm -f "$name" >/dev/null 2>&1 || true
 env_args=()
 for var in $(compgen -e); do
-  case "$var" in LANE_*|CARGO_*|SERVER_RUST_*|GOFREE_*|PGPASSWORD|PEBBLE_BIN|RUSTFLAGS|LLVM_PROFILE_FILE) env_args+=(-e "$var") ;; esac
+  case "$var" in LANE_*|GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT|CARGO_*|SERVER_RUST_*|GOFREE_*|PGPASSWORD|PEBBLE_BIN|RUSTFLAGS|LLVM_PROFILE_FILE) env_args+=(-e "$var") ;; esac
 done
 docker run --name "$name" --label "setjoin-lane-run=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}" \
   --network host --shm-size=2g --ulimit nofile=1048576:1048576 \
