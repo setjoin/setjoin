@@ -1,0 +1,121 @@
+name: gofree record
+
+# Records NEW Go-free oracle goldens from the frozen Go coverage binary (#339). Manual only:
+# no pull_request or push trigger. It never commits: new goldens come back as an artifact.
+# Deleted with Go (#142). Contract: server-rust/DOX.md#frozen-go-recording-workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Cargo package of the oracle (for example setjoin-gateway)
+        required: true
+      test:
+        description: Oracle integration test target (cargo --test)
+        required: true
+      case_filter:
+        description: Optional libtest case filter (empty = every case; existing goldens are only compared)
+        default: ''
+      go_source:
+        description: Frozen Go commit (40 hex) to build the coverage binary from (empty = this ref)
+        default: ''
+      go_upstream:
+        description: none = gateway-style recorders (GOFREE_RECORD_GO_BINARY); authserverd = start the covered Go authserver and set GOFREE_RECORD_UPSTREAM (auth-listener oracles)
+        type: choice
+        options: [none, authserverd]
+        default: none
+      extra_env:
+        description: Optional GOFREE_RECORD_*, GOFREE_ORACLE_* or GOFREE_VERIFY_* NAME=value lines (newline-separated)
+        default: ''
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: gofree-record
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_TERM_COLOR: never
+  CARGO_NET_RETRY: '5'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      LANE_JOB_TAG: record
+      GOFREE_REC_PACKAGE: ${{ inputs.package }}
+      GOFREE_REC_TEST: ${{ inputs.test }}
+      GOFREE_REC_FILTER: ${{ inputs.case_filter }}
+      GOFREE_REC_EXTRA: ${{ inputs.extra_env }}
+      GOFREE_REC_UPSTREAM: ${{ inputs.go_upstream }}
+      GO_SOURCE_INPUT: ${{ inputs.go_source }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Validate inputs
+        run: |
+          [[ "$GOFREE_REC_PACKAGE$GOFREE_REC_TEST" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::package and test must be [A-Za-z0-9_-]"; exit 1; }
+          [[ -z "$GOFREE_REC_FILTER" || "$GOFREE_REC_FILTER" =~ ^[A-Za-z0-9_:.-]+$ ]] || { echo "::error::bad case_filter"; exit 1; }
+          [[ -z "$GO_SOURCE_INPUT" || "$GO_SOURCE_INPUT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::go_source must be 40 hex"; exit 1; }
+          echo "GOFREE_GO_SOURCE=${GO_SOURCE_INPUT:-$(git rev-parse HEAD)}" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/lane-setup
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: lane
+          save-if: false
+      - name: Build the frozen Go coverage binary
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/go-frozen" out="$RUNNER_TEMP/go-bin"
+          git worktree add --detach "$src" "$GOFREE_GO_SOURCE"
+          mkdir -p "$out"
+          # setjoin-ci-linux-tc is also the image the oracle runs the binary in (same libc)
+          docker run --rm -v "$src:/src:ro" -v "$out:/out" -v "$LANE_CACHE/go-mod:/go-mod" -e GOMODCACHE=/go-mod \
+            -w /src setjoin-ci-linux-tc:local-amd64 \
+            go build -cover -o /out/mailserverd ./mailserver/cmd/mailserverd
+          echo "GOFREE_RECORD_GO_BINARY=$out/mailserverd" >> "$GITHUB_ENV"
+          if [ "$GOFREE_REC_UPSTREAM" = authserverd ]; then
+            docker run --rm -v "$src:/src:ro" -v "$out:/out" -v "$LANE_CACHE/go-mod:/go-mod" -e GOMODCACHE=/go-mod \
+              -w /src setjoin-ci-linux-tc:local-amd64 \
+              go build -cover -o /out/authserverd ./authserver/cmd/authserverd
+            echo "GOFREE_AUTHSERVERD_BINARY=$out/authserverd" >> "$GITHUB_ENV"
+            echo "GOFREE_AUTH_SRC=$src" >> "$GITHUB_ENV"
+          fi
+          echo "frozen Go source $GOFREE_GO_SOURCE"
+      - name: Record
+        run: bash scripts/lane-container.sh bash scripts/gofree-record.sh
+      - name: Remove any owned auth oracle container
+        if: always()
+        run: |
+          docker ps -aq --filter "label=org.setjoin.task=gofree-record-auth" --filter "name=gofree-rec-${GITHUB_RUN_ID}-" | xargs -r docker rm -f >/dev/null
+      - name: Collect new goldens and diff
+        if: always()
+        run: |
+          set -u
+          out=lane-artifacts/recorded
+          mkdir -p "$out"
+          git status --porcelain > lane-artifacts/git-status.txt
+          git add -N server-rust/tests 2>/dev/null || true
+          git diff > lane-artifacts/changes.diff || true
+          # new files are created exclusively; a modified tracked file is a harness bug: report it
+          git diff --name-only --diff-filter=M > lane-artifacts/modified-tracked.txt
+          git ls-files --others --exclude-standard server-rust | while IFS= read -r f; do mkdir -p "$out/$(dirname "$f")"; cp -p "$f" "$out/$f"; done
+          {
+            echo "### gofree record: ${GOFREE_REC_PACKAGE} --test ${GOFREE_REC_TEST} ${GOFREE_REC_FILTER}"
+            echo "- frozen Go source \`${GOFREE_GO_SOURCE}\`"
+            echo "- new files: $(git ls-files --others --exclude-standard server-rust | wc -l), modified tracked files: $(wc -l < lane-artifacts/modified-tracked.txt)"
+            echo '```'; head -60 lane-artifacts/git-status.txt; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: gofree-record
+          path: lane-artifacts/
+          retention-days: 14

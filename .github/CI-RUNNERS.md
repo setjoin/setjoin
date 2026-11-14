@@ -29,3 +29,10 @@ The same guard enforces this.
 `.github/workflows/server-rust-lane.yml` runs only on GitHub-hosted `ubuntu-latest` runners (no
 self-hosted label); the rows above do not apply to it. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
+
+## gofree record (manual, deleted with Go)
+
+`.github/workflows/gofree-record.yml` is `workflow_dispatch` only (`contents: read`, `packages: read`;
+no pull_request or push trigger). It records new Go-free oracle goldens from the frozen Go coverage
+binary inside the pinned `setjoin-ci-linux-tc` image, never commits, and uploads new goldens plus a
+`git status --porcelain` and diff as an artifact. It is removed with Go (#142).

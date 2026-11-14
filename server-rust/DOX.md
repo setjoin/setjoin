@@ -542,6 +542,23 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   loopback publish and a per-job SCRAM secret (CI only, masked). Tools are pinned by
   `scripts/server-rust-lane-tools.sh` (nextest, cargo-deny, pebble) inside the lane image.
 
+## Frozen Go recording workflow
+
+`.github/workflows/gofree-record.yml` (#339) is `workflow_dispatch` only (`contents: read`,
+`packages: read`, never pull_request or push) and is deleted with Go (#142). Inputs: `package`,
+`test`, optional `case_filter`, `go_source` (40-hex commit, default this ref) and `extra_env`
+(allowlisted `GOFREE_RECORD_*|ORACLE_*|VERIFY_*` lines, e.g. `GOFREE_RECORD_DRAIN=all`). It builds
+`go build -cover ./mailserver/cmd/mailserverd` in `setjoin-ci-linux-tc`, exports
+`GOFREE_RECORD_GO_BINARY` and `GOFREE_GO_SOURCE`, and `scripts/gofree-record.sh` (in the lane
+container) loads one disposable DB, sets `REQUIRE_DB=1`, `TEST_DB_DSN`/`DB_DSN`/`DB_DIRECT_DSN`/
+`DB_APP_DSN`, `GOFREE_RESOURCE_PREFIX`, a created `GOFREE_RESOURCE_LEDGER` and runs
+`cargo test -p <package> --test <test> -- --test-threads=1 --skip mutant --skip fault`. Goldens are
+exclusive-create, so existing ones are only compared; new files, `git status --porcelain` and the
+diff upload as artifact `gofree-record` and are never committed. Input `go_upstream=authserverd` also
+builds `authserverd`, installs the synthetic `identity-login/keys.json` signing row, starts it on
+`127.0.0.1:47335` (host network, fixture DB only, ledgered, stopped always) and exports
+`GOFREE_RECORD_UPSTREAM` for auth-listener `*_oracle` targets.
+
 ## Rust guard self-test
 
 - `bash scripts/check-server-rust.sh --self-test` — proves the guard fires on a
