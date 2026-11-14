@@ -559,10 +559,12 @@ builds `authserverd`, installs the synthetic `identity-login/keys.json` signing 
 `127.0.0.1:47335` (host network, fixture DB only, ledgered, stopped always) and exports
 `GOFREE_RECORD_UPSTREAM` for auth-listener `*_oracle` targets.
 
-`extra_env` `GOFREE_RECORD_AUTH_PRESET` (strict `off|threat|tarpit|ca`, default `off`, authserverd mode only) sets Go's threat env in its 0600 env file:
+`extra_env` `GOFREE_RECORD_AUTH_PRESET` (strict `off|threat|tarpit|geo|ca`, default `off`, authserverd mode only) sets Go's threat env in its 0600 env file, each variable once:
 `off` and `ca` = the five `*_ENABLED=false` (`ca`: the oracle seeds CA DB toggles); `threat` = all five true, fixture `CAPTCHA_SECRET`,
-`GEO_BLOCK_COUNTRIES=US`, `GEOIP_DB_PATH=server-rust/tests/conformance/authzgates/us.mmdb`, `TRUSTED_PROXY_IP=127.0.0.1`, `THREAT_RATE_LIMIT_PER_MIN=3`,
-`THREAT_CAPTCHA_THRESHOLD=3`, `THREAT_SPRAY_MAX_USERS=3`; `tarpit` = `threat` with `CAPTCHA_ENABLED=false`, `THREAT_TARPIT_THRESHOLD=2`.
+`GEO_BLOCK_COUNTRIES=US`, no GeoIP (country ""), `TRUSTED_PROXY_IP=127.0.0.1`, `THREAT_RATE_LIMIT_PER_MIN=3`, `THREAT_CAPTCHA_THRESHOLD=3`,
+`THREAT_SPRAY_MAX_USERS=3`; `geo` = `threat` plus `GEOIP_DB_PATH=server-rust/tests/conformance/authzgates/us.mmdb` (a one-node tree:
+every address is US, so every source is geo-blocked); `tarpit` = `geo` with `GEO_BLOCK_ENABLED=false`, `CAPTCHA_ENABLED=false`,
+`THREAT_TARPIT_THRESHOLD=2` (every source is a high-risk country).
 
 ## Rust guard self-test
 

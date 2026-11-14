@@ -4,7 +4,7 @@
 #   GOFREE_REC_PACKAGE  cargo package (setjoin-gateway)      GOFREE_REC_TEST  integration test target
 #   GOFREE_REC_FILTER   optional libtest case filter        GOFREE_REC_EXTRA optional NAME=value lines
 #   GOFREE_RECORD_GO_BINARY / GOFREE_GO_SOURCE  frozen Go binary and its 40-hex commit
-#   GOFREE_REC_UPSTREAM none|authserverd; GOFREE_RECORD_AUTH_PRESET off|threat|tarpit|ca (extra_env); GOFREE_AUTHSERVERD_BINARY the covered auth binary (authserverd mode)
+#   GOFREE_REC_UPSTREAM none|authserverd; GOFREE_RECORD_AUTH_PRESET off|threat|tarpit|geo|ca (extra_env); GOFREE_AUTHSERVERD_BINARY the covered auth binary (authserverd mode)
 # Goldens are created exclusively: an existing one is compared, never overwritten.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -39,7 +39,7 @@ done <<<"${GOFREE_REC_EXTRA:-}"
 
 # Go threat-env preset for authserverd mode (default off = the historical five *_ENABLED=false).
 PRESET="${GOFREE_RECORD_AUTH_PRESET:-off}"
-[[ "$PRESET" =~ ^(off|threat|tarpit|ca)$ ]] || { echo "bad GOFREE_RECORD_AUTH_PRESET: $PRESET" >&2; exit 2; }
+[[ "$PRESET" =~ ^(off|threat|tarpit|geo|ca)$ ]] || { echo "bad GOFREE_RECORD_AUTH_PRESET: $PRESET" >&2; exit 2; }
 [[ "$PRESET" == off || "$UP" == authserverd ]] || { echo "GOFREE_RECORD_AUTH_PRESET=$PRESET needs go_upstream=authserverd" >&2; exit 2; }
 
 echo "== schema into $DB"
@@ -83,18 +83,24 @@ PY
     case "$PRESET" in
       off|ca)  # ca = off; the oracle seeds the CA database toggles itself
         for flag in THREAT_FEED GEO_BLOCK SPRAY_DETECT CAPTCHA TARPIT; do echo "${flag}_ENABLED=false"; done ;;
-      threat|tarpit)
+      threat|tarpit|geo)
         # Go env names: authserver/internal/config/config.go (*_ENABLED bools, CAPTCHA_SECRET, GEOIP_DB_PATH,
         # THREAT_RATE_LIMIT_PER_MIN, THREAT_CAPTCHA_*, THREAT_TARPIT_*, THREAT_SPRAY_*); GEO_BLOCK_COUNTRIES and
-        # TRUSTED_PROXY_IP are read by shared code (clientip.go, threat).
-        for flag in THREAT_FEED GEO_BLOCK SPRAY_DETECT CAPTCHA TARPIT; do echo "${flag}_ENABLED=true"; done
-        # CAPTCHA_SECRET is a public FIXTURE string (never a real secret); the GeoIP DB is the repo's us.mmdb fixture.
+        # TRUSTED_PROXY_IP are read by shared code (clientip.go, threat). Every variable is written once.
+        geo_block=true captcha=true
+        if [[ "$PRESET" == tarpit ]]; then geo_block=false captcha=false; fi
+        echo "THREAT_FEED_ENABLED=true"; echo "GEO_BLOCK_ENABLED=$geo_block"; echo "SPRAY_DETECT_ENABLED=true"
+        echo "CAPTCHA_ENABLED=$captcha"; echo "TARPIT_ENABLED=true"
+        # CAPTCHA_SECRET is a public FIXTURE string (never a real secret).
         echo "CAPTCHA_SECRET=gofree-record-fixture-captcha-secret-not-a-secret"
-        echo "GEO_BLOCK_COUNTRIES=US"; echo "GEOIP_DB_PATH=server-rust/tests/conformance/authzgates/us.mmdb"
+        # us.mmdb is a one-node tree: EVERY address resolves US. threat leaves GeoIP unset (country ""),
+        # geo blocks every source, tarpit (geo_block off) treats every source as a high-risk country.
+        echo "GEO_BLOCK_COUNTRIES=US"
+        if [[ "$PRESET" != threat ]]; then echo "GEOIP_DB_PATH=server-rust/tests/conformance/authzgates/us.mmdb"; fi
         echo "TRUSTED_PROXY_IP=127.0.0.1"
         echo "THREAT_RATE_LIMIT_PER_MIN=3"; echo "THREAT_CAPTCHA_THRESHOLD=3"; echo "THREAT_CAPTCHA_WINDOW_MINS=5"
         echo "THREAT_SPRAY_MAX_USERS=3"; echo "THREAT_SPRAY_WINDOW_SECS=300"; echo "THREAT_SPRAY_LOCKOUT_MINS=5"
-        if [[ "$PRESET" == tarpit ]]; then echo "CAPTCHA_ENABLED=false"; echo "THREAT_TARPIT_THRESHOLD=2"; fi ;;
+        if [[ "$PRESET" == tarpit ]]; then echo "THREAT_TARPIT_THRESHOLD=2"; fi ;;
     esac
   } >"$ENVF"
   echo "Planned auth oracle container $AUTH_NAME, host network, port $AUTH_PORT; fixture DB $DB only; binary $GOFREE_AUTHSERVERD_BINARY" >>"$GOFREE_RESOURCE_LEDGER"
