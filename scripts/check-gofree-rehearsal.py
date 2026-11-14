@@ -68,7 +68,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 60,
-    ("gateway", "forward"): 197,
+    ("gateway", "forward"): 198,  # +1 deny::answer fallback for non-native refusals (#380, #354 B0); owner-approved 2026-11-14
     ("gateway", "forward_body"): 3,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,
