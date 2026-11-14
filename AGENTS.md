@@ -76,7 +76,7 @@ Record temporary resources before launch and clean only what you own.
 
 - Status: [program directory](docs/agents/PROGRAM_STATUS.md); queue: GitHub issues. Read only
   the owning plan; behavior stays OFF until its rollout decision admits it.
-- Agent workflows: `docs/agents/` (planning pipeline, governance handoff); select by task.
+- Agent workflows: `docs/agents/` (planning pipeline, governance handoff, subagent workflow: `docs/agents/subagent-workflow.md`); select by task.
 
 ## Agent skills
 
