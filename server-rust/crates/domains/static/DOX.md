@@ -32,9 +32,9 @@ never did), the three assist problems/success, translate. Requests no longer for
 directly from `surface.rs`; only unmigrated admission refusal classes forward through
 centralized `deny::answer`:
 
-- Shared security-policy shapes still owned by #405/#420. Configured legacy JWTs,
+- Shared security-policy shapes still owned by #349–#352. Configured legacy JWTs,
   ordinary authentication denials and full-spec permission denials are native
-  through shared admission (#406). Full-spec reads resolve active governed grants
+  through shared admission (#188). Full-spec reads resolve active governed grants
   for signed admins; non-admin signed grants preserve Go's semantics, including
   domain-scoped `system.config`. Console denials write the exact durable audit.
 - Full OpenAPI spec (`Kind::FullYaml | Kind::FullJson`) admits via `deny::admit_console`
@@ -133,7 +133,7 @@ request writes application data, audit rows, state or notifications.
 
 `SETJOIN_CONFIG` is resolved before the async runtime starts (#414); root
 fallback requests use the same validated startup website directory. Identity checks the shared foundation cannot
-prove remain with Go until #331–#333; entitlement denials retain Go's existing
+prove remain with Go until #112–#114; entitlement denials retain Go's existing
 audit behavior. Neither case is silently answered with an invented denial.
 
 The six structural entries are ON, with inventory and global rollback.
@@ -142,7 +142,7 @@ checks the proxy counter is zero; `catchall_startup` proves executable wiring,
 both rollback paths, valid-build serving and invalid-build refusal. Recording,
 normalization and catalog regeneration: [catch-all oracle](../../../tests/conformance/catchall/README.md).
 
-Full-spec parity (#406): `authz-defer/full-spec.json` records raw denied problems,
+Full-spec parity (#188): `authz-defer/full-spec.json` records raw denied problems,
 complete business audit fields, and SHA-256 of successful YAML/JSON bytes under
 missing, stale signed, signed member, scoped member and active governed grants.
 Native replay has no Go upstream and requires zero proxy attempts.

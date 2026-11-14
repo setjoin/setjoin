@@ -70,5 +70,5 @@ row companions. Family audit/state/tenant mutants change real observed effects.
 Before/after COMMIT cuts must return an operation ID and resolve its durable
 receipt, with all effects respectively absent or identical to the Go recording.
 No F09 handler emits a notification in Go; inventing one would violate parity.
-Common admission still forwards unported security shapes owned by #420/#405;
+Common admission still forwards unported security shapes owned by #349–#352;
 there is no F09 back-to-Go flag or alternate native error fallback.

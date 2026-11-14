@@ -24,7 +24,7 @@ path; every other gateway-listener F13 entry mounts at `/api`.
 
 ## Golden routes (#285)
 
-Gate order matches Go: shared authz (native terminal errors, #406), `feature.meet` (OFF is 404
+Gate order matches Go: shared authz (native terminal errors, #188), `feature.meet` (OFF is 404
 without Content-Language), `check_user_app_entitlement` (native denial plus Go's independent app_blocked
 audit), then LiveKit configured (`LIVEKIT_API_KEY`, `_SECRET`, `_URL`;
 else the 503 service-unavailable problem), then the handler. The verified user is the
@@ -51,9 +51,9 @@ mutants (no audit on create; no notify, double `change_seq` bump and no tenant f
 on lock) and both COMMIT-loss cuts. Native replay requires zero total and F13 Go proxy
 counters. `meet_dispatch` runs the real executable: native, global kill, inventory
 rollback (external `/api` mount and F13 counter retained), LiveKit unconfigured and
-entitlement denial with Go absent (#406). Configured HS256/SM2 keys are shared
-with identity (#331/#333); guest admission uses the shared program/route belt
-and mailbox-less user proof (#406).
+entitlement denial with Go absent (#188). Configured HS256/SM2 keys are shared
+with identity (#112/#114); guest admission uses the shared program/route belt
+and mailbox-less user proof (#188).
 
 Recording: set `GOFREE_RECORD_GO_BINARY` and `GOFREE_GO_SOURCE`; the Go oracle gets
 `LIVEKIT_*` through `go_oracle::start_named_with_env`. Cases and branch map:
@@ -160,7 +160,7 @@ security), heartbeat/stop/package for an unknown or foreign lease or recording a
 (class conflict on BZ282/BZ278), and a double quote or backslash in a chat/meeting title
 makes the audit hash cast to bytea fail (22P02, 500) in `meeting_create`.
 
-## Mailbox-less guest admission (#406)
+## Mailbox-less guest admission (#188)
 
 The HTTP adapter accepts live guest user proof after the shared program/route belt.
 Its database scope carries the verified user without inventing a mailbox; reducer
@@ -168,7 +168,7 @@ membership and guest profile flags still decide reads/writes. Member scope is
 unchanged. The shared guest-domain corpus records list success and guest-create
 refusal through the executable with Go absent.
 
-Meet entitlement-denial parity (#406): the adapter returns Go's typed Forbidden
+Meet entitlement-denial parity (#188): the adapter returns Go's typed Forbidden
 problem and calls the existing one-statement `audit_app_blocked` helper. Full
 audit policy writes one row per refusal; lean suppresses routine rows, as Go does.
 The twelve-case shared corpus includes list/create/get and repeated requests.

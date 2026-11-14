@@ -1,4 +1,4 @@
-# Shared terminal admission (#406)
+# Shared terminal admission (#188)
 
 Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
 

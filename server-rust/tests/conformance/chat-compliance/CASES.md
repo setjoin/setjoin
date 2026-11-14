@@ -32,7 +32,7 @@ committed/absent, durable effects compare without replay, and export emits no
 object I/O or archive headers on Unknown. The switch proof covers all13 routes,
 original opaque body/query/header bytes, exactly one forwarding count per route,
 and unchanged database state. It also proves ON routes defer unverified auth to
-Go until the shared identity transfer (#331).
+Go until the shared identity transfer (#112).
 
 The public catalog binds165 literal-method recordings;8 HEAD alias proofs run in
 the complete203-test target. Recordings retain HEAD as the actual request method.
