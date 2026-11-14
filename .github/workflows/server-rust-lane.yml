@@ -33,6 +33,15 @@ on:
       filter:
         description: Debug only - nextest filterset; one job, never a lane result
         default: ''
+      repeat:
+        description: Flake loop (with filter) - run the filtered tests N times (nextest --stress-count)
+        default: ''
+      burn:
+        description: Flake loop - K busy-loop processes for CPU contention
+        default: ''
+      watch:
+        description: Flake loop - space-separated test names to tally (FLAKE-LOOP pass/fail lines)
+        default: ''
       adequacy_only:
         description: Debug only - adequacy stages (replays, coverage or replays,coverage); one job, never a lane result
         default: ''
@@ -102,6 +111,9 @@ jobs:
       LANE_JOB_TAG: debug
       LANE_QUICK: ${{ inputs.filter && '1' || '' }}
       LANE_NEXTEST_FILTER: ${{ inputs.filter }}
+      LANE_REPEAT: ${{ inputs.repeat }}
+      LANE_BURN: ${{ inputs.burn }}
+      LANE_WATCH: ${{ inputs.watch }}
       LANE_ADEQUACY_ONLY: ${{ inputs.adequacy_only }}
       LANE_ADEQUACY_ENTRIES: ${{ inputs.adequacy_entries }}
     steps:
@@ -125,7 +137,7 @@ jobs:
           {
             echo "### server-rust lane (debug)"
             echo "- **DEBUG run, not a lane result**: filter \`${LANE_NEXTEST_FILTER:0:300}\`, adequacy stages \`${LANE_ADEQUACY_ONLY}\`, entries \`${LANE_ADEQUACY_ENTRIES:0:300}\`"
-            { grep -E '^(✓|✗)|^replay summary|^coverage summary|Summary \[' lane-artifacts/lane.log | tail -30 | sed 's/^/- `/; s/$/`/'; } || true
+            { grep -E '^(✓|✗)|^FLAKE-LOOP|^replay summary|^coverage summary|Summary \[' lane-artifacts/lane.log lane-artifacts/flake-loop.txt | tail -40 | sed 's/^/- `/; s/$/`/'; } || true
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()

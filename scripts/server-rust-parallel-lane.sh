@@ -115,10 +115,28 @@ fi
 if [[ "${LANE_QUICK:-}" == 1 ]]; then
   groups="$(mktemp)"
   python3 scripts/server-rust-lane-groups.py >"$groups" || exit 1
+  # Flake loop (diagnosis only): LANE_REPEAT=N runs the filtered set N times via nextest --stress-count,
+  # LANE_BURN=K adds K busy-loop processes for CPU contention, LANE_WATCH names the tests to tally.
+  stress_args=(); burn_pids=()
+  if [[ "${LANE_REPEAT:-1}" -gt 1 ]]; then
+    stress_args=(--stress-count "$LANE_REPEAT" --retries 0 --status-level pass --failure-output immediate)
+  else
+    stress_args=(--failure-output immediate-final)
+  fi
+  for ((i = 0; i < ${LANE_BURN:-0}; i++)); do (while :; do :; done) & burn_pids+=("$!"); done
   (cd server-rust && cargo nextest run --workspace --locked --offline --no-fail-fast --profile lane \
     --tool-config-file "lane:$groups" -j "$LANE_JOBS" --color never --success-output never \
-    --failure-output immediate-final ${LANE_NEXTEST_FILTER:+-E "$LANE_NEXTEST_FILTER"}) 2>&1 | tee "$ART/lane.log"
+    "${stress_args[@]}" ${LANE_NEXTEST_FILTER:+-E "$LANE_NEXTEST_FILTER"}) 2>&1 | tee "$ART/lane.log"
   rc="${PIPESTATUS[0]}"
+  for pid in "${burn_pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+  if [[ -n "${LANE_WATCH:-}" ]]; then
+    for t in $LANE_WATCH; do
+      p="$(grep -cE "^ +PASS .* ${t}\$" "$ART/lane.log" || true)"
+      f="$(grep -cE "^ +FAIL .* ${t}\$" "$ART/lane.log" || true)"
+      echo "FLAKE-LOOP $t pass=$p fail=$f jobs=$LANE_JOBS burn=${LANE_BURN:-0} repeat=${LANE_REPEAT:-1} filter=${LANE_NEXTEST_FILTER}" | tee -a "$ART/flake-loop.txt"
+      awk -v t="$t" '$0 ~ "^ +FAIL .* "t"$" {n++; if (n<=2) {print "FLAKE-LOOP-FAILURE " n ":"; c=40; next}} c>0 {print; c--}' "$ART/lane.log" | tee -a "$ART/flake-loop.txt"
+    done
+  fi
   [[ -f server-rust/target/nextest/lane/junit.xml ]] && cp server-rust/target/nextest/lane/junit.xml "$ART/junit.xml"
   stamp "quick end rc=$rc"
   echo "rc=$rc" >"$ART/lane-complete.txt"
