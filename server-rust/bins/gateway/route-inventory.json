@@ -9199,14 +9199,18 @@
       "listener": "gateway",
       "method": "GET",
       "path": "/terms/pending",
-      "family": "F08",
-      "slice": "terms-remaining",
-      "upstream": "go-mail",
-      "state": "OFF",
+      "family": "F21",
+      "slice": "token-issuance",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "mailserver/cmd/mailserverd/main.go",
         "mailserver/cmd/mailserverd/testdata/route_inventory.golden"
-      ]
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": []
     },
     {
       "listener": "gateway",
@@ -15507,13 +15511,19 @@
       "listener": "gateway",
       "method": "POST",
       "path": "/terms/accept",
-      "family": "F08",
-      "slice": "terms-remaining",
-      "upstream": "go-mail",
-      "state": "OFF",
+      "family": "F21",
+      "slice": "token-issuance",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "mailserver/cmd/mailserverd/main.go",
         "mailserver/cmd/mailserverd/testdata/route_inventory.golden"
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": [
+        ""
       ]
     },
     {

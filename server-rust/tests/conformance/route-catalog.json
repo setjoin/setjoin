@@ -100804,6 +100804,125 @@
       ]
     },
     {
+      "listener": "gateway",
+      "method": "GET",
+      "path": "/terms/pending",
+      "family": "F21",
+      "command": "",
+      "mutator": false,
+      "cases": [
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-accepted.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_accepted"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_cross_tenant"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-duplicate-cookie.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_duplicate_cookie"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-empty-bearer-cookie.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_empty_bearer_cookie"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-expired-token.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_expired_token"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-head.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_head"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_invalid_input"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-quoted-cookie.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_quoted_cookie"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_success"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-unauthenticated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_unauthenticated"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/pending-wrong-type.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "pending_wrong_type"
+          }
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "token_oracle",
+        "test": "pending_status_mutant",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/issuance.rs",
+        "server-rust/crates/domains/identity/src/issuance.rs"
+      ]
+    },
+    {
       "listener": "auth",
       "method": "POST",
       "path": "/admin/reload",
@@ -101990,6 +102109,156 @@
     },
     {
       "listener": "auth",
+      "method": "POST",
+      "path": "/terms/accept",
+      "family": "F21",
+      "command": "",
+      "mutator": true,
+      "cases": [
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_cross_tenant"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-cross-tenant-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-csrf.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_csrf"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-csrf-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-disabled-tou.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_disabled_tou"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-disabled-tou-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-expired-token.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_expired_token"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-expired-token-rows.json"
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_invalid_input"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-invalid-input-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-invalid-type.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_invalid_type"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-invalid-type-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-missing.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_missing"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-missing-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-overflow.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_overflow"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-overflow-rows.json"
+        },
+        {
+          "kind": "repeat",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-repeat.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_repeat"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-repeat-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-stale.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_stale"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-stale-rows.json"
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_success"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-success-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-unauthenticated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_unauthenticated"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-unauthenticated-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-token/goldens/accept-wrong-type.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "token_oracle",
+            "test": "accept_wrong_type"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-token/goldens/accept-wrong-type-rows.json"
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "token_oracle",
+        "test": "accept_status_mutant",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/issuance.rs",
+        "server-rust/crates/domains/identity/src/issuance.rs"
+      ]
+    },
+    {
+      "listener": "gateway",
       "method": "POST",
       "path": "/terms/accept",
       "family": "F21",

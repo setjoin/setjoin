@@ -18,7 +18,7 @@ Guard: `inventory_guard::platform_slice_ownership_is_exhaustive_and_disjoint`.
 | `updates-deploy` (#300; security fixes: [updates-security.DOX.md](updates-security.DOX.md)) | 35: `/admin/system/upgrade*`, `/admin/system/upgrades*`, `/admin/system/recovery/*`, auto-update, maintenance window, `/admin/updates/*`, `/updates/*`, `/admin/deploy/*` | ON: all 35 registrations (#300, #455) |
 | `jobs-storage` (#301) | 14: `/admin/jobs/*`, `/admin/storage/*` | 14 ON; storage execution (#459) is documented in [storage.DOX.md](storage.DOX.md) |
 | `webhooks` (#302) | 6: `/admin/webhooks*` | ON (`src/webhooks.rs`, `webhook_secret.rs`) |
-| `terms-remaining` (#303, `bins/gateway/src/platform_terms.rs`) | 29: terms, domains, branding, federation peers, DNS, alerts, apps, monitor, reports, `/setup/status`, `/terms/*` | 26 ON by group (below); 3 forwarded to Go |
+| `terms-remaining` (#303, `bins/gateway/src/platform_terms.rs`) | 29: terms, domains, branding, federation peers, DNS, alerts, apps, monitor, reports, `/setup/status`, `/terms/*` | 26 ON by group (below); 1 forwarded to Go; 2 ON as rust-auth (#363) |
 | `configuration` (#414, `bins/gateway/src/platform.rs`) | 1: `POST /admin/reload` | ON; [gateway configuration contract](../../../bins/gateway/DOX.md#gateway-configuration-414) |
 | `secevents` (#304) | none: worker-only slice | n/a |
 | `acme-control` (#305) | 9: the ACME :80 listener and the unix setup control socket (3 ON, see below); the 6 federation test-harness routes stay OFF | 3 ON |
@@ -81,11 +81,13 @@ stay at the root); `inventory.rs` mounts family 8's `/admin/` entries accordingl
 | `federation` (`src/federation.rs`) | `/admin/federation/peers` list, upsert, delete (3) | ON |
 | `dns` (`src/dns.rs`) | `/admin/dns/records`, `/admin/dns/verify` (2) | ON |
 | `branding` (`src/branding.rs`) | `/admin/branding` get, post (2) | ON |
-| forwarded to Go | `/terms/pending`, `/terms/accept`, `GET /setup/status` (3) | OFF (Go) |
+| rust-auth (#363) | gateway `/terms/pending`, `/terms/accept` (2) | ON (`rust-auth`) |
+| forwarded to Go | `GET /setup/status` (1) | OFF (Go) |
 
-Forwarded routes and their owners: `/terms/pending` and `/terms/accept` are Go's `authProxy`
-to the auth listener (setjoin-auth, the IDLOGIN ticket, owns them); `GET /setup/status`
-answers 200 only while the users table is empty, so the oracle can record just its 404
+Forwarded routes and their owners: gateway `/terms/pending` and `/terms/accept` (Go's
+`authProxy`) now forward to rust-auth (#363; `authLimit` and the outer CSRF gate still apply;
+DPoP-bound sessions still forward whole until #352; test `bins/auth/tests/terms_gateway.rs`);
+`GET /setup/status` answers 200 only while the users table is empty, so the oracle can record just its 404
 case and the route stays Go's.
 All groups live behind one intercept, `bins/gateway/src/platform_terms.rs`, whose action table
 adds a row per route and whose group handlers sit in `platform_terms/<group>.rs`.

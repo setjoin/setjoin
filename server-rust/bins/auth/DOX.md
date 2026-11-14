@@ -80,6 +80,9 @@ Mutations retain CSRF and authenticated source IP. Pending JSON preserves struct
 order and no added cache policy; HEAD preserves representation length. Terms
 acceptance ignores request identity, maps stale/missing/disabled documents to
 Go's reducer hint, and never reports success after an unknown COMMIT.
+The gateway-listener rows (#363) are ON as rust-auth too; `terms_gateway` runs the real
+gateway with no Go upstream: 401, CSRF 403 and the `authLimit` 429 (21st request) equal
+Go's recorded bytes. Go-recorded identity-token goldens back both listeners' catalog rows.
 
 `POST /auth/scim/disable` (#333) is internal-key-only. It never accepts an
 ordinary user JWT or OAuth client as service authority. User ID precedence,
