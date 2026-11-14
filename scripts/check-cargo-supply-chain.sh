@@ -28,7 +28,7 @@
 #      allow it deliberately, never a silent pass.
 #
 # Wiring: scripts/run-guards.sh globs every check-*.sh, so this guard runs in
-# the xinchuang-ci.yml structural-guards step automatically (adding a guard =
+# the local merge gate (CI no longer runs the manifest; xinchuang-ci.yml was retired) (adding a guard =
 # dropping a file) and in the local merge gate via scripts/test.sh.
 #
 # Dependency updates: run `node scripts/cargo-lock-catalog.mjs refresh` after a

@@ -10,7 +10,7 @@ TEST_SH="${TEST_GATE_TEST_SH:-$ROOT/scripts/test.sh}"
 VERIFY_ALL="${TEST_GATE_VERIFY_ALL:-$ROOT/scripts/verify-all.sh}"
 ONBOARDING="${TEST_GATE_ONBOARDING:-$ROOT/scripts/e2e-onboarding.sh}"
 PLAYWRIGHT_RUNNER="${TEST_GATE_PLAYWRIGHT_RUNNER:-$ROOT/scripts/playwright-supported.sh}"
-WORKFLOW="${TEST_GATE_WORKFLOW:-$ROOT/.github/workflows/xinchuang-ci.yml}"
+WORKFLOW="${TEST_GATE_WORKFLOW:-$ROOT/.github/workflows/webmail.yml}"
 PACKAGE_JSON="${TEST_GATE_PACKAGE:-$ROOT/mailserver/webmail/package.json}"
 VITE_CONFIG="${TEST_GATE_VITE:-$ROOT/mailserver/webmail/vite.config.js}"
 PLAYWRIGHT_CONFIG="${TEST_GATE_PLAYWRIGHT:-$ROOT/mailserver/webmail/playwright.config.ts}"
@@ -18,6 +18,7 @@ CSP_CONFIG="${TEST_GATE_PLAYWRIGHT_CSP:-$ROOT/mailserver/webmail/playwright.csp.
 E2E_STACK="${TEST_GATE_E2E_STACK:-$ROOT/mailserver/webmail/e2e/scripts/start-test-stack.sh}"
 ARCHITECTURE_R2="${TEST_GATE_ARCHITECTURE_R2:-$ROOT/scripts/verify-architecture-r2.sh}"
 ARCHITECTURE_R2_METRICS="${TEST_GATE_ARCHITECTURE_R2_METRICS:-$ROOT/scripts/check-architecture-r2-dx-metrics.sh}"
+LANE_WORKFLOW="${TEST_GATE_LANE_WORKFLOW:-$ROOT/.github/workflows/server-rust-lane.yml}"
 RUN_GUARDS="${TEST_GATE_RUN_GUARDS:-$ROOT/scripts/run-guards.sh}"
 
 require_literal() {
@@ -81,27 +82,25 @@ run_check() {
   require_literal "$ONBOARDING" 'bash "$ROOT/scripts/playwright-supported.sh" --' 'onboarding supported browser runner' || failed=1
   require_literal "$PLAYWRIGHT_RUNNER" 'PLAYWRIGHT_CONNECT_WS_ENDPOINT' 'supported browser endpoint input' || failed=1
   require_literal "$PLAYWRIGHT_RUNNER" 'this Linux host is outside the supported browser matrix' 'unsupported Linux fail-closed gate' || failed=1
-  require_literal "$WORKFLOW" 'run: npm run test:coverage' 'Xinchuang webmail CI' || failed=1
-  require_literal "$WORKFLOW" 'run: bash scripts/check-test-evidence-results.sh --verify vitest-json' 'Xinchuang evidence verification' || failed=1
-  require_literal "$WORKFLOW" 'run: bash scripts/check-test-evidence-results.sh --verify go-json' 'Xinchuang Go evidence verification' || failed=1
-  require_literal "$WORKFLOW" 'run: bash scripts/check-test-evidence-results.sh --verify tap' 'Xinchuang pgTAP evidence verification' || failed=1
-  require_literal "$WORKFLOW" 'run: node scripts/report-go-coverage.mjs --mode enforce' 'Xinchuang Go coverage enforcement' || failed=1
-  require_literal "$WORKFLOW" 'COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}' 'Xinchuang merge-base coverage input' || failed=1
-  require_job_literal "$WORKFLOW" 'unit-tests-amd64' 'fetch-depth: 0' 'Xinchuang Go merge-base checkout history' || failed=1
-  require_literal "$WORKFLOW" 'run: bash scripts/run-go-fuzz-smoke.sh' 'Xinchuang bounded fuzz evidence' || failed=1
-  require_literal "$WORKFLOW" 'run: bash scripts/run-guards.sh' 'Xinchuang structural guard manifest' || failed=1
-  require_literal "$WORKFLOW" 'run: bash scripts/verify-architecture-r2.sh benchmark --class warm --samples 5 --warmup 1' 'Xinchuang Architecture R2 PR timing surrogate' || failed=1
-  require_literal "$WORKFLOW" 'run: bash scripts/check-architecture-r2-dx-metrics.sh --require' 'Xinchuang Architecture R2 timing evidence validation' || failed=1
-  require_literal "$WORKFLOW" 'name: backend-evidence-' 'Xinchuang backend evidence upload' || failed=1
-  require_literal "$WORKFLOW" 'test-results/architecture-r2' 'Xinchuang Architecture R2 runner-local evidence retention' || failed=1
-  require_literal "$WORKFLOW" 'run: node scripts/report-changed-coverage.mjs --mode enforce' 'Xinchuang changed-coverage enforcement' || failed=1
-  require_literal "$WORKFLOW" "'asrbot/**'" 'Xinchuang asrbot path filter' || failed=1
-  require_literal "$WORKFLOW" "'tools/setjoin-release/**'" 'Xinchuang release publisher path filter' || failed=1
-  require_literal "$WORKFLOW" "'config/go-modules.json'" 'Xinchuang Go catalog path filter' || failed=1
-  require_literal "$WORKFLOW" 'run: GOWORK=off bash scripts/run-go-test-evidence.sh asrbot' 'Xinchuang asrbot execution' || failed=1
-  require_literal "$WORKFLOW" 'GO_COVERAGE_MODULES: authserver,mailserver,shared,mailctl,setjoin-release,asrbot' 'Xinchuang Go catalog coverage enforcement' || failed=1
-  require_literal "$WORKFLOW" "'docs/standards/AI_ASSISTED_TESTING.md'" 'Xinchuang path filter' || failed=1
-  require_literal "$WORKFLOW" "'docs/verification/**'" 'Xinchuang path filter' || failed=1
+  require_literal "$WORKFLOW" 'run: npm run test:coverage' 'Webmail CI' || failed=1
+  require_literal "$WORKFLOW" 'run: bash scripts/check-test-evidence-results.sh --verify vitest-json' 'Webmail evidence verification' || failed=1
+  require_literal "$WORKFLOW" 'COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}' 'Webmail merge-base coverage input' || failed=1
+  require_job_literal "$WORKFLOW" 'webmail-tests' 'fetch-depth: 0' 'Webmail merge-base checkout history' || failed=1
+  require_literal "$WORKFLOW" 'run: node scripts/report-changed-coverage.mjs --mode enforce' 'Webmail changed-coverage enforcement' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'pgtap' 'bash scripts/run-pgtap-lane.sh scripts/pgtap-known-red.txt' 'server-rust lane pgTAP execution through the known-red runner' || failed=1
+  require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'scripts/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap' 'pgTAP lane runner mailserver evidence' || failed=1
+  require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'scripts/run-pgtap-evidence.sh test-results/pgtap/authserver.tap' 'pgTAP lane runner authserver evidence' || failed=1
+  require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'STALE known-red pgTAP' 'pgTAP known-red ratchet' || failed=1
+  require_literal "$LANE_WORKFLOW" '--verify tap' 'server-rust lane pgTAP evidence verification' || failed=1
+  require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
+  require_literal "$LANE_WORKFLOW" '"roots", "pgtap", "guards", "shard"' 'server-rust lane aggregate requires the guards job' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt' 'server-rust lane runs every guard through run-guards.sh' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards-selftest.sh' 'server-rust lane proves the known-red ratchet before the guards' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'run: npm ci' 'server-rust lane guards job installs webmail dependencies' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'cargo install cargo-deny --locked --version 0.19.0' 'server-rust lane guards job installs cargo-deny' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'echo "DB_DSN=' 'server-rust lane guards job exports DB_DSN' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' 'SERVER_RUST_STAGES: static' 'server-rust lane guards job runs check-server-rust static stage only' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'guards' "needs.plan.outputs.debug != 'true'" 'server-rust lane guards job runs on every non-debug pull request' || failed=1
   require_literal "$PACKAGE_JSON" '"test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile.json=test-results/vitest.json"' 'Webmail package script' || failed=1
   require_literal "$VITE_CONFIG" "reporter: ['text', 'json', 'json-summary']" 'Webmail coverage reporters' || failed=1
   require_literal "$VITE_CONFIG" "include: ['src/**/*.{js,ts,svelte}']" 'Webmail whole-source denominator' || failed=1
@@ -138,16 +137,36 @@ if [[ "${1:-}" == "--self-test" ]]; then
   fi
   WORKFLOW="$original_workflow"
   awk '
-    $0 == "  unit-tests-amd64:" { in_job = 1 }
+    $0 == "  webmail-tests:" { in_job = 1 }
     in_job && !removed && /fetch-depth: 0/ { removed = 1; next }
     { print }
-  ' "$original_workflow" > "$tmp/workflow-shallow-go.yml"
-  WORKFLOW="$tmp/workflow-shallow-go.yml"
+  ' "$original_workflow" > "$tmp/workflow-shallow-webmail.yml"
+  WORKFLOW="$tmp/workflow-shallow-webmail.yml"
   if run_check >/dev/null 2>&1; then
-    echo "test-gate-wiring self-test: shallow Go checkout was accepted" >&2
+    echo "test-gate-wiring self-test: shallow webmail checkout was accepted" >&2
     exit 1
   fi
   WORKFLOW="$original_workflow"
+  original_lane="$LANE_WORKFLOW"
+  sed 's/pgtap, guards,/pgtap,/; s/"pgtap", "guards"/"pgtap"/' "$original_lane" > "$tmp/lane-no-guards-gate.yml"
+  LANE_WORKFLOW="$tmp/lane-no-guards-gate.yml"
+  if run_check >/dev/null 2>&1; then
+    echo "test-gate-wiring self-test: lane aggregate without the guards job was accepted" >&2
+    exit 1
+  fi
+  sed 's#bash scripts/run-guards.sh --known-red#true --known-red#' "$original_lane" > "$tmp/lane-no-guards-run.yml"
+  LANE_WORKFLOW="$tmp/lane-no-guards-run.yml"
+  if run_check >/dev/null 2>&1; then
+    echo "test-gate-wiring self-test: lane guards job that does not run run-guards.sh was accepted" >&2
+    exit 1
+  fi
+  sed 's#bash scripts/run-pgtap-lane.sh#true#' "$original_lane" > "$tmp/lane-no-pgtap-run.yml"
+  LANE_WORKFLOW="$tmp/lane-no-pgtap-run.yml"
+  if run_check >/dev/null 2>&1; then
+    echo "test-gate-wiring self-test: lane pgtap job that does not run run-pgtap-lane.sh was accepted" >&2
+    exit 1
+  fi
+  LANE_WORKFLOW="$original_lane"
   printf 'export default {}\n' > "$tmp/playwright.config.ts"
   original_playwright_config="$PLAYWRIGHT_CONFIG"
   PLAYWRIGHT_CONFIG="$tmp/playwright.config.ts"

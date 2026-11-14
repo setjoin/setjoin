@@ -5,6 +5,8 @@ name: server-rust lane
 #   plan            decides debug or full and the shard lists
 #   build           one nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
+#   pgtap           reducer pgTAP suites (mailserver + authserver) on the lane Postgres
+#   guards          every scripts/check-*.sh structural/security guard via run-guards.sh, self-tests first
 #   shard 1..N      nextest partition k/N + every N-th replay/mutant, each shard its own VM and Postgres
 #   coverage-build  one instrumented archive of the coverage binaries only
 #   coverage 1..M   every M-th oracle coverage entry
@@ -194,6 +196,126 @@ jobs:
           path: lane-artifacts/
           retention-days: 14
 
+  pgtap:
+    # The reducer pgTAP suites (mailserver + authserver). The retired Go lane was the only CI that ran them.
+    # Same procedure as the old unit-tests job: load the schema once, run pg_prove verbosely, verify the TAP evidence.
+    needs: plan
+    if: needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LANE_JOB_TAG: pgtap
+      DB_HOST: 127.0.0.1
+      DB_USER: postgres
+      DB_NAME: mailserver_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+      - name: Install psql and pg_prove
+        run: |
+          { command -v psql && command -v pg_prove; } >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client libtap-parser-sourcehandler-pgtap-perl libdbd-pg-perl
+          }
+      - name: Load test schema (baseline + forward migrations + reducers + fixtures)
+        run: |
+          export DB_PORT="$LANE_PG_PORT"
+          bash scripts/load-test-schema.sh
+      - name: Run pgTAP reducer suites
+        run: |
+          export DB_PORT="$LANE_PG_PORT"
+          # Suites in scripts/pgtap-known-red.txt (issues #401-#404) run and warn; every other suite must pass.
+          bash scripts/run-pgtap-lane.sh scripts/pgtap-known-red.txt -h 127.0.0.1 -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME"
+      - name: Verify named pgTAP evidence
+        run: TEST_EVIDENCE_OUTPUT=test-results/pgtap/test-evidence.json bash scripts/check-test-evidence-results.sh --verify tap
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: pgtap-result
+          if-no-files-found: warn
+          path: test-results/pgtap/
+          retention-days: 14
+
+  guards:
+    # The structural and security guards (audit coverage, RLS denial/allow, cargo supply chain, ...), self-tests first.
+    # The retired Xinchuang unit-tests job was the only CI that ran them. Guards red since the Go removal are listed
+    # in scripts/guards-known-red.txt (issue #348): they still run and warn, and any other guard failing is red.
+    needs: plan
+    if: needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LANE_JOB_TAG: guards
+      DB_HOST: 127.0.0.1
+      DB_USER: postgres
+      DB_NAME: mailserver_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with: { fetch-depth: 0 } # check-architecture-r5-collisions.sh needs origin/main
+      - uses: ./.github/actions/lane-setup
+      # Provisioning copied from the retired xinchuang-ci.yml unit-tests job (same pinned versions): the guards
+      # run on the host, and lane-setup only pulls the toolchain images.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.6'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install psql, pg_prove and ripgrep
+        run: |
+          { command -v psql && command -v pg_prove && command -v rg; } >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client libtap-parser-sourcehandler-pgtap-perl libdbd-pg-perl ripgrep
+          }
+      - name: Install webmail dependencies (guards shell into webmail tooling)
+        # check-app-catalog / check-harmony-bridge / check-native-contract-conformance / route-inventory self-tests
+        # invoke node_modules tooling under mailserver/webmail (ERR_MODULE_NOT_FOUND without it).
+        working-directory: mailserver/webmail
+        run: npm ci
+      - name: Install pinned quality tools
+        # Guards verify exact versions (config/quality-tool-versions.json); the errcheck ratchet is golangci-lint-version-sensitive.
+        run: |
+          TOOLS="$HOME/.local/setjoin-ci-tools"
+          mkdir -p "$TOOLS"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$TOOLS" v2.13.2
+          GOBIN="$TOOLS" go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          GOBIN="$TOOLS" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          RUFF_TMP="$(mktemp -d)"
+          curl -fsSL https://github.com/astral-sh/ruff/releases/download/0.16.4/ruff-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$RUFF_TMP"
+          install -m 0755 "$RUFF_TMP"/ruff-x86_64-unknown-linux-musl/ruff "$TOOLS/ruff"
+          rm -rf "$RUFF_TMP"
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz -C "$TOOLS" gitleaks
+          echo "$TOOLS" >> "$GITHUB_PATH"
+      - name: Build webmail (performance guard input)
+        working-directory: mailserver/webmail
+        run: npm run build
+      - name: Install cargo-deny for the Rust workspace policy
+        run: |
+          rustup component add llvm-tools # check-server-rust's coverage-report self-test needs llvm-profdata/llvm-cov
+          cargo install cargo-deny --locked --version 0.19.0
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH" # the license-policy test replaces CARGO_HOME
+      - name: Point the guards at the lane Postgres
+        # lane-setup exported PGPASSWORD for the postgres superuser on LANE_PG_PORT; check-guc-afterconnect reads DB_DSN.
+        run: |
+          {
+            echo "DB_PORT=$LANE_PG_PORT"
+            echo "DB_DSN=postgres://postgres:${PGPASSWORD}@127.0.0.1:${LANE_PG_PORT}/${DB_NAME}?sslmode=disable"
+            echo "TEST_DB_DSN=postgres://postgres:${PGPASSWORD}@127.0.0.1:${LANE_PG_PORT}/${DB_NAME}?sslmode=disable"
+          } >> "$GITHUB_ENV"
+      - name: Load test schema (the DB-backed guards run against it)
+        run: bash scripts/load-test-schema.sh
+      - name: Run every guard (self-test first)
+        # check-server-rust.sh runs its static stage only (family isolation, cargo-deny, policy tests): the
+        # workspace, roots and adequacy stages belong to the build, roots and shard jobs of this lane.
+        env:
+          SERVER_RUST_STAGES: static
+        run: |
+          bash scripts/run-guards-selftest.sh
+          bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt
+
   shard:
     needs: [plan, build]
     runs-on: ubuntu-latest
@@ -329,7 +451,7 @@ jobs:
   # The required check. Red unless every job is green and the merge finds every test, replay,
   # mutant and coverage entry run exactly once (a skipped job is never a pass).
   aggregate:
-    needs: [plan, debug, build, roots, shard, coverage-build, coverage-shard]
+    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -343,7 +465,7 @@ jobs:
           import json, os, sys
           needs = json.loads(os.environ["NEEDS"])
           debug = needs["plan"]["outputs"].get("debug") == "true"
-          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "shard", "coverage-build", "coverage-shard"}
+          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
           results = {name: job["result"] for name, job in needs.items()}
           print("debug" if debug else "full+coverage", "job results", results)
           bad = {n: r for n, r in results.items() if r in ("failure", "cancelled") or (n in required and r != "success")}

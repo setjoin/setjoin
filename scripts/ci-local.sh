@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ci-local.sh — run the xinchuang-ci.yml pipeline locally, before you push.
+# ci-local.sh — run the retired xinchuang-ci.yml pipeline locally, before you push.
 #
 # GitHub Actions minutes are finite; this reproduces the same gates on your
 # machine using the existing scripts. It mirrors the three CI jobs:
