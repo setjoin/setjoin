@@ -5,6 +5,7 @@ name: server-rust lane
 #   plan            decides debug or full and the shard lists
 #   build           one nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
+#   pgtap           reducer pgTAP suites (mailserver + authserver) on the lane Postgres
 #   shard 1..N      nextest partition k/N + every N-th replay/mutant, each shard its own VM and Postgres
 #   coverage-build  one instrumented archive of the coverage binaries only
 #   coverage 1..M   every M-th oracle coverage entry
@@ -194,6 +195,46 @@ jobs:
           path: lane-artifacts/
           retention-days: 14
 
+  pgtap:
+    # The reducer pgTAP suites (mailserver + authserver). The retired Go lane was the only CI that ran them.
+    # Same procedure as the old unit-tests job: load the schema once, run pg_prove verbosely, verify the TAP evidence.
+    needs: plan
+    if: needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LANE_JOB_TAG: pgtap
+      DB_HOST: 127.0.0.1
+      DB_USER: postgres
+      DB_NAME: mailserver_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/lane-setup
+      - name: Install psql and pg_prove
+        run: |
+          { command -v psql && command -v pg_prove; } >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client libtap-parser-sourcehandler-pgtap-perl libdbd-pg-perl
+          }
+      - name: Load test schema (baseline + forward migrations + reducers + fixtures)
+        run: |
+          export DB_PORT="$LANE_PG_PORT"
+          bash scripts/load-test-schema.sh
+      - name: Run pgTAP reducer suites
+        run: |
+          export DB_PORT="$LANE_PG_PORT"
+          bash scripts/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap --ext .pg -h 127.0.0.1 -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" mailserver/sql/tests/*.pg
+          bash scripts/run-pgtap-evidence.sh test-results/pgtap/authserver.tap --ext .pg -h 127.0.0.1 -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" authserver/sql/tests/*.pg
+      - name: Verify named pgTAP evidence
+        run: TEST_EVIDENCE_OUTPUT=test-results/pgtap/test-evidence.json bash scripts/check-test-evidence-results.sh --verify tap
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: pgtap-result
+          if-no-files-found: warn
+          path: test-results/pgtap/
+          retention-days: 14
+
   shard:
     needs: [plan, build]
     runs-on: ubuntu-latest
@@ -329,7 +370,7 @@ jobs:
   # The required check. Red unless every job is green and the merge finds every test, replay,
   # mutant and coverage entry run exactly once (a skipped job is never a pass).
   aggregate:
-    needs: [plan, debug, build, roots, shard, coverage-build, coverage-shard]
+    needs: [plan, debug, build, roots, pgtap, shard, coverage-build, coverage-shard]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -343,7 +384,7 @@ jobs:
           import json, os, sys
           needs = json.loads(os.environ["NEEDS"])
           debug = needs["plan"]["outputs"].get("debug") == "true"
-          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "shard", "coverage-build", "coverage-shard"}
+          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "pgtap", "shard", "coverage-build", "coverage-shard"}
           results = {name: job["result"] for name, job in needs.items()}
           print("debug" if debug else "full+coverage", "job results", results)
           bad = {n: r for n, r in results.items() if r in ("failure", "cancelled") or (n in required and r != "success")}

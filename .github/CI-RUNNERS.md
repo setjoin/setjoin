@@ -33,7 +33,7 @@ The same guard enforces this.
 
 ## server-rust lane (GitHub-hosted)
 
-`.github/workflows/server-rust-lane.yml` runs only on GitHub-hosted `ubuntu-latest` runners (no
+`.github/workflows/server-rust-lane.yml` (its `pgtap` job runs the mailserver/authserver reducer pgTAP suites and gates `aggregate`) runs only on GitHub-hosted `ubuntu-latest` runners (no
 self-hosted label); the rows above do not apply to it. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
 

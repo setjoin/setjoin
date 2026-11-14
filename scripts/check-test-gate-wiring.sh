@@ -18,6 +18,7 @@ CSP_CONFIG="${TEST_GATE_PLAYWRIGHT_CSP:-$ROOT/mailserver/webmail/playwright.csp.
 E2E_STACK="${TEST_GATE_E2E_STACK:-$ROOT/mailserver/webmail/e2e/scripts/start-test-stack.sh}"
 ARCHITECTURE_R2="${TEST_GATE_ARCHITECTURE_R2:-$ROOT/scripts/verify-architecture-r2.sh}"
 ARCHITECTURE_R2_METRICS="${TEST_GATE_ARCHITECTURE_R2_METRICS:-$ROOT/scripts/check-architecture-r2-dx-metrics.sh}"
+LANE_WORKFLOW="${TEST_GATE_LANE_WORKFLOW:-$ROOT/.github/workflows/server-rust-lane.yml}"
 RUN_GUARDS="${TEST_GATE_RUN_GUARDS:-$ROOT/scripts/run-guards.sh}"
 
 require_literal() {
@@ -86,6 +87,9 @@ run_check() {
   require_literal "$WORKFLOW" 'COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}' 'Webmail merge-base coverage input' || failed=1
   require_job_literal "$WORKFLOW" 'webmail-tests' 'fetch-depth: 0' 'Webmail merge-base checkout history' || failed=1
   require_literal "$WORKFLOW" 'run: node scripts/report-changed-coverage.mjs --mode enforce' 'Webmail changed-coverage enforcement' || failed=1
+  require_literal "$LANE_WORKFLOW" 'scripts/run-pgtap-evidence.sh test-results/pgtap/mailserver.tap' 'server-rust lane pgTAP execution' || failed=1
+  require_literal "$LANE_WORKFLOW" '--verify tap' 'server-rust lane pgTAP evidence verification' || failed=1
+  require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap,' 'server-rust lane aggregate gates on pgTAP' || failed=1
   require_literal "$PACKAGE_JSON" '"test:coverage": "vitest run --coverage --reporter=default --reporter=json --outputFile.json=test-results/vitest.json"' 'Webmail package script' || failed=1
   require_literal "$VITE_CONFIG" "reporter: ['text', 'json', 'json-summary']" 'Webmail coverage reporters' || failed=1
   require_literal "$VITE_CONFIG" "include: ['src/**/*.{js,ts,svelte}']" 'Webmail whole-source denominator' || failed=1
