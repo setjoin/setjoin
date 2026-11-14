@@ -1594,6 +1594,7 @@ mod db {
     use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
     use tokio_postgres::Client;
 
+    use super::super::literals;
     use super::super::resolve;
     use super::*;
     use crate::jmap::family::{always, Gate, Method, Reply};
@@ -1737,13 +1738,43 @@ mod db {
         found
     }
 
-    /// Statement literals in the family files (the seam excluded) and the
-    /// statements their `set_sql!` prefixes expand to. The static guard makes
-    /// these the only way SQL reaches the seam (no `concat!`, macros, `leak`).
+    /// Statements in one family file's source, decoded the way the compiler reads
+    /// them (shared decoder): every string literal that starts `SELECT`, every
+    /// `read_sql!`/`write_sql!` argument, and the statements a `set_sql!` prefix
+    /// expands to. An SQL macro argument that is not one plain literal is an
+    /// error, never skipped.
+    fn statements_in(text: &str) -> Result<Vec<String>, String> {
+        let mut statements = Vec::new();
+        for literal in literals::literals(text) {
+            if literal.trim_start().starts_with("SELECT ") {
+                statements.push(literal.trim_start().to_owned());
+            }
+        }
+        for (name, argument) in
+            literals::macro_arguments(text, &["read_sql", "write_sql", "set_sql"])?
+        {
+            if name == "set_sql" {
+                let valid = !argument.is_empty()
+                    && argument
+                        .chars()
+                        .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+                    && !argument.starts_with(|ch: char| ch.is_ascii_digit());
+                if !valid {
+                    return Err(format!("set_sql! prefix {argument:?}"));
+                }
+                for phase in ["create", "update", "destroy"] {
+                    statements.push(format!("SELECT {argument}_set_{phase}($1,$3)"));
+                }
+            } else if !statements.contains(&argument.trim_start().to_owned()) {
+                statements.push(argument.trim_start().to_owned());
+            }
+        }
+        Ok(statements)
+    }
+
+    /// Statements in the family files (the seam excluded).
     fn family_statements() -> Vec<(String, String)> {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/jmap/family");
-        let literal = Regex::new(r#""(SELECT [^"]*)""#).expect("literal pattern");
-        let set = Regex::new(r#"set_sql!\("([a-z_][a-z0-9_]*)"\)"#).expect("set pattern");
         let mut statements = Vec::new();
         for entry in std::fs::read_dir(&root).expect("family directory") {
             let path = entry.expect("family entry").path();
@@ -1756,19 +1787,36 @@ mod db {
                 .unwrap_or("?")
                 .to_owned();
             let text = std::fs::read_to_string(&path).expect("family file");
-            for captures in literal.captures_iter(&text) {
-                statements.push((name.clone(), captures[1].to_owned()));
-            }
-            for captures in set.captures_iter(&text) {
-                for phase in ["create", "update", "destroy"] {
-                    statements.push((
-                        name.clone(),
-                        format!("SELECT {}_set_{phase}($1,$3)", &captures[1]),
-                    ));
-                }
+            for sql in statements_in(&text).unwrap_or_else(|error| panic!("{name}: {error}")) {
+                statements.push((name.clone(), sql));
             }
         }
         statements
+    }
+
+    #[test]
+    fn statement_extraction_decodes_and_fails_closed() {
+        let continued = "const S: &str = read_sql!(\"\\\n    SELECT mail_work_get($1,$3,$4)::text\");";
+        assert_eq!(
+            statements_in(continued).expect("literal"),
+            ["SELECT mail_work_get($1,$3,$4)::text"]
+        );
+        let raw = "const S: &str = write_sql!(r#\"SELECT f($1,$4)::text\"#);";
+        assert_eq!(
+            statements_in(raw).expect("raw literal"),
+            ["SELECT f($1,$4)::text"]
+        );
+        let escaped = "const S: &str = \"SELECT f($1,\\\n   $3)\\n\";";
+        assert_eq!(statements_in(escaped).expect("escapes"), ["SELECT f($1,$3)\n"]);
+        assert_eq!(statements_in("set_sql!(\"task\")").expect("set").len(), 3);
+        for unrecognized in [
+            "const S: &str = read_sql!(QUERY);",
+            "const S: &str = read_sql!(concat!(\"SELECT f(\", \"$1,$3)\"));",
+            "const S: &str = write_sql!(\"SELECT f($1)\" );\nlet _ = set_sql!(PREFIX);",
+            "let _ = set_sql!(\"Bad Prefix\");",
+        ] {
+            assert!(statements_in(unrecognized).is_err(), "{unrecognized}");
+        }
     }
 
     fn worker_statements() -> Vec<(&'static str, &'static str)> {
