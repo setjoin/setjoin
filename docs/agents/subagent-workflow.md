@@ -58,7 +58,7 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 
 ## Review
 
-- Codex merge gate: `codex exec -m gpt-6.1-sol`, reasoning `high`, read-only. At most 3
+- Codex merge gate: `codex exec -m gpt-6-astra`, reasoning `high`, read-only. At most 3
   rounds per ticket; a 4th means re-plan.
 - Fable reviews risk areas (plan review before code, code review after Codex is clean).
   Opus reviews other M/L work. No Claude review for XS or for S outside risk areas.
