@@ -6,7 +6,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/livekit/server-sdk-go/v2 v2.18.1
 	github.com/pion/interceptor v0.1.47
-	github.com/pion/rtp v1.10.5
+	github.com/pion/rtp v1.10.6
 	github.com/pion/webrtc/v4 v4.2.18
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 )
