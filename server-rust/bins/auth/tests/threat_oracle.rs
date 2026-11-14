@@ -165,6 +165,9 @@ enum Extra {
     CaptchaFixture,
     CaptchaWrong,
     CaptchaExpired,
+    /// Content-Length longer than the bytes sent, then a write half-close: the body
+    /// read fails (Go interceptor.go:393-397, 400 invalid_body).
+    Truncated,
 }
 
 enum Setup {
@@ -478,6 +481,16 @@ fn plan(name: &str) -> Result<Plan, Err> {
             E::None,
             413,
             Some("body_too_large"),
+            &[],
+        ),
+        "off-reset-body-truncated" => single(
+            false,
+            Setup::None,
+            RESET,
+            P::ResetBad,
+            E::Truncated,
+            400,
+            Some("invalid_body"),
             &[],
         ),
         "off-begin-decoy" => single(
@@ -1180,8 +1193,98 @@ fn extra_headers(extra: Extra, now: i64, mint: &Mint) -> Vec<(String, String)> {
         Extra::CaptchaExpired => {
             captcha_headers(&mut h, CAPTCHA_FIXTURE.as_bytes(), "7", "7", now - 60, mint)
         }
+        Extra::Truncated => {}
     }
     h
+}
+
+/// A POST whose Content-Length exceeds the bytes written; the write side is then
+/// closed, so the server's body read ends in an unexpected EOF.
+async fn send_truncated(
+    addr: SocketAddr,
+    from: Ipv4Addr,
+    path: &str,
+    payload: &[u8],
+    headers: &[(String, String)],
+) -> Result<Reply, Err> {
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    socket.bind(SocketAddr::new(IpAddr::V4(from), 0))?;
+    let mut stream = socket.connect(addr).await?;
+    let mut head = format!(
+        "POST {path} HTTP/1.1\r\nhost: {HOST}\r\nuser-agent: {AGENT}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n",
+        payload.len() + 64
+    );
+    for (k, v) in headers {
+        head.push_str(&format!("{k}: {v}\r\n"));
+    }
+    head.push_str("\r\n");
+    let started = Instant::now();
+    stream.write_all(head.as_bytes()).await?;
+    stream.write_all(payload).await?;
+    stream.shutdown().await?;
+    let mut raw = Vec::new();
+    tokio::time::timeout(Duration::from_secs(20), stream.read_to_end(&mut raw))
+        .await
+        .map_err(|_| "no response to the truncated body")??;
+    let split = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or("no response head")?;
+    let head = String::from_utf8(raw[..split].to_vec())?;
+    let rest = &raw[split + 4..];
+    let mut lines = head.split("\r\n");
+    let status: u16 = lines
+        .next()
+        .and_then(|l| l.split(' ').nth(1))
+        .and_then(|c| c.parse().ok())
+        .ok_or("bad status line")?;
+    let mut hs = serde_json::Map::new();
+    let mut chunked = false;
+    for line in lines {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        let (k, v) = (k.trim().to_ascii_lowercase(), v.trim());
+        chunked |= k == "transfer-encoding" && v.eq_ignore_ascii_case("chunked");
+        if [
+            "content-type",
+            "cache-control",
+            "x-threat-reason",
+            "x-threat-delay",
+            "set-cookie",
+            "www-authenticate",
+            "x-content-type-options",
+        ]
+        .contains(&k.as_str())
+        {
+            hs.insert(k, json!(v));
+        }
+    }
+    let body = if chunked {
+        let mut out = Vec::new();
+        let mut at = rest;
+        loop {
+            let eol = at
+                .windows(2)
+                .position(|w| w == b"\r\n")
+                .ok_or("bad chunk")?;
+            let size = usize::from_str_radix(std::str::from_utf8(&at[..eol])?.trim(), 16)?;
+            if size == 0 {
+                break;
+            }
+            out.extend_from_slice(&at[eol + 2..eol + 2 + size]);
+            at = &at[eol + 2 + size + 2..];
+        }
+        out
+    } else {
+        rest.to_vec()
+    };
+    Ok(Reply {
+        status,
+        headers: Value::Object(hs),
+        body: String::from_utf8(body)?,
+        elapsed: started.elapsed(),
+    })
 }
 
 fn keys_for(ips: &[String], users: &[String]) -> Vec<String> {
@@ -1492,7 +1595,11 @@ async fn drive(
             username: payload_username(step.payload, email),
         };
         let headers = extra_headers(step.extra, now, &mint);
-        let reply = send(target, from, step.path, payload.clone(), &headers).await?;
+        let reply = if matches!(step.extra, Extra::Truncated) {
+            send_truncated(target, from, step.path, &payload, &headers).await?
+        } else {
+            send(target, from, step.path, payload.clone(), &headers).await?
+        };
         sent.push((payload, headers));
         replies.push(reply);
     }
@@ -1872,6 +1979,7 @@ recorded! {
     go_geo_login_ip_block_first => "geo-login-ip-block-first";
     go_tarpit_login_threshold => "tarpit-login-threshold";
     go_tarpit_login_high_risk => "tarpit-login-high-risk";
+    go_off_reset_body_truncated => "off-reset-body-truncated";
 }
 
 // ---------------------------------------------------------------- native-only

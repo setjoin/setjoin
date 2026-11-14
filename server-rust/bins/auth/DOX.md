@@ -494,7 +494,7 @@ threat read still forwards to Go, which fails open until Go is removed), strict 
 postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
 the transaction settled (additive; per-class timing differs as in Go). Own
 two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
-missing reducers). Residuals: CAPTCHA header, username lockout, and threat-username JSON nesting beyond serde's 128 levels (#346).
+missing reducers). A present `X-Captcha-Token` is verified like Go's middleware (403 `captcha` plus a `captcha_needed` row on failure, bound and single-use). Residuals: username lockout, and threat-username JSON nesting beyond serde's 128 levels (#346).
 
 Rollout: the four guest-invite registrations (auth and gateway listener, GET and POST) stay
 OFF/go-auth in the bundled inventory until #396 (threat admission: captcha + username lockout
@@ -525,7 +525,7 @@ A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests 
 - Captcha tokens (`src/captcha.rs`) are bound to IP, route and username and single-use per
   process. Order: verify, run the pipeline, claim only when the pipeline allows, so a rate-limited
   request consumes no used-set slot. A verified, claimed token runs `CaptchaStep::Skip` (Go);
-  a failed token or failed claim runs `TarpitOnly` and is rate limited. The used set is in
+  a failed token, an already-claimed token (checked read-only before the pipeline) or a lost claim race runs `TarpitOnly` and is rate limited. The used set is in
   memory (65 536 entries, full refuses): a restart forgets it, so a token accepted before a
   restart is accepted once more within its 120 s life (still bound to IP, route and username),
   and with several auth processes a token is accepted once per process; production runs one.
