@@ -112,6 +112,16 @@ impl AuthServer {
             return self.forward(req).await;
         }
         let ip = self.client_ip(&req).to_string();
+        let captcha_token = req
+            .headers()
+            .get("x-captcha-token")
+            .map(|v| v.as_bytes().to_vec())
+            .unwrap_or_default();
+        let captcha_answer = req
+            .headers()
+            .get("x-captcha-answer")
+            .map(|v| v.as_bytes().to_vec())
+            .unwrap_or_default();
         let agent = req
             .headers()
             .get("user-agent")
@@ -136,10 +146,42 @@ impl AuthServer {
             }
         };
         let username = http_threat::threat_username(&raw);
+        // Go's always-mounted middleware (interceptor.go:412-418) answers a present
+        // token that fails verification 403 `captcha` before any other rule, controls
+        // off or not. Rust's token is bound and single-use (divergence
+        // captcha-token-bound-single-use), so a replayed one fails the same way.
+        if !captcha_token.is_empty() {
+            let route = "/auth/guest-invite/accept";
+            let binding = captcha::Binding {
+                ip: &ip,
+                route,
+                username: &username,
+            };
+            let now = captcha::now();
+            let solved = captcha::verify(
+                &self.config.threat.captcha_secret,
+                &captcha_token,
+                &captcha_answer,
+                &binding,
+                now,
+            )
+            .is_some_and(|(mac, exp)| self.captcha_used.claim(&mac, exp, now));
+            if !solved {
+                self.http_attempt(&ip, &agent, &username, "captcha_needed")
+                    .await;
+                return http_threat::threat_reply(
+                    403,
+                    "captcha",
+                    "CAPTCHA verification failed",
+                    None,
+                    std::time::Duration::ZERO,
+                )
+                .await;
+            }
+        }
         if let Some(blocked) = self.http_ip_rules(&ip, &agent, &username).await {
             return blocked;
         }
-        // X-Captcha-Token is ignored natively, as in native login (residual, #346).
         let reply = self.guest_invite_accept(&ip, &raw).await;
         let outcome = if matches!(reply.status().as_u16(), 200 | 204) {
             "success"
