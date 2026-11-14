@@ -255,7 +255,7 @@ mod db {
         // owned (no grant: mismatch) and the new one is.
         owner
             .batch_execute(&format!(
-                "BEGIN; UPDATE mailboxes SET is_primary = FALSE WHERE id = {}; \
+                "BEGIN; SET LOCAL session_replication_role = replica; UPDATE mailboxes SET is_primary = FALSE WHERE id = {}; \
                  UPDATE mailboxes SET is_primary = TRUE WHERE id = {second}; COMMIT;",
                 a.mailbox
             ))
@@ -272,7 +272,7 @@ mod db {
         assert_eq!((scope.id(), scope.delegated()), (second, false));
         owner
             .batch_execute(&format!(
-                "BEGIN; UPDATE mailboxes SET is_primary = FALSE WHERE id = {second}; \
+                "BEGIN; SET LOCAL session_replication_role = replica; UPDATE mailboxes SET is_primary = FALSE WHERE id = {second}; \
                  UPDATE mailboxes SET is_primary = TRUE WHERE id = {}; COMMIT;",
                 a.mailbox
             ))
@@ -365,7 +365,7 @@ mod db {
             .await;
         let _ = owner
             .batch_execute(&format!(
-                "BEGIN; UPDATE mailboxes SET is_primary = FALSE WHERE id = {second}; \
+                "BEGIN; SET LOCAL session_replication_role = replica; UPDATE mailboxes SET is_primary = FALSE WHERE id = {second}; \
                  UPDATE mailboxes SET is_primary = TRUE WHERE id = {}; COMMIT;",
                 a.mailbox
             ))

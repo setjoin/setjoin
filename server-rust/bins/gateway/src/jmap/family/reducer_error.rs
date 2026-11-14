@@ -701,7 +701,8 @@ mod tests {
                 failure(Some("BZ081"), "x", Some(r#"{"type":"bad_outcome"}"#)),
                 ("invalidArguments", "invalidArguments"),
             ),
-            (failure(Some("BZ081"), "x", None), ("notFound", "notFound")),
+            // Go detailPass[BZ081] = passHint: no hint falls through to the message.
+            (failure(Some("BZ081"), "x", None), ("notFound", "x")),
             (
                 failure(Some("BZ099"), "last", Some(r#"{"type":"last_global"}"#)),
                 ("serverFail", "database error"),
