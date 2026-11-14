@@ -54,7 +54,11 @@ pub fn specs(action: &str, label: &str) -> Option<Case> {
         // Go's gate counts zero, then `SetupStatus` counts again: a user appeared, or the
         // second count fails. Both answer 200 `{"initialized":true}`.
         "second-count-user" | "second-count-fails" => {
-            let sql = if label == "second-count-user" { SECOND_USER } else { SECOND_FAILS };
+            let sql = if label == "second-count-user" {
+                SECOND_USER
+            } else {
+                SECOND_FAILS
+            };
             c.seed.push(sql.into());
             c.status = 200;
         }
