@@ -135,7 +135,7 @@ impl AuthServer {
                     .unwrap();
             }
         };
-        let username = http_threat::threat_username(&raw);
+        let username = http_threat::field_username(&raw);
         if let Some(blocked) = self.http_ip_rules(&ip, &agent, &username).await {
             return blocked;
         }

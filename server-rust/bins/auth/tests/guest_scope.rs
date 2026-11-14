@@ -136,7 +136,13 @@ async fn arrange(
         .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
         .await?
         .get(0);
-    Ok((email, AuthServer::load(exec, cfg).await?))
+    Ok((
+        email,
+        AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?,
+    ))
 }
 
 /// Takes the in-binary serial lock and the shared identity-login advisory
@@ -440,7 +446,10 @@ impl Case {
         cfg.go_upstream = upstream;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
-        let auth = AuthServer::load(exec, cfg).await?;
+        let auth = AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?;
         Ok(Case {
             a,
             email,

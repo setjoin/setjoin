@@ -57,7 +57,7 @@ impl Config {
             oidc_public_key: "/opt/setjoin/oidc_pub.pem".into(),
             oidc_origins: String::new(),
             vapid_private_key: String::new(),
-            threat:setjoin_threat::Config::default(),
+            threat: Self::quiet_threat(&secret),
             direct_dsn:String::new(),
             geoip_path:String::new(),
             webauthn_rp_id:"localhost".into(),
@@ -85,6 +85,36 @@ impl Config {
             go_upstream: None,
             cookie_secure: false,
         }
+    }
+    /// Library/test default (#349): the five env-overridable admission controls
+    /// off, as the former `threat_controls: [false; 5]`; `from_env` replaces it.
+    /// The captcha key is Go's derived default, and empty for an empty secret (F7).
+    fn quiet_threat(secret: &str) -> setjoin_threat::Config {
+        let mut threat = setjoin_threat::Config::default();
+        for key in ["threat_feed", "geo_block", "spray_detect", "captcha", "tarpit"] {
+            threat.overrides.insert(format!("feature.{key}"), false);
+        }
+        if !secret.is_empty() {
+            threat.captcha_secret =
+                crate::captcha::derive_secret(secret.as_bytes(), CryptoProfile::Standard);
+        }
+        threat
+    }
+    /// Shared threat configuration (#349): Go's env/YAML knobs, then
+    /// authserver/internal/config/config.go:271-273: an unset CAPTCHA_SECRET is
+    /// HKDF-SHA256(JWT_SECRET, salt "mailserver-captcha-token-v1"), 32 bytes (16 for
+    /// smx). An empty JWT secret leaves the key empty, so every solve fails (F7;
+    /// `from_env` refuses short secrets anyway).
+    pub fn threat_from_lookup(
+        get: &dyn Fn(&str, &str) -> Option<String>,
+        jwt_secret: &str,
+        profile: CryptoProfile,
+    ) -> Result<setjoin_threat::Config, String> {
+        let mut threat = setjoin_threat::Config::from_lookup(get)?;
+        if threat.captcha_secret.is_empty() && !jwt_secret.is_empty() {
+            threat.captcha_secret = crate::captcha::derive_secret(jwt_secret.as_bytes(), profile);
+        }
+        Ok(threat)
     }
     pub fn from_env() -> Result<Self, String> {
         let yaml: Value = match std::env::var("SETJOIN_CONFIG")
@@ -138,7 +168,6 @@ impl Config {
         c.worker_dsn = get("DB_WORKER_DSN", "db.worker_dsn");
         c.direct_dsn=get("DB_DIRECT_DSN","db.direct_dsn").filter(|s|!s.is_empty()).unwrap_or_else(||c.dsn.clone());
         c.geoip_path=get("GEOIP_DB_PATH","geoip.db_path").unwrap_or_default();
-        c.threat=setjoin_threat::Config::from_lookup(&get)?;
         c.issuer = get("JWT_ISSUER", "jwt.issuer").unwrap_or(c.issuer);
         c.signing_alg = get("JWT_SIGNING_ALG", "jwt.signing_alg").unwrap_or(c.signing_alg);
         let profile =
@@ -147,6 +176,7 @@ impl Config {
             return Err("CRYPTO_ALGORITHM_PROFILE must be standard, smx, or hybrid".into());
         }
         c.profile = CryptoProfile::parse(&profile);
+        c.threat = Self::threat_from_lookup(&get, &c.secret, c.profile)?;
         if matches!(c.profile, CryptoProfile::Smx | CryptoProfile::Hybrid) {
             if let Some(path) =
                 get("SM2_PRIVATE_KEY_FILE", "sm2.private_key_file").filter(|s| !s.is_empty())
