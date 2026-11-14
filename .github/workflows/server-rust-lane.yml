@@ -125,7 +125,7 @@ jobs:
             echo "- **DEBUG run, not a lane result**: filter \`${LANE_NEXTEST_FILTER:0:300}\`, adequacy stages \`${LANE_ADEQUACY_ONLY}\`, entries \`${LANE_ADEQUACY_ENTRIES:0:300}\`"
             { grep -E '^(✓|✗)|^replay summary|^coverage summary|Summary \[' lane-artifacts/lane.log | tail -30 | sed 's/^/- `/; s/$/`/'; } || true
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: lane-result-debug
@@ -157,13 +157,13 @@ jobs:
           ls -la "$LANE_BUILD/lane-tests.tar.zst"
           # an ignored test is red, as in run_root (the shards cannot see it: partitions count as skipped)
           python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); bad=[f"{b}::{t}" for b,s in d["rust-suites"].items() for t,c in s["testcases"].items() if c.get("ignored")]; print("\n".join(bad)); sys.exit(f"{len(bad)} ignored test(s)" if bad else 0)' lane-artifacts/lane-list.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lane-archive
           path: ${{ env.LANE_BUILD }}/lane-tests.tar.zst
           retention-days: 1
           compression-level: 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lane-list
           path: lane-artifacts/lane-list.json
@@ -187,7 +187,7 @@ jobs:
           save-if: false
       - name: Static guards, cargo-deny, pilot, schema-simulation, bench-mark-read, doc tests
         run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: lane-result-roots
@@ -238,7 +238,7 @@ jobs:
         with:
           path: ~/.cache/setjoin-server-rust-lane/go-mod
           key: lane-go-mod-${{ hashFiles('**/go.sum') }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: lane-result-shard-${{ matrix.shard }}
@@ -273,13 +273,13 @@ jobs:
               read -r -a sel <<<"$LANE_COVERAGE_TARGETS"
               cargo nextest archive "${sel[@]}" --locked --archive-file "$LANE_BUILD/coverage-tests.tar.zst"
               cargo nextest list "${sel[@]}" --locked --message-format json >"$LANE_ARTIFACT_DIR/coverage-list.json"'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lane-coverage-archive
           path: ${{ env.LANE_BUILD }}/coverage-tests.tar.zst
           retention-days: 1
           compression-level: 0
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: lane-coverage-list
           path: lane-artifacts/coverage-list.json
@@ -319,7 +319,7 @@ jobs:
               (cd server-rust && cargo nextest list --archive-file "$LANE_COVERAGE_ARCHIVE" --workspace-remap . \
                 --extract-to "$LANE_BUILD" --extract-overwrite >/dev/null)
               bash scripts/server-rust-parallel-lane.sh'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: lane-result-coverage-${{ matrix.shard }}
@@ -368,7 +368,7 @@ jobs:
           set -o pipefail
           python3 scripts/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
             --shards "$SHARDS" --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always() && needs.plan.outputs.debug == 'false'
         with:
           name: lane-results-${{ github.sha }}
