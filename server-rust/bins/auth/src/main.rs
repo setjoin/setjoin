@@ -55,8 +55,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     // The original auth address is bound before any shared task can start:
     // authserverd must have released it in the whole-process swap (#331).
-    let worker =
-        setjoin_pg::workers::WorkerDatabase::from_dsns(&config.dsn, config.worker_dsn.as_deref())?;
+    let worker = setjoin_threat::WorkerPools::from_dsns(&config.dsn, config.worker_dsn.as_deref())?;
     let geo = if config.geoip_path.is_empty() {
         None
     } else {

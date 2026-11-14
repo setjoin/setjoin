@@ -43,6 +43,11 @@ passes fails the run until its line is removed; a name with no guard file is an 
 `scripts/run-guards-selftest.sh` proves these cases and runs before the guards in the job;
 `scripts/check-test-gate-wiring.sh` asserts the job and its `aggregate` requirement.
 
+## quick check (agent branches)
+
+`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on pushes to `gofree/**`, `ci/**`, `docs/**` and on `workflow_dispatch` (`packages`, `tests`): `cargo check --tests` + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
+It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests and main run only the full lane.
+
 ## gofree record (manual, deleted with Go)
 
 `.github/workflows/gofree-record.yml` is `workflow_dispatch` only (`contents: read`, `packages: read`;
