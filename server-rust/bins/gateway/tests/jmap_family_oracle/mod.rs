@@ -515,6 +515,33 @@ async fn save_continuity(owner: &Client) -> Result<Continuity, BoxError> {
     Ok((row.get(0), row.get(1), row.get(2)))
 }
 
+/// The one floor per sequence that any family case may create ids in
+/// (#369-#377). Every case raises all of them, so ranges never depend on which
+/// family ran first in a shared recording database. Values are pairwise
+/// distinct and at least 1M apart (`floors_are_distinct`). Families never set
+/// floors, and no golden carries an unscrubbed id.
+pub const FLOORS: &[(&str, i64)] = &[
+    ("users", 1_000_000),
+    ("mailboxes", 2_000_000),
+    ("tags", 3_000_000),
+    ("messages", 4_000_000),
+    ("reminders", 11_000_000),
+    ("addressbooks", 12_000_000),
+    ("contacts", 13_000_000),
+    ("contact_groups", 14_000_000),
+    ("calendars", 15_000_000),
+    ("calendar_events", 16_000_000),
+    ("event_attendees", 17_000_000),
+    ("departments", 18_000_000),
+    ("tasks", 19_000_000),
+    ("task_lists", 20_000_000),
+    ("task_activity", 21_000_000),
+    ("chat_channels", 22_000_000),
+    ("quick_steps", 25_000_000),
+    ("saved_searches", 26_000_000),
+    ("email_templates", 27_000_000),
+];
+
 /// Record or compare one case. See the module documentation.
 pub async fn run(case: &Case, mutation: Mutation) -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
@@ -522,13 +549,7 @@ pub async fn run(case: &Case, mutation: Mutation) -> Result<(), BoxError> {
         return Ok(());
     };
     let owner = db.connect().await?;
-    for (sequence, floor) in [
-        ("users", 1_000_000_i64),
-        ("mailboxes", 2_000_000),
-        ("tags", 3_000_000),
-        ("messages", 4_000_000),
-        ("reminders", 11_000_000),
-    ] {
+    for (sequence, floor) in FLOORS {
         owner
             .batch_execute(&format!(
                 "SELECT setval('{sequence}_id_seq', GREATEST((SELECT last_value FROM {sequence}_id_seq), {floor}))"
@@ -990,7 +1011,92 @@ async fn cleanup(
             )
             .await?;
     }
+    // Shared (user-less) mailboxes a case seeded in the fixtures' domains
+    // (#372, #374): their mail-work operations pin the fixture users
+    // (ON DELETE RESTRICT), so they go before the fixtures.
+    let domains = vec![fx.a.domain, fx.f.domain];
+    let shared: Vec<i64> = owner
+        .query_typed(
+            "SELECT id FROM mailboxes WHERE user_id IS NULL AND domain_id = ANY($1)",
+            &[(&domains, Type::INT8_ARRAY)],
+        )
+        .await?
+        .iter()
+        .map(|row| row.get::<_, i64>(0))
+        .collect();
+    let every: Vec<i64> = mailboxes.iter().chain(shared.iter()).copied().collect();
+    // Comment edits reference their original (replaces_comment_id, ON DELETE
+    // RESTRICT): remove leaves first until none are left (#372).
+    loop {
+        let removed = owner
+            .execute(
+                "DELETE FROM mail_thread_comments c WHERE c.mailbox_id = ANY($1) \
+                 AND NOT EXISTS (SELECT 1 FROM mail_thread_comments r WHERE r.replaces_comment_id = c.id)",
+                &[&every],
+            )
+            .await?;
+        if removed == 0 {
+            break;
+        }
+    }
+    // A calendar journals into its mailbox when deleted (trg_journal_calendar),
+    // so calendars go while their mailbox exists, then that journal; a sharing
+    // default pins its creator (no cascade) (#371).
+    owner
+        .query_typed(
+            "DELETE FROM calendars WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM jmap_changes_journal WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM sharing_defaults WHERE created_by = ANY($1)",
+            &[(&users, Type::INT8_ARRAY)],
+        )
+        .await?;
+    for mailbox in &shared {
+        owner
+            .batch_execute(&format!(
+                "BEGIN; SET LOCAL session_replication_role=replica; \
+                 DELETE FROM mailbox_audit_log WHERE mailbox_id={mailbox}; COMMIT;"
+            ))
+            .await?;
+        owner
+            .query_typed(
+                "DELETE FROM messages WHERE mailbox_id = $1",
+                &[(mailbox, Type::INT8)],
+            )
+            .await?;
+        owner
+            .query_typed(
+                "DELETE FROM mailboxes WHERE id = $1",
+                &[(mailbox, Type::INT8)],
+            )
+            .await?;
+    }
     fixture::remove(owner, &fx.a).await?;
     fixture::remove(owner, &fx.f).await?;
     Ok(())
+}
+
+/// One floor per sequence, at least 1M apart, so no two sequences share a range.
+#[test]
+fn floors_are_distinct() {
+    let mut names = std::collections::BTreeSet::new();
+    let mut values: Vec<i64> = Vec::new();
+    for (sequence, floor) in FLOORS {
+        assert!(names.insert(*sequence), "{sequence} has exactly one floor");
+        assert!(*floor >= 1_000_000, "{sequence}");
+        values.push(*floor);
+    }
+    values.sort_unstable();
+    for pair in values.windows(2) {
+        assert!(pair[1] - pair[0] >= 1_000_000, "{pair:?}");
+    }
 }
