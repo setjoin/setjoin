@@ -249,3 +249,84 @@ pub fn parse_url_host(raw: &str) -> Result<String, ()> {
     }
     Ok(host)
 }
+
+/// `url.URL.Path` of a request path: Go's `unescape(s, encodePath)` decodes every `%XX`
+/// (`%2F` included) and keeps other bytes. `None` where Go's request parsing fails
+/// (a malformed escape answers 400 before any handler).
+pub fn request_path(raw: &str) -> Option<Vec<u8>> {
+    if !escapes_ok(raw, false) {
+        return None;
+    }
+    let b = raw.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            out.push(u8::from_str_radix(&raw[i + 1..i + 3], 16).ok()?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    Some(out)
+}
+
+/// The GET-only `apiMux` registrations with a literal `/api` path
+/// (mailserver/cmd/mailserverd/main.go:3594-3605, 3651, 3791). `buildRootDispatch`
+/// serves these unstripped; other methods answer 405/404 before any auth.
+const LITERAL_API: [&str; 11] = [
+    "/api/openapi.yaml",
+    "/api/openapi.json",
+    "/api/docs",
+    "/api/redoc.standalone.js",
+    "/api/logo.svg",
+    "/api/fonts/ibm-plex-sans-400.woff2",
+    "/api/fonts/ibm-plex-sans-500.woff2",
+    "/api/openapi.full.yaml",
+    "/api/openapi.full.json",
+    "/api/discover",
+    "/api/cert-hint",
+];
+
+/// The `r.URL.Path` a mailserverd handler sees for raw request path `raw`, which is
+/// what chain.go:434 `pathWithinScope` compares. `buildRootDispatch` (main.go:5067-5093)
+/// serves a literal `/api` registration unstripped and every other `/api/...` path through
+/// `http.StripPrefix("/api")`, which trims `Path` and `RawPath` and answers 404 when the
+/// raw path's `/api` was escaped. Paths outside `/api/` reach handlers unchanged.
+/// `None` = Go reaches no handler.
+pub fn mailserver_handler_path(raw: &str) -> Option<Vec<u8>> {
+    let path = request_path(raw)?;
+    if !path.starts_with(b"/api/") || LITERAL_API.iter().any(|l| path == l.as_bytes()) {
+        return Some(path);
+    }
+    raw.starts_with("/api").then(|| path[4..].to_vec())
+}
+
+#[cfg(test)]
+mod handler_path_tests {
+    use super::mailserver_handler_path as h;
+
+    #[test]
+    fn mirrors_go_root_dispatch_and_url_path() {
+        let s = |p: &str| Some(p.as_bytes().to_vec());
+        assert_eq!(h("/api/admin/users"), s("/admin/users"));
+        assert_eq!(h("/api/admin/users/"), s("/admin/users/"));
+        assert_eq!(h("/api/"), s("/"));
+        assert_eq!(h("/api"), s("/api"));
+        assert_eq!(h("/apix/y"), s("/apix/y"));
+        assert_eq!(h("/admin/users"), s("/admin/users"));
+        assert_eq!(h("/jmap"), s("/jmap"));
+        assert_eq!(h("/api/adm%69n"), s("/admin"));
+        assert_eq!(h("/api/a%2Fb"), s("/a/b"));
+        assert_eq!(h("/api/a+b%20c"), s("/a+b c"));
+        assert_eq!(h("/api/%ff"), Some(b"/\xff".to_vec()));
+        // StripPrefix: RawPath "/%61pi/x" does not start with "/api" -> 404.
+        assert_eq!(h("/%61pi/x"), None);
+        assert_eq!(h("/api/a%zz"), None);
+        assert_eq!(h("/api/a%2"), None);
+        assert_eq!(h("/api/openapi.full.yaml"), s("/api/openapi.full.yaml"));
+        assert_eq!(h("/api/openapi.full.yaml/"), s("/openapi.full.yaml/"));
+        assert_eq!(h("/api/cert-hint"), s("/api/cert-hint"));
+    }
+}

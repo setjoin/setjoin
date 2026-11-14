@@ -644,22 +644,35 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                 &format!("{scope:?} {path}: guest without iat"),
             );
         }
-        // Malformed (non-integer) iat/act fail the claims-shape check before the accessors run.
+        // A quoted-number or fractional iat is a NumericDate Go decodes (crate::numeric_date);
+        // a non-numeric one fails the token. A non-integer act fails the claims-shape check.
         for scope in [Scope::User, Scope::DriveUser] {
-            for (label, bad) in [("string", json!("12345")), ("float", json!(1.5))] {
-                refused(
+            for (label, iat) in [("string", json!("12345")), ("float", json!(1.5))] {
+                let a = admitted(
                     run(
                         &ctx,
                         &keys,
-                        &bearer(&with(guest_claims(active), "iat", bad.clone())),
+                        &bearer(&with(guest_claims(active), "iat", iat.clone())),
                         PLAIN,
                         scope,
                     )
                     .await,
-                    Refusal::InvalidToken,
                     &format!("{scope:?}: guest with {label} iat"),
                 );
+                assert!(a.context().is_guest(), "{scope:?}: guest with {label} iat");
             }
+            refused(
+                run(
+                    &ctx,
+                    &keys,
+                    &bearer(&with(guest_claims(active), "iat", json!("x"))),
+                    PLAIN,
+                    scope,
+                )
+                .await,
+                Refusal::InvalidToken,
+                &format!("{scope:?}: guest with non-numeric iat"),
+            );
             for (label, act) in [
                 ("string", json!("admin")),
                 ("float", json!(1.5)),
@@ -684,7 +697,7 @@ async fn user_and_drive_user_scopes_name_guest_states() {
             "iat",
             json!("12345"),
         );
-        refused(
+        admitted(
             run(
                 &ctx,
                 &keys,
@@ -693,8 +706,19 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                 Scope::DriveUser,
             )
             .await,
+            "guest drive token with quoted-number iat on a drive path",
+        );
+        refused(
+            run(
+                &ctx,
+                &keys,
+                &bearer(&with(drive_string_iat, "iat", json!("1x"))),
+                DRIVE,
+                Scope::DriveUser,
+            )
+            .await,
             Refusal::InvalidToken,
-            "guest drive token with string iat on a drive path",
+            "guest drive token with non-numeric iat on a drive path",
         );
         // The drive-scoped guest token without iat is parsed on a drive path and still refused.
         let drive_guest = without(with(guest_claims(active), "scp", json!("drive")), "iat");
@@ -750,22 +774,22 @@ async fn zero_uid_cookie_with_basic_is_unserved_never_remapped() {
 
 // ---- #387 items 1, 2, 6 ----
 
-/// A member `scp:drive` token is admitted only when the scope is a drive scope AND the
-/// path is a drive path. Pins the `&&` in `admit`'s `let drive = matches!(scope, Drive | DriveUser)
-/// && drive_path(path)` (lib.rs:275 at this head; #387 cites it as :403): a `&&`->`||` mutant
-/// would admit the token on a non-drive scope with a drive path, and on a drive scope with a
-/// non-drive path.
+/// A member `scp:drive` token is admitted exactly where Go's chain.go:434 admits it: on a
+/// drive handler path, on every scope, and never on another path. A `&&`->`||` mutant of
+/// `admit`'s `let drive = matches!(scope, Drive | DriveUser) && drive_path(path)` would
+/// admit it on a drive scope with the non-drive path.
 #[tokio::test]
-async fn member_drive_scope_token_is_admitted_only_on_drive_scope_and_drive_path() {
+async fn member_drive_scope_token_is_admitted_only_on_a_drive_path() {
     scenario("member-drive-scp", |ctx| async move {
         let keys = keys();
         let m = ctx.member().await?;
         let headers = bearer(&with(claims(m.user), "scp", json!("drive")));
         for scope in ALL_SCOPES {
             for path in [PLAIN, DRIVE] {
-                let drive_scope = matches!(scope, Scope::Drive | Scope::DriveUser);
+                // Go accepts scp=drive wherever the handler path is /drive/... (the
+                // stripped /api/drive/...), on every scope (chain.go:434).
                 let what = format!("{scope:?} {path}: member scp:drive");
-                if drive_scope && path == DRIVE {
+                if path == DRIVE {
                     let a = admitted(run(&ctx, &keys, &headers, path, scope).await, &what);
                     assert_eq!(a.context().user_id(), m.user, "{what}");
                 } else {
@@ -782,28 +806,141 @@ async fn member_drive_scope_token_is_admitted_only_on_drive_scope_and_drive_path
     .await;
 }
 
-/// Go chain.go:434: a scoped token is accepted when the request path is within its scope
-/// (`/<scp>` or `/<scp>/...`), on every scope variant; off its path it is `InvalidToken`.
-/// Admission then proceeds exactly as for an unscoped token, so the route's own permission
-/// check (403 in Go) is what a member without the permission meets, not a 401.
+/// Go chain.go:434: a scoped token is accepted when the path its handler sees is within
+/// its scope (`/<scp>` or `/<scp>/...`), on every scope variant. That path is
+/// `r.URL.Path` after buildRootDispatch strips `/api` (main.go:5067-5093), so
+/// `/api/admit-test` is `/admit-test`: `scp=admit-test` is accepted and
+/// `scp=api/admit-test` is not. Off its path the token is `InvalidToken`. Admission then
+/// proceeds exactly as for an unscoped token, so the route's own permission check
+/// (403 in Go) is what a member without the permission meets, not a 401.
 #[tokio::test]
-async fn member_scoped_token_is_admitted_on_its_own_path_like_go() {
+async fn scoped_token_is_admitted_on_its_go_handler_path_on_every_scope() {
     scenario("member-path-scp", |ctx| async move {
         let keys = keys();
         let m = ctx.member().await?;
-        let headers = bearer(&with(claims(m.user), "scp", json!("api/admit-test")));
-        for scope in [Scope::Member, Scope::Drive] {
-            for path in [PLAIN, "/api/admit-test/sub"] {
-                let what = format!("{scope:?} {path}: scp api/admit-test");
-                let a = admitted(run(&ctx, &keys, &headers, path, scope).await, &what);
+        let g = ctx.guest("active").await?;
+        let member = bearer(&with(claims(m.user), "scp", json!("admit-test")));
+        let guest = bearer(&with(guest_claims(g), "scp", json!("admit-test")));
+        let prefixed = bearer(&with(claims(m.user), "scp", json!("api/admit-test")));
+        let on = [
+            PLAIN,
+            "/api/admit-test/sub",
+            "/api/admit-test/",
+            "/admit-test",
+            "/api/admit%2Dtest",
+        ];
+        let off = [
+            "/api/admit-test2",
+            "/api",
+            "/api/other",
+            "/admit-testing",
+            "/%61pi/admit-test",
+        ];
+        for scope in ALL_SCOPES {
+            for path in on {
+                let what = format!("{scope:?} {path}: member scp admit-test");
+                let a = admitted(run(&ctx, &keys, &member, path, scope).await, &what);
                 assert_eq!(a.context().user_id(), m.user, "{what}");
             }
-            for path in ["/api/admit-test2", "/api", "/api/other"] {
+            for path in off {
                 refused(
-                    run(&ctx, &keys, &headers, path, scope).await,
+                    run(&ctx, &keys, &member, path, scope).await,
                     Refusal::InvalidToken,
-                    &format!("{scope:?} {path}: scp api/admit-test"),
+                    &format!("{scope:?} {path}: member scp admit-test"),
                 );
+            }
+            refused(
+                run(&ctx, &keys, &prefixed, PLAIN, scope).await,
+                Refusal::InvalidToken,
+                &format!("{scope:?}: scp api/admit-test never matches the stripped path"),
+            );
+        }
+        for scope in [Scope::User, Scope::DriveUser] {
+            let what = format!("{scope:?}: guest scp admit-test");
+            let a = admitted(
+                run(&ctx, &keys, &guest, "/api/admit-test/sub", scope).await,
+                &what,
+            );
+            assert!(a.context().is_guest(), "{what}");
+            assert_eq!(a.context().user_id(), g, "{what}");
+            refused(
+                run(&ctx, &keys, &guest, "/api/other", scope).await,
+                Refusal::InvalidToken,
+                &what,
+            );
+        }
+        Ok::<(), BoxError>(())
+    })
+    .await;
+}
+
+/// jwt/v5 NumericDate (crate::numeric_date): a fractional `exp`/`nbf`/`iat`, or one
+/// given as a JSON string holding a number, is accepted by Go on every scope, members
+/// and guests alike; the user scopes no longer refuse what the member scopes admit.
+#[tokio::test]
+async fn fractional_and_quoted_numeric_dates_are_admitted_on_every_scope() {
+    scenario("numeric-date", |ctx| async move {
+        let keys = keys();
+        let m = ctx.member().await?;
+        let g = ctx.guest("active").await?;
+        let n = now() as f64;
+        let variants = |c: Value| {
+            [
+                ("fractional exp", with(c.clone(), "exp", json!(n + 600.5))),
+                (
+                    "fractional iat+nbf",
+                    with(
+                        with(c.clone(), "iat", json!(n - 10.25)),
+                        "nbf",
+                        json!(n - 1.5),
+                    ),
+                ),
+                (
+                    "quoted exp",
+                    with(c.clone(), "exp", json!(format!("{}", now() + 600))),
+                ),
+                (
+                    "quoted fractional exp",
+                    with(c, "exp", json!(format!("{}.75", now() + 600))),
+                ),
+            ]
+        };
+        for scope in ALL_SCOPES {
+            for (name, c) in variants(claims(m.user)) {
+                let what = format!("{scope:?}: member {name}");
+                let a = admitted(run(&ctx, &keys, &bearer(&c), PLAIN, scope).await, &what);
+                assert_eq!(a.context().user_id(), m.user, "{what}");
+            }
+            refused(
+                run(
+                    &ctx,
+                    &keys,
+                    &bearer(&with(claims(m.user), "exp", json!(n - 0.5))),
+                    PLAIN,
+                    scope,
+                )
+                .await,
+                Refusal::InvalidToken,
+                &format!("{scope:?}: fractional exp in the past"),
+            );
+            refused(
+                run(
+                    &ctx,
+                    &keys,
+                    &bearer(&with(claims(m.user), "exp", json!("soon"))),
+                    PLAIN,
+                    scope,
+                )
+                .await,
+                Refusal::InvalidToken,
+                &format!("{scope:?}: non-numeric quoted exp"),
+            );
+        }
+        for scope in [Scope::User, Scope::DriveUser] {
+            for (name, c) in variants(guest_claims(g)) {
+                let what = format!("{scope:?}: guest {name}");
+                let a = admitted(run(&ctx, &keys, &bearer(&c), PLAIN, scope).await, &what);
+                assert!(a.context().is_guest(), "{what}");
             }
         }
         Ok::<(), BoxError>(())

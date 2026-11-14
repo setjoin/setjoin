@@ -741,8 +741,10 @@ forward from `answer` only. `native_or_unauthorized` is the fail-closed mapping 
 surfaces Go must never see (#365). The front-door revocation read now fails closed
 (503) after the CAE cold-denylist answer, so `denylist-cold.json` keeps its bytes.
 Adapters move from `authorize_*` to `deny::admit` in the #354 B1-B5 sweep batches; `grep deny::admit` shows which have landed. A token with a non-empty
-`scp` is admitted when the request path is `/<scp>` or under it (Go chain.go:434), else 401;
-`exp`/`nbf`/`iat` may be fractional and are floored to whole seconds like Go's jwt NumericDate;
+`scp` is admitted when Go's handler path (decoded, `/api` stripped as mailserverd's root
+dispatch does) is `/<scp>` or under it (Go chain.go:434), else 401, on every scope;
+`exp`/`nbf`/`iat` decode exactly like Go's jwt NumericDate (fractions, quoted numbers;
+authz `numeric_date`);
 the `access_token` cookie follows Go's `readCookies` (first match wins, even empty);
 the route's permission check then answers 403 as in Go. The four approved divergences are
 registered in `tests/conformance/authz-deny/divergences.json`.

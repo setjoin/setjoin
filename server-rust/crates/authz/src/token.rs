@@ -98,30 +98,16 @@ fn token_chars(t: &str) -> bool {
 /// `act`, and every claim Go decodes has the JSON type Go expects.
 pub async fn verify(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,false).await}
 
-/// jwt/v5 `NumericDate.UnmarshalJSON` + `Truncate(time.Second)`: a fractional JSON
-/// number in `exp`/`nbf`/`iat` is accepted and floored to whole seconds (no leeway;
-/// `iat` is not validated by Go). Integers and non-numbers pass through for the
-/// shape check; an unrepresentable number is refused. Compatible with the same
-/// normalisation #356a applies to push tokens (idempotent).
-pub(crate) fn floor_numeric_dates(claims:&mut Map<String,Value>)->Option<()>{
-    for key in ["exp","nbf","iat"]{
-        let Some(Value::Number(n))=claims.get(key) else {continue};
-        if n.is_i64(){continue;}
-        let f=n.as_f64()?.floor();
-        if !f.is_finite()||f.abs()>=9.2e18{return None;}
-        claims.insert(key.into(),Value::from(f as i64));
-    }
-    Some(())
-}
-
-/// Go's `pathWithinScope` (chain.go:~455): a token with a non-empty `scp` is
-/// accepted only when the request path is `/<scp>` or under `/<scp>/`.
-pub(crate) fn path_within_scope(path:&str,scope:&str)->bool{
-    path.strip_prefix('/').and_then(|p|p.strip_prefix(scope)).is_some_and(|rest|rest.is_empty()||rest.starts_with('/'))
+/// Go's `pathWithinScope` (chain.go:453-456) over the `r.URL.Path` the handler sees
+/// (see [`crate::go_url::mailserver_handler_path`]): a token with a non-empty `scp`
+/// is accepted only when that path is `/<scp>` or under `/<scp>/`. Bytes, as Go compares.
+pub(crate) fn path_within_scope(path:&[u8],scope:&str)->bool{
+    path.strip_prefix(b"/").and_then(|p|p.strip_prefix(scope.as_bytes())).is_some_and(|rest|rest.is_empty()||rest.starts_with(b"/"))
 }
 /// Scope containment (chain.go:434): empty scope, the Drive adapters' drive
-/// surface, or a request path the scope names.
-fn scope_admits(scope:&str,drive:bool,path:Option<&str>)->bool{
+/// surface, or a handler path the scope names. `None` path = no request path known
+/// (or Go would not reach a handler), so a scoped token is not admitted.
+fn scope_admits(scope:&str,drive:bool,path:Option<&[u8]>)->bool{
     scope.is_empty()||(drive&&scope=="drive")||path.is_some_and(|p|path_within_scope(p,scope))
 }
 /// Drive adapters only: the ordinary guard still refuses every scoped mirror.
@@ -130,33 +116,49 @@ pub async fn verify_drive(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySour
 /// [`verify`]/[`verify_drive`] with the refusal class kept (#354); one signature
 /// check. A token Go's registered-claim boundary rejects is `InvalidToken`; a
 /// token Go accepts but Rust does not serve is named by the first rule it trips.
-pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool,path:&str)
+#[cfg(test)]
+pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool,path:Option<&[u8]>)
+    ->Result<Session,crate::Refusal>{
+    let claims=decoded_claims(token,keys).await.ok_or(crate::Refusal::InvalidToken)?;
+    session_detailed(&claims,issuer,now_unix,drive,path)
+}
+
+/// Signature-checked claims with `exp`/`nbf`/`iat` decoded exactly as Go's
+/// `jwt.NumericDate` decodes them ([`crate::numeric_date`]); `None` = Go rejects.
+pub(crate) async fn decoded_claims(token:&str,keys:&impl KeySource)->Option<Map<String,Value>>{
+    let mut claims=signed_claims(token,keys).await?;
+    crate::numeric_date::normalize_token_claims(token,&mut claims)?;
+    Some(claims)
+}
+
+/// Go's claim acceptance (chain.go jwt_bearer + pathWithinScope): shape, registered
+/// claims, `typ` access and scope containment. Accepted tokens may still be unserved.
+pub(crate) fn go_accepts(claims:&Map<String,Value>,issuer:&str,now_unix:f64,drive:bool,path:Option<&[u8]>)->bool{
+    claims_shape_ok(claims).is_some() && crate::legacy_jwt::registered(claims,issuer,AUDIENCE,now_unix)
+        && str_claim(claims,"typ")=="access" && scope_admits(str_claim(claims,"scp"),drive,path)
+}
+
+/// The refusal class `admit` reports for [`decoded_claims`] (Go rule order).
+pub(crate) fn session_detailed(claims:&Map<String,Value>,issuer:&str,now_unix:f64,drive:bool,path:Option<&[u8]>)
     ->Result<Session,crate::Refusal>{
     use crate::Refusal;
-    let mut claims=signed_claims(token,keys).await.ok_or(Refusal::InvalidToken)?;
-    floor_numeric_dates(&mut claims).ok_or(Refusal::InvalidToken)?;
-    if let Some(session)=session_from(&claims,issuer,now_unix,drive,Some(path)){return Ok(session);}
-    if claims_shape_ok(&claims).is_none() || !crate::legacy_jwt::registered(&claims,issuer,AUDIENCE,now_unix) {
-        return Err(Refusal::InvalidToken);
-    }
-    let scope=str_claim(&claims,"scp");
-    if str_claim(&claims,"typ")!="access" || !scope_admits(scope,drive,Some(path)) {
+    if let Some(session)=session_from(claims,issuer,now_unix,drive,path){return Ok(session);}
+    if !go_accepts(claims,issuer,now_unix,drive,path) {
         return Err(Refusal::InvalidToken);
     }
     if claims.get("act").is_some_and(|v|!v.is_null()) {return Err(Refusal::Impersonation);}
     if claims.get("iat").is_none_or(Value::is_null) {return Err(Refusal::MissingIssuedAt);}
     if claims.get("uid").and_then(Value::as_i64).is_none_or(|u|u<=0) {return Err(Refusal::UnservedSubject);}
-    if str_claim(&claims,"acct")=="guest" {return Err(Refusal::Guest);}
+    if str_claim(claims,"acct")=="guest" {return Err(Refusal::Guest);}
     Err(Refusal::InvalidToken)
 }
 async fn verify_scope(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)->Option<Session>{
-    let mut claims = signed_claims(token, keys).await?;
-    floor_numeric_dates(&mut claims)?;
+    let claims = decoded_claims(token, keys).await?;
     session_from(&claims, issuer, now_unix, drive, None)
 }
 
 /// The claim rules of [`verify`] over already signature-checked claims.
-fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool, path: Option<&str>) -> Option<Session> {
+fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool, path: Option<&[u8]>) -> Option<Session> {
     claims_shape_ok(claims)?;
 
     if claims.get("iss")?.as_str()? != issuer || issuer.is_empty() {
@@ -170,12 +172,11 @@ fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive:
     if !audience_ok {
         return None;
     }
-    let exp = claims.get("exp")?.as_i64()?;
-    if now_unix >= exp as f64 {
+    if crate::numeric_date::expired(now_unix, claims.get("exp")?.as_i64()?) {
         return None;
     }
     if let Some(nbf) = claims.get("nbf").filter(|v| !v.is_null()) {
-        if now_unix < nbf.as_i64()? as f64 {
+        if crate::numeric_date::not_yet_valid(now_unix, nbf.as_i64()?) {
             return None;
         }
     }
@@ -765,8 +766,7 @@ pub(crate) mod tests {
 /// impose the gateway's mailbox, guest, scope or access-type admission rules.
 /// Callers must still apply the exact endpoint's access/revocation/DPoP guard.
 pub async fn validate_first_party(token:&str,issuer:&str,now:f64,keys:&impl KeySource)->Option<Map<String,Value>>{
-    let mut claims=signed_claims(token,keys).await?;
-    floor_numeric_dates(&mut claims)?;
+    let claims=decoded_claims(token,keys).await?;
     claims_shape_ok(&claims)?;
     crate::legacy_jwt::registered(&claims,issuer,AUDIENCE,now).then_some(claims)
 }
@@ -870,10 +870,12 @@ mod verify_detailed_tests {
         detailed_at(claims, header, drive, "/x").await
     }
 
+    /// `path` is the raw request path; Go's handler path is derived from it as `admit` does.
     async fn detailed_at(claims: Value, header: Value, drive: bool, path: &str) -> Result<(), Refusal> {
+        let path = crate::go_url::mailserver_handler_path(path);
         let key = signing_key(1);
         let token = sign(&key, &header, &claims);
-        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive, path)
+        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive, path.as_deref())
             .await
             .map(|_| ())
     }
@@ -921,17 +923,30 @@ mod verify_detailed_tests {
     #[tokio::test]
     async fn scoped_token_is_admitted_only_on_its_own_path_like_go() {
         let scoped = |scp: &str| with("scp", json!(scp));
-        let cases: [(&str, &str, bool); 8] = [
+        // Raw request paths; Go strips `/api` (main.go:5069-5093) and decodes like
+        // url.URL.Path before chain.go:434 compares.
+        let cases: &[(&str, &str, bool)] = &[
             ("admin", "/admin", true),
             ("admin", "/admin/users", true),
-            ("api/admin", "/api/admin/users", true),
-            ("admin", "/api/admin/users", false),
+            ("admin", "/api/admin/users", true),
+            ("api/admin", "/api/admin/users", false),
+            ("admin", "/api/admin", true),
+            ("admin", "/api/admin/users/", true),
+            ("admin", "/admin/", true),
             ("admin", "/administrator", false),
+            ("admin", "/api/administrator", false),
+            ("admin", "/api/adm%69n/users", true),
+            ("admin", "/api/admin%2Fusers", true),
+            ("admin%2F", "/api/admin%2F", false),
+            ("admin", "/%61pi/admin/users", false),
+            ("admin", "/api/adm%zzin", false),
             ("admin", "/", false),
-            ("api/admin", "/api/admin2", false),
             ("admin", "/x/admin", false),
+            ("api/admin", "/api/admin2", false),
+            ("api/openapi.full.yaml", "/api/openapi.full.yaml", true),
+            ("openapi.full.yaml", "/api/openapi.full.yaml", false),
         ];
-        for (scp, path, ok) in cases {
+        for &(scp, path, ok) in cases {
             let want = if ok { Ok(()) } else { Err(Refusal::InvalidToken) };
             assert_eq!(detailed_at(scoped(scp), es256(), false, path).await, want, "{scp} {path}");
         }
@@ -982,8 +997,20 @@ mod verify_detailed_tests {
         // A future nbf is refused, fractional or not.
         assert_eq!(ok(with("nbf", json!(1_800_000_001.5))).await, Err(Refusal::InvalidToken));
         assert_eq!(ok(with("nbf", json!(1_800_000_001))).await, Err(Refusal::InvalidToken));
-        // A non-number date still fails the shape check.
-        assert_eq!(ok(with("exp", json!("1800000900"))).await, Err(Refusal::InvalidToken));
+        // jwt/v5 decodes a NumericDate through json.Number: a JSON string holding a
+        // valid JSON number is accepted (decode.go:957-961); any other string is not.
+        assert_eq!(ok(with("exp", json!("1800000900"))).await, Ok(()));
+        assert_eq!(ok(with("exp", json!("1800000900.5"))).await, Ok(()));
+        assert_eq!(ok(with("iat", json!("1799999000"))).await, Ok(()));
+        assert_eq!(ok(with("nbf", json!("1.7e9"))).await, Ok(()));
+        for bad in [json!("abc"), json!(""), json!(" 1800000900"), json!("+1800000900"), json!("01800000900"), json!(true)] {
+            assert_eq!(ok(with("exp", bad.clone())).await, Err(Refusal::InvalidToken), "exp {bad}");
+        }
+        // Go on amd64: exp 9.2233720368547e18 wraps the internal seconds and is expired;
+        // nbf 1e19 converts to i64::MIN and is in the past (crate::numeric_date).
+        assert_eq!(ok(with("exp", json!(9.2233720368547e18))).await, Err(Refusal::InvalidToken));
+        assert_eq!(ok(with("exp", json!(9.21e18))).await, Ok(()));
+        assert_eq!(ok(with("nbf", json!(1e19))).await, Ok(()));
     }
 
     struct Counted(VerifyingKey, std::sync::atomic::AtomicUsize);
@@ -999,7 +1026,7 @@ mod verify_detailed_tests {
         let key = signing_key(1);
         let token = sign(&key, &es256(), &with("exp", json!(1_800_000_000)));
         let keys = Counted(public_key(&key), Default::default());
-        let got = verify_detailed(&token, "mailserver", NOW, &keys, false, "/x").await;
+        let got = verify_detailed(&token, "mailserver", NOW, &keys, false, Some(&b"/x"[..])).await;
         assert_eq!(got.map(|_| ()), Err(Refusal::InvalidToken));
         assert_eq!(keys.1.load(std::sync::atomic::Ordering::SeqCst), 1);
     }

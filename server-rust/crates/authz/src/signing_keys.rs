@@ -167,8 +167,9 @@ impl KeySet {
             return None;
         }
         let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(p).ok()?).ok()?;
-        let claims = claims.as_object()?;
-        registered(claims, issuer, "mailserver-gateway", now).then(|| claims.clone())
+        let mut claims = claims.as_object()?.clone();
+        crate::numeric_date::normalize_token_claims(token, &mut claims)?;
+        registered(&claims, issuer, "mailserver-gateway", now).then_some(claims)
     }
 }
 fn jwk(kid: &str, alg: &str, k: VerifyingKey) -> Value {

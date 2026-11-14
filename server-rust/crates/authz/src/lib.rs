@@ -16,6 +16,7 @@ pub mod es256;
 pub mod gates;
 pub mod jwks;
 pub mod mailbox;
+pub mod numeric_date;
 pub mod legacy_jwt;
 pub mod password;
 pub mod push;
@@ -270,23 +271,38 @@ pub fn credential(headers: &HeaderMap) -> Result<String, Refusal> {
 
 /// `authorize_request` and friends with the refusal class kept (#354).
 /// Order follows Go: credential, token validation, then live state reads.
+/// `path` is the raw request path; a scoped token is judged on the path Go's
+/// handler sees ([`go_url::mailserver_handler_path`], chain.go:434).
 pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
     headers: &HeaderMap, path: &str, scope: Scope) -> Result<Authorized, Refusal> {
     let drive = matches!(scope, Scope::Drive | Scope::DriveUser) && drive_path(path);
+    let handler_path = go_url::mailserver_handler_path(path);
+    let handler_path = handler_path.as_deref();
     let token = credential(headers)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| Refusal::Unavailable)?.as_secs_f64();
     // Signature + claim rules, bounded: a JWKS fetch stuck in flight is 503; an
     // unknown kid inside the refresh cooldown returns at once and is 401.
+    let claims = match tokio::time::timeout(precheck_timeout(), token::decoded_claims(&token, keys)).await {
+        Err(_) => return Err(Refusal::Unavailable),
+        Ok(None) => return Err(remap(headers, Refusal::InvalidToken)),
+        Ok(Some(claims)) => claims,
+    };
     if matches!(scope, Scope::User | Scope::DriveUser) {
-        let found = tokio::time::timeout(precheck_timeout(), async {
-            if drive { push::authenticate_drive(exec, keys, issuer, &token).await }
-            else { push::authenticate_detailed(exec, keys, issuer, &token).await }
-        }).await;
-        let identity = match found {
+        // The user scopes accept exactly the tokens Go's chain accepts (scoped on its
+        // path, any NumericDate Go decodes), then read the guest status like the push seam.
+        if !token::go_accepts(&claims, issuer, now, drive, handler_path) {
+            return Err(remap(headers, Refusal::InvalidToken));
+        }
+        // Off the Drive surface the push seam requires `iat` (approved divergence
+        // missing-iat-401); classify with the member verifier, as before.
+        if !drive && claims.get("iat").is_none_or(serde_json::Value::is_null) {
+            let class = token::session_detailed(&claims, issuer, now, drive, handler_path).err();
+            return Err(remap(headers, class.unwrap_or(Refusal::InvalidToken)));
+        }
+        let identity = match tokio::time::timeout(precheck_timeout(), push::identity_from_accepted(exec, claims.clone())).await {
             Err(_) | Ok(Err(push::PushAuthError::GuestUnavailable)) => return Err(Refusal::Unavailable),
             Ok(Err(push::PushAuthError::GuestInactive)) => return Err(Refusal::GuestInactive),
-            // Classify with the member verifier so iat/uid rules cannot be remapped away.
-            Ok(Err(push::PushAuthError::Invalid)) => return Err(verified(&token, issuer, now, keys, headers, drive, path).await.err().unwrap_or_else(|| remap(headers, Refusal::InvalidToken))),
+            Ok(Err(push::PushAuthError::Invalid)) => return Err(remap(headers, Refusal::InvalidToken)),
             Ok(Ok(identity)) => identity,
         };
         if identity.has_act() { return Err(Refusal::Impersonation); }
@@ -303,7 +319,7 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
             return identity.user_authorization().ok_or(Refusal::UnservedSubject);
         }
     }
-    let session = verified(&token, issuer, now, keys, headers, drive, path).await?;
+    let session = token::session_detailed(&claims, issuer, now, drive, handler_path).map_err(|r| remap(headers, r))?;
     if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None)).await.unwrap_or(false) {
         return Err(Refusal::Unavailable);
     }
@@ -320,15 +336,6 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
         tokio::time::timeout(precheck_timeout(), gates::roles(exec, session.user_id)).await.ok().flatten().ok_or(Refusal::Unavailable)?
     } else { Vec::new() };
     Ok(authorized(session, mailbox, state, roles))
-}
-
-/// Signature and claim rules under the precheck bound, refusal class kept (#354).
-async fn verified(token: &str, issuer: &str, now: f64, keys: &impl KeySource, headers: &HeaderMap, drive: bool, path: &str)
-    -> Result<token::Session, Refusal> {
-    match tokio::time::timeout(precheck_timeout(), token::verify_detailed(token, issuer, now, keys, drive, path)).await {
-        Err(_) => Err(Refusal::Unavailable),
-        Ok(result) => result.map_err(|r| remap(headers, r)),
-    }
 }
 
 fn authorized(session: token::Session, mailbox: i64, state: gates::SessionState, roles: Vec<i64>) -> Authorized {
