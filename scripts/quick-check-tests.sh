@@ -3,6 +3,7 @@
 #   quick-check-tests.sh run PKG [FILTER...]   (cwd: repo root; filters must not start with '-')
 #   quick-check-tests.sh verify                 libtest output on stdin -> exit 0 only if passed+failed > 0
 #   quick-check-tests.sh selftest               fixture checks, no cargo needed
+#   quick-check-tests.sh fmt FILE...            rustfmt each file in isolation (stdin; ignores `mod x;` children)
 set -uo pipefail
 
 # Sum `test result: ok. N passed; M failed; ...` over all binaries. Prints "executed=N skip_markers=K".
@@ -58,6 +59,22 @@ run() {
   rm -f "$tmp"; return "$rc"
 }
 
+# Format-check each file in isolation: rustfmt on stdin does not follow `mod x;` children, so a
+# file that declares modules is not failed for pre-existing unformatted files it did not add.
+fmtcheck() {
+  local f rc=0 want
+  [ "$#" -gt 0 ] || { echo "fmt: no files" >&2; return 2; }
+  for f in "$@"; do
+    if ! want="$(rustfmt --edition 2021 --emit stdout < "$f" 2>&1)"; then
+      echo "Diff in $f: rustfmt failed: $want"; rc=1; continue
+    fi
+    if ! diff -u "$f" <(printf '%s\n' "$want") > /dev/null; then
+      echo "Diff in $f:"; diff -u "$f" <(printf '%s\n' "$want") | head -n 40; rc=1
+    fi
+  done
+  return "$rc"
+}
+
 selftest() {
   local fails=0 out
   expect() { # name want_rc fixture
@@ -77,12 +94,28 @@ selftest() {
     got="$(printf '%s' "$meta" | targets "${want%%=*}")"
     if [ "$got" = "${want#*=}" ]; then echo "ok   targets ${want%%=*}"; else echo "FAIL targets ${want%%=*}: got '$got'"; fails=1; fi
   done
+  if command -v rustfmt > /dev/null 2>&1; then
+    local d; d="$(mktemp -d)"
+    mkdir -p "$d/sub"
+    printf 'fn main() {}\n' > "$d/good.rs"
+    printf 'mod sub;\nfn main() {}\n' > "$d/parent.rs"
+    printf 'fn   bad( ) {  }\n' > "$d/sub.rs"
+    printf 'fn  bad( ) {}\n' > "$d/bad.rs"
+    out="$(fmtcheck "$d/good.rs" "$d/parent.rs" 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ]; then echo "ok   fmt isolates mod children"; else echo "FAIL fmt isolation (rc=$rc): $out"; fails=1; fi
+    out="$(fmtcheck "$d/bad.rs" 2>&1)"; rc=$?
+    if [ "$rc" -eq 1 ] && grep -q "Diff in $d/bad.rs" <<<"$out"; then echo "ok   fmt flags misformatted"; else echo "FAIL fmt misformatted (rc=$rc): $out"; fails=1; fi
+    rm -rf "$d"
+  else
+    echo "FAIL fmt selftest: rustfmt not installed (run it in the lane image)"; fails=1
+  fi
   return "$fails"
 }
 
 case "${1:-}" in
   run) shift; run "$@" ;;
   verify) verify ;;
+  fmt) shift; fmtcheck "$@" ;;
   selftest) selftest ;;
-  *) echo "usage: $0 run PKG [FILTER...]|verify|selftest" >&2; exit 2 ;;
+  *) echo "usage: $0 run PKG [FILTER...]|verify|fmt FILE...|selftest" >&2; exit 2 ;;
 esac
