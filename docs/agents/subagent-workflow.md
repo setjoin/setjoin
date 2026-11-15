@@ -11,6 +11,9 @@ Binding rules for delegating work to subagents. The latest owner instruction win
 - **Workers** implement, commit and push their own ticket branch. They never push `main`,
   the integration branch or anyone else's branch, never use `--no-verify`, and stop and
   report when a hook refuses. The coordinator reviews the pushed diff before any PR or merge.
+- **Workers stop when they push.** They never wait on CI, inside the run or in a background
+  command. The coordinator starts any lane run and waits for its notification; a red result
+  starts a new fix round, and a green one goes to review.
 - **Reviews never write. Gates never change product code or tests.**
 - Set `model` explicitly on every agent call. Never use Opus or Fable as an implementer.
 - No fixed cap on parallel editing agents. Limits: disjoint files (serialize tickets that
@@ -33,6 +36,11 @@ move, migrations, data egress, production. Auth or a migration means size M or l
 | ? | cause or approach unknown | investigate (Sonnet, Opus if hard), then size the resulting plan |
 
 If the diff exceeds the prediction, upgrade the review and re-record the size.
+
+The ~30 min cap covers investigations too. At the cap the worker writes `PROGRESS.md` and
+stops; the coordinator decides whether to continue, re-slice or re-plan. An investigation
+ends with a decided fix, which is sized again: at most 5 lines is an inline coordinator edit,
+XS goes to Haiku with the exact edit. Never resume the investigator to apply a decided fix.
 
 ## Briefs
 
@@ -96,6 +104,7 @@ Re-run a failing test alone. Passes alone: flake, file it, re-gate once. Fails t
 
 ## Cost log
 
-Log one line per run: ticket, size, model, tokens, minutes, review rounds, outcome. After
+After every hand-back, the coordinator logs one line per run (token and minute figures from the
+agent cost tool): ticket, size, model, tokens, minutes, review rounds, outcome. After
 the merge compare prediction with actual and adjust the size borders. Token counts are a
 mis-size alarm, not a cap. Review cost per merged ticket periodically.
