@@ -1641,12 +1641,7 @@ async fn captcha_header(ctx: &Ctx) -> Result<(), Err> {
     let want = "{\"captcha_prompt\":\"CAPTCHA verification failed\",\"error\":\"captcha\"}\n";
     if reply.status != 403 || reply.body != want {
         server.close().await;
-        return Err(format!(
-            "bogus captcha header: {} {:?}",
-            reply.status,
-            reply.body
-        )
-        .into());
+        return Err(format!("bogus captcha header: {} {:?}", reply.status, reply.body).into());
     }
     let rows: i64 = ctx
         .c
