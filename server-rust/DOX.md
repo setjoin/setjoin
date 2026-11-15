@@ -471,7 +471,7 @@ updater are #357–#359.
 label) on the merge queue's `merge_group` commit (one run per BATCH of up to 5 queued pull requests),
 every push to `main` and `workflow_dispatch`: always the FULL lane including oracle coverage. Pull
 requests run only `pr-precheck.yml` (job `aggregate`: `scripts/quick-check.sh`, changed-package
-check/`--lib` tests and cheap guards); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+clippy/`--lib` tests and cheap guards); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
 lane result. Jobs: `plan` (shard lists, debug or full); `build` (one `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`); `roots` (static guards,

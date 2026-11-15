@@ -1,7 +1,7 @@
 name: PR pre-check
 
 # STAGE 2: the required `aggregate` check on a pull request. It is a LIGHT pre-check (one job): cargo
-# check --tests and cargo test --lib for the changed workspace packages plus cheap guards
+# clippy --all-targets and cargo test --lib for the changed workspace packages plus cheap guards
 # (scripts/quick-check.sh, shared with quick-check.yml). The FULL 19-job server-rust lane does not
 # run on pull requests: it runs once per BATCH of queued pull requests on the merge queue's
 # merge_group commit (server-rust-lane.yml, whose job is also named `aggregate`).
