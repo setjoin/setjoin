@@ -199,8 +199,9 @@ jobs:
           set -euo pipefail
           export GOMODCACHE="$HOME/.cache/setjoin-server-rust-lane/go-mod"
           mkdir -p "$GOMODCACHE"
+          go mod download # workspace mode (go.work): every module the lane builds
           for d in $(find . -name go.mod -not -path '*/node_modules/*' -exec dirname {} \;); do
-            (cd "$d" && go mod download)
+            (cd "$d" && GOWORK=off go mod download) || echo "::warning::go mod download failed outside the workspace in $d"
           done
           du -sh "$GOMODCACHE"
       - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
