@@ -51,9 +51,13 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 
 ## Builds and tests
 
-- CI-first: builds and tests run on GitHub-hosted runners (`quick check` per branch push, the
-  `server-rust lane` per merge). Local Rust work is limited to `rustfmt` on files you add.
-- Do not compile Rust locally: push your `gofree/**`, `ci/**` or `docs/**` branch and read the `quick check` result through the shared poller (the workflow takes ~minutes and covers changed packages, `--lib` tests and cheap guards).
+- CI-first: builds and tests run on GitHub-hosted runners (the PR pre-check per pull-request
+  update, the `server-rust lane` per merge-queue entry). Local Rust work is limited to `rustfmt`
+  on files you add.
+- Do not compile Rust locally. On an open PR, push and read its required `aggregate` check
+  (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards; ~10-20 min). With
+  no PR yet, push your branch and dispatch the same check by hand:
+  `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push).
 - Before fixing a failing test, search open issues and other branches for its name.
 
 ## Review
