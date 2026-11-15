@@ -394,6 +394,11 @@ fn redirect(r: &Request<Body>, c: &RequestContext, status: u16, location: &str) 
         .insert("location", location.parse().expect("escaped location"));
     reply
 }
+/// Go's `http.NotFound` behind the root mux's middleware: every unknown route's bare 404.
+pub(crate) fn not_found(r: &Request<Body>, c: &RequestContext) -> Response<Body> {
+    plain(r, c, 404, "404 page not found\n")
+}
+
 fn plain(r: &Request<Body>, c: &RequestContext, status: u16, body: &str) -> Response<Body> {
     let id = crate::jmap::reply::request_id(
         r.headers().get("x-request-id"),

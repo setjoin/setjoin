@@ -85,6 +85,7 @@ check "coverage_report_test" python3 server-rust/tests/conformance/tests/coverag
 check "merge-lane-shards test" python3 scripts/test-merge-lane-shards.py
 check "rehearsal guard test" python3 scripts/test-check-gofree-rehearsal.py
 check "rehearsal static" python3 scripts/check-gofree-rehearsal.py static
+check "lane-job-gate test" python3 scripts/test-lane-job-gate.py
 # cargo-deny: the pinned binary the lane uses (scripts/server-rust-lane-tools.sh puts it in
 # LANE_BIN_DIR), else one on PATH. Missing is a FAIL unless PRE_CI_SKIP_DENY=1 (then SKIP).
 cargo_deny() {

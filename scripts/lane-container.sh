@@ -12,8 +12,16 @@ env_args=()
 for var in $(compgen -e); do
   case "$var" in LANE_*|GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT|CARGO_*|SERVER_RUST_*|GOFREE_*|PGPASSWORD|PEBBLE_BIN|RUSTFLAGS|LLVM_PROFILE_FILE) env_args+=(-e "$var") ;; esac
 done
+# Pebble (Go) resolves the HTTP-01 hostnames of the ACME tests through the system resolver. Go does
+# not apply the RFC 6761 `*.localhost` rule, so on GitHub runners (Azure DNS) `alt.localhost` fails
+# with "no such host". Pin every `*.localhost` name the tests use in the container's /etc/hosts;
+# --add-host also works with --network host. Add a name here when a test starts using a new one.
+hosts=()
+for h in localhost alt.localhost managed.localhost foreign.localhost other.localhost autocert.localhost static.localhost wrong.localhost; do
+  hosts+=(--add-host "$h:127.0.0.1")
+done
 docker run --name "$name" --label "setjoin-lane-run=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}" \
-  --network host --shm-size=2g --ulimit nofile=1048576:1048576 \
+  --network host "${hosts[@]}" --shm-size=2g --ulimit nofile=1048576:1048576 \
   -v /var/run/docker.sock:/var/run/docker.sock -v "$(command -v docker)":/usr/local/bin/docker:ro \
   -v "$HOME:$HOME" -v /tmp:/tmp -w "$PWD" "${env_args[@]}" -e TMPDIR="$LANE_CACHE/tmp" \
   --mount type=tmpfs,destination=/usr/local/go,tmpfs-mode=0555 -e LANE_GO_MASKED=1 \
