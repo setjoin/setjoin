@@ -138,19 +138,6 @@ impl Env {
     }
     pub async fn configure(&self, extra: Value) -> Result<(), Err> {
         self.c.execute("UPDATE system_config SET value=value||$1::text::jsonb WHERE key='oidc_provider_idfed2_config'",&[&extra.to_string()]).await?;
-        // The listener runs one registry reload per NOTIFY, strictly in order, and each reload
-        // fetches discovery from the fixture IdP. Two writes (the row above and the first sentinel
-        // below) are two reloads, and the first one can already read both rows, so the sentinel
-        // turns visible while the second reload is still queued; its discovery fetches then land
-        // in the observation after the caller clears it. A second sentinel write is read only by
-        // a reload that starts after every earlier one has finished, so seeing it means the
-        // queue is drained.
-        for _ in 0..2 {
-            self.await_sentinel_reload().await?;
-        }
-        Ok(())
-    }
-    async fn await_sentinel_reload(&self) -> Result<(), Err> {
         let name = format!("idfed2-ready-{}", uuid::Uuid::new_v4());
         self.c.execute("UPDATE system_config SET value=jsonb_set(value,'{name}',to_jsonb($1::text)) WHERE key='oidc_provider_zz_idfed2_ready_config'",&[&name]).await?;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -375,13 +362,22 @@ pub(super) async fn callback_guard(kind: &str) -> Result<(), Err> {
 
 pub(super) async fn token_claims(kind: &str) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
-    let env = Env::start(false).await?;
+    // Configuration that changes provider rows must be written before the registry loads and the
+    // listener starts: a live `configure()` queues reloads that can still be running (each one
+    // fetching discovery) after the observation below clears the IdP call log.
+    let extra = if kind == "client-secret" {
+        use base64::Engine;
+        let sealed = setjoin_config_secret::seal_column(
+            b"rp secret+&/340",
+            fixture()["secret"].as_str().unwrap().as_bytes(),
+            setjoin_config_secret::CryptoProfile::Standard,
+        )?;
+        json!({"client_secret":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed)})
+    } else {
+        json!({})
+    };
+    let env = Env::configured(false, idp::ISSUER, extra).await?;
     let result=async{
-        if kind=="client-secret"{
-            use base64::Engine;
-            let sealed=setjoin_config_secret::seal_column(b"rp secret+&/340",fixture()["secret"].as_str().unwrap().as_bytes(),setjoin_config_secret::CryptoProfile::Standard)?;
-            env.configure(json!({"client_secret":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed)})).await?;
-        }
         let response=request(env.gw.addr,"GET","/auth/oidc/login?provider=idfed2",String::new(),&[]).await?;
         let (_,flow)=normalize_flow(response)?;
         let mut sent=flow.clone();
