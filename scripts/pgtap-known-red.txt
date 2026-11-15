@@ -1,0 +1,7 @@
+# pgTAP suites red on the public tree, reviewed in #386. run-pgtap-lane.sh still RUNS each one and warns;
+# only these suites may fail without failing the lane, and a listed suite that passes fails the ratchet.
+# Fix the stale test, then delete its line. Never add a suite here without an issue reference.
+mailserver/sql/tests/mailbox_lifecycle_retention.pg   # #401 (stale after #424 execute-reach fix)
+mailserver/sql/tests/rust_identity_rp_link_hold.pg    # #402 (setjoin_app has no SELECT on oidc_link_completions by design)
+mailserver/sql/tests/rust_mailsec_quarantine.pg       # #403 (admin reject now needs security.write reach)
+mailserver/sql/tests/rust_retention_audit.pg          # #404 (stale after #437: audit failure aborts)
