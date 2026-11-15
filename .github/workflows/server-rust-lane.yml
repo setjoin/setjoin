@@ -556,7 +556,7 @@ jobs:
             echo "A push to main only rebuilds and saves the cargo caches (build, coverage-build) and the Go module cache (gomod-cache). No test, replay, coverage or guard job ran: this is **not** a test pass. The merge queue tested this commit before it landed; the nightly full lane is the backstop." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$MODE" = skip ]; then
             echo "### server-rust lane: nightly skipped" >> "$GITHUB_STEP_SUMMARY"
-            echo "No commit landed on main in the last 26 hours, so the previous full lane result still stands. Nothing ran: this is **not** a test pass." >> "$GITHUB_STEP_SUMMARY"
+            echo "No commit landed on main in the last 26 hours, so no full lane was due. Nothing ran: this is **not** a test pass." >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'

@@ -82,6 +82,11 @@ class Verdict(unittest.TestCase):
         self.assertIsNotNone(check(needs("skip", {**ok("plan"), "build": "failure"}), "schedule"))
         self.assertIsNotNone(check(needs("cache", CACHE), "schedule"))
 
+    def test_missing_required_entry_is_red(self):
+        n = needs("full", FULL)
+        del n["guards"]
+        self.assertIsNotNone(check(n, "merge_group"))
+
     def test_debug_dispatch(self):
         self.assertIsNone(check(needs("full", ok("plan", "debug"), debug="true"), "workflow_dispatch"))
         self.assertIsNotNone(check(needs("full", {"plan": "success"}, debug="true"), "workflow_dispatch"))
