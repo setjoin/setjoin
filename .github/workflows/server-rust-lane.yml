@@ -1,12 +1,11 @@
 name: server-rust lane
 
 # The Go-free Rust server lane on GitHub-hosted runners (no self-hosted runner anywhere).
-# STAGE 1 of the merge-queue rollout (stage 2 is branch ci/merge-queue-stage2): the FULL lane runs on
-# pull_request (as before), on merge_group (the queue's commit, once per BATCH of up to 5 ready pull
-# requests), on every push to main and on workflow_dispatch. Its `aggregate` job is the ONLY job with
-# that name, so it alone satisfies the required `aggregate` check; pr-precheck.yml (job `precheck`)
-# is advisory until stage 2. Stage 2, applied only after the merge-queue ruleset is verified active,
-# drops the `pull_request` trigger here and renames the pre-check job back to `aggregate`.
+# STAGE 2 of the merge-queue rollout (stage 1 kept `pull_request` here): the FULL lane runs on the
+# merge queue's merge-group commit (a BATCH of up to 5 ready pull requests, one lane run per batch),
+# on every push to main and on workflow_dispatch. Pull requests do NOT run it: the required
+# `aggregate` on a PR comes from pr-precheck.yml (light pre-check), and the merge queue then requires
+# this workflow's `aggregate` on the batch. Apply only with the merge-queue ruleset active.
 # The lane jobs:
 #   plan            decides debug or full and the shard lists
 #   build           one nextest archive of every workspace test binary + the expected test list
@@ -22,7 +21,6 @@ name: server-rust lane
 # Fork pull requests get a read-only token and no secrets (the lane needs none: the Postgres
 # password is generated per job) and never save a cache; only pushes to main save caches.
 on:
-  pull_request:
   merge_group:
   push:
     branches: [main]
@@ -55,7 +53,7 @@ concurrency:
   # github.event.pull_request.number is empty on merge_group; github.ref is then the unique
   # refs/heads/gh-readonly-queue/... of that queue entry, so batches never share a group.
   group: server-rust-lane-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 env:
   CARGO_INCREMENTAL: '0'

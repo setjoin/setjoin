@@ -1,13 +1,12 @@
 name: PR pre-check
 
-# STAGE 1: an ADVISORY light pre-check (one job, `precheck`): cargo check --tests and cargo test --lib
-# for the changed workspace packages plus cheap guards (scripts/quick-check.sh, shared with
-# quick-check.yml). The job is deliberately NOT named `aggregate` yet: until the merge-queue ruleset
-# is active, server-rust-lane.yml (full lane, which still runs on pull_request) supplies the required
-# `aggregate`. STAGE 2 renames this job to `aggregate` in the same change that drops `pull_request`
-# from the lane; the full lane then runs once per batch on the queue's merge_group commit.
-# This workflow deliberately has no merge_group trigger. No path filters: a filtered-out run would
-# leave a required check pending forever.
+# STAGE 2: the required `aggregate` check on a pull request. It is a LIGHT pre-check (one job): cargo
+# clippy --all-targets and cargo test --lib for the changed workspace packages plus cheap guards
+# (scripts/quick-check.sh, shared with quick-check.yml). The FULL 19-job server-rust lane does not
+# run on pull requests: it runs once per BATCH of queued pull requests on the merge queue's
+# merge_group commit (server-rust-lane.yml, whose job is also named `aggregate`).
+# This workflow deliberately has no merge_group trigger, so the queue's `aggregate` is the full
+# lane's. No path filters: a filtered-out run would leave the required check pending forever.
 on:
   pull_request:
 
@@ -28,7 +27,7 @@ env:
   LANE_JOB_TAG: precheck
 
 jobs:
-  precheck:
+  aggregate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -56,7 +55,7 @@ jobs:
         if: always()
         run: |
           {
-            echo "## PR pre-check (advisory)"
-            echo "Advisory in stage 1 (the full server-rust lane's \`aggregate\` is the required check). Not the full lane."
+            echo "## PR pre-check; full lane runs in the merge queue"
+            echo "This job is the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs once per batch on the merge queue."
             cat lane-artifacts/summary.md 2>/dev/null || echo "- FAIL: no summary produced (setup or plan failed)"
           } >> "$GITHUB_STEP_SUMMARY"
