@@ -3,11 +3,18 @@ name: server-rust lane
 # The Go-free Rust server lane on GitHub-hosted runners (no self-hosted runner anywhere).
 # STAGE 2 of the merge-queue rollout (stage 1 kept `pull_request` here): the FULL lane runs on the
 # merge queue's merge-group commit (a BATCH of up to 5 ready pull requests, one lane run per batch),
-# on every push to main and on workflow_dispatch. Pull requests do NOT run it: the required
-# `aggregate` on a PR comes from pr-precheck.yml (light pre-check), and the merge queue then requires
-# this workflow's `aggregate` on the batch. Apply only with the merge-queue ruleset active.
+# and on workflow_dispatch. Pull requests do NOT run it: the required `aggregate` on a PR comes from
+# pr-precheck.yml (light pre-check), and the merge queue then requires this workflow's `aggregate`
+# on the batch. Apply only with the merge-queue ruleset active.
+# What main does (the plan job's `mode` output; the queue already tested what lands on main):
+#   push to main     mode=cache  CACHE REFRESH ONLY: build + coverage-build + gomod-cache save the caches, no
+#                                test, coverage, replay or guard job runs; the run is NOT a test pass
+#   schedule 02:30   mode=full   the FULL lane plus coverage, the backstop (also saves caches); mode=skip
+#                                (green, summary says why) when main had no commit in the last 26 hours
+#   merge_group, workflow_dispatch   mode=full, unchanged
 # The lane jobs:
 #   plan            decides debug or full and the shard lists
+#   gomod-cache     (mode=cache only) go mod download + save of the Go module cache (shard 1 saves it in full mode)
 #   build           one nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
 #   pgtap           reducer pgTAP suites (mailserver + authserver) on the lane Postgres
@@ -19,11 +26,13 @@ name: server-rust lane
 #                   coverage entry ran exactly once (scripts/merge-lane-shards.py)
 # workflow_dispatch keeps the debug inputs: filter or adequacy_only runs ONE job, never a lane result.
 # Fork pull requests get a read-only token and no secrets (the lane needs none: the Postgres
-# password is generated per job) and never save a cache; only pushes to main save caches.
+# password is generated per job) and never save a cache; only runs on main (push, schedule) save caches.
 on:
   merge_group:
   push:
     branches: [main]
+  schedule:
+    - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       shards:
@@ -51,7 +60,8 @@ permissions:
 
 concurrency:
   # github.event.pull_request.number is empty on merge_group; github.ref is then the unique
-  # refs/heads/gh-readonly-queue/... of that queue entry, so batches never share a group.
+  # refs/heads/gh-readonly-queue/... of that queue entry, so batches never share a group. The event name
+  # is part of the key, so the nightly (ref refs/heads/main) never queues behind a push-to-main refresh.
   group: server-rust-lane-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
@@ -70,6 +80,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       debug: ${{ steps.plan.outputs.debug }}
+      mode: ${{ steps.mode.outputs.mode }}
       shards: ${{ steps.plan.outputs.shards }}
       shard_count: ${{ steps.plan.outputs.shard_count }}
       coverage_shards: ${{ steps.plan.outputs.coverage_shards }}
@@ -86,6 +97,29 @@ jobs:
             echo "::error title=images.lock not pinned::.github/ci/images.lock still has PLACEHOLDER digests. Open the 'CI images' workflow run for this change (it runs on same-repo pull requests), copy the images.lock block from its job summary into .github/ci/images.lock, make the new ghcr.io/setjoin packages public once, and push."
             exit 1
           fi
+      # mode: full (merge_group, workflow_dispatch, nightly with news), cache (push to main) or skip (nightly, no news).
+      # Nightly skip rule: skip unless main has a commit newer than 26 hours (one daily slot plus cron jitter).
+      # Simpler and sturdier than "since the last successful scheduled run": it needs no run-history lookup and a
+      # failed or missing night self-heals, because the next run still sees the commit inside the window; the cost
+      # is at most one redundant full run. Uses the commits API (contents: read), no checkout depth needed.
+      - id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          case "$EVENT" in
+            push) mode=cache ;;
+            schedule)
+              since="$(date -u -d '26 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+              n="$(gh api "repos/$REPO/commits?sha=main&since=$since&per_page=1" --jq 'length')"
+              if [ "$n" -gt 0 ]; then mode=full; else mode=skip; fi
+              echo "nightly: $n commit(s) on main since $since" ;;
+            *) mode=full ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "event=$EVENT mode=$mode"
       - id: plan
         env:
           DEBUG: ${{ inputs.filter }}${{ inputs.adequacy_only }}
@@ -141,9 +175,42 @@ jobs:
           path: lane-artifacts/
           retention-days: 7
 
+  # mode=cache only: the Go module cache that shard 1 saves in full mode, without any test shard.
+  gomod-cache:
+    needs: plan
+    if: needs.plan.outputs.mode == 'cache' && needs.plan.outputs.debug != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - id: gomod
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/setjoin-server-rust-lane/go-mod
+          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: lane-go-mod-
+      - name: Download every Go module into the lane module cache
+        run: |
+          set -euo pipefail
+          export GOMODCACHE="$HOME/.cache/setjoin-server-rust-lane/go-mod"
+          mkdir -p "$GOMODCACHE"
+          for d in $(find . -name go.mod -not -path '*/node_modules/*' -exec dirname {} \;); do
+            (cd "$d" && go mod download)
+          done
+          du -sh "$GOMODCACHE"
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: github.ref == 'refs/heads/main' && steps.gomod.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/setjoin-server-rust-lane/go-mod
+          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
+
   build:
     needs: plan
-    if: needs.plan.outputs.debug != 'true'
+    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode != 'skip'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -180,7 +247,7 @@ jobs:
 
   roots:
     needs: plan
-    if: needs.plan.outputs.debug != 'true'
+    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -207,7 +274,7 @@ jobs:
     # The reducer pgTAP suites (mailserver + authserver). The retired Go lane was the only CI that ran them.
     # Same procedure as the old unit-tests job: load the schema once, run pg_prove verbosely, verify the TAP evidence.
     needs: plan
-    if: needs.plan.outputs.debug != 'true'
+    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -248,7 +315,7 @@ jobs:
     # The retired Xinchuang unit-tests job was the only CI that ran them. Guards red since the Go removal are listed
     # in scripts/guards-known-red.txt (issue #348): they still run and warn, and any other guard failing is red.
     needs: plan
-    if: needs.plan.outputs.debug != 'true'
+    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -325,6 +392,7 @@ jobs:
 
   shard:
     needs: [plan, build]
+    if: needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -376,7 +444,7 @@ jobs:
 
   coverage-build:
     needs: plan
-    if: needs.plan.outputs.debug != 'true'
+    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode != 'skip'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
@@ -416,6 +484,7 @@ jobs:
 
   coverage-shard:
     needs: [plan, coverage-build]
+    if: needs.plan.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -457,8 +526,12 @@ jobs:
 
   # The required check. Red unless every job is green and the merge finds every test, replay,
   # mutant and coverage entry run exactly once (a skipped job is never a pass).
+  # Only mode=full (merge_group, workflow_dispatch, nightly with news) is a test pass. A push to main
+  # (mode=cache) is green when the cache jobs are, and a quiet nightly (mode=skip) when plan is; both say
+  # so in the step summary. merge_group and workflow_dispatch are red unless plan chose mode=full, so a
+  # mis-planned or skipped queue run can never pass vacuously.
   aggregate:
-    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard]
+    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard, gomod-cache]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -467,29 +540,54 @@ jobs:
       - name: Job results
         env:
           NEEDS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
         run: |
           python3 - <<'PY'
           import json, os, sys
           needs = json.loads(os.environ["NEEDS"])
           debug = needs["plan"]["outputs"].get("debug") == "true"
-          required = {"plan", "debug"} if debug else {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
+          mode = needs["plan"]["outputs"].get("mode", "")
+          event = os.environ["EVENT"]
+          allowed = {"push": {"cache"}, "schedule": {"full", "skip"}}.get(event, {"full"})
+          if mode not in allowed:
+              sys.exit(f"red: event {event} planned mode {mode!r}, allowed {sorted(allowed)}")
+          if debug:
+              required = {"plan", "debug"}
+          elif mode == "full":
+              required = {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
+          elif mode == "cache":
+              required = {"plan", "build", "coverage-build", "gomod-cache"}
+          else:
+              required = {"plan"}
           results = {name: job["result"] for name, job in needs.items()}
-          print("debug" if debug else "full+coverage", "job results", results)
+          print("debug" if debug else mode, "job results", results)
           bad = {n: r for n, r in results.items() if r in ("failure", "cancelled") or (n in required and r != "success")}
           sys.exit(f"red: {bad}" if bad else 0)
           PY
+      - name: Summary (cache refresh or skipped nightly)
+        if: always() && needs.plan.outputs.mode != 'full'
+        env:
+          MODE: ${{ needs.plan.outputs.mode }}
+        run: |
+          if [ "$MODE" = cache ]; then
+            echo "### server-rust lane: cache refresh only, no tests" >> "$GITHUB_STEP_SUMMARY"
+            echo "A push to main only rebuilds and saves the cargo caches (build, coverage-build) and the Go module cache (gomod-cache). No test, replay, coverage or guard job ran: this is **not** a test pass. The merge queue tested this commit before it landed; the nightly full lane is the backstop." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MODE" = skip ]; then
+            echo "### server-rust lane: nightly skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo "No commit landed on main in the last 26 hours, so the previous full lane result still stands. Nothing ran: this is **not** a test pass." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        if: always() && needs.plan.outputs.debug == 'false'
+        if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
         with:
           pattern: lane-result-*
           path: results
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        if: always() && needs.plan.outputs.debug == 'false' && needs.build.result == 'success'
+        if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full' && needs.build.result == 'success'
         with:
           name: lane-list
           path: results/lane-list
       - name: Merge the shards
-        if: always() && needs.plan.outputs.debug == 'false' && needs.build.result == 'success'
+        if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full' && needs.build.result == 'success'
         env:
           SHARDS: ${{ needs.plan.outputs.shard_count }}
           COVERAGE: ${{ needs.plan.outputs.coverage_count }}
@@ -498,7 +596,7 @@ jobs:
           python3 scripts/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
             --shards "$SHARDS" --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always() && needs.plan.outputs.debug == 'false'
+        if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
         with:
           name: lane-results-${{ github.sha }}
           path: |
