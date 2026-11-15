@@ -138,6 +138,19 @@ impl Env {
     }
     pub async fn configure(&self, extra: Value) -> Result<(), Err> {
         self.c.execute("UPDATE system_config SET value=value||$1::text::jsonb WHERE key='oidc_provider_idfed2_config'",&[&extra.to_string()]).await?;
+        // The listener runs one registry reload per NOTIFY, strictly in order, and each reload
+        // fetches discovery from the fixture IdP. Two writes (the row above and the first sentinel
+        // below) are two reloads, and the first one can already read both rows, so the sentinel
+        // turns visible while the second reload is still queued; its discovery fetches then land
+        // in the observation after the caller clears it. A second sentinel write is read only by
+        // a reload that starts after every earlier one has finished, so seeing it means the
+        // queue is drained.
+        for _ in 0..2 {
+            self.await_sentinel_reload().await?;
+        }
+        Ok(())
+    }
+    async fn await_sentinel_reload(&self) -> Result<(), Err> {
         let name = format!("idfed2-ready-{}", uuid::Uuid::new_v4());
         self.c.execute("UPDATE system_config SET value=jsonb_set(value,'{name}',to_jsonb($1::text)) WHERE key='oidc_provider_zz_idfed2_ready_config'",&[&name]).await?;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
