@@ -76,16 +76,10 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
             }
             let decoded = crate::chat::go_utf8(&crate::inventory::unescape(r.uri().path()));
             let path = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let authority = match setjoin_compliance::authority(&exec, auth.context()).await {
                 Ok(v) => v,
