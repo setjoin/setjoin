@@ -97,37 +97,68 @@ fn token_chars(t: &str) -> bool {
 /// revocation watermark compares it), no guest `acct`, no impersonation
 /// `act`, and every claim Go decodes has the JSON type Go expects.
 pub async fn verify(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,false).await}
+
+/// Go's `pathWithinScope` (chain.go:453-456) over the `r.URL.Path` the handler sees
+/// (see [`crate::go_url::mailserver_handler_path`]): a token with a non-empty `scp`
+/// is accepted only when that path is `/<scp>` or under `/<scp>/`. Bytes, as Go compares.
+pub(crate) fn path_within_scope(path:&[u8],scope:&str)->bool{
+    path.strip_prefix(b"/").and_then(|p|p.strip_prefix(scope.as_bytes())).is_some_and(|rest|rest.is_empty()||rest.starts_with(b"/"))
+}
+/// Scope containment (chain.go:434): empty scope, the Drive adapters' drive
+/// surface, or a handler path the scope names. `None` path = no request path known
+/// (or Go would not reach a handler), so a scoped token is not admitted.
+fn scope_admits(scope:&str,drive:bool,path:Option<&[u8]>)->bool{
+    scope.is_empty()||(drive&&scope=="drive")||path.is_some_and(|p|path_within_scope(p,scope))
+}
 /// Drive adapters only: the ordinary guard still refuses every scoped mirror.
 pub async fn verify_drive(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource)->Option<Session>{verify_scope(token,issuer,now_unix,keys,true).await}
 
 /// [`verify`]/[`verify_drive`] with the refusal class kept (#354); one signature
 /// check. A token Go's registered-claim boundary rejects is `InvalidToken`; a
 /// token Go accepts but Rust does not serve is named by the first rule it trips.
-pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)
+#[cfg(test)]
+pub(crate) async fn verify_detailed(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool,path:Option<&[u8]>)
+    ->Result<Session,crate::Refusal>{
+    let claims=decoded_claims(token,keys).await.ok_or(crate::Refusal::InvalidToken)?;
+    session_detailed(&claims,issuer,now_unix,drive,path)
+}
+
+/// Signature-checked claims with `exp`/`nbf`/`iat` decoded exactly as Go's
+/// `jwt.NumericDate` decodes them ([`crate::numeric_date`]); `None` = Go rejects.
+pub(crate) async fn decoded_claims(token:&str,keys:&impl KeySource)->Option<Map<String,Value>>{
+    let mut claims=signed_claims(token,keys).await?;
+    crate::numeric_date::normalize_token_claims(token,&mut claims)?;
+    Some(claims)
+}
+
+/// Go's claim acceptance (chain.go jwt_bearer + pathWithinScope): shape, registered
+/// claims, `typ` access and scope containment. Accepted tokens may still be unserved.
+pub(crate) fn go_accepts(claims:&Map<String,Value>,issuer:&str,now_unix:f64,drive:bool,path:Option<&[u8]>)->bool{
+    claims_shape_ok(claims).is_some() && crate::legacy_jwt::registered(claims,issuer,AUDIENCE,now_unix)
+        && str_claim(claims,"typ")=="access" && scope_admits(str_claim(claims,"scp"),drive,path)
+}
+
+/// The refusal class `admit` reports for [`decoded_claims`] (Go rule order).
+pub(crate) fn session_detailed(claims:&Map<String,Value>,issuer:&str,now_unix:f64,drive:bool,path:Option<&[u8]>)
     ->Result<Session,crate::Refusal>{
     use crate::Refusal;
-    let claims=signed_claims(token,keys).await.ok_or(Refusal::InvalidToken)?;
-    if let Some(session)=session_from(&claims,issuer,now_unix,drive){return Ok(session);}
-    if claims_shape_ok(&claims).is_none() || !crate::legacy_jwt::registered(&claims,issuer,AUDIENCE,now_unix) {
-        return Err(Refusal::InvalidToken);
-    }
-    let scope=str_claim(&claims,"scp");
-    if str_claim(&claims,"typ")!="access" || (!scope.is_empty() && !(drive && scope=="drive")) {
+    if let Some(session)=session_from(claims,issuer,now_unix,drive,path){return Ok(session);}
+    if !go_accepts(claims,issuer,now_unix,drive,path) {
         return Err(Refusal::InvalidToken);
     }
     if claims.get("act").is_some_and(|v|!v.is_null()) {return Err(Refusal::Impersonation);}
     if claims.get("iat").is_none_or(Value::is_null) {return Err(Refusal::MissingIssuedAt);}
     if claims.get("uid").and_then(Value::as_i64).is_none_or(|u|u<=0) {return Err(Refusal::UnservedSubject);}
-    if str_claim(&claims,"acct")=="guest" {return Err(Refusal::Guest);}
+    if str_claim(claims,"acct")=="guest" {return Err(Refusal::Guest);}
     Err(Refusal::InvalidToken)
 }
 async fn verify_scope(token:&str,issuer:&str,now_unix:f64,keys:&impl KeySource,drive:bool)->Option<Session>{
-    let claims = signed_claims(token, keys).await?;
-    session_from(&claims, issuer, now_unix, drive)
+    let claims = decoded_claims(token, keys).await?;
+    session_from(&claims, issuer, now_unix, drive, None)
 }
 
 /// The claim rules of [`verify`] over already signature-checked claims.
-fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool) -> Option<Session> {
+fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive: bool, path: Option<&[u8]>) -> Option<Session> {
     claims_shape_ok(claims)?;
 
     if claims.get("iss")?.as_str()? != issuer || issuer.is_empty() {
@@ -141,12 +172,11 @@ fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive:
     if !audience_ok {
         return None;
     }
-    let exp = claims.get("exp")?.as_i64()?;
-    if now_unix >= exp as f64 {
+    if crate::numeric_date::expired(now_unix, claims.get("exp")?.as_i64()?) {
         return None;
     }
     if let Some(nbf) = claims.get("nbf").filter(|v| !v.is_null()) {
-        if now_unix < nbf.as_i64()? as f64 {
+        if crate::numeric_date::not_yet_valid(now_unix, nbf.as_i64()?) {
             return None;
         }
     }
@@ -154,7 +184,7 @@ fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive:
         return None;
     }
     let scope=str_claim(claims,"scp");
-    if (!scope.is_empty() && !(drive && scope=="drive")) || str_claim(claims,"acct")=="guest" {
+    if !scope_admits(scope, drive, path) || str_claim(claims,"acct")=="guest" {
         return None;
     }
     if claims.get("act").is_some_and(|v| !v.is_null()) {
@@ -526,7 +556,6 @@ pub(crate) mod tests {
             ("no iat", es256(), without("iat")),
             ("uid as string", es256(), with("uid", json!("7"))),
             ("case variant", es256(), with("UID", json!(9))),
-            ("float exp", es256(), with("exp", json!(1_800_000_900.5))),
             (
                 "hs256",
                 json!({"alg": "HS256", "kid": "authserver-hmac-1"}),
@@ -737,7 +766,7 @@ pub(crate) mod tests {
 /// impose the gateway's mailbox, guest, scope or access-type admission rules.
 /// Callers must still apply the exact endpoint's access/revocation/DPoP guard.
 pub async fn validate_first_party(token:&str,issuer:&str,now:f64,keys:&impl KeySource)->Option<Map<String,Value>>{
-    let claims=signed_claims(token,keys).await?;
+    let claims=decoded_claims(token,keys).await?;
     claims_shape_ok(&claims)?;
     crate::legacy_jwt::registered(&claims,issuer,AUDIENCE,now).then_some(claims)
 }
@@ -757,30 +786,50 @@ pub fn presented(headers: &hyper::HeaderMap) -> Option<String> {
     presented_cookie(headers)
 }
 
-/// The first valid `access_token` cookie (quoted values unwrapped; invalid pairs skipped).
+/// The cookie Go's `r.Cookie("access_token")` returns (net/http `readCookies`, Go 1.26):
+/// lines of all `Cookie` headers in order, pairs split on `;`, pair and name trimmed of
+/// space/tab/CR/LF (`textproto.TrimString`), a pair with no `=` is a cookie with an empty
+/// value, one pair of surrounding double quotes is stripped, a value with a byte outside
+/// 0x20..0x7e or one of `"` `;` `\` is skipped, the value is otherwise kept verbatim
+/// (leading space included). The FIRST matching cookie wins even when its value is empty
+/// (Go then has no token; chain.go:525). More than 3000 cookie slots yield none.
 pub(crate) fn presented_cookie(headers: &hyper::HeaderMap) -> Option<String> {
-    for line in headers.get_all("cookie") {
-        let Ok(line) = line.to_str() else { continue };
-        for pair in line.split(';') {
-            let Some((name, value)) = pair.trim().split_once('=') else {
-                continue;
-            };
-            if name.trim() != "access_token" {
+    fn trim(mut b: &[u8]) -> &[u8] {
+        let space = |c: &u8| matches!(c, b' ' | b'\t' | b'\r' | b'\n');
+        while b.first().is_some_and(space) { b = &b[1..]; }
+        while b.last().is_some_and(space) { b = &b[..b.len() - 1]; }
+        b
+    }
+    let lines: Vec<&[u8]> = headers.get_all("cookie").iter().map(|v| v.as_bytes()).collect();
+    let slots: usize = lines.iter().map(|l| l.iter().filter(|b| **b == b';').count() + 1).sum();
+    if slots > 3000 {
+        return None;
+    }
+    for line in lines {
+        for part in trim(line).split(|b| *b == b';') {
+            let part = trim(part);
+            if part.is_empty() {
                 continue;
             }
-            let value = value.trim();
-            let value = if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+            let (name, value) = match part.iter().position(|b| *b == b'=') {
+                Some(i) => (&part[..i], &part[i + 1..]),
+                None => (part, &part[part.len()..]),
+            };
+            if trim(name) != b"access_token" {
+                continue;
+            }
+            let value = if value.len() > 1 && value[0] == b'"' && value[value.len() - 1] == b'"' {
                 &value[1..value.len() - 1]
             } else {
                 value
             };
             if !value
-                .bytes()
-                .all(|b| (0x20..0x7f).contains(&b) && !matches!(b, b'"' | b';' | b'\\'))
+                .iter()
+                .all(|b| (0x20..0x7f).contains(b) && !matches!(b, b'"' | b';' | b'\\'))
             {
                 continue;
             }
-            return (!value.is_empty()).then(|| value.to_owned());
+            return (!value.is_empty()).then(|| String::from_utf8_lossy(value).into_owned());
         }
     }
     None
@@ -818,9 +867,15 @@ mod verify_detailed_tests {
     }
 
     async fn detailed(claims: Value, header: Value, drive: bool) -> Result<(), Refusal> {
+        detailed_at(claims, header, drive, "/x").await
+    }
+
+    /// `path` is the raw request path; Go's handler path is derived from it as `admit` does.
+    async fn detailed_at(claims: Value, header: Value, drive: bool, path: &str) -> Result<(), Refusal> {
+        let path = crate::go_url::mailserver_handler_path("GET", path);
         let key = signing_key(1);
         let token = sign(&key, &header, &claims);
-        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive)
+        verify_detailed(&token, "mailserver", NOW, &OneKey("k1", public_key(&key)), drive, path.as_deref())
             .await
             .map(|_| ())
     }
@@ -865,6 +920,109 @@ mod verify_detailed_tests {
         }
     }
 
+    #[tokio::test]
+    async fn scoped_token_is_admitted_only_on_its_own_path_like_go() {
+        let scoped = |scp: &str| with("scp", json!(scp));
+        // Raw request paths; Go strips `/api` (main.go:5069-5093) and decodes like
+        // url.URL.Path before chain.go:434 compares.
+        // Bare paths reach a handler only under apiPinnedPrefixes; unclean paths redirect.
+        let cases: &[(&str, &str, bool)] = &[
+            ("admin", "/admin", false),
+            ("admin", "/admin/users", false),
+            ("jmap", "/jmap", true),
+            ("jmap", "/jmap/x", true),
+            ("admin", "/admin/migration/m365", true),
+            ("admin", "/api/x/../admin/users", false),
+            ("admin", "/api//admin/users", false),
+            ("admin", "/api%2Fadmin/users", false),
+            ("docs", "/api/docs", false),
+            ("admin", "/api/admin/users", true),
+            ("api/admin", "/api/admin/users", false),
+            ("admin", "/api/admin", true),
+            ("admin", "/api/admin/users/", true),
+            ("admin", "/admin/", false),
+            ("admin", "/administrator", false),
+            ("admin", "/api/administrator", false),
+            ("admin", "/api/adm%69n/users", true),
+            ("admin", "/api/admin%2Fusers", true),
+            ("admin%2F", "/api/admin%2F", false),
+            ("admin", "/%61pi/admin/users", false),
+            ("admin", "/api/adm%zzin", false),
+            ("admin", "/", false),
+            ("admin", "/x/admin", false),
+            ("api/admin", "/api/admin2", false),
+            ("api/openapi.full.yaml", "/api/openapi.full.yaml", true),
+            ("openapi.full.yaml", "/api/openapi.full.yaml", false),
+        ];
+        for &(scp, path, ok) in cases {
+            let want = if ok { Ok(()) } else { Err(Refusal::InvalidToken) };
+            assert_eq!(detailed_at(scoped(scp), es256(), false, path).await, want, "{scp} {path}");
+        }
+        // The unscoped token never depends on the path.
+        assert_eq!(detailed_at(claims(), es256(), false, "/anything").await, Ok(()));
+    }
+
+    #[test]
+    fn cookie_name_is_trimmed_like_go() {
+        // Go 1.26 readCookies: `name = textproto.TrimString(name)` (net/http/cookie.go:400).
+        let get = |c: &str| {
+            let mut h = hyper::HeaderMap::new();
+            h.insert("cookie", c.parse().unwrap());
+            presented_cookie(&h)
+        };
+        assert_eq!(get("access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(get("a=1; access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(get("access_token =abc"), Some("abc".to_owned()));
+        assert_eq!(get("access_token2=x; access_token=abc"), Some("abc".to_owned()));
+        // The value is not trimmed after `=` (only the whole pair is).
+        assert_eq!(get("access_token= abc"), Some(" abc".to_owned()));
+        assert_eq!(get("access_token=abc  "), Some("abc".to_owned()));
+        // A bare name is a cookie with an empty value and wins over a later one.
+        assert_eq!(get("access_token; access_token=abc"), None);
+        assert_eq!(get("access_token=; access_token=abc"), None);
+        // Invalid pairs are skipped; quotes are stripped once.
+        assert_eq!(get("access_token=a\\b; access_token=abc"), Some("abc".to_owned()));
+        assert_eq!(get("access_token=\"abc\""), Some("abc".to_owned()));
+        assert_eq!(get("access_token=\"a\"b\"; access_token=abc"), Some("abc".to_owned()));
+        // A non-ASCII byte in another cookie does not hide this one.
+        let mut h = hyper::HeaderMap::new();
+        h.insert("cookie", hyper::header::HeaderValue::from_bytes(b"x=\xff; access_token=abc").unwrap());
+        assert_eq!(presented_cookie(&h), Some("abc".to_owned()));
+        // Over 3000 slots, Go returns no cookies.
+        let many = format!("{}access_token=abc", "a=1; ".repeat(3000));
+        assert_eq!(get(&many), None);
+    }
+
+    #[tokio::test]
+    async fn fractional_numeric_dates_are_floored_like_go() {
+        // verify_detailed `NOW` is 1_800_000_000.0; claims() exp is 1_800_000_900.
+        let ok = |c: Value| async move { detailed(c, es256(), false).await };
+        assert_eq!(ok(with("exp", json!(1_800_000_900.9))).await, Ok(()));
+        assert_eq!(ok(with("iat", json!(1_799_999_000.5))).await, Ok(()));
+        assert_eq!(ok(with("nbf", json!(1_799_999_999.9))).await, Ok(()));
+        // 1_800_000_000.9 floors to 1_800_000_000 == now: expired (no leeway).
+        assert_eq!(ok(with("exp", json!(1_800_000_000.9))).await, Err(Refusal::InvalidToken));
+        // A future nbf is refused, fractional or not.
+        assert_eq!(ok(with("nbf", json!(1_800_000_001.5))).await, Err(Refusal::InvalidToken));
+        assert_eq!(ok(with("nbf", json!(1_800_000_001))).await, Err(Refusal::InvalidToken));
+        // jwt/v5 decodes a NumericDate through json.Number: a JSON string holding a
+        // valid JSON number is accepted (decode.go:957-961); any other string is not.
+        assert_eq!(ok(with("exp", json!("1800000900"))).await, Ok(()));
+        assert_eq!(ok(with("exp", json!("1800000900.5"))).await, Ok(()));
+        assert_eq!(ok(with("iat", json!("1799999000"))).await, Ok(()));
+        assert_eq!(ok(with("nbf", json!("1.7e9"))).await, Ok(()));
+        // encoding/json folds key case: an `EXP` alias of the same date is admitted like Go.
+        assert_eq!(ok(with("EXP", json!(1_800_000_900))).await, Ok(()));
+        for bad in [json!("abc"), json!(""), json!(" 1800000900"), json!("+1800000900"), json!("01800000900"), json!(true)] {
+            assert_eq!(ok(with("exp", bad.clone())).await, Err(Refusal::InvalidToken), "exp {bad}");
+        }
+        // Go on amd64: exp 9.2233720368547e18 wraps the internal seconds and is expired;
+        // nbf 1e19 converts to i64::MIN and is in the past (crate::numeric_date).
+        assert_eq!(ok(with("exp", json!(9.2233720368547e18))).await, Err(Refusal::InvalidToken));
+        assert_eq!(ok(with("exp", json!(9.21e18))).await, Ok(()));
+        assert_eq!(ok(with("nbf", json!(1e19))).await, Ok(()));
+    }
+
     struct Counted(VerifyingKey, std::sync::atomic::AtomicUsize);
     impl KeySource for Counted {
         async fn key(&self, _kid: &str) -> Option<VerifyingKey> {
@@ -878,7 +1036,7 @@ mod verify_detailed_tests {
         let key = signing_key(1);
         let token = sign(&key, &es256(), &with("exp", json!(1_800_000_000)));
         let keys = Counted(public_key(&key), Default::default());
-        let got = verify_detailed(&token, "mailserver", NOW, &keys, false).await;
+        let got = verify_detailed(&token, "mailserver", NOW, &keys, false, Some(&b"/x"[..])).await;
         assert_eq!(got.map(|_| ()), Err(Refusal::InvalidToken));
         assert_eq!(keys.1.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
