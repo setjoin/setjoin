@@ -258,7 +258,14 @@ async fn executable_holds_only_the_per_task_locks_once_go_is_off() -> Result<(),
         return Ok(());
     };
     let c = db.connect().await?;
-    let probe = "SELECT pg_try_advisory_lock(hashtextextended($1, 0))";
+    // Non-acquiring probe: read pg_locks instead of pg_try_advisory_lock. Taking the lock, even
+    // briefly, makes the gateway's single startup attempt refuse to start. A bigint advisory key
+    // is classid = high 32 bits, objid = low 32 bits (both unsigned oid), objsubid = 1.
+    let probe = "WITH k AS (SELECT hashtextextended($1, 0) AS h) \
+        SELECT EXISTS (SELECT 1 FROM pg_locks, k \
+        WHERE locktype = 'advisory' AND objsubid = 1 AND granted AND pid <> pg_backend_pid() \
+        AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) \
+        AND classid = ((k.h >> 32) & 4294967295)::oid AND objid = (k.h & 4294967295)::oid)";
     let mut child = gateway(
         &db,
         "cron:chat-chain-anchor,cron:chat-purge-expired",
@@ -267,21 +274,18 @@ async fn executable_holds_only_the_per_task_locks_once_go_is_off() -> Result<(),
     // The gateway takes the per-task locks one after the other, so wait for both.
     let mut held = false;
     let mut anchor_held = false;
+    let mut exited = None;
     for _ in 0..600 {
-        if child.try_wait()?.is_some() {
+        if let Some(status) = child.try_wait()? {
+            exited = Some(status);
             break;
         }
         for (task, flag) in [
             ("cron-task:chat-purge-expired", &mut held),
             ("cron-task:chat-chain-anchor", &mut anchor_held),
         ] {
-            if *flag {
-                continue;
-            }
-            *flag = !c.query_one(probe, &[&task]).await?.get::<_, bool>(0);
             if !*flag {
-                c.query_one("SELECT pg_advisory_unlock(hashtextextended($1, 0))", &[&task])
-                    .await?;
+                *flag = c.query_one(probe, &[&task]).await?.get::<_, bool>(0);
             }
         }
         if held && anchor_held {
@@ -289,16 +293,25 @@ async fn executable_holds_only_the_per_task_locks_once_go_is_off() -> Result<(),
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let go_lock_free: bool = c
+    let go_lock_free: bool = !c
         .query_one(probe, &[&"cron:scheduler-single-flight"])
         .await?
-        .get(0);
-    unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
+        .get::<_, bool>(0);
+    let mut stderr = String::new();
+    if exited.is_some() {
+        if let Some(mut pipe) = child.stderr.take() {
+            let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
+        }
+    } else {
+        unsafe {
+            libc::kill(child.id() as i32, libc::SIGTERM);
+        }
     }
     let _ = tokio::task::spawn_blocking(move || child.wait()).await?;
-    assert!(held && anchor_held, "both per-task locks held by Rust");
+    assert!(
+        held && anchor_held,
+        "both per-task locks held by Rust (purge={held}, anchor={anchor_held}, gateway exit={exited:?}, stderr={stderr:?})"
+    );
     assert!(go_lock_free, "Rust never takes Go's scheduler lock");
-    c.query_one("SELECT pg_advisory_unlock_all()", &[]).await?;
     Ok(())
 }
