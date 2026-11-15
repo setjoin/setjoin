@@ -31,9 +31,13 @@ move, migrations, data egress, production. Auth or a migration means size M or l
 | Size | Signals | Route |
 |---|---|---|
 | XS | decided, 1-2 files, one fast check | Haiku with the exact edit |
-| S | up to ~4 files in one module, short loop, small design call | Sonnet, tasks capped at ~30 min (slice larger ones) |
+| S | up to ~4 files in one module, short loop, small design call | Haiku first with the decided approach; on a capability stop (wrong fix, stuck, same CI failure twice) Sonnet takes over from Haiku's `PROGRESS.md`. Tasks capped at ~30 min (slice larger ones) |
 | M/L | several modules, long loop or real design | Opus planner (read-only) produces an exact plan, Haiku executes; gaps go back to the planner, never to Sonnet |
 | ? | cause or approach unknown | investigate (Sonnet, Opus if hard), then size the resulting plan |
+
+Haiku stops and reports instead of guessing: a Haiku brief names its stop conditions, and a
+stop is an escalation, not a failure. Investigations skip Haiku, because a wrong diagnosis costs
+more downstream (CI loops, review rounds) than the Sonnet run.
 
 If the diff exceeds the prediction, upgrade the review and re-record the size.
 
