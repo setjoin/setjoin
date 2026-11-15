@@ -34,7 +34,9 @@ The same guard enforces this.
 ## server-rust lane (GitHub-hosted)
 
 `.github/workflows/server-rust-lane.yml` (its `pgtap` job runs the mailserver/authserver reducer pgTAP suites and its `guards` job runs `scripts/run-guards.sh --known-red scripts/guards-known-red.txt`; both gate `aggregate`) runs only on GitHub-hosted `ubuntu-latest` runners (no
-self-hosted label); the rows above do not apply to it. Images come from `ghcr.io/setjoin` as pinned
+self-hosted label) and, on the `main` merge queue, runs on `merge_group` (once per batch of up to 5 PRs),
+push to `main` and `workflow_dispatch`, not on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
+(one job, also named `aggregate`, `scripts/quick-check.sh`). The rows above do not apply to either. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
 
 `run-guards.sh --known-red FILE` tolerates the guards named in `scripts/guards-known-red.txt` (each with an
@@ -45,8 +47,8 @@ passes fails the run until its line is removed; a name with no guard file is an 
 
 ## quick check (agent branches)
 
-`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on pushes to `gofree/**`, `ci/**`, `docs/**` and on `workflow_dispatch` (`packages`, `tests`): `cargo check --tests` + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
-It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests and main run only the full lane.
+`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on pushes to `gofree/**`, `ci/**`, `docs/**` and on `workflow_dispatch` (`packages`, `tests`): `cargo clippy --all-targets` (errors fail, lints are warnings) + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
+It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests run only `pr-precheck` and the merge queue runs the full lane.
 
 ## gofree record (manual, deleted with Go)
 
