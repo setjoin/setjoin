@@ -289,14 +289,6 @@ async fn executable_holds_only_the_per_task_locks_once_go_is_off() -> Result<(),
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    if !(held && anchor_held) {
-        let status = child.try_wait()?;
-        let mut err = String::new();
-        if status.is_some() {
-            std::io::Read::read_to_string(child.stderr.as_mut().unwrap(), &mut err)?;
-        }
-        eprintln!("[DEBUG-cron1] held={held} anchor={anchor_held} exit={status:?} stderr={err}");
-    }
     let go_lock_free: bool = c
         .query_one(probe, &[&"cron:scheduler-single-flight"])
         .await?
