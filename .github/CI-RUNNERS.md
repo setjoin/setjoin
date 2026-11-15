@@ -34,8 +34,10 @@ The same guard enforces this.
 ## server-rust lane (GitHub-hosted)
 
 `.github/workflows/server-rust-lane.yml` (its `pgtap` job runs the mailserver/authserver reducer pgTAP suites and its `guards` job runs `scripts/run-guards.sh --known-red scripts/guards-known-red.txt`; both gate `aggregate`) runs only on GitHub-hosted `ubuntu-latest` runners (no
-self-hosted label) and, on the `main` merge queue, runs on `merge_group` (once per batch of up to 5 PRs),
-push to `main` and `workflow_dispatch`, not on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
+self-hosted label) and, on the `main` merge queue, runs the FULL lane on `merge_group` (once per batch of up to 5 PRs)
+and `workflow_dispatch`. A push to `main` only refreshes the caches (`build`, `coverage-build`, `gomod-cache`; no tests, summary
+"cache refresh only, no tests"), and a nightly `schedule` (02:30 UTC) runs the full lane plus coverage as the backstop,
+skipping cleanly when main has no commit in the last 26 hours. It never runs on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
 (one job, also named `aggregate`, `scripts/quick-check.sh`). The rows above do not apply to either. Images come from `ghcr.io/setjoin` as pinned
 in `.github/ci/images.lock`. See `server-rust/DOX.md#parallel-full-lane-550`.
 

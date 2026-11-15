@@ -93,7 +93,9 @@ run_check() {
   require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'STALE known-red pgTAP' 'pgTAP known-red ratchet' || failed=1
   require_literal "$LANE_WORKFLOW" '--verify tap' 'server-rust lane pgTAP evidence verification' || failed=1
   require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
-  require_literal "$LANE_WORKFLOW" '"roots", "pgtap", "guards", "shard"' 'server-rust lane aggregate requires the guards job' || failed=1
+  require_literal "$ROOT/scripts/lane-job-gate.py" '"roots", "pgtap", "guards", "shard"' 'server-rust lane aggregate requires the guards job' || failed=1
+  require_literal "$LANE_WORKFLOW" 'python3 scripts/lane-job-gate.py verdict' 'server-rust lane aggregate runs the gate verdict' || failed=1
+  require_literal "$LANE_WORKFLOW" 'python3 scripts/test-lane-job-gate.py' 'server-rust lane aggregate runs the gate tests first' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt' 'server-rust lane runs every guard through run-guards.sh' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'bash scripts/run-guards-selftest.sh' 'server-rust lane proves the known-red ratchet before the guards' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'guards' 'run: npm ci' 'server-rust lane guards job installs webmail dependencies' || failed=1
