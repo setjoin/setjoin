@@ -395,6 +395,7 @@ pub(super) async fn token_claims(kind: &str) -> Result<(), Err> {
             _=>{},
         }
         let code=env.idp.state.code(&flow["oidc_verifier"],&flow["oidc_nonce"],extra);
+        eprintln!("[DEBUG-rp1] calls cleared t={} dropped={}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), env.idp.state.calls.lock().unwrap().len());
         env.idp.state.calls.lock().unwrap().clear();
         let path=setjoin_identity::oidc::query_response("/auth/oidc/callback",&[("state",&flow["oidc_state"]),("code",&code)],false);
         let response=request(env.gw.addr,"GET",&path,String::new(),&[("cookie",&cookie)]).await?;

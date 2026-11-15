@@ -318,7 +318,9 @@ impl Registry {
     }
     /// Atomically replace the complete authoritative healthy subset, even on error.
     pub async fn reload(&self) -> Result<(), String> {
+        eprintln!("[DEBUG-rp1] reload requested t={}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
         let _guard = self.reload.lock().await;
+        eprintln!("[DEBUG-rp1] reload start t={}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
         let rows=match self.exec.read("SELECT key,value::text,encrypted FROM system_config WHERE key LIKE 'oidc_provider_%_config' ORDER BY key",&[]).await{
             Ok(rows)=>rows,Err(e)=>{self.providers.write().unwrap().clear();return Err(e.message);}
         };
