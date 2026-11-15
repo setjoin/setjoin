@@ -153,11 +153,16 @@ pub(crate) enum Action {
     DnsVerify,
     BrandingGet,
     BrandingSet,
+    /// `GET /setup/status` (#364): public, no gate.
+    SetupStatus,
 }
 
 /// Method/pattern table; the first column is the method predicate.
 pub(crate) fn action(method: &Method, path: &str) -> Option<Action> {
     let reads = matches!(*method, Method::GET | Method::HEAD);
+    if reads && pinned_score("/setup/status", path) {
+        return Some(Action::SetupStatus);
+    }
     let table: [(bool, &str, Action); 26] = [
         (reads, "/api/admin/branding", Action::BrandingGet),
         (
@@ -267,6 +272,53 @@ fn segment_path(path: &str) -> String {
     ))
 }
 
+/// Go pins `/setup` and `/auth` at the root and also serves them through the `/api` mount:
+/// both spellings match (escaped segments as `ServeMux` does; the mount only with its literal
+/// spelling, as `StripPrefix` requires).
+pub(crate) fn pinned_score(pattern: &str, path: &str) -> bool {
+    crate::inventory::path_score(pattern, path).is_some()
+        || path.strip_prefix("/api").is_some_and(|rest| {
+            rest.starts_with('/') && crate::inventory::path_score(pattern, rest).is_some()
+        })
+}
+
+/// Go's `setupStatusGate` around `SetupHandler.SetupStatus` (owner decision A3). The count
+/// runs on the worker credential, which sees every tenant's users once native RLS applies.
+/// The gate counts once: any user or a failed count is the mux's bare 404. Only an empty
+/// table reaches the handler, which counts a second time and answers
+/// `{"initialized":true}` when a user appeared or that count failed, else
+/// `{"initialized":false}`.
+async fn setup_status(
+    worker: &ScopedExecutor,
+    r: &Request<Body>,
+    c: &RequestContext,
+) -> Response<Body> {
+    if user_count(worker).await != Some(0) {
+        return crate::catchall::not_found(r, c);
+    }
+    // `SetupStatus`: a failed count reads as initialized (fail closed), as does any user.
+    let initialized = user_count(worker).await != Some(0);
+    let id = crate::jmap::reply::request_id(
+        r.headers().get("x-request-id"),
+        crate::jmap::random().unwrap_or([0; 16]),
+    );
+    let body = if initialized {
+        "{\"initialized\":true}\n"
+    } else {
+        "{\"initialized\":false}\n"
+    };
+    crate::jmap::reply::response(body.into(), c.identity.proto, id)
+}
+
+/// `SELECT COUNT(*) FROM users`; `None` when the query fails.
+async fn user_count(worker: &ScopedExecutor) -> Option<i64> {
+    worker
+        .read("SELECT COUNT(*) FROM users", &[])
+        .await
+        .ok()
+        .and_then(|rows| rows.first().and_then(|row| row.try_get::<_, i64>(0).ok()))
+}
+
 /// The permission a route's Go middleware requires.
 fn gate(what: Action) -> &'static [&'static str] {
     match what {
@@ -292,6 +344,8 @@ fn gate(what: Action) -> &'static [&'static str] {
         }
         Action::AppList => &setjoin_platform::APPS_VIEW,
         Action::AppRequest | Action::AppRecover => &setjoin_platform::APPS_MANAGE,
+        // Public (#364): answered before any gate; an empty set refuses if ever reached.
+        Action::SetupStatus => &[],
     }
 }
 
@@ -308,7 +362,10 @@ pub(crate) fn path_id(path: &str, index: usize) -> Option<i64> {
 }
 
 impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, r: &Request<Body>) -> bool {
+        // `GET /setup/status` is public; every other arm sits behind Go's RequireAuth.
+        action(r.method(), r.uri().path()) != Some(Action::SetupStatus)
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -330,6 +387,9 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
             let Some(what) = action(r.method(), r.uri().path()) else {
                 return c.upstream.forward(r, &c.identity).await;
             };
+            if what == Action::SetupStatus {
+                return setup_status(&worker, &r, &c).await;
+            }
             let Some(auth) = setjoin_authz::authorize_request(
                 &exec,
                 &keys,
@@ -454,7 +514,8 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
                 | Action::DnsRecords
                 | Action::DnsVerify
                 | Action::BrandingGet
-                | Action::BrandingSet => unreachable!("handled by the group above"),
+                | Action::BrandingSet
+                | Action::SetupStatus => unreachable!("handled by the group above"),
                 Action::List => {
                     let limit = terms::limit(
                         crate::admin_identity_input::query(r.uri(), "limit").as_deref(),
@@ -626,5 +687,32 @@ pub(crate) async fn json_body<T: serde::de::DeserializeOwned>(
     {
         Some(Ok(value)) => Ok(value),
         _ => Err(()),
+    }
+}
+
+#[cfg(test)]
+mod setup_status_tests {
+    use super::*;
+    use crate::inventory::{Inventory, Target, BUNDLED};
+
+    #[test]
+    fn both_spellings_are_native_and_public() {
+        let inventory = Inventory::parse(BUNDLED).expect("bundled inventory");
+        for path in ["/setup/status", "/api/setup/status", "/s%65tup/status"] {
+            for method in [Method::GET, Method::HEAD] {
+                let route = inventory.find(&method, path).expect("route");
+                assert_eq!(
+                    (route.path.as_str(), route.target),
+                    ("/setup/status", Target::LocalRust),
+                    "{method} {path}"
+                );
+                assert_eq!(action(&method, path), Some(Action::SetupStatus), "{method} {path}");
+            }
+        }
+        for path in ["/a%70i/setup/status", "/setup/status/", "/setup", "/api/api/setup/status"] {
+            assert_eq!(action(&Method::GET, path), None, "{path}");
+        }
+        assert_eq!(action(&Method::POST, "/setup/status"), None);
+        assert_eq!(action(&Method::POST, "/api/setup/status"), None);
     }
 }

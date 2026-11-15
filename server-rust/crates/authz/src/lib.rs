@@ -16,6 +16,7 @@ pub mod es256;
 pub mod gates;
 pub mod jwks;
 pub mod mailbox;
+pub mod numeric_date;
 pub mod legacy_jwt;
 pub mod password;
 pub mod push;
@@ -237,8 +238,12 @@ impl Refusal {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope { Member, User, Drive, DriveUser }
 
-fn drive_path(path: &str) -> bool {
-    path == "/drive" || path.starts_with("/drive/") || path == "/api/drive" || path.starts_with("/api/drive/")
+/// The Drive adapters' surface: Go's Drive handlers see `/drive` or `/drive/...`
+/// ([`go_url::mailserver_handler_path`]). A request Go answers before any handler
+/// (400 for a malformed escape, a clean-path redirect, the SPA) is not on it.
+fn drive_surface(scope: Scope, handler_path: Option<&[u8]>) -> bool {
+    matches!(scope, Scope::Drive | Scope::DriveUser)
+        && handler_path.is_some_and(|p| p == b"/drive" || p.starts_with(b"/drive/"))
 }
 
 /// Go reads only the first Authorization value, case-sensitively (basic.go:27, kerberos.go:99).
@@ -270,23 +275,40 @@ pub fn credential(headers: &HeaderMap) -> Result<String, Refusal> {
 
 /// `authorize_request` and friends with the refusal class kept (#354).
 /// Order follows Go: credential, token validation, then live state reads.
+/// `method` and `path` (raw) are the request's; a scoped token is judged on the path
+/// Go's handler sees ([`go_url::mailserver_handler_path`], chain.go:434). Where Go
+/// reaches no handler that path is `None`: a scoped token is refused and the request is
+/// off the Drive surface. Answering Go's 400/redirect/SPA itself is the router's job.
 pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
-    headers: &HeaderMap, path: &str, scope: Scope) -> Result<Authorized, Refusal> {
-    let drive = matches!(scope, Scope::Drive | Scope::DriveUser) && drive_path(path);
+    headers: &HeaderMap, method: &str, path: &str, scope: Scope) -> Result<Authorized, Refusal> {
+    let handler_path = go_url::mailserver_handler_path(method, path);
+    let handler_path = handler_path.as_deref();
+    let drive = drive_surface(scope, handler_path);
     let token = credential(headers)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| Refusal::Unavailable)?.as_secs_f64();
     // Signature + claim rules, bounded: a JWKS fetch stuck in flight is 503; an
     // unknown kid inside the refresh cooldown returns at once and is 401.
+    let claims = match tokio::time::timeout(precheck_timeout(), token::decoded_claims(&token, keys)).await {
+        Err(_) => return Err(Refusal::Unavailable),
+        Ok(None) => return Err(remap(headers, Refusal::InvalidToken)),
+        Ok(Some(claims)) => claims,
+    };
     if matches!(scope, Scope::User | Scope::DriveUser) {
-        let found = tokio::time::timeout(precheck_timeout(), async {
-            if drive { push::authenticate_drive(exec, keys, issuer, &token).await }
-            else { push::authenticate_detailed(exec, keys, issuer, &token).await }
-        }).await;
-        let identity = match found {
+        // The user scopes accept exactly the tokens Go's chain accepts (scoped on its
+        // path, any NumericDate Go decodes), then read the guest status like the push seam.
+        if !token::go_accepts(&claims, issuer, now, drive, handler_path) {
+            return Err(remap(headers, Refusal::InvalidToken));
+        }
+        // Off the Drive surface the push seam requires `iat` (approved divergence
+        // missing-iat-401); classify with the member verifier, as before.
+        if !drive && claims.get("iat").is_none_or(serde_json::Value::is_null) {
+            let class = token::session_detailed(&claims, issuer, now, drive, handler_path).err();
+            return Err(remap(headers, class.unwrap_or(Refusal::InvalidToken)));
+        }
+        let identity = match tokio::time::timeout(precheck_timeout(), push::identity_from_accepted(exec, claims.clone())).await {
             Err(_) | Ok(Err(push::PushAuthError::GuestUnavailable)) => return Err(Refusal::Unavailable),
             Ok(Err(push::PushAuthError::GuestInactive)) => return Err(Refusal::GuestInactive),
-            // Classify with the member verifier so iat/uid rules cannot be remapped away.
-            Ok(Err(push::PushAuthError::Invalid)) => return Err(verified(&token, issuer, now, keys, headers, drive).await.err().unwrap_or_else(|| remap(headers, Refusal::InvalidToken))),
+            Ok(Err(push::PushAuthError::Invalid)) => return Err(remap(headers, Refusal::InvalidToken)),
             Ok(Ok(identity)) => identity,
         };
         if identity.has_act() { return Err(Refusal::Impersonation); }
@@ -303,7 +325,7 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
             return identity.user_authorization().ok_or(Refusal::UnservedSubject);
         }
     }
-    let session = verified(&token, issuer, now, keys, headers, drive).await?;
+    let session = token::session_detailed(&claims, issuer, now, drive, handler_path).map_err(|r| remap(headers, r))?;
     if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None)).await.unwrap_or(false) {
         return Err(Refusal::Unavailable);
     }
@@ -320,15 +342,6 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
         tokio::time::timeout(precheck_timeout(), gates::roles(exec, session.user_id)).await.ok().flatten().ok_or(Refusal::Unavailable)?
     } else { Vec::new() };
     Ok(authorized(session, mailbox, state, roles))
-}
-
-/// Signature and claim rules under the precheck bound, refusal class kept (#354).
-async fn verified(token: &str, issuer: &str, now: f64, keys: &impl KeySource, headers: &HeaderMap, drive: bool)
-    -> Result<token::Session, Refusal> {
-    match tokio::time::timeout(precheck_timeout(), token::verify_detailed(token, issuer, now, keys, drive)).await {
-        Err(_) => Err(Refusal::Unavailable),
-        Ok(result) => result.map_err(|r| remap(headers, r)),
-    }
 }
 
 fn authorized(session: token::Session, mailbox: i64, state: gates::SessionState, roles: Vec<i64>) -> Authorized {
@@ -517,6 +530,39 @@ mod admit_credential {
         map
     }
 
+    /// The Drive surface (which admits `scp=drive`) follows the handler path Go reaches:
+    /// a malformed escape is Go's 400, a dot segment or `//` its clean-path redirect, a
+    /// bare unpinned `/drive/...` the SPA or the legacy 308 — none is on it.
+    #[test]
+    fn drive_surface_follows_the_go_handler_path() {
+        let on = |method: &str, raw: &str, scope: Scope| {
+            drive_surface(scope, go_url::mailserver_handler_path(method, raw).as_deref())
+        };
+        for scope in [Scope::Drive, Scope::DriveUser] {
+            for raw in ["/api/drive", "/api/drive/x", "/api/dr%69ve/x", "/api/drive%2Fx"] {
+                assert!(on("GET", raw, scope), "{scope:?} {raw}");
+            }
+            for raw in [
+                "/api/drive/a%zz",
+                "/api/drive/a%2",
+                "/api/drive/../drive/x",
+                "/api//drive/x",
+                "/api%2Fdrive/x",
+                "/drive/x",
+                "/drive",
+                "/api/drivex",
+                "/%61pi/drive/x",
+            ] {
+                for method in ["GET", "POST"] {
+                    assert!(!on(method, raw, scope), "{scope:?} {method} {raw}");
+                }
+            }
+        }
+        for scope in [Scope::Member, Scope::User] {
+            assert!(!on("GET", "/api/drive/x", scope), "{scope:?}");
+        }
+    }
+
     #[test]
     fn credential_follows_go_first_value_and_cookie_rules() {
         let cases: Vec<(Vec<(&str, &str)>, Result<&str, Refusal>)> = vec![
@@ -533,6 +579,7 @@ mod admit_credential {
             ),
             (vec![("authorization", "Bearer é"), ("cookie", "access_token=valid")], Ok("é")),
             (vec![("cookie", "access_token=; access_token=B")], Err(Refusal::NoCredential)),
+            (vec![("cookie", "access_token; access_token=B")], Err(Refusal::NoCredential)),
             (vec![("cookie", "access_token=\"A\"")], Ok("A")),
             (vec![("cookie", "access_token=a\\b; access_token=B")], Ok("B")),
             (vec![("authorization", "Basic x"), ("cookie", "access_token=T")], Ok("T")),

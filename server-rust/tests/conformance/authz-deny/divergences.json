@@ -1,0 +1,38 @@
+{
+  "missing-iat-401": {
+    "reason": "Go's REST chain accepts a signed access token without iat; Rust answers 401 (RequireAuth bytes) because the revocation watermark compares iat. Every first-party mint sets iat (Go IssueDriveNativeToken jwt.go:181, Rust drive_token.rs:29).",
+    "review": "Fable plan review #354 (divergence rulings: missing iat -> 401 approved), PLAN-354-v2 section A.1 row 7; plan header lists it as an owner-approved divergence",
+    "reviewed": true,
+    "reviewer": "Fable",
+    "review_reference": "FABLE-REVIEW-353-354-365-367.md, PLAN 354 divergence rulings; FABLE-CODE-354B0.md follow-up 3 (four approved entries)",
+    "go_source": "mailserver/internal/auth/chain.go:434-452",
+    "test": "setjoin-authz::token::verify_detailed_tests::verify_detailed_names_the_refusal_class_in_go_rule_order (no iat), admit_db"
+  },
+  "uid-not-positive-401": {
+    "reason": "Go accepts a signed access token whose uid is missing or <= 0 (handler-dependent); Rust answers 401 (UnservedSubject), never remapped to the Basic/Negotiate fallback.",
+    "review": "Fable plan review #354 (uid <= 0 -> 401 approved, with finding 3); PLAN-354-v2 section A.1 row 8",
+    "reviewed": true,
+    "reviewer": "Fable",
+    "review_reference": "FABLE-REVIEW-353-354-365-367.md, PLAN 354 divergence rulings; FABLE-CODE-354B0.md follow-up 3",
+    "go_source": "mailserver/internal/auth/chain.go:434-452",
+    "test": "setjoin-authz::token::verify_detailed_tests::verify_detailed_names_the_refusal_class_in_go_rule_order (uid 0, uid absent), admit_db"
+  },
+  "precondition-read-503": {
+    "reason": "Go keeps flags and the denylist in memory; Rust reads registry, caller, roles and guest revocation per request and answers 503 (guestgate bytes) when a read fails, instead of forwarding to Go. Reachable only after a verified token, so it is no unauthenticated oracle; registry_state.mode is CHECK-constrained (V183), so no stored mode gives a permanent 503.",
+    "review": "Fable plan review #354 (503 on precondition read failure approved); PLAN-354-v2 section A.1 row 15",
+    "reviewed": true,
+    "reviewer": "Fable",
+    "review_reference": "FABLE-REVIEW-353-354-365-367.md, PLAN 354 divergence rulings; FABLE-CODE-354B0.md follow-up 3",
+    "go_source": "shared/middleware/guestgate/middleware.go:75",
+    "test": "setjoin-authz admit_db fault_* cases (registry, caller, roles, guest revocation, verify timeout)"
+  },
+  "front-door-revocation-read-503": {
+    "reason": "Go answers from its in-memory revocation set; Rust's front door reads revocations from the DB and answers 503 when that read fails (LocalRust targets with requires_session), after the CAE cold-denylist answer.",
+    "review": "owner-approved 2026-11-14 (fail-closed on revocation read failure); Fable code review #354 B0 (PR #380) follow-up 3",
+    "reviewed": true,
+    "reviewer": "Fable",
+    "review_reference": "FABLE-CODE-354B0.md follow-up 3 and 'Front door' paragraph (bins/gateway/src/admission.rs:115-139)",
+    "go_source": "shared/middleware/runtime_access.go:135-145",
+    "test": "setjoin-gateway front-door revocation-unreadable 503 test (admission.rs)"
+  }
+}

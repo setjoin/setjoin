@@ -468,8 +468,13 @@ updater are #357–#359.
 ## Parallel full lane (#550)
 
 `.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
-label) on the merge queue's `merge_group` commit (one run per BATCH of up to 5 queued pull requests),
-every push to `main` and `workflow_dispatch`: always the FULL lane including oracle coverage. Pull
+label) on the merge queue's `merge_group` commit (one run per BATCH of up to 5 queued pull requests)
+and `workflow_dispatch`: always the FULL lane including oracle coverage. A push to `main` runs CACHE REFRESH ONLY
+(`plan` output `mode=cache`: `build`, `coverage-build` and `gomod-cache` save the cargo and Go module caches; no test,
+coverage, replay or guard job; step summary "cache refresh only, no tests"; not a test pass, the queue already tested it).
+A nightly `schedule` (`30 2 * * *`, main) runs the full lane plus coverage as the backstop (`mode=full`) and skips
+cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules live in `scripts/lane-job-gate.py` (tests: `python3 scripts/test-lane-job-gate.py`, run by `aggregate` and `pre-ci.sh`). `aggregate` accepts `cache` only on push and
+`full`/`skip` only on schedule, and is red on `merge_group`/`workflow_dispatch` unless `mode=full`. Pull
 requests run only `pr-precheck.yml` (job `aggregate`: `scripts/quick-check.sh`, changed-package
 clippy/`--lib` tests and cheap guards); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
