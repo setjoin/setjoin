@@ -468,8 +468,13 @@ updater are #357–#359.
 ## Parallel full lane (#550)
 
 `.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
-label) for every pull request and every push to `main`: always the FULL lane including oracle
-coverage. `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+label) on `pull_request`, the merge queue's `merge_group` commit (one run per BATCH of up to 5 queued pull requests),
+every push to `main` and `workflow_dispatch` (merge-queue rollout stage 1): always the FULL lane including oracle coverage. `pr-precheck.yml`
+(job `precheck`: `scripts/quick-check.sh`, changed-package check/`--lib` tests and cheap guards) is advisory;
+only the lane's `aggregate` is the required check. Stage 2 (after the merge-queue ruleset is verified active)
+drops the lane's `pull_request` trigger and renames the pre-check job to `aggregate`, so PRs get the pre-check and the
+full lane gates each batch. Concurrency group is `github.event.pull_request.number || github.ref` (the queue ref is unique per
+entry); `cancel-in-progress` only for `pull_request`. `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
 lane result. Jobs: `plan` (shard lists, debug or full); `build` (one `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`); `roots` (static guards,
