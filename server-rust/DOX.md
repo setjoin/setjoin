@@ -473,7 +473,7 @@ and `workflow_dispatch`: always the FULL lane including oracle coverage. A push 
 (`plan` output `mode=cache`: `build`, `coverage-build` and `gomod-cache` save the cargo and Go module caches; no test,
 coverage, replay or guard job; step summary "cache refresh only, no tests"; not a test pass, the queue already tested it).
 A nightly `schedule` (`30 2 * * *`, main) runs the full lane plus coverage as the backstop (`mode=full`) and skips
-cleanly (`mode=skip`) when main has no commit in the last 26 hours. `aggregate` accepts `cache` only on push and
+cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules live in `scripts/lane-job-gate.py` (tests: `python3 scripts/test-lane-job-gate.py`, run by `aggregate` and `pre-ci.sh`). `aggregate` accepts `cache` only on push and
 `full`/`skip` only on schedule, and is red on `merge_group`/`workflow_dispatch` unless `mode=full`. Pull
 requests run only `pr-precheck.yml` (job `aggregate`: `scripts/quick-check.sh`, changed-package
 clippy/`--lib` tests and cheap guards); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the

@@ -26,7 +26,7 @@ name: server-rust lane
 #                   coverage entry ran exactly once (scripts/merge-lane-shards.py)
 # workflow_dispatch keeps the debug inputs: filter or adequacy_only runs ONE job, never a lane result.
 # Fork pull requests get a read-only token and no secrets (the lane needs none: the Postgres
-# password is generated per job) and never save a cache; only runs on main (push, schedule) save caches.
+# password is generated per job) and never save a cache; only runs on main (push, schedule, dispatch) save caches.
 on:
   merge_group:
   push:
@@ -90,7 +90,9 @@ jobs:
       # job needs plan, so nothing else starts and nothing hangs).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          sparse-checkout: .github/ci
+          sparse-checkout: |
+            .github/ci
+            scripts/lane-job-gate.py
       - name: images.lock must be pinned
         run: |
           if grep -v '^#' .github/ci/images.lock | grep -q PLACEHOLDER; then
@@ -99,9 +101,10 @@ jobs:
           fi
       # mode: full (merge_group, workflow_dispatch, nightly with news), cache (push to main) or skip (nightly, no news).
       # Nightly skip rule: skip unless main has a commit newer than 26 hours (one daily slot plus cron jitter).
-      # Simpler and sturdier than "since the last successful scheduled run": it needs no run-history lookup and a
-      # failed or missing night self-heals, because the next run still sees the commit inside the window; the cost
-      # is at most one redundant full run. Uses the commits API (contents: read), no checkout depth needed.
+      # Simpler than "since the last successful scheduled run": it needs no run-history lookup. A night that
+      # fails or is missed is NOT retried by the next night (a commit older than 26 hours is skipped then); re-run it
+      # by hand. The cost of the window is at most one redundant full run (the mode and verdict rules live in scripts/lane-job-gate.py, tested by
+      # scripts/test-lane-job-gate.py). Uses the commits API (contents: read), no checkout depth needed.
       - id: mode
         env:
           EVENT: ${{ github.event_name }}
@@ -109,15 +112,13 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          case "$EVENT" in
-            push) mode=cache ;;
-            schedule)
-              since="$(date -u -d '26 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
-              n="$(gh api "repos/$REPO/commits?sha=main&since=$since&per_page=1" --jq 'length')"
-              if [ "$n" -gt 0 ]; then mode=full; else mode=skip; fi
-              echo "nightly: $n commit(s) on main since $since" ;;
-            *) mode=full ;;
-          esac
+          n=""
+          if [ "$EVENT" = schedule ]; then
+            since="$(date -u -d '26 hours ago' +%Y-%m-%dT%H:%M:%SZ)"
+            n="$(gh api "repos/$REPO/commits?sha=main&since=$since&per_page=1" --jq 'length')" # an API error fails the job (red), never skips
+            echo "nightly: $n commit(s) on main since $since"
+          fi
+          mode="$(python3 scripts/lane-job-gate.py mode "$EVENT" $n)"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "event=$EVENT mode=$mode"
       - id: plan
@@ -537,33 +538,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Job results
+      - name: Job results (scripts/lane-job-gate.py; its tests run first)
         env:
           NEEDS: ${{ toJSON(needs) }}
           EVENT: ${{ github.event_name }}
         run: |
-          python3 - <<'PY'
-          import json, os, sys
-          needs = json.loads(os.environ["NEEDS"])
-          debug = needs["plan"]["outputs"].get("debug") == "true"
-          mode = needs["plan"]["outputs"].get("mode", "")
-          event = os.environ["EVENT"]
-          allowed = {"push": {"cache"}, "schedule": {"full", "skip"}}.get(event, {"full"})
-          if mode not in allowed:
-              sys.exit(f"red: event {event} planned mode {mode!r}, allowed {sorted(allowed)}")
-          if debug:
-              required = {"plan", "debug"}
-          elif mode == "full":
-              required = {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
-          elif mode == "cache":
-              required = {"plan", "build", "coverage-build", "gomod-cache"}
-          else:
-              required = {"plan"}
-          results = {name: job["result"] for name, job in needs.items()}
-          print("debug" if debug else mode, "job results", results)
-          bad = {n: r for n, r in results.items() if r in ("failure", "cancelled") or (n in required and r != "success")}
-          sys.exit(f"red: {bad}" if bad else 0)
-          PY
+          python3 scripts/test-lane-job-gate.py
+          python3 scripts/lane-job-gate.py verdict
       - name: Summary (cache refresh or skipped nightly)
         if: always() && needs.plan.outputs.mode != 'full'
         env:
