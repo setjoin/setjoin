@@ -69,3 +69,5 @@ The OP oracle pins the same anonymous `agent|masked-IP` attempt metadata.
 
 `registry` (ProtocolSessionRegistry) and `tracker` (per-user ConnTracker) moved here from
 `setjoin-imap` (#501) so IMAP and SMTP submission share one implementation; IMAP re-exports them.
+
+`ip_rule_blocked` returns `Result<bool, ()>` for auth HTTP ingress: no match or allow is `Ok(false)`, block is `Ok(true)`, and timeout/query/decode failure is `Err(())`. HTTP rejects errors with 403 and `ip_rules_unavailable`, matching the protocol gate's approved fail-closed divergence (#367, #342, #346). See `oracle/divergences.json`.
