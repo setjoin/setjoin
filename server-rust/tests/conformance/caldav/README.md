@@ -1,5 +1,7 @@
 # CalDAV HTTP oracle (#426)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-gateway --test caldav` records the real frozen Go handler through the
 front door and replays its immutable observations against native Rust with no
 Go upstream. Each case owns two accounts with divergent user/mailbox ids and

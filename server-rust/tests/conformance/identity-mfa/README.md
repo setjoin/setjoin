@@ -1,5 +1,7 @@
 # Identity MFA TOTP (#334)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-auth --test mfa_oracle` records the actual front door against covered
 frozen Go, then replays with both Go upstreams unset and zero Go-hop counters.
 Use the assigned disposable DB, REQUIRE_DB=1 and `--test-threads=1`. Hold the

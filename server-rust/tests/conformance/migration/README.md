@@ -1,5 +1,7 @@
 # F05 migration provider oracle (#431, #446)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `migration_runner` records the actual frozen Go front door plus one settled worker
 run. Replay uses Rust only and asserts its proxied-to-Go count is zero. It compares
 HTTP bytes/headers, job/progress/checkpoints/source operations, messages/tags,

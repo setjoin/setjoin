@@ -3,6 +3,7 @@ name: gofree record
 # Records NEW Go-free oracle goldens from the frozen Go coverage binary (#339). Manual only:
 # no pull_request or push trigger. It never commits: new goldens come back as an artifact.
 # Deleted with Go (#142). Contract: server-rust/DOX.md#frozen-go-recording-workflow.
+# Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
 on:
   workflow_dispatch:
     inputs:

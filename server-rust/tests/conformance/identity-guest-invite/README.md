@@ -1,5 +1,7 @@
 # Guest invitation acceptance oracle (#342)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-auth --test guest_invite_oracle` drives the real front door for
 `GET`/`POST /auth/guest-invite/accept`; the auth listener and the gateway alias
 share these replays. Gateway-layer cases (cross-site Origin, guest bearer,

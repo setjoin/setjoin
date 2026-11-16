@@ -1,5 +1,7 @@
 # WebAuthn oracle (#335)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-auth --test webauthn_oracle` exercises the real front door and auth HTTP
 adapter. Use the assigned disposable owner/app/direct DSNs, `REQUIRE_DB=1`, and
 `--test-threads=1`. The fixture shares identity-login's advisory lock. Recording

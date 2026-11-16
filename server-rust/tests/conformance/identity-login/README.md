@@ -1,5 +1,7 @@
 # Identity login and key custody (#331)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `keys.json` was recorded by frozen Go at the source hash in the document, using
 `keys_test.go.txt` as a Go test overlay. It contains **synthetic fixture keys**,
 including Go's encrypted PKCS#8 column envelope, public JWKS, HS256/ES256/SM2

@@ -71,6 +71,7 @@ XS goes to Haiku with the exact edit. Never resume the investigator to apply a d
   ~10-20 min) through the shared poller. With no PR yet, the coordinator dispatches the same check:
   `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push).
 - Before fixing a failing test, search open issues and other branches for its name.
+- Before committing Rust changes: `git add`, run `bash scripts/fmt-added.sh` (formats added files through stdin, the same set the pre-check checks), then `git add` the reformatted files and commit.
 
 ## Review
 
@@ -82,6 +83,7 @@ XS goes to Haiku with the exact edit. Never resume the investigator to apply a d
 - Verify each finding in the code before requiring a fix. One fix round carries all open
   findings. Non-blocking findings become follow-up issues; do not widen the ticket.
 - Gate the integration tip itself after several merges.
+- Reviewers apply docs/standards/AI_ASSISTED_TESTING.md (time windows, normalisation) to every test diff.
 
 ## GitHub API usage
 

@@ -1,5 +1,7 @@
 # SSE event source oracle (#319)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `bins/gateway/tests/jmap_sse_recorded.rs` observes `GET /jmap/eventsource`
 through the real front door. Goldens come from frozen Go with coverage enabled;
 native replay has no Go upstream. Frames are compared as bytes, including

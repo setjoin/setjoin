@@ -1,5 +1,7 @@
 # Gateway configuration (#414)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Operator seam: Go's `config.LoadWithKoanf` in a test-only overlay records the
 configuration precedence table (`layers.json`). `record-layers.sh NEW_OUTPUT`
 replays those inputs in the CI image with the shared module cache. Compare the
