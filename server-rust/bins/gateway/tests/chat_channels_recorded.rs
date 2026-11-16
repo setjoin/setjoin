@@ -1495,12 +1495,18 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
         let audit_start:i64=owner.query_one("SELECT coalesce(max(id),0) FROM admin_audit_log",&[]).await?.get(0);
         let mut other_listener=db.listen(&format!("chat:{}",foreign.user)).await?;
         if case=="url_budget" {
+            // The send budget is one per-user row keyed to date_trunc('minute', now())
+            // (chat_message.sql); a minute rollover mid-priming resets sent_count to 1
+            // (the observed "expected 31, got 8"). Start the priming at least 20s before
+            // the DB clock's next minute so the whole sequence shares one window.
+            let remaining:f64=owner.query_one("SELECT (60-EXTRACT(SECOND FROM clock_timestamp()))::float8",&[]).await?.get(0);
+            if remaining<20.0 {tokio::time::sleep(std::time::Duration::from_secs_f64(remaining+0.3)).await;}
             let start=std::time::Instant::now();
             for _ in 0..30 {
                 let response=common::send(address,Request::post(&request_path).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {}",token(account.user))).body(common::full(r#"{"body":"budget primer"}"#))?).await;
                 assert_eq!(response.status(),201);common::body_bytes(response).await;
             }
-            assert!(start.elapsed()<std::time::Duration::from_secs(45),"priming must fit inside Go's minute window");
+            assert!(start.elapsed()<std::time::Duration::from_secs(15),"priming must fit inside Go's minute window");
         }
         let first=if matches!(case,"repeat"|"url_repeat"){
             let response=common::send(address,Request::builder().method(method).uri(&request_path).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {}",token(account.user))).header("x-request-id","chat2-oracle").body(common::full(request_body.clone()))?).await;
