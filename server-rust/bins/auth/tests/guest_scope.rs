@@ -15,6 +15,23 @@ static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 type Err = Box<dyn std::error::Error + Send + Sync>;
 
+/// Operation-receipt ids present when the serialised case began. Receipts have
+/// no user foreign key, so account deletion cannot cascade them; the case's own
+/// receipts are the ids absent from this snapshot (cases run one at a time under
+/// SERIAL and the identity-login advisory lock, against an assigned DB).
+static RECEIPTS_BEFORE: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
+
+/// Combines a case result with a cleanup result: the case error is never
+/// replaced by a cleanup error (the cleanup error is appended to it); a cleanup
+/// error alone fails an otherwise passing case.
+fn settle(case: Result<(), Err>, cleanup: Result<(), Err>) -> Result<(), Err> {
+    match (case, cleanup) {
+        (Ok(()), c) => c,
+        (Err(e), Ok(())) => Err(e),
+        (Err(e), Err(c)) => Err(format!("{e}; cleanup also failed: {c}").into()),
+    }
+}
+
 /// Fable 353-2: no case may run against a replaced is_guest_account. Restore
 /// from the reducer source, or fail hard.
 async fn guest_function_pristine(c: &tokio_postgres::Client) -> Result<(), Err> {
@@ -141,11 +158,30 @@ async fn arrange(
     Ok((email, AuthServer::load(exec, cfg).await?))
 }
 
+/// Removes the account and every row a case left for it (also used on early failure).
+async fn cleanup_account(c: &tokio_postgres::Client, a: &fixture::Account) -> Result<(), Err> {
+    let email: Option<String> = c
+        .query_opt("SELECT email FROM users WHERE id=$1", &[&a.user])
+        .await?
+        .map(|r| r.get(0));
+    purge_user_rows(c, a.user, email.as_deref().unwrap_or("")).await?;
+    fixture::remove(c, a).await?;
+    Ok(())
+}
+
 /// Removes every row a case's login/session/token paths left for one user,
 /// ahead of `fixture::remove`.
 async fn purge_user_rows(c: &tokio_postgres::Client, u: i64, email: &str) -> Result<(), Err> {
     c.execute("DELETE FROM auth_event_log WHERE email=$1", &[&email])
         .await?;
+    let before = RECEIPTS_BEFORE.lock().unwrap().clone();
+    if let Some(before) = before {
+        c.execute(
+            "DELETE FROM rust_operation_receipts WHERE operation_id::text<>ALL($1::text[])",
+            &[&before],
+        )
+        .await?;
+    }
     for t in [
         "login_events",
         "sessions",
@@ -185,14 +221,24 @@ async fn begin(
     )
     .await?;
     guest_function_pristine(&c).await?;
+    let ids: Vec<String> = c
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    *RECEIPTS_BEFORE.lock().unwrap() = Some(ids);
     Ok((serial, db, c))
 }
 
 /// Restores is_guest_account and releases the advisory lock, even after a
 /// failed case, then reports the case result.
 async fn finish(c: &tokio_postgres::Client, result: Result<(), Err>) -> Result<(), Err> {
-    guest_function_pristine(c).await?;
-    release(c, result).await
+    let pristine = guest_function_pristine(c).await;
+    release(c, settle(result, pristine)).await
 }
 
 /// `finish` for the `arrange` cases: also removes the held account and its
@@ -205,34 +251,25 @@ async fn finish_arranged(
     result: Result<(), Err>,
 ) -> Result<(), Err> {
     let pristine = guest_function_pristine(c).await;
-    let mut cleaned: Result<(), Err> = Ok(());
-    if let Some(a) = held {
-        cleaned = async {
-            let email: Option<String> = c
-                .query_opt("SELECT email FROM users WHERE id=$1", &[&a.user])
-                .await?
-                .map(|r| r.get(0));
-            purge_user_rows(c, a.user, email.as_deref().unwrap_or("")).await?;
-            fixture::remove(c, &a).await?;
-            Ok(())
-        }
-        .await;
-    }
+    let cleaned = match held {
+        Some(a) => cleanup_account(c, &a).await,
+        None => Ok(()),
+    };
     let restored = restore_flags(c, saved).await;
-    let outcome = release(c, result).await;
-    outcome?;
-    pristine?;
-    cleaned?;
-    restored
+    let outcome = settle(settle(settle(result, cleaned), pristine), restored);
+    release(c, outcome).await
 }
 
 async fn release(c: &tokio_postgres::Client, result: Result<(), Err>) -> Result<(), Err> {
-    c.query_one(
-        "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
-        &[],
-    )
-    .await?;
-    result
+    let unlocked = c
+        .query_one(
+            "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
+            &[],
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| -> Err { e.into() });
+    settle(result, unlocked)
 }
 
 #[tokio::test]
@@ -379,9 +416,28 @@ impl Case {
         label: &str,
         upstream: Option<String>,
     ) -> Result<Case, Err> {
-        use sha2::{Digest, Sha256};
         common::signing_key(c).await;
         let a = fixture::account(c, label).await?;
+        // Ownership of the account is held from here: any later failure removes it.
+        match Case::seed(db, c, route, guest, label, upstream, &a).await {
+            Ok(case) => Ok(case),
+            Err(e) => {
+                let cleaned = cleanup_account(c, &a).await;
+                Err(settle(Err(e), cleaned).unwrap_err())
+            }
+        }
+    }
+
+    async fn seed(
+        db: &Db,
+        c: &tokio_postgres::Client,
+        route: &str,
+        guest: bool,
+        label: &str,
+        upstream: Option<String>,
+        a: &fixture::Account,
+    ) -> Result<Case, Err> {
+        use sha2::{Digest, Sha256};
         let keys: Value = serde_json::from_str(include_str!(
             "../../../tests/conformance/identity-login/keys.json"
         ))?;
@@ -518,7 +574,7 @@ impl Case {
             .map_err(|e| e.0)?;
         let auth = AuthServer::load(exec, cfg).await?;
         Ok(Case {
-            a,
+            a: a.clone(),
             email,
             mat,
             auth,
@@ -556,8 +612,8 @@ impl Case {
     }
 
     async fn cleanup(self, c: &tokio_postgres::Client) -> Result<(), Err> {
-        purge_user_rows(c, self.a.user, &self.email).await?;
         let a = self.a.clone();
+        purge_user_rows(c, a.user, &self.email).await?;
         drop(self);
         fixture::remove(c, &a).await?;
         Ok(())
@@ -787,9 +843,7 @@ async fn n1_cell(
         .batch_execute("GRANT SELECT ON feature_toggles TO setjoin_app")
         .await;
     let cleaned = case.cleanup(c).await;
-    grant?;
-    cleaned?;
-    result
+    settle(result, grant.map_err(|e| -> Err { e.into() }).and(cleaned))
 }
 
 #[tokio::test]
@@ -808,8 +862,7 @@ async fn n1_handoff_matrix_forwards_whole_and_clear_is_native() {
         }
     }
     let restored = restore_flags(&c, &saved).await;
-    finish(&c, result).await.unwrap();
-    restored.unwrap();
+    finish(&c, settle(result, restored)).await.unwrap();
 }
 
 /// Runs one native completion for `route` and returns (status, body).
@@ -822,12 +875,23 @@ async fn native(
     guest_fn: Option<&str>,
 ) -> Result<(Case, String, u16, String), Err> {
     let case = Case::new(db, c, route, guest, label, None).await?;
-    if let Some(branch) = guest_fn {
-        install_counting_guest(c, branch).await?;
+    let run: Result<(String, u16, String), Err> = async {
+        if let Some(branch) = guest_fn {
+            install_counting_guest(c, branch).await?;
+        }
+        let before = case.snap(c).await?;
+        let (status, raw) = case.send("").await?;
+        Ok((before, status, raw))
     }
-    let before = case.snap(c).await?;
-    let (status, raw) = case.send("").await?;
-    Ok((case, before, status, raw))
+    .await;
+    match run {
+        Ok((before, status, raw)) => Ok((case, before, status, raw)),
+        // The case is still owned here: remove it, keep the original error.
+        Err(e) => {
+            let cleaned = case.cleanup(c).await;
+            settle(Err(e), cleaned).map(|()| unreachable!())
+        }
+    }
 }
 
 /// Native-case wrapper: flags clear, cleanup in every path, pristine after.
@@ -852,8 +916,7 @@ where
     }
     .await;
     let restored = restore_flags(c, &saved).await;
-    finish(c, result).await.unwrap();
-    restored.unwrap();
+    finish(c, settle(result, restored)).await.unwrap();
 }
 
 /// N4: members of every route mint no acct claim anywhere.
@@ -875,8 +938,7 @@ async fn n4_member_completions_carry_no_acct() {
                     &format!("{route}: member refresh has acct"),
                 )
             })();
-            case.cleanup(c).await?;
-            checked?;
+            settle(checked, case.cleanup(c).await)?;
         }
         Ok::<(), Err>(())
     })
@@ -923,8 +985,7 @@ async fn tr_guest_pairs_refresh_with_acct_on_access_only() {
                 )
             }
             .await;
-            case.cleanup(c).await?;
-            checked?;
+            settle(checked, case.cleanup(c).await)?;
         }
         Ok::<(), Err>(())
     })
@@ -953,18 +1014,18 @@ async fn n2_backup_and_push_guest_scope_and_failure_order() {
                 Ok(())
             }
             .await;
-            case.cleanup(c).await?;
-            guest_function_pristine(c).await?;
-            r?;
+            let cleaned = case.cleanup(c).await;
+            let pristine = guest_function_pristine(c).await;
+            settle(r, cleaned.and(pristine))?;
             // Split: first lookup true, second raises: 500 account type.
             let (case, _before, status, raw) = native(&db, c, route, true, &format!("guest353-n2b-{n}"), Some("IF nextval('gofree_guest353_calls')>1 THEN RAISE EXCEPTION 'gofree-guest353 account type fault'; END IF; RETURN true;")).await?;
             let r: Result<(), Err> = (|| {
                 check(status == 500 && raw.contains("account type resolution failed"), &format!("{route}: want 500 account type, got {status} {raw}"))?;
                 check(!raw.contains("access_token"), &format!("{route}: 500 leaked tokens"))
             })();
-            case.cleanup(c).await?;
-            guest_function_pristine(c).await?;
-            r?;
+            let cleaned = case.cleanup(c).await;
+            let pristine = guest_function_pristine(c).await;
+            settle(r, cleaned.and(pristine))?;
         }
         Ok::<(), Err>(())
     })
@@ -982,8 +1043,7 @@ async fn n3_webauthn_guest_direct_mfa_and_scope_failure() {
             let (access, _) = tokens_of(&raw)?;
             check(access["acct"] == json!("guest"), "direct: access needs acct guest")
         })();
-        case.cleanup(c).await?;
-        r?;
+        settle(r, case.cleanup(c).await)?;
         // MFA enrolled: mfa_required, mfa_pending without acct, no guest lookup effect.
         let case = Case::new(&db, c, "webauthn", true, "guest353-n3-mfa", None).await?;
         let r: Result<(), Err> = async {
@@ -997,8 +1057,7 @@ async fn n3_webauthn_guest_direct_mfa_and_scope_failure() {
             check(pending.get("acct").is_none(), "mfa_pending must not carry acct")
         }
         .await;
-        case.cleanup(c).await?;
-        r?;
+        settle(r, case.cleanup(c).await)?;
         // Raising lookup: 503, assertion counter already advanced (Go order).
         let case = Case::new(&db, c, "webauthn", true, "guest353-n3-503", None).await?;
         install_counting_guest(c, "RAISE EXCEPTION 'gofree-guest353 scope fault';").await?;
@@ -1011,9 +1070,9 @@ async fn n3_webauthn_guest_direct_mfa_and_scope_failure() {
             check(before != after, "assertion counter must advance before the 503")
         }
         .await;
-        case.cleanup(c).await?;
-        guest_function_pristine(c).await?;
-        r
+        let cleaned = case.cleanup(c).await;
+        let pristine = guest_function_pristine(c).await;
+        settle(r, cleaned.and(pristine))
     })
     .await;
 }
@@ -1042,8 +1101,7 @@ async fn tp_guest_push_login_challenge_pending_has_no_acct() {
             )
         }
         .await;
-        case.cleanup(c).await?;
-        r
+        settle(r, case.cleanup(c).await)
     })
     .await;
 }
@@ -1076,8 +1134,7 @@ async fn tf_guest_force_password_change_token_has_no_acct() {
             )
         }
         .await;
-        case.cleanup(c).await?;
-        r
+        settle(r, case.cleanup(c).await)
     })
     .await;
 }

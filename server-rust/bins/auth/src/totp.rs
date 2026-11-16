@@ -610,9 +610,10 @@ pub(super) struct MfaTokens {
     pub(super) factors: Vec<String>,
 }
 /// Whether a completion mint may proceed for a guest principal. MFA completions
-/// mint `acct: guest` (Go issueTokensWithFactors). SSO refuses: Go P17
-/// (auth.go:1576-1589) never issues an SSO token to a guest row, and this is the
-/// mint-time belt behind identity/src/rp/account.rs:215-244.
+/// mint `acct: guest` (Go issueTokensWithFactors). SSO refuses at mint time: this is an
+/// intentional Rust divergence from Go (which issues the token), recorded in
+/// server-rust/tests/conformance/identity-rp/divergences.json, and is the mint-time belt
+/// behind identity/src/rp/account.rs:215-244.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum GuestMint {
     Allow,

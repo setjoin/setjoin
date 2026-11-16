@@ -130,13 +130,14 @@ if not only or "regeneration" in only:
         print(f"REGENERATION-FAILS: {package} {target}::{name} (mode {', '.join(extra)})", flush=True)
 # An UNREVIEWED divergence entry fails even with the write flag set, unless that very call
 # regenerated it (nothing is regenerated here: the filter matches no baseline).
+# Descriptive entries carry no "baseline" key: they are skipped by baseline-keyed lookups only.
 if not only or "regeneration" in only:
     import json
     divergences = RP_CORPUS / "divergences.json"
     original = divergences.read_text()
     try:
         entries = json.loads(original)
-        entry = next(e for e in entries if e["baseline"] == "goldens/link-success.json")
+        entry = next(e for e in entries if e.get("baseline") == "goldens/link-success.json")
         entry["reason"] += " UNREVIEWED"
         divergences.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n")
         result = subprocess.run(
