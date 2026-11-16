@@ -66,7 +66,7 @@ FORWARD_PATTERNS = {
     "ws_client": re.compile(r"\bclient_async\("),
 }
 FORWARD_SITES = {
-    ("auth", "forward"): 54,  # lowered from 60 when guest-scope forwarding went native (ratchet)
+    ("auth", "forward"): 53,  # lowered from 54 when threat admission (#349a) went native (ratchet)
     ("gateway", "forward"): 167,  # lowered from 198 as routes went native (ratchet)
     ("gateway", "forward_body"): 3,
     ("gateway", "forward_unported"): 1,

@@ -65,6 +65,8 @@
     "review": "#349a Fable plan review F1; owner policy: security Go bugs are fixed in Rust",
     "go_source": "shared/threat/lockout.go:33-36",
     "test": "gate::tests::http_without_username_still_checks_the_ip_lock, setjoin-auth threat_oracle::native_trailing_bytes_cannot_skip_a_locked_user_or_armed_ip",
-    "original_evidence": "notes/FABLE-PLAN-349a.md F1"
+    "original_evidence": "notes/FABLE-PLAN-349a.md F1",
+    "reviewed": true,
+    "review_reference": "#349a Fable plan review F1; owner policy: security Go bugs are fixed in Rust as approved divergences"
   }
 }
