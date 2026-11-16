@@ -611,7 +611,7 @@ impl Gate {
         }
     }
     pub async fn attempt(&self, meta: &ConnectionMeta, outcome: &str) {
-        let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,$3,$4,$5,$6)",&[(&meta.source_ip,Type::TEXT),(&meta.username,Type::TEXT),(&self.protocol(meta),Type::TEXT),(&outcome,Type::TEXT),(&self.country(meta),Type::TEXT),(&fingerprint(&meta.user_agent,&meta.source_ip),Type::TEXT)]).await;
+        let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,$3,$4,$5,$6)",&[(&meta.source_ip,Type::TEXT),(&persisted_username(self.protocol(meta),&meta.username),Type::TEXT),(&self.protocol(meta),Type::TEXT),(&outcome,Type::TEXT),(&self.country(meta),Type::TEXT),(&fingerprint(&meta.user_agent,&meta.source_ip),Type::TEXT)]).await;
     }
     pub async fn post_auth(&self, meta: &ConnectionMeta) -> (ThreatAction, String) {
         if meta.user_id <= 0 || !self.enabled("feature.conditional_access") {
@@ -712,6 +712,23 @@ pub fn mask_ip(ip: &str) -> String {
         return format!("{}::", parts[..3].join(":"));
     }
     ip
+}
+/// Divergence `attempt-username-capped`: HTTP attempt rows persist at most 255 bytes of
+/// the username (char boundary). Only the stored value is capped; the identity used
+/// for authentication, lockout keys and CAPTCHA binding stays whole.
+pub fn cap_attempt_username(username: &str) -> &str {
+    let mut end = username.len().min(255);
+    while !username.is_char_boundary(end) {
+        end -= 1;
+    }
+    &username[..end]
+}
+fn persisted_username<'a>(protocol: &str, username: &'a str) -> &'a str {
+    if protocol == "http" {
+        cap_attempt_username(username)
+    } else {
+        username
+    }
 }
 pub fn fingerprint(agent: &str, ip: &str) -> String {
     format!("{agent}|{}", mask_ip(ip))
@@ -830,6 +847,16 @@ fn client_type<'a>(protocol: &'a str, agent: &str, post: bool) -> &'a str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn http_attempt_username_is_capped_only_when_persisted() {
+        let ascii = "a".repeat(300);
+        assert_eq!(persisted_username("http", &ascii).len(), 255);
+        let multi = format!("{}é", "a".repeat(254));
+        assert_eq!(persisted_username("http", &multi), "a".repeat(254));
+        assert_eq!(persisted_username("imap", &ascii).len(), 300);
+        assert_eq!(persisted_username("http", "a@x"), "a@x");
+    }
+
     use super::*;
 
     #[test]

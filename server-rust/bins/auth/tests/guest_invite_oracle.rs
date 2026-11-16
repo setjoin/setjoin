@@ -1246,6 +1246,31 @@ async fn exercise(
     // Volatile per run: every extra response's `expires_at`, on both sides.
     redact_extra_expiry(&mut expected);
     redact_extra_expiry(&mut actual);
+    if kind == "rate-limited" && method == "POST" {
+        // Recorded divergence guest-invite-no-row-on-rate-limit: Go writes a failure row
+        // for each of the 11 requests; native writes none for the 429, so 10. Pin both
+        // counts, drop the one divergent Go row, and compare everything else unchanged.
+        let count = |doc: &Value| {
+            doc.pointer("/effects/0/after/attempts")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter(|x| x["outcome"] == "failure").count())
+        };
+        assert_eq!(
+            count(&expected_rows),
+            Some(11),
+            "Go recorded 11 failure rows"
+        );
+        assert_eq!(count(&effects), Some(10), "native records 10 failure rows");
+        let rows = expected_rows
+            .pointer_mut("/effects/0/after/attempts")
+            .and_then(Value::as_array_mut)
+            .ok_or("Go row artifact lacks attempts")?;
+        let at = rows
+            .iter()
+            .rposition(|x| x["outcome"] == "failure")
+            .ok_or("no Go failure row")?;
+        rows.remove(at);
+    }
     if kind == "concurrent" {
         // Which of the two simultaneous requests wins is random; compare by role.
         for doc in [&mut expected, &mut actual, &mut expected_rows, &mut effects] {
@@ -1770,7 +1795,18 @@ async fn deadline(ctx: &Ctx) -> Result<(), Err> {
 
 async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
     let fx = seed(&ctx.c, "valid").await?;
-    let server = native_server(ctx).await?;
+    // The gate is attached: with feature.rate_limit on, login is admitted natively
+    // (http_threat.rs); only guest-invite, CA and device trust still forward.
+    let server = auth_server(
+        Arc::new(
+            load(ctx, false, false)
+                .await?
+                .with_threat_gate(&ctx.db.dsn)
+                .await?,
+        ),
+        false,
+    )
+    .await;
     let mut result: Result<(), Err> = Ok(());
     for (i, key) in TOGGLES.into_iter().enumerate() {
         let from = Ipv4Addr::new(127, 0, 0, 160 + i as u8);
@@ -1797,12 +1833,22 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         )
         .await?;
         set_toggle(&ctx.c, key, Some(false)).await?;
-        if guest.status != 503
-            || guest.body != OWNER
-            || login.status != 503
-            || login.body != OWNER
-            || get.status != 200
-        {
+        let native_login = key == "feature.rate_limit";
+        let login_ok = if native_login {
+            // Native admission: no Go forward, and it wrote its own attempt row.
+            let rows: i64 = ctx
+                .c
+                .query_one(
+                    "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND target_username='nobody@guestaccept.test'",
+                    &[&from.to_string()],
+                )
+                .await?
+                .get(0);
+            login.body != OWNER && login.status != 503 && rows > 0
+        } else {
+            login.status == 503 && login.body == OWNER
+        };
+        if guest.status != 503 || guest.body != OWNER || !login_ok || get.status != 200 {
             result = Err(format!(
                 "{key}: guest {} login {} get {}",
                 guest.status, login.status, get.status
@@ -1873,7 +1919,7 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
     let fx = seed(&ctx.c, "valid").await?;
     let server = native_server(ctx).await?;
     let since = now_text(&ctx.c).await?;
-    let lockouts = "SELECT count(*) FROM auth_lockouts WHERE lockout_key LIKE '%probe@x.test%' OR lockout_key LIKE '%jwt@x.test%'";
+    let lockouts = "SELECT count(*) FROM auth_lockouts WHERE lockout_key LIKE '%probe@x.test%' OR lockout_key LIKE '%victim@x.test%' OR lockout_key LIKE '%jwt@x.test%'";
     let before: i64 = ctx.c.query_one(lockouts, &[]).await?.get(0);
     let jwt = format!(
         "h.{}.s",
@@ -1882,6 +1928,7 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
     let bodies = [
         json!({ "token": fx.token, "disclosure_accepted": true, "new_password": PASSWORD, "Email": "Probe@X.test" }),
         json!({ "token": fx.token, "disclosure_accepted": true, "new_password": PASSWORD, "REFRESH_TOKEN": jwt }),
+        json!({ "token": fx.token, "disclosure_accepted": true, "new_password": PASSWORD, "email": "victim@x.test" }),
     ];
     let mut result: Result<(), Err> = Ok(());
     for (i, body) in bodies.iter().enumerate() {
@@ -1904,17 +1951,16 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
     let names: Vec<String> = ctx
         .c
         .query(
-            "SELECT target_username FROM auth_attempts WHERE occurred_at >= $1::text::timestamptz AND source_ip IN ('127.0.0.170'::inet, '127.0.0.171'::inet) ORDER BY host(source_ip)",
+            "SELECT target_username FROM auth_attempts WHERE occurred_at >= $1::text::timestamptz AND source_ip IN ('127.0.0.170'::inet, '127.0.0.171'::inet, '127.0.0.172'::inet) ORDER BY host(source_ip)",
             &[&since],
         )
         .await?
         .iter()
         .map(|r| r.get(0))
         .collect();
-    // Handler decode (divergence threat-username-handler-decode): the Email body is
-    // keyed, a refresh_token is not (guest-invite bodies have no username source
-    // besides the email field), so the recorded name is "".
-    if names != ["Probe@X.test", ""] {
+    // Guest-invite's threat username is always "" (divergence
+    // threat-username-handler-decode): no body, injected email included, can choose it.
+    if names != ["", "", ""] {
         return Err(format!("attempt usernames {names:?}").into());
     }
     let after: i64 = ctx.c.query_one(lockouts, &[]).await?.get(0);

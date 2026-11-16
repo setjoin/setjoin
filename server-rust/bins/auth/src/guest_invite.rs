@@ -145,9 +145,9 @@ impl AuthServer {
                     .unwrap();
             }
         };
-        // Handler decode (divergence threat-username-handler-decode): the accept body
-        // has no email field, so this is "" and a caller cannot choose the recorded name.
-        let username = http_threat::field_username(&raw);
+        // Always "": the accept body carries no identity, so a caller cannot choose
+        // the recorded or captcha-bound username (divergence threat-username-handler-decode).
+        let username = "";
         // Go's always-mounted middleware (interceptor.go:412-418) answers a present
         // token that fails verification 403 `captcha` before any other rule, controls
         // off or not. Rust's token is bound and single-use (divergence
@@ -157,7 +157,7 @@ impl AuthServer {
             let binding = captcha::Binding {
                 ip: &ip,
                 route,
-                username: &username,
+                username,
             };
             let now = captcha::now();
             let solved = captcha::verify(
@@ -169,7 +169,7 @@ impl AuthServer {
             )
             .is_some_and(|(mac, exp)| self.captcha_used.claim(&mac, exp, now));
             if !solved {
-                self.http_attempt(&ip, &agent, &username, "captcha_needed")
+                self.http_attempt(&ip, &agent, username, "captcha_needed")
                     .await;
                 return http_threat::threat_reply(
                     403,
@@ -181,7 +181,7 @@ impl AuthServer {
                 .await;
             }
         }
-        if let Some(blocked) = self.http_ip_rules(&ip, &agent, &username).await {
+        if let Some(blocked) = self.http_ip_rules(&ip, &agent, username).await {
             return blocked;
         }
         let reply = self.guest_invite_accept(&ip, &raw).await;
@@ -194,7 +194,7 @@ impl AuthServer {
         } else {
             "failure"
         };
-        self.http_attempt(&ip, &agent, &username, outcome).await;
+        self.http_attempt(&ip, &agent, username, outcome).await;
         reply
     }
 

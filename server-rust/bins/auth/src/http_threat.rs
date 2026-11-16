@@ -422,7 +422,7 @@ impl AuthServer {
     /// Go recordAttempt/recordOutcome: best-effort row; errors are ignored as in Go
     /// (an 'ip_blocked' outcome violates auth_attempts_outcome_check, so no row).
     pub(super) async fn http_attempt(&self, ip: &str, agent: &str, username: &str, outcome: &str) {
-        let username = cap_username(username);
+        let username = setjoin_threat::cap_attempt_username(username);
         let country = self.http_country(ip);
         let fp = setjoin_threat::fingerprint(agent, ip);
         let _ = self
@@ -461,15 +461,6 @@ impl AuthServer {
         }
         Some(threat_reply(403, reason, DENIED, None, Duration::ZERO).await)
     }
-}
-
-/// Divergence `attempt-username-capped`: at most 255 bytes, cut on a char boundary.
-fn cap_username(username: &str) -> &str {
-    let mut end = username.len().min(255);
-    while !username.is_char_boundary(end) {
-        end -= 1;
-    }
-    &username[..end]
 }
 
 /// The login handler's decode (`ingress::Login`): first JSON value, trailing data
@@ -639,14 +630,6 @@ mod tests {
             bytes.as_ref(),
             b"{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"ip_rules_unavailable\"}\n"
         );
-    }
-
-    #[test]
-    fn attempt_username_is_capped_on_a_char_boundary() {
-        assert_eq!(cap_username("a@x"), "a@x");
-        assert_eq!(cap_username(&"a".repeat(300)).len(), 255);
-        let s = format!("{}é", "a".repeat(254));
-        assert_eq!(cap_username(&s), "a".repeat(254));
     }
 
     const B: captcha::Binding<'static> = captcha::Binding {
