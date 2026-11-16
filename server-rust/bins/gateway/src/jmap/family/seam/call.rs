@@ -1689,17 +1689,28 @@ mod db {
     /// The names a scoped statement's `$1` (the scope mailbox) may land on, and
     /// the only mailbox-shaped names `$1` may feed (`$1` iff one of these).
     const MAILBOX_ARGUMENTS: &[&str] = &["p_account_id", "p_mailbox_id"];
-    /// Reviewed mailbox/account/owner-shaped parameters other than the scope
-    /// mailbox. A family param (never `$1`, never the actor) may land on them;
-    /// the call site's own tests cover which foreign mailbox it names (R1/R3).
-    /// Any other mailbox-shaped name fails until reviewed and added here.
-    const REVIEWED_MAILBOX_ARGUMENTS: &[&str] = &[
-        "p_author_mailbox_id",
-        "p_mailbox",
-        "p_mailbox_ids",
-        "p_owner_mailbox_id",
-        "p_recaller_mailbox_id",
+    /// Reviewed (reducer, parameter, evidence) triples: a mailbox/account/owner-shaped
+    /// parameter other than the scope mailbox may take a family value only for
+    /// an exact listed pair. A name alone is never evidence (#427, Codex r1).
+    const REVIEWED_MAILBOX_PAIRS: &[(&str, &str, &str)] = &[
+        (
+            "jmap_calendar_get_shared",
+            "p_owner_email",
+            "calendar_sharing.sql:20: the viewer is the seam-bound p_viewer_id; the owner is \
+             resolved from the email and gated by the calendar ACLs and defaults ladder",
+        ),
+        (
+            "jmap_calendar_event_get_shared",
+            "p_owner_email",
+            "calendar_sharing.sql:108: same viewer and calendar-ACL gate as get_shared",
+        ),
     ];
+
+    fn reviewed_pair(function: &str, name: &str) -> bool {
+        REVIEWED_MAILBOX_PAIRS
+            .iter()
+            .any(|(reducer, parameter, _)| *reducer == function && *parameter == name)
+    }
     /// Functions a family calls on purpose although no public signature exists
     /// (#370 mirrors Go bug G1, contacts.go:170). Reviewed; must stay missing.
     const KNOWN_MISSING: &[&str] = &[
@@ -1820,19 +1831,25 @@ mod db {
                                     argument
                                 ));
                             }
-                        } else if !REVIEWED_MAILBOX_ARGUMENTS.contains(&name) {
+                        } else if !reviewed_pair(function, name) {
                             found.push(format!(
                                 "{origin}: {function}: unreviewed mailbox-shaped parameter {name}"
                             ));
                         }
                     }
                 }
-                // A defaulted actor parameter past the supplied arguments is
-                // unbound: the reducer would run without the verified user.
+                // An omitted (defaulted) parameter runs unbound: it gets the same
+                // classification as a supplied one.
                 for name in names.iter().skip(arguments.len()) {
                     if ACTOR_ARGUMENTS.contains(&name.as_str()) {
                         found.push(format!(
                             "{origin}: {function} leaves actor parameter {name} unbound"
+                        ));
+                    } else if let Err(error) = classify(name) {
+                        found.push(format!("{origin}: {function} omits: {error}"));
+                    } else if mailbox_shaped().is_match(name) && !reviewed_pair(function, name) {
+                        found.push(format!(
+                            "{origin}: {function} omits mailbox-shaped parameter {name}"
                         ));
                     }
                 }
@@ -1992,6 +2009,11 @@ mod db {
              $$ SELECT NULL::text $$",
             "CREATE OR REPLACE FUNCTION public.seam_probe_account(p_mailbox_id bigint, \
              p_target_account_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_omit_principal(p_mailbox_id bigint, \
+             p_principal bigint DEFAULT 42) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_omit_account(p_mailbox_id bigint, \
+             p_target_account_id bigint DEFAULT NULL) RETURNS text LANGUAGE sql AS \
+             $$ SELECT NULL::text $$",
             "CREATE OR REPLACE FUNCTION public.seam_probe_owner(p_mailbox_id bigint, \
              p_owner_mailbox_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
             "CREATE OR REPLACE FUNCTION public.seam_probe_scope(p_x bigint, \
@@ -2005,6 +2027,24 @@ mod db {
                 2,
                 true,
                 "#427 item 1: the actor parameter is omitted, not supplied",
+            ),
+            (
+                "SELECT seam_probe_omit_principal($1)",
+                2,
+                true,
+                "#427 item 1: an omitted unreviewed user-shaped parameter",
+            ),
+            (
+                "SELECT seam_probe_omit_account($1)",
+                2,
+                true,
+                "#427 item 1: an omitted account-shaped parameter",
+            ),
+            (
+                "SELECT seam_probe_owner($1,$3)",
+                2,
+                true,
+                "#427 item 2: p_owner_mailbox_id is no longer name-allowlisted",
             ),
             (
                 "SELECT seam_probe_account($1,$3)",
@@ -2074,8 +2114,8 @@ mod db {
                 "the actor supplied in the actor slot",
             ),
             (
-                "SELECT seam_probe_owner($1,$3)",
-                "a reviewed owner-mailbox parameter takes a family param",
+                "SELECT jmap_calendar_get_shared($2,$3)",
+                "a reviewed (reducer, parameter) pair",
             ),
         ] {
             let found = violations(&owner, "fixture", sql, 2, true).await;
