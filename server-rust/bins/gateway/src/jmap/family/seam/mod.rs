@@ -74,13 +74,13 @@ mod call;
 #[cfg(test)]
 mod literals;
 
+pub(crate) use crate::jmap::imip::Imip;
 pub(crate) use account::resolve;
 pub(crate) use call::{
     not_found, parse_id_list, query, read, read_rows, rsvp_on_behalf, send_imip, set_batch,
     since_state, worker_read, worker_write, write, ScopedQuery, SetSql, Sql, WorkerRead,
     WorkerWrite,
 };
-pub(crate) use crate::jmap::imip::Imip;
 
 /// Pure iCalendar helpers (Go `caldav`) family files may call. `load_location`
 /// reads only TZif files under the zoneinfo roots and refuses `..` and
