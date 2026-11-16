@@ -1,5 +1,7 @@
 # Certificate parity (#468)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `mailsec_smime` replays `status-*.json` through the authenticated HTTP route;
 `cert_status_expiry_states` runs all six non-valid cases. Only the generated
 certificate expiry timestamp is normalized. Status uses the first transport peer,

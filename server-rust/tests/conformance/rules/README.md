@@ -1,5 +1,7 @@
 # F09 frozen-Go oracle (#329)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Run `cargo test --locked -p setjoin-gateway --test rules -- --test-threads=1`
 with `REQUIRE_DB=1`, `TEST_DB_DSN`/`DB_DSN`/`DB_DIRECT_DSN` pointing at an
 owned disposable schema and `DB_APP_DSN` at its request credential. Normal

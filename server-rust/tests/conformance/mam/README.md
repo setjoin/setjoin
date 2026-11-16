@@ -1,5 +1,7 @@
 # F07 MAM HTTP oracle (#311)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `bins/gateway/tests/mam.rs` sends requests through the HTTP front door, recording
 frozen Go once and replaying Rust with no Go upstream. Independent fixtures and
 request plans are in `mam_oracle/plan.rs`. The oracle compares byte-exact response

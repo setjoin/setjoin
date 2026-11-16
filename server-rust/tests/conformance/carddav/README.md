@@ -1,5 +1,7 @@
 # CardDAV HTTP oracle (#427)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Run `cargo test --locked -p setjoin-gateway --test carddav -- --test-threads=1`
 with the assigned disposable owner/app DSNs and `REQUIRE_DB=1`. Ordinary replay
 has no Go upstream. Every case owns two accounts with divergent user/mailbox IDs.

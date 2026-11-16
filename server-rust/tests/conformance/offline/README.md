@@ -1,5 +1,7 @@
 # F07 offline oracle (#312)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Fifteen JSON registrations mount at `/api`, including user `/api/offline/*`.
 The gateway `tests/offline.rs` and `tests/offline_oracle/` drive the real HTTP
 front door, frozen Go during recording and Rust with no Go upstream during replay.

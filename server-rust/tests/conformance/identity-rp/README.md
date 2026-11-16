@@ -1,5 +1,7 @@
 # OIDC relying-party oracle (#340)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Public seams: the three auth registrations (login, callback, authenticated link)
 through the real Rust front door; signed fake-IdP HTTPS discovery/JWKS/token I/O;
 committed owned identity/session/mapping/audit/notification effects; and one

@@ -1,5 +1,7 @@
 # Spam trainer oracle (#451)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 The frozen source is pinned in each JSON recording. `model-*-before.gz` and
 `model-*-after.gz` contain entire sealed `SPM1`/`FTR2` blobs; gzip is only a
 storage encoding. `models.json` and `compat.json` supply 15 raw-message examples, user keys, training
