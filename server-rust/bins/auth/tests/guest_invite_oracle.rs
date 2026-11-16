@@ -1186,7 +1186,7 @@ async fn exercise(
     // there is no Go golden to record; replay pins it through `phase1` instead.
     // Fault cases are native rollback tests: the Go recorder skips `fault` cases
     // (scripts/gofree-record.sh), so they have no golden; they assert the strict
-    // 500 response and that every row, audit and receipt is unchanged instead.
+    // 500 response, unchanged rows, audit and receipts, and one failure attempt.
     let native_fault = kind.starts_with("fault-");
     if recording && kind != "gateway-cross-site-origin" && !native_fault {
         let source = std::env::var("GOFREE_GO_SOURCE")
@@ -1228,9 +1228,19 @@ async fn exercise(
     if !file.exists() {
         return Err(format!("missing Go golden {}: record it", file.display()).into());
     }
-    let expected: Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
+    let mut expected: Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
     actual["go_source"] = expected["go_source"].clone();
     effects["go_source"] = expected["go_source"].clone();
+    let mut expected_rows: Value = serde_json::from_str(&std::fs::read_to_string(&rowfile)?)?;
+    // Volatile per run: every extra response's `expires_at`, on both sides.
+    redact_extra_expiry(&mut expected);
+    redact_extra_expiry(&mut actual);
+    if kind == "concurrent" {
+        // Which of the two simultaneous requests wins is random; compare by role.
+        for doc in [&mut expected, &mut actual, &mut expected_rows, &mut effects] {
+            winner_agnostic(doc);
+        }
+    }
     if mutant {
         assert!(
             golden::compare(&expected, &actual).is_err(),
@@ -1239,9 +1249,118 @@ async fn exercise(
         return Ok(());
     }
     golden::compare(&expected, &actual)?;
-    let expected_rows: Value = serde_json::from_str(&std::fs::read_to_string(&rowfile)?)?;
     golden::compare(&expected_rows, &effects)?;
     Ok(())
+}
+
+/// Replaces the value of every `"expires_at":"..."` pair in an extra response body with
+/// `<expires-at>`; the primary body gets the same token from the DB value in `exercise`.
+fn redact_expires_at(body: &str) -> String {
+    const KEY: &str = "\"expires_at\":\"";
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(i) = rest.find(KEY) {
+        let start = i + KEY.len();
+        out.push_str(&rest[..start]);
+        match rest[start..].find('"') {
+            Some(end) => {
+                out.push_str("<expires-at>");
+                rest = &rest[start + end..];
+            }
+            None => {
+                rest = &rest[start..];
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn redact_extra_expiry(doc: &mut Value) {
+    // pointer_mut, not indexing: indexing would insert a null key into documents without extras.
+    let Some(extra) = doc
+        .pointer_mut("/observation/extra_responses")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for entry in extra.iter_mut() {
+        let redacted = entry["body"].as_str().map(redact_expires_at);
+        if let Some(body) = redacted {
+            entry["body"] = json!(body);
+        }
+    }
+}
+
+/// The IP of the attempt whose outcome is `success`, if the document has one.
+fn success_ip(v: &Value) -> Option<String> {
+    match v {
+        Value::Object(m) => {
+            if let Some(Value::Array(a)) = m.get("attempts") {
+                if let Some(ip) = a
+                    .iter()
+                    .find(|x| x["outcome"] == "success")
+                    .and_then(|x| x["ip"].as_str())
+                {
+                    return Some(ip.to_owned());
+                }
+            }
+            m.values().find_map(success_ip)
+        }
+        Value::Array(a) => a.iter().find_map(success_ip),
+        _ => None,
+    }
+}
+
+fn attempt_ips(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Object(m) => {
+            if let Some(Value::Array(a)) = m.get("attempts") {
+                out.extend(a.iter().filter_map(|x| x["ip"].as_str().map(str::to_owned)));
+            }
+            m.values().for_each(|x| attempt_ips(x, out));
+        }
+        Value::Array(a) => a.iter().for_each(|x| attempt_ips(x, out)),
+        _ => {}
+    }
+}
+
+/// Relabels the winning and losing source IPs everywhere they appear (audit rows, attempts,
+/// bodies) and orders every `attempts` array by outcome. A document without a success
+/// attempt is left as is, so the comparison still fails on it.
+fn winner_agnostic(doc: &mut Value) {
+    let Some(winner) = success_ip(doc) else {
+        return;
+    };
+    let mut ips = Vec::new();
+    attempt_ips(doc, &mut ips);
+    let loser = ips.into_iter().find(|ip| *ip != winner);
+    relabel(doc, &winner, loser.as_deref());
+}
+
+fn relabel(v: &mut Value, winner: &str, loser: Option<&str>) {
+    match v {
+        Value::String(s) => {
+            if s.as_str() == winner {
+                *s = "<winner>".to_owned();
+            } else if loser == Some(s.as_str()) {
+                *s = "<loser>".to_owned();
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| relabel(x, winner, loser)),
+        Value::Object(m) => {
+            for (key, x) in m.iter_mut() {
+                if key.as_str() == "attempts" {
+                    if let Value::Array(a) = &mut *x {
+                        a.sort_by(|p, q| p["outcome"].as_str().cmp(&q["outcome"].as_str()));
+                    }
+                }
+                relabel(x, winner, loser);
+            }
+        }
+        _ => {}
+    }
 }
 
 macro_rules! cases {
