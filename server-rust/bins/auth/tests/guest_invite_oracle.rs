@@ -1110,6 +1110,17 @@ async fn exercise(
         let parsed: Value = serde_json::from_str(&reply.body)?;
         assert_eq!(parsed["expires_at"], json!(expires), "{name}: expires_at");
         body = body.replace(&expires, "<expires-at>");
+        // Validate-before-mask (README): each successful extra response must carry the same
+        // DB expiry as the primary body before `redact_extra_expiry` masks it.
+        for entry in extra.iter().filter(|e| e["status"] == 200) {
+            let text = entry["body"].as_str().ok_or("extra response body")?;
+            let again: Value = serde_json::from_str(text)?;
+            assert_eq!(
+                again["expires_at"],
+                json!(expires),
+                "{name}: extra response expires_at"
+            );
+        }
     }
     let after = rows(c, fx, &since, &password).await?;
     let notify = listener.drain(c).await?;
@@ -1238,7 +1249,7 @@ async fn exercise(
     if kind == "concurrent" {
         // Which of the two simultaneous requests wins is random; compare by role.
         for doc in [&mut expected, &mut actual, &mut expected_rows, &mut effects] {
-            winner_agnostic(doc);
+            winner_agnostic(doc)?;
         }
     }
     if mutant {
@@ -1326,17 +1337,26 @@ fn attempt_ips(v: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// Relabels the winning and losing source IPs everywhere they appear (audit rows, attempts,
-/// bodies) and orders every `attempts` array by outcome. A document without a success
-/// attempt is left as is, so the comparison still fails on it.
-fn winner_agnostic(doc: &mut Value) {
-    let Some(winner) = success_ip(doc) else {
-        return;
-    };
+/// Relabels exactly the two concurrent request addresses (127.0.0.200 / .201) as
+/// `<winner>` / `<loser>` (audit rows, attempts, bodies) and orders every `attempts` array by
+/// outcome. Both addresses must appear in the document's attempts, one success and one
+/// failure; anything else is an error. Any other IP stays and fails the comparison.
+fn winner_agnostic(doc: &mut Value) -> Result<(), Err> {
+    const A: &str = "127.0.0.200";
+    const B: &str = "127.0.0.201";
     let mut ips = Vec::new();
     attempt_ips(doc, &mut ips);
-    let loser = ips.into_iter().find(|ip| *ip != winner);
-    relabel(doc, &winner, loser.as_deref());
+    if !ips.iter().any(|i| i == A) || !ips.iter().any(|i| i == B) {
+        return Err("concurrent document lacks attempts from both request addresses".into());
+    }
+    let winner = success_ip(doc).ok_or("concurrent document has no success attempt")?;
+    let loser = match winner.as_str() {
+        A => B,
+        B => A,
+        other => return Err(format!("success attempt from unexpected address {other}").into()),
+    };
+    relabel(doc, &winner, Some(loser));
+    Ok(())
 }
 
 fn relabel(v: &mut Value, winner: &str, loser: Option<&str>) {
