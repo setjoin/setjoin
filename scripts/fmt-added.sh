@@ -22,7 +22,8 @@ case "${1:-}" in
 esac
 
 BASE="${LANE_QC_BASE:-origin/main}"
-if ! listing="$(git diff --name-only --diff-filter=A "$BASE" -- '*.rs')"; then
+# Fork point, as quick-check's "$BASE...HEAD" uses; compared with the working tree so staged files count.
+if ! fork="$(git merge-base "$BASE" HEAD)" || ! listing="$(git diff --name-only --diff-filter=A "$fork" -- '*.rs')"; then
   echo "fmt-added: git diff against $BASE failed" >&2
   exit 1
 fi
