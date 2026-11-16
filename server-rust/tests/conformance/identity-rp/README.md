@@ -40,4 +40,4 @@ process test also retains Go's warning-and-continue policy on migration error.
 swap directions; Go-free replay checks signatures at their recorded issuance
 instant so artifact expiry does not weaken verification or break replay.
 
-SSO completion refuses guest rows at mint time (Go P17, auth.go:1576-1589; `GuestMint::Refuse`): this is parity with Go, not a divergence.
+SSO completion refuses guest rows at mint time (`GuestMint::Refuse`). This is a recorded divergence, not Go parity: Go's P17 check (auth.go:1576-1589) refuses guests at resolution, but its later mint lookup can still derive `acct: guest`. Rust's refusal is a security fix of that Go bug under the owner's divergence policy (entry in `divergences.json`; guest_scope N7 models the late change).

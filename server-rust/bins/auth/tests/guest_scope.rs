@@ -108,10 +108,12 @@ async fn arrange(
     c: &tokio_postgres::Client,
     label: &str,
     guest: bool,
+    held: &mut Option<fixture::Account>,
 ) -> Result<(String, AuthServer), Err> {
     common::signing_key(c).await;
     c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false) ON CONFLICT(key) DO UPDATE SET enabled=false", &[]).await?;
     let a = fixture::account(c, label).await?;
+    *held = Some(a.clone());
     c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&a.user])
         .await?;
     c.execute(
@@ -137,6 +139,29 @@ async fn arrange(
         .await?
         .get(0);
     Ok((email, AuthServer::load(exec, cfg).await?))
+}
+
+/// Removes every row a case's login/session/token paths left for one user,
+/// ahead of `fixture::remove`.
+async fn purge_user_rows(c: &tokio_postgres::Client, u: i64, email: &str) -> Result<(), Err> {
+    c.execute("DELETE FROM auth_event_log WHERE email=$1", &[&email])
+        .await?;
+    for t in [
+        "login_events",
+        "sessions",
+        "oauth_tokens",
+        "totp_counter_claims",
+        "push_mfa_challenges",
+        "mfa_reauth_step_ups",
+        "totp_pending_enrollments",
+        "passkey_credentials",
+        "guest_accounts",
+    ] {
+        c.execute(&format!("DELETE FROM {t} WHERE user_id=$1"), &[&u])
+            .await?;
+    }
+    c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={u};COMMIT")).await?;
+    Ok(())
 }
 
 /// Takes the in-binary serial lock and the shared identity-login advisory
@@ -167,6 +192,41 @@ async fn begin(
 /// failed case, then reports the case result.
 async fn finish(c: &tokio_postgres::Client, result: Result<(), Err>) -> Result<(), Err> {
     guest_function_pristine(c).await?;
+    release(c, result).await
+}
+
+/// `finish` for the `arrange` cases: also removes the held account and its
+/// rows and restores the feature flags, on success and failure alike. Cleanup
+/// errors never mask the case's own failure.
+async fn finish_arranged(
+    c: &tokio_postgres::Client,
+    saved: &str,
+    held: Option<fixture::Account>,
+    result: Result<(), Err>,
+) -> Result<(), Err> {
+    let pristine = guest_function_pristine(c).await;
+    let mut cleaned: Result<(), Err> = Ok(());
+    if let Some(a) = held {
+        cleaned = async {
+            let email: Option<String> = c
+                .query_opt("SELECT email FROM users WHERE id=$1", &[&a.user])
+                .await?
+                .map(|r| r.get(0));
+            purge_user_rows(c, a.user, email.as_deref().unwrap_or("")).await?;
+            fixture::remove(c, &a).await?;
+            Ok(())
+        }
+        .await;
+    }
+    let restored = restore_flags(c, saved).await;
+    let outcome = release(c, result).await;
+    outcome?;
+    pristine?;
+    cleaned?;
+    restored
+}
+
+async fn release(c: &tokio_postgres::Client, result: Result<(), Err>) -> Result<(), Err> {
     c.query_one(
         "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
         &[],
@@ -178,8 +238,10 @@ async fn finish(c: &tokio_postgres::Client, result: Result<(), Err>) -> Result<(
 #[tokio::test]
 async fn guest_login_access_carries_acct_and_refresh_does_not() {
     let (_serial, db, c) = begin("GUEST353-login-guest").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let mut held = None;
     let result: Result<(), Err> = async {
-        let (email, auth) = arrange(&db, &c, "guest353-login-guest", true).await?;
+        let (email, auth) = arrange(&db, &c, "guest353-login-guest", true, &mut held).await?;
         let (status, v) = login(&auth, &email).await?;
         check(status == 200, &format!("login status {status}: {v}"))?;
         let access = claims_of(v["access_token"].as_str().ok_or("no access_token")?)?;
@@ -195,14 +257,16 @@ async fn guest_login_access_carries_acct_and_refresh_does_not() {
         Ok(())
     }
     .await;
-    finish(&c, result).await.unwrap();
+    finish_arranged(&c, &saved, held, result).await.unwrap();
 }
 
 #[tokio::test]
 async fn member_login_access_has_no_acct() {
     let (_serial, db, c) = begin("GUEST353-login-member").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let mut held = None;
     let result: Result<(), Err> = async {
-        let (email, auth) = arrange(&db, &c, "guest353-login-member", false).await?;
+        let (email, auth) = arrange(&db, &c, "guest353-login-member", false, &mut held).await?;
         let (status, v) = login(&auth, &email).await?;
         check(status == 200, &format!("login status {status}: {v}"))?;
         let access = claims_of(v["access_token"].as_str().ok_or("no access_token")?)?;
@@ -213,7 +277,7 @@ async fn member_login_access_has_no_acct() {
         Ok(())
     }
     .await;
-    finish(&c, result).await.unwrap();
+    finish_arranged(&c, &saved, held, result).await.unwrap();
 }
 
 /// N5: the scope lookup (call 1) says guest, the mint lookup (call 2) says
@@ -221,8 +285,10 @@ async fn member_login_access_has_no_acct() {
 #[tokio::test]
 async fn split_lookup_first_guest_then_member_mints_member_token() {
     let (_serial, db, c) = begin("GUEST353-split-member").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let mut held = None;
     let result: Result<(), Err> = async {
-        let (email, auth) = arrange(&db, &c, "guest353-split-member", false).await?;
+        let (email, auth) = arrange(&db, &c, "guest353-split-member", false, &mut held).await?;
         install_counting_guest(&c, "RETURN nextval('gofree_guest353_calls')=1;").await?;
         let (status, v) = login(&auth, &email).await?;
         check(status == 200, &format!("login status {status}: {v}"))?;
@@ -234,7 +300,7 @@ async fn split_lookup_first_guest_then_member_mints_member_token() {
         Ok(())
     }
     .await;
-    finish(&c, result).await.unwrap();
+    finish_arranged(&c, &saved, held, result).await.unwrap();
 }
 
 /// N5b: the scope lookup (call 1) says member, the mint lookup (call 2) says
@@ -242,8 +308,10 @@ async fn split_lookup_first_guest_then_member_mints_member_token() {
 #[tokio::test]
 async fn split_lookup_first_member_then_guest_mints_guest_token() {
     let (_serial, db, c) = begin("GUEST353-split-guest").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let mut held = None;
     let result: Result<(), Err> = async {
-        let (email, auth) = arrange(&db, &c, "guest353-split-guest", false).await?;
+        let (email, auth) = arrange(&db, &c, "guest353-split-guest", false, &mut held).await?;
         install_counting_guest(&c, "RETURN nextval('gofree_guest353_calls')>1;").await?;
         let (status, v) = login(&auth, &email).await?;
         check(status == 200, &format!("login status {status}: {v}"))?;
@@ -255,7 +323,7 @@ async fn split_lookup_first_member_then_guest_mints_guest_token() {
         Ok(())
     }
     .await;
-    finish(&c, result).await.unwrap();
+    finish_arranged(&c, &saved, held, result).await.unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -488,24 +556,7 @@ impl Case {
     }
 
     async fn cleanup(self, c: &tokio_postgres::Client) -> Result<(), Err> {
-        let u = self.a.user;
-        c.execute("DELETE FROM auth_event_log WHERE email=$1", &[&self.email])
-            .await?;
-        for t in [
-            "login_events",
-            "sessions",
-            "oauth_tokens",
-            "totp_counter_claims",
-            "push_mfa_challenges",
-            "mfa_reauth_step_ups",
-            "totp_pending_enrollments",
-            "passkey_credentials",
-            "guest_accounts",
-        ] {
-            c.execute(&format!("DELETE FROM {t} WHERE user_id=$1"), &[&u])
-                .await?;
-        }
-        c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={u};COMMIT")).await?;
+        purge_user_rows(c, self.a.user, &self.email).await?;
         let a = self.a.clone();
         drop(self);
         fixture::remove(c, &a).await?;

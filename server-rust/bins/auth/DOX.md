@@ -48,7 +48,7 @@ fail-closed 503 even when conditional-access policies are disabled. Guest login 
 MFA/WebAuthn/push completion are native (#353). Only the access token carries `acct: guest`.
 A guest-scope lookup failure (error, no row or NULL) is Go's 503 `conditional access context
 unavailable`; a mint-time account-type failure is Go's 500. SSO completion keeps refusing guest
-rows (Go P17, `GuestMint::Refuse`). With CA or device trust not explicitly off, or on a flag read
+rows (`GuestMint::Refuse`; a recorded divergence from Go, see identity-rp/divergences.json). With CA or device trust not explicitly off, or on a flag read
 error, the whole request forwards before effects.
 The DB test common fixture installs the recorded synthetic Go key under the
 family advisory lock before listeners load, including fresh-schema runs. It
@@ -204,7 +204,7 @@ validate the signed mfa_pending type directly; authenticated management shares
 the existing revocation snapshot, CSRF and impersonation rejection. Go's verify
 endpoint has its distinct admission, preserved by the oracle. Completion bodies
 retain Go duplicate-map merging and null reset for dpop_jwk. Only unported
-threat/device, CA/DPoP and guest shapes forward to their
+threat/device and CA/DPoP shapes forward to their
 named owners before effects. The MFA corpus checks the real front door with
 Go unset, raw JSON/cookie bytes, audited factor state and signed anchor links.
 
