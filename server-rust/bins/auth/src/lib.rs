@@ -1187,10 +1187,11 @@ impl AuthServer {
         };
         // Go resolves guest CA context even when CA policies are disabled.
         // Lookup failure must precede force-password/MFA token minting.
-        match login::guest_scope(&self.exec, &proof).await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-            Err(_) => return Self::failure(503, "conditional access context unavailable", &path),
+        // Go populateGuestCAScope (auth.go:2499): the value only feeds CA, which
+        // forwards whole before any effect while on (#351). Guests continue
+        // natively (#353); a lookup failure is Go's 503 before any token.
+        if login::guest_scope(&self.exec, &proof).await.is_err() {
+            return Self::failure(503, "conditional access context unavailable", &path);
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1227,12 +1228,16 @@ impl AuthServer {
             Ok(d) => d,
             Err(_) => return Self::failure(500, "authorization scope resolution failed", &path),
         };
-        match login::admission(&self.exec,&proof).await{
-            Ok((true,false))=>{},Ok((false,_))=>return Response::builder().status(409).header("cache-control","no-store").header("content-type","application/problem+json").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
-            Ok((_,true))=>return self.forward(Request::from_parts(parts,body(raw))).await,
-            Err(login::AdmissionFailure::AccountType(_))=>return Self::failure(500,"account type resolution failed",&path),
-            _=>return Self::failure(500,"identity transition admission resolution failed",&path),
-        }
+        let guest = match login::admission(&self.exec, &proof).await {
+            Ok((true, guest)) => guest,
+            Ok((false, _)) => return Response::builder().status(409).header("cache-control","no-store").header("content-type","application/problem+json").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
+            Err(login::AdmissionFailure::AccountType(_)) => {
+                return Self::failure(500, "account type resolution failed", &path)
+            }
+            Err(_) => {
+                return Self::failure(500, "identity transition admission resolution failed", &path)
+            }
+        };
         if input.dpop.as_object().is_some_and(|v| !v.is_empty())
             && !matches!(
                 login::enabled(&self.exec, "feature.token_binding").await,
@@ -1258,6 +1263,10 @@ impl AuthServer {
         );
         if let Some(risk) = login::risk(&self.exec, &proof).await {
             access_claims["risk"] = risk;
+        }
+        // Go IssueInput.AccountType (auth.go:2005-2012): the access token only.
+        if guest {
+            access_claims["acct"] = Value::from("guest");
         }
         let refresh_claims = login::claims(
             &proof,
