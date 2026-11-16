@@ -21,7 +21,7 @@
     "original_evidence": "#367 + Fable review findings 1-5"
   },
   "ip-rules-fail-closed": {
-    "reason": "Saturating the request pool must not bypass an operator IP block; same unparseable-IP consequence. Protocol admission and native auth HTTP ingress reject timeout, query, and row-decoding failures with ip_rules_unavailable; HTTP returns 403 with the security-policy rejection body.",
+    "reason": "Saturating the request pool must not bypass an operator IP block; same unparseable-IP consequence. Protocol admission and native auth HTTP ingress reject timeout, query, and row-decoding failures with ip_rules_unavailable; HTTP returns 403 with the security-policy rejection body and records no attempt. Scope: the native path only; a failed earlier threat read in http_threat_pending still forwards to Go, which fails open until Go is removed (#142).",
     "review": "#367 Fable plan review 2026-11; coordinator-approved HTTP extension under the owner's security Go bug divergence policy (PR #381)",
     "go_source": "shared/threat/interceptor.go:668",
     "test": "tasks::ip_rule_lookup_uses_go_three_second_query_budget, gate::tests::unavailable_request_pool_rejects_instead_of_skipping_ip_rules, setjoin-auth::http_threat::tests::unavailable_ip_rule_lookup_rejects",

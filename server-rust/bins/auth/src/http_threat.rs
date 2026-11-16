@@ -75,7 +75,9 @@ impl AuthServer {
                 "ip_rules_unavailable"
             }
         };
-        self.http_attempt(ip, agent, username, reason).await;
+        if reason == "ip_blocked" {
+            self.http_attempt(ip, agent, username, reason).await; // not on Err: same failed pool
+        }
         Some(
             Response::builder()
                 .status(403)
