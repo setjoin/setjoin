@@ -1,0 +1,63 @@
+{
+  "case": "guest-get-lifecycle-expired",
+  "format": 1,
+  "go_source": "779311f509b1ab3557a3390e9a2e9612ecfb0043",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "guests": [
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": true,
+          "must_change_password": false,
+          "owner": "actor",
+          "password": "absent",
+          "status": "invited"
+        },
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "foreign",
+          "password": "absent",
+          "status": "invited"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "headers": {},
+      "method": "GET",
+      "path": "/auth/guest-invite/accept",
+      "query": "token=<token>"
+    },
+    "response": {
+      "body": "{\"error\":\"invite link is invalid or has expired\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 401
+    }
+  },
+  "route": "GET /auth/guest-invite/accept"
+}

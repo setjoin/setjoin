@@ -496,3 +496,14 @@ postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
 the transaction settled (additive; per-class timing differs as in Go). Own
 two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
 missing reducers). Residuals: CAPTCHA header, username lockout, and threat-username JSON nesting beyond serde's 128 levels (#346).
+
+Rollout: the four guest-invite registrations (auth and gateway listener, GET and POST) stay
+OFF/go-auth in the bundled inventory until #396 (threat admission: captcha + username lockout
+parity) has merged AND a separate activation PR qualifies them (test
+`guest_invite_bundled_registrations_stay_off_go_auth`). Inventory OFF protects gateway
+dispatch only: the standalone auth listener mounts the handler unconditionally, so a direct
+request to the Rust auth process takes the native path; no direct-auth process switch exists
+yet and direct serving before activation needs a forwarding guard. Fault cases
+(`guest_post_fault_*`) are native rollback tests (strict 500 plus unchanged rows, audit and
+receipts); the Go recorder skips `fault` cases, so they have no goldens. A missing golden
+stays fatal for every other case.

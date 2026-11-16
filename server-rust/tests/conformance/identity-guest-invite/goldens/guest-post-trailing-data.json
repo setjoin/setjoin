@@ -1,0 +1,72 @@
+{
+  "case": "guest-post-trailing-data",
+  "format": 1,
+  "go_source": "779311f509b1ab3557a3390e9a2e9612ecfb0043",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "attempts": [
+        {
+          "device_fingerprint": "GUESTACCEPT oracle|127.0.0.0",
+          "geo_country": "",
+          "ip": "127.0.0.50",
+          "outcome": "failure",
+          "protocol": "http",
+          "target_username": ""
+        }
+      ],
+      "audit": [],
+      "guests": [
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "actor",
+          "password": "absent",
+          "status": "invited"
+        },
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "foreign",
+          "password": "absent",
+          "status": "invited"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"disclosure_accepted\":true,\"new_password\":\"ValidGuestPass1!\",\"token\":\"<token>\"} {}",
+      "headers": {},
+      "method": "POST",
+      "path": "/auth/guest-invite/accept",
+      "query": ""
+    },
+    "response": {
+      "body": "{\"error\":\"invalid JSON body\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 400
+    }
+  },
+  "route": "POST /auth/guest-invite/accept"
+}

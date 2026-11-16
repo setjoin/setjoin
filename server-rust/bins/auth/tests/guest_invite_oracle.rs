@@ -197,7 +197,9 @@ async fn gateway(auth: SocketAddr, record: Option<String>) -> Server {
             r["state"] = json!("OFF");
             r["upstream"] = json!("go-auth");
         } else if r["path"] == PATH {
-            // Phase 1 only (#342): bundled rows stay OFF until goldens land.
+            // The four guest-invite rows stay OFF/go-auth in the bundled inventory until #396
+            // (threat admission: captcha + username lockout parity) has merged AND a separate
+            // activation PR qualifies them; this harness turns the path ON for its own gateway only.
             r["state"] = json!("ON");
             r["upstream"] = json!("rust-auth");
         }
@@ -1180,7 +1182,13 @@ async fn exercise(
     });
     let file = corpus().join("goldens").join(format!("{name}.json"));
     let rowfile = corpus().join("qualified").join(format!("{name}-rows.json"));
-    if recording {
+    // The gateway's own CSRF gate (#491) answers this case before any Go hop, so
+    // there is no Go golden to record; replay pins it through `phase1` instead.
+    // Fault cases are native rollback tests: the Go recorder skips `fault` cases
+    // (scripts/gofree-record.sh), so they have no golden; they assert the strict
+    // 500 response and that every row, audit and receipt is unchanged instead.
+    let native_fault = kind.starts_with("fault-");
+    if recording && kind != "gateway-cross-site-origin" && !native_fault {
         let source = std::env::var("GOFREE_GO_SOURCE")
             .map_err(|_| "GOFREE_GO_SOURCE (the checked-out HEAD) is required to record")?;
         if source.len() != 40 || !source.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -1196,9 +1204,29 @@ async fn exercise(
             }
         }
     }
-    if !file.exists() {
-        // Phase 1 (#342): Go goldens are not yet recorded; pin the Go-derived contract.
+    if kind == "gateway-cross-site-origin" {
+        // Native gateway answer (#491): no Go golden exists; pin the contract.
         return phase1(name, method, kind, reply.status, &body, mutant);
+    }
+    if native_fault {
+        // The rollback leaves guests and audit untouched; the handler then records exactly
+        // one failure attempt outside the failed transaction (guest_invite.rs http_attempt).
+        let attempts = |v: &Value, outcome: &str| {
+            v["attempts"]
+                .as_array()
+                .map_or(0, |a| a.iter().filter(|x| x["outcome"] == outcome).count())
+        };
+        let total = |v: &Value| v["attempts"].as_array().map_or(0, Vec::len);
+        let rolled_back = before["guests"] == after["guests"] && before["audit"] == after["audit"];
+        let one_failure = total(&after) == total(&before) + 1
+            && attempts(&after, "failure") == attempts(&before, "failure") + 1;
+        if !rolled_back || !receipts_unchanged || !one_failure {
+            return Err(format!("{name}: injected fault effects: {before} -> {after}").into());
+        }
+        return phase1(name, method, kind, reply.status, &body, mutant);
+    }
+    if !file.exists() {
+        return Err(format!("missing Go golden {}: record it", file.display()).into());
     }
     let expected: Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
     actual["go_source"] = expected["go_source"].clone();
@@ -1278,6 +1306,36 @@ cases! {
     guest_post_gateway_cross_site_origin => "POST", "gateway-cross-site-origin";
     guest_post_gateway_guest_bearer => "POST", "gateway-guest-bearer";
     guest_post_gateway_spoofed_xff => "POST", "gateway-spoofed-xff";
+}
+
+/// Regression: the bundled inventory keeps all four guest-invite registrations
+/// (auth and gateway listener, GET and POST) OFF/go-auth until #396 has merged and a
+/// separate activation PR qualifies them. The harness above flips its own copy only.
+#[test]
+fn guest_invite_bundled_registrations_stay_off_go_auth() {
+    let inventory: Value = serde_json::from_str(setjoin_gateway::inventory::BUNDLED).unwrap();
+    let mut seen: Vec<(String, String)> = Vec::new();
+    for r in inventory["routes"].as_array().unwrap() {
+        if r["path"] == PATH {
+            assert_eq!(r["state"], "OFF", "{r}");
+            assert_eq!(r["upstream"], "go-auth", "{r}");
+            seen.push((
+                r["listener"].as_str().unwrap().to_owned(),
+                r["method"].as_str().unwrap().to_owned(),
+            ));
+        }
+    }
+    seen.sort();
+    let want: Vec<(String, String)> = [
+        ("auth", "GET"),
+        ("auth", "POST"),
+        ("gateway", "GET"),
+        ("gateway", "POST"),
+    ]
+    .iter()
+    .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+    .collect();
+    assert_eq!(seen, want, "the four bundled guest-invite registrations");
 }
 
 #[tokio::test]
