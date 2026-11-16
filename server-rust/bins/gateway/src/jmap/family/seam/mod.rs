@@ -306,6 +306,7 @@ mod tests {
         "std::ffi",
         "tokio::",
         "Command::new",
+        "Cx::new",
         "super::super",
         "with_email",
         "concat!",
@@ -350,7 +351,7 @@ mod tests {
 
     // The reviewed core files next to the stubs.
     use literals::CORE_FILES;
-    /// Narrow, exact exceptions for the core files (types and test-only harness use).
+    /// Narrow, exact exceptions for the core files, valid anywhere in the file (re-exports and types).
     const MOD_EXCEPTIONS: &[&str] = &[
         "pub(crate) use crate::jmap::get::parse_id;",
         "pub use seam::ContinuitySigner;",
@@ -358,15 +359,21 @@ mod tests {
         "crate::jmap::JmapServices",
         "crate::jmap::reply::go_compact",
         "crate::jmap::ws_request::metadata",
+    ];
+    /// Exceptions valid only inside the core file's `#[cfg(test)] mod tests { .. }`
+    /// (#427): constructing an executor, an auth context or a `Cx` is test harness
+    /// use there and a tenant-isolation hole anywhere else in the file.
+    const MOD_TEST_ONLY_EXCEPTIONS: &[&str] = &[
         "use setjoin_contracts::ids::{ActorId, Generation, MailboxId};",
         "use setjoin_pg::{MailboxAuthContext, ScopedExecutor};",
-        "ScopedExecutor::from_dsn(",
-        "MailboxAuthContext::from_authenticated_session(",
         "include_str!(",
         "std::fs::read_dir",
         "std::fs::read_to_string",
         "env!(\"CARGO_MANIFEST_DIR\")",
         "#[tokio::test]",
+        "ScopedExecutor::from_dsn(",
+        "MailboxAuthContext::from_authenticated_session(",
+        "Cx::new(",
     ];
     const REDUCER_ERROR_EXCEPTIONS: &[&str] = &[
         "use setjoin_pg::StatementFailure;",
@@ -380,6 +387,40 @@ mod tests {
             "reducer_error.rs" => REDUCER_ERROR_EXCEPTIONS,
             _ => &[],
         }
+    }
+
+    /// Removes the test-only exceptions from the tokens of the first
+    /// `#[cfg(test)] mod tests { .. }` block (brace-matched) and from nowhere else.
+    fn strip_test_only(tokens: Vec<literals::Token>) -> Vec<literals::Token> {
+        let head = literals::tokens("#[cfg(test)] mod tests {").expect("head lexes");
+        let Some(start) = (0..tokens.len()).find(|at| tokens[*at..].starts_with(&head)) else {
+            return tokens;
+        };
+        let open = start + head.len() - 1;
+        let mut depth = 0usize;
+        let mut end = tokens.len();
+        for (at, token) in tokens.iter().enumerate().skip(open) {
+            match token {
+                literals::Token::Punct('{') => depth += 1,
+                literals::Token::Punct('}') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = at + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut inside = tokens[open..end].to_vec();
+        for exception in MOD_TEST_ONLY_EXCEPTIONS {
+            let run = literals::tokens(exception).expect("exceptions lex");
+            inside = literals::remove_runs(&inside, &run);
+        }
+        let mut out = tokens[..open].to_vec();
+        out.extend(inside);
+        out.extend_from_slice(&tokens[end..]);
+        out
     }
 
     /// Every path a `use` declaration names, braces expanded, aliases and `self`
@@ -454,6 +495,9 @@ mod tests {
             Ok(tokens) => tokens,
             Err(_) => return found,
         };
+        if name == "mod.rs" {
+            tokens = strip_test_only(tokens);
+        }
         for exception in exceptions(name) {
             let run = literals::tokens(exception).expect("exceptions lex");
             tokens = literals::remove_runs(&tokens, &run);
@@ -642,6 +686,45 @@ mod tests {
             "core files are scanned too"
         );
         assert!(!violations("args.rs", "fn f() { let _ = std::fs::read(\"x\"); }").is_empty());
+        // #427 S2: the harness uses are exempt only inside `mod tests`.
+        for item in [
+            "use setjoin_pg::{MailboxAuthContext, ScopedExecutor};",
+            "use setjoin_contracts::ids::{ActorId, Generation, MailboxId};",
+            "const G: &str = include_str!(\"x\");",
+            "fn f() { let _ = std::fs::read_dir(\"x\"); }",
+            "fn f() { let _ = std::fs::read_to_string(\"x\"); }",
+            "fn f() -> &'static str { env!(\"CARGO_MANIFEST_DIR\") }",
+            "#[tokio::test]\nasync fn t() {}",
+        ] {
+            assert!(!violations("mod.rs", item).is_empty(), "outside: {item}");
+            let inside = format!("#[cfg(test)] mod tests {{ {item} }}");
+            let found = violations("mod.rs", &inside);
+            assert!(found.is_empty(), "inside mod tests: {item}: {found:?}");
+        }
+        // #427 item 4: the harness constructors are exempt only inside `mod tests`.
+        for call in [
+            "ScopedExecutor::from_dsn(\"x\", 1)",
+            "MailboxAuthContext::from_authenticated_session(a, m, g)",
+            "Cx::new(&e, None, &a, 1, 2, &M, \"{}\")",
+        ] {
+            let outside = format!("fn f() {{ let _ = {call}; }}");
+            assert!(
+                !violations("mod.rs", &outside).is_empty(),
+                "outside: {call}"
+            );
+            let before = format!("#[cfg(test)] mod tests {{ }} fn f() {{ let _ = {call}; }}");
+            assert!(
+                !violations("mod.rs", &before).is_empty(),
+                "after the test module: {call}"
+            );
+            let inside = format!("#[cfg(test)] mod tests {{ fn f() {{ let _ = {call}; }} }}");
+            let found = violations("mod.rs", &inside);
+            assert!(found.is_empty(), "inside mod tests: {call}: {found:?}");
+            assert!(
+                !violations("reminder.rs", &inside).is_empty(),
+                "a family file never gets the exception: {call}"
+            );
+        }
     }
 
     #[test]
