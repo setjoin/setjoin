@@ -400,7 +400,12 @@ async fn n7_sso_guest_scope() -> Result<(), Err> {
     let pristine = guest_function_pristine(&env.c).await;
     let identity = settlement::cleanup_identity(&env.c, a.user).await;
     let removed = fixture::remove(&env.c, &a).await;
-    common::restore_receipts(&env.c, &receipts).await;
+    // Non-panicking receipt restore (common::restore_receipts unwraps) so teardown always settles.
+    let receipts_restored = env
+        .c
+        .execute("DELETE FROM rust_operation_receipts WHERE family='F21' AND operation_id::text<>ALL($1::text[])", &[&receipts])
+        .await
+        .map(|_| ());
     let sources = env
         .c
         .execute(
@@ -413,6 +418,7 @@ async fn n7_sso_guest_scope() -> Result<(), Err> {
     let cleanup = pristine
         .and(identity)
         .and(removed.map_err(|e| -> Err { e.into() }))
+        .and(receipts_restored.map_err(|e| -> Err { e.into() }))
         .and(sources.map_err(|e| -> Err { e.into() }))
         .and(closed);
     settle(result, cleanup)
