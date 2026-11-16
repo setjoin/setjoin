@@ -798,11 +798,6 @@ async fn n1_cell(
             }
             Cond::Clear => {
                 set_flags(c, false, false).await?;
-                c.execute(
-                    "DELETE FROM feature_toggles WHERE key='feature.device_trust_enforcement'",
-                    &[],
-                )
-                .await?;
             }
         }
         let before = case.snap(c).await?;
@@ -926,11 +921,6 @@ where
     let c: &'static tokio_postgres::Client = Box::leak(Box::new(c));
     let result = async {
         set_flags(c, false, false).await?;
-        c.execute(
-            "DELETE FROM feature_toggles WHERE key='feature.device_trust_enforcement'",
-            &[],
-        )
-        .await?;
         body_fn(db, c).await
     }
     .await;

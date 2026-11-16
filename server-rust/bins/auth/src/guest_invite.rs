@@ -145,7 +145,9 @@ impl AuthServer {
                     .unwrap();
             }
         };
-        let username = http_threat::threat_username(&raw);
+        // Handler decode (divergence threat-username-handler-decode): the accept body
+        // has no email field, so this is "" and a caller cannot choose the recorded name.
+        let username = http_threat::field_username(&raw);
         // Go's always-mounted middleware (interceptor.go:412-418) answers a present
         // token that fails verification 403 `captcha` before any other rule, controls
         // off or not. Rust's token is bound and single-use (divergence
@@ -183,6 +185,10 @@ impl AuthServer {
             return blocked;
         }
         let reply = self.guest_invite_accept(&ip, &raw).await;
+        // Divergence guest-invite-no-row-on-rate-limit: a 429 writes no attempt row.
+        if reply.status().as_u16() == 429 {
+            return reply;
+        }
         let outcome = if matches!(reply.status().as_u16(), 200 | 204) {
             "success"
         } else {

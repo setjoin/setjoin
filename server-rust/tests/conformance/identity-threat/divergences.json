@@ -16,7 +16,7 @@
     "reviewed": true,
     "reviewer": "Fable 349a plan review F1; owner policy",
     "review": "security Go bug fixed in Rust",
-    "reason": "Go derives the lockout/spray username with a whole-body json.Unmarshal while handlers accept trailing data, so `{...} x` authenticated with an empty username: no lockout check, no escalation, spray blind. Rust uses each route handler's own first-value decode (login ingress::Login; forgot-password and guest-invite ingress::fields email).",
+    "reason": "Go derives the lockout/spray username with a whole-body json.Unmarshal while handlers accept trailing data, so `{...} x` authenticated with an empty username: no lockout check, no escalation, spray blind. Rust uses each route handler's own first-value decode (login ingress::Login; forgot-password and guest-invite ingress::fields email). Guest-invite accept bodies carry no email, so the recorded username is \"\" and a caller cannot choose the attempt-row/captcha-binding username (Fable #381 review: the Go-style extractMeta let an attacker pick it via email/refresh_token).",
     "go_source": "shared/threat/interceptor.go:496-510; authserver/internal/handlers/json_ingress.go:18-20,41",
     "secure_test": "bins/auth/tests/threat_oracle.rs::native_trailing_bytes_login_failure_escalates_all_three_keys, native_trailing_bytes_failures_trip_spray; src/http_threat.rs::tests::route_usernames_use_the_handler_decode"
   },
@@ -60,6 +60,26 @@
     "reason": "Go answers a failed token before the pipeline, so failed checks are never rate limited or tarpitted. Rust runs the pipeline first (tarpit, rate limit, lockout, spray; no captcha threshold); its refusal wins, otherwise 403 CAPTCHA verification failed. A failed single-use claim counts as a failed token. A failed token the tarpit refuses still writes Go's `captcha_needed` attempt row (not `tarpit_applied`, which the outcome CHECK rejects), so the tarpit count matches Go. A verified, claimed token runs Go's skip step.",
     "go_source": "shared/threat/interceptor.go:412-418",
     "secure_test": "bins/auth/tests/threat_oracle.rs::native_failed_captcha_checks_are_rate_limited, go_off_login_captcha_bogus, go_threat_login_captcha_wrong, go_threat_login_captcha_expired"
+  },
+  {
+    "case": "guest-invite-no-row-on-rate-limit",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable #381 review; owner policy",
+    "review": "security Go bug fixed in Rust",
+    "reason": "A rate-limited (429) guest-invite accept writes no auth_attempts row, so a flood of limited requests cannot fill the table.",
+    "go_source": "shared/threat/interceptor.go postAuth tail",
+    "secure_test": "bins/auth/tests/guest_invite_oracle.rs::guest_post_threat_username_keys"
+  },
+  {
+    "case": "attempt-username-capped",
+    "issue": "#349",
+    "reviewed": true,
+    "reviewer": "Fable #381 review; owner policy",
+    "review": "security Go bug fixed in Rust",
+    "reason": "Native HTTP attempt rows record target_username truncated to 255 bytes on a char boundary; Go records it unbounded.",
+    "go_source": "shared/threat/interceptor.go recordAttempt",
+    "secure_test": "bins/auth/src/http_threat.rs::tests::attempt_username_is_capped_on_a_char_boundary"
   },
   {
     "case": "captcha-key-needs-jwt-secret",

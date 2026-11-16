@@ -1911,7 +1911,10 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
         .iter()
         .map(|r| r.get(0))
         .collect();
-    if names != ["Probe@X.test", "jwt@x.test"] {
+    // Handler decode (divergence threat-username-handler-decode): the Email body is
+    // keyed, a refresh_token is not (guest-invite bodies have no username source
+    // besides the email field), so the recorded name is "".
+    if names != ["Probe@X.test", ""] {
         return Err(format!("attempt usernames {names:?}").into());
     }
     let after: i64 = ctx.c.query_one(lockouts, &[]).await?.get(0);
