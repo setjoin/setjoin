@@ -1,12 +1,11 @@
 name: quick check
 
-# Fast single-job check for agent branches so nobody compiles Rust on a small dev host.
-# Push to gofree/**, ci/** or docs/** (never main; pull requests run the full server-rust lane),
-# or run it by hand with workflow_dispatch. ONE job on purpose: it must not compete with the
-# 19-job full lane for the free-plan concurrency limit.
+# Fast single-job check for a branch that has no pull request yet, so nobody compiles Rust on a
+# small dev host. Manual only (workflow_dispatch): pull requests already run the same
+# scripts/quick-check.sh as the required pr-precheck.yml `aggregate`, so a push trigger here only
+# duplicated it. ONE job on purpose: it must not compete with the 19-job full lane for the
+# free-plan concurrency limit.
 on:
-  push:
-    branches: ['gofree/**', 'ci/**', 'docs/**']
   workflow_dispatch:
     inputs:
       packages:
@@ -59,7 +58,7 @@ jobs:
           key: ${{ steps.plan.outputs.key }}
           save-if: true
       - name: Quick-check self-test
-        run: bash scripts/quick-check-tests.sh selftest
+        run: bash scripts/lane-container.sh bash scripts/quick-check-tests.sh selftest
       - name: Quick check
         run: bash scripts/lane-container.sh bash scripts/quick-check.sh run
       - name: Summary

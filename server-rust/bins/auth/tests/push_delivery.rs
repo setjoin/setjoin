@@ -135,10 +135,14 @@ async fn native_device_completes_login_only_after_signed_approval() {
   let code:String=row.get(0);let expires:i64=row.get(1);
   assert_eq!(plain,json!({"type":"push_mfa","protocol":"setjoin.push-approval.v1","nonce":reply["nonce"],"code":code,"device_id":device_id,"user_id":a.user,"session_id":pending,"expires_at":expires}));
   assert!(tokio::time::timeout(std::time::Duration::from_millis(200),rx.recv()).await.is_err(),"revoked, unreadable and foreign devices must receive nothing");
+  // The handler requires expires-issued<=120 and the challenge lives exactly 120s from its
+  // fractional creation instant, so an issued_at truncated before creation can cross a
+  // second boundary and be rejected (400). Sign at the earliest legal issue time (expires-120) instead.
+  let issued=expires-120;
   let rng=ring::rand::SystemRandom::new();let signing=ring::signature::EcdsaKeyPair::from_private_key_and_public_key(&ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING,&[7u8;32],&public,&rng).unwrap();
-  let canonical=json!({"code":code,"decision":"approve","device_id":device_id,"expires_at":expires,"issued_at":now,"nonce":reply["nonce"],"protocol":"setjoin.push-approval.v1","session_id":pending,"user_id":a.user}).to_string();
+  let canonical=json!({"code":code,"decision":"approve","device_id":device_id,"expires_at":expires,"issued_at":issued,"nonce":reply["nonce"],"protocol":"setjoin.push-approval.v1","session_id":pending,"user_id":a.user}).to_string();
   use base64::Engine;let signature=base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signing.sign(&rng,canonical.as_bytes()).unwrap().as_ref());
-  let reply_approval=server.handle(Request::post("/auth/mfa/approve").body(body(json!({"nonce":reply["nonce"],"code":code,"device_id":device_id,"decision":"approve","issued_at":now,"expires_at":expires,"signature":signature}).to_string()))?).await;
+  let reply_approval=server.handle(Request::post("/auth/mfa/approve").body(body(json!({"nonce":reply["nonce"],"code":code,"device_id":device_id,"decision":"approve","issued_at":issued,"expires_at":expires,"signature":signature}).to_string()))?).await;
   assert_eq!(reply_approval.status(),204);
   let poll=json!({"mfa_token":pending,"nonce":reply["nonce"]}).to_string();
   let issued=server.handle(Request::post("/auth/push/status").body(body(poll.clone()))?).await;assert_eq!(issued.status(),200);

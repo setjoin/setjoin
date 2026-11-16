@@ -8,23 +8,9 @@ use tokio_rustls::rustls::{
     ServerConfig,
 };
 
-struct Image(String);
-impl Drop for Image {
-    fn drop(&mut self) {
-        let output = Command::new("docker")
-            .args(["image", "rm", &self.0])
-            .output()
-            .expect("remove owned interop image");
-        if !output.status.success() {
-            eprintln!(
-                "owned image cleanup failed: {}: {}",
-                self.0,
-                String::from_utf8_lossy(&output.stderr)
-            );
-            assert!(std::thread::panicking(), "owned image cleanup failed");
-        }
-    }
-}
+/// Pinned in `.github/ci/images.lock` and preloaded by the lane (`scripts/build-interop-images.sh`
+/// on a dev host); the test never builds, tags or removes images (#141).
+const IMAGE: &str = "setjoin-interop-ldap:local";
 
 #[tokio::test]
 async fn test_ldap_container_clients() {
@@ -32,35 +18,6 @@ async fn test_ldap_container_clients() {
     let Some(db) = Db::for_case("ldap-openldap-interop") else {
         return;
     };
-    let image_name = format!("gofree-ldap1-interop-{}", std::process::id());
-    eprintln!("owned interop image: {image_name}");
-    let build_name = image_name.clone();
-    let context = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../mailserver/deploy/docker/test-ldap");
-    let build = tokio::task::spawn_blocking(move || {
-        Command::new("docker")
-            .args([
-                "build",
-                "--force-rm",
-                "--network",
-                "host",
-                "--label",
-                "org.setjoin.task=gofree-ldap1",
-                "-t",
-                &build_name,
-            ])
-            .arg(context)
-            .output()
-    })
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(
-        build.status.success(),
-        "build test-ldap clients: {}",
-        String::from_utf8_lossy(&build.stderr)
-    );
-    let image = Image(image_name);
     let owner = db.connect().await.unwrap();
     owner
         .batch_execute(include_str!("../oracle/cleanup.sql"))
@@ -123,11 +80,13 @@ async fn test_ldap_container_clients() {
         ] {
             let name = format!("gofree-ldap1-openldap-{}-{case}", std::process::id());
             let mount = format!("{}:/ldap1-ca.pem:ro", ca.display());
-            let image_name = image.0.clone();
+            let image_name = IMAGE.to_string();
             let output = tokio::task::spawn_blocking(move || {
                 Command::new("docker")
                     .args([
                         "run",
+                        "--pull",
+                        "never",
                         "--rm",
                         "--name",
                         &name,

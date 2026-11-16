@@ -103,6 +103,54 @@ lane_disk_sampler() {
   fi
 }
 
+# lane_go_watch start|stop (#141, Go-deletion rehearsal): around the nextest run and the adequacy gate,
+# scripts/check-gofree-rehearsal.py records container create/start/exec and image events, pinned image
+# identities, a container snapshot and a whole-container Go-ELF scan into
+# $LANE_ARTIFACT_DIR/rehearsal-containers.jsonl. `start` returns once a probe proved the event stream
+# live (red after 600 s); `stop` drains, reaps the watcher within 600 s, propagates its exit status and
+# is red on any finding. A no-op without LANE_ARTIFACT_DIR or docker.
+LANE_GO_WATCH_PID=""
+lane_go_watch_reap() {
+  local pid="$1" i
+  kill -TERM "$pid" 2>/dev/null || true
+  for i in $(seq 1 1200); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  if kill -KILL "$pid" 2>/dev/null; then
+    echo "✗ server-rust: the rehearsal container watch did not stop within 600 s" >&2
+    wait "$pid" 2>/dev/null
+    return 1
+  fi
+  wait "$pid"
+}
+lane_go_watch() {
+  [[ -n "${LANE_ARTIFACT_DIR:-}" ]] && command -v docker >/dev/null 2>&1 || return 0
+  local file="$LANE_ARTIFACT_DIR/rehearsal-containers.jsonl" ready="$LANE_ARTIFACT_DIR/rehearsal-watch.ready" rc=0 i
+  if [[ "$1" == start ]]; then
+    rm -f "$ready"
+    python3 "$ROOT/scripts/check-gofree-rehearsal.py" watch "$file" --ready "$ready" &
+    LANE_GO_WATCH_PID=$!
+    for i in $(seq 1 1200); do
+      [[ -f "$ready" ]] && return 0
+      kill -0 "$LANE_GO_WATCH_PID" 2>/dev/null || break
+      sleep 0.5
+    done
+    echo "✗ server-rust: the rehearsal container watch did not become ready" >&2
+    lane_go_watch_reap "$LANE_GO_WATCH_PID" || true
+    LANE_GO_WATCH_PID=""
+    return 1
+  fi
+  if [[ -z "$LANE_GO_WATCH_PID" ]]; then
+    echo "✗ server-rust: the rehearsal container watch was not running" >&2
+    return 1
+  fi
+  lane_go_watch_reap "$LANE_GO_WATCH_PID" || rc=1
+  LANE_GO_WATCH_PID=""
+  python3 "$ROOT/scripts/check-gofree-rehearsal.py" containers ${LANE_GO_MASKED:+--require-masked} "$file" || rc=1
+  return "$rc"
+}
+
 # lane_clones report|sweep LABEL: the parallel lane keeps its Postgres in a job-owned data directory and
 # every test or gate run owns a ~45 MB clone. `report` prints how many clones and how many bytes
 # the cluster holds; `sweep` first drops any clone a finished phase left behind (a killed test
@@ -131,6 +179,7 @@ nextest_tests() {
     python3 "$ROOT/scripts/server-rust-lane-groups.py" --root "$dir" >"$groups" || return 1
     leak_guard on || return 1
     lane_disk_sampler start
+    lane_go_watch start || rc=1
     # Hosted CI: run the build job's archive (extracted to the same absolute target dir) and
     # only this shard's partition; doc tests then run in the roots stage.
     local build=(--workspace --locked --offline) partition=()
@@ -143,6 +192,7 @@ nextest_tests() {
       --tool-config-file "lane:$groups" -j "${LANE_JOBS:-5}" --success-output immediate --failure-output immediate-final \
       --color never 2>&1) || rc=1
     lane_disk_sampler stop
+    lane_go_watch stop || rc=1
     leak_guard off || rc=1
     lane_clones report "after nextest"
     rm -f "$groups"
@@ -275,6 +325,11 @@ check_tree() {
     echo "✗ server-rust: oracle coverage manifest preflight failed (nothing was built)" >&2
     return 1
   fi
+  # Go-deletion rehearsal (#141): no Go upstream or Go recording variable reaches the lane.
+  if ! python3 "$ROOT/scripts/check-gofree-rehearsal.py" env; then
+    echo "✗ server-rust: a Go upstream or recording variable is set (rehearsal env guard)" >&2
+    return 1
+  fi
   # LANE_ADEQUACY_ONLY (workflow_dispatch input): re-run only those adequacy stages, optionally
   # only LANE_ADEQUACY_ENTRIES, and skip the workspace test run. Never a lane result.
   local subset="${LANE_ADEQUACY_ONLY:-}"
@@ -296,6 +351,8 @@ check_tree() {
       # Every cargo-deny check: licences, sources, bans and RustSec advisories (#388).
       cargo_deny_retry "$base" || return 1
       python3 "$base/tests/license-policy/test_policy.py" || return 1
+      python3 "$ROOT/scripts/test-check-gofree-rehearsal.py" || return 1
+      python3 "$ROOT/scripts/check-gofree-rehearsal.py" static || return 1
     fi
     if [[ "$stages" == *,workspace,* ]]; then
       run_root "$base" "workspace" auto || rc=1
@@ -334,6 +391,7 @@ check_tree() {
     lane_clones sweep "the adequacy gate"
     if [[ -n "${LANE_ADMIN_DSN:-}" && -n "${LANE_TEMPLATE_DB:-}" && -n "${LANE_BASE_DB:-}" ]]; then leak_guard on || rc=1; fi
     lane_disk_sampler start
+    lane_go_watch start || rc=1
     # On the lane every run costs hours: run all replays and mutants (LANE_ADEQUACY_JOBS, default
     # LANE_JOBS, at a time on per-replay clones) and then coverage, and report every failure at the
     # end (still red). LANE_ADEQUACY_KEEP_GOING=0 restores stop-at-first-failure. LANE_COVERAGE=0
@@ -358,6 +416,7 @@ check_tree() {
       python3 "$ROOT/scripts/check-gofree-oracle-adequacy.py" "${stage_args[@]}" ${shard_args[@]+"${shard_args[@]}"} --cargo "$CARGO" ${keep_going[@]+"${keep_going[@]}"} || rc=1
     fi
     lane_disk_sampler stop
+    lane_go_watch stop || rc=1
     leak_guard off || rc=1
     lane_clones report "after the adequacy gate"
   else

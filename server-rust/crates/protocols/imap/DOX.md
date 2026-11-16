@@ -83,8 +83,10 @@ rejects them as text).
 
 ## Verification and interop
 
-`tests/interop.rs` builds the existing `test-imap` image plus a Python layer as an
-owned PID-specific image and runs `tests/interop_client.py` (CPython `imaplib`)
+`tests/interop.rs` runs the pinned `setjoin-interop-imap:local` image (the existing `test-imap`
+image plus a Python layer, built by `scripts/build-interop-images.sh` and pinned in
+`.github/ci/images.lock`; the tests never build or remove images, #141) and runs
+`tests/interop_client.py` (CPython `imaplib`)
 against the plain, STARTTLS and implicit-TLS sockets with CA verification. Docker
 is required, never skipped. Dovecot's `imapc` (the image's only client) cannot
 connect: it demands IMAP4rev1 in CAPABILITY, which Go does not advertise. The same

@@ -75,9 +75,15 @@ impl LegacyKeys {
         audience: &str,
         now: f64,
     ) -> Option<Map<String, Value>> {
-        let claims = self.verify_signature(token)?;
+        let mut claims = self.verify_signature(token)?;
+        crate::numeric_date::normalize_token_claims(token, &mut claims)?;
         registered(&claims, issuer, audience, now).then_some(claims)
     }
+}
+/// Go `base64.RawURLEncoding` as jwt/v5 decodes a segment; also the payload source for
+/// [`crate::numeric_date::normalize_token_claims`].
+pub(crate) fn decode_segment(s: &str) -> Option<Vec<u8>> {
+    decode(s)
 }
 fn decode(s: &str) -> Option<Vec<u8>> {
     // Go RawURLEncoding ignores CR/LF and noncanonical trailing pad bits.
@@ -107,14 +113,15 @@ pub fn registered(c: &Map<String, Value>, issuer: &str, audience: &str, now: f64
         }
         _ => false,
     };
-    // NumericDate accepts fractional JSON numbers; iat is not validated by Go.
+    // Go's NumericDate and validator (crate::numeric_date); iat is not validated by Go.
+    use crate::numeric_date::{claim_seconds, expired, not_yet_valid};
     aud && c
         .get("exp")
-        .and_then(Value::as_f64)
-        .is_some_and(|e| now < e.floor())
+        .and_then(claim_seconds)
+        .is_some_and(|e| !expired(now, e))
         && c.get("nbf")
             .filter(|v| !v.is_null())
-            .is_none_or(|v| v.as_f64().is_some_and(|n| now >= n.floor()))
+            .is_none_or(|v| claim_seconds(v).is_some_and(|n| !not_yet_valid(now, n)))
 }
 /// Standard-profile issuance. The caller owns the typed claims and lifetime.
 pub fn sign_hs256(secret: &[u8], claims_json: &str) -> String {

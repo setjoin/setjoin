@@ -9,7 +9,12 @@ pub async fn run(kind: &str) -> Result<(), Err> {
 }
 pub async fn run_variant(kind: &str, mutant: bool) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
-    let env = flows::Env::start(false).await?;
+    let extra = if kind.starts_with("jit") {
+        json!({"jit_enabled":true})
+    } else {
+        json!({})
+    };
+    let env = flows::Env::configured(false, idp::ISSUER, extra).await?;
     cleanup_leftovers(&env.c).await?;
     let a = fixture::account(&env.c, "idfed2-actor").await?;
     let b = fixture::account(&env.c, "idfed2-foreign").await?;
@@ -42,7 +47,6 @@ pub async fn run_variant(kind: &str, mutant: bool) -> Result<(), Err> {
         if kind.starts_with("jit"){
             let domain=env.c.query_one("SELECT name FROM domains WHERE id=$1",&[&a.domain]).await?.get::<_,String>(0);
             email=format!("provisioned@{domain}");
-            env.configure(json!({"jit_enabled":true})).await?;
         }
         if kind.starts_with("groups-"){
             let g:i64=env.c.query_one("INSERT INTO distribution_groups(mailbox_id) VALUES($1) RETURNING id",&[&b.mailbox]).await?.get(0);group=Some(g);

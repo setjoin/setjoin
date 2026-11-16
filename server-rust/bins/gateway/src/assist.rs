@@ -49,7 +49,10 @@ pub(crate) fn typed_problem(
     let mut response = crate::chat::problem(status, detail, instance, c, id);
     let kind = format!("https://setjoin.com/errors/{slug}");
     let body = crate::problem::Problem::new(status, detail)
-        .kind(&kind).title(title).instance(instance).body();
+        .kind(&kind)
+        .title(title)
+        .instance(instance)
+        .body();
     *response.body_mut() = Full::new(Bytes::from(body)).map_err(|n| match n {}).boxed();
     if let Ok(value) = language.parse() {
         response.headers_mut().insert("content-language", value);
@@ -123,7 +126,9 @@ fn decode(bytes: &[u8]) -> Result<logic::Request, ()> {
 }
 
 impl<K: KeySource + 'static> Intercept for AssistRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         *r.method() == Method::POST
             && ["/api/assist/complete", "/api/assist/stream"]
@@ -165,17 +170,10 @@ impl<K: KeySource + 'static> Intercept for AssistRoute<K> {
             }
             let decoded = crate::chat::go_utf8(&crate::inventory::unescape(r.uri().path()));
             let instance = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
-            if setjoin_authz::authorize_request(
-                &exec,
-                &*keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            .is_none()
-            {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &*keys, &issuer, &r, crate::deny::Scope::Member).await;
+            if let Err(refusal) = verdict {
+                return crate::deny::answer(refusal, r, &c).await;
             }
             if instance == "/assist/stream" {
                 return typed_problem(
