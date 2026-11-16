@@ -82,6 +82,7 @@ async fn login_rejects_invalid_json_before_credential_lookup() {
         .unwrap()
         .map(|r| r.get::<_, bool>(0));
     client.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false) ON CONFLICT(key) DO UPDATE SET enabled=false",&[]).await.unwrap();
+    let server = server.with_threat_gate(&dsn).await.unwrap();
     let resp = server
         .handle(Request::post("/auth/login").body(body("{")).unwrap())
         .await;
@@ -148,11 +149,14 @@ async fn password_login_issues_a_verifiable_pair_for_the_proven_user() {
         "../../../tests/conformance/identity-login/keys.json"
     ))
     .unwrap();
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(&db.app.clone().unwrap_or(db.dsn), 2).unwrap();
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(&db.app.clone().unwrap_or(db.dsn.clone()), 2).unwrap();
     let server = AuthServer::load(
         exec,
         setjoin_auth::Config::for_secret(f["secret"].as_str().unwrap().to_owned()),
     )
+    .await
+    .unwrap()
+    .with_threat_gate(&db.dsn)
     .await
     .unwrap();
     let resp = server
@@ -262,6 +266,9 @@ async fn login_audit_uses_the_socket_peer_for_untrusted_forwarding_headers() {
         exec,
         setjoin_auth::Config::for_secret(f["secret"].as_str().unwrap().into()),
     )
+    .await
+    .unwrap()
+    .with_threat_gate(&db.dsn)
     .await
     .unwrap();
     let mut req = Request::post("/auth/login")

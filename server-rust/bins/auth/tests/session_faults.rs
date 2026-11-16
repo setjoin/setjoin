@@ -47,6 +47,9 @@ async fn refresh(cut: wire::Cut) {
         Config::for_secret(f["secret"].as_str().unwrap().into()),
     )
     .await
+    .unwrap()
+    .with_threat_gate(&db.dsn)
+    .await
     .unwrap();
     let resp = server
         .handle(
@@ -99,6 +102,9 @@ async fn refresh(cut: wire::Cut) {
             exec,
             Config::for_secret(f["secret"].as_str().unwrap().into()),
         )
+        .await
+        .unwrap()
+        .with_threat_gate(&db.dsn)
         .await
         .unwrap();
         let response = server
@@ -337,6 +343,9 @@ async fn session_tokens_interchange_across_the_process_swap() {
             Config::for_secret(f["secret"].as_str().unwrap().into()),
         )
         .await
+        .unwrap()
+        .with_threat_gate(&db.dsn)
+        .await
         .unwrap();
         let r = native
             .handle(
@@ -507,11 +516,16 @@ async fn credential_commit(cut: wire::Cut, reset: bool) {
         "../../../tests/conformance/identity-login/keys.json"
     ))
     .unwrap();
+    // #349: the always-mounted reset tail escalates the handle() peer key.
+    c.execute("DELETE FROM auth_lockouts WHERE lockout_key='ip:127.0.0.1' OR lockout_key LIKE 'ip_user:127.0.0.1:%'", &[]).await.unwrap();
     let cfg = || Config::for_secret(f["secret"].as_str().unwrap().into());
     let server = AuthServer::load(
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap(),
         cfg(),
     )
+    .await
+    .unwrap()
+    .with_threat_gate(&db.dsn)
     .await
     .unwrap();
     let r = server
@@ -585,6 +599,9 @@ async fn credential_commit(cut: wire::Cut, reset: bool) {
             setjoin_pg::ScopedExecutor::from_dsn(&dsn, 4).unwrap(),
             cfg(),
         )
+        .await
+        .unwrap()
+        .with_threat_gate(&db.dsn)
         .await
         .unwrap();
         active.store(true, std::sync::atomic::Ordering::SeqCst);

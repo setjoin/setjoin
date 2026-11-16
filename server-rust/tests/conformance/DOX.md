@@ -82,6 +82,7 @@ F21 TOTP HTTP/effect and controlled-time validator recordings (#334): [MFA oracl
 
 F21 push and possession HTTP/effect recordings (#336): [identity-push](identity-push/README.md).
 F21 guest invitation acceptance HTTP/effect oracle (#342): [identity-guest-invite](identity-guest-invite/README.md).
+F21 native HTTP threat admission (#349a): [identity-threat](identity-threat/README.md).
 F21 WebAuthn HTTP and stored-key algorithm oracle (#335): [corpus](identity-webauthn/README.md).
 F21 owner-approved security fix 2026-11-05: hash-pinned Go baselines plus reviewed
 full expectations for pending revocation and WebAuthn counter/replay refusal;

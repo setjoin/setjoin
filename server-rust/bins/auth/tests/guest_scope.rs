@@ -165,7 +165,13 @@ async fn arrange(
         .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
         .await?
         .get(0);
-    Ok((email, AuthServer::load(exec, cfg).await?))
+    Ok((
+        email,
+        AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?,
+    ))
 }
 
 /// Removes the account and every row a case left for it (also used on early failure).
@@ -582,7 +588,10 @@ impl Case {
         cfg.go_upstream = upstream;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
-        let auth = AuthServer::load(exec, cfg).await?;
+        let auth = AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?;
         Ok(Case {
             a: a.clone(),
             email,
@@ -789,11 +798,6 @@ async fn n1_cell(
             }
             Cond::Clear => {
                 set_flags(c, false, false).await?;
-                c.execute(
-                    "DELETE FROM feature_toggles WHERE key='feature.device_trust_enforcement'",
-                    &[],
-                )
-                .await?;
             }
         }
         let before = case.snap(c).await?;
@@ -917,11 +921,6 @@ where
     let c: &'static tokio_postgres::Client = Box::leak(Box::new(c));
     let result = async {
         set_flags(c, false, false).await?;
-        c.execute(
-            "DELETE FROM feature_toggles WHERE key='feature.device_trust_enforcement'",
-            &[],
-        )
-        .await?;
         body_fn(db, c).await
     }
     .await;

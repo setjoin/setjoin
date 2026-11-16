@@ -72,7 +72,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     let gate = setjoin_threat::Gate::load(exec.clone(), worker, config.threat.clone(), geo).await?;
     let _watchers = setjoin_threat::Watchers::start(
-        gate,
+        gate.clone(),
         &config.direct_dsn,
         &format!("setjoin-auth-{}", std::process::id()),
     )
@@ -86,7 +86,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     } else {
         None
     };
-    let server = Arc::new(AuthServer::load(exec, config).await?);
+    let server = Arc::new(AuthServer::load(exec, config).await?.with_gate(gate));
     let _saml_listener=server.start_saml_listener(&std::env::var("RUST_WORKERS_ON").unwrap_or_default(),&std::env::var("GO_WORKERS_OFF").unwrap_or_default()).await?;
     let _rp_listener=server.start_rp_listener(&std::env::var("RUST_WORKERS_ON").unwrap_or_default(),&std::env::var("GO_WORKERS_OFF").unwrap_or_default()).await?;
     let reload_server = server.clone();

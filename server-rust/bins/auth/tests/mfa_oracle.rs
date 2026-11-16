@@ -292,7 +292,16 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         setjoin_config_secret::CryptoProfile::Standard,
     )
     .await?;
-    let auth = auth_server(Arc::new(AuthServer::load(exec, cfg).await?), mutant).await;
+    let auth = auth_server(
+        Arc::new(
+            AuthServer::load(exec, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
+        ),
+        mutant,
+    )
+    .await;
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
     assert!(!mutant || record.is_none());
     let gw = gateway(auth.addr, record.clone()).await;

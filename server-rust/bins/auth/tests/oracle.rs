@@ -189,6 +189,8 @@ async fn seed(c: &tokio_postgres::Client, id: &str) -> Result<Seed, Err> {
         .get(0);
     let flags:String=c.query_one("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key='feature.rate_limit'",&[]).await?.get(0);
     c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false) ON CONFLICT(key) DO UPDATE SET enabled=false",&[]).await?;
+    // #349: always-mounted reset failures escalate the gateway peer's key.
+    c.execute("DELETE FROM auth_lockouts WHERE lockout_key='ip:127.0.0.1' OR lockout_key LIKE 'ip_user:127.0.0.1:%'", &[]).await?;
     let a = fixture::account(c, "idlogin1-actor").await?;
     let b = fixture::account(c, "idlogin1-foreign").await?;
     c.execute(
@@ -640,7 +642,13 @@ async fn run_case(
     }
     let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
         .map_err(|e| e.0)?;
-    let auth = auth_server(Arc::new(AuthServer::load(exec, cfg).await?)).await;
+    let auth = auth_server(Arc::new(
+        AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?,
+    ))
+    .await;
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
     let gw = gateway(
         auth.addr,

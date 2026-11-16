@@ -1,5 +1,5 @@
-//! Whole-request handoff only to explicitly unported owners: #420 threat,
-//! #405 policy, #420 refresh interception. No completed-shape switch.
+//! Whole-request handoff only to explicitly unported owners: device proof (#350),
+//! CA policy (#351) and DPoP (#352). Threat admission is native (#349).
 mod common;
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
@@ -9,12 +9,9 @@ use setjoin_conformance::{fixture, harness::Db};
 use tokio::{net::TcpListener, sync::mpsc};
 #[derive(Clone, Copy)]
 enum Mode {
-    Threat,
     Device,
     Dpop,
     Policy,
-    ThreatRefresh,
-    ThreatReset,
 }
 type Error = Box<dyn std::error::Error + Send + Sync>;
 async fn check(mode: Mode) -> Result<(), Error> {
@@ -60,11 +57,10 @@ async fn check(mode: Mode) -> Result<(), Error> {
     let result=async{
   let f:Value=serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
   let mut cfg=Config::for_secret(f["secret"].as_str().unwrap().into());cfg.go_upstream=Some(format!("http://{listener_addr}"));
-  if matches!(mode,Mode::Threat|Mode::ThreatRefresh|Mode::ThreatReset){cfg.threat_controls[0]=true;}
   let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),2).map_err(|e|e.0)?;
-  let server=AuthServer::load(exec,cfg).await?;
-  let raw=if matches!(mode,Mode::Dpop){format!(r#"{{"email":{},"password":"Password1!","dpop_jwk":{},"dpop_jwk":{{}}}}"#,serde_json::to_string(&email)?,f["jwks"]["keys"][0])}else if matches!(mode,Mode::Threat|Mode::Policy|Mode::Device){"{deliberately-not-decoded".to_owned()}else{json!({"email":email,"password":"Password1!","ignored":"\\ud800"}).to_string()+" {}"};
-  let path=if matches!(mode,Mode::ThreatReset){"/auth/forgot-password/reset?next=%2F"}else if matches!(mode,Mode::ThreatRefresh){"/auth/refresh?next=%2F"}else{"/auth/login?next=%2F"};
+  let server=AuthServer::load(exec,cfg).await?.with_threat_gate(&db.dsn).await?;
+  let raw=if matches!(mode,Mode::Dpop){format!(r#"{{"email":{},"password":"Password1!","dpop_jwk":{},"dpop_jwk":{{}}}}"#,serde_json::to_string(&email)?,f["jwks"]["keys"][0])}else if matches!(mode,Mode::Policy|Mode::Device){"{deliberately-not-decoded".to_owned()}else{json!({"email":email,"password":"Password1!","ignored":"\\ud800"}).to_string()+" {}"};
+  let path="/auth/login?next=%2F";
   let mut request=Request::post(path).header("host","auth.idlogin1.test");
   if matches!(mode,Mode::Device){request=request.header("x-device-hmac","unported-proof");}
   let response=server.handle(request.body(body(raw.clone()))?).await;
@@ -149,18 +145,9 @@ async fn spy() -> Result<
     Ok((addr, rx, task))
 }
 #[tokio::test]
-async fn threat_owner_420_receives_the_original_undecoded_request() {
-    check(Mode::Threat).await.unwrap();
-}
-#[tokio::test]
 async fn policy_owner_405_receives_the_original_undecoded_request() {
     check(Mode::Policy).await.unwrap();
 }
-#[tokio::test]
-async fn threat_refresh_owner_420_receives_the_original_request() {
-    check(Mode::ThreatRefresh).await.unwrap();
-}
-
 #[tokio::test]
 async fn device_proof_owner_420_receives_the_original_undecoded_request() {
     check(Mode::Device).await.unwrap();
@@ -171,7 +158,3 @@ async fn duplicate_dpop_map_stays_with_policy_owner_405() {
     check(Mode::Dpop).await.unwrap();
 }
 
-#[tokio::test]
-async fn reset_threat_whole_request_belongs_to_420() {
-    check(Mode::ThreatReset).await.unwrap();
-}

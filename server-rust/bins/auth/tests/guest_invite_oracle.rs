@@ -1246,6 +1246,42 @@ async fn exercise(
     // Volatile per run: every extra response's `expires_at`, on both sides.
     redact_extra_expiry(&mut expected);
     redact_extra_expiry(&mut actual);
+    if !recording && kind == "rate-limited" && method == "POST" {
+        // Replay only (recording compares Go's own, unchanged eleven rows). Recorded
+        // divergence guest-invite-no-row-on-rate-limit: Go writes a failure row for each
+        // of the 11 requests; native writes none for the 429, so 10. Pin both counts in
+        // BOTH artifact copies, drop the one divergent Go row from each, and compare
+        // everything else exactly.
+        let count = |doc: &Value, at: &str| {
+            doc.pointer(at)
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter(|x| x["outcome"] == "failure").count())
+        };
+        for (go, native, at) in [
+            (&mut expected, &actual, "/observation/effects/attempts"),
+            (&mut expected_rows, &effects, "/effects/0/after/attempts"),
+        ] {
+            assert_eq!(
+                count(go, at),
+                Some(11),
+                "Go recorded 11 failure rows at {at}"
+            );
+            assert_eq!(
+                count(native, at),
+                Some(10),
+                "native records 10 failure rows at {at}"
+            );
+            let rows = go
+                .pointer_mut(at)
+                .and_then(Value::as_array_mut)
+                .ok_or("Go artifact lacks attempts")?;
+            let last = rows
+                .iter()
+                .rposition(|x| x["outcome"] == "failure")
+                .ok_or("no Go failure row")?;
+            rows.remove(last);
+        }
+    }
     if kind == "concurrent" {
         // Which of the two simultaneous requests wins is random; compare by role.
         for doc in [&mut expected, &mut actual, &mut expected_rows, &mut effects] {
@@ -1770,11 +1806,24 @@ async fn deadline(ctx: &Ctx) -> Result<(), Err> {
 
 async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
     let fx = seed(&ctx.c, "valid").await?;
-    let server = native_server(ctx).await?;
+    let since = now_text(&ctx.c).await?;
     let mut result: Result<(), Err> = Ok(());
     for (i, key) in TOGGLES.into_iter().enumerate() {
         let from = Ipv4Addr::new(127, 0, 0, 160 + i as u8);
         set_toggle(&ctx.c, key, Some(true)).await?;
+        // The gate caches the toggles when it loads, so it is built after the toggle is
+        // on: with feature.rate_limit on, login is admitted natively (http_threat.rs);
+        // only guest-invite, CA and device trust still forward.
+        let server = auth_server(
+            Arc::new(
+                load(ctx, false, false)
+                    .await?
+                    .with_threat_gate(&ctx.db.dsn)
+                    .await?,
+            ),
+            false,
+        )
+        .await;
         let (target, payload) = shape("POST", "success", &fx.token);
         let guest = request(server.addr, from, "POST", &target, payload, &[]).await?;
         let login_body = json!({ "email": "nobody@guestaccept.test", "password": "x" });
@@ -1797,12 +1846,24 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         )
         .await?;
         set_toggle(&ctx.c, key, Some(false)).await?;
-        if guest.status != 503
-            || guest.body != OWNER
-            || login.status != 503
-            || login.body != OWNER
-            || get.status != 200
-        {
+        server.close().await;
+        let native_login = key == "feature.rate_limit";
+        let login_ok = if native_login {
+            // Native admission, no Go forward: 401 for the unknown user, and the
+            // admission tail (gate.record) wrote exactly one http failure attempt.
+            let rows: i64 = ctx
+                .c
+                .query_one(
+                    "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND target_username='nobody@guestaccept.test' AND protocol='http' AND outcome='failure' AND occurred_at >= $2::text::timestamptz",
+                    &[&from.to_string(), &since],
+                )
+                .await?
+                .get(0);
+            login.status == 401 && rows == 1
+        } else {
+            login.status == 503 && login.body == OWNER
+        };
+        if guest.status != 503 || guest.body != OWNER || !login_ok || get.status != 200 {
             result = Err(format!(
                 "{key}: guest {} login {} get {}",
                 guest.status, login.status, get.status
@@ -1812,7 +1873,6 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         }
     }
     let state = rows(&ctx.c, &fx, "-infinity", PASSWORD).await?;
-    server.close().await;
     result?;
     if state["guests"][0]["status"] != "invited" {
         return Err("a forwarded POST changed state".into());
@@ -1833,11 +1893,36 @@ async fn captcha_header(ctx: &Ctx) -> Result<(), Err> {
         &[("x-captcha-token", "bogus".to_owned())],
     )
     .await?;
+    // Go's always-mounted middleware (interceptor.go:412-418) rejects a token that
+    // fails verification with 403 before the handler, so the invite stays unused.
+    let want = "{\"captcha_prompt\":\"CAPTCHA verification failed\",\"error\":\"captcha\"}\n";
+    if reply.status != 403 || reply.body != want {
+        server.close().await;
+        return Err(format!("bogus captcha header: {} {:?}", reply.status, reply.body).into());
+    }
+    let rows: i64 = ctx
+        .c
+        .query_one(
+            "SELECT count(*) FROM auth_attempts WHERE source_ip='127.0.0.165'::inet AND outcome='captcha_needed'",
+            &[],
+        )
+        .await?
+        .get(0);
+    let (target, payload) = shape("POST", "success", &fx.token);
+    let again = request(
+        server.addr,
+        Ipv4Addr::new(127, 0, 0, 166),
+        "POST",
+        &target,
+        payload,
+        &[],
+    )
+    .await?;
     server.close().await;
-    if reply.status != 200 {
+    if rows < 1 || again.status != 200 {
         return Err(format!(
-            "captcha header (ignored like native login): {}",
-            reply.status
+            "captcha_needed rows {rows}; later request without the header: {}",
+            again.status
         )
         .into());
     }
@@ -1848,7 +1933,7 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
     let fx = seed(&ctx.c, "valid").await?;
     let server = native_server(ctx).await?;
     let since = now_text(&ctx.c).await?;
-    let lockouts = "SELECT count(*) FROM auth_lockouts WHERE lockout_key LIKE '%probe@x.test%' OR lockout_key LIKE '%jwt@x.test%'";
+    let lockouts = "SELECT count(*) FROM auth_lockouts WHERE lockout_key LIKE '%probe@x.test%' OR lockout_key LIKE '%victim@x.test%' OR lockout_key LIKE '%jwt@x.test%'";
     let before: i64 = ctx.c.query_one(lockouts, &[]).await?.get(0);
     let jwt = format!(
         "h.{}.s",
@@ -1857,6 +1942,7 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
     let bodies = [
         json!({ "token": fx.token, "disclosure_accepted": true, "new_password": PASSWORD, "Email": "Probe@X.test" }),
         json!({ "token": fx.token, "disclosure_accepted": true, "new_password": PASSWORD, "REFRESH_TOKEN": jwt }),
+        json!({ "token": fx.token, "disclosure_accepted": true, "new_password": PASSWORD, "email": "victim@x.test" }),
     ];
     let mut result: Result<(), Err> = Ok(());
     for (i, body) in bodies.iter().enumerate() {
@@ -1879,14 +1965,16 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
     let names: Vec<String> = ctx
         .c
         .query(
-            "SELECT target_username FROM auth_attempts WHERE occurred_at >= $1::text::timestamptz AND source_ip IN ('127.0.0.170'::inet, '127.0.0.171'::inet) ORDER BY host(source_ip)",
+            "SELECT target_username FROM auth_attempts WHERE occurred_at >= $1::text::timestamptz AND source_ip IN ('127.0.0.170'::inet, '127.0.0.171'::inet, '127.0.0.172'::inet) ORDER BY host(source_ip)",
             &[&since],
         )
         .await?
         .iter()
         .map(|r| r.get(0))
         .collect();
-    if names != ["Probe@X.test", "jwt@x.test"] {
+    // Guest-invite's threat username is always "" (divergence
+    // threat-username-handler-decode): no body, injected email included, can choose it.
+    if names != ["", "", ""] {
         return Err(format!("attempt usernames {names:?}").into());
     }
     let after: i64 = ctx.c.query_one(lockouts, &[]).await?.get(0);
