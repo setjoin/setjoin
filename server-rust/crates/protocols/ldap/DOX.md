@@ -58,8 +58,9 @@ identity-and-old-hash CAS. It currently supports the standard upgrade profile;
 production profile selection remains with the shared admission provider.
 
 `tests/interop.rs` uses the existing `mailserver/deploy/docker/test-ldap` image
-built as an owned PID-specific `gofree-ldap1-interop-*` image, running OpenLDAP
-`ldapsearch` clients with CA verification. The test builds and removes that image itself. Run it with the assigned DSNs and `REQUIRE_DB=1`. Every client
+pinned as `setjoin-interop-ldap:local` (`scripts/build-interop-images.sh`, `.github/ci/images.lock`),
+running OpenLDAP `ldapsearch` clients with CA verification. The test never builds or removes images
+(#141). Run it with the assigned DSNs and `REQUIRE_DB=1`. Every client
 container has a task prefix, a 15-second deadline and `--rm`. It covers canonical
 alias lookup, hidden-user exclusion and failed bind.
 

@@ -1,55 +1,17 @@
 //! The existing `test-imap` container image (plus a Python layer) runs CPython
 //! `imaplib` against the Rust plaintext socket for FETCH, SEARCH, STORE and UID
 //! (#344), on the recorder's message fixture, and the database effects are
-//! checked afterwards. Owned PID-specific `gofree-imap2-interop-*` images and the
-//! client container are removed/`--rm`; Docker is required, never skipped. The
+//! checked afterwards. The client image is the pinned `setjoin-interop-imap:local` (never built
+//! or removed here, #141) and the client container is `--rm`; Docker is required, never skipped. The
 //! client carries the same two Go-parity patches as `interop_client.py`.
 mod common;
 use common::server;
 use std::{process::Command, sync::Arc};
 use tokio::{net::TcpListener, sync::watch};
 
-struct Image(String);
-impl Drop for Image {
-    fn drop(&mut self) {
-        let output = Command::new("docker")
-            .args(["image", "rm", "-f", &self.0])
-            .output()
-            .expect("remove owned interop image");
-        if !output.status.success() {
-            eprintln!("owned image cleanup failed: {}", self.0);
-            assert!(std::thread::panicking(), "owned image cleanup failed");
-        }
-    }
-}
-
-fn docker_build(tag: &str, args: &[&str], stdin: Option<String>) {
-    let mut cmd = Command::new("docker");
-    cmd.args(["build", "-q", "-t", tag]).args(args);
-    cmd.stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
-    if stdin.is_some() {
-        cmd.stdin(std::process::Stdio::piped());
-    }
-    let mut child = cmd
-        .spawn()
-        .expect("docker is required for the interop suite");
-    if let Some(text) = stdin {
-        use std::io::Write;
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(text.as_bytes())
-            .unwrap();
-    }
-    let out = child.wait_with_output().unwrap();
-    assert!(
-        out.status.success(),
-        "docker build: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
+/// Pinned in `.github/ci/images.lock` and preloaded by the lane (`scripts/build-interop-images.sh`
+/// on a dev host); the test never builds, tags or removes images (#141).
+const IMAGE: &str = "setjoin-interop-imap:local";
 
 #[tokio::test]
 async fn test_imap_container_message_commands() {
@@ -64,25 +26,13 @@ async fn test_imap_container_message_commands() {
         owner.batch_execute(sql).await.unwrap();
     }
     let pid = std::process::id();
-    let base = Image(format!("gofree-imap2-interop-base-{pid}"));
-    let image = Image(format!("gofree-imap2-interop-{pid}"));
-    let context = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../../mailserver/deploy/docker/test-imap"
-    );
-    docker_build(&base.0, &[context], None);
-    docker_build(
-        &image.0,
-        &["-"],
-        Some(format!("FROM {}\nRUN apk add --no-cache python3\n", base.0)),
-    );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let (stop, rx) = watch::channel(false);
     let task = tokio::spawn(Arc::new(server(&db, "plain")).serve(listener, rx));
     let name = format!("gofree-imap2-interop-client-{pid}");
-    let image_name = image.0.clone();
+    let image_name = IMAGE.to_string();
     let script = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/interop_messages_client.py"
@@ -91,6 +41,8 @@ async fn test_imap_container_message_commands() {
         Command::new("docker")
             .args([
                 "run",
+                "--pull",
+                "never",
                 "--rm",
                 "--name",
                 &name,
