@@ -67,9 +67,11 @@ XS goes to Haiku with the exact edit. Never resume the investigator to apply a d
   update, the `server-rust lane` per merge-queue entry). Local Rust work is limited to `rustfmt`
   on files you add.
 - Do not compile Rust locally. Workers push and stop; the coordinator reads the PR's required
-  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards;
-  ~10-20 min) through the shared poller. With no PR yet, the coordinator dispatches the same check:
-  `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push).
+  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards,
+  plus the selected integration tests on the lane Postgres; ~10-25 min) through the shared poller.
+  With no PR yet, the coordinator dispatches the light part only:
+  `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push;
+  no integration tests: open a draft PR for those).
 - Before fixing a failing test, search open issues and other branches for its name.
 
 ## Review
