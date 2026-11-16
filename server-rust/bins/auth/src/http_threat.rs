@@ -67,18 +67,23 @@ impl AuthServer {
         agent: &str,
         username: &str,
     ) -> Option<Response<Body>> {
-        if !setjoin_threat::ip_rule_blocked(&self.exec, ip).await {
-            return None;
-        }
-        self.http_attempt(ip, agent, username, "ip_blocked").await;
+        let reason = match setjoin_threat::ip_rule_blocked(&self.exec, ip).await {
+            Ok(false) => return None,
+            Ok(true) => "ip_blocked",
+            Err(()) => {
+                eprintln!("auth HTTP: ip rule check unavailable; failing closed");
+                "ip_rules_unavailable"
+            }
+        };
+        self.http_attempt(ip, agent, username, reason).await;
         Some(
             Response::builder()
                 .status(403)
                 .header("content-type", "application/json")
-                .header("x-threat-reason", "ip_blocked")
-                .body(body(
-                    "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"ip_blocked\"}\n",
-                ))
+                .header("x-threat-reason", reason)
+                .body(body(format!(
+                    "{{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"{reason}\"}}\n"
+                )))
                 .unwrap(),
         )
     }
@@ -179,6 +184,43 @@ pub(super) fn threat_username(raw: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::threat_username;
+
+    #[tokio::test]
+    async fn unavailable_ip_rule_lookup_rejects() {
+        use http_body_util::BodyExt;
+        use std::time::Duration;
+
+        let exec = setjoin_pg::ScopedExecutor::from_dsn_with(
+            "host=127.0.0.1 port=1 user=gate dbname=gate",
+            1,
+            setjoin_pg::Timeouts {
+                pool_wait: Duration::from_millis(100),
+                create: Duration::from_millis(500),
+                statement: Duration::from_millis(500),
+            },
+        )
+        .unwrap();
+        let server = crate::AuthServer::new(exec);
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            server.http_ip_rules("198.51.100.7", "test-agent", ""),
+        )
+        .await
+        .expect("IP-rule rejection must remain bounded")
+        .expect("failed IP-rule lookup must reject");
+
+        assert_eq!(response.status(), 403);
+        assert_eq!(response.headers()["content-type"], "application/json");
+        assert_eq!(
+            response.headers()["x-threat-reason"],
+            "ip_rules_unavailable"
+        );
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            bytes.as_ref(),
+            b"{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"ip_rules_unavailable\"}\n"
+        );
+    }
 
     fn jwt(payload: &str) -> String {
         use base64::Engine as _;

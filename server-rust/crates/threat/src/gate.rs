@@ -628,10 +628,10 @@ impl ThreatGate for Gate {
     }
 }
 /// Go stepIPRules (shared/threat/interceptor.go:652): first rule by action, 3 s
-/// bound, fail-open on error; `expires_at` is ignored exactly as Go does. Used by the
-/// auth HTTP ingress (#342, #346); the protocol gate fails closed instead (#367).
-pub async fn ip_rule_blocked(exec: &ScopedExecutor, source_ip: &str) -> bool {
-    tokio::time::timeout(
+/// bound; `expires_at` is ignored exactly as Go does. Errors require rejection
+/// with `ip_rules_unavailable`, matching Gate::decide's approved divergence.
+pub async fn ip_rule_blocked(exec: &ScopedExecutor, source_ip: &str) -> Result<bool, ()> {
+    let rows = tokio::time::timeout(
         Duration::from_secs(3),
         exec.read(
             "SELECT action FROM ip_rules WHERE cidr >>= $1::inet ORDER BY action ASC LIMIT 1",
@@ -639,9 +639,15 @@ pub async fn ip_rule_blocked(exec: &ScopedExecutor, source_ip: &str) -> bool {
         ),
     )
     .await
-    .ok()
-    .and_then(Result::ok)
-    .is_some_and(|r| r.first().is_some_and(|r| r.get::<_, String>(0) == "block"))
+    .map_err(|_| ())?
+    .map_err(|_| ())?;
+    match rows.first() {
+        None => Ok(false),
+        Some(row) => row
+            .try_get::<_, String>(0)
+            .map(|action| action == "block")
+            .map_err(|_| ()),
+    }
 }
 
 /// Decode one `lockout_check` row (#367). No row or a NULL `locked` is an
