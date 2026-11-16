@@ -468,8 +468,15 @@ updater are #357–#359.
 ## Parallel full lane (#550)
 
 `.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
-label) for every pull request and every push to `main`: always the FULL lane including oracle
-coverage. `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+label) on the merge queue's `merge_group` commit (one run per BATCH of up to 5 queued pull requests)
+and `workflow_dispatch`: always the FULL lane including oracle coverage. A push to `main` runs CACHE REFRESH ONLY
+(`plan` output `mode=cache`: `build`, `coverage-build` and `gomod-cache` save the cargo and Go module caches; no test,
+coverage, replay or guard job; step summary "cache refresh only, no tests"; not a test pass, the queue already tested it).
+A nightly `schedule` (`30 2 * * *`, main) runs the full lane plus coverage as the backstop (`mode=full`) and skips
+cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules live in `scripts/lane-job-gate.py` (tests: `python3 scripts/test-lane-job-gate.py`, run by `aggregate` and `pre-ci.sh`). `aggregate` accepts `cache` only on push and
+`full`/`skip` only on schedule, and is red on `merge_group`/`workflow_dispatch` unless `mode=full`. Pull
+requests run only `pr-precheck.yml` (job `aggregate`: `scripts/quick-check.sh`, changed-package
+clippy/`--lib` tests and cheap guards); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
 lane result. Jobs: `plan` (shard lists, debug or full); `build` (one `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`); `roots` (static guards,
@@ -541,6 +548,28 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   directory under `$RUNNER_TEMP` with `fsync=off`, `synchronous_commit=off`, `full_page_writes=off`,
   loopback publish and a per-job SCRAM secret (CI only, masked). Tools are pinned by
   `scripts/server-rust-lane-tools.sh` (nextest, cargo-deny, pebble) inside the lane image.
+
+## Frozen Go recording workflow
+
+`.github/workflows/gofree-record.yml` (#339) is `workflow_dispatch` only (`contents: read`,
+`packages: read`, never pull_request or push) and is deleted with Go (#142). Inputs: `package`,
+`test`, optional `case_filter`, `go_source` (empty or the dispatched ref's own commit: dispatch on the frozen ref, since recorders such as drain run `go test` on the checkout) and `extra_env`
+(allowlisted `GOFREE_RECORD_*|ORACLE_*|VERIFY_*` lines, e.g. `GOFREE_RECORD_DRAIN=all`). It builds
+`go build -cover ./mailserver/cmd/mailserverd` in `setjoin-ci-linux-tc`, exports
+`GOFREE_RECORD_GO_BINARY` and `GOFREE_GO_SOURCE`, and `scripts/gofree-record.sh` (in the lane
+container) loads one disposable DB, sets `REQUIRE_DB=1`, `TEST_DB_DSN`/`DB_DSN`/`DB_DIRECT_DSN`/
+`DB_APP_DSN`, `GOFREE_RESOURCE_PREFIX`, a created `GOFREE_RESOURCE_LEDGER` and runs
+`cargo test -p <package> --test <test> -- --test-threads=1 --skip mutant --skip fault`. Goldens are
+exclusive-create, so existing ones are only compared; new files, `git status --porcelain` and the
+diff upload as artifact `gofree-record` and are never committed; any modified or deleted tracked file (drain's recorder deletes before it records) fails the run after the upload. After recording, every new file must be JSON whose `go_source` fields equal the checked-out commit, so new oracles (#341, #342 and later) must stamp `GOFREE_GO_SOURCE` (older auth oracles hardcode a historical constant and fail this check for new cases). `*_LEARN` variables are rejected, a run needs at least one `GOLDEN-` line or new file, and all job-started containers are removed and verified. `go_upstream=authserverd` accepts only setjoin-auth `oracle`, `token_oracle`, `mfa_oracle`, `webauthn_oracle`, `guest_invite_oracle`, `threat_oracle`, `device_proof_oracle` and `ca_issuance_oracle` (targets may not exist yet). Input `go_upstream=authserverd` also
+builds `authserverd`, installs the synthetic `identity-login/keys.json` signing row, starts it on
+`127.0.0.1:47335` (host network, fixture DB only, ledgered, stopped always) and exports
+`GOFREE_RECORD_UPSTREAM` for auth-listener `*_oracle` targets.
+
+`extra_env` `GOFREE_RECORD_AUTH_PRESET` (strict `off|threat|tarpit|ca`, default `off`, authserverd mode only) sets Go's threat env in its 0600 env file:
+`off` and `ca` = the five `*_ENABLED=false` (`ca`: the oracle seeds CA DB toggles); `threat` = all five true, fixture `CAPTCHA_SECRET`,
+`GEO_BLOCK_COUNTRIES=US`, `GEOIP_DB_PATH=server-rust/tests/conformance/authzgates/us.mmdb`, `TRUSTED_PROXY_IP=127.0.0.1`, `THREAT_RATE_LIMIT_PER_MIN=3`,
+`THREAT_CAPTCHA_THRESHOLD=3`, `THREAT_SPRAY_MAX_USERS=3`; `tarpit` = `threat` with `CAPTCHA_ENABLED=false`, `THREAT_TARPIT_THRESHOLD=2`.
 
 ## Rust guard self-test
 

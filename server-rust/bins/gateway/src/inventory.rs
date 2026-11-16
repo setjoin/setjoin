@@ -7,6 +7,11 @@ use std::collections::HashSet;
 
 pub const BUNDLED: &str = include_str!("../route-inventory.json");
 
+/// Registrations Go pins at the root that its `/api` mount also serves (`StripPrefix`): a
+/// native gateway row claims both spellings, and a subtree row its bare spelling (the mux's
+/// redirect), so neither reaches Go (#364, #365).
+const PINNED_AND_MOUNTED: [&str; 1] = ["/setup/status"];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     LocalRust,
@@ -315,9 +320,29 @@ impl Inventory {
                             && (route.path.contains("/sharing")
                                 || route.path.starts_with("/drive")))
                         || route.target == Target::LocalRust);
-                let external = mounted_api.then(|| format!("/api{}", route.path));
+                let both = route.listener == "gateway"
+                    && route.target == Target::LocalRust
+                    && PINNED_AND_MOUNTED.contains(&route.path.as_str());
+                let external = (mounted_api && !both).then(|| format!("/api{}", route.path));
                 let pattern = external.as_deref().unwrap_or(&route.path);
-                let mut score = path_score(pattern, path)?;
+                let mut score = match path_score(pattern, path) {
+                    Some(score) => score,
+                    None if both => {
+                        // The literal /api mount only: an escaped `a%70i` fails StripPrefix.
+                        let rest = path
+                            .strip_prefix("/api")
+                            .filter(|rest| rest.starts_with('/'))
+                            .unwrap_or(path);
+                        path_score(&route.path, rest).or_else(|| {
+                            if route.path.ends_with('/') && !rest.ends_with('/') {
+                                path_score(&route.path, &format!("{rest}/"))
+                            } else {
+                                None
+                            }
+                        })?
+                    }
+                    None => return None,
+                };
                 score.push(method_score);
                 // A literal /api registration beats a mounted API route,
                 // matching buildRootDispatch's unstripped lookup.

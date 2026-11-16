@@ -325,7 +325,8 @@ cat <<EOF
 == next commands for the owner (NOT executed by this script)
 cd "$OUT"
 git init -b main
-git add -A
+# --force: tracked files may match a .gitignore pattern (e.g. webmail coverage/ route)
+git add -A --force
 git commit -m "Initial public release"
 gh repo create <owner>/<name> --public --source=. --remote=origin --description "Setjoin"
 git push -u origin main

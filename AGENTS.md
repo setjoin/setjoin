@@ -1,7 +1,7 @@
 # Setjoin
 
-Setjoin is a self-hosted productivity suite: Go gateways, PL/pgSQL reducers,
-SvelteKit UI, native clients and collaboration sidecars. `AGENTS.md` is canonical;
+Setjoin is a self-hosted productivity suite: a Rust server replacing the frozen Go one,
+PL/pgSQL reducers, SvelteKit UI, native clients and collaboration sidecars. `AGENTS.md` is canonical;
 `CLAUDE.md` is its symlink.
 
 ## DOX contract
@@ -53,18 +53,13 @@ Read `docs/standards/DATABASE_SECURITY.md` before touching a user-data query.
 
 - Go: [CODE_QUALITY.md](docs/standards/CODE_QUALITY.md); PL/pgSQL: `mailserver/sql/AGENTS.md`;
   Svelte: `mailserver/webmail/AGENTS.md`.
-- Git: branch from `main`; stage, commit, push or deploy only when asked; preserve
-  unrelated dirty-worktree changes.
+- Git: branch from `main`; commit and push only your own branch when asked or as the
+  [subagent workflow](docs/agents/subagent-workflow.md) allows; never push `main`; deploy
+  only when asked; preserve unrelated dirty-worktree changes.
 - Verification: pick affected lanes from [Verification commands](docs/guides/VERIFICATION_COMMANDS.md)
   or `bash scripts/verify-all.sh list`. Missing, skipped or flaky-after-retry cases are
   failures. Fix failures you caused; keep tests strict.
-- Server archive staging: `scripts/package-server-release.sh` assembles committed
-  source and prebuilt binaries; it does not publish or update the signed cohort.
-  Check its packaging contract with `python3 scripts/test-package-server-release.py`.
-- Rust floor builds: `.github/workflows/rust-floor.yml` calls `scripts/cross-build.sh
-  --rust` in glibc 2.28 (x86_64/arm64) and a glibc 2.36 loong64 sysroot, verifies
-  ELF version needs and smokes the gateway in a scratch loong64 runtime. The loong64
-  toolchain image adds Python from the pinned x86 floor image for the build guards.
+- CI: GitHub-hosted runners only; workflows and lanes are listed in `.github/CI-RUNNERS.md`.
 
 ## Execution environment and task cleanup
 
@@ -76,15 +71,14 @@ Record temporary resources before launch and clean only what you own.
 
 - Status: [program directory](docs/agents/PROGRAM_STATUS.md); queue: GitHub issues. Read only
   the owning plan; behavior stays OFF until its rollout decision admits it.
-- Agent workflows: `docs/agents/` (planning pipeline, governance handoff); select by task.
+- Agent workflows: `docs/agents/` (planning pipeline, governance handoff,
+  [subagent workflow](docs/agents/subagent-workflow.md)); select by task.
 
 ## Agent skills
 
 - **Issue tracker:** GitHub issues on `setjoin/setjoin` via `gh`. See `docs/agents/issue-tracker.md`.
 - **Triage labels:** five canonical roles mapped to repo labels. See `docs/agents/triage-labels.md`.
 - **Domain docs:** single-context (`CONTEXT.md` + `docs/adr/`). See `docs/agents/domain.md`.
-- **Matt Pocock flow:** `/grill-with-docs`, `/to-spec`, `/to-tickets`, `/implement`, `/retro` and
-  peers are user-invoked; `/ask-matt` routes between them.
 
 ## Child DOX Index
 

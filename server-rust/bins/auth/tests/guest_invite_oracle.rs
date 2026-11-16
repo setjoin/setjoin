@@ -547,7 +547,7 @@ async fn seed(c: &Client, state: &str) -> Result<Fx, Err> {
     match state {
         "federated" => {
             c.execute(
-                "UPDATE users SET saml_name_id='guestaccept-fed-'||$2 WHERE id=$1",
+                "UPDATE users SET saml_name_id='guestaccept-fed-'||$2, saml_idp_entity_id='https://idp.guest.invalid' WHERE id=$1",
                 &[&guest, &unique],
             )
             .await?;
