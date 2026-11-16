@@ -52,7 +52,6 @@ PENDING = {
     ("gateway", "*", "/auth/admin/"): "#340",
     ("gateway", "GET", "/auth/guest-invite/accept"): "#342",
     ("gateway", "POST", "/auth/guest-invite/accept"): "#342",
-    ("gateway", "GET", "/setup/status"): "#340",
     ("gateway", "GET", "/terms/pending"): "#340",
     ("gateway", "POST", "/terms/accept"): "#340",
 }
@@ -68,7 +67,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 60,
-    ("gateway", "forward"): 198,  # +1 deny::answer fallback for non-native refusals (#380, #354 B0); owner-approved 2026-11-14
+    ("gateway", "forward"): 167,  # lowered from 198 as routes went native (ratchet)
     ("gateway", "forward_body"): 3,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,
