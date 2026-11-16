@@ -152,11 +152,20 @@ pub async fn kill_switch() -> Result<(), BoxError> {
   let bytes=b"{\n\"original\":true,\"opaque\":\"\xff\"\n}".to_vec();let mut expected=Vec::new();
   for(method,uri)in &routes{
    let reply=common::send(address,Request::builder().method(method.as_str()).uri(uri).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json; original=yes").header("authorization","Bearer original.invalid.token").header("x-request-id","compl3-switch-original").body(common::full(bytes.clone()))?).await;
+   if mode=="auth"{
+    // Rust holds authority on this route: an invalid token gets Go's frozen RequireAuth 401, never Go.
+    let go:Value=serde_json::from_str(include_str!("../golden/go-auth-responses.json"))?;
+    let status=reply.status().as_u16();let challenge=reply.headers().get("www-authenticate").and_then(|v|v.to_str().ok()).map(str::to_owned);
+    let body=common::body_bytes(reply).await;
+    if status!=401 || body.as_ref()!=go["expired"]["body"].as_str().unwrap().as_bytes() || challenge.as_deref()!=Some("Negotiate, Bearer realm=\"mailserver\""){server.abort();return Err(format!("invalid token did not get native 401: {status} {challenge:?} {}",String::from_utf8_lossy(&body)).into());}
+    continue;
+   }
    if reply.status().as_u16()!=299 || common::body_bytes(reply).await.as_ref()!=b"switch\n"{server.abort();return Err("switch did not return Go reply".into());}
    expected.push(json!({"method":method,"uri":uri,"content-type":"application/json; original=yes","authorization":"Bearer original.invalid.token","request-id":"compl3-switch-original","body":bytes}));
   }
+  if mode=="auth"{if !calls.lock().unwrap().is_empty(){server.abort();return Err("invalid token reached Go".into());}expected.clear();}
   golden::compare(&json!(expected),&json!(calls.lock().unwrap().clone()))?;
-  if !global {
+  if off {
    let reply=common::send(address,Request::get("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(reply).await.to_vec())?;
    for expected in ["setjoin_gateway_proxied_to_go_total 13","setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 13"]{if !metrics.lines().any(|line|line==expected){server.abort();return Err(format!("switch counter mismatch: {metrics}").into());}}
   }

@@ -12,7 +12,12 @@ pub(super) struct Env {
 }
 impl Env {
     pub(super) async fn start() -> Result<Self, Err> {
-        let base = flows::Env::start(false).await?;
+        Self::start_with(json!({})).await
+    }
+    // Provider config that a case needs goes in here, before the registry loads: a live
+    // `configure()` leaves queued reloads (discovery fetches) that can outlive the IdP call-log clear.
+    pub(super) async fn start_with(extra: Value) -> Result<Self, Err> {
+        let base = flows::Env::configured(false, idp::ISSUER, extra).await?;
         settlement::cleanup_leftovers(&base.c).await?;
         base.c
             .execute("DELETE FROM sessions WHERE id='idfed2-session'", &[])
@@ -177,7 +182,12 @@ fn observe(env: &Env, name: &str, actual: &Value) -> Result<(), Err> {
 }
 pub async fn callback(kind: &str) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
-    let env = Env::start().await?;
+    let extra = if kind == "mapping-failure" {
+        json!({"group_mappings":[{"idp_group":"engineering","department_id":-1}]})
+    } else {
+        json!({})
+    };
+    let env = Env::start_with(extra).await?;
     let result=async{
         let access=format!("access_token={}",env.token);
         let response=request(env.base.gw.addr,"POST","/auth/oidc/link?provider=idfed2",String::new(),&[("cookie",&access)]).await?;
@@ -185,7 +195,6 @@ pub async fn callback(kind: &str) -> Result<(), Err> {
         if !flow.contains_key("identity_link_flow"){return Err("link flow did not start".into());}
         if kind=="foreign-subject"{env.base.c.query_one("SELECT identity_auth_link($1,$1,'oidc',$2,'linked-subject','oidc:idfed2','IDFED2 foreign fixture')",&[&env.b.user,&idp::ISSUER]).await?;}
         if kind=="revoked-elevation"{env.base.c.execute("INSERT INTO session_revocations(user_id,scope,jti,reason,not_before,expires_at) VALUES($1,'jti','idfed2-session','IDFED2 fixture',now(),now()+interval '1 hour')",&[&env.a.user]).await?;}
-        if kind=="mapping-failure"{env.base.configure(json!({"group_mappings":[{"idp_group":"engineering","department_id":-1}]})).await?;}
         if kind=="bad-flow"{flow.insert("identity_link_flow".into(),"invalid".into());}
         if kind=="inactive-session"{env.base.c.execute("DELETE FROM sessions WHERE id='idfed2-session'",&[]).await?;}
         if kind!="no-session"{
