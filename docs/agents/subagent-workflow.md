@@ -11,6 +11,9 @@ Binding rules for delegating work to subagents. The latest owner instruction win
 - **Workers** implement, commit and push their own ticket branch. They never push `main`,
   the integration branch or anyone else's branch, never use `--no-verify`, and stop and
   report when a hook refuses. The coordinator reviews the pushed diff before any PR or merge.
+- **Workers stop when they push.** They never wait on CI, inside the run or in a background
+  command. The coordinator starts any lane run and waits for its notification; a red result
+  starts a new fix round, and a green one goes to review.
 - **Reviews never write. Gates never change product code or tests.**
 - Set `model` explicitly on every agent call. Never use Opus or Fable as an implementer.
 - No fixed cap on parallel editing agents. Limits: disjoint files (serialize tickets that
@@ -28,11 +31,20 @@ move, migrations, data egress, production. Auth or a migration means size M or l
 | Size | Signals | Route |
 |---|---|---|
 | XS | decided, 1-2 files, one fast check | Haiku with the exact edit |
-| S | up to ~4 files in one module, short loop, small design call | Sonnet, tasks capped at ~30 min (slice larger ones) |
+| S | up to ~4 files in one module, short loop, small design call | Haiku first with the decided approach; on a capability stop (wrong fix, stuck, same CI failure twice) Sonnet takes over from Haiku's `PROGRESS.md`. Tasks capped at ~30 min (slice larger ones) |
 | M/L | several modules, long loop or real design | Opus planner (read-only) produces an exact plan, Haiku executes; gaps go back to the planner, never to Sonnet |
 | ? | cause or approach unknown | investigate (Sonnet, Opus if hard), then size the resulting plan |
 
+Haiku stops and reports instead of guessing: a Haiku brief names its stop conditions, and a
+stop is an escalation, not a failure. Investigations skip Haiku, because a wrong diagnosis costs
+more downstream (CI loops, review rounds) than the Sonnet run.
+
 If the diff exceeds the prediction, upgrade the review and re-record the size.
+
+The ~30 min cap covers investigations too. At the cap the worker writes `PROGRESS.md` and
+stops; the coordinator decides whether to continue, re-slice or re-plan. An investigation
+ends with a decided fix, which is sized again: at most 5 lines is an inline coordinator edit,
+XS goes to Haiku with the exact edit. Never resume the investigator to apply a decided fix.
 
 ## Briefs
 
@@ -54,9 +66,9 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 - CI-first: builds and tests run on GitHub-hosted runners (the PR pre-check per pull-request
   update, the `server-rust lane` per merge-queue entry). Local Rust work is limited to `rustfmt`
   on files you add.
-- Do not compile Rust locally. On an open PR, push and read its required `aggregate` check
-  (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards; ~10-20 min). With
-  no PR yet, push your branch and dispatch the same check by hand:
+- Do not compile Rust locally. Workers push and stop; the coordinator reads the PR's required
+  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards;
+  ~10-20 min) through the shared poller. With no PR yet, the coordinator dispatches the same check:
   `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push).
 - Before fixing a failing test, search open issues and other branches for its name.
 
@@ -100,6 +112,7 @@ Re-run a failing test alone. Passes alone: flake, file it, re-gate once. Fails t
 
 ## Cost log
 
-Log one line per run: ticket, size, model, tokens, minutes, review rounds, outcome. After
+After every hand-back, the coordinator logs one line per run (token and minute figures from the
+agent cost tool): ticket, size, model, tokens, minutes, review rounds, outcome. After
 the merge compare prediction with actual and adjust the size borders. Token counts are a
 mis-size alarm, not a cap. Review cost per merged ticket periodically.
