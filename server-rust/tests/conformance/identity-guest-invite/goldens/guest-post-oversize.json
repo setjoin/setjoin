@@ -1,0 +1,63 @@
+{
+  "case": "guest-post-oversize",
+  "format": 1,
+  "go_source": "779311f509b1ab3557a3390e9a2e9612ecfb0043",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "guests": [
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "actor",
+          "password": "absent",
+          "status": "invited"
+        },
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "foreign",
+          "password": "absent",
+          "status": "invited"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "<1048588 bytes>",
+      "headers": {},
+      "method": "POST",
+      "path": "/auth/guest-invite/accept",
+      "query": ""
+    },
+    "response": {
+      "body": "request body too large\n",
+      "headers": {
+        "content-type": "text/plain; charset=utf-8",
+        "x-content-type-options": "nosniff"
+      },
+      "status": 413
+    }
+  },
+  "route": "POST /auth/guest-invite/accept"
+}
