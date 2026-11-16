@@ -18,7 +18,7 @@ Guard: `inventory_guard::platform_slice_ownership_is_exhaustive_and_disjoint`.
 | `updates-deploy` (#300; security fixes: [updates-security.DOX.md](updates-security.DOX.md)) | 35: `/admin/system/upgrade*`, `/admin/system/upgrades*`, `/admin/system/recovery/*`, auto-update, maintenance window, `/admin/updates/*`, `/updates/*`, `/admin/deploy/*` | ON: all 35 registrations (#300, #455) |
 | `jobs-storage` (#301) | 14: `/admin/jobs/*`, `/admin/storage/*` | 14 ON; storage execution (#459) is documented in [storage.DOX.md](storage.DOX.md) |
 | `webhooks` (#302) | 6: `/admin/webhooks*` | ON (`src/webhooks.rs`, `webhook_secret.rs`) |
-| `terms-remaining` (#303, `bins/gateway/src/platform_terms.rs`) | 29: terms, domains, branding, federation peers, DNS, alerts, apps, monitor, reports, `/setup/status`, `/terms/*` | 26 ON by group (below); 3 forwarded to Go |
+| `terms-remaining` (#303, `bins/gateway/src/platform_terms.rs`) | 29: terms, domains, branding, federation peers, DNS, alerts, apps, monitor, reports, `/setup/status`, `/terms/*` | 27 ON by group (below); 2 forwarded to Go |
 | `configuration` (#414, `bins/gateway/src/platform.rs`) | 1: `POST /admin/reload` | ON; [gateway configuration contract](../../../bins/gateway/DOX.md#gateway-configuration-414) |
 | `secevents` (#304) | none: worker-only slice | n/a |
 | `acme-control` (#305) | 9: the ACME :80 listener and the unix setup control socket (3 ON, see below); the 6 federation test-harness routes stay OFF | 3 ON |
@@ -81,12 +81,18 @@ stay at the root); `inventory.rs` mounts family 8's `/admin/` entries accordingl
 | `federation` (`src/federation.rs`) | `/admin/federation/peers` list, upsert, delete (3) | ON |
 | `dns` (`src/dns.rs`) | `/admin/dns/records`, `/admin/dns/verify` (2) | ON |
 | `branding` (`src/branding.rs`) | `/admin/branding` get, post (2) | ON |
-| forwarded to Go | `/terms/pending`, `/terms/accept`, `GET /setup/status` (3) | OFF (Go) |
+| `setup` (#364, `platform_terms.rs`) | `GET /setup/status` (1) | ON |
+| forwarded to Go | `/terms/pending`, `/terms/accept` (2) | OFF (Go) |
 
 Forwarded routes and their owners: `/terms/pending` and `/terms/accept` are Go's `authProxy`
-to the auth listener (setjoin-auth, the IDLOGIN ticket, owns them); `GET /setup/status`
-answers 200 only while the users table is empty, so the oracle can record just its 404
-case and the route stays Go's.
+to the auth listener (setjoin-auth, the IDLOGIN ticket, owns them).
+
+`GET /setup/status` (#364) is public (no session, no gate) under Go's `setupLimit` (60 per
+minute per IP, the front-door bucket). It counts `users` on the worker credential
+(`DB_WORKER_DSN`, so a native-RLS request pool cannot make a configured system look empty):
+`{"initialized":false}` only for an empty table, the mux's bare 404 for any user or a failed
+count. Go pins `/setup` at the root and also serves it through the literal `/api` mount, so
+`inventory.rs` (`PINNED_AND_MOUNTED`) claims both spellings for the native row.
 All groups live behind one intercept, `bins/gateway/src/platform_terms.rs`, whose action table
 adds a row per route and whose group handlers sit in `platform_terms/<group>.rs`.
 
@@ -294,7 +300,7 @@ one existing reducer, run as a receipted command with the verified actor.
 
 Oracle (the `dns` cases need root for the fake zone server on 127.0.0.77:53): `tests/platform_oracle/<group>.rs` hold the case tables, `terms.rs::run` is the shared
 runner (placeholders `{a_domain}`..., run-specific ids/dates/uuids masked, fake zone server
-for DNS, fake S3 capture for branding).
+for DNS, fake S3 capture for branding). Pinned routes (`scripts/api-pinned-prefixes.txt`) are sent at the root (`api-alias` labels through `/api`); a `!` fill is a verbatim path, a subtree pattern takes the fill as its rest; `origin`/`authorization` case headers replace the defaults (empty omits; `{token-…}` markers expand to forged tokens); `rate-limit` cases spend Go's budget first (the replay installs the front door's route budgets); `setup`/`auth-admin` replays install the native root mux and assert nothing reached Go. `setup.rs` stages the empty table by moving `users` aside and the failed count with a raising view; cleanup restores both.
 
 ## Security fix (#456, owner-approved 2026-11-05)
 `updates::summary` and `updates::devices` take `reach` (the caller's user id when it is domain scoped, else 0) and count only devices of users it reaches (`admin_can_reach_perm` with `SYSTEM_CONSOLE`); Go listed every tenant's devices. Mutant `updates-devices-unscoped`; test `secfix6.rs::update_devices_are_confined_to_the_callers_reach`. Upgrade intents are system objects, not tenant data, and stay readable by any `system.upgrade` holder.

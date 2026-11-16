@@ -62,10 +62,10 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
         Box::pin(async move {
             let external_path = decoded(r.uri().path());
             // Shared admission still defers security shapes owned by #420/#405.
-            let Some(auth) =
-                setjoin_authz::authorize_request(&e, &k, &i, r.headers(), c.identity.proto).await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict = crate::deny::admit(&e, &k, &i, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(op) = crate::jmap::random() else {
                 return crate::mailboxes::bare(503, "service unavailable", &c, "");

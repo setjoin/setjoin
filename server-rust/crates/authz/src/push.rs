@@ -95,6 +95,33 @@ pub enum PushAuthError {
     GuestUnavailable,
 }
 
+/// The guest-status half of `authenticate_for_scope` over claims `admit` already
+/// accepted with Go's rules (#354: scoped path, exact NumericDate). Dedupe with
+/// `authenticate_for_scope` once #356a's push.rs reformat has landed.
+pub(crate) async fn identity_from_accepted(
+    exec: &ScopedExecutor,
+    claims: Map<String, Value>,
+) -> Result<PushIdentity, PushAuthError> {
+    let user = claims.get("uid").and_then(Value::as_i64).unwrap_or(0);
+    let claimed_guest = claims.get("acct").and_then(Value::as_str) == Some("guest");
+    let rows = exec
+        .read(
+            "SELECT status, expires_at IS NOT NULL AND expires_at < now() FROM guest_account_status($1)",
+            &[(&user, Type::INT8)],
+        )
+        .await
+        .map_err(|_| PushAuthError::GuestUnavailable)?;
+    let guest = match rows.first() {
+        Some(row) if row.get::<_, String>(0) != "active" || row.get::<_, bool>(1) => {
+            return Err(PushAuthError::GuestInactive)
+        }
+        Some(_) => true,
+        None if claimed_guest => return Err(PushAuthError::GuestInactive),
+        None => false,
+    };
+    Ok(PushIdentity { claims, guest })
+}
+
 pub async fn authenticate(
     exec: &ScopedExecutor,
     keys: &impl KeySource,

@@ -13,7 +13,9 @@ pub struct ApprovalsRoute<K: KeySource + 'static> {
     pub secret: Vec<u8>,
 }
 impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
-    fn requires_session(&self, r: &Request<Body>) -> bool { email_target(r.uri().path()).is_none() }
+    fn requires_session(&self, r: &Request<Body>) -> bool {
+        email_target(r.uri().path()).is_none()
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         email_target(r.uri().path()).is_some()
             || r.uri().path() == "/api/me/approvals"
@@ -149,16 +151,11 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                 );
                 return html(200, page, &c, id);
             }
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return problem(
