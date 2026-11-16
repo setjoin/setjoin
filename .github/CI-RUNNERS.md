@@ -49,7 +49,7 @@ passes fails the run until its line is removed; a name with no guard file is an 
 
 ## quick check (agent branches)
 
-`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on pushes to `gofree/**`, `ci/**`, `docs/**` and on `workflow_dispatch` (`packages`, `tests`): `cargo clippy --all-targets` (errors fail, lints are warnings) + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
+`.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on `workflow_dispatch` only (`packages`, `tests`; pull requests get the same script from `pr-precheck.yml`): `cargo clippy --all-targets` (errors fail, lints are warnings) + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
 It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests run only `pr-precheck` and the merge queue runs the full lane.
 
 ## gofree record (manual, deleted with Go)
@@ -58,3 +58,5 @@ It stays one job so it never competes with the 19-job full lane for the 20-job c
 no pull_request or push trigger). It records new Go-free oracle goldens from the frozen Go coverage
 binary inside the pinned `setjoin-ci-linux-tc` image, never commits, and uploads new goldens plus a
 `git status --porcelain` and diff as an artifact. It is removed with Go (#142).
+Concurrency is one group per ref: branches record in parallel; on one branch a second dispatch waits,
+and a third replaces the waiting one (GitHub keeps one pending run per group), so dispatch one at a time per branch.

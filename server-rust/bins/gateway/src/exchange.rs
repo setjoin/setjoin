@@ -147,16 +147,10 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
         );
         let artifacts = self.artifacts.clone();
         Box::pin(async move {
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return crate::mailboxes::bare(503, "service unavailable", &c, "");

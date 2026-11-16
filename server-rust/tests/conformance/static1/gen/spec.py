@@ -103,10 +103,10 @@ case("assist_bad_url","POST /assist/complete","bad-provider-url","/api/assist/co
 case("assist_upstream_error","POST /assist/complete","provider-error","/api/assist/complete",method="POST",auth="Actor",headers=J,body=GOOD,world=dict(assist=True,provider="Fail"))
 case("assist_no_choices","POST /assist/complete","provider-no-choices","/api/assist/complete",method="POST",auth="Actor",headers=J,body=GOOD,world=dict(assist=True,provider="Empty"))
 case("assist_sealed_key","POST /assist/complete","sealed-api-key","/api/assist/complete",method="POST",auth="Actor",headers=J,body=GOOD,world=dict(assist=True,provider="Sealed"))
-case("assist_anonymous","POST /assist/complete","unauthenticated","/api/assist/complete",method="POST",headers=J,body=GOOD,world=ON,forwarded=True)
+case("assist_anonymous","POST /assist/complete","unauthenticated","/api/assist/complete",method="POST",headers=J,body=GOOD,world=ON,forwarded=False)
 case("stream_success","POST /assist/stream","success","/api/assist/stream",method="POST",auth="Actor",headers=J,body="{}",world=ON)
 case("stream_foreign","POST /assist/stream","cross-tenant","/api/assist/stream",method="POST",auth="Foreign",headers=J,body="{}",world=ON)
-case("stream_invalid","POST /assist/stream","invalid-input","/api/assist/stream",method="POST",headers=J,body="{",forwarded=True)
+case("stream_invalid","POST /assist/stream","invalid-input","/api/assist/stream",method="POST",headers=J,body="{",forwarded=False)
 case("stream_locale","POST /assist/stream","accept-language","/api/assist/stream",method="POST",auth="Actor",headers=J+[("accept-language","fr-CA,en;q=0.5")],body="{}")
 # translate
 T="POST /chat/messages/{id}/translate"

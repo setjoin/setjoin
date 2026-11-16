@@ -32,7 +32,7 @@ permissions:
   packages: read
 
 concurrency:
-  group: gofree-record
+  group: gofree-record-${{ github.ref }}
   cancel-in-progress: false
 
 defaults:
