@@ -1911,13 +1911,47 @@ mod db {
             .collect()
     }
 
-    /// The statements already in the seam, as (origin, text): the only ones a
-    /// known reducer gap is tolerated for.
+    /// Frozen (origin, text) of the seam statements that already call a
+    /// KNOWN_REDUCER_GAPS reducer (#434). Pinned literals, not the live
+    /// constants: editing one of these statements loses the tolerance and the
+    /// guard fails until #434 is fixed or the change is reviewed here.
+    const GAP_GRANDFATHERED: &[(&str, &str)] = &[
+        (
+            "CalendarEvent/rsvp",
+            "SELECT jmap_calendar_event_rsvp($1,$4,$5,$6,$2)::text WHERE $2::bigint>0 AND $3::text<>''",
+        ),
+        ("TaskList/tasks", "SELECT task_list_tasks($1,$2)::text"),
+        ("TaskListMember/set", "SELECT task_list_add_member($1,$2,$3)::text"),
+        ("TaskListMember/set", "SELECT task_list_remove_member($1,$2,$3)::text"),
+        (
+            "TaskList/taskSet",
+            "SELECT task_list_task_set($1,$2,$3::text::jsonb,$4::text::jsonb,$5::text::jsonb)::text",
+        ),
+    ];
+
+    /// The only statements a known reducer gap is tolerated for.
     fn existing_statement(origin: &str, sql: &str) -> bool {
-        (origin == "CalendarEvent/rsvp" && sql == DELEGATE_RSVP)
-            || worker_statements()
-                .iter()
-                .any(|(method, text)| *method == origin && *text == sql)
+        GAP_GRANDFATHERED
+            .iter()
+            .any(|(o, text)| *o == origin && *text == sql)
+    }
+
+    #[test]
+    fn gap_tolerance_is_frozen_text() {
+        assert!(existing_statement(
+            "TaskList/tasks",
+            "SELECT task_list_tasks($1,$2)::text"
+        ));
+        // An edited statement (even whitespace) or another origin loses the tolerance.
+        assert!(!existing_statement(
+            "TaskList/tasks",
+            "SELECT task_list_tasks($1, $2)::text"
+        ));
+        assert!(!existing_statement(
+            "TaskList/get",
+            "SELECT task_list_tasks($1,$2)::text"
+        ));
+        assert!(!existing_statement("calendar.rs", DELEGATE_RSVP));
     }
 
     /// Every `name(` call in `sql` with its top-level arguments, parentheses
