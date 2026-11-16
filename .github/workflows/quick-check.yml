@@ -2,8 +2,9 @@ name: quick check
 
 # Fast single-job check for a branch that has no pull request yet, so nobody compiles Rust on a
 # small dev host. Manual only (workflow_dispatch): pull requests already run the same
-# scripts/quick-check.sh as the required pr-precheck.yml `aggregate`, so a push trigger here only
-# duplicated it. ONE job on purpose: it must not compete with the 19-job full lane for the
+# scripts/quick-check.sh in pr-precheck.yml's `light` job (it and the `integration` job feed the
+# required `aggregate`), so a push trigger here only duplicated it. It does NOT run integration
+# tests. ONE job on purpose: it must not compete with the 19-job full lane for the
 # free-plan concurrency limit.
 on:
   workflow_dispatch:

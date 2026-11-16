@@ -41,6 +41,9 @@
 # state, see server-rust/.config/nextest.toml and scripts/server-rust-parallel-lane.sh)
 # plus `cargo test --doc`, and keeps every check below: zero tests, ignored (nextest
 # "skipped") and DB-skip markers stay red. Needs LANE_ADMIN_DSN/LANE_TEMPLATE_DB/LANE_BASE_DB.
+# SERVER_RUST_NEXTEST_SELECT (the PR pre-check, pr-precheck.yml job `integration`) replaces
+# `--workspace` in that run with the cargo selection scripts/precheck-integration.py printed
+# (`-p PKG ... --test NAME ...`) and skips `cargo test --doc`; every check above still applies.
 #
 # No cargo on PATH → prints `SERVER-RUST-SKIP (reason=cargo-not-found)` and
 # exits 0: greppable, never a silent pass. CI's toolchain image ships Rust, so
@@ -187,6 +190,10 @@ nextest_tests() {
       build=(--archive-file "$SERVER_RUST_NEXTEST_ARCHIVE" --workspace-remap "$dir"
              --extract-to "${SERVER_RUST_NEXTEST_EXTRACT_TO:?SERVER_RUST_NEXTEST_EXTRACT_TO is required with an archive}" --extract-overwrite)
     fi
+    # PR pre-check: only the selected packages' test targets (names validated by the selector).
+    if [[ -n "${SERVER_RUST_NEXTEST_SELECT:-}" ]]; then
+      read -r -a build <<<"--locked --offline $SERVER_RUST_NEXTEST_SELECT"
+    fi
     [[ -n "${SERVER_RUST_NEXTEST_PARTITION:-}" ]] && partition=(--partition "$SERVER_RUST_NEXTEST_PARTITION")
     (cd "$dir" && "$CARGO" nextest run "${build[@]}" ${partition[@]+"${partition[@]}"} --no-fail-fast --profile lane \
       --tool-config-file "lane:$groups" -j "${LANE_JOBS:-5}" --success-output immediate --failure-output immediate-final \
@@ -200,7 +207,7 @@ nextest_tests() {
     (cd "$dir" && "$CARGO" nextest run --workspace --locked --offline --no-fail-fast --success-output immediate \
       --failure-output immediate-final --color never 2>&1) || rc=1
   fi
-  if [[ -z "${SERVER_RUST_NEXTEST_ARCHIVE:-}" ]]; then
+  if [[ -z "${SERVER_RUST_NEXTEST_ARCHIVE:-}" && -z "${SERVER_RUST_NEXTEST_SELECT:-}" ]]; then
     (cd "$dir" && "$CARGO" test --doc --locked --offline --workspace --no-fail-fast --color never 2>&1) || rc=1
   fi
   return "$rc"

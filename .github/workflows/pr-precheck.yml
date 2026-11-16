@@ -1,12 +1,19 @@
 name: PR pre-check
 
-# STAGE 2: the required `aggregate` check on a pull request. It is a LIGHT pre-check (one job): cargo
-# clippy --all-targets and cargo test --lib for the changed workspace packages plus cheap guards
-# (scripts/quick-check.sh, shared with quick-check.yml). The FULL 19-job server-rust lane does not
-# run on pull requests: it runs once per BATCH of queued pull requests on the merge queue's
-# merge_group commit (server-rust-lane.yml, whose job is also named `aggregate`).
-# This workflow deliberately has no merge_group trigger, so the queue's `aggregate` is the full
-# lane's. No path filters: a filtered-out run would leave the required check pending forever.
+# STAGE 2: the required `aggregate` check on a pull request. Two working jobs run side by side and a
+# ~10 s gate job named `aggregate` (the ruleset's required check) is red unless both succeeded:
+#   light        cargo clippy --all-targets and cargo test --lib for the changed workspace packages plus
+#                cheap guards (scripts/quick-check.sh, shared with quick-check.yml)
+#   integration  the integration tests (tests/*.rs) that scripts/precheck-integration.py selects for the
+#                change, on the lane Postgres with REQUIRE_DB=1 and the lane's skip-marker, ignored-test,
+#                zero-test and Go-rehearsal checks (scripts/server-rust-parallel-lane.sh,
+#                SERVER_RUST_STAGES=workspace). No server-rust code change: it ends after the selection.
+#                The run step is capped at 22 minutes; hitting the cap is a failure, never a pass.
+# Peak concurrency per pull request is two jobs (the gate starts after both end), next to the 19-job lane.
+# The FULL server-rust lane does not run on pull requests: it runs once per BATCH of queued pull
+# requests on the merge queue's merge_group commit (server-rust-lane.yml, whose job is also named
+# `aggregate`). This workflow deliberately has no merge_group trigger, so the queue's `aggregate` is
+# the full lane's. No path filters: a filtered-out run would leave the required check pending forever.
 on:
   pull_request:
 
@@ -27,7 +34,7 @@ env:
   LANE_JOB_TAG: precheck
 
 jobs:
-  aggregate:
+  light:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -55,7 +62,100 @@ jobs:
         if: always()
         run: |
           {
-            echo "## PR pre-check; full lane runs in the merge queue"
-            echo "This job is the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs once per batch on the merge queue."
+            echo "## PR pre-check (light); full lane runs in the merge queue"
+            echo "This job feeds the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs once per batch on the merge queue."
             cat lane-artifacts/summary.md 2>/dev/null || echo "- FAIL: no summary produced (setup or plan failed)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      LANE_JOB_TAG: precheck-integration
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Selection rule self-test; any server-rust code change?
+        id: gate
+        run: |
+          set -euo pipefail
+          python3 scripts/precheck-integration.py selftest
+          git fetch -q origin main:refs/remotes/origin/main || true
+          changed="$(git diff --name-only origin/main...HEAD)"
+          # awk reads all input (no SIGPIPE under pipefail): any server-rust/ path that is not *.md
+          if awk '/^server-rust\// && !/\.md$/ { hit = 1 } END { exit !hit }' <<<"$changed"; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            mkdir -p lane-artifacts
+            echo "- NOTE: no server-rust code change: no integration test selected" > lane-artifacts/integration-plan.md
+          fi
+      - uses: ./.github/actions/lane-setup
+        if: steps.gate.outputs.code == 'true'
+      - name: Select integration test targets
+        id: select
+        if: steps.gate.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          bash scripts/lane-container.sh python3 scripts/precheck-integration.py plan lane-artifacts
+          echo "select=$(cat lane-artifacts/integration-select.txt)" >> "$GITHUB_OUTPUT"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: steps.select.outputs.select != ''
+        with:
+          workspaces: server-rust -> ../../../../lane-build/target
+          shared-key: lane
+          save-if: false
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: steps.select.outputs.select != ''
+        with:
+          path: ~/.cache/setjoin-server-rust-lane/go-mod
+          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
+          restore-keys: lane-go-mod-
+      - name: Integration tests of the selected targets (22-minute cap)
+        if: steps.select.outputs.select != ''
+        timeout-minutes: 22
+        env:
+          SERVER_RUST_STAGES: workspace
+          SERVER_RUST_NEXTEST_SELECT: ${{ steps.select.outputs.select }}
+          LANE_COVERAGE: '0'
+          LANE_JOBS: '4'
+          GOFREE_AIRGAP_FIXTURE_ROOT: /dev/shm
+        run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## PR pre-check (integration): changed packages' tests/*.rs on the lane Postgres"
+            cat lane-artifacts/integration-plan.md 2>/dev/null || echo "- FAIL: no selection produced (setup or selection failed)"
+            if [ -f lane-artifacts/lane.log ]; then
+              { grep -E '^(✓|✗)|DB-SKIP|CONFORMANCE-SKIP|Summary \[|LANE-DB-LEAK' lane-artifacts/lane.log | tail -30 | sed 's/^/- `/; s/$/`/'; } || true
+              [ -f lane-artifacts/lane-complete.txt ] || echo "- FAIL: the run did not finish (22-minute cap or an aborted lane): red, never a pass"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.gate.outputs.code == 'true'
+        with:
+          name: precheck-integration
+          path: lane-artifacts/
+          retention-days: 7
+
+  # The required check: red unless both working jobs succeeded (cancelled, skipped or timed out is red).
+  aggregate:
+    needs: [light, integration]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Both pre-check jobs passed
+        env:
+          LIGHT: ${{ needs.light.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+        run: |
+          {
+            echo "## PR pre-check; full lane runs in the merge queue"
+            echo "- light (clippy, --lib tests, cheap guards): $LIGHT"
+            echo "- integration (selected tests/*.rs on the lane Postgres): $INTEGRATION"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "light=$LIGHT integration=$INTEGRATION"
+          [ "$LIGHT" = success ] && [ "$INTEGRATION" = success ]

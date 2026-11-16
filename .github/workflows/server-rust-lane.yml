@@ -4,7 +4,7 @@ name: server-rust lane
 # STAGE 2 of the merge-queue rollout (stage 1 kept `pull_request` here): the FULL lane runs on the
 # merge queue's merge-group commit (a BATCH of up to 5 ready pull requests, one lane run per batch),
 # and on workflow_dispatch. Pull requests do NOT run it: the required `aggregate` on a PR comes from
-# pr-precheck.yml (light pre-check), and the merge queue then requires this workflow's `aggregate`
+# pr-precheck.yml (light pre-check + selected integration tests), and the merge queue then requires this workflow's `aggregate`
 # on the batch. Apply only with the merge-queue ruleset active.
 # What main does (the plan job's `mode` output; the queue already tested what lands on main):
 #   push to main     mode=cache  CACHE REFRESH ONLY: build + coverage-build + gomod-cache save the caches, no
