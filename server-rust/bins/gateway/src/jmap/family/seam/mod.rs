@@ -351,7 +351,7 @@ mod tests {
 
     // The reviewed core files next to the stubs.
     use literals::CORE_FILES;
-    /// Narrow, exact exceptions for the core files (types and test-only harness use).
+    /// Narrow, exact exceptions for the core files, valid anywhere in the file (re-exports and types).
     const MOD_EXCEPTIONS: &[&str] = &[
         "pub(crate) use crate::jmap::get::parse_id;",
         "pub use seam::ContinuitySigner;",
@@ -359,6 +359,11 @@ mod tests {
         "crate::jmap::JmapServices",
         "crate::jmap::reply::go_compact",
         "crate::jmap::ws_request::metadata",
+    ];
+    /// Exceptions valid only inside the core file's `#[cfg(test)] mod tests { .. }`
+    /// (#427): constructing an executor, an auth context or a `Cx` is test harness
+    /// use there and a tenant-isolation hole anywhere else in the file.
+    const MOD_TEST_ONLY_EXCEPTIONS: &[&str] = &[
         "use setjoin_contracts::ids::{ActorId, Generation, MailboxId};",
         "use setjoin_pg::{MailboxAuthContext, ScopedExecutor};",
         "include_str!(",
@@ -366,11 +371,6 @@ mod tests {
         "std::fs::read_to_string",
         "env!(\"CARGO_MANIFEST_DIR\")",
         "#[tokio::test]",
-    ];
-    /// Exceptions valid only inside the core file's `#[cfg(test)] mod tests { .. }`
-    /// (#427): constructing an executor, an auth context or a `Cx` is test harness
-    /// use there and a tenant-isolation hole anywhere else in the file.
-    const MOD_TEST_ONLY_EXCEPTIONS: &[&str] = &[
         "ScopedExecutor::from_dsn(",
         "MailboxAuthContext::from_authenticated_session(",
         "Cx::new(",
@@ -686,6 +686,21 @@ mod tests {
             "core files are scanned too"
         );
         assert!(!violations("args.rs", "fn f() { let _ = std::fs::read(\"x\"); }").is_empty());
+        // #427 S2: the harness uses are exempt only inside `mod tests`.
+        for item in [
+            "use setjoin_pg::{MailboxAuthContext, ScopedExecutor};",
+            "use setjoin_contracts::ids::{ActorId, Generation, MailboxId};",
+            "const G: &str = include_str!(\"x\");",
+            "fn f() { let _ = std::fs::read_dir(\"x\"); }",
+            "fn f() { let _ = std::fs::read_to_string(\"x\"); }",
+            "fn f() -> &'static str { env!(\"CARGO_MANIFEST_DIR\") }",
+            "#[tokio::test]\nasync fn t() {}",
+        ] {
+            assert!(!violations("mod.rs", item).is_empty(), "outside: {item}");
+            let inside = format!("#[cfg(test)] mod tests {{ {item} }}");
+            let found = violations("mod.rs", &inside);
+            assert!(found.is_empty(), "inside mod tests: {item}: {found:?}");
+        }
         // #427 item 4: the harness constructors are exempt only inside `mod tests`.
         for call in [
             "ScopedExecutor::from_dsn(\"x\", 1)",

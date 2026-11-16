@@ -821,17 +821,14 @@ pub(crate) async fn worker_read(cx: &Cx<'_>, statement: WorkerRead) -> Result<St
     let Some(services) = cx.services else {
         return Err(MethodError::server_fail());
     };
-    debug_assert_eq!(
-        cx.user,
-        cx.primary.actor().get(),
-        "worker read: Cx::user must be the authenticated actor"
-    );
     let project = projection(cx.method.name);
     let list = match statement {
         WorkerRead::TaskListTasks { list } | WorkerRead::TaskListRoster { list } => Some(list),
         _ => None,
     };
-    let mut bindings: Vec<Param<'_>> = vec![(&cx.user, Type::INT8)];
+    // The user binding is the authenticated actor itself, never `Cx::user` (#427).
+    let user = cx.primary.actor().get();
+    let mut bindings: Vec<Param<'_>> = vec![(&user, Type::INT8)];
     if let Some(list) = &list {
         bindings.push((list, Type::INT8));
     }
@@ -858,15 +855,10 @@ pub(crate) async fn worker_write(
     let Some(operation) = crate::jmap::random() else {
         return Err(MethodError::server_fail());
     };
-    debug_assert_eq!(
-        cx.user,
-        cx.primary.actor().get(),
-        "worker write: Cx::user must be the authenticated actor"
-    );
     let worker = &services.worker;
     let actor = cx.primary.actor();
     let operation = OperationId(operation);
-    let user = cx.user;
+    let user = cx.primary.actor().get();
     let outcome = match statement {
         WorkerWrite::TaskListCreate { name, color } => {
             worker
@@ -1674,25 +1666,13 @@ mod db {
         "p_viewer",
         "p_viewer_id",
     ];
-    /// Reviewed user-shaped parameters that are not the actor. `p_actor_email`
-    /// is the verified token email (`Cx::email`), covered per call site by the
-    /// #369 email tests, not by this id guard.
-    const NON_ACTOR_ARGUMENTS: &[&str] = &[
-        "p_actor_email",
-        "p_assignee_user_id",
-        "p_handoff_user_id",
-        "p_member_user_id",
-        "p_mention_user_ids",
-        "p_target_user_id",
-        "p_user_ids",
-    ];
-    /// The names a scoped statement's `$1` (the scope mailbox) may land on, and
-    /// the only mailbox-shaped names `$1` may feed (`$1` iff one of these).
+    /// The names a scoped statement's `$1` (the scope mailbox) lands on, and the
+    /// only names it may land on (`$1` iff one of these).
     const MAILBOX_ARGUMENTS: &[&str] = &["p_account_id", "p_mailbox_id"];
-    /// Reviewed (reducer, parameter, evidence) triples: a mailbox/account/owner-shaped
-    /// parameter other than the scope mailbox may take a family value only for
-    /// an exact listed pair. A name alone is never evidence (#427, Codex r1).
-    const REVIEWED_MAILBOX_PAIRS: &[(&str, &str, &str)] = &[
+    /// Reviewed (reducer, parameter, evidence): an authority-shaped parameter
+    /// that takes a family value. Exact pairs only; a bare name is never
+    /// evidence (#427). New ports add a pair with evidence from the reducer.
+    const REVIEWED_PAIRS: &[(&str, &str, &str)] = &[
         (
             "jmap_calendar_get_shared",
             "p_owner_email",
@@ -1704,13 +1684,114 @@ mod db {
             "p_owner_email",
             "calendar_sharing.sql:108: same viewer and calendar-ACL gate as get_shared",
         ),
+        (
+            "jmap_calendar_event_rsvp",
+            "p_attendee_email",
+            "calendar_itip.sql:12: CalendarEvent/rsvp delegate arm; rsvp_on_behalf builds the \
+             manager scope only from a full_access/manage_calendar grant and $2 is p_on_behalf_of",
+        ),
+        (
+            "task_list_add_member",
+            "p_member_email",
+            "task_lists.sql:123: worker call; p_user_id (the verified user, $1) is the actor \
+             the reducer authorizes the roster change against",
+        ),
+        (
+            "task_list_remove_member",
+            "p_member_user_id",
+            "task_lists.sql:160: worker call; p_user_id (the verified user, $1) is the actor \
+             the reducer authorizes the roster change against",
+        ),
     ];
-
-    fn reviewed_pair(function: &str, name: &str) -> bool {
-        REVIEWED_MAILBOX_PAIRS
-            .iter()
-            .any(|(reducer, parameter, _)| *reducer == function && *parameter == name)
-    }
+    /// Reviewed neutral (reducer, parameter, why it is not authority): payload,
+    /// row ids resolved under the bound actor/scope, and time bounds. Every
+    /// parameter of every called reducer is an actor name on its actor
+    /// placeholder, a scope mailbox on `$1`, a reviewed pair, or listed here.
+    /// The `seam_probe_*` rows are the #427 test reducers.
+    const REVIEWED_NEUTRAL_ARGUMENTS: &[(&str, &str, &str)] = &[
+        ("jmap_calendar_event_get_shared", "p_after", "time bound"),
+        ("jmap_calendar_event_get_shared", "p_before", "time bound"),
+        (
+            "jmap_calendar_event_rsvp",
+            "p_event_id",
+            "event row resolved in the scope mailbox",
+        ),
+        (
+            "jmap_calendar_event_rsvp",
+            "p_status",
+            "RSVP status payload",
+        ),
+        (
+            "quick_step_apply",
+            "p_id",
+            "quick step row of the scope mailbox",
+        ),
+        (
+            "quick_step_apply",
+            "p_message_id",
+            "message the statement looked up in the scope mailbox ($1)",
+        ),
+        (
+            "quick_step_apply",
+            "p_received_at",
+            "timestamp of that message",
+        ),
+        (
+            "task_assignee_set_status",
+            "p_task_id",
+            "task row resolved under the bound user",
+        ),
+        ("task_assignee_set_status", "p_status", "status payload"),
+        (
+            "task_list_add_member",
+            "p_list_id",
+            "list row resolved under the bound user",
+        ),
+        (
+            "task_list_remove_member",
+            "p_list_id",
+            "list row resolved under the bound user",
+        ),
+        ("task_list_create", "p_name", "name payload"),
+        ("task_list_create", "p_color", "color payload"),
+        (
+            "task_list_delete",
+            "p_list_id",
+            "list row resolved under the bound user",
+        ),
+        (
+            "task_list_get_roster",
+            "p_list_id",
+            "list row resolved under the bound user",
+        ),
+        (
+            "task_list_task_set",
+            "p_list_id",
+            "list row resolved under the bound user",
+        ),
+        ("task_list_task_set", "p_creates", "JSON payload"),
+        ("task_list_task_set", "p_updates", "JSON payload"),
+        ("task_list_task_set", "p_destroys", "JSON payload"),
+        (
+            "task_list_tasks",
+            "p_list_id",
+            "list row resolved under the bound user",
+        ),
+        (
+            "task_list_update",
+            "p_list_id",
+            "list row resolved under the bound user",
+        ),
+        ("task_list_update", "p_patch", "JSON payload"),
+        ("seam_probe_unbound", "p_x", "probe payload"),
+        ("seam_probe_scope", "p_x", "probe payload"),
+    ];
+    /// Reviewed non-placeholder argument expressions: (reducer, expression, why).
+    const REVIEWED_EXPRESSIONS: &[(&str, &str, &str)] = &[(
+        "quick_step_apply",
+        "r.received_at",
+        "max(received_at) of the scope-mailbox message the statement just selected",
+    )];
     /// Functions a family calls on purpose although no public signature exists
     /// (#370 mirrors Go bug G1, contacts.go:170). Reviewed; must stay missing.
     const KNOWN_MISSING: &[&str] = &[
@@ -1719,41 +1800,68 @@ mod db {
         "jmap_contactcard_set_update",
     ];
 
-    fn user_shaped() -> &'static Regex {
-        static PATTERN: OnceLock<Regex> = OnceLock::new();
-        PATTERN.get_or_init(|| {
-            Regex::new(r"user|actor|caller|viewer|requester|principal|delegate|behalf")
-                .expect("user-shaped pattern")
-        })
+    fn reviewed_pair(function: &str, name: &str) -> bool {
+        REVIEWED_PAIRS
+            .iter()
+            .any(|(reducer, parameter, _)| *reducer == function && *parameter == name)
     }
 
-    fn mailbox_shaped() -> &'static Regex {
-        static PATTERN: OnceLock<Regex> = OnceLock::new();
-        PATTERN
-            .get_or_init(|| Regex::new(r"mailbox|account|owner").expect("mailbox-shaped pattern"))
+    fn reviewed_neutral(function: &str, name: &str) -> bool {
+        REVIEWED_NEUTRAL_ARGUMENTS
+            .iter()
+            .any(|(reducer, parameter, _)| *reducer == function && *parameter == name)
     }
 
-    /// `Ok(true)` an actor parameter, `Ok(false)` any other reviewed or
-    /// non-user parameter, `Err` a user-shaped name nobody reviewed.
-    fn classify(name: &str) -> Result<bool, String> {
-        if ACTOR_ARGUMENTS.contains(&name) {
-            Ok(true)
-        } else if NON_ACTOR_ARGUMENTS.contains(&name) || !user_shaped().is_match(name) {
-            Ok(false)
-        } else {
-            Err(format!("unreviewed user-shaped parameter {name}"))
+    /// The closed vocabulary. One parameter of `function`, given placeholder
+    /// `argument` (`None`: omitted or an expression), is acceptable only when it is
+    /// (a) an `ACTOR_ARGUMENTS` name bound to `actor`, (b) a `MAILBOX_ARGUMENTS`
+    /// name bound to `$1` of a scoped statement, (c) a reviewed pair or
+    /// (d) a reviewed neutral entry. Everything else, supplied or omitted, is a
+    /// finding, whatever its spelling.
+    fn parameter_problem(
+        function: &str,
+        name: &str,
+        argument: Option<usize>,
+        actor: usize,
+        scoped: bool,
+    ) -> Option<String> {
+        if name.is_empty() {
+            return Some(format!("{function}: unnamed parameter"));
         }
+        if ACTOR_ARGUMENTS.contains(&name) {
+            return (argument != Some(actor)).then(|| {
+                format!("{function}: actor parameter {name} is {argument:?}, not ${actor}")
+            });
+        }
+        if argument == Some(actor) {
+            return Some(format!("{function}: the actor lands in non-actor {name}"));
+        }
+        if MAILBOX_ARGUMENTS.contains(&name) {
+            return (!(scoped && argument == Some(1)))
+                .then(|| format!("{function}: scope mailbox parameter {name} is {argument:?}"));
+        }
+        if scoped && argument == Some(1) {
+            return Some(format!("{function} gets the scope mailbox in {name}"));
+        }
+        if reviewed_pair(function, name) || reviewed_neutral(function, name) {
+            return None;
+        }
+        Some(format!(
+            "{function}: unreviewed parameter {name} ({argument:?})"
+        ))
     }
 
-    /// Input-argument names of every public function called `name`.
+    /// Input-argument names of every public function called `name`; an unnamed
+    /// parameter is an empty name (so it fails), never a skipped signature.
     async fn signatures(owner: &Client, name: &str) -> Vec<Vec<String>> {
         owner
             .query(
-                "SELECT ARRAY(SELECT a.n FROM unnest(p.proargnames, COALESCE(p.proargmodes, \
+                "SELECT CASE WHEN p.proargnames IS NULL THEN \
+                 ARRAY(SELECT '' FROM generate_series(1, p.pronargs))::text[] ELSE \
+                 ARRAY(SELECT a.n FROM unnest(p.proargnames, COALESCE(p.proargmodes, \
                  array_fill('i'::\"char\", ARRAY[cardinality(p.proargnames)]))) AS a(n, m) \
-                 WHERE a.m IN ('i', 'b', 'v'))::text[] FROM pg_proc p \
-                 WHERE p.proname = $1 AND p.pronamespace = 'public'::regnamespace \
-                 AND p.proargnames IS NOT NULL",
+                 WHERE a.m IN ('i', 'b', 'v'))::text[] END FROM pg_proc p \
+                 WHERE p.proname = $1 AND p.pronamespace = 'public'::regnamespace",
                 &[&name],
             )
             .await
@@ -1761,6 +1869,48 @@ mod db {
             .iter()
             .map(|row| row.get::<_, Vec<String>>(0))
             .collect()
+    }
+
+    /// Every `name(` call in `sql` with its top-level arguments, parentheses
+    /// balanced (nested and parenthesised arguments stay in one argument; a
+    /// quoted string hides its commas and parentheses). An unbalanced call
+    /// takes the rest of the text, which makes its last argument non-plain.
+    fn call_sites(sql: &str, call: &Regex) -> Vec<(String, Vec<String>)> {
+        let mut sites = Vec::new();
+        for found in call.captures_iter(sql) {
+            let start = found.get(0).expect("match").end();
+            let (mut depth, mut quoted) = (0usize, false);
+            let (mut current, mut arguments) = (String::new(), Vec::new());
+            let mut closed = false;
+            for ch in sql[start..].chars() {
+                if ch == '\'' {
+                    quoted = !quoted;
+                } else if !quoted {
+                    match ch {
+                        '(' | '[' => depth += 1,
+                        ')' | ']' if depth > 0 => depth -= 1,
+                        ')' => {
+                            closed = true;
+                            break;
+                        }
+                        ',' if depth == 0 => {
+                            arguments.push(current.trim().to_owned());
+                            current.clear();
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                current.push(ch);
+            }
+            arguments.push(if closed {
+                current.trim().to_owned()
+            } else {
+                format!("{}<unbalanced>", current.trim())
+            });
+            sites.push((found[1].to_owned(), arguments));
+        }
+        sites
     }
 
     /// Every rule a statement breaks. `actor` is the placeholder holding the
@@ -1772,21 +1922,35 @@ mod db {
         actor: usize,
         scoped: bool,
     ) -> Vec<String> {
-        let call = Regex::new(r"([a-z_][a-z0-9_]*)\(([^()]*)\)").expect("call pattern");
+        let call = Regex::new(r"([a-z_][a-z0-9_]*)\(").expect("call pattern");
         let placeholder = Regex::new(r"^\$([0-9]+)").expect("placeholder pattern");
+        let plain =
+            Regex::new(r"^\$[1-9][0-9]*(::[a-z_][a-z0-9_]*(\[\])?)*$").expect("plain pattern");
         let mut found = Vec::new();
-        for captures in call.captures_iter(sql) {
-            let function = &captures[1];
-            let arguments: Vec<Option<usize>> = captures[2]
-                .split(',')
+        for (function, raw) in call_sites(sql, &call) {
+            let function = function.as_str();
+            let raw: Vec<&str> = raw.iter().map(String::as_str).collect();
+            let arguments: Vec<Option<usize>> = raw
+                .iter()
                 .map(|argument| {
                     placeholder
-                        .captures(argument.trim())
+                        .captures(argument)
                         .and_then(|number| number[1].parse().ok())
                 })
                 .collect();
             if arguments.iter().all(Option::is_none) {
                 continue;
+            }
+            for (index, argument) in raw.iter().enumerate() {
+                let reviewed = REVIEWED_EXPRESSIONS
+                    .iter()
+                    .any(|(reducer, text, _)| *reducer == function && text == argument);
+                if !plain.is_match(argument) && !reviewed {
+                    found.push(format!(
+                        "{origin}: {function} argument {} is not a plain placeholder: {argument}",
+                        index + 1
+                    ));
+                }
             }
             let fitting: Vec<Vec<String>> = signatures(owner, function)
                 .await
@@ -1800,57 +1964,13 @@ mod db {
                 continue;
             }
             for names in &fitting {
-                for (index, argument) in arguments.iter().enumerate() {
-                    let name = names[index].as_str();
-                    let actor_named = match classify(name) {
-                        Ok(actor_named) => actor_named,
-                        Err(error) => {
-                            found.push(format!("{origin}: {function}: {error}"));
-                            continue;
-                        }
-                    };
-                    if actor_named != (*argument == Some(actor)) {
-                        found.push(format!(
-                            "{origin}: {function} argument {} ({name}) is {:?}",
-                            index + 1,
-                            argument
-                        ));
-                    }
-                    if scoped && *argument == Some(1) && !MAILBOX_ARGUMENTS.contains(&name) {
-                        found.push(format!(
-                            "{origin}: {function} gets the scope mailbox in {name}"
-                        ));
-                    }
-                    if mailbox_shaped().is_match(name) {
-                        if MAILBOX_ARGUMENTS.contains(&name) {
-                            // `$1` iff a scope-mailbox name: nothing else lands here.
-                            if argument.is_some() && (!scoped || *argument != Some(1)) {
-                                found.push(format!(
-                                    "{origin}: {function} argument {} ({name}) is {:?}, not the scope mailbox",
-                                    index + 1,
-                                    argument
-                                ));
-                            }
-                        } else if !reviewed_pair(function, name) {
-                            found.push(format!(
-                                "{origin}: {function}: unreviewed mailbox-shaped parameter {name}"
-                            ));
-                        }
-                    }
-                }
-                // An omitted (defaulted) parameter runs unbound: it gets the same
-                // classification as a supplied one.
-                for name in names.iter().skip(arguments.len()) {
-                    if ACTOR_ARGUMENTS.contains(&name.as_str()) {
-                        found.push(format!(
-                            "{origin}: {function} leaves actor parameter {name} unbound"
-                        ));
-                    } else if let Err(error) = classify(name) {
-                        found.push(format!("{origin}: {function} omits: {error}"));
-                    } else if mailbox_shaped().is_match(name) && !reviewed_pair(function, name) {
-                        found.push(format!(
-                            "{origin}: {function} omits mailbox-shaped parameter {name}"
-                        ));
+                // Supplied and omitted (defaulted) parameters alike.
+                for (index, name) in names.iter().enumerate() {
+                    let argument = arguments.get(index).copied().flatten();
+                    if let Some(problem) =
+                        parameter_problem(function, name, argument, actor, scoped)
+                    {
+                        found.push(format!("{origin}: {problem}"));
                     }
                 }
             }
@@ -1955,21 +2075,75 @@ mod db {
             .collect()
     }
 
+    /// The closed vocabulary, without a database.
     #[test]
-    fn user_shaped_names_are_classified() {
-        assert_eq!(classify("p_user_id"), Ok(true));
-        assert_eq!(classify("p_on_behalf_of"), Ok(true));
-        assert_eq!(classify("p_member_user_id"), Ok(false));
-        assert_eq!(classify("p_mailbox_id"), Ok(false));
-        assert_eq!(classify("p_ids"), Ok(false));
-        for unknown in [
-            "p_delegate_id",
-            "p_sender_user_id",
+    fn parameters_are_a_closed_vocabulary() {
+        let ok = |function, name, argument, scoped| {
+            parameter_problem(function, name, argument, if scoped { 2 } else { 1 }, scoped)
+        };
+        assert_eq!(ok("f", "p_user_id", Some(1), false), None);
+        assert_eq!(ok("f", "p_on_behalf_of", Some(2), true), None);
+        assert_eq!(ok("f", "p_mailbox_id", Some(1), true), None);
+        assert_eq!(
+            ok("jmap_calendar_get_shared", "p_owner_email", Some(3), true),
+            None
+        );
+        assert_eq!(ok("task_list_tasks", "p_list_id", Some(2), false), None);
+        // Authority-shaped or merely unknown names fail, supplied or omitted,
+        // unless an exact reviewed pair exists.
+        for name in [
+            "p_booked_by",
+            "p_attendee_email",
+            "p_organizer_email",
+            "p_member_email",
+            "p_target_id",
+            "p_created_by",
+            "p_invited_by",
+            "p_added_by",
+            "p_admin_id",
+            "p_assignee_id",
+            "p_grantee",
+            "p_domain_id",
+            "p_mbx_id",
+            "p_target",
+            "p_tenant",
+            "p_org_id",
             "p_principal",
-            "p_caller",
+            "p_delegate_id",
+            "p_owner_mailbox_id",
+            "p_widget_id",
+            "",
         ] {
-            assert!(classify(unknown).is_err(), "{unknown}");
+            for argument in [Some(3), None] {
+                assert!(
+                    ok("f", name, argument, true).is_some(),
+                    "{name:?} {argument:?}"
+                );
+            }
         }
+        // The actor and the scope mailbox land only where they belong.
+        assert!(ok("f", "p_user_id", None, false).is_some(), "omitted actor");
+        assert!(ok("f", "p_user_id", Some(3), false).is_some());
+        assert!(
+            ok("f", "p_widget_id", Some(2), true).is_some(),
+            "actor in a neutral slot"
+        );
+        assert!(ok("f", "p_mailbox_id", Some(3), true).is_some());
+        assert!(
+            ok("f", "p_mailbox_id", None, true).is_some(),
+            "omitted scope mailbox"
+        );
+        assert!(
+            ok("f", "p_mailbox_id", Some(1), false).is_some(),
+            "worker has no scope mailbox"
+        );
+        assert!(
+            ok("f", "p_widget_id", Some(1), true).is_some(),
+            "scope mailbox in a neutral slot"
+        );
+        // A pair is exact: the same name on another reducer still fails.
+        assert!(ok("other", "p_owner_email", Some(3), true).is_some());
+        assert!(ok("jmap_calendar_get_shared", "p_other", Some(3), true).is_some());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2014,6 +2188,18 @@ mod db {
             "CREATE OR REPLACE FUNCTION public.seam_probe_omit_account(p_mailbox_id bigint, \
              p_target_account_id bigint DEFAULT NULL) RETURNS text LANGUAGE sql AS \
              $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_booked(p_mailbox_id bigint, \
+             p_booked_by bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_attendee(p_mailbox_id bigint, \
+             p_attendee_email text) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_mbx(p_mailbox_id bigint, \
+             p_mbx_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_widget(p_mailbox_id bigint, \
+             p_widget_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_unnamed(bigint, bigint) \
+             RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_expr(p_mailbox_id bigint, \
+             p_x bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
             "CREATE OR REPLACE FUNCTION public.seam_probe_owner(p_mailbox_id bigint, \
              p_owner_mailbox_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
             "CREATE OR REPLACE FUNCTION public.seam_probe_scope(p_x bigint, \
@@ -2027,6 +2213,54 @@ mod db {
                 2,
                 true,
                 "#427 item 1: the actor parameter is omitted, not supplied",
+            ),
+            (
+                "SELECT seam_probe_booked($1,$3)",
+                2,
+                true,
+                "#427 B1: p_booked_by is authority-shaped and unreviewed",
+            ),
+            (
+                "SELECT seam_probe_attendee($1,$3)",
+                2,
+                true,
+                "#427 B1: p_attendee_email is unreviewed on any other reducer",
+            ),
+            (
+                "SELECT seam_probe_mbx($1,$3)",
+                2,
+                true,
+                "#427 B1: p_mbx_id is a mailbox spelling no regex knows",
+            ),
+            (
+                "SELECT seam_probe_widget($1,$3)",
+                2,
+                true,
+                "#427 B1: an unknown neutral-looking name is not in the list",
+            ),
+            (
+                "SELECT seam_probe_unnamed($1,$3)",
+                2,
+                true,
+                "#427 B1: unnamed parameters fail",
+            ),
+            (
+                "SELECT seam_probe_expr($1,0+$3)",
+                2,
+                true,
+                "#427 S3: an expression argument",
+            ),
+            (
+                "SELECT seam_probe_expr($1,p_x=>$3)",
+                2,
+                true,
+                "#427 S3: named notation",
+            ),
+            (
+                "SELECT seam_probe_expr($1,($3))",
+                2,
+                true,
+                "#427 S3: a parenthesised argument",
             ),
             (
                 "SELECT seam_probe_omit_principal($1)",
