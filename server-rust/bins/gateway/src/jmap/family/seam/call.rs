@@ -821,6 +821,11 @@ pub(crate) async fn worker_read(cx: &Cx<'_>, statement: WorkerRead) -> Result<St
     let Some(services) = cx.services else {
         return Err(MethodError::server_fail());
     };
+    debug_assert_eq!(
+        cx.user,
+        cx.primary.actor().get(),
+        "worker read: Cx::user must be the authenticated actor"
+    );
     let project = projection(cx.method.name);
     let list = match statement {
         WorkerRead::TaskListTasks { list } | WorkerRead::TaskListRoster { list } => Some(list),
@@ -853,6 +858,11 @@ pub(crate) async fn worker_write(
     let Some(operation) = crate::jmap::random() else {
         return Err(MethodError::server_fail());
     };
+    debug_assert_eq!(
+        cx.user,
+        cx.primary.actor().get(),
+        "worker write: Cx::user must be the authenticated actor"
+    );
     let worker = &services.worker;
     let actor = cx.primary.actor();
     let operation = OperationId(operation);
@@ -1676,8 +1686,20 @@ mod db {
         "p_target_user_id",
         "p_user_ids",
     ];
-    /// The names a scoped statement's `$1` (the scope mailbox) may land on.
+    /// The names a scoped statement's `$1` (the scope mailbox) may land on, and
+    /// the only mailbox-shaped names `$1` may feed (`$1` iff one of these).
     const MAILBOX_ARGUMENTS: &[&str] = &["p_account_id", "p_mailbox_id"];
+    /// Reviewed mailbox/account/owner-shaped parameters other than the scope
+    /// mailbox. A family param (never `$1`, never the actor) may land on them;
+    /// the call site's own tests cover which foreign mailbox it names (R1/R3).
+    /// Any other mailbox-shaped name fails until reviewed and added here.
+    const REVIEWED_MAILBOX_ARGUMENTS: &[&str] = &[
+        "p_author_mailbox_id",
+        "p_mailbox",
+        "p_mailbox_ids",
+        "p_owner_mailbox_id",
+        "p_recaller_mailbox_id",
+    ];
     /// Functions a family calls on purpose although no public signature exists
     /// (#370 mirrors Go bug G1, contacts.go:170). Reviewed; must stay missing.
     const KNOWN_MISSING: &[&str] = &[
@@ -1692,6 +1714,12 @@ mod db {
             Regex::new(r"user|actor|caller|viewer|requester|principal|delegate|behalf")
                 .expect("user-shaped pattern")
         })
+    }
+
+    fn mailbox_shaped() -> &'static Regex {
+        static PATTERN: OnceLock<Regex> = OnceLock::new();
+        PATTERN
+            .get_or_init(|| Regex::new(r"mailbox|account|owner").expect("mailbox-shaped pattern"))
     }
 
     /// `Ok(true)` an actor parameter, `Ok(false)` any other reviewed or
@@ -1780,6 +1808,31 @@ mod db {
                     if scoped && *argument == Some(1) && !MAILBOX_ARGUMENTS.contains(&name) {
                         found.push(format!(
                             "{origin}: {function} gets the scope mailbox in {name}"
+                        ));
+                    }
+                    if mailbox_shaped().is_match(name) {
+                        if MAILBOX_ARGUMENTS.contains(&name) {
+                            // `$1` iff a scope-mailbox name: nothing else lands here.
+                            if argument.is_some() && (!scoped || *argument != Some(1)) {
+                                found.push(format!(
+                                    "{origin}: {function} argument {} ({name}) is {:?}, not the scope mailbox",
+                                    index + 1,
+                                    argument
+                                ));
+                            }
+                        } else if !REVIEWED_MAILBOX_ARGUMENTS.contains(&name) {
+                            found.push(format!(
+                                "{origin}: {function}: unreviewed mailbox-shaped parameter {name}"
+                            ));
+                        }
+                    }
+                }
+                // A defaulted actor parameter past the supplied arguments is
+                // unbound: the reducer would run without the verified user.
+                for name in names.iter().skip(arguments.len()) {
+                    if ACTOR_ARGUMENTS.contains(&name.as_str()) {
+                        found.push(format!(
+                            "{origin}: {function} leaves actor parameter {name} unbound"
                         ));
                     }
                 }
@@ -1904,6 +1957,10 @@ mod db {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn actor_arguments_are_seam_bound() {
+        // No database: `for_case` panics under REQUIRE_DB=1 (the lane and the
+        // PR pre-check) and otherwise prints `CONFORMANCE-SKIP (reason=no-db
+        // case=actor_arguments_are_seam_bound)`, which scripts/check-server-rust.sh
+        // counts and turns red under REQUIRE_DB=1. It cannot pass silently (#427).
         let Some(db) = Db::for_case("actor_arguments_are_seam_bound") else {
             return;
         };
@@ -1927,7 +1984,40 @@ mod db {
                 "{missing} exists now: remove it from KNOWN_MISSING"
             );
         }
+        // Probe reducers (the per-test clone is discarded) so the #427 shapes
+        // do not depend on which real reducers exist.
+        for ddl in [
+            "CREATE OR REPLACE FUNCTION public.seam_probe_unbound(p_mailbox_id bigint, \
+             p_x text, p_actor_id bigint DEFAULT NULL) RETURNS text LANGUAGE sql AS \
+             $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_account(p_mailbox_id bigint, \
+             p_target_account_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_owner(p_mailbox_id bigint, \
+             p_owner_mailbox_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+            "CREATE OR REPLACE FUNCTION public.seam_probe_scope(p_x bigint, \
+             p_mailbox_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT NULL::text $$",
+        ] {
+            owner.batch_execute(ddl).await.expect("probe reducer");
+        }
         for (sql, actor, scoped, why) in [
+            (
+                "SELECT seam_probe_unbound($1,$3)",
+                2,
+                true,
+                "#427 item 1: the actor parameter is omitted, not supplied",
+            ),
+            (
+                "SELECT seam_probe_account($1,$3)",
+                2,
+                true,
+                "#427 item 2: an unreviewed account-shaped parameter",
+            ),
+            (
+                "SELECT seam_probe_scope($4,$3)",
+                2,
+                true,
+                "#427 item 2: a family param in the scope mailbox parameter",
+            ),
             (
                 "SELECT mail_work_get($1,$3,$4)",
                 2,
@@ -1977,6 +2067,19 @@ mod db {
                     .is_empty(),
                 "{why}: {sql}"
             );
+        }
+        for (sql, why) in [
+            (
+                "SELECT seam_probe_unbound($1,$3,$2)",
+                "the actor supplied in the actor slot",
+            ),
+            (
+                "SELECT seam_probe_owner($1,$3)",
+                "a reviewed owner-mailbox parameter takes a family param",
+            ),
+        ] {
+            let found = violations(&owner, "fixture", sql, 2, true).await;
+            assert!(found.is_empty(), "{why}: {sql}: {found:?}");
         }
         assert!(
             violations(
