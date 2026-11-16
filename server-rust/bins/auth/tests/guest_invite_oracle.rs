@@ -1246,30 +1246,41 @@ async fn exercise(
     // Volatile per run: every extra response's `expires_at`, on both sides.
     redact_extra_expiry(&mut expected);
     redact_extra_expiry(&mut actual);
-    if kind == "rate-limited" && method == "POST" {
-        // Recorded divergence guest-invite-no-row-on-rate-limit: Go writes a failure row
-        // for each of the 11 requests; native writes none for the 429, so 10. Pin both
-        // counts, drop the one divergent Go row, and compare everything else unchanged.
-        let count = |doc: &Value| {
-            doc.pointer("/effects/0/after/attempts")
+    if !recording && kind == "rate-limited" && method == "POST" {
+        // Replay only (recording compares Go's own, unchanged eleven rows). Recorded
+        // divergence guest-invite-no-row-on-rate-limit: Go writes a failure row for each
+        // of the 11 requests; native writes none for the 429, so 10. Pin both counts in
+        // BOTH artifact copies, drop the one divergent Go row from each, and compare
+        // everything else exactly.
+        let count = |doc: &Value, at: &str| {
+            doc.pointer(at)
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter(|x| x["outcome"] == "failure").count())
         };
-        assert_eq!(
-            count(&expected_rows),
-            Some(11),
-            "Go recorded 11 failure rows"
-        );
-        assert_eq!(count(&effects), Some(10), "native records 10 failure rows");
-        let rows = expected_rows
-            .pointer_mut("/effects/0/after/attempts")
-            .and_then(Value::as_array_mut)
-            .ok_or("Go row artifact lacks attempts")?;
-        let at = rows
-            .iter()
-            .rposition(|x| x["outcome"] == "failure")
-            .ok_or("no Go failure row")?;
-        rows.remove(at);
+        for (go, native, at) in [
+            (&mut expected, &actual, "/observation/effects/attempts"),
+            (&mut expected_rows, &effects, "/effects/0/after/attempts"),
+        ] {
+            assert_eq!(
+                count(go, at),
+                Some(11),
+                "Go recorded 11 failure rows at {at}"
+            );
+            assert_eq!(
+                count(native, at),
+                Some(10),
+                "native records 10 failure rows at {at}"
+            );
+            let rows = go
+                .pointer_mut(at)
+                .and_then(Value::as_array_mut)
+                .ok_or("Go artifact lacks attempts")?;
+            let last = rows
+                .iter()
+                .rposition(|x| x["outcome"] == "failure")
+                .ok_or("no Go failure row")?;
+            rows.remove(last);
+        }
     }
     if kind == "concurrent" {
         // Which of the two simultaneous requests wins is random; compare by role.
@@ -1795,22 +1806,24 @@ async fn deadline(ctx: &Ctx) -> Result<(), Err> {
 
 async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
     let fx = seed(&ctx.c, "valid").await?;
-    // The gate is attached: with feature.rate_limit on, login is admitted natively
-    // (http_threat.rs); only guest-invite, CA and device trust still forward.
-    let server = auth_server(
-        Arc::new(
-            load(ctx, false, false)
-                .await?
-                .with_threat_gate(&ctx.db.dsn)
-                .await?,
-        ),
-        false,
-    )
-    .await;
+    let since = now_text(&ctx.c).await?;
     let mut result: Result<(), Err> = Ok(());
     for (i, key) in TOGGLES.into_iter().enumerate() {
         let from = Ipv4Addr::new(127, 0, 0, 160 + i as u8);
         set_toggle(&ctx.c, key, Some(true)).await?;
+        // The gate caches the toggles when it loads, so it is built after the toggle is
+        // on: with feature.rate_limit on, login is admitted natively (http_threat.rs);
+        // only guest-invite, CA and device trust still forward.
+        let server = auth_server(
+            Arc::new(
+                load(ctx, false, false)
+                    .await?
+                    .with_threat_gate(&ctx.db.dsn)
+                    .await?,
+            ),
+            false,
+        )
+        .await;
         let (target, payload) = shape("POST", "success", &fx.token);
         let guest = request(server.addr, from, "POST", &target, payload, &[]).await?;
         let login_body = json!({ "email": "nobody@guestaccept.test", "password": "x" });
@@ -1833,18 +1846,20 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         )
         .await?;
         set_toggle(&ctx.c, key, Some(false)).await?;
+        server.close().await;
         let native_login = key == "feature.rate_limit";
         let login_ok = if native_login {
-            // Native admission: no Go forward, and it wrote its own attempt row.
+            // Native admission, no Go forward: 401 for the unknown user, and the
+            // admission tail (gate.record) wrote exactly one http failure attempt.
             let rows: i64 = ctx
                 .c
                 .query_one(
-                    "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND target_username='nobody@guestaccept.test'",
-                    &[&from.to_string()],
+                    "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND target_username='nobody@guestaccept.test' AND protocol='http' AND outcome='failure' AND occurred_at >= $2::text::timestamptz",
+                    &[&from.to_string(), &since],
                 )
                 .await?
                 .get(0);
-            login.body != OWNER && login.status != 503 && rows > 0
+            login.status == 401 && rows == 1
         } else {
             login.status == 503 && login.body == OWNER
         };
@@ -1858,7 +1873,6 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         }
     }
     let state = rows(&ctx.c, &fx, "-infinity", PASSWORD).await?;
-    server.close().await;
     result?;
     if state["guests"][0]["status"] != "invited" {
         return Err("a forwarded POST changed state".into());
