@@ -1180,7 +1180,9 @@ async fn exercise(
     });
     let file = corpus().join("goldens").join(format!("{name}.json"));
     let rowfile = corpus().join("qualified").join(format!("{name}-rows.json"));
-    if recording {
+    // The gateway's own CSRF gate (#491) answers this case before any Go hop, so
+    // there is no Go golden to record; replay pins it through `phase1` instead.
+    if recording && kind != "gateway-cross-site-origin" {
         let source = std::env::var("GOFREE_GO_SOURCE")
             .map_err(|_| "GOFREE_GO_SOURCE (the checked-out HEAD) is required to record")?;
         if source.len() != 40 || !source.bytes().all(|b| b.is_ascii_hexdigit()) {
