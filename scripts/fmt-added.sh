@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Formats the Rust files this branch ADDS: the same set the PR pre-check checks.
-# Selection mirrors scripts/quick-check.sh, step "rustfmt --check added files":
-#   git diff --name-only --diff-filter=A "$BASE...HEAD" -- '*.rs'   (BASE = LANE_QC_BASE or origin/main)
+# Selection mirrors scripts/quick-check.sh, step "rustfmt --check added files", but compares
+# BASE to the working tree, so files staged with `git add` but not yet committed are included:
+#   git diff --name-only --diff-filter=A "$BASE" -- '*.rs'   (BASE = LANE_QC_BASE or origin/main)
+# Parity: once committed and clean, this equals quick-check's "$BASE...HEAD" (the merge-base diff).
+# Untracked files are not listed; run `git add` first.
 # Each file goes through rustfmt on stdin, so `mod x;` children are not rewritten
 # (same reason as quick-check-tests.sh fmt).
 #   bash scripts/fmt-added.sh           format in place
@@ -19,7 +22,7 @@ case "${1:-}" in
 esac
 
 BASE="${LANE_QC_BASE:-origin/main}"
-if ! listing="$(git diff --name-only --diff-filter=A "$BASE...HEAD" -- '*.rs')"; then
+if ! listing="$(git diff --name-only --diff-filter=A "$BASE" -- '*.rs')"; then
   echo "fmt-added: git diff against $BASE failed" >&2
   exit 1
 fi
@@ -28,7 +31,7 @@ while IFS= read -r f; do
   [ -n "$f" ] && files+=("$f")
 done <<< "$listing"
 if [ "${#files[@]}" -eq 0 ]; then
-  echo "fmt-added: no Rust file added relative to $BASE"
+  echo "fmt-added: no Rust file added (staged or committed) relative to $BASE"
   exit 0
 fi
 

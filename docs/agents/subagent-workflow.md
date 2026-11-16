@@ -71,7 +71,7 @@ XS goes to Haiku with the exact edit. Never resume the investigator to apply a d
   ~10-20 min) through the shared poller. With no PR yet, the coordinator dispatches the same check:
   `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push).
 - Before fixing a failing test, search open issues and other branches for its name.
-- Before committing Rust changes, run `bash scripts/fmt-added.sh` (formats added files through stdin, the same set the pre-check checks).
+- Before committing Rust changes, after `git add`, run `bash scripts/fmt-added.sh` (formats added files through stdin, the same set the pre-check checks).
 
 ## Review
 
