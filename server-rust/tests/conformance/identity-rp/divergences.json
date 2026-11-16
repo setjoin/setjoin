@@ -5,9 +5,9 @@
     "rust": "bins/auth/src/rp.rs GuestMint::Refuse, pinned by guest_scope N7",
     "reason": "Go refuses guests when it resolves the SSO identity, but its later mint lookup is a separate read and can derive acct: guest for an account that became a guest in between. Rust refuses at mint time, so no guest token is minted on the SSO path. Behavior predates #382; recorded here as a divergence, with no Go golden to pin.",
     "reviewed": true,
-    "reviewer": "Codex review of #382",
+    "reviewer": "owner policy 2026-11-05 (security Go bugs are fixed in Rust as approved divergences); Codex and Fable reviews of #382",
     "review": "security Go bug fixed in Rust under the owner's divergence policy; Codex review of #382",
-    "review_reference": "PR #382 (guest scope, #353), Codex review"
+    "review_reference": "owner policy 2026-11-05; PR #382 (guest scope, #353) Codex merge gate and Fable code review 2026-11-16"
   },
   {
     "baseline": "goldens/callback-address-collision.json",
