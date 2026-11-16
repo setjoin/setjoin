@@ -1,0 +1,75 @@
+{
+  "case": "guest-get-repeat",
+  "format": 1,
+  "go_source": "779311f509b1ab3557a3390e9a2e9612ecfb0043",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "guests": [
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": "v1",
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "actor",
+          "password": "absent",
+          "status": "invited"
+        },
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "foreign",
+          "password": "absent",
+          "status": "invited"
+        }
+      ]
+    },
+    "extra_responses": [
+      {
+        "body": "{\"channels\":[],\"disclosure_text\":\"You are being onboarded as an external guest user in guestaccept-host.test and will be able to access chat channels in guestaccept-host.test. Your messages, files, and activity will be retained under the organization's data retention policies. Authorized administrators may access, export, and review your content using the organization's compliance tooling. Your content is archived on-premise at your organization's location. By proceeding you consent to this archival and monitoring.\",\"disclosure_version\":\"v1\",\"expires_at\":\"2026-11-16T05:06:46Z\",\"invited_email\":\"guest@guestaccept-partner.test\",\"org_name\":\"guestaccept-host.test\"}\n",
+        "headers": {
+          "cache-control": "no-store",
+          "content-language": "en",
+          "content-type": "application/json"
+        },
+        "status": 200
+      }
+    ],
+    "notify": [],
+    "request": {
+      "body": "",
+      "headers": {},
+      "method": "GET",
+      "path": "/auth/guest-invite/accept",
+      "query": "token=<token>"
+    },
+    "response": {
+      "body": "{\"channels\":[],\"disclosure_text\":\"You are being onboarded as an external guest user in guestaccept-host.test and will be able to access chat channels in guestaccept-host.test. Your messages, files, and activity will be retained under the organization's data retention policies. Authorized administrators may access, export, and review your content using the organization's compliance tooling. Your content is archived on-premise at your organization's location. By proceeding you consent to this archival and monitoring.\",\"disclosure_version\":\"v1\",\"expires_at\":\"<expires-at>\",\"invited_email\":\"guest@guestaccept-partner.test\",\"org_name\":\"guestaccept-host.test\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-language": "en",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /auth/guest-invite/accept"
+}

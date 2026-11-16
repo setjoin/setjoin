@@ -43,3 +43,5 @@ pub mod saml_acs;
 pub mod identity_links;
 
 pub mod self_service;
+
+pub mod guest_invite;

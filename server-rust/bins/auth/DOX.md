@@ -477,3 +477,29 @@ never carried them) and the callback's flow-cookie clears are Lax too; the sessi
 cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test `rp_oidclax`
 (callback with Lax-eligible cookies only); mutants `scripts/test-oidclax-mutants.py`.
 
+
+## Guest invitation acceptance (#342)
+
+`src/guest_invite.rs` mirrors frozen Go GET/HEAD/POST `/auth/guest-invite/accept`.
+The gateway alias adds its global CSRF gate and authLimit; the handler has no CSRF
+(the single-use token authorizes). Both methods share recovery's enumeration
+budget. POST: login's shared pending boundary (`src/http_threat.rs`, #420/#405,
+resolved by DELETE #142 together with login), Go's outer 1 MiB cap, native
+always-on `ip_rules` (Go's 403 shape; lookup failures reject with
+`ip_rules_unavailable`, an approved divergence, native path only: a failed earlier
+threat read still forwards to Go, which fails open until Go is removed), strict closed JSON, and the `auth_attempts`
+postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
+the transaction settled (additive; per-class timing differs as in Go). Own
+two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
+missing reducers). Residuals: CAPTCHA header, username lockout, and threat-username JSON nesting beyond serde's 128 levels (#346).
+
+Rollout: the four guest-invite registrations (auth and gateway listener, GET and POST) stay
+OFF/go-auth in the bundled inventory until #396 (threat admission: captcha + username lockout
+parity) has merged AND a separate activation PR qualifies them (test
+`guest_invite_bundled_registrations_stay_off_go_auth`). Inventory OFF protects gateway
+dispatch only: the standalone auth listener mounts the handler unconditionally, so a direct
+request to the Rust auth process takes the native path; no direct-auth process switch exists
+yet, as for every native auth route: the gateway is the only supported entry before activation. Fault cases
+(`guest_post_fault_*`) are native rollback tests (strict 500, unchanged rows, audit and
+receipts, and exactly one `failure` attempt); the Go recorder skips `fault` cases, so they have no goldens. A missing golden
+stays fatal for every other case.

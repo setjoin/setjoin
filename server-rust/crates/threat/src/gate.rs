@@ -627,6 +627,29 @@ impl ThreatGate for Gate {
         Box::pin(self.post_auth(m))
     }
 }
+/// Go stepIPRules (shared/threat/interceptor.go:652): first rule by action, 3 s
+/// bound; `expires_at` is ignored exactly as Go does. Errors require rejection
+/// with `ip_rules_unavailable`, matching Gate::decide's approved divergence.
+pub async fn ip_rule_blocked(exec: &ScopedExecutor, source_ip: &str) -> Result<bool, ()> {
+    let rows = tokio::time::timeout(
+        Duration::from_secs(3),
+        exec.read(
+            "SELECT action FROM ip_rules WHERE cidr >>= $1::inet ORDER BY action ASC LIMIT 1",
+            &[(&source_ip, Type::TEXT)],
+        ),
+    )
+    .await
+    .map_err(|_| ())?
+    .map_err(|_| ())?;
+    match rows.first() {
+        None => Ok(false),
+        Some(row) => row
+            .try_get::<_, String>(0)
+            .map(|action| action == "block")
+            .map_err(|_| ()),
+    }
+}
+
 /// Decode one `lockout_check` row (#367). No row or a NULL `locked` is an
 /// error (fail closed); locked with an unreadable remainder stays locked
 /// (Go lockout.go:38-44).

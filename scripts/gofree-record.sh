@@ -82,7 +82,11 @@ PY
     echo "LISTEN_ADDR=127.0.0.1:$AUTH_PORT"; echo "GOCOVERDIR=/coverage"; echo "NETWORK_MODE=airgap"
     case "$PRESET" in
       off|ca)  # ca = off; the oracle seeds the CA database toggles itself
-        for flag in THREAT_FEED GEO_BLOCK SPRAY_DETECT CAPTCHA TARPIT; do echo "${flag}_ENABLED=false"; done ;;
+        for flag in THREAT_FEED GEO_BLOCK SPRAY_DETECT CAPTCHA TARPIT; do echo "${flag}_ENABLED=false"; done
+        # Go's per-IP enumeration limiter (authserver/internal/handlers/forgot_password.go enumIPGuard, 10 per 5 min,
+        # in memory) keys on clientip.Extract: without a trusted proxy every case shares the gateway peer 127.0.0.1
+        # and the 11th request 429s. Trusting the gateway makes Go key on each case's own source IP (X-Forwarded-For).
+        if [[ "$GOFREE_REC_TEST" == guest_invite_oracle ]]; then echo "TRUSTED_PROXY_IP=127.0.0.1"; fi ;;
       threat|tarpit)
         # Go env names: authserver/internal/config/config.go (*_ENABLED bools, CAPTCHA_SECRET, GEOIP_DB_PATH,
         # THREAT_RATE_LIMIT_PER_MIN, THREAT_CAPTCHA_*, THREAT_TARPIT_*, THREAT_SPRAY_*); GEO_BLOCK_COUNTRIES and

@@ -11,6 +11,8 @@ mod webauthn;
 mod oidc;
 mod rp;
 mod saml;
+mod http_threat;
+mod guest_invite;
 use bytes::Bytes;
 pub use config::Config;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
@@ -60,6 +62,8 @@ pub struct AuthServer {
     forgot_password: bool,
     recovery_ip: setjoin_identity::push::IpBudget,
     recovery_worker: Option<setjoin_pg::ScopedExecutor>,
+    guest_worker: Option<setjoin_pg::ScopedExecutor>,
+    geo: Option<Arc<setjoin_authz::geoip::CountryDb>>,
     push_ip: setjoin_identity::push::IpBudget,
     native_push: setjoin_identity::push_delivery::Dispatch,
 }
@@ -104,6 +108,8 @@ impl AuthServer {
             forgot_password: false,
             recovery_ip: Default::default(),
             recovery_worker: None,
+            guest_worker: None,
+            geo: None,
             push_ip: Default::default(),
             native_push: Default::default(),
         }
@@ -156,6 +162,40 @@ impl AuthServer {
             setjoin_identity::push_delivery::Dispatch::from_env()
         };
         let recovery_worker = config.worker_dsn.as_deref().filter(|s|!s.is_empty()).or_else(||(!config.dsn.is_empty()).then_some(config.dsn.as_str())).map(|dsn|setjoin_pg::ScopedExecutor::from_dsn(dsn,4).map_err(|e|e.0)).transpose()?;
+        // #342: Go's guest-invite workerPool on its own two-connection pool.
+        let guest_worker = config
+            .worker_dsn
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
+            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0))
+            .transpose()?
+            .map(|w| {
+                if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
+                    w.with_audit_keys(
+                        config.db_encryption_key.clone(),
+                        config.audit_hmac_key.clone(),
+                    )
+                } else {
+                    w
+                }
+            });
+        match &guest_worker {
+            Some(w) => {
+                if let Err(e) = setjoin_identity::guest_invite::readiness(w).await {
+                    eprintln!("setjoin-auth: guest invite acceptance degraded: {e}");
+                }
+            }
+            None => eprintln!("setjoin-auth: guest invite acceptance degraded: no worker DSN"),
+        }
+        let geo = (!config.geoip_path.is_empty())
+            .then(|| {
+                std::fs::read(&config.geoip_path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| setjoin_authz::geoip::CountryDb::from_bytes(b, false, ""))
+            })
+            .and_then(Result::ok)
+            .map(Arc::new);
         let oidc_key = if config.oidc_enabled {
             let (private,public)=(config.oidc_private_key.clone(),config.oidc_public_key.clone());
             Some(tokio::task::spawn_blocking(move || setjoin_identity::oidc::SigningKey::load(&private,&public)).await.map_err(|_|"OIDC key task failed")??)
@@ -179,6 +219,8 @@ impl AuthServer {
             forgot_password,
             recovery_ip: Default::default(),
             recovery_worker,
+            guest_worker,
+            geo,
             push_ip: Default::default(),
             native_push,
             client: client(),
@@ -187,6 +229,21 @@ impl AuthServer {
             legacy: Some(legacy),
             config,
         })
+    }
+    /// Embedding/test seam (#342): replace the guest-invite worker executor; the
+    /// configured audit keys are applied. Grants no identity authority.
+    pub fn with_guest_worker(mut self, worker: setjoin_pg::ScopedExecutor) -> Self {
+        self.guest_worker = Some(
+            if !self.config.db_encryption_key.is_empty() || !self.config.audit_hmac_key.is_empty() {
+                worker.with_audit_keys(
+                    self.config.db_encryption_key.clone(),
+                    self.config.audit_hmac_key.clone(),
+                )
+            } else {
+                worker
+            },
+        );
+        self
     }
     /// Embed a native provider transport without granting it identity authority.
     pub fn with_native_push(
@@ -444,6 +501,9 @@ impl AuthServer {
             if let Some(allow)=allow {reply=reply.header("allow",allow);}
             if req.method()==Method::HEAD {reply=reply.header("content-length",text.len());}
             return reply.body(body(if req.method()==Method::HEAD{""}else{text})).unwrap();
+        }
+        if req.uri().path() == "/auth/guest-invite/accept" {
+            return self.guest_invite(req).await;
         }
         let head = req.method() == Method::HEAD;
         let path = req.uri().path().to_owned();
@@ -1069,20 +1129,8 @@ impl AuthServer {
         {
             return self.forward(req).await;
         }
-        let rate=self.exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'),true)",&[]).await;
-        if self.config.threat_controls.iter().any(|v| *v)
-            || rate.is_err()
-            || rate.as_ref().is_ok_and(|r| r[0].get::<_, bool>(0))
-        {
+        if self.http_threat_pending().await {
             return self.forward(req).await;
-        }
-        for control in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if !matches!(login::enabled(&self.exec, control).await, Ok(false)) {
-                return self.forward(req).await;
-            }
         }
         let path = req.uri().path().to_owned();
         let (csrf_headers, scheme) = Self::csrf_context(&req);
