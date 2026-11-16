@@ -1186,7 +1186,7 @@ async fn exercise(
     // there is no Go golden to record; replay pins it through `phase1` instead.
     // Fault cases are native rollback tests: the Go recorder skips `fault` cases
     // (scripts/gofree-record.sh), so they have no golden; they assert the strict
-    // 500 response and that every row, audit and receipt is unchanged instead.
+    // 500 response, unchanged rows, audit and receipts, and one failure attempt.
     let native_fault = kind.starts_with("fault-");
     if recording && kind != "gateway-cross-site-origin" && !native_fault {
         let source = std::env::var("GOFREE_GO_SOURCE")
