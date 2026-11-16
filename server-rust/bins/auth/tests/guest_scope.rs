@@ -15,10 +15,20 @@ static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 type Err = Box<dyn std::error::Error + Send + Sync>;
 
-/// Operation-receipt ids present when the serialised case began. Receipts have
-/// no user foreign key, so account deletion cannot cascade them; the case's own
-/// receipts are the ids absent from this snapshot (cases run one at a time under
-/// SERIAL and the identity-login advisory lock, against an assigned DB).
+/// Receipt families the guest cases write: every login, refresh, backup
+/// consumption, WebAuthn and bootstrap-confirm flow here records under F21 (commands
+/// mfa-bootstrap/refresh/mfa-mint/mfa-bootstrap-grant/rp-mint: reducers
+/// mailserver/sql/reducers/rust_identity_{totp_bootstrap_confirm,refresh,mfa_mint,
+/// mfa_bootstrap_grant,rp_mint}.sql; rp-settle: crates/domains/identity/src/rp/account.rs:300;
+/// guest invites: crates/domains/identity/src/guest_invite.rs:192). Only these
+/// families are snapshotted and cleaned, never other families' receipts.
+const RECEIPT_FAMILIES: [&str; 1] = ["F21"];
+
+/// Operation-receipt ids of RECEIPT_FAMILIES present when the serialised case
+/// began. Receipts have no user foreign key, so account deletion cannot cascade
+/// them; the case's own receipts are the family ids absent from this snapshot
+/// (cases run one at a time under SERIAL and the identity-login advisory lock,
+/// against an assigned DB).
 static RECEIPTS_BEFORE: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
 
 /// Combines a case result with a cleanup result: the case error is never
@@ -177,8 +187,8 @@ async fn purge_user_rows(c: &tokio_postgres::Client, u: i64, email: &str) -> Res
     let before = RECEIPTS_BEFORE.lock().unwrap().clone();
     if let Some(before) = before {
         c.execute(
-            "DELETE FROM rust_operation_receipts WHERE operation_id::text<>ALL($1::text[])",
-            &[&before],
+            "DELETE FROM rust_operation_receipts WHERE family = ANY($1) AND operation_id::text <> ALL($2::text[])",
+            &[&RECEIPT_FAMILIES.as_slice(), &before],
         )
         .await?;
     }
@@ -223,8 +233,8 @@ async fn begin(
     guest_function_pristine(&c).await?;
     let ids: Vec<String> = c
         .query(
-            "SELECT operation_id::text FROM rust_operation_receipts",
-            &[],
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family = ANY($1)",
+            &[&RECEIPT_FAMILIES.as_slice()],
         )
         .await?
         .iter()
@@ -1060,8 +1070,8 @@ async fn n3_webauthn_guest_direct_mfa_and_scope_failure() {
         settle(r, case.cleanup(c).await)?;
         // Raising lookup: 503, assertion counter already advanced (Go order).
         let case = Case::new(&db, c, "webauthn", true, "guest353-n3-503", None).await?;
-        install_counting_guest(c, "RAISE EXCEPTION 'gofree-guest353 scope fault';").await?;
         let r: Result<(), Err> = async {
+            install_counting_guest(c, "RAISE EXCEPTION 'gofree-guest353 scope fault';").await?;
             let before = case.snap(c).await?;
             let (status, raw) = case.send("").await?;
             let after = case.snap(c).await?;

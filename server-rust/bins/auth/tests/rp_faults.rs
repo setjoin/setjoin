@@ -135,9 +135,15 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
             "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
             &[],
         )
-        .await?;
-    env.close().await?;
-    result
+        .await
+        .map(|_| ());
+    let closed = env.close().await;
+    let cleanup = pristine
+        .and(identity)
+        .and(removed.map_err(|e| -> Err { e.into() }))
+        .and(sources.map_err(|e| -> Err { e.into() }))
+        .and(closed);
+    settle(result, cleanup)
 }
 #[tokio::test]
 async fn settle_before_commit() {
@@ -329,6 +335,15 @@ async fn sso_effects(c: &tokio_postgres::Client, user: i64) -> Result<(i64, i64)
         .await?;
     Ok((r.get(0), r.get(1)))
 }
+/// Combines a case result with a cleanup result: the case error is kept (the
+/// cleanup error is appended); a cleanup error alone fails a passing case.
+fn settle(case: Result<(), Err>, cleanup: Result<(), Err>) -> Result<(), Err> {
+    match (case, cleanup) {
+        (Ok(()), c) => c,
+        (Err(e), Ok(())) => Err(e),
+        (Err(e), Err(c)) => Err(format!("{e}; cleanup also failed: {c}").into()),
+    }
+}
 /// N7 (#353): SSO completion for a member carries no `acct`; a guest row seen
 /// only at the mint-time admission lookup is refused with 503.
 async fn n7_sso_guest_scope() -> Result<(), Err> {
@@ -336,6 +351,9 @@ async fn n7_sso_guest_scope() -> Result<(), Err> {
     let env = flows::Env::start(false).await?;
     guest_function_pristine(&env.c).await?;
     settlement::cleanup_leftovers(&env.c).await?;
+    // Receipts this case writes are all family F21 (rp-settle/rp-mint commands:
+    // crates/domains/identity/src/rp/account.rs:300,507); restore that family only.
+    let receipts = common::receipt_ids(&env.c).await;
     let a = fixture::account(&env.c, "guest353-n7-member").await?;
     let result = async {
         let email: String = env
@@ -385,10 +403,12 @@ async fn n7_sso_guest_scope() -> Result<(), Err> {
         Ok::<(), Err>(())
     }
     .await;
-    guest_function_pristine(&env.c).await?;
-    settlement::cleanup_identity(&env.c, a.user).await?;
-    fixture::remove(&env.c, &a).await?;
-    env.c
+    let pristine = guest_function_pristine(&env.c).await;
+    let identity = settlement::cleanup_identity(&env.c, a.user).await;
+    let removed = fixture::remove(&env.c, &a).await;
+    common::restore_receipts(&env.c, &receipts).await;
+    let sources = env
+        .c
         .execute(
             "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
             &[],

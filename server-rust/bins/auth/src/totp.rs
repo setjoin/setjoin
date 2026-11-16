@@ -712,8 +712,11 @@ impl AuthServer {
         let guest = match user.admission(&self.exec).await {
             Ok((true, false)) => false,
             Ok((true, true)) if guest_mint == GuestMint::Allow => true,
-            // Go P17 (auth.go:1576-1589): an SSO-resolved guest row never gets a
-            // token; mint-time belt behind identity/src/rp/account.rs:215-244.
+            // Intentional Rust divergence from Go (Go's P17, auth.go:1576-1589,
+            // refuses guests only at resolution; its later mint lookup can still
+            // derive acct: guest): Rust also refuses at mint time, belt behind
+            // identity/src/rp/account.rs:215-244. Recorded in
+            // server-rust/tests/conformance/identity-rp/divergences.json.
             Ok((true, true)) => {
                 return Err(Self::failure(503, "conditional access context unavailable", path))
             }
