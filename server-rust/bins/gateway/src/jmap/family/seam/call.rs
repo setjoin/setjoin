@@ -1691,6 +1691,12 @@ mod db {
              manager scope only from a full_access/manage_calendar grant and $2 is p_on_behalf_of",
         ),
         (
+            "mail_work_set",
+            "p_assignee_user_id",
+            "mail_work_set.sql:83-88,40-42: another user only with full_access, and only a \
+             collaboration-capable delegate of the bound mailbox (:87)",
+        ),
+        (
             "task_list_add_member",
             "p_member_email",
             "task_lists.sql:123: worker call; p_user_id (the verified user, $1) is the actor \
@@ -1711,11 +1717,6 @@ mod db {
     const REVIEWED_NEUTRAL_ARGUMENTS: &[(&str, &str, &str)] = &[
         ("jmap_calendar_event_get_shared", "p_after", "time bound"),
         ("jmap_calendar_event_get_shared", "p_before", "time bound"),
-        (
-            "jmap_calendar_event_rsvp",
-            "p_event_id",
-            "event row resolved in the scope mailbox",
-        ),
         (
             "jmap_calendar_event_rsvp",
             "p_status",
@@ -1742,16 +1743,6 @@ mod db {
             "task row resolved under the bound user",
         ),
         ("task_assignee_set_status", "p_status", "status payload"),
-        (
-            "task_list_add_member",
-            "p_list_id",
-            "list row resolved under the bound user",
-        ),
-        (
-            "task_list_remove_member",
-            "p_list_id",
-            "list row resolved under the bound user",
-        ),
         ("task_list_create", "p_name", "name payload"),
         ("task_list_create", "p_color", "color payload"),
         (
@@ -1764,27 +1755,64 @@ mod db {
             "p_list_id",
             "list row resolved under the bound user",
         ),
-        (
-            "task_list_task_set",
-            "p_list_id",
-            "list row resolved under the bound user",
-        ),
         ("task_list_task_set", "p_creates", "JSON payload"),
         ("task_list_task_set", "p_updates", "JSON payload"),
         ("task_list_task_set", "p_destroys", "JSON payload"),
-        (
-            "task_list_tasks",
-            "p_list_id",
-            "list row resolved under the bound user",
-        ),
         (
             "task_list_update",
             "p_list_id",
             "list row resolved under the bound user",
         ),
         ("task_list_update", "p_patch", "JSON payload"),
+        ("mail_work_get", "p_thread_ids", "mail_work_get.sql:28-29,35-36: every read is WHERE mailbox_id=p_mailbox_id (the bound scope); access gate at :13"),
+        ("mail_work_set", "p_thread_id", "mail_work_set.sql:43-45,57-58,119-122: thread checked, locked and updated only WHERE mailbox_id=p_mailbox_id; collaboration gate for the bound actor at :37"),
+        ("mail_work_set", "p_operation_id", "mail_work_set.sql:48-55: a replay returns only when mailbox and actor equal the bound ones, else BZ303; the insert at :137 stores them"),
+        ("mail_work_set", "p_action", "mail_work_set.sql:25: closed set validated before any read"),
+        ("mail_work_set", "p_expected_generation", "mail_work_set.sql:60,73: compared with the work row of the bound mailbox/thread"),
+        ("mail_work_set", "p_status", "mail_work_set.sql:93: closed set; changing it requires the bound actor as assignee or full access (:96)"),
+        ("mail_work_set", "p_due_at", "mail_work_set.sql:111-114: payload; requires the bound actor as assignee or full access"),
+        ("mail_work_set", "p_reason", "mail_work_set.sql:28: length-validated audit text"),
+        ("mail_work_set", "p_request_digest", "mail_work_set.sql:26,51: validated hex digest compared on replay"),
+        ("seam_probe_expr", "p_x", "probe payload"),
         ("seam_probe_unbound", "p_x", "probe payload"),
         ("seam_probe_scope", "p_x", "probe payload"),
+    ];
+    /// Known reducer gaps (#434): the reducer rechecks authorization only at the
+    /// top, so the parameter is NOT neutral. Tolerated solely for the statements
+    /// already in the seam (`existing_statement`); any other statement calling
+    /// the reducer with it fails citing the issue, until #434 is fixed and the
+    /// entry moves to the neutral list.
+    const KNOWN_REDUCER_GAPS: &[(&str, &str, &str, &str)] = &[
+        (
+            "jmap_calendar_event_rsvp",
+            "p_event_id",
+            "#434",
+            "calendar_itip.sql:53,66 mutate by event id without rechecking the delegate grant",
+        ),
+        (
+            "task_list_add_member",
+            "p_list_id",
+            "#434",
+            "task_lists.sql:142-143 read membership by list id only after the owner check",
+        ),
+        (
+            "task_list_remove_member",
+            "p_list_id",
+            "#434",
+            "task_lists.sql:182,200 look up and delete by list id without the caller predicate",
+        ),
+        (
+            "task_list_tasks",
+            "p_list_id",
+            "#434",
+            "task_list_tasks.sql:31,40 read by list id after a single membership check",
+        ),
+        (
+            "task_list_task_set",
+            "p_list_id",
+            "#434",
+            "task_list_tasks.sql:122,217,247,341 reread and mutate by list id only",
+        ),
     ];
     /// Reviewed non-placeholder argument expressions: (reducer, expression, why).
     const REVIEWED_EXPRESSIONS: &[(&str, &str, &str)] = &[(
@@ -1804,6 +1832,13 @@ mod db {
         REVIEWED_PAIRS
             .iter()
             .any(|(reducer, parameter, _)| *reducer == function && *parameter == name)
+    }
+
+    fn known_gap(function: &str, name: &str) -> Option<(&'static str, &'static str)> {
+        KNOWN_REDUCER_GAPS
+            .iter()
+            .find(|(reducer, parameter, _, _)| *reducer == function && *parameter == name)
+            .map(|(_, _, issue, reason)| (*issue, *reason))
     }
 
     fn reviewed_neutral(function: &str, name: &str) -> bool {
@@ -1846,6 +1881,11 @@ mod db {
         if reviewed_pair(function, name) || reviewed_neutral(function, name) {
             return None;
         }
+        if let Some((issue, reason)) = known_gap(function, name) {
+            return Some(format!(
+                "{function}: parameter {name} has a known reducer gap {issue} ({reason})"
+            ));
+        }
         Some(format!(
             "{function}: unreviewed parameter {name} ({argument:?})"
         ))
@@ -1869,6 +1909,15 @@ mod db {
             .iter()
             .map(|row| row.get::<_, Vec<String>>(0))
             .collect()
+    }
+
+    /// The statements already in the seam, as (origin, text): the only ones a
+    /// known reducer gap is tolerated for.
+    fn existing_statement(origin: &str, sql: &str) -> bool {
+        (origin == "CalendarEvent/rsvp" && sql == DELEGATE_RSVP)
+            || worker_statements()
+                .iter()
+                .any(|(method, text)| *method == origin && *text == sql)
     }
 
     /// Every `name(` call in `sql` with its top-level arguments, parentheses
@@ -1938,7 +1987,14 @@ mod db {
                         .and_then(|number| number[1].parse().ok())
                 })
                 .collect();
-            if arguments.iter().all(Option::is_none) {
+            // No-argument calls and non-reducers (builtins live in pg_catalog)
+            // are skipped; any call to a public function is validated whatever
+            // its argument shape (`task_list_tasks(($2),($1))` is not skipped).
+            if raw == [""] {
+                continue;
+            }
+            if arguments.iter().all(Option::is_none) && signatures(owner, function).await.is_empty()
+            {
                 continue;
             }
             for (index, argument) in raw.iter().enumerate() {
@@ -1970,7 +2026,12 @@ mod db {
                     if let Some(problem) =
                         parameter_problem(function, name, argument, actor, scoped)
                     {
-                        found.push(format!("{origin}: {problem}"));
+                        let tolerated = known_gap(function, name).is_some()
+                            && problem.contains("known reducer gap")
+                            && existing_statement(origin, sql);
+                        if !tolerated {
+                            found.push(format!("{origin}: {problem}"));
+                        }
                     }
                 }
             }
@@ -2088,7 +2149,9 @@ mod db {
             ok("jmap_calendar_get_shared", "p_owner_email", Some(3), true),
             None
         );
-        assert_eq!(ok("task_list_tasks", "p_list_id", Some(2), false), None);
+        assert_eq!(ok("task_list_delete", "p_list_id", Some(2), false), None);
+        assert!(ok("task_list_tasks", "p_list_id", Some(2), false)
+            .is_some_and(|problem| problem.contains("#434")));
         // Authority-shaped or merely unknown names fail, supplied or omitted,
         // unless an exact reviewed pair exists.
         for name in [
@@ -2342,6 +2405,49 @@ mod db {
                 "{why}: {sql}"
             );
         }
+        // #434: the existing statements pass; a new one using a gap parameter fails.
+        let new_gap = violations(
+            &owner,
+            "TaskList/tasks",
+            "SELECT task_list_tasks($1,$2::bigint)::text",
+            1,
+            false,
+        )
+        .await;
+        assert!(
+            new_gap.iter().any(|line| line.contains("#434")),
+            "a new statement on a known reducer gap: {new_gap:?}"
+        );
+        // The expression rule itself (p_x of seam_probe_expr is reviewed neutral).
+        let control = violations(&owner, "fixture", "SELECT seam_probe_expr($1,$3)", 2, true).await;
+        assert!(control.is_empty(), "plain control: {control:?}");
+        for sql in [
+            "SELECT seam_probe_expr($1,0+$3)",
+            "SELECT seam_probe_expr($1,p_x=>$3)",
+            "SELECT seam_probe_expr($1,($3))",
+        ] {
+            let found = violations(&owner, "fixture", sql, 2, true).await;
+            assert!(
+                found
+                    .iter()
+                    .any(|line| line.contains("not a plain placeholder")),
+                "{sql}: {found:?}"
+            );
+        }
+        let swapped = violations(
+            &owner,
+            "TaskList/tasks",
+            "SELECT task_list_tasks(($2),($1))::text",
+            1,
+            false,
+        )
+        .await;
+        assert!(
+            swapped
+                .iter()
+                .any(|line| line.contains("not a plain placeholder")),
+            "all-expression call to a known reducer: {swapped:?}"
+        );
         for (sql, why) in [
             (
                 "SELECT seam_probe_unbound($1,$3,$2)",
@@ -2377,7 +2483,7 @@ mod db {
         }
         let clean = "use super::seam::{read_sql, write_sql};\n\
             const A: Sql = read_sql!(\"SELECT mail_work_get($1,$2,$3)::text\");\n\
-            const B: Sql = write_sql!(\"SELECT mail_work_set($1,$2,$4)::text\");";
+            const B: Sql = write_sql!(\"SELECT mail_work_set($1,$2,$4,$5::text::uuid,$6,$7::text::bigint,$8::text::bigint,$9,$10::text::timestamptz,$11,$12)::text\");";
         let found = source_violations(&owner, "mail_work.rs", clean).await;
         assert!(
             found.is_empty(),
