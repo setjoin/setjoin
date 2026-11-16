@@ -1198,9 +1198,12 @@ async fn exercise(
             }
         }
     }
-    if !file.exists() {
-        // Phase 1 (#342): Go goldens are not yet recorded; pin the Go-derived contract.
+    if kind == "gateway-cross-site-origin" {
+        // Native gateway answer (#491): no Go golden exists; pin the contract.
         return phase1(name, method, kind, reply.status, &body, mutant);
+    }
+    if !file.exists() {
+        return Err(format!("missing Go golden {}: record it", file.display()).into());
     }
     let expected: Value = serde_json::from_str(&std::fs::read_to_string(&file)?)?;
     actual["go_source"] = expected["go_source"].clone();
