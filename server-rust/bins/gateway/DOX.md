@@ -731,6 +731,24 @@ outcomes finish locally. Its RequireAuth classification names only the outer
 Chat/Drive/Meet mounts. The existing injected with_auth builder retains its
 member-only contract; no deployment rollback control is added.
 
+## Native refusals for `admit` (#354)
+
+`bins/gateway/src/deny.rs` maps each `setjoin_authz::Refusal` to Go's bytes: 401 RA
+with `WWW-Authenticate` for no or invalid credentials and the approved missing-`iat`
+and `uid<=0` divergences; `GuestInactive` as the plain 401; `Revoked` as
+`session_revoked`; `Unavailable` as 503. The five owned classes return `None` and
+forward from `answer` only. `native_or_unauthorized` is the fail-closed mapping for
+surfaces Go must never see (#365). The front-door revocation read now fails closed
+(503) after the CAE cold-denylist answer, so `denylist-cold.json` keeps its bytes.
+Adapters move from `authorize_*` to `deny::admit` in the #354 B1-B5 sweep batches; `grep deny::admit` shows which have landed. A token with a non-empty
+`scp` is admitted when Go's handler path (decoded, `/api` stripped as mailserverd's root
+dispatch does) is `/<scp>` or under it (Go chain.go:434), else 401, on every scope;
+`exp`/`nbf`/`iat` decode exactly like Go's jwt NumericDate (fractions, quoted numbers;
+authz `numeric_date`);
+the `access_token` cookie follows Go's `readCookies` (first match wins, even empty);
+the route's permission check then answers 403 as in Go. The four approved divergences are
+registered in `tests/conformance/authz-deny/divergences.json`.
+
 ## Gateway configuration (#414)
 
 `inventory_guard::platform_slice_ownership_is_exhaustive_and_disjoint` pins
@@ -853,6 +871,8 @@ HTTP authority compatibility (#418): synthesize `Host` from HTTP/2 `:authority`
 only. HTTP/1 absolute-form requests without a Host header retain that absence,
 including the frozen SSE cookie-origin 403. The unchanged SSE golden and native
 TLS HTTP/2 authority test cover both wire shapes.
+
+The shared Gate uses an 8-connection request pool and two worker pools (8 check, 2 record) on DB_WORKER_DSN, and refuses boot if that credential cannot run the lockout accessors (#367; see crates/threat/DOX.md).
 
 ## Static and Assist leftovers (#417)
 

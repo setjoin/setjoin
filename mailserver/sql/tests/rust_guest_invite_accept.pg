@@ -8,7 +8,7 @@ INSERT INTO users(username, email, domain_id, display_name, enabled)
                 ('ga-fed@outside.test'), ('ga-foreign@outside.test'), ('ga-disabled@outside.test'),
                 ('ga-reinv@outside.test'), ('ga-nulexp@outside.test')) v(email)
    CROSS JOIN domains d WHERE d.name = 'guest.invalid';
-UPDATE users SET saml_name_id = 'ga-fed-subject' WHERE email = 'ga-fed@outside.test';
+UPDATE users SET saml_name_id = 'ga-fed-subject', saml_idp_entity_id = 'https://idp.guest.invalid' WHERE email = 'ga-fed@outside.test';
 INSERT INTO guest_accounts(user_id, invited_email, invited_by_email, host_domain_id, status, expires_at)
  SELECT u.id, u.email, 'inviter@guestaccept-a.test', d.id,
         CASE u.email WHEN 'ga-disabled@outside.test' THEN 'disabled' ELSE 'invited' END,

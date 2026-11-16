@@ -277,9 +277,8 @@ pub async fn shared_security(
     }
     let direct = settings.string("db.direct_dsn");
     let worker = settings.string("db.worker_dsn");
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(&request, 4).map_err(|e| e.0)?;
-    let worker = setjoin_pg::workers::WorkerDatabase::from_dsns(&request, Some(&worker))
-        .map_err(|e| e.to_string())?;
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(&request, 8).map_err(|e| e.0)?;
+    let worker = setjoin_threat::WorkerPools::from_dsns(&request, Some(&worker)).map_err(|e| e.to_string())?;
     let config = setjoin_threat::Config::from_lookup(&|_, path| {
         let value = settings.string(path);
         (!value.is_empty()).then_some(value)

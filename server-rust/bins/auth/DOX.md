@@ -489,7 +489,9 @@ The gateway alias adds its global CSRF gate and authLimit; the handler has no CS
 (the single-use token authorizes). Both methods share recovery's enumeration
 budget. POST: login's shared pending boundary (`src/http_threat.rs`, #420/#405,
 resolved by DELETE #142 together with login), Go's outer 1 MiB cap, native
-always-on `ip_rules` (Go's 403 bytes), strict closed JSON, and the `auth_attempts`
+always-on `ip_rules` (Go's 403 shape; lookup failures reject with
+`ip_rules_unavailable`, an approved divergence, native path only: a failed earlier
+threat read still forwards to Go, which fails open until Go is removed), strict closed JSON, and the `auth_attempts`
 postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
 the transaction settled (additive; per-class timing differs as in Go). Own
 two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,

@@ -34,7 +34,7 @@ const quality = fs.readFileSync(path.join(root, 'scripts/quality.sh'), 'utf8');
 for (const mode of ['list', 'doctor', 'fast', 'full', 'security']) {
   if (!quality.includes(`${mode})`)) throw new Error(`quality.sh is missing mode: ${mode}`);
 }
-const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n');
+const tracked = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n');
 const excluded = /(^|\/)(node_modules|refs|build|dist|test-results)\//;
 const extensions = new Set();
 for (const file of tracked) {

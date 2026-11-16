@@ -8,7 +8,9 @@ pub struct CoreRoute<K: KeySource + 'static> {
     pub store: Option<Arc<crate::recovery_worker::S3Store>>,
 }
 impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         (r.uri().path() == "/api/drive/spaces"
             && matches!(r.method().as_str(), "GET" | "HEAD" | "POST"))
@@ -54,7 +56,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
     fn admits_member(&self, h: hyper::HeaderMap, s: &'static str) -> BoxFuture<bool> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         Box::pin(async move {
-            setjoin_authz::authorize_drive_user_request(&exec, &keys, &issuer, &h, s,"/api/drive/")
+            setjoin_authz::authorize_drive_user_request(&exec, &keys, &issuer, &h, s, "/api/drive/")
                 .await
                 .is_some()
         })
@@ -70,17 +72,10 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
         let language = locale(r.headers());
         Box::pin(async move {
             let mut response=async move {
-            let Some(auth) = setjoin_authz::authorize_drive_user_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-                r.uri().path(),
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::DriveUser).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return c.upstream.forward(r, &c.identity).await;

@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# Runs `cargo test --lib -p PKG [-- FILTER...]` and proves tests really executed.
+#   quick-check-tests.sh run PKG [FILTER...]   (cwd: repo root; filters must not start with '-')
+#   quick-check-tests.sh verify [--filtered]    libtest output on stdin; with --filtered (a test filter was
+#                                               given) exit 0 only if passed+failed > 0; without it zero is fine
+#   quick-check-tests.sh selftest               fixture checks, no cargo needed
+#   quick-check-tests.sh fmt FILE...            rustfmt each file in isolation (stdin; ignores `mod x;` children)
+set -uo pipefail
+
+# Sum `test result: ok. N passed; M failed; ...` over all binaries. Prints "executed=N skip_markers=K".
+verify() {
+  local filtered=0
+  [ "${1:-}" = "--filtered" ] && filtered=1
+  local log; log="$(cat)"
+  local passed failed skips
+  passed="$(sed -nE 's/^test result: .*[^0-9]([0-9]+) passed;.*/\1/p' <<<"$log" | awk '{s+=$1} END{print s+0}')"
+  failed="$(sed -nE 's/^test result: .*[^0-9]([0-9]+) failed;.*/\1/p' <<<"$log" | awk '{s+=$1} END{print s+0}')"
+  skips="$(grep -cE '[A-Z][A-Z0-9-]*-SKIP \(reason=' <<<"$log" || true)"
+  passed="${passed:-0}"; failed="${failed:-0}"
+  echo "quick-check-tests: executed=$((passed + failed)) passed=$passed failed=$failed skip_markers=$skips"
+  if [ $((passed + failed)) -eq 0 ]; then
+    # Zero is only suspicious when a filter was given (misspelled filter). A crate whose lib has
+    # no unit tests and no filter legitimately executes none.
+    if [ "$filtered" -eq 1 ]; then
+      echo "quick-check-tests: FAIL: zero tests executed (misspelled filter or listing-only run)" >&2
+      return 1
+    fi
+    echo "quick-check-tests: no lib tests executed (no test filter given; not an error)"
+  fi
+}
+
+# Cargo test target flags for PKG from `cargo metadata --no-deps` JSON on stdin:
+# --lib if it has a lib target, else --bins (+ --tests when it has integration tests).
+targets() {
+  python3 -c '
+import json, sys
+pkg = sys.argv[1]
+for p in json.load(sys.stdin)["packages"]:
+    if p["name"] == pkg:
+        kinds = {k for t in p["targets"] for k in t["kind"]}
+        libs = {"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"}
+        if kinds & libs:
+            print("--lib")
+        else:
+            print("--bins" + (" --tests" if "test" in kinds else ""))
+        sys.exit(0)
+sys.exit(1)
+' "$1"
+}
+
+run() {
+  local pkg="$1"; shift
+  local a
+  for a in "$@"; do
+    case "$a" in -*) echo "quick-check-tests: FAIL: option-like test argument '$a' rejected" >&2; return 2 ;; esac
+  done
+  local tmp rc; tmp="$(mktemp)"
+  local tflags
+  tflags="$(cd server-rust && cargo metadata --locked --no-deps --format-version 1 | targets "$pkg")" \
+    || { echo "quick-check-tests: FAIL: cannot determine test targets for $pkg" >&2; rm -f "$tmp"; return 2; }
+  # shellcheck disable=SC2086
+  ( cd server-rust && cargo test --locked -p "$pkg" $tflags ${1:+--} "$@" ) > "$tmp" 2>&1
+  rc=$?
+  cat "$tmp"
+  if [ "$rc" -ne 0 ]; then rm -f "$tmp"; return "$rc"; fi
+  if [ "$#" -gt 0 ]; then verify --filtered < "$tmp"; else verify < "$tmp"; fi; rc=$?
+  rm -f "$tmp"; return "$rc"
+}
+
+# Format-check each file in isolation: rustfmt on stdin does not follow `mod x;` children, so a
+# file that declares modules is not failed for pre-existing unformatted files it did not add.
+fmtcheck() {
+  local f rc=0 want
+  [ "$#" -gt 0 ] || { echo "fmt: no files" >&2; return 2; }
+  for f in "$@"; do
+    if ! want="$(rustfmt --edition 2021 --emit stdout < "$f" 2>&1)"; then
+      echo "Diff in $f: rustfmt failed: $want"; rc=1; continue
+    fi
+    if ! diff -u "$f" <(printf '%s\n' "$want") > /dev/null; then
+      echo "Diff in $f:"; diff -u "$f" <(printf '%s\n' "$want") | head -n 40; rc=1
+    fi
+  done
+  return "$rc"
+}
+
+selftest() {
+  local fails=0 out
+  expect() { # name want_rc fixture [--filtered]
+    out="$(printf '%s\n' "$3" | verify ${4:-} 2>&1)"; local rc=$?
+    if [ "$rc" -eq "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (rc=$rc want $2): $out"; fails=1; fi
+  }
+  expect zero-run-filtered 1 $'running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s' --filtered
+  expect zero-run-no-filter 0 $'running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+  expect listing-only 1 $'a::b: test\nc::d: test\n\n2 tests, 0 benchmarks' --filtered
+  expect normal-pass 0 $'running 2 tests\ntest a ... ok\ntest b ... ok\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s'
+  expect multi-binary 0 $'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+  expect skip-marker-line 0 $'SETJOIN-PG-DB-SKIP (reason=no-dsn)\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+  out="$(run pkg --list 2>&1)"; local rc=$?
+  if [ "$rc" -eq 2 ] && grep -q "option-like test argument '--list' rejected" <<<"$out"; then echo "ok   option-arg rejected"; else echo "FAIL option-arg (rc=$rc): $out"; fails=1; fi
+  local meta='{"packages":[{"name":"binonly","targets":[{"kind":["bin"]},{"kind":["test"]}]},{"name":"binplain","targets":[{"kind":["bin"]}]},{"name":"libpkg","targets":[{"kind":["lib"]},{"kind":["bin"]},{"kind":["test"]}]}]}'
+  local want got
+  for want in "binonly=--bins --tests" "binplain=--bins" "libpkg=--lib"; do
+    got="$(printf '%s' "$meta" | targets "${want%%=*}")"
+    if [ "$got" = "${want#*=}" ]; then echo "ok   targets ${want%%=*}"; else echo "FAIL targets ${want%%=*}: got '$got'"; fails=1; fi
+  done
+  if command -v rustfmt > /dev/null 2>&1; then
+    local d; d="$(mktemp -d)"
+    mkdir -p "$d/sub"
+    printf 'fn main() {}\n' > "$d/good.rs"
+    printf 'mod sub;\nfn main() {}\n' > "$d/parent.rs"
+    printf 'fn   bad( ) {  }\n' > "$d/sub.rs"
+    printf 'fn  bad( ) {}\n' > "$d/bad.rs"
+    out="$(fmtcheck "$d/good.rs" "$d/parent.rs" 2>&1)"; rc=$?
+    if [ "$rc" -eq 0 ]; then echo "ok   fmt isolates mod children"; else echo "FAIL fmt isolation (rc=$rc): $out"; fails=1; fi
+    out="$(fmtcheck "$d/bad.rs" 2>&1)"; rc=$?
+    if [ "$rc" -eq 1 ] && grep -q "Diff in $d/bad.rs" <<<"$out"; then echo "ok   fmt flags misformatted"; else echo "FAIL fmt misformatted (rc=$rc): $out"; fails=1; fi
+    rm -rf "$d"
+  else
+    echo "FAIL fmt selftest: rustfmt not installed (run it in the lane image)"; fails=1
+  fi
+  return "$fails"
+}
+
+case "${1:-}" in
+  run) shift; run "$@" ;;
+  verify) shift; verify "$@" ;;
+  fmt) shift; fmtcheck "$@" ;;
+  selftest) selftest ;;
+  *) echo "usage: $0 run PKG [FILTER...]|verify|fmt FILE...|selftest" >&2; exit 2 ;;
+esac

@@ -74,6 +74,7 @@ pub fn group(action: &str) -> &'static str {
         a if a.starts_with("dns-") => "dns",
         a if a.starts_with("federation-") => "federation",
         a if a.starts_with("monitor-") || a.starts_with("reports-") => "monitor",
+        a if a.starts_with("setup-") => "setup",
         _ => "terms",
     }
 }
@@ -519,6 +520,7 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         "dns" => super::dns::specs(action, label),
         "federation" => super::federation::specs(action, label),
         "monitor" => super::monitor::specs(action, label),
+        "setup" => super::setup::specs(action, label),
         _ => specs(action, label, a.user),
     }
     .ok_or(());
@@ -650,14 +652,28 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
                 r["oracle_commands"] = json!([""]);
             }
         }
+        // A rate-limit replay needs the front door's route budgets (Go's defaults); recording
+        // leaves every budget to Go.
+        let edge_limit = (!recording && burst(action, label).is_some()).then(|| {
+            setjoin_gateway::jmap::limit::EdgeLimit::new(
+                setjoin_gateway::jmap::limit::Limiter::new(100_000, 60),
+                Arc::new(|| -> BoxFuture<bool> { Box::pin(async { true }) }),
+            )
+        });
+        let table = RouteTable::proxy_all().with(adapter);
+        let table = if !recording && native_mux(action) {
+            table.with_catchall(setjoin_gateway::catchall::CatchallRoute::new())
+        } else {
+            table
+        };
         let gateway = Gateway::new(
             Config {
                 upstream: go.as_ref().map(|g| format!("http://{}", g.address).parse()).transpose()?,
                 trusted_proxies: TrustedProxies::parse("")?,
                 upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-                edge_limit: None,
+                edge_limit,
             },
-            RouteTable::proxy_all().with(adapter),
+            table,
         )?
         .with_inventory(&inventory.to_string())?;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -667,31 +683,27 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
             owner.batch_execute(statement).await?;
         }
         let mut concrete = case.pattern.to_owned();
+        let mut verbatim = false;
         for value in &case.fill {
-            // The first remaining `{placeholder}` of the route pattern takes the value.
-            if let (Some(open), Some(close)) = (concrete.find('{'), concrete.find('}')) {
+            if let Some(raw) = value.strip_prefix('!') {
+                // A verbatim request path (escaped or unclean spellings).
+                concrete = raw.to_owned();
+                verbatim = true;
+            } else if let (Some(open), Some(close)) = (concrete.find('{'), concrete.find('}')) {
+                // The first remaining `{placeholder}` of the route pattern takes the value.
                 concrete.replace_range(open..=close, value);
+            } else if concrete.ends_with('/') {
+                // A subtree registration (`/auth/admin/`) takes the rest of the path.
+                concrete.push_str(value);
             }
         }
+        let external = external_path(&concrete, label, verbatim);
         let effects = async |c: &tokio_postgres::Client| -> Result<Value, BoxError> {
             Ok(json!(super::rows(c, case.effects).await?))
         };
         if label == "repeat" {
-            let uri = format!("/api{concrete}{}", case.query);
-            let mut request = Request::builder()
-                .method(case.method)
-                .uri(uri)
-                .header("host", "mail.test")
-                .header("origin", "http://mail.test")
-                .header("x-request-id", "gofree-plat5-oracle")
-                .header("authorization", format!("Bearer {}", token(a.user)));
-            if !case.headers.iter().any(|(name, _)| *name == "content-type") {
-                request = request.header("content-type", "application/json");
-            }
-            for (name, value) in &case.headers {
-                request = request.header(*name, value.as_str());
-            }
-            let first = common::send(address, request.body(common::full(sent_body.clone()))?).await;
+            let uri = format!("{external}{}", case.query);
+            let first = common::send(address, request(&case, &uri, a.user, sent_body.clone())?).await;
             let first_status = first.status().as_u16();
             let data = common::body_bytes(first).await;
             if recording && case.status != 0 && first_status != case.status {
@@ -704,23 +716,19 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         for channel in &case.channels {
             listeners.push((*channel, db.listen(channel).await?));
         }
-        let uri = format!("/api{concrete}{}", case.query);
-        let build = || -> Result<Request<Body>, BoxError> {
-            let mut request = Request::builder()
-                .method(case.method)
-                .uri(uri.clone())
-                .header("host", "mail.test")
-                .header("origin", "http://mail.test")
-                .header("x-request-id", "gofree-plat5-oracle")
-                .header("authorization", format!("Bearer {}", token(a.user)));
-            if !case.headers.iter().any(|(name, _)| *name == "content-type") {
-                request = request.header("content-type", "application/json");
+        let uri = format!("{external}{}", case.query);
+        let build = || request(&case, &uri, a.user, sent_body.clone());
+        if let Some(spend) = burst(action, label) {
+            whole_window(if group(action) == "setup" { 60 } else { 900 }).await?;
+            for _ in 0..spend {
+                let spent = common::send(address, build()?).await;
+                let spent_status = spent.status().as_u16();
+                let _ = common::body_bytes(spent).await;
+                if spent_status == 429 {
+                    return Err(format!("{action}/{label}: budget spent before the burst ended").into());
+                }
             }
-            for (name, value) in &case.headers {
-                request = request.header(*name, value.as_str());
-            }
-            Ok(request.body(common::full(sent_body.clone()))?)
-        };
+        }
         let response = common::send(address, build()?).await;
         let status = response.status().as_u16();
         let mut headers = serde_json::Map::new();
@@ -765,12 +773,15 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         if let Some(date) = headers.get_mut("date") {
             *date = json!(["<timestamp>"]);
         }
-        if let Some(length) = headers.get_mut("content-length") {
-            *length = json!([text.len().to_string()]);
+        // A HEAD answer has no body: its Content-Length is the one Go advertised, so keep it.
+        if case.method != "HEAD" {
+            if let Some(length) = headers.get_mut("content-length") {
+                *length = json!([text.len().to_string()]);
+            }
         }
         let (before, after) = (masked(before, &users, &names)?, masked(after, &users, &names)?);
         let effects = json!([{"table":case.table,"before":before,"after":after}]);
-        let mut req = json!({"method":case.method,"path":case.pattern,"external_path":format!("/api{concrete}")});
+        let mut req = json!({"method":case.method,"path":case.pattern,"external_path":external.clone()});
         if !case.body.is_empty() {
             req["body"] = json!(names(&case.body));
         }
@@ -806,8 +817,15 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         if !recording {
             let metrics = common::send(address, Request::get("/_gateway/metrics").body(common::full(""))?).await;
             let metrics = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
-            if !metrics.lines().any(|l| l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F08\"} 0") {
-                return Err(format!("F08 replay forwarded to Go: {metrics}").into());
+            let mut zero = vec!["setjoin_gateway_proxied_to_go_by_family_total{family=\"F08\"} 0"];
+            if native_mux(action) {
+                // Nothing on these root-pinned surfaces may reach Go, in any family.
+                zero.push("setjoin_gateway_proxied_to_go_total 0");
+            }
+            for line in zero {
+                if !metrics.lines().any(|l| l == line) {
+                    return Err(format!("replay forwarded to Go ({line}): {metrics}").into());
+                }
             }
         }
         server.abort();
@@ -870,6 +888,119 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
     }
     owner.batch_execute(&format!("BEGIN; SET LOCAL session_replication_role=replica; DELETE FROM admin_audit_log WHERE id>{audit_start}; COMMIT;")).await?;
     result
+}
+
+/// The request path on the wire. Go serves its pinned prefixes
+/// (`scripts/api-pinned-prefixes.txt`) at the root and everything else under the `/api`
+/// mount; an `api-alias` case sends a pinned route through the mount, and a verbatim (`!`)
+/// path goes out as written.
+fn external_path(concrete: &str, label: &str, verbatim: bool) -> String {
+    let pinned = include_str!("../../../../../scripts/api-pinned-prefixes.txt")
+        .lines()
+        .filter_map(|line| line.split('#').next())
+        .map(str::trim)
+        .filter(|prefix| prefix.starts_with('/'))
+        .any(|prefix| {
+            concrete == prefix
+                || concrete
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| rest.starts_with('/'))
+        });
+    if verbatim || (pinned && !label.contains("api-alias")) {
+        concrete.to_owned()
+    } else {
+        format!("/api{concrete}")
+    }
+}
+
+/// The oracle request. An `origin` or `authorization` entry in `case.headers` replaces the
+/// default (an empty value omits the header); `authorization` expands [`expand`]'s markers.
+fn request(case: &Case, uri: &str, user: i64, body: String) -> Result<Request<Body>, BoxError> {
+    let named = |wanted: &str| case.headers.iter().find(|(name, _)| *name == wanted);
+    let mut request = Request::builder()
+        .method(case.method)
+        .uri(uri)
+        .header("host", "mail.test");
+    let origin = named("origin").map_or("http://mail.test".to_owned(), |(_, v)| v.clone());
+    if !origin.is_empty() {
+        request = request.header("origin", origin);
+    }
+    request = request.header("x-request-id", "gofree-plat5-oracle");
+    let authorization = named("authorization")
+        .map_or(format!("Bearer {}", token(user)), |(_, v)| expand(v, user));
+    if !authorization.is_empty() {
+        request = request.header("authorization", authorization);
+    }
+    if named("content-type").is_none() {
+        request = request.header("content-type", "application/json");
+    }
+    for (name, value) in &case.headers {
+        if !matches!(*name, "origin" | "authorization") {
+            request = request.header(*name, value.as_str());
+        }
+    }
+    Ok(request.body(common::full(body))?)
+}
+
+/// `{token}` is the persona's admin token; the other markers are forgeries Go must refuse,
+/// or claims it must ignore.
+fn expand(value: &str, user: i64) -> String {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let signed = |edit: &dyn Fn(&mut Value)| {
+        format!("Bearer {}", super::admin_token_with(user, &[0x11; 32], edit))
+    };
+    match value {
+        "Bearer {token}" => format!("Bearer {}", token(user)),
+        "Bearer {token-bad-signature}" => {
+            format!("Bearer {}", super::admin_token_with(user, &[0x12; 32], |_| {}))
+        }
+        "Bearer {token-expired}" => signed(&|claims| claims["exp"] = json!(1)),
+        "Bearer {token-claims-identity-write}" => {
+            signed(&|claims| claims["perms"] = json!(["identity.write"]))
+        }
+        "Bearer {token-act}" => signed(&|claims| claims["act"] = json!({"sub": "1"})),
+        "Bearer {token-guest}" => signed(&|claims| {
+            claims["acct"] = json!("guest");
+            claims["admin"] = json!(false);
+            claims["perms"] = json!([]);
+        }),
+        "Bearer {token-alg-none}" => {
+            let payload = token(user).split('.').nth(1).unwrap_or_default().to_owned();
+            let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"none","typ":"JWT"}"#);
+            format!("Bearer {header}.{payload}.")
+        }
+        other => other.to_owned(),
+    }
+}
+
+/// Requests sent before the observed one to spend a route budget: Go's `setupLimit` is 60 per
+/// minute and `authLimit` 20 per 15 minutes, per client IP.
+fn burst(action: &str, label: &str) -> Option<usize> {
+    if label != "rate-limit" {
+        return None;
+    }
+    match group(action) {
+        "setup" => Some(60),
+        "auth-admin" => Some(20),
+        _ => None,
+    }
+}
+
+/// Root-pinned groups whose replay installs the native root mux and must reach Go zero times.
+fn native_mux(action: &str) -> bool {
+    matches!(group(action), "setup" | "auth-admin")
+}
+
+/// Waits out a window that would end during a burst (Go's buckets are epoch aligned).
+async fn whole_window(window_secs: u64) -> Result<(), BoxError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let remaining = window_secs - now % window_secs;
+    if remaining <= 30 {
+        tokio::time::sleep(std::time::Duration::from_secs(remaining + 1)).await;
+    }
+    Ok(())
 }
 
 /// Replaces `from` only where the next character ends the id (`/`, `"`, `?`, an escaping `\\`

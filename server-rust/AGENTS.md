@@ -148,7 +148,7 @@ Go list handlers that ignore Rows.Err: see the [iterated-read contract](crates/p
 - `crates/mime` (`setjoin-mime`, #348) — shared Go-compatible MIME byte parser; [contract](crates/mime/DOX.md).
 Typed worker error projection: [PG contract](crates/pg/DOX.md#typed-worker-query-failures-348).
 
-- `bins/auth` (`setjoin-auth`, #331) — standalone identity HTTP process; [contract](bins/auth/DOX.md).
+- `bins/auth` (`setjoin-auth`, #331) — standalone identity HTTP process with fail-closed native HTTP IP-rule admission; [contract](bins/auth/DOX.md).
 - `crates/domains/identity` (`setjoin-identity`, #331) — F21 login/session/token, MFA and connector slices; [contract](crates/domains/identity/DOX.md).
 Authentication-time user transactions: [pg contract](crates/pg/DOX.md#authentication-time-user-transactions-331).
 - `crates/tls` (`setjoin-tls`, #413) — native TLS, certificates and Go-compatible session tickets; [contract](crates/tls/DOX.md).
@@ -162,7 +162,7 @@ Mailbox-less user transaction scope (#406): [PG contract](crates/pg/DOX.md#mailb
 - `crates/release-format` (`setjoin-release-format`, #357) — shared signed manifest format; [contract](crates/release-format/DOX.md).
 - `bins/release` (`setjoin-release`, #357) — CI-only release publisher; [contract](bins/release/DOX.md).
 - `bins/updater` (`setjoin-updater`, #358–#359) — privileged updater/recovery process; [contract](bins/updater/DOX.md), [security divergences](bins/updater/SECURITY.md).
-- `crates/threat` (`setjoin-threat`, #420) — shared auth runtime and protocol admission; [contract](crates/threat/DOX.md).
+- `crates/threat` (`setjoin-threat`, #420) — shared auth runtime, protocol admission and fallible HTTP IP-rule lookup; [contract](crates/threat/DOX.md).
 
 
 - `crates/boot` (`setjoin-boot`, #415) — pre-listener startup checks; [contract](crates/boot/DOX.md).

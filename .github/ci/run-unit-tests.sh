@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Executed INSIDE the setjoin-ci-linux-tc throwaway container (linux/arm64) by
 # the xinchuang unit-tests job. This is a 1:1 port of the previous
-# unit-tests-amd64 job body from .github/workflows/xinchuang-ci.yml — same
+# unit-tests-amd64 job body from the retired .github/workflows/xinchuang-ci.yml (removed; see webmail.yml, rust-floor.yml) — same
 # steps, same order, same controls; only the runtime changed (it now runs in
 # this container with an in-container postgres).
 #
