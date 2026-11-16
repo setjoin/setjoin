@@ -1209,8 +1209,19 @@ async fn exercise(
         return phase1(name, method, kind, reply.status, &body, mutant);
     }
     if native_fault {
-        if before != after || !receipts_unchanged {
-            return Err(format!("{name}: injected fault left effects: {before} -> {after}").into());
+        // The rollback leaves guests and audit untouched; the handler then records exactly
+        // one failure attempt outside the failed transaction (guest_invite.rs http_attempt).
+        let attempts = |v: &Value, outcome: &str| {
+            v["attempts"]
+                .as_array()
+                .map_or(0, |a| a.iter().filter(|x| x["outcome"] == outcome).count())
+        };
+        let total = |v: &Value| v["attempts"].as_array().map_or(0, Vec::len);
+        let rolled_back = before["guests"] == after["guests"] && before["audit"] == after["audit"];
+        let one_failure = total(&after) == total(&before) + 1
+            && attempts(&after, "failure") == attempts(&before, "failure") + 1;
+        if !rolled_back || !receipts_unchanged || !one_failure {
+            return Err(format!("{name}: injected fault effects: {before} -> {after}").into());
         }
         return phase1(name, method, kind, reply.status, &body, mutant);
     }

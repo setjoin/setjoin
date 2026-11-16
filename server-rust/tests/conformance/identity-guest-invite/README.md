@@ -7,7 +7,8 @@ spoofed X-Forwarded-For) pass through the Rust gateway in both modes.
 
 Record with the dispatch-only `gofree-record.yml` (package `setjoin-auth`, test
 `guest_invite_oracle`, `case_filter` = one test name; record each
-`*_rate_limited` and `*_fault_*` case in its own dispatch). Recording needs
+`*_rate_limited` case in its own dispatch; `*_fault_*` cases are native rollback
+tests with no Go golden, because the recorder skips `fault` tests). Recording needs
 `GOFREE_RECORD_UPSTREAM` and `GOFREE_GO_SOURCE` (the checked-out HEAD, stamped
 into every golden's `go_source`), refuses transport, threat-leak and
 enumeration-polluted captures, and never overwrites. Each case uses its own
