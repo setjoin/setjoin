@@ -1,3 +1,4 @@
+// pre-check canary timing comment (#428 proof; never merge)
 //! F20 Assist and F22 static/health/metrics/telemetry domain logic (#271).
 //!
 //! Pure documents and decisions live here; the HTTP framing, security headers
