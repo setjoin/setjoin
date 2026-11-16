@@ -135,15 +135,9 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
             "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
             &[],
         )
-        .await
-        .map(|_| ());
-    let closed = env.close().await;
-    let cleanup = pristine
-        .and(identity)
-        .and(removed.map_err(|e| -> Err { e.into() }))
-        .and(sources.map_err(|e| -> Err { e.into() }))
-        .and(closed);
-    settle(result, cleanup)
+        .await?;
+    env.close().await?;
+    result
 }
 #[tokio::test]
 async fn settle_before_commit() {
@@ -413,9 +407,15 @@ async fn n7_sso_guest_scope() -> Result<(), Err> {
             "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
             &[],
         )
-        .await?;
-    env.close().await?;
-    result
+        .await
+        .map(|_| ());
+    let closed = env.close().await;
+    let cleanup = pristine
+        .and(identity)
+        .and(removed.map_err(|e| -> Err { e.into() }))
+        .and(sources.map_err(|e| -> Err { e.into() }))
+        .and(closed);
+    settle(result, cleanup)
 }
 #[tokio::test]
 async fn n7_sso_refuses_guest_rows_at_mint() {
