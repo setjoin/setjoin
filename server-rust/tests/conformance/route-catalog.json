@@ -105156,8 +105156,7 @@
         "name": "status"
       },
       "handler_sources": [
-        "server-rust/bins/auth/src/totp.rs",
-        "server-rust/crates/domains/identity/src/totp.rs"
+        "server-rust/bins/auth/src/lib.rs"
       ]
     },
     {

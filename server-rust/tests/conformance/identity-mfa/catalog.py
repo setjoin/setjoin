@@ -37,6 +37,10 @@ for route in inv['routes']:
                  mutant=dict(replay(prefix.replace('-', '_') + '_status_mutant'), name='status'),
                  handler_sources=['server-rust/bins/auth/src/totp.rs',
                                   'server-rust/crates/domains/identity/src/totp.rs'])
+    if prefix == 'subtree':
+        # The subtree cases (GET /auth/totp/unknown, DELETE /auth/totp/verify) only reach the
+        # 404/405 fallthrough in the auth lib; the totp handlers are never entered.
+        suite['handler_sources'] = ['server-rust/bins/auth/src/lib.rs']
     for p in sorted((corpus / 'qualified').glob(prefix + '-*.json')):
         if p.stem.endswith('-rows'):
             continue
