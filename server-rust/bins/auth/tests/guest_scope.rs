@@ -369,6 +369,11 @@ impl Case {
                 }
             }
             "confirm" => {
+                // The bootstrap grant is bound to the user's factor generation
+                // (the reducer compares it); fresh users start at 0, the grant
+                // below is minted at 2, as in mfa_oracle's fixture.
+                c.execute("UPDATE users SET factor_generation=2 WHERE id=$1", &[&a.user])
+                    .await?;
                 let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
                 c.execute("INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at,target_ref) VALUES($1,$2,$3,'bootstrap.totp.enroll','password',2,'mfa_pending',now()+interval '5 minutes',$4)",&[&hash,&a.user,&jti,&ENROLLMENT]).await?;
                 c.execute("INSERT INTO totp_pending_enrollments(id,user_id,secret_enc,staged_by_jti,staged_via,expires_at) VALUES($1::text::uuid,$2,pgp_sym_encrypt($3,$4),$5,'enroll_setup',now()+interval '15 minutes')",&[&ENROLLMENT,&a.user,&STAGED,&ENC,&jti]).await?;
