@@ -6,12 +6,12 @@
 set -euo pipefail
 source "$(dirname "$0")/_base.sh"
 
-if [[ $# -ne 8 ]]; then
-  echo "usage: $0 <amd64|arm64|loong64> <go-bin-dir> <gateway> <rust-mailctl> <rust-asrbotd> <rust-updater> <webmail-build> <output.tar.gz>" >&2
+if [[ $# -ne 9 ]]; then
+  echo "usage: $0 <amd64|arm64|loong64> <go-bin-dir> <gateway> <rust-auth> <rust-mailctl> <rust-asrbotd> <rust-updater> <webmail-build> <output.tar.gz>" >&2
   echo 'Stages committed HEAD and supplied inputs; verify build provenance, executability and glibc floor separately.' >&2
   exit 1
 fi
-arch=$1 go_dir=$2 gateway=$3 mailctl=$4 asrbotd=$5 updater=$6 webmail=$7 output=$8
+arch=$1 go_dir=$2 gateway=$3 rustauth=$4 mailctl=$5 asrbotd=$6 updater=$7 webmail=$8 output=$9
 case "$arch" in amd64 | arm64 | loong64) ;; *)
   echo "unsupported architecture: $arch" >&2
   exit 1
@@ -39,12 +39,16 @@ done
   echo 'missing gateway' >&2
   exit 1
 }
+[[ -s "$rustauth" && -f "$rustauth" ]] || {
+  echo 'missing Rust setjoin-auth' >&2
+  exit 1
+}
 [[ -s "$webmail/index.html" && -f "$webmail/index.html" ]] || {
   echo 'missing webmail build' >&2
   exit 1
 }
 python3 - "$arch" "$go_dir/mailserverd" "$go_dir/authserverd" "$mailctl" \
-  "$go_dir/setjoin-updater" "$updater" "$gateway" "$asrbotd" <<'PY'
+  "$go_dir/setjoin-updater" "$updater" "$gateway" "$rustauth" "$asrbotd" <<'PY'
 import struct
 import sys
 
@@ -70,6 +74,7 @@ install -m 0755 "$go_dir/authserverd" "$tmp/authserver/authserverd"
 install -m 0755 "$mailctl" "$tmp/mailctl/mailctl"
 install -m 0755 "$mailctl" "$tmp/server-rust/mailctl"
 install -m 0755 "$gateway" "$tmp/server-rust/setjoin-gateway"
+install -m 0755 "$rustauth" "$tmp/server-rust/setjoin-auth"
 install -m 0755 "$updater" "$tmp/server-rust/setjoin-updater"
 install -m 0755 "$asrbotd" "$tmp/server-rust/asrbotd"
 # Vendor PUBLIC release trust roots (#507): a build input, never in git. The installer

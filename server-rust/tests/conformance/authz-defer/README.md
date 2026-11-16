@@ -1,4 +1,4 @@
-# Shared terminal admission (#406)
+# Shared terminal admission (#188)
 
 `bins/gateway/tests/authz_defer_recorded.rs` records frozen `mailserverd` through
 the Rust front door, then replays the immutable JSON against the actual Rust

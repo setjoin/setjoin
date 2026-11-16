@@ -94,7 +94,7 @@ model and frozen-Go wire semantics. The whole `/caldav/` dav inventory entry is
 ON; all methods have native dispatch. Qualification lives in `--test caldav`;
 [recording contract](../../../tests/conformance/caldav/README.md). DAV roots stay pinned
 outside `/api` even for ON entries; the original generic LocalRust fallback
-incorrectly overrode that exception. Basic/Negotiate proof remains with #420/#339.
+incorrectly overrode that exception. Basic/Negotiate proof remains with #355.
 
 CAL4 preserves Go's timezone catalog keyed solely by TZID, including foreign
 stored definitions (Go `caldav.go:75–94,254–269`). The isolated-calendar fix is

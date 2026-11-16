@@ -129,6 +129,11 @@ uninstall_units() {
       fi
     fi
   done
+  # Transitional Go authserverd (#359b) lives outside the catalog; it leaves with setjoin-auth.
+  if [ -f "$SYSTEMD_DIR/setjoin-authserverd.service" ]; then
+    "$SYSTEMCTL_BIN" stop setjoin-authserverd >/dev/null 2>&1 || true
+    rm -f -- "$SYSTEMD_DIR/setjoin-authserverd.service"
+  fi
   "$SYSTEMCTL_BIN" daemon-reload
   "$SYSTEMCTL_BIN" reset-failed >/dev/null 2>&1 || true
   cat <<'EOF'

@@ -42,7 +42,7 @@ WS slot admits another SSE request. The presence recording checks false → true
 registry test checks mailbox/user eviction, untargeted survival, SSE body drop,
 shared-budget release and permanent shutdown. The executable probe checks its
 actual route assembly with the Go mail upstream unset. Its required auth
-upstream points at an unreachable #331 endpoint; the proxy counter remains 0.
+upstream points at an unreachable #112 endpoint; the proxy counter remains 0.
 
 Frozen facts retained: SSE discards offline.wipe/capsChanged/MailWorkEvent
 control payloads; multiline application JSON is emitted with only one `data:`

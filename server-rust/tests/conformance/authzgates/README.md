@@ -1,4 +1,4 @@
-# Shared runtime authorization (#405)
+# Shared runtime authorization (#187)
 
 Frozen Go is the oracle. `evaluation-cases.json` supplies explicit snapshots to
 `evaluation_test.go.txt`, a recording-only overlay in `shared/threat`. The immutable
@@ -42,14 +42,14 @@ a device nonce before verified-user attribution, uses an inner `/api`-stripped H
 URI, does not check DPoP ath on runtime access, leaves policy device-bound context
 unset after lockdown, and installs no limited_web projection. Last-known policy
 failure classification omits step_up and loses enforcing metadata after invalidation.
-These are retained, not corrected. No new flag-OFF fallback test (#405 user decision).
+These are retained, not corrected. No new flag-OFF fallback test (#187 user decision).
 
 `TestAUTHZGATESNilLocationsWithPresentCondition` in the Go overlay pins failed
 location loading with null/empty condition values. Rust `policy_store` exercises
 the same fail-closed boundary through an isolated app-credential schema.
 Never overlap DB test targets: their global policy/config fixtures require process-wide serial execution.
 
-Attachment gate regression (#405 security fix): `gateway --test attachment_transfer`
+Attachment gate regression (#187 security fix): `gateway --test attachment_transfer`
 installs the production runtime chain and compares six additional frozen-Go recordings
 under `blobs/goldens/attachment-transfer-gate-*`: revoked device, derived JTI, family,
 lockdown, policy block, and allowed retiring-secret cookie HEAD. The skipped-gate mutant

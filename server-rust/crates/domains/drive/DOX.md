@@ -68,7 +68,7 @@ actual outcome without replaying a write. The after-COMMIT case compares the
 full V2 Go business effects, audit and notifications; the before-COMMIT case
 retains the seeded snapshot. Concurrent primary-mailbox changes defer the
 untouched request to Go. Shared-authz unsupported token/guest/security cases
-retain ARCH-027 forwarding pending identity #331–#333. Drive workers: #276
+retain ARCH-027 forwarding pending identity #112–#114. Drive workers: #276
 (watch) and #409 (maintenance, preview; see the gateway DOX).
 
 Admin JSON reads preserve Go's first-value, 1 MiB decoder bound: a complete
@@ -160,7 +160,7 @@ counts are never normalized away.
 
 The authored HTTP/effect case table lives in
 `tests/conformance/drive-b/CASES.md` (workspace-relative). Native-token issuance
-keeps forwarding pending identity #331's Postgres signing-key authority; this
+keeps forwarding pending identity #112's Postgres signing-key authority; this
 slice must never create a competing signer or rotate stored keys.
 
 `src/part_b.rs` contains the user-scoped reducer and projection boundary;
@@ -209,7 +209,7 @@ ordinary fail-closed reads are intentional here.
 executable with Go unset. Global/inventory rollback preserves method, mounted
 path and body. The bundled inventory stays ON after oracle qualification;
 normal replay asserts zero total/F14 proxy counters. Native-token remains OFF
-and forwards unchanged pending identity #331. No independent signer is added.
+and forwards unchanged pending identity #112. No independent signer is added.
 
 Metadata and manifest reads intentionally use separate statement snapshots
 inside `rust_drive_content_meta` (VOLATILE), matching frozen Go. A concurrent
@@ -252,7 +252,7 @@ watcher up the ancestor chain whose ops admit the event and who still holds
 `RUST_WORKERS_ON=drive-watch` and `GO_WORKERS_OFF=drive-watch` (missing Go-off
 refuses startup); it needs `DB_DIRECT_DSN` and uses the worker DSN.
 
-## Mailbox-less guest admission (#406)
+## Mailbox-less guest admission (#188)
 
 User adapters accept live guest proof only through the shared program/route belt.
 `session(actor)` returns user-only scope for a mailbox-less guest; scoped mirror

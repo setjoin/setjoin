@@ -143,7 +143,7 @@ function report. The recorded error branches are:
 
 Unreached branches have these request-boundary exclusions: Go's auth middleware
 prevents either REST handler's nil-user branch, and the route pattern cannot
-supply an empty undo path ID. Primary-mailbox admission failures remain #331.
+supply an empty undo path ID. Primary-mailbox admission failures remain #112.
 Set's sign/encrypt and attachment assembly pass remains the #328 MIME/S/MIME
 helper, so an entire map needing it forwards before writes; no crypto/blob
 preprocessing branch is claimed here. Its JSON marshal-error arms cannot fail

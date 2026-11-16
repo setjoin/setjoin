@@ -19,8 +19,14 @@ struct Evidence {
 }
 fn inspect(root: &Path) -> Result<BTreeMap<String, String>> {
     let mut artifacts = BTreeMap::new();
-    for name in ["authserverd", "mailctl", "mailserverd", "setjoin-gateway"] {
-        if name == "setjoin-gateway"
+    for name in [
+        "authserverd",
+        "mailctl",
+        "mailserverd",
+        "setjoin-auth",
+        "setjoin-gateway",
+    ] {
+        if matches!(name, "setjoin-auth" | "setjoin-gateway")
             && fs::symlink_metadata(root.join(name))
                 .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
         {
@@ -128,8 +134,9 @@ pub fn execute(mut flags: BTreeMap<String, String>) -> Result<()> {
                     // installed.evidence.json content digest. A tampered managed
                     // `current` aborts before any `*.prev` is quarantined.
                     #[cfg(not(feature = "oracle-mutants"))]
-                    stage::validate_managed(&root, &id)
-                        .context("managed current release failed content verification; refusing to adopt")?;
+                    stage::validate_managed(&root, &id).context(
+                        "managed current release failed content verification; refusing to adopt",
+                    )?;
                     #[cfg(not(feature = "oracle-mutants"))]
                     stage::verify_authentic(&dir, &id, &roots)
                         .context("managed current release is not authenticated by the signed manifest; refusing to adopt")?;

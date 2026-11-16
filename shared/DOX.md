@@ -404,7 +404,7 @@ cd shared && DB_DSN=postgres://mail@127.0.0.1:5432/mailserver_test?sslmode=disab
 
 None.
 
-## Auth runtime recording (#420)
+## Auth runtime recording (#202)
 
 `threat/authrt_oracle_test.go` (`gofree_record`) records a real feed refresh
 against a local fake HTTP endpoint into AUTHRT_ORACLE_DIR/feed-go.json;

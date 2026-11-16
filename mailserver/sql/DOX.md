@@ -2064,7 +2064,7 @@ roll back. Gateway's `identity_set_database_fault` cancels the final phase and
 compares the absent alias/user effects against Go. The frozen Go bypass for
 both batch wrappers is documented for the orchestrator's follow-up.
 
-### Rust identity password login (#331)
+### Rust identity password login (#112)
 
 `rust_identity_login_mint` wraps frozen Go's local authentication fence,
 credential-version check and refresh-anchor insertion in one transaction.
@@ -2279,7 +2279,7 @@ compares frozen-Go boot effects and decrypts the fixture ciphertexts.
 `rust_identity_password_write` (credential row keyed on the signed uid, never the signed email,
 #490) carry owner-approved security fixes of 2026-11-05; tests: `server-rust/bins/auth/tests/secfix3.rs`.
 
-## Rust OIDC Provider transactions (#339)
+## Rust OIDC Provider transactions (#120)
 
 `rust_identity_oidc_consume` mirrors frozen authserver's code lookup/deletion
 transaction. A presented hash supplies only a candidate owner; transaction user
@@ -2289,7 +2289,7 @@ PKCE, client and redirect validation because Go does. No audit, state bump or
 notification is invented. Caller receipts are opaque infrastructure metadata.
 Verification: `tests/rust_identity_oidc.pg`, plus the native auth HTTP oracle.
 
-OIDC refresh rotation (#339): `rust_identity_oidc_rotate` repeats the proved user's
+OIDC refresh rotation (#120): `rust_identity_oidc_rotate` repeats the proved user's
 GUC/client/hash under FOR UPDATE, inserts the successor, attaches its new hash
 and revokes the predecessor atomically. No audit/state/NOTIFY is invented; error
 phase HINT metadata preserves Go's HTTP error prefix. `rust_identity_oidc.pg`

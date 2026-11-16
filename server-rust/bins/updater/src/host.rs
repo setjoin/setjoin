@@ -315,6 +315,44 @@ pub async fn fixed(name: &str, args: &[&str]) -> Result<()> {
     );
     Ok(())
 }
+/// #359b: before any stop or migration, every executable a fixed core unit runs
+/// from `<install>/current/` must exist in the staged release, so a release
+/// without `setjoin-auth` is refused before any effect. Units without such an
+/// `ExecStart=` line (the recorded oracle fixtures) impose nothing.
+pub fn require_unit_binaries(release: &Path) -> Result<()> {
+    require_unit_binaries_in(Path::new("/etc/systemd/system"), release)
+}
+pub(crate) fn require_unit_binaries_in(units: &Path, release: &Path) -> Result<()> {
+    for unit in START.iter().copied().chain(["setjoin-authserverd"]) {
+        let text = match std::fs::read_to_string(units.join(format!("{unit}.service"))) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.into()),
+        };
+        for line in text.lines() {
+            let Some(command) = line.trim().strip_prefix("ExecStart=") else {
+                continue;
+            };
+            let program = command.split_whitespace().next().unwrap_or("");
+            let Some((_, name)) = program.rsplit_once("/current/") else {
+                continue;
+            };
+            ensure!(
+                !name.is_empty()
+                    && !name
+                        .split('/')
+                        .any(|p| p.is_empty() || p == "." || p == ".."),
+                "{unit}.service runs an invalid release path"
+            );
+            ensure!(
+                release.join(name).is_file(),
+                "staged release lacks {name}, which {unit}.service runs; refusing before stop and migration"
+            );
+        }
+    }
+    Ok(())
+}
+
 pub async fn preflight() -> Result<()> {
     for unit in START {
         let m = std::fs::symlink_metadata(format!("/etc/systemd/system/{unit}.service"))?;
@@ -374,5 +412,53 @@ pub async fn readiness() -> Result<()> {
             "fixed core readiness probes timed out"
         );
         tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
+#[cfg(test)]
+mod unit_binaries {
+    use super::require_unit_binaries_in;
+    fn dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "setjoin-unit-binaries-{tag}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+    #[test]
+    fn staged_release_must_carry_every_current_executable() {
+        let (units, release) = (dir("units"), dir("release"));
+        std::fs::write(
+            units.join("setjoin-auth.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-auth\n",
+        )
+        .unwrap();
+        std::fs::write(
+            units.join("setjoin-authserverd.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/authserverd\n",
+        )
+        .unwrap();
+        std::fs::write(
+            units.join("setjoin.service"),
+            "[Unit]\nDescription=fixture\n",
+        )
+        .unwrap();
+        std::fs::write(release.join("authserverd"), b"x").unwrap();
+        let error = require_unit_binaries_in(&units, &release)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("lacks setjoin-auth"), "{error}");
+        std::fs::write(release.join("setjoin-auth"), b"x").unwrap();
+        require_unit_binaries_in(&units, &release).unwrap();
+        std::fs::write(
+            units.join("setjoin-gateway.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/../x\n",
+        )
+        .unwrap();
+        assert!(require_unit_binaries_in(&units, &release).is_err());
+        let _ = std::fs::remove_dir_all(&units);
+        let _ = std::fs::remove_dir_all(&release);
     }
 }

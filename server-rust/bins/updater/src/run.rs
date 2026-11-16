@@ -501,7 +501,8 @@ async fn step(
             )
         }
         "stage_release" => {
-            stage::stage(store, root, &e.release_id, &e.manifest_digest)?;
+            let staged = stage::stage(store, root, &e.release_id, &e.manifest_digest)?;
+            host::require_unit_binaries(&staged)?;
             Ok(json!({"release_id":e.release_id,"installed_path":e.release_id}))
         }
         "stop_core" => {

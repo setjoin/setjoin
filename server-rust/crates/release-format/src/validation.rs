@@ -198,6 +198,7 @@ impl Manifest {
                 "provenance" => "release_provenance",
                 "sidecar" => "compatible_sidecar",
                 "setjoin-gateway" => "core_setjoin_gateway",
+                "setjoin-auth" => "core_setjoin_auth",
                 _ => "",
             };
             // Go's missing map key is the empty string, including for unknown classes.

@@ -59,7 +59,7 @@ F18 SSE event source HTTP/frame oracle: [SSE recordings](jmap/sse/README.md) (#3
 
 SMTP inbound socket/storage and signed webhook recording (#348): [protocol contract](../../crates/protocols/smtp/DOX.md).
 
-F21 login/key-custody recordings (#331): [identity-login](identity-login/README.md).
+F21 login/key-custody recordings (#112): [identity-login](identity-login/README.md).
 
 F21 token/chain and native Drive issuance (#333): `identity-token/` (front-door `setjoin-auth --test token_oracle`).
 The #333 [token oracle contract](identity-token/README.md) also covers direct
@@ -70,9 +70,9 @@ F21 established-session/refresh HTTP and revocation effects (#332): [oracle](ide
 F21 directory connector slice A (#337): [census and replay](identity-login/README.md#directory-connector-slice-a-337).
 
 TLS/ALPN session recordings, Go-compatible tickets and reviewed ACME P-256 divergence (#413): [tlsfront](tlsfront/README.md).
-Shared runtime gates, evaluator, device/DPoP/GeoIP and simulator corpus (#405): [AUTHZGATES](authzgates/README.md).
+Shared runtime gates, evaluator, device/DPoP/GeoIP and simulator corpus (#187): [AUTHZGATES](authzgates/README.md).
 
-`authz-defer/` (#406) records shared terminal admission at the executable HTTP
+`authz-defer/` (#188) records shared terminal admission at the executable HTTP
 boundary; [corpus contract](authz-defer/README.md).
 
 Gateway configuration precedence and runtime reload recordings (#414):
@@ -105,7 +105,7 @@ still requires exclusive creation and is removed by its fixture owner (#418).
 
 F17 CalDAV HTTP recordings and real-client capture (#426): [CalDAV oracle](caldav/README.md).
 
-F21 OIDC Provider HTTP/key oracle (#339): [recording contract](identity-oidc/README.md).
+F21 OIDC Provider HTTP/key oracle (#120): [recording contract](identity-oidc/README.md).
 F17 CardDAV HTTP, commit outcomes and real-client recordings (#427): [CardDAV oracle](carddav/README.md).
 
 F21 OIDC RP (#340): [identity-rp](identity-rp/README.md) owns the signed HTTPS

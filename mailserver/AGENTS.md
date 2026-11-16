@@ -40,6 +40,6 @@ Native HTTPS/ACME listener transfer, least-privilege deployment files and whole-
 
 Native updater/recovery swap, unchanged unit name and matching `*.prev` recovery: [installation contract](DOX.md#native-updaterrecovery-installation-359).
 
-Native IMAP sockets and threat-gated transfer: [deployment](DOX.md#native-imap-deployment-420).
+Native IMAP sockets and threat-gated transfer: [deployment](DOX.md#native-imap-deployment-202).
 
 Default native SMTP sockets, protected pipeline settings and real-systemd rehearsal (#526): [deployment](DOX.md#native-smtp-deployment-501--526).

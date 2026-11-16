@@ -188,8 +188,8 @@ never promoted into a complete rollback cohort. Its immutable Go recording is
 its manifest and ignores manifest.digest and installed.evidence.json; Rust no longer
 does (see SECURITY.md). The frozen-Go recording of that gap was removed.
 
-`package-server-release.sh` now takes eight inputs: architecture, Go binary dir,
-Rust gateway, Rust mailctl, Rust asrbotd, Rust updater, webmail build and output.
+`package-server-release.sh` now takes nine inputs (setjoin-auth added, #359b): architecture, Go binary dir,
+Rust gateway, Rust setjoin-auth, Rust mailctl, Rust asrbotd, Rust updater, webmail build and output.
 Only Go mailserverd/authserverd and the temporary Office-runner source remain Go
 binary inputs; Go recovery is not required or staged. `build.sh` stages the native
 updater at its canonical Rust path. Floor builds discover this existing workspace
@@ -213,3 +213,14 @@ Owner-approved security fixes (2026-11-05, tickets #506, #505, #507) live in
 recovery wrapper path, ownership checks, `sslmode`, debug-only verify flags and the
 raise-only `--minimum-threshold`. `scripts/test-updater-secfix-mutants.py` restores
 each gap and requires its test to fail.
+
+#359b: `core_setjoin_auth` stages `setjoin-auth` (0500); adoption captures an optional flat
+`setjoin-auth` (4–6 entries). `stage_release` then refuses, before stop and migration, a release
+missing any executable a fixed core unit or `setjoin-authserverd` runs from `current/`. The
+transitional `setjoin-authserverd` unit is tied to `setjoin-auth` (PartOf, BindsTo; the auth
+unit's ExecStopPost waits for authserverd's exit without stopping it, its ExecStartPost waits for
+the credential-free `/_setjoin/readiness` hand-off), so START/STOP are unchanged. The login probe is
+unchanged: it uses the valid probe credential, and no readiness probe sends credentials (a failed
+login from 127.0.0.1 would feed captcha/tarpit). CI checks this lifecycle only as unit text
+(test-livekit-render.sh); the systemd behaviour is proven by the manual root lane
+`python3 scripts/test-auth-chain-systemd.py`.

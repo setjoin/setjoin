@@ -142,6 +142,9 @@ render_gateway_deployment() (
     RUNTIME_DIR="$INSTALL_DIR"
     AUTHSERVER_URL="$(config_value "$CONFIG_ENV" AUTHSERVER_URL)"
     AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
+    # Flat layout runs only authserverd at AUTHSERVER_URL; both gateway auth
+    # upstreams name it. The flat path is removed with Go (#359).
+    AUTHSERVERD_URL="$AUTHSERVER_URL"
     GATEWAY_LISTEN="$(config_value "$GATEWAY_ENV" GATEWAY_LISTEN)"
     GATEWAY_UPSTREAM="$(config_value "$GATEWAY_ENV" GATEWAY_UPSTREAM)"
     GATEWAY_TRUSTED_PROXIES="$(config_value "$GATEWAY_ENV" GATEWAY_TRUSTED_PROXIES)"

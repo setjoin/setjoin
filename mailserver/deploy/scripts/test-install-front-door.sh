@@ -87,6 +87,7 @@ RUNTIME_DIR='$FX/opt/current'
 DATA_DIR='$FX/var'
 CONFIG_ENV='$FX/etc/config.env'
 AUTH_ENV='$FX/etc/auth.env'
+AUTHSERVERD_ENV='$FX/etc/authserverd.env'
 GATEWAY_ENV='$FX/etc/gateway.env'
 DB_CREDENTIALS_FILE='$FX/etc/db-credentials.d/db-credentials.env'
 UPDATER_DATA_DIR='$FX/updater'
@@ -142,7 +143,33 @@ fi
 
 gw_env="$FX/etc/gateway.env"
 require_text 'Go internal plain listener as upstream' 'GATEWAY_UPSTREAM=http://127.0.0.1:80' "$gw_env"
-require_text 'direct authserver upstream' 'GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:8443' "$gw_env"
+require_text 'go-auth rows reach the transitional authserverd directly' 'GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:8444' "$gw_env"
+require_text 'rust-auth rows reach setjoin-auth' 'GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:8443' "$gw_env"
+au_svc="$FX/units/setjoin-auth.service"
+go_svc="$FX/units/setjoin-authserverd.service"
+require_text 'auth unit runs Rust setjoin-auth' "ExecStart=$FX/opt/current/setjoin-auth" "$au_svc"
+require_text 'transitional authserverd rendered beside it' "ExecStart=$FX/opt/current/authserverd" "$go_svc"
+require_text 'authserverd follows setjoin-auth' 'PartOf=setjoin-auth.service' "$go_svc"
+require_text 'authserverd never runs alone' 'BindsTo=setjoin-auth.service' "$go_svc"
+require_text 'stop waits for authserverd to exit' 'ActiveState --value setjoin-authserverd.service)" = deactivating' "$au_svc"
+! grep -q 'systemctl stop setjoin-authserverd' "$au_svc" || fail "auth unit stops authserverd explicitly (N8)"
+! grep -q 'db-credentials' "$au_svc" || fail "Rust auth unit loads the privileged credential file"
+! grep -q 'auth/login' "$au_svc" || fail "auth readiness sends a credential request"
+# F4: only the literal 127.0.0.1:<port> is a trusted hop.
+for bad in http://localhost:8444 'http://[::1]:8444' http://127.example.com:8444; do
+  if ( source "$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
+       AUTHSERVER_URL=http://127.0.0.1:8443 AUTHSERVERD_URL="$bad" render_gateway_env "$tmp/bad-go-auth.env" ) 2>/dev/null; then
+    fail "render_gateway_env accepted authserverd upstream $bad"
+  fi
+done
+for bad in http://localhost:8443 'http://[::1]:8443'; do
+  if ( source "$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
+       AUTHSERVER_URL="$bad" render_gateway_env "$tmp/bad-rust-auth.env" ) 2>/dev/null; then
+    fail "render_gateway_env accepted setjoin-auth upstream $bad"
+  fi
+done
+require_text 'installer pins setjoin-auth to 127.0.0.1' '[[ "$AUTH_LISTEN" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]]' "$INSTALL"
+require_text 'installer pins authserverd to 127.0.0.1' '[[ "$AUTHSERVERD_LISTEN" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]]' "$INSTALL"
 require_text 'trusts only the local TLS terminator' 'GATEWAY_TRUSTED_PROXIES=127.0.0.1' "$gw_env"
 require_text 'front door ON' 'GATEWAY_ENABLED=true' "$gw_env"
 # A non-loopback upstream would expose Go's plain listener beyond the host.
@@ -161,6 +188,16 @@ require_text 'Go plain listener for the gateway' 'HTTP_MODE=proxy' "$INSTALL"
 require_text 'Go trusts exactly the gateway address' 'TRUSTED_PROXY_IP=127.0.0.1' "$INSTALL"
 require_text 'gateway env renders in the config step' 'render_gateway_env "$GATEWAY_ENV"' "$INSTALL"
 require_text 'gateway binary joins the flat cohort' 'install -m 0755 "$GATEWAY_SOURCE" "$INSTALL_DIR/setjoin-gateway"' "$INSTALL"
+require_text 'setjoin-auth joins the flat cohort' 'install -m 0755 "$AUTH_SOURCE" "$INSTALL_DIR/setjoin-auth"' "$INSTALL"
+require_text 'setjoin-auth hands off to authserverd' 'AUTHSERVER_GO_UPSTREAM=$AUTHSERVERD_URL' "$INSTALL"
+require_text 'no Rust copies of Go auth tasks' 'RUST_WORKERS_ON=' "$INSTALL"
+require_text 'auth.env holds only the worker DSN' "_auth_worker_dsn=\"\$(get_cred_env DB_WORKER_DSN)\"" "$INSTALL"
+require_text 'auth.env is built in a temp file (N3)' '_auth_tmp="$(mktemp "$AUTH_ENV.XXXXXX")"' "$INSTALL"
+require_text 'auth.env is renamed into place (N3)' 'mv -f "$_auth_tmp" "$AUTH_ENV"' "$INSTALL"
+require_text 'auth.env is root-only' 'chown root:root "$AUTH_ENV"' "$INSTALL"
+require_text 'pre-#359b installs refuse' 'installations from before #359b are not upgradable' "$INSTALL"
+require_text 'credential-free chain probe (N1)' 'http://$AUTH_LISTEN/_setjoin/readiness' "$INSTALL"
+! grep -Eq 'curl .*-X POST.*auth/login' "$INSTALL" || fail "installer probes with a credential request (N1)"
 require_text 'renderer input assigned before the entry migration' 'GATEWAY_ENV="$CONFIG_DIR/gateway.env"' "$INSTALL"
 require_text 'install health-checks the front door' '/_gateway/healthz' "$INSTALL"
 [ "$(grep -n 'GATEWAY_ENV="$CONFIG_DIR/gateway.env"' "$INSTALL" | head -1 | cut -d: -f1)" -lt \

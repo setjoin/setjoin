@@ -1,0 +1,57 @@
+[Unit]
+Description=SetJoin transitional Go auth server (authserverd behind setjoin-auth, #359b)
+Documentation=https://github.com/setjoin/setjoin
+After=network.target postgresql.service
+Wants=postgresql.service
+# Reached only by setjoin-auth (AUTHSERVER_GO_UPSTREAM) and the gateway's go-auth
+# rows (GATEWAY_AUTH_UPSTREAM). Not in the compiled unit catalog. PartOf= carries
+# setjoin-auth's stop/restart; BindsTo= means it never runs without setjoin-auth
+# (starting it alone starts setjoin-auth; setjoin-auth inactive stops it). There
+# is deliberately no ordering against setjoin-auth (see its ExecStartPost and
+# ExecStopPost). Deleted with the Go upstream plumbing (#359).
+PartOf=setjoin-auth.service
+BindsTo=setjoin-auth.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User={{USER|setjoin}}
+Group={{GROUP|setjoin}}
+WorkingDirectory={{RUNTIME_DIR}}
+ExecStart={{RUNTIME_DIR}}/authserverd
+
+ExecStartPre=/bin/sh -c 'until pg_isready -U mail -d mailserver -h 127.0.0.1; do sleep 2; done'
+
+Restart=always
+RestartSec=5
+
+MemoryMax=512M
+CPUQuota=200%
+TasksMax=1024
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/tmp
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictRealtime=true
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=setjoin-authserverd
+
+# config.env, then the privileged DB tiers (the worker tier is load-bearing for
+# authserverd's identity_links; owner-tier retention stays the recorded owner
+# decision), then authserverd.env LAST (its LISTEN_ADDR/TLS overrides win).
+EnvironmentFile={{CONFIG_ENV}}
+EnvironmentFile={{DB_CREDENTIALS_FILE}}
+EnvironmentFile={{AUTHSERVERD_ENV}}
