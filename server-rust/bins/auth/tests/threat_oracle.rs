@@ -3228,8 +3228,11 @@ async fn delete_test_audits(
     let ips = ips.to_vec();
     let users = users.to_vec();
     let keys = keys.to_vec();
-    c.batch_execute("BEGIN; SET LOCAL session_replication_role=replica")
-        .await?;
+    c.batch_execute("BEGIN").await?;
+    if let Err(error) = c.batch_execute("SET LOCAL session_replication_role=replica").await {
+        c.batch_execute("ROLLBACK").await?;
+        return Err(error.into());
+    }
     let deleted = c
         .execute(
             "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND ((event_type IN ('spray_detected','device_new','device_country_changed') AND (source_ip = ANY($2::text[]::inet[]) OR user_id = ANY($3::bigint[]))) OR (event_type = 'lockout_escalate' AND metadata->>'lockout_key' = ANY($4::text[])))",
