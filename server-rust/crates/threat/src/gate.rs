@@ -742,7 +742,9 @@ pub fn refusal_budget(outcome: &str, config: &Config) -> Option<(i32, i64)> {
 /// `$7 / (2 * $8)` seconds. Under continuous traffic of at least threshold × gap seconds (threshold
 /// = tarpit_threshold, gap = `$7 / (2 * $8)`) the window keeps a recent row, so clustered expiry
 /// cannot empty it. Before that a short burst that expires can leave the window briefly below its
-/// threshold until replenishment refills it (the named dip; crates/threat/DOX.md). Bound per source and instance: at most `$8` + P rows from the budget branch plus at most P rows
+/// threshold (the named dip; crates/threat/DOX.md). The dip closes at request rate: once the window
+/// holds fewer than `$8` rows, the budget branch writes one row per refused request.
+/// Bound per source and instance: at most `$8` + P rows from the budget branch plus at most P rows
 /// per replenishment gap of `$7 / (2 * $8)` seconds, i.e. at most `$8 + P * (2 * $8 + 1)`
 /// captcha_needed rows per window under fully concurrent bursts (P = request-pool size);
 /// sequential traffic stays at most `3 * $8 + 1`. Telemetry outcomes get no

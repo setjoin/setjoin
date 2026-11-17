@@ -458,7 +458,8 @@ impl ScopedExecutor {
     }
 
     /// Best-effort authentication-time statement; returns the rows affected.
-    /// Same pool, deadline and error mapping as `protocol_query`; fixed SQL only.
+    /// The count comes from the command tag. Same pool, deadline and error mapping as
+    /// `protocol_query`; fixed SQL only.
     pub async fn protocol_statement_count(
         &self,
         sql: &'static str,

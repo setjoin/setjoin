@@ -35,15 +35,17 @@ at most S + P rows from the budget branch plus at most P rows per replenishment 
 traffic stays <= 3S+1 rows per window.
 Clustered expiry cannot empty the tarpit window only after continuous traffic of at least
 threshold × gap (threshold = `tarpit_threshold`, gap = window/(2S)). Before that there is a named
-dip: after a short burst expires, the window can briefly hold fewer than threshold rows until
-replenishment refills it.
+dip: after a short burst expires, the window can briefly hold fewer than threshold rows. The dip
+closes at request rate: once the window holds fewer than S rows, the budget branch writes one row
+per refused request.
 Suppressed-row summary (CWE-779): when a budget-bounded INSERT writes 0 rows, `Gate::refusal` and
 the HTTP `http_refusal` call `note_suppressed_refusal` (`src/suppressed.rs`). It counts the outcome in
 a process-wide `SuppressedRefusals` static (fixed outcome index, no allocation per call) and, at most
-once per 60 s per process, writes one stderr line "threat refusal rows suppressed by budget (60 s): ..."
-with the non-zero per-outcome counts only, in a fixed outcome order. The line carries no source IP,
-username or user agent. Database errors are not counted. The first suppression after start is reported
-at once, then at most one line per 60 s.
+once per 60 s per process, writes one stderr line "threat refusal rows suppressed by budget (since last
+report): ..." with the non-zero per-outcome counts only, in a fixed outcome order. The line carries no
+source IP, username or user agent. Database errors are not counted. The first suppression after start is
+reported at once, then at most one line per 60 s; a tail left after a flood is flushed within 30 min by
+the feed tick (`flush_suppressed_refusals`).
 `attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's

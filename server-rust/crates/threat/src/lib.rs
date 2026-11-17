@@ -6,7 +6,7 @@ mod watchers;
 pub use watchers::Watchers;
 mod gate;
 mod suppressed;
-pub use suppressed::note_suppressed_refusal;
+pub use suppressed::{flush_suppressed_refusals, note_suppressed_refusal};
 pub use gate::{CaptchaStep, Config, ConnectionMeta, Decision, Gate, ThreatAction, ThreatGate, WorkerPools, RECORD_POOL_SIZE, WORKER_POOL_SIZE};
 pub use gate::{
     bounded_name, cap_agent, fingerprint, ip_rule_blocked, mask_ip, stored_fingerprint,
@@ -101,6 +101,7 @@ impl RuntimeTasks {
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 ticks.tick().await;
+                suppressed::flush_suppressed_refusals();
                 if let Err(error) = self
                     .feed_tick("https://www.spamhaus.org/drop/drop.txt")
                     .await
