@@ -11,7 +11,8 @@ name: server-rust lane
 # entry (the batch head) runs the full lane on its own commit, which contains every earlier entry. The
 # switch unset or any other event: `queue` prints head at once, so every entry runs the full lane, as before.
 # Worst case for one entry: SETTLE 120 s + CAP 5400 s + the lane; the queue job's timeout is 100 minutes.
-# Past the CAP, or after any ls-remote/fetch error, the entry runs the full lane itself (slower, never unsafe).
+# An ls-remote/fetch error is "unknown": the entry keeps waiting and retries; at the CAP it runs the full lane
+# itself (slower, never unsafe). An entry that leaves the queue while waiting ends `gone` without running.
 # A check_response_timeout (360 min) overrun ejects the entry; that fails closed and never merges it.
 # Pull requests do NOT run it: the required `aggregate` on a PR comes from
 # pr-precheck.yml (light pre-check + selected integration tests), and the merge queue then requires this workflow's `aggregate`
