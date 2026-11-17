@@ -1551,8 +1551,99 @@ native!(
     toggles_follow_login
 );
 native!(guest_post_captcha_header_native, captcha_header);
+native!(guest_post_failed_captcha_rows_are_bounded, failed_captcha_flood);
 native!(guest_post_threat_username_keys, username_keys);
 native!(guest_upgrade_reducers_absent, reducers_absent);
+
+/// Divergence `http-refusal-rows-bounded`: 35 failed tokens from one source answer 35 `captcha`
+/// refusals, and the rows they write stop at the 30-row budget.
+/// Every row this test's guest source owns, whatever its time: its attempt rows and its audit
+/// rows (the audit delete runs in one replica-mode transaction, rolled back on any error).
+async fn purge_guest_source(c: &Client, ip: &str) -> Result<(), Err> {
+    c.execute("DELETE FROM auth_attempts WHERE source_ip=$1::text::inet", &[&ip])
+        .await?;
+    c.batch_execute("BEGIN").await?;
+    if let Err(error) = c
+        .batch_execute("SET LOCAL session_replication_role=replica")
+        .await
+    {
+        c.batch_execute("ROLLBACK").await?;
+        return Err(error.into());
+    }
+    match c
+        .execute("DELETE FROM audit_log WHERE source_ip=$1::text::inet", &[&ip])
+        .await
+    {
+        Ok(_) => {
+            c.batch_execute("COMMIT").await?;
+            Ok(())
+        }
+        Err(error) => {
+            c.batch_execute("ROLLBACK").await?;
+            Err(error.into())
+        }
+    }
+}
+
+/// `native_server` with the threat tarpit window set. The replenishment gap follows the window
+/// (window/(2*budget)), so a day-long window keeps the exact 30-row count below.
+async fn native_server_with_tarpit_window(ctx: &Ctx, minutes: i32) -> Result<Server, Err> {
+    let mut cfg = Config::for_secret(ctx.secret().into());
+    cfg.signing_alg = "ES256".into();
+    cfg.dsn = ctx.db.dsn.clone();
+    cfg.threat.tarpit_window_mins = minutes;
+    let exec =
+        setjoin_pg::ScopedExecutor::from_dsn(ctx.db.app.as_deref().unwrap_or(&ctx.db.dsn), 4)
+            .unwrap();
+    let server = AuthServer::load(exec, cfg).await?;
+    Ok(auth_server(Arc::new(server), false).await)
+}
+
+async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
+    purge_guest_source(&ctx.c, "127.0.0.143").await?;
+    let fx = seed(&ctx.c, "valid").await?;
+    let server = native_server_with_tarpit_window(ctx, 1440).await?;
+    let (target, payload) = shape("POST", "success", &fx.token);
+    let since: String = ctx
+        .c
+        .query_one("SELECT (now() - interval '1 hour')::text", &[])
+        .await?
+        .get(0);
+    let source = "127.0.0.143";
+    let want = "{\"captcha_prompt\":\"CAPTCHA verification failed\",\"error\":\"captcha\"}\n";
+    let mut replies = Vec::new();
+    for _ in 0..35 {
+        replies.push(
+            request(
+                server.addr,
+                Ipv4Addr::new(127, 0, 0, 143),
+                "POST",
+                &target,
+                payload.clone(),
+                &[("x-captcha-token", "bogus".to_owned())],
+            )
+            .await,
+        );
+    }
+    server.close().await;
+    let replies: Result<Vec<Reply>, _> = replies.into_iter().collect();
+    let rows = ctx
+        .c
+        .query_one(
+            "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND outcome='captcha_needed' AND occurred_at>=$2::text::timestamptz",
+            &[&source, &since],
+        )
+        .await;
+    // Purge before propagating any error so a failed run leaves no rows for this source.
+    let purged = purge_guest_source(&ctx.c, source).await;
+    let (replies, rows): (Vec<Reply>, i64) = (replies?, rows?.get(0));
+    purged?;
+    if replies.iter().any(|r| r.status != 403 || r.body != want) || rows != 30 {
+        let statuses: Vec<u16> = replies.iter().map(|r| r.status).collect();
+        return Err(format!("failed-token flood: {rows} rows, replies {statuses:?}").into());
+    }
+    Ok(())
+}
 native!(guest_upgrade_worker_without_bypassrls, without_bypassrls);
 native!(guest_other_methods_are_405, other_methods);
 

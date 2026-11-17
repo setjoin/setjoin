@@ -3251,6 +3251,121 @@ async fn delete_test_audits(
     }
 }
 
+/// Attempt and lockout rows are cleared by `clear_state`; this clears the audit rows of the
+/// refusal tests' own IPs and keys whatever their time, at the start and at the end.
+const ALL_TIME: &str = "1970-01-01 00:00:00+00";
+
+async fn purge_native_audits(c: &Client, ips: &[String], email: &str) -> Result<(), Err> {
+    delete_test_audits(c, ALL_TIME, ips, &[], &keys_for(ips, &[email.to_owned()])).await
+}
+
+/// Divergence `http-refusal-rows-bounded`, native: a flood of CAPTCHA refusals from one source
+/// writes 30 captcha_needed rows (budget max(threshold, 29)+1); each reply is unchanged.
+#[tokio::test]
+async fn native_refusal_floods_write_bounded_rows() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349A-refusal-flood", true, &[])
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let ips = vec!["127.0.0.140".to_owned()];
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
+        let mut cfg = rust_config(&n.db, Preset::Threat, None)?;
+        cfg.threat.tarpit_threshold = 10;
+        // A day-long window: the replenishment gap is 1440*60/(2*30) s, about 24 min.
+        cfg.threat.tarpit_window_mins = 1440;
+        let server = serve(native_server(&n.db, cfg).await?).await?;
+        let raw = json!({"email": n.fx.email, "password": WRONG})
+            .to_string()
+            .into_bytes();
+        let mut statuses = Vec::new();
+        for _ in 0..38 {
+            statuses.push(
+                send(server.addr, ip(140), LOGIN, raw.clone(), &origin())
+                    .await
+                    .map(|r| (r.status, r.body)),
+            );
+        }
+        server.close().await;
+        let replies: Vec<(u16, String)> = statuses.into_iter().collect::<Result<_, _>>()?;
+        let mut want_kinds = vec!["failure".to_owned(); 3];
+        want_kinds.extend(std::iter::repeat("captcha_needed".to_owned()).take(30));
+        let kinds: Vec<String> = outcomes(&n.c, "127.0.0.140")
+            .await?
+            .into_iter()
+            .map(|(o, _)| o)
+            .collect();
+        // The CAPTCHA body carries a fresh challenge, so only its status and error kind are fixed.
+        let replies_ok = replies[..3].iter().all(|(s, _)| *s == 401)
+            && replies[3..]
+                .iter()
+                .all(|(s, b)| *s == 403 && b.contains("\"error\":\"captcha\""));
+        if !replies_ok || kinds != want_kinds {
+            return Err(format!("{replies:?} {kinds:?}").into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let owned = keys_for(&ips, std::slice::from_ref(&n.fx.email));
+    let cleaned = delete_test_audits(&n.c, ALL_TIME, &ips, &[], &owned).await;
+    let closed = native_close(n, &ips).await;
+    result.and(cleaned).and(closed).unwrap();
+}
+
+/// Divergence `http-refusal-rows-bounded`, native: a rate-limited flood writes one
+/// rate_limited row per 60 s; the replies stay 429 as before.
+#[tokio::test]
+async fn native_rate_limited_flood_writes_one_row_per_window() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349A-rate-flood", true, &[])
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let ips = vec!["127.0.0.141".to_owned()];
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
+        let mut cfg = rust_config(&n.db, Preset::Off, None)?;
+        cfg.threat.rate_limit_per_min = 2;
+        let server = serve(native_server(&n.db, cfg).await?).await?;
+        let raw = json!({"email": n.fx.email, "password": WRONG})
+            .to_string()
+            .into_bytes();
+        let mut statuses = Vec::new();
+        for _ in 0..6 {
+            statuses.push(
+                send(server.addr, ip(141), LOGIN, raw.clone(), &origin())
+                    .await
+                    .map(|r| r.status),
+            );
+        }
+        server.close().await;
+        let statuses: Vec<u16> = statuses.into_iter().collect::<Result<_, _>>()?;
+        let kinds: Vec<String> = outcomes(&n.c, "127.0.0.141")
+            .await?
+            .into_iter()
+            .map(|(o, _)| o)
+            .collect();
+        if statuses != [401, 401, 429, 429, 429, 429]
+            || kinds != ["failure", "failure", "rate_limited"]
+        {
+            return Err(format!("{statuses:?} {kinds:?}").into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let owned = keys_for(&ips, std::slice::from_ref(&n.fx.email));
+    let cleaned = delete_test_audits(&n.c, ALL_TIME, &ips, &[], &owned).await;
+    let closed = native_close(n, &ips).await;
+    result.and(cleaned).and(closed).unwrap();
+}
+
 /// Divergence `attempt-username-bounded`, native HTTP: three distinct 4 KiB names that share
 /// a 300-byte prefix are three spray identities, so the fourth attempt trips spray_detected
 /// before the CAPTCHA step's three-failure threshold can answer.

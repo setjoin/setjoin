@@ -215,8 +215,8 @@ impl AuthServer {
     /// pipeline refuses (Fable V2-2), so a rate-limited request consumes no slot. A claimed
     /// token runs `Skip` (Go: a solve skips the captcha/tarpit step); a token that
     /// fails verification, is already claimed or loses the claim race runs `TarpitOnly` and, if everything else
-    /// allows, gets 403 `captcha`. Every refusal first writes Go's attempt row
-    /// (outcomes outside auth_attempts_outcome_check write none).
+    /// allows, gets 403 `captcha`. Every refusal first writes its bounded refusal row
+    /// (divergence `http-refusal-rows-bounded`; outcomes outside auth_attempts_outcome_check write none).
     pub(super) async fn threat_admit(
         &self,
         staged: Staged,
@@ -269,7 +269,7 @@ impl AuthServer {
             }
             let solved = decision.action != ThreatAction::Allow || claimed;
             if !solved {
-                gate.attempt(&meta, "captcha_needed").await;
+                gate.refusal(&meta, "captcha_needed").await;
                 return Err(threat_reply(
                     403,
                     "captcha",
@@ -284,14 +284,15 @@ impl AuthServer {
         if decision.action != ThreatAction::Allow {
             // Go records a failed token as `captcha_needed` before any pipeline, and the
             // tarpit count reads it; `tarpit_applied` is no allowed outcome (the CHECK
-            // drops the row). A failed token the pipeline tarpits keeps Go's row.
+            // drops the row). A failed token the pipeline tarpits keeps that outcome, as a
+            // bounded refusal row (divergence `http-refusal-rows-bounded`).
             let failed_token = !token.is_empty() && decision.action == ThreatAction::Tarpitted;
             let reason = if failed_token {
                 "captcha_needed"
             } else {
                 &decision.reason
             };
-            gate.attempt(&meta, reason).await;
+            gate.refusal(&meta, reason).await;
             return Err(threat_result(secret, &binding, &decision).await);
         }
         Ok((
@@ -441,6 +442,40 @@ impl AuthServer {
             .await;
     }
 
+    /// A refused request's bounded row (divergence `http-refusal-rows-bounded`): the shared
+    /// per-source, per-outcome budget of `Gate::refusal`, on this process's request pool.
+    /// `refusal_budget` is `None` outside auth_attempts_outcome_check, so nothing is sent.
+    pub(super) async fn http_refusal(&self, ip: &str, agent: &str, username: &str, outcome: &str) {
+        let Some((window, max)) = setjoin_threat::refusal_budget(outcome, &self.config.threat)
+        else {
+            return;
+        };
+        let bounded = setjoin_threat::bounded_name(username);
+        let username: &str = &bounded;
+        let country = self.http_country(ip);
+        let fp = setjoin_threat::stored_fingerprint(agent, ip);
+        // Zero rows affected is a suppressed row; a database error is not counted.
+        if let Ok(0) = self
+            .exec
+            .protocol_statement_count(
+                setjoin_threat::REFUSAL_INSERT,
+                &[
+                    (&ip, Type::TEXT),
+                    (&username, Type::TEXT),
+                    (&"http", Type::TEXT),
+                    (&outcome, Type::TEXT),
+                    (&country, Type::TEXT),
+                    (&fp, Type::TEXT),
+                    (&window, Type::INT4),
+                    (&max, Type::INT8),
+                ],
+            )
+            .await
+        {
+            setjoin_threat::note_suppressed_refusal(outcome);
+        }
+    }
+
     /// Guest-invite stepIPRules (#342): an unanswered lookup rejects, as the
     /// protocol gate does (#367 `ip-rules-fail-closed`).
     pub(super) async fn http_ip_rules(
@@ -458,7 +493,7 @@ impl AuthServer {
             }
         };
         if reason == "ip_blocked" {
-            self.http_attempt(ip, agent, username, reason).await; // not on Err: same failed pool
+            self.http_refusal(ip, agent, username, reason).await; // not on Err: same failed pool
         }
         Some(threat_reply(403, reason, DENIED, None, Duration::ZERO).await)
     }

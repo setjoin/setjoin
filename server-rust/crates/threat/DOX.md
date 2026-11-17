@@ -25,6 +25,28 @@ best-effort attempt/sign-in, lockout and scoped device writes; post-auth evaluat
 verified user/groups with the shared policy engine. Protocols skip CAPTCHA. Lockout keys
 and attempt rows bound long names on every protocol (`bounded_name`: at most 255 bytes,
 distinct per name past that; divergences `lockout-key-name-bounded`, `attempt-username-bounded`).
+`Gate::refusal` writes a refused request's row under `refusal_budget` (per source and outcome, one
+INSERT...SELECT; divergence `http-refusal-rows-bounded`; rows affected come from the command tag via
+`protocol_statement_count`). `captcha_needed` also
+replenishes one row per window/(2S) seconds whenever the source has no `captcha_needed` row in that
+gap. Bound per source and instance, with S = max(tarpit threshold, 29)+1 and P = request-pool size:
+at most S + P rows from the budget branch plus at most P rows per replenishment gap, i.e.
+<= S + P*(2S+1) `captcha_needed` rows per tarpit window under fully concurrent bursts; sequential
+traffic stays <= 3S+1 rows per window.
+Clustered expiry cannot empty the tarpit window only after continuous traffic of at least
+threshold × gap (threshold = `tarpit_threshold`, gap = window/(2S)). Before that there is a named
+dip: after a short burst expires, the window can briefly hold fewer than threshold rows. The dip
+closes at request rate: once the window holds fewer than S rows, the budget branch writes one row
+per refused request.
+Suppressed-row summary (CWE-779): when a budget-bounded INSERT writes 0 rows, `Gate::refusal` and
+the HTTP `http_refusal` call `note_suppressed_refusal` (`src/suppressed.rs`). It counts the outcome in
+a process-wide `SuppressedRefusals` static (fixed outcome index, no allocation per call) and, at most
+once per 60 s per process, writes one stderr line "threat refusal rows suppressed by budget (since last
+report): ..." with the non-zero per-outcome counts only, in a fixed outcome order. The line carries no
+source IP, username or user agent. Database errors are not counted. The first suppression after start is
+reported at once, then at most one line per 60 s; counts left after a flood ends are reported with the
+next suppression at least 60 s after the previous report.
+`attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's
 feature_toggles listener) and `conditional_access`. Subscribe before reload,

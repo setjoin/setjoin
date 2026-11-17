@@ -169,7 +169,7 @@ impl AuthServer {
             )
             .is_some_and(|(mac, exp)| self.captcha_used.claim(&mac, exp, now));
             if !solved {
-                self.http_attempt(&ip, &agent, username, "captcha_needed")
+                self.http_refusal(&ip, &agent, username, "captcha_needed")
                     .await;
                 return http_threat::threat_reply(
                     403,
