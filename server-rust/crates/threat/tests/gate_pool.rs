@@ -77,6 +77,7 @@ fn meta(ip: &str, user: &str) -> ConnectionMeta {
 }
 
 fn keys(ip: &str, user: &str) -> Vec<String> {
+    let user = bounded_name(user);
     vec![
         format!("ip:{ip}"),
         format!("user:{user}"),
