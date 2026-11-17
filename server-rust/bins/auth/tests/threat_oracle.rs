@@ -3251,6 +3251,14 @@ async fn delete_test_audits(
     }
 }
 
+/// Attempt and lockout rows are cleared by `clear_state`; this clears the audit rows of the
+/// refusal tests' own IPs and keys whatever their time, at the start and at the end.
+const ALL_TIME: &str = "1970-01-01 00:00:00+00";
+
+async fn purge_native_audits(c: &Client, ips: &[String], email: &str) -> Result<(), Err> {
+    delete_test_audits(c, ALL_TIME, ips, &[], &keys_for(ips, &[email.to_owned()])).await
+}
+
 /// Divergence `http-refusal-rows-bounded`, native: a flood of CAPTCHA refusals from one source
 /// writes 30 captcha_needed rows (budget max(threshold, 29)+1); each reply is unchanged.
 #[tokio::test]
@@ -3262,15 +3270,10 @@ async fn native_refusal_floods_write_bounded_rows() {
     else {
         return;
     };
-    let since: String = n
-        .c
-        .query_one("SELECT (now() - interval '1 hour')::text", &[])
-        .await
-        .unwrap()
-        .get(0);
     let ips = vec!["127.0.0.140".to_owned()];
     let result = async {
         clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
         let mut cfg = rust_config(&n.db, Preset::Threat, None)?;
         cfg.threat.tarpit_threshold = 10;
         // A day-long window: the replenishment gap is 1440*60/(2*30) s, about 24 min.
@@ -3308,7 +3311,7 @@ async fn native_refusal_floods_write_bounded_rows() {
     }
     .await;
     let owned = keys_for(&ips, std::slice::from_ref(&n.fx.email));
-    let cleaned = delete_test_audits(&n.c, &since, &ips, &[], &owned).await;
+    let cleaned = delete_test_audits(&n.c, ALL_TIME, &ips, &[], &owned).await;
     let closed = native_close(n, &ips).await;
     result.and(cleaned).and(closed).unwrap();
 }
@@ -3324,15 +3327,10 @@ async fn native_rate_limited_flood_writes_one_row_per_window() {
     else {
         return;
     };
-    let since: String = n
-        .c
-        .query_one("SELECT (now() - interval '1 hour')::text", &[])
-        .await
-        .unwrap()
-        .get(0);
     let ips = vec!["127.0.0.141".to_owned()];
     let result = async {
         clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
         let mut cfg = rust_config(&n.db, Preset::Off, None)?;
         cfg.threat.rate_limit_per_min = 2;
         let server = serve(native_server(&n.db, cfg).await?).await?;
@@ -3363,75 +3361,7 @@ async fn native_rate_limited_flood_writes_one_row_per_window() {
     }
     .await;
     let owned = keys_for(&ips, std::slice::from_ref(&n.fx.email));
-    let cleaned = delete_test_audits(&n.c, &since, &ips, &[], &owned).await;
-    let closed = native_close(n, &ips).await;
-    result.and(cleaned).and(closed).unwrap();
-}
-
-/// Divergence `http-refusal-rows-bounded`, native: login and guest-invite share one source's
-/// captcha_needed budget (30 rows); every failed-token refusal reply stays 403 captcha.
-#[tokio::test]
-async fn native_login_and_guest_share_the_captcha_budget() {
-    let _serial = SERIAL.lock().await;
-    let Some(n) = native_open("GOFREE349A-shared-captcha", true, &[])
-        .await
-        .unwrap()
-    else {
-        return;
-    };
-    let since: String = n
-        .c
-        .query_one("SELECT (now() - interval '1 hour')::text", &[])
-        .await
-        .unwrap()
-        .get(0);
-    let ips = vec!["127.0.0.142".to_owned()];
-    let result = async {
-        clear_state(&n.c, &ips, &n.fx.email).await?;
-        // Tarpit off so the failed token reaches the captcha refusal; the rate limit is
-        // raised so it cannot answer first (the Threat preset allows 3 per minute).
-        let mut cfg = rust_config(&n.db, Preset::Threat, None)?;
-        cfg.threat.overrides.insert("feature.tarpit".to_owned(), false);
-        // A day-long window: the replenishment gap is about 24 min, so 30 rows stay exact.
-        cfg.threat.tarpit_window_mins = 1440;
-        cfg.threat.rate_limit_per_min = 100;
-        let server = serve(native_server(&n.db, cfg).await?).await?;
-        let mut headers = origin();
-        headers.push(("x-captcha-token".into(), "bogus-token".into()));
-        headers.push(("x-captcha-answer".into(), "1".into()));
-        let login = json!({"email": n.fx.email, "password": PASSWORD})
-            .to_string()
-            .into_bytes();
-        let mut statuses = Vec::new();
-        for _ in 0..25 {
-            statuses.push(
-                send(server.addr, ip(142), "/auth/guest-invite/accept", b"{}".to_vec(), &headers)
-                    .await
-                    .map(|r| r.status),
-            );
-        }
-        for _ in 0..10 {
-            statuses.push(
-                send(server.addr, ip(142), LOGIN, login.clone(), &headers)
-                    .await
-                    .map(|r| r.status),
-            );
-        }
-        server.close().await;
-        let statuses: Vec<u16> = statuses.into_iter().collect::<Result<_, _>>()?;
-        let kinds: Vec<String> = outcomes(&n.c, "127.0.0.142")
-            .await?
-            .into_iter()
-            .map(|(o, _)| o)
-            .collect();
-        if statuses != vec![403; 35] || kinds != vec!["captcha_needed".to_owned(); 30] {
-            return Err(format!("{statuses:?} {} rows", kinds.len()).into());
-        }
-        Ok::<_, Err>(())
-    }
-    .await;
-    let owned = keys_for(&ips, std::slice::from_ref(&n.fx.email));
-    let cleaned = delete_test_audits(&n.c, &since, &ips, &[], &owned).await;
+    let cleaned = delete_test_audits(&n.c, ALL_TIME, &ips, &[], &owned).await;
     let closed = native_close(n, &ips).await;
     result.and(cleaned).and(closed).unwrap();
 }

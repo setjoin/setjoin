@@ -1557,6 +1557,34 @@ native!(guest_upgrade_reducers_absent, reducers_absent);
 
 /// Divergence `http-refusal-rows-bounded`: 35 failed tokens from one source answer 35 `captcha`
 /// refusals, and the rows they write stop at the 30-row budget.
+/// Every row this test's guest source owns, whatever its time: its attempt rows and its audit
+/// rows (the audit delete runs in one replica-mode transaction, rolled back on any error).
+async fn purge_guest_source(c: &Client, ip: &str) -> Result<(), Err> {
+    c.execute("DELETE FROM auth_attempts WHERE source_ip=$1::text::inet", &[&ip])
+        .await?;
+    c.batch_execute("BEGIN").await?;
+    if let Err(error) = c
+        .batch_execute("SET LOCAL session_replication_role=replica")
+        .await
+    {
+        c.batch_execute("ROLLBACK").await?;
+        return Err(error.into());
+    }
+    match c
+        .execute("DELETE FROM audit_log WHERE source_ip=$1::text::inet", &[&ip])
+        .await
+    {
+        Ok(_) => {
+            c.batch_execute("COMMIT").await?;
+            Ok(())
+        }
+        Err(error) => {
+            c.batch_execute("ROLLBACK").await?;
+            Err(error.into())
+        }
+    }
+}
+
 /// `native_server` with the threat tarpit window set. The replenishment gap follows the window
 /// (window/(2*budget)), so a day-long window keeps the exact 30-row count below.
 async fn native_server_with_tarpit_window(ctx: &Ctx, minutes: i32) -> Result<Server, Err> {
@@ -1572,6 +1600,7 @@ async fn native_server_with_tarpit_window(ctx: &Ctx, minutes: i32) -> Result<Ser
 }
 
 async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
+    purge_guest_source(&ctx.c, "127.0.0.143").await?;
     let fx = seed(&ctx.c, "valid").await?;
     let server = native_server_with_tarpit_window(ctx, 1440).await?;
     let (target, payload) = shape("POST", "success", &fx.token);
@@ -1606,12 +1635,7 @@ async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
         )
         .await?
         .get(0);
-    ctx.c
-        .execute(
-            "DELETE FROM auth_attempts WHERE source_ip=$1::text::inet AND occurred_at>=$2::text::timestamptz",
-            &[&source, &since],
-        )
-        .await?;
+    purge_guest_source(&ctx.c, source).await?;
     if replies.iter().any(|r| r.status != 403 || r.body != want) || rows != 30 {
         let statuses: Vec<u16> = replies.iter().map(|r| r.status).collect();
         return Err(format!("failed-token flood: {rows} rows, replies {statuses:?}").into());
