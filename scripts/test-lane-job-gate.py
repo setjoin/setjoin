@@ -4,18 +4,15 @@ no network: the role logic gets injected git, clock and sleep; the real git func
 file:// fixtures in a temp dir; the CLI runs only on paths that never call git.
 python3 scripts/test-lane-job-gate.py"""
 import contextlib
-import http.client
 import importlib.util
 import io
 import json
 import os
 import re
-import socket
 import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.error
 from pathlib import Path
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
@@ -332,22 +329,16 @@ class FailedLaterLoop(unittest.TestCase):
         self.assertEqual(clock.t, CAP)
 
 
-class FakeResp:
-    def __init__(self, body):
-        self.body = body
+class Done:
+    """What subprocess.run returns for the curl lookup: exit code and stdout."""
 
-    def read(self):
-        return self.body
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_exc):
-        return False
+    def __init__(self, stdout="", returncode=0):
+        self.stdout = stdout
+        self.returncode = returncode
 
 
 def api_body(*runs):
-    return json.dumps({"total_count": len(runs), "workflow_runs": list(runs)}).encode()
+    return json.dumps({"total_count": len(runs), "workflow_runs": list(runs)})
 
 
 def api_run(run_id, sha, status, conclusion=None):
@@ -355,24 +346,27 @@ def api_run(run_id, sha, status, conclusion=None):
 
 
 def fake_api(answers, calls, clock=None, worst=False):
-    """urlopen stand-in: answers maps head_sha -> body bytes or an exception to raise; an unknown sha gets no runs.
-    Each call records (request, timeout); with a clock it also advances the clock by the timeout (worst case)."""
+    """run_cmd stand-in for subprocess.run. answers maps head_sha -> stdout text (a curl exit code as an int, or an
+    exception to raise); an unknown sha gets no runs. Each call records (argv, kwargs); with a clock it also advances
+    the clock by the timeout (worst case). No process is started."""
 
-    def urlopen(req, timeout=None):
-        calls.append((req, timeout))
+    def run_cmd(argv, **kw):
+        calls.append((argv, kw))
         if clock is not None:
-            clock.t += timeout if worst else 1
-        sha = parse_qs(urlsplit(req.full_url).query)["head_sha"][0]
+            clock.t += kw["timeout"] if worst else 1
+        sha = parse_qs(urlsplit(argv[-1]).query)["head_sha"][0]
         answer = answers.get(sha, api_body())
         if isinstance(answer, BaseException):
             raise answer
-        return FakeResp(answer)
+        if isinstance(answer, int):
+            return Done("", answer)
+        return Done(answer)
 
-    return urlopen
+    return run_cmd
 
 
 class FailedLaterApi(unittest.TestCase):
-    """gate.failed_later_from_api over an injected urlopen: no network, no sleeping."""
+    """gate.failed_later_from_api over an injected subprocess.run stand-in: no network, no process, no sleeping."""
 
     S = "d" * 40
     T = "e" * 40
@@ -382,22 +376,33 @@ class FailedLaterApi(unittest.TestCase):
     def call(self, shas, answers=None, may_start=lambda: True):
         calls = []
         out = gate.failed_later_from_api(shas, may_start, repo=self.REPO, token=self.TOKEN,
-                                         urlopen=fake_api(answers or {}, calls))
+                                         run_cmd=fake_api(answers or {}, calls))
         return out, calls
 
-    def test_request_shape_and_headers(self):
+    def test_request_shape_timeouts_and_headers_on_stdin(self):
         out, calls = self.call([self.S])
         self.assertEqual(out, {})
-        req, timeout = calls[0]
         self.assertEqual(len(calls), 1)
-        self.assertEqual(req.full_url, "https://api.github.com/repos/setjoin/setjoin/actions/workflows/"
-                                       f"server-rust-lane.yml/runs?event=merge_group&head_sha={self.S}&per_page=5")
-        self.assertEqual(req.get_method(), "GET")
-        self.assertEqual(req.get_header("Authorization"), "Bearer " + self.TOKEN)
-        self.assertEqual(req.get_header("Accept"), "application/vnd.github+json")
-        self.assertEqual(req.get_header("X-github-api-version"), "2022-11-28")
-        self.assertEqual(timeout, 15)
-        self.assertEqual(gate.QUEUE_RUN_LOOKUP_TIMEOUT_S, 15)
+        argv, kw = calls[0]
+        self.assertEqual(argv[0], "curl")
+        self.assertEqual(argv[-1], "https://api.github.com/repos/setjoin/setjoin/actions/workflows/"
+                                   f"server-rust-lane.yml/runs?event=merge_group&head_sha={self.S}&per_page=5")
+        self.assertIn("--fail", argv)
+        self.assertEqual(argv[argv.index("--max-time") + 1], "12")
+        self.assertEqual(argv[argv.index("-H") + 1], "@-")
+        self.assertEqual(kw["timeout"], 15)
+        self.assertEqual((gate.QUEUE_RUN_LOOKUP_TIMEOUT_S, gate.QUEUE_RUN_CURL_MAX_TIME_S), (15, 12))
+        self.assertTrue(kw["capture_output"])
+        self.assertIn("Authorization: Bearer " + self.TOKEN + "\n", kw["input"])
+        self.assertIn("Accept: application/vnd.github+json\n", kw["input"])
+        self.assertIn("X-GitHub-Api-Version: 2022-11-28\n", kw["input"])
+
+    def test_token_is_in_stdin_never_in_argv(self):
+        _, calls = self.call([self.S, self.T])
+        for argv, kw in calls:
+            self.assertNotIn(self.TOKEN, " ".join(argv))
+            self.assertIn(self.TOKEN, kw["input"])
+        self.assertNotIn("Authorization", " ".join(a for argv, _ in calls for a in argv))
 
     def test_newest_run_by_id_decides(self):
         out, _ = self.call([self.S], {self.S: api_body(api_run(10, self.S, "completed", "failure"),
@@ -434,25 +439,28 @@ class FailedLaterApi(unittest.TestCase):
         self.assertEqual(out, {self.T: "failure"})
         self.assertEqual(len(calls), 2)
 
-    def test_http_error_is_unknown(self):
-        err = urllib.error.HTTPError("https://api.github.com/x", 403, "rate limited", None, None)
-        self.assertIsNone(self.call([self.S], {self.S: err})[0])
+    def test_nonzero_curl_exit_is_unknown(self):
+        self.assertIsNone(self.call([self.S], {self.S: 22})[0])  # --fail: HTTP 403/5xx
+        self.assertIsNone(self.call([self.S], {self.S: 6})[0])   # could not resolve host
 
-    def test_timeout_is_unknown(self):
-        self.assertIsNone(self.call([self.S], {self.S: socket.timeout("timed out")})[0])
-        self.assertIsNone(self.call([self.S], {self.S: TimeoutError("timed out")})[0])
+    def test_timeout_is_unknown_and_no_further_request_starts(self):
+        # the hard bound: subprocess.run raises TimeoutExpired after killing the child
+        expired = subprocess.TimeoutExpired(cmd="curl", timeout=15)
+        out, calls = self.call([self.S, self.T], {self.S: expired})
+        self.assertIsNone(out)
+        self.assertEqual(len(calls), 1)
 
-    def test_connection_and_json_errors_are_unknown(self):
-        self.assertIsNone(self.call([self.S], {self.S: urllib.error.URLError("no route")})[0])
-        self.assertIsNone(self.call([self.S], {self.S: http.client.IncompleteRead(b"x")})[0])
-        self.assertIsNone(self.call([self.S], {self.S: b"not json"})[0])
-        self.assertIsNone(self.call([self.S], {self.S: b'{"workflow_runs": [{"id": 1}]}'})[0])  # no head_sha
-        self.assertIsNone(self.call([self.S], {self.S: b"[]"})[0])  # not an object
+    def test_os_error_is_unknown(self):
+        self.assertIsNone(self.call([self.S], {self.S: FileNotFoundError("curl")})[0])
+
+    def test_bad_json_and_bad_shape_are_unknown(self):
+        self.assertIsNone(self.call([self.S], {self.S: "not json"})[0])
+        self.assertIsNone(self.call([self.S], {self.S: '{"workflow_runs": [{"id": 1}]}'})[0])  # no head_sha
+        self.assertIsNone(self.call([self.S], {self.S: "[]"})[0])  # not an object
 
     def test_one_failing_sha_makes_the_whole_answer_unknown(self):
-        err = urllib.error.HTTPError("https://api.github.com/x", 500, "boom", None, None)
         out, calls = self.call([self.S, self.T], {self.S: api_body(api_run(7, self.S, "completed", "failure")),
-                                                  self.T: err})
+                                                  self.T: 22})
         self.assertIsNone(out)  # never a partial map: the caller would keep the rest as later
         self.assertEqual(len(calls), 2)
 
@@ -518,7 +526,7 @@ class WorstCaseTiming(unittest.TestCase):
     wait_for_role and descendants_of run unchanged on top of them."""
 
     def test_no_subprocess_starts_at_or_after_cap_and_return_is_within_worst_io(self):
-        # MAX_BATCH later refs per poll, each with a failed-run lookup (the production function, its urlopen faked):
+        # MAX_BATCH later refs per poll, each with a failed-run lookup (the production function, its subprocess.run faked):
         # every git command and every lookup is charged its full timeout when worst, and a fresh stale ref each poll
         # makes the ancestry check run every poll.
         later = {f"{gate.QUEUE_REF_PREFIX}pr-{k}-{k:040x}": f"{k:040x}" for k in range(6, 6 + gate.QUEUE_MAX_BATCH)}
@@ -533,10 +541,10 @@ class WorstCaseTiming(unittest.TestCase):
                     nonce[0] += 1
                     return {OWN_REF: OWN, **later, f"{gate.QUEUE_REF_PREFIX}pr-9-{nonce[0]}": "e" * 40}
 
-                def lookup(req, timeout=None):
+                def lookup(argv, **kw):
                     starts.append(("run-lookup", clock.t))
-                    clock.t += timeout if worst else 1
-                    return FakeResp(api_body())  # no run anywhere: nothing failed, every later ref stays
+                    clock.t += kw["timeout"] if worst else 1
+                    return Done(api_body())  # no run anywhere: nothing failed, every later ref stays
 
                 out = {**GIT_OUT, "for-each-ref": listed}
                 with mock.patch.object(gate, "_git", fake_git(clock, starts, worst, out)):
@@ -545,7 +553,7 @@ class WorstCaseTiming(unittest.TestCase):
                         descendants=lambda sha, remote, may_start: gate.descendants_of(
                             OWN_REF, sha, remote, "unused-dir", "unused-url", may_start),
                         failed_later=lambda shas, may_start: gate.failed_later_from_api(
-                            shas, may_start, repo="x/y", token="t", urlopen=lookup),
+                            shas, may_start, repo="x/y", token="t", run_cmd=lookup),
                         sleep=clock.sleep, now=clock.now, log=lambda _m: None)
                 context = (poll, worst)
                 self.assertEqual(role, "head", context)
@@ -607,6 +615,8 @@ class WorkflowWiring(unittest.TestCase):
         self.assertEqual(gate.QUEUE_POLL_WORST_IO_S, 180 + gate.QUEUE_MAX_BATCH * 15)
         self.assertEqual(gate.QUEUE_POLL_WORST_IO_S, 255)
         self.assertEqual(gate.QUEUE_CAP_S + gate.QUEUE_POLL_WORST_IO_S + gate.QUEUE_SETUP_MARGIN_S, 5955)
+        self.assertEqual(minutes, 110)
+        self.assertEqual(gate.QUEUE_JOB_TIMEOUT_S, 6600)
 
     def test_queue_job_can_read_actions_and_gets_the_token_only_there(self):
         text = WORKFLOW.read_text()

@@ -485,7 +485,7 @@ fetch 60 s, for-each-ref 30 s, and up to five run lookups of 15 s each, `QUEUE_P
 descendant, and a hidden one means `head`, which runs our own full lane: a miss is safe. A reported descendant is always
 real, because a ref is listed only when our commit is an ancestor of its tip in the fetched graph. A failed command, a
 missing own commit (`cat-file -e`) or a passed deadline returns unknown (None), never an empty set. Worst case per entry is SETTLE + CAP + the lane; the queue job
-times out at 100 min, above CAP + 255 s + 300 s of checkout and setup (5955 s against 6000 s), and `scripts/test-lane-job-gate.py` asserts that. A `check_response_timeout`
+times out at 110 min (6600 s), above CAP + 255 s + 300 s of checkout and setup (5955 s), and `scripts/test-lane-job-gate.py` asserts that. The 255 s is ENFORCED, not assumed: every git call and every API lookup is a child process run by `subprocess.run` with a timeout (`QUEUE_*_TIMEOUT_S`), and the child is killed at that timeout. A per-socket timeout would not do: `urlopen(timeout=)` bounds each blocking socket operation, not the whole response, so a trickling body could outlive the job. A `check_response_timeout`
 overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/test-lane-job-gate.py`
 (git, clock, sleep and the Actions API injected; no network).
 
@@ -497,11 +497,11 @@ Why the failed-later check exists (GitHub HEADGREEN behaviour, live pilot 2026-1
 `gh-readonly-queue` branch while the earlier entries' checks were pending. #441 and #446 kept seeing #447 as a later
 descendant and waited until the CAP (90 min); dequeuing #447 by hand freed them at once. So a later ref whose
 server-rust lane run for its merge_group commit is COMPLETED with a conclusion other than `success` no longer counts as
-later. `failed_later_from_api` makes one GET per later head sha, `GET /repos/{REPO}/actions/workflows/server-rust-lane.yml/runs?event=merge_group&head_sha={sha}&per_page=5`,
+later. `failed_later_from_api` runs one `curl` child per later head sha (`--fail --max-time 12`, under `subprocess.run` with a 15 s hard timeout; headers, token included, on stdin via `-H @-`, never in argv), `GET /repos/{REPO}/actions/workflows/server-rust-lane.yml/runs?event=merge_group&head_sha={sha}&per_page=5`,
 and the newest run (max id) decides; the function returns the failed shas with their conclusions. A run that is queued, in
 progress or missing keeps the ref later, and `success` does too (GitHub then merges us with it). It is asked on every poll
 that has later refs (run states change while the sha set stays the same); the descendant sha-set cache is unchanged. Any
-HTTP, JSON or timeout error (15 s per request), or a CAP reached before a request, returns unknown, which keeps every later
+non-zero exit, timeout, JSON or shape error, or a CAP reached before a request, returns unknown, which keeps every later
 ref, so the entry waits until CAP and runs its own full lane: fail-safe. Each poll logs one line (`excluded_failed=[ref sha=... conclusion=...]`);
 the token is never logged.
 Permission: only the `queue` job gets `permissions: { contents: read, actions: read }` at job level (the workflow-level

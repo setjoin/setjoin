@@ -12,14 +12,12 @@
                                           Optional LANE_QUEUE_POLL / LANE_QUEUE_SETTLE / LANE_QUEUE_CAP in seconds.
 
 Tests: python3 scripts/test-lane-job-gate.py"""
-import http.client
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
-import urllib.request
 
 FULL_JOBS = {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
 CACHE_JOBS = {"plan", "build", "coverage-build", "gomod-cache"}
@@ -43,12 +41,13 @@ QUEUE_CAT_FILE_TIMEOUT_S = 15
 QUEUE_FETCH_TIMEOUT_S = 60
 QUEUE_FOR_EACH_TIMEOUT_S = 30
 # One GitHub REST lookup per later ref (failed_later_from_api), at most QUEUE_MAX_BATCH of them per poll.
-QUEUE_RUN_LOOKUP_TIMEOUT_S = 15
+QUEUE_RUN_LOOKUP_TIMEOUT_S = 15  # the hard bound: subprocess.run kills the curl child at this timeout
+QUEUE_RUN_CURL_MAX_TIME_S = 12  # curl's own cap, inside the hard bound
 QUEUE_POLL_WORST_IO_S = (QUEUE_LS_REMOTE_TIMEOUT_S + QUEUE_GIT_INIT_TIMEOUT_S + QUEUE_CAT_FILE_TIMEOUT_S
                          + QUEUE_FETCH_TIMEOUT_S + QUEUE_FOR_EACH_TIMEOUT_S
                          + QUEUE_MAX_BATCH * QUEUE_RUN_LOOKUP_TIMEOUT_S)
 QUEUE_SETUP_MARGIN_S = 300
-QUEUE_JOB_TIMEOUT_S = 100 * 60
+QUEUE_JOB_TIMEOUT_S = 110 * 60
 QUEUE_REF_PREFIX = "refs/heads/gh-readonly-queue/main/"
 QUEUE_RUN_WORKFLOW = "server-rust-lane.yml"
 
@@ -230,30 +229,35 @@ def descendants_of(own_ref, own_sha, remote, git_dir, url, may_start=lambda: Tru
     return {r for r in names if r != own_ref and r in remote}
 
 
-def failed_later_from_api(shas, may_start, *, repo, token, urlopen=urllib.request.urlopen):
+def failed_later_from_api(shas, may_start, *, repo, token, run_cmd=subprocess.run):
     """Map each sha whose merge_group lane run has COMPLETED with a conclusion other than success to that conclusion.
-    A sha with no run, or a run still queued or in progress, is not in the map, so it stays later. One GET per sha;
-    the newest run (max id) with that head_sha decides. An HTTP, JSON or timeout error returns None (unknown), and so
-    does may_start() going False before a request, which then starts nothing. The token is sent in a header only."""
+    A sha with no run, or a run still queued or in progress, is not in the map, so it stays later. One curl child
+    process per sha; the newest run (max id) with that head_sha decides. The child runs under subprocess.run with
+    timeout=QUEUE_RUN_LOOKUP_TIMEOUT_S, which kills it at the timeout, so a slow or trickling response can never
+    outlive the bound (urlopen's timeout bounds each socket operation, not the whole response). The headers, token
+    included, go on stdin (curl -H @-), never in argv. Any non-zero exit, timeout, bad JSON or bad shape returns None,
+    and so does may_start() going False before a request, which then starts nothing. The token is never logged."""
     failed = {}
     for sha in shas:
         if not may_start():
             return None
         url = (f"https://api.github.com/repos/{repo}/actions/workflows/{QUEUE_RUN_WORKFLOW}/runs"
                f"?event=merge_group&head_sha={sha}&per_page=5")
-        req = urllib.request.Request(url, headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
+        headers = (f"Authorization: Bearer {token}\n"
+                   "Accept: application/vnd.github+json\n"
+                   "X-GitHub-Api-Version: 2022-11-28\n")
+        argv = ["curl", "-sS", "--fail", "--max-time", str(QUEUE_RUN_CURL_MAX_TIME_S), "-H", "@-", url]
         try:
-            with urlopen(req, timeout=QUEUE_RUN_LOOKUP_TIMEOUT_S) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
+            done = run_cmd(argv, input=headers, capture_output=True, text=True,
+                           timeout=QUEUE_RUN_LOOKUP_TIMEOUT_S, check=False)
+            if done.returncode != 0:
+                return None
+            body = json.loads(done.stdout)
             runs = [run for run in body["workflow_runs"] if run["head_sha"] == sha]
             newest = max(runs, key=lambda run: run["id"], default=None)
             status = newest["status"] if newest is not None else None
             conclusion = newest.get("conclusion") if newest is not None else None
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, http.client.HTTPException):
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError):
             return None
         if status == "completed" and conclusion != "success":
             failed[sha] = str(conclusion)
