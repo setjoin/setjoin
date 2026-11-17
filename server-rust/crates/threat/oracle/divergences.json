@@ -72,8 +72,10 @@
   "stored-user-agent-capped": {
     "reason": "Go stores the whole User-Agent in auth_attempts.device_fingerprint and device_registry.user_agent; Rust persists at most 512 bytes. device_hash still hashes the whole agent|masked-IP, so device identity matches Go.",
     "review": "#433 follow-up",
-    "go_source": "shared/threat/interceptor.go:383-390,930-955,1107-1109",
+    "go_source": "shared/threat/interceptor.go:332-339,383-390,930-955,1107-1109",
     "test": "gate::tests::stored_fingerprint_caps_the_agent_not_the_device_identity, setjoin-auth threat_oracle::native_long_user_agent_is_capped_where_stored",
-    "original_evidence": "#433 finding 2"
+    "original_evidence": "#433 finding 2",
+    "reviewed": true,
+    "review_reference": "owner policy 2026-11-05 (security Go bugs fixed in Rust); Fable #433 follow-up plan review + #438 code review, Codex #438"
   }
 }
