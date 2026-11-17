@@ -26,7 +26,8 @@ verified user/groups with the shared policy engine. Protocols skip CAPTCHA. Lock
 and attempt rows bound long names on every protocol (`bounded_name`: at most 255 bytes,
 distinct per name past that; divergences `lockout-key-name-bounded`, `attempt-username-bounded`).
 `Gate::refusal` writes a refused request's row under `refusal_budget` (per source and outcome, one
-INSERT...SELECT with `RETURNING 1`; divergence `http-refusal-rows-bounded`). `captcha_needed` also
+INSERT...SELECT; divergence `http-refusal-rows-bounded`; rows affected come from the command tag via
+`protocol_statement_count`). `captcha_needed` also
 replenishes one row per window/(2S) seconds whenever the source has no `captcha_needed` row in that
 gap. Bound per source and instance, with S = max(tarpit threshold, 29)+1 and P = request-pool size:
 at most S + P rows from the budget branch plus at most P rows per replenishment gap, i.e.
@@ -39,10 +40,10 @@ replenishment refills it.
 Suppressed-row summary (CWE-779): when a budget-bounded INSERT writes 0 rows, `Gate::refusal` and
 the HTTP `http_refusal` call `note_suppressed_refusal` (`src/suppressed.rs`). It counts the outcome in
 a process-wide `SuppressedRefusals` static (fixed outcome index, no allocation per call) and, at most
-once per 60 s per process, emits one `tracing::warn!` "threat refusal rows suppressed by budget" with
-the non-zero per-outcome counts only. The event carries no source IP, username or user agent. Database
-errors are not counted. The event reaches a log only where a tracing subscriber is installed; no
-server-rust binary installs one yet.
+once per 60 s per process, writes one stderr line "threat refusal rows suppressed by budget (60 s): ..."
+with the non-zero per-outcome counts only, in a fixed outcome order. The line carries no source IP,
+username or user agent. Database errors are not counted. The first suppression after start is reported
+at once, then at most one line per 60 s.
 `attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's

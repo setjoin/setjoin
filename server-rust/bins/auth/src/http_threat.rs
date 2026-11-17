@@ -454,10 +454,10 @@ impl AuthServer {
         let username: &str = &bounded;
         let country = self.http_country(ip);
         let fp = setjoin_threat::stored_fingerprint(agent, ip);
-        // Zero rows from RETURNING 1 is a suppressed row; a database error is not counted.
-        match self
+        // Zero rows affected is a suppressed row; a database error is not counted.
+        if let Ok(0) = self
             .exec
-            .protocol_query(
+            .protocol_statement_count(
                 setjoin_threat::REFUSAL_INSERT,
                 &[
                     (&ip, Type::TEXT),
@@ -472,8 +472,7 @@ impl AuthServer {
             )
             .await
         {
-            Ok(rows) if rows.is_empty() => setjoin_threat::note_suppressed_refusal(outcome),
-            _ => {}
+            setjoin_threat::note_suppressed_refusal(outcome);
         }
     }
 

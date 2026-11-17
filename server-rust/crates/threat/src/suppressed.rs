@@ -1,6 +1,6 @@
 //! Process-wide summary of refusal rows that `refusal_budget` suppressed (CWE-779).
 //! Suppressed rows are counted per outcome, not logged per event. At most one
-//! `warn` per `EMIT_INTERVAL_SECS` per process carries the counts. The event has no
+//! stderr line per `EMIT_INTERVAL_SECS` per process carries the counts. The line has no
 //! source IP, username or user agent.
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -81,8 +81,8 @@ fn index(outcome: &str) -> Option<usize> {
 static SUPPRESSED: SuppressedRefusals = SuppressedRefusals::new();
 
 /// Records one refusal row that the budget suppressed (its INSERT wrote 0 rows). Call it only
-/// for outcomes with a budget and not on database errors. Emits at most one summary `warn`
-/// per process per 60 s.
+/// for outcomes with a budget and not on database errors. The first suppression after start is
+/// reported at once, then at most one stderr line per 60 s per process.
 pub fn note_suppressed_refusal(outcome: &str) {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -95,7 +95,7 @@ pub fn note_suppressed_refusal(outcome: &str) {
             .map(|(name, n)| format!("{name}={n}"))
             .collect::<Vec<_>>()
             .join(" ");
-        tracing::warn!(counts = %summary, "threat refusal rows suppressed by budget");
+        eprintln!("threat refusal rows suppressed by budget (60 s): {summary}");
     }
 }
 

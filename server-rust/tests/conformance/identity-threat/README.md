@@ -32,7 +32,7 @@ Approved security divergences (divergences.json):
   distinct-preserving name on every protocol; authentication and captcha binding see the whole name.
 - Refusal rows (`http-refusal-rows-bounded`): each source writes refusal rows per outcome under a
   budget (telemetry: one per 60 s; `captcha_needed`: max(tarpit threshold, 29)+1 per tarpit window,
-  plus one replenishment row per window/(2*budget) seconds under sustained traffic, under fully concurrent bursts at most S + P*(2S+1) per window (P = request-pool size; sequential traffic at most 3S+1 per window)). Clustered expiry cannot empty the tarpit window only under continuous traffic of at least threshold × gap (gap = window/(2S)); before that a short burst's expiry can leave the window briefly below threshold rows until replenishment refills it. Budget-suppressed rows are counted, not logged per row: one summary warn per 60 s per process. Success and failure rows are unchanged.
+  plus one replenishment row per window/(2*budget) seconds under sustained traffic, under fully concurrent bursts at most S + P*(2S+1) per window (P = request-pool size; sequential traffic at most 3S+1 per window)). Clustered expiry cannot empty the tarpit window only under continuous traffic of at least threshold × gap (gap = window/(2S)); before that a short burst's expiry can leave the window briefly below threshold rows until replenishment refills it. Budget-suppressed rows are counted, not logged per row: one stderr summary line per 60 s per process. Success and failure rows are unchanged.
 - Replay mints #349 bound captcha tokens; recording mints Go-format ones.
 
 Record with the dispatch-only `gofree-record.yml`: `go_upstream=authserverd`,

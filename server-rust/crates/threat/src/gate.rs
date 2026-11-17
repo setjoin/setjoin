@@ -622,11 +622,11 @@ impl Gate {
             return;
         };
         let username: &str = &bounded_name(&meta.username);
-        // RETURNING 1: zero rows means the budget suppressed this row (summarized, not logged).
+        // Zero rows affected means the budget suppressed this row (summarized, not logged).
         // A database error keeps the best-effort behaviour and is not counted.
-        match self
+        if let Ok(0) = self
             .exec
-            .protocol_query(
+            .protocol_statement_count(
                 REFUSAL_INSERT,
                 &[
                     (&meta.source_ip, Type::TEXT),
@@ -644,8 +644,7 @@ impl Gate {
             )
             .await
         {
-            Ok(rows) if rows.is_empty() => crate::suppressed::note_suppressed_refusal(outcome),
-            _ => {}
+            crate::suppressed::note_suppressed_refusal(outcome);
         }
     }
     pub async fn post_auth(&self, meta: &ConnectionMeta) -> (ThreatAction, String) {
@@ -748,13 +747,10 @@ pub fn refusal_budget(outcome: &str, config: &Config) -> Option<(i32, i64)> {
 /// captcha_needed rows per window under fully concurrent bursts (P = request-pool size);
 /// sequential traffic stays at most `3 * $8 + 1`. Telemetry outcomes get no
 /// replenishment: at most one row per window.
-/// `RETURNING 1` reports whether the row was written (zero rows = suppressed). The returned row must
-/// also pass the credential's SELECT policy: under a narrowed SELECT (native-RLS flip) the statement
-/// errors and writes nothing, so keep SELECT on this credential.
 /// The probe relies on auth_attempts_admin_read (V064, USING true): if the native-RLS flip
 /// narrows SELECT for this credential, the probe sees 0 rows and the budget silently turns
 /// off (Go's unbounded behaviour) — keep this statement on a credential that can read.
-pub const REFUSAL_INSERT: &str = "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) SELECT $1::inet,$2,$3,$4,$5,$6 WHERE ((SELECT count(*) FROM (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8) LIMIT $8) AS seen)<$8) OR ($4='captcha_needed' AND NOT EXISTS (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8/(2*$8)))) RETURNING 1";
+pub const REFUSAL_INSERT: &str = "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) SELECT $1::inet,$2,$3,$4,$5,$6 WHERE ((SELECT count(*) FROM (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8) LIMIT $8) AS seen)<$8) OR ($4='captcha_needed' AND NOT EXISTS (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8/(2*$8))))";
 
 /// Decode one `lockout_check` row (#367). No row or a NULL `locked` is an
 /// error (fail closed); locked with an unreadable remainder stays locked
