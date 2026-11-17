@@ -44,8 +44,8 @@ a process-wide `SuppressedRefusals` static (fixed outcome index, no allocation p
 once per 60 s per process, writes one stderr line "threat refusal rows suppressed by budget (since last
 report): ..." with the non-zero per-outcome counts only, in a fixed outcome order. The line carries no
 source IP, username or user agent. Database errors are not counted. The first suppression after start is
-reported at once, then at most one line per 60 s; a tail left after a flood is flushed within 30 min by
-the feed tick (`flush_suppressed_refusals`).
+reported at once, then at most one line per 60 s; counts left after a flood ends are reported with the
+next suppression at least 60 s after the previous report.
 `attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's

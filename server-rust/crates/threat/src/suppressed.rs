@@ -1,10 +1,10 @@
 //! Process-wide summary of refusal rows that `refusal_budget` suppressed (CWE-779).
 //! Suppressed rows are counted per outcome, not logged per event. At most one stderr
-//! line per `EMIT_INTERVAL` per process carries the counts, and a tail left after a flood
-//! is written by `flush_suppressed_refusals`. The line has no source IP, username or user agent.
+//! line per `EMIT_INTERVAL` per process carries the counts. The line has no source IP,
+//! username or user agent.
 use std::io::Write;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// The outcomes `refusal_budget` accepts, in counter-index order.
@@ -40,14 +40,17 @@ impl SuppressedRefusals {
         }
     }
 
-    /// Reports the pending counts when `EMIT_INTERVAL` has passed since the last report.
-    /// The line is written to `out` while the lock is held; the lock is released only after
-    /// the write. A busy or poisoned lock is skipped (never waited on, never a panic) and the
-    /// counts stay for a later call. Returns the non-zero counts that were reported.
+    /// Reports the pending counts when `EMIT_INTERVAL` has passed since the last report. `now`
+    /// decides whether a report is due. `done` is read after the write and stamps the last
+    /// report, so the interval runs from completion. The line is written to `out` while the lock
+    /// is held; the lock is released only after the write. A busy or poisoned lock is skipped
+    /// (never waited on, never a panic) and the counts stay for a later call. Returns the
+    /// non-zero counts that were reported.
     pub fn report_at<W: Write>(
         &self,
         now: Instant,
         out: &mut W,
+        done: impl FnOnce() -> Instant,
     ) -> Option<Vec<(&'static str, u64)>> {
         let Ok(mut last) = self.last_report.try_lock() else {
             return None;
@@ -79,7 +82,7 @@ impl SuppressedRefusals {
             out,
             "threat refusal rows suppressed by budget (since last report): {summary}"
         );
-        *last = Some(now);
+        *last = Some(done());
         Some(counts)
     }
 }
@@ -102,13 +105,7 @@ static SUPPRESSED: SuppressedRefusals = SuppressedRefusals::new();
 /// first suppression after start is reported at once, then at most one stderr line per 60 s.
 pub fn note_suppressed_refusal(outcome: &str) {
     SUPPRESSED.count(outcome);
-    flush_suppressed_refusals();
-}
-
-/// Reports pending counts if they are due. The feed tick calls this every 30 minutes, so counts
-/// left after a flood ends are written within 30 minutes.
-pub fn flush_suppressed_refusals() {
-    let _ = SUPPRESSED.report_at(Instant::now(), &mut std::io::stderr());
+    let _ = SUPPRESSED.report_at(Instant::now(), &mut std::io::stderr(), Instant::now);
 }
 
 #[cfg(test)]
@@ -144,7 +141,7 @@ mod tests {
     }
 
     fn report(s: &SuppressedRefusals, now: Instant) -> Option<Vec<(&'static str, u64)>> {
-        s.report_at(now, &mut Vec::<u8>::new())
+        s.report_at(now, &mut Vec::<u8>::new(), || now)
     }
 
     fn counter(s: &SuppressedRefusals, outcome: &str) -> u64 {
@@ -172,7 +169,9 @@ mod tests {
         s.count("rate_limited");
         s.count("lockout");
         let mut sink = Vec::<u8>::new();
-        let reported = s.report_at(t0 + Duration::from_secs(60), &mut sink);
+        let reported = s.report_at(t0 + Duration::from_secs(60), &mut sink, || {
+            t0 + Duration::from_secs(60)
+        });
         assert_eq!(
             reported,
             Some(vec![
@@ -191,6 +190,24 @@ mod tests {
         assert_eq!(report(&s, t0 + Duration::from_secs(61)), None);
         assert_eq!(
             report(&s, t0 + Duration::from_secs(120)),
+            Some(vec![("lockout", 1)])
+        );
+    }
+
+    #[test]
+    fn the_interval_runs_from_completion_not_from_the_due_check() {
+        let base = Instant::now();
+        let s = fresh();
+        s.count("lockout");
+        let done_at = base + Duration::from_secs(90);
+        let reported = s.report_at(base, &mut Vec::<u8>::new(), || done_at);
+        assert_eq!(reported, Some(vec![("lockout", 1)]));
+        s.count("lockout");
+        // Ten seconds after completion: not due, even though 100 s passed since the due check.
+        assert_eq!(report(&s, base + Duration::from_secs(100)), None);
+        // Sixty seconds after completion: due.
+        assert_eq!(
+            report(&s, base + Duration::from_secs(150)),
             Some(vec![("lockout", 1)])
         );
     }
