@@ -424,7 +424,7 @@ impl AuthServer {
     pub(super) async fn http_attempt(&self, ip: &str, agent: &str, username: &str, outcome: &str) {
         let username = setjoin_threat::cap_attempt_username(username);
         let country = self.http_country(ip);
-        let fp = setjoin_threat::fingerprint(agent, ip);
+        let fp = setjoin_threat::stored_fingerprint(agent, ip);
         let _ = self
             .exec
             .protocol_statement(

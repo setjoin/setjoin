@@ -110,5 +110,14 @@
     "reason": "HTTP maps ip_rules_unavailable, lockout_unavailable, spray_unavailable, rate_limit_unavailable and captcha_unavailable to 403 'Access denied by security policy' with no attempt row and no handler; Go proceeds.",
     "go_source": "shared/threat/interceptor.go:668,731-733; lockout.go:46-50; spray.go:31-37; ratelimit.go:25-29",
     "secure_test": "bins/auth/tests/threat_oracle.rs::native_request_pool_fault_fails_closed_end_to_end, native_worker_pool_fault_fails_closed_end_to_end"
+  },
+  {
+    "case": "stored-user-agent-capped",
+    "issue": "#433",
+    "reviewed": true,
+    "reviewer": "Fable #433 follow-up plan review + #438 code review, Codex #438; owner policy 2026-11-05",
+    "reason": "Go stores the whole User-Agent (up to the 1 MiB header limit) in auth_attempts.device_fingerprint and device_registry.user_agent. Rust stores at most 512 bytes (char boundary) in both; device_hash still hashes the whole agent|masked-IP, so device identity and new-device detection match Go. Conditional-access evaluation sees the whole agent.",
+    "go_source": "shared/threat/interceptor.go:332-339,383-390,930-955,1107-1109",
+    "secure_test": "bins/auth/tests/threat_oracle.rs::native_long_user_agent_is_capped_where_stored, crates/threat/src/gate.rs tests::stored_fingerprint_caps_the_agent_not_the_device_identity"
   }
 ]
