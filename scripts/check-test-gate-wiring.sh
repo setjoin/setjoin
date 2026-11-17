@@ -95,6 +95,8 @@ run_check() {
   require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
   require_literal "$LANE_WORKFLOW" 'gomod-cache, queue]' 'server-rust lane aggregate gates on the merge-queue decision (queue appended last)' || failed=1
   require_literal "$LANE_WORKFLOW" 'python3 scripts/lane-job-gate.py queue-role' 'server-rust lane queue job runs the queue-role decision' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'queue' 'actions: read' 'server-rust lane queue job reads Actions runs for failed later refs' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'queue' 'GH_TOKEN: ${{ github.token }}' 'server-rust lane queue step passes the token for the failed-run lookup' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'plan' 'needs: queue' 'server-rust lane plan waits for the queue decision' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'build' "needs.plan.outputs.mode != 'gone'" 'server-rust lane build does not run for a queue entry that left the queue' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'coverage-build' "needs.plan.outputs.mode != 'gone'" 'server-rust lane coverage-build does not run for a queue entry that left the queue' || failed=1
@@ -171,6 +173,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
   LANE_WORKFLOW="$tmp/lane-no-pgtap-run.yml"
   if run_check >/dev/null 2>&1; then
     echo "test-gate-wiring self-test: lane pgtap job that does not run run-pgtap-lane.sh was accepted" >&2
+    exit 1
+  fi
+  sed '/^      actions: read$/d' "$original_lane" > "$tmp/lane-queue-no-actions-read.yml"
+  LANE_WORKFLOW="$tmp/lane-queue-no-actions-read.yml"
+  if run_check >/dev/null 2>&1; then
+    echo "test-gate-wiring self-test: lane queue job without actions: read was accepted" >&2
     exit 1
   fi
   LANE_WORKFLOW="$original_lane"
