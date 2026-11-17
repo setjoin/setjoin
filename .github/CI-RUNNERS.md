@@ -59,8 +59,9 @@ On every pull-request update: `light` (as quick check above) and `integration` r
 then a ~10 s gate job `aggregate`, the ruleset's required check, is red unless both succeeded. `integration` ends at once
 when no `server-rust/` file other than `*.md` changed. Otherwise `scripts/precheck-integration.py plan` selects test targets
 (rule in its docstring, fixtures in `selftest`, which runs first in the job): every `tests/*.rs` target of each changed
-package and of its normal/build reverse dependents when there are at most 5 of them; for `setjoin-gateway` only targets
-whose test file changed or names a changed test helper or golden, or whose name matches a changed path (at most 30);
+package and of its normal/build reverse dependents when there are at most 5 of them; for `setjoin-gateway` and
+`setjoin-auth` only targets whose test file changed or names a changed test helper or golden, or whose name matches a
+changed path (soft caps 30 and 20: over the cap, only changed or referencing test files run);
 nothing for `server-rust/Cargo.toml`, `Cargo.lock` or `rust-toolchain*` changes. It runs them through
 `scripts/server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT` on the lane
 Postgres (`REQUIRE_DB=1`, skip markers, ignored and zero tests red), restoring the `lane` cargo and Go module caches
