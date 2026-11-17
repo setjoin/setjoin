@@ -1,6 +1,7 @@
 //! #367: pooled, bounded, fail-closed Gate worker statements.
 use setjoin_pg::{ScopedExecutor, Timeouts};
 use setjoin_threat::{bounded_name, Config, ConnectionMeta, Gate, ThreatAction, WorkerPools};
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -686,20 +687,34 @@ async fn unanswered_rate_limit_and_captcha_counts_fail_closed() {
     assert_eq!(captcha.reason, "captcha_unavailable");
 }
 
-/// Distinct long names: a fixed prefix, then `len` pseudo-random hex digits seeded by `seed`.
-fn long_hex(prefix: &str, seed: u32, len: usize) -> String {
+/// High-entropy distinct names: `len` hex digits after `prefix`, from SHA-256 chained over
+/// `seed:counter`, so no 8 KiB name repeats a short pattern that compression could fold.
+fn high_entropy_name(prefix: &str, seed: u32, len: usize) -> String {
     let mut name = String::from(prefix);
-    name.extend((0..len as u32).map(|i| {
-        char::from(
-            b"0123456789abcdef"
-                [((i.wrapping_mul(7919) ^ seed.wrapping_mul(104_729) ^ (i >> 3)) % 16) as usize],
-        )
-    }));
+    let mut counter = 0u64;
+    while name.len() < prefix.len() + len {
+        let digest = Sha256::digest(format!("{seed}:{counter}").as_bytes());
+        for byte in digest {
+            name.push_str(&format!("{byte:02x}"));
+        }
+        counter += 1;
+    }
+    name.truncate(prefix.len() + len);
     name
 }
 
-/// Divergences `attempt-username-bounded` (protocol half): a long IMAP, SMTP or LDAP
-/// failure writes exactly one row whose name is the bounded form, not the whole name.
+/// Deletes the audit rows these tests write for their sources, written after `since`.
+async fn delete_audits(db: &tokio_postgres::Client, since: &str, ips: &[String]) {
+    db.execute(
+        "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND source_ip = ANY($2::text[]::inet[]) AND event_type IN ('spray_detected','lockout_escalate','device_new','device_country_changed')",
+        &[&since, &ips.to_vec()],
+    )
+    .await
+    .unwrap();
+}
+
+/// Divergence `attempt-username-bounded`: a long IMAP, SMTP or LDAP failure writes exactly
+/// one row whose name is the bounded form, not the whole name.
 #[tokio::test]
 async fn protocol_long_name_failure_writes_a_bounded_row() {
     let _s = SERIAL.lock().await;
@@ -708,9 +723,16 @@ async fn protocol_long_name_failure_writes_a_bounded_row() {
     db.batch_execute("SELECT create_monthly_partitions()")
         .await
         .unwrap();
+    let since: String = db
+        .query_one("SELECT now()::text", &[])
+        .await
+        .unwrap()
+        .get(0);
+    let mut ips = Vec::new();
+    let mut observed = Vec::new();
     for (i, protocol) in ["imap", "smtp", "ldap"].into_iter().enumerate() {
         let ip = format!("198.18.37.{}", 40 + i);
-        let user = long_hex("", i as u32, 8 * 1024) + "@example.test";
+        let user = high_entropy_name("", i as u32, 8 * 1024) + "@example.test";
         let bounded = bounded_name(&user).into_owned();
         forget(&db, &ip, &bounded).await;
         let gate = load(
@@ -739,6 +761,11 @@ async fn protocol_long_name_failure_writes_a_bounded_row() {
             .map(|r| r.get(0))
             .collect();
         forget(&db, &ip, &bounded).await;
+        observed.push((protocol, bounded, stored));
+        ips.push(ip);
+    }
+    delete_audits(&db, &since, &ips).await;
+    for (protocol, bounded, stored) in observed {
         assert_eq!(stored, vec![bounded], "{protocol}");
     }
 }
@@ -753,11 +780,16 @@ async fn protocol_long_names_stay_distinct_for_spray() {
     db.batch_execute("SELECT create_monthly_partitions()")
         .await
         .unwrap();
+    let since: String = db
+        .query_one("SELECT now()::text", &[])
+        .await
+        .unwrap()
+        .get(0);
     let ip = "198.18.37.50";
     forget(&db, ip, "").await;
     let prefix = "p".repeat(300);
     let users: Vec<String> = (0..3u32)
-        .map(|seed| long_hex(&prefix, seed, 8 * 1024) + "@example.test")
+        .map(|seed| high_entropy_name(&prefix, seed, 8 * 1024) + "@example.test")
         .collect();
     let mut config = with(quiet(), "spray_detect");
     config.spray_max_users = 3;
@@ -790,6 +822,7 @@ async fn protocol_long_names_stay_distinct_for_spray() {
     )
     .await
     .unwrap();
+    delete_audits(&db, &since, &[ip.to_owned()]).await;
     forget(&db, ip, "").await;
     assert_eq!(decision.action, ThreatAction::Reject);
     assert_eq!(decision.reason, "spray_detected");

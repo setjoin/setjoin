@@ -3173,16 +3173,54 @@ fn native_outcome_stamps_and_preflight_order_are_pinned() {
     }
 }
 
-/// Distinct long names: a fixed prefix, then `len` pseudo-random hex digits seeded by `seed`.
-fn distinct_long_name(prefix: &str, seed: u32, len: usize) -> String {
+/// High-entropy distinct names: `len` hex digits after `prefix`, from SHA-256 chained over
+/// `seed:counter`, so no 4 KiB name repeats a short pattern that compression could fold.
+fn high_entropy_name(prefix: &str, seed: u32, len: usize) -> String {
     let mut name = String::from(prefix);
-    name.extend((0..len as u32).map(|i| {
-        char::from(
-            b"0123456789abcdef"
-                [((i.wrapping_mul(7919) ^ seed.wrapping_mul(104_729) ^ (i >> 3)) % 16) as usize],
-        )
-    }));
+    let mut counter = 0u64;
+    while name.len() < prefix.len() + len {
+        let digest = Sha256::digest(format!("{seed}:{counter}").as_bytes());
+        for byte in digest {
+            name.push_str(&format!("{byte:02x}"));
+        }
+        counter += 1;
+    }
+    name.truncate(prefix.len() + len);
     name
+}
+
+/// Deletes the lockout rows a bounded-name test owns, keyed as the product keys them:
+/// each name is lowered then bounded (`setjoin_authz::address::lower`, `bounded_name`).
+async fn delete_bounded_lockouts(c: &Client, ips: &[String], names: &[String]) -> Result<(), Err> {
+    let mut keys: Vec<String> = ips.iter().map(|ip| format!("ip:{ip}")).collect();
+    for name in names {
+        let bounded = setjoin_threat::bounded_name(&setjoin_authz::address::lower(name)).into_owned();
+        keys.push(format!("user:{bounded}"));
+        for ip in ips {
+            keys.push(format!("ip_user:{ip}:{bounded}"));
+        }
+    }
+    c.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
+        &[&keys],
+    )
+    .await?;
+    Ok(())
+}
+
+/// Deletes the audit rows a test wrote for its sources or users after `since` (DB clock).
+async fn delete_test_audits(
+    c: &Client,
+    since: &str,
+    ips: &[String],
+    users: &[i64],
+) -> Result<(), Err> {
+    c.execute(
+        "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND (source_ip = ANY($2::text[]::inet[]) OR user_id = ANY($3::bigint[])) AND event_type IN ('spray_detected','lockout_escalate','device_new','device_country_changed')",
+        &[&since, &ips.to_vec(), &users.to_vec()],
+    )
+    .await?;
+    Ok(())
 }
 
 /// Divergence `attempt-username-bounded`, native HTTP: three distinct 4 KiB names that share
@@ -3191,21 +3229,19 @@ fn distinct_long_name(prefix: &str, seed: u32, len: usize) -> String {
 #[tokio::test]
 async fn native_long_usernames_stay_distinct_for_spray() {
     let _serial = SERIAL.lock().await;
-    let Some(n) = native_open("GOFREE349A-long-spray", true, &[])
-        .await
-        .unwrap()
-    else {
+    let Some(n) = native_open("GOFREE349A-long-spray", true, &[]).await.unwrap() else {
         return;
     };
+    let since: String = n
+        .c
+        .query_one("SELECT now()::text", &[])
+        .await
+        .unwrap()
+        .get(0);
     let ips = vec!["127.0.0.130".to_owned()];
     let prefix = "p".repeat(300);
     let users: Vec<String> = (0..3u32)
-        .map(|seed| {
-            format!(
-                "{}@gofree349a.test",
-                distinct_long_name(&prefix, seed, 4 * 1024)
-            )
-        })
+        .map(|seed| format!("{}@gofree349a.test", high_entropy_name(&prefix, seed, 4 * 1024)))
         .collect();
     let result = async {
         clear_state(&n.c, &ips, &n.fx.email).await?;
@@ -3215,9 +3251,7 @@ async fn native_long_usernames_stay_distinct_for_spray() {
         let server = serve(native_server(&n.db, cfg).await?).await?;
         let mut statuses = Vec::new();
         for user in users.iter().chain(users.first()) {
-            let body = json!({"email": user, "password": WRONG})
-                .to_string()
-                .into_bytes();
+            let body = json!({"email": user, "password": WRONG}).to_string().into_bytes();
             let reply = send(server.addr, ip(130), LOGIN, body, &origin()).await;
             statuses.push(reply.map(|r| {
                 (
@@ -3243,20 +3277,13 @@ async fn native_long_usernames_stay_distinct_for_spray() {
         Ok::<_, Err>(())
     }
     .await;
-    let mut extra = Vec::new();
-    for user in &users {
-        let bounded = setjoin_threat::bounded_name(user).into_owned();
-        extra.push(format!("user:{bounded}"));
-        extra.push(format!("ip_user:127.0.0.130:{bounded}"));
+    let cleaned = async {
+        delete_bounded_lockouts(&n.c, &ips, &users).await?;
+        delete_test_audits(&n.c, &since, &ips, &[]).await
     }
-    let _ =
-        n.c.execute(
-            "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
-            &[&extra],
-        )
-        .await;
+    .await;
     let closed = native_close(n, &ips).await;
-    result.and(closed).unwrap();
+    result.and(cleaned).and(closed).unwrap();
 }
 
 /// Divergence `lockout-key-name-bounded`, native: an account whose email is 300 bytes (which
@@ -3265,18 +3292,16 @@ async fn native_long_usernames_stay_distinct_for_spray() {
 #[tokio::test]
 async fn native_long_name_locks_and_clears_on_bounded_keys() {
     let _serial = SERIAL.lock().await;
-    let Some(mut n) = native_open("GOFREE349A-long-lock", true, &[])
-        .await
-        .unwrap()
-    else {
+    let Some(mut n) = native_open("GOFREE349A-long-lock", true, &[]).await.unwrap() else {
         return;
     };
-    let domain =
-        n.fx.email
-            .split_once('@')
-            .expect("fixture email")
-            .1
-            .to_owned();
+    let since: String = n
+        .c
+        .query_one("SELECT now()::text", &[])
+        .await
+        .unwrap()
+        .get(0);
+    let domain = n.fx.email.split_once('@').expect("fixture email").1.to_owned();
     let long = format!("{}@{domain}", "a".repeat(290));
     n.c.execute(
         "UPDATE users SET email=$1 WHERE id=$2",
@@ -3285,21 +3310,15 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
     .await
     .unwrap();
     n.fx.email = long.clone();
-    let bounded = setjoin_threat::bounded_name(&long).into_owned();
+    let bounded = setjoin_threat::bounded_name(&setjoin_authz::address::lower(&long)).into_owned();
     let user_key = format!("user:{bounded}");
     let ip_user = format!("ip_user:127.0.0.126:{bounded}");
-    let ips: Vec<String> = (120..=126u8)
-        .map(|last| format!("127.0.0.{last}"))
-        .collect();
+    let ips: Vec<String> = (120..=126u8).map(|last| format!("127.0.0.{last}")).collect();
     let result = async {
         clear_state(&n.c, &ips, &long).await?;
         let server =
             serve(native_server(&n.db, rust_config(&n.db, Preset::Off, None)?).await?).await?;
-        let wrong = |email: &str| {
-            json!({"email": email, "password": WRONG})
-                .to_string()
-                .into_bytes()
-        };
+        let wrong = |email: &str| json!({"email": email, "password": WRONG}).to_string().into_bytes();
         // (a) five wrong passwords from five sources reach the user threshold (5); a sixth
         // source is refused by the user lock.
         for last in 120..125u8 {
@@ -3331,22 +3350,17 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
             server.close().await;
             return Err(format!("user key failed_count {failed:?}").into());
         }
-        let good = json!({"email": &long, "password": PASSWORD})
-            .to_string()
-            .into_bytes();
+        let good = json!({"email": &long, "password": PASSWORD}).to_string().into_bytes();
         let reply = send(server.addr, ip(126), LOGIN, good, &origin()).await?;
         server.close().await;
         if reply.status != 200 {
             return Err(format!("{} {}", reply.status, reply.body).into());
         }
-        let left: i64 =
-            n.c.query_one(
+        let left: i64 = n
+            .c
+            .query_one(
                 "SELECT count(*) FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
-                &[&vec![
-                    user_key.clone(),
-                    ip_user.clone(),
-                    "ip:127.0.0.126".to_owned(),
-                ]],
+                &[&vec![user_key.clone(), ip_user.clone(), "ip:127.0.0.126".to_owned()]],
             )
             .await?
             .get(0);
@@ -3356,12 +3370,11 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
         Ok::<_, Err>(())
     }
     .await;
-    let _ =
-        n.c.execute(
-            "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
-            &[&vec![user_key, ip_user]],
-        )
-        .await;
+    let cleaned = async {
+        delete_bounded_lockouts(&n.c, &ips, std::slice::from_ref(&long)).await?;
+        delete_test_audits(&n.c, &since, &ips, &[n.fx.a.user]).await
+    }
+    .await;
     let closed = native_close(n, &ips).await;
-    result.and(closed).unwrap();
+    result.and(cleaned).and(closed).unwrap();
 }
