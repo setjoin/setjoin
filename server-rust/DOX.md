@@ -468,8 +468,27 @@ updater are #357–#359.
 ## Parallel full lane (#550)
 
 `.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
-label) on the merge queue's `merge_group` commit (one run per BATCH of up to 5 queued pull requests)
-and `workflow_dispatch`: always the FULL lane including oracle coverage. A push to `main` runs CACHE REFRESH ONLY
+label) on the merge queue's `merge_group` commit (one run per queue entry) and `workflow_dispatch`: always the
+FULL lane including oracle coverage, except a queue entry that left the queue while waiting (`mode=gone`, see below).
+Merge-queue batching (`queue` job, `scripts/lane-job-gate.py queue-role`; default OFF, enabled by repo variable
+`LANE_QUEUE_BATCHING=1` on a ruleset with `grouping_strategy` HEADGREEN): the batch head runs the full lane on its commit,
+which contains every earlier entry; an entry with a later queued entry (a queue branch whose commit descends from its
+own, found by `git for-each-ref --contains` over a `--filter=tree:0` fetch) waits and runs no lane, polling `ls-remote`
+every 60 s after a 120 s settle. A waiter's run stays in progress and its `aggregate` pending. When its branch is gone
+it ends `mode=gone`: no job runs, `aggregate` is red with "nothing ran; not a test pass" (cosmetic, the commit is no
+longer queued). The CAP is 5400 s; after it, or on any ls-remote/fetch error past it, the entry runs the full lane.
+Worst case per entry is SETTLE + CAP + the lane; the queue job times out at 100 min, above CAP plus one poll's worst
+overshoot (git timeouts 60 + 30 + 120 + 30 = 240 s), and `scripts/test-lane-job-gate.py` asserts that. A `check_response_timeout`
+overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/test-lane-job-gate.py`
+(git, clock and sleep injected; no network). Commits on main before a batch's last commit are not tested individually;
+the tip is, and the nightly full lane is the backstop. Known: a `gone` run and a rebuilt entry leave red marks on discarded commits.
+Rollout and rollback (coordinator, not this PR): the ruleset (`rulesets/27288657`, merge_queue `grouping_strategy` and
+`max_entries_to_build` 5) and `vars.LANE_QUEUE_BATCHING` change together, back up the ruleset first. Rollback: delete the
+variable (`gh variable delete LANE_QUEUE_BATCHING -R setjoin/setjoin`), restore the saved ruleset (`gh api -X PUT
+repos/setjoin/setjoin/rulesets/27288657 --input restore.json`), confirm `ALLGREEN`, build 1, merge 5, min 1, wait 10,
+timeout 360 on that ruleset, then cancel the in-progress merge_group runs whose `queue` job is still waiting
+(`gh run list -w server-rust-lane.yml -e merge_group -s in_progress`, then `gh run cancel <id>`) before requeueing.
+A push to `main` runs CACHE REFRESH ONLY
 (`plan` output `mode=cache`: `build`, `coverage-build` and `gomod-cache` save the cargo and Go module caches; no test,
 coverage, replay or guard job; step summary "cache refresh only, no tests"; not a test pass, the queue already tested it).
 A nightly `schedule` (`30 2 * * *`, main) runs the full lane plus coverage as the backstop (`mode=full`) and skips
@@ -480,7 +499,7 @@ clippy/`--lib` tests and cheap guards, and `integration`: the `tests/*.rs` targe
 selects, run by `server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT`,
 22-minute cap, see `.github/CI-RUNNERS.md`); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
-lane result. Jobs: `plan` (shard lists, debug or full); `build` (one `cargo nextest archive` of every
+lane result. Jobs: `queue` (merge-queue batching decision, head or gone; prints head on every run unless batching is on); `plan` (mode, shard lists; debug or full); `build` (one `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`); `roots` (static guards,
 cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read: `SERVER_RUST_STAGES=static,roots`);
 `shard 1..N` (nextest `--partition hash:k/N` of the archive plus every N-th replay and mutant);
