@@ -27,9 +27,9 @@ unsound = "all"
 yanked = "deny"
 ignore = [
   # #449: unmaintained (not a vulnerability), no safe upgrade; migrate to jiff/time, then remove these three entries.
-  { id = "RUSTSEC-2026-0543", reason = "#449: chrono marked unmaintained 2026-11-17; no known vulnerability and no safe upgrade. Tracked migration to jiff/time in #449." },
-  { id = "RUSTSEC-2026-0542", reason = "#449: humantime marked unmaintained 2026-11-17 because it wraps chrono; no known vulnerability and no safe upgrade. Tracked in #449." },
-  { id = "RUSTSEC-2026-0555", reason = "#449: chrono-tz marked unmaintained 2026-11-17; no known vulnerability and no safe upgrade. Tracked migration to jiff/time in #449." },
+  { id = "RUSTSEC-2026-0543", reason = "#449: chrono unmaintained (advisory dated 2026-09-14, first failed the lane 2026-11-17); no known vulnerability and no safe upgrade. Tracked migration to jiff/time in #449." },
+  { id = "RUSTSEC-2026-0542", reason = "#449: humantime unmaintained (advisory dated 2026-09-14, first failed the lane 2026-11-17) because it wraps chrono; no known vulnerability and no safe upgrade. Tracked in #449." },
+  { id = "RUSTSEC-2026-0555", reason = "#449: chrono-tz unmaintained (advisory dated 2026-09-14, first failed the lane 2026-11-17); no known vulnerability and no safe upgrade. Tracked migration to jiff/time in #449." },
   # #340: openidconnect 4.1.0 also brings rsa0.9 for PUBLIC JWKS verification only; no RP private-key operation.
   { id = "RUSTSEC-2023-0071", reason = "#335: rsa0.10rc19 is used for WebAuthn PUBLIC-key signature verification (direct identity PSS and unmodified webauthn-rs-core0.6/crypto-glue). #339 also generates/decodes/validates PKCS#8 key files at startup. No request-driven RSA private-key operation uses this crate: OP signing/verification is ring (OpenSSL only for existing Go key profiles ring cannot represent), and no RSA decryption is implemented. Marvin requires an attacker-driven secret operation; public verification and offline startup key custody do not expose that oracle. See crates/domains/identity/WEBAUTHN.md and OIDC.md; re-evaluate before any new RSA signing/decryption use." },
 ]
