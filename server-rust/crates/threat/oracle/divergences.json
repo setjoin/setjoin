@@ -68,5 +68,12 @@
     "original_evidence": "notes/FABLE-PLAN-349a.md F1",
     "reviewed": true,
     "review_reference": "#349a Fable plan review F1; owner policy: security Go bugs are fixed in Rust as approved divergences"
+  },
+  "stored-user-agent-capped": {
+    "reason": "Go stores the whole User-Agent in auth_attempts.device_fingerprint and device_registry.user_agent; Rust persists at most 512 bytes. device_hash still hashes the whole agent|masked-IP, so device identity matches Go.",
+    "review": "#433 follow-up",
+    "go_source": "shared/threat/interceptor.go:383-390,930-955,1107-1109",
+    "test": "gate::tests::stored_fingerprint_caps_the_agent_not_the_device_identity, setjoin-auth threat_oracle::native_long_user_agent_is_capped_where_stored",
+    "original_evidence": "#433 finding 2"
   }
 }
