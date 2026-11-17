@@ -251,7 +251,8 @@ impl Gate {
         }
     }
     fn keys(&self, meta: &ConnectionMeta) -> Vec<String> {
-        let name = setjoin_authz::address::lower(&meta.username);
+        let lowered = setjoin_authz::address::lower(&meta.username);
+        let name = bounded_name(&lowered);
         vec![
             format!("ip:{}", meta.source_ip),
             format!("user:{name}"),
@@ -611,7 +612,8 @@ impl Gate {
         }
     }
     pub async fn attempt(&self, meta: &ConnectionMeta, outcome: &str) {
-        let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,$3,$4,$5,$6)",&[(&meta.source_ip,Type::TEXT),(&persisted_username(self.protocol(meta),&meta.username),Type::TEXT),(&self.protocol(meta),Type::TEXT),(&outcome,Type::TEXT),(&self.country(meta),Type::TEXT),(&stored_fingerprint(&meta.user_agent,&meta.source_ip),Type::TEXT)]).await;
+        let username: &str = &bounded_name(&meta.username);
+        let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,$3,$4,$5,$6)",&[(&meta.source_ip,Type::TEXT),(&username,Type::TEXT),(&self.protocol(meta),Type::TEXT),(&outcome,Type::TEXT),(&self.country(meta),Type::TEXT),(&stored_fingerprint(&meta.user_agent,&meta.source_ip),Type::TEXT)]).await;
     }
     pub async fn post_auth(&self, meta: &ConnectionMeta) -> (ThreatAction, String) {
         if meta.user_id <= 0 || !self.enabled("feature.conditional_access") {
@@ -713,22 +715,20 @@ pub fn mask_ip(ip: &str) -> String {
     }
     ip
 }
-/// Divergence `attempt-username-capped`: HTTP attempt rows persist at most 255 bytes of
-/// the username (char boundary). Only the stored value is capped; the identity used
-/// for authentication, lockout keys and CAPTCHA binding stays whole.
-pub fn cap_attempt_username(username: &str) -> &str {
-    let mut end = username.len().min(255);
-    while !username.is_char_boundary(end) {
-        end -= 1;
+/// Longest name stored or keyed verbatim.
+pub const MAX_STORED_NAME: usize = 255;
+
+/// Divergences `attempt-username-bounded` and `lockout-key-name-bounded`, every protocol:
+/// a name of at most 255 bytes is unchanged; a longer one becomes its first ≤222 bytes,
+/// '#', and 32 hex digits of SHA-256 of the whole name (≤255 bytes, distinct per name).
+/// users_email_check admits no '#'. Authentication and the CAPTCHA binding keep the whole name.
+pub fn bounded_name(name: &str) -> std::borrow::Cow<'_, str> {
+    if name.len() <= MAX_STORED_NAME {
+        return name.into();
     }
-    &username[..end]
-}
-fn persisted_username<'a>(protocol: &str, username: &'a str) -> &'a str {
-    if protocol == "http" {
-        cap_attempt_username(username)
-    } else {
-        username
-    }
+    let digest = Sha256::digest(name.as_bytes());
+    let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{}#{hex}", prefix(name, MAX_STORED_NAME - 33)).into()
 }
 pub fn fingerprint(agent: &str, ip: &str) -> String {
     format!("{agent}|{}", mask_ip(ip))
@@ -865,14 +865,74 @@ fn client_type<'a>(protocol: &'a str, agent: &str, post: bool) -> &'a str {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn http_attempt_username_is_capped_only_when_persisted() {
-        let ascii = "a".repeat(300);
-        assert_eq!(persisted_username("http", &ascii).len(), 255);
-        let multi = format!("{}é", "a".repeat(254));
-        assert_eq!(persisted_username("http", &multi), "a".repeat(254));
-        assert_eq!(persisted_username("imap", &ascii).len(), 300);
-        assert_eq!(persisted_username("http", "a@x"), "a@x");
+    fn lockout_keys_bound_long_names_and_keep_short_ones() {
+        let gate = gate();
+        let long = meta(&"A".repeat(4096));
+        let keys = gate.keys(&long);
+        for key in &keys {
+            assert!(
+                key.len() <= "ip_user:198.51.100.7:".len() + MAX_STORED_NAME,
+                "{}",
+                key.len()
+            );
+        }
+        assert_eq!(keys[1], format!("user:{}", bounded_name(&"a".repeat(4096))));
+        assert_eq!(gate.keys(&meta("Alice@X.test"))[1], "user:alice@x.test");
+        assert_eq!(gate.check_keys(&long), keys);
+    }
+
+    #[test]
+    fn stored_names_are_bounded_and_distinct() {
+        let first = format!("{}x", "a".repeat(299));
+        let second = format!("{}y", "a".repeat(299));
+        assert_ne!(bounded_name(&first), bounded_name(&second));
+        for input in [
+            "a".repeat(256),
+            "a".repeat(300),
+            "a".repeat(4096),
+            "a".repeat(1 << 20),
+            "é".repeat(200),
+        ] {
+            let out = bounded_name(&input).into_owned();
+            assert!(out.len() <= MAX_STORED_NAME, "{}", out.len());
+            let hash_at = out.find('#').expect("bounded form has '#'");
+            assert!(hash_at <= 222, "{hash_at}");
+            let hex = &out[hash_at + 1..];
+            assert_eq!(hex.len(), 32);
+            assert!(hex
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+        }
+        assert_eq!(bounded_name(&"a".repeat(255)).into_owned(), "a".repeat(255));
+    }
+
+    #[test]
+    fn bounded_forms_never_look_like_an_account_and_alias_is_pinned() {
+        let long = "a".repeat(300);
+        let bounded = bounded_name(&long).into_owned();
+        // users_email_check admits only [A-Za-z0-9._%+-] in the local part.
+        assert!(bounded
+            .chars()
+            .any(|c| !(c.is_ascii_alphanumeric() || "._%+-".contains(c))));
+        assert_eq!(bounded_name(&bounded).into_owned(), bounded);
+        assert_eq!(
+            gate().keys(&meta(&bounded))[1],
+            gate().keys(&meta(&long))[1]
+        );
+    }
+
+    #[test]
+    fn lowering_before_bounding_keeps_check_escalate_and_clear_on_one_key() {
+        let raw = "Ⱥ".repeat(127);
+        assert_eq!(raw.len(), 254);
+        let gate = gate();
+        let m = meta(&raw);
+        let keys = gate.keys(&m);
+        assert_eq!(keys[1], format!("user:{}", bounded_name(&"ⱥ".repeat(127))));
+        assert_eq!(gate.check_keys(&m), keys);
     }
 
     #[test]
@@ -892,8 +952,6 @@ mod tests {
             fingerprint(short, "198.51.100.7")
         );
     }
-
-    use super::*;
 
     #[test]
     fn lockout_row_decoding_fails_closed() {

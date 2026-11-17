@@ -422,7 +422,8 @@ impl AuthServer {
     /// Go recordAttempt/recordOutcome: best-effort row; errors are ignored as in Go
     /// (an 'ip_blocked' outcome violates auth_attempts_outcome_check, so no row).
     pub(super) async fn http_attempt(&self, ip: &str, agent: &str, username: &str, outcome: &str) {
-        let username = setjoin_threat::cap_attempt_username(username);
+        let bounded = setjoin_threat::bounded_name(username);
+        let username: &str = &bounded;
         let country = self.http_country(ip);
         let fp = setjoin_threat::stored_fingerprint(agent, ip);
         let _ = self

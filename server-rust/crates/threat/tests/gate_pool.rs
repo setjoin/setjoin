@@ -1,6 +1,6 @@
 //! #367: pooled, bounded, fail-closed Gate worker statements.
 use setjoin_pg::{ScopedExecutor, Timeouts};
-use setjoin_threat::{Config, ConnectionMeta, Gate, ThreatAction, WorkerPools};
+use setjoin_threat::{bounded_name, Config, ConnectionMeta, Gate, ThreatAction, WorkerPools};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -683,4 +683,113 @@ async fn unanswered_rate_limit_and_captcha_counts_fail_closed() {
     forget(&db, ip, user).await;
     assert_eq!(rate.reason, "rate_limit_unavailable");
     assert_eq!(captcha.reason, "captcha_unavailable");
+}
+
+/// Distinct long names: a fixed prefix, then `len` pseudo-random hex digits seeded by `seed`.
+fn long_hex(prefix: &str, seed: u32, len: usize) -> String {
+    let mut name = String::from(prefix);
+    name.extend((0..len as u32).map(|i| {
+        char::from(
+            b"0123456789abcdef"
+                [((i.wrapping_mul(7919) ^ seed.wrapping_mul(104_729) ^ (i >> 3)) % 16) as usize],
+        )
+    }));
+    name
+}
+
+/// Divergences `attempt-username-bounded` (protocol half): a long IMAP, SMTP or LDAP
+/// failure writes exactly one row whose name is the bounded form, not the whole name.
+#[tokio::test]
+async fn protocol_long_name_failure_writes_a_bounded_row() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    for (i, protocol) in ["imap", "smtp", "ldap"].into_iter().enumerate() {
+        let ip = format!("198.18.37.{}", 40 + i);
+        let user = long_hex("", i as u32, 8 * 1024) + "@example.test";
+        let bounded = bounded_name(&user).into_owned();
+        forget(&db, &ip, &bounded).await;
+        let gate = load(
+            ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
+            WorkerPools::from_dsn(&dsn).unwrap(),
+            quiet(),
+        )
+        .await;
+        let m = ConnectionMeta {
+            source_ip: ip.clone(),
+            username: user.clone(),
+            protocol: protocol.into(),
+            ..Default::default()
+        };
+        tokio::time::timeout(Duration::from_secs(5), gate.record(&m, false, 0))
+            .await
+            .expect("bounded");
+        let stored: Vec<String> = db
+            .query(
+                "SELECT target_username FROM auth_attempts WHERE source_ip=$1::text::inet AND outcome='failure' AND protocol=$2",
+                &[&ip, &protocol],
+            )
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        forget(&db, &ip, &bounded).await;
+        assert_eq!(stored, vec![bounded], "{protocol}");
+    }
+}
+
+/// Divergence `attempt-username-bounded`: distinct long IMAP names that share a 300-byte
+/// prefix stay distinct for spray, so three of them from one source trip spray_detected.
+#[tokio::test]
+async fn protocol_long_names_stay_distinct_for_spray() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    let ip = "198.18.37.50";
+    forget(&db, ip, "").await;
+    let prefix = "p".repeat(300);
+    let users: Vec<String> = (0..3u32)
+        .map(|seed| long_hex(&prefix, seed, 8 * 1024) + "@example.test")
+        .collect();
+    let mut config = with(quiet(), "spray_detect");
+    config.spray_max_users = 3;
+    let gate = load(
+        ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
+        WorkerPools::from_dsn(&dsn).unwrap(),
+        config,
+    )
+    .await;
+    for user in &users {
+        let m = ConnectionMeta {
+            source_ip: ip.into(),
+            username: user.clone(),
+            protocol: "imap".into(),
+            ..Default::default()
+        };
+        tokio::time::timeout(Duration::from_secs(5), gate.record(&m, false, 0))
+            .await
+            .expect("bounded");
+    }
+    let decision = gate.decide(&meta(ip, ""), true).await;
+    let mut cleanup: Vec<String> = vec![format!("ip:{ip}")];
+    for user in &users {
+        let bounded = bounded_name(user).into_owned();
+        cleanup.extend(keys(ip, &bounded));
+    }
+    db.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key = ANY($1)",
+        &[&cleanup],
+    )
+    .await
+    .unwrap();
+    forget(&db, ip, "").await;
+    assert_eq!(decision.action, ThreatAction::Reject);
+    assert_eq!(decision.reason, "spray_detected");
 }

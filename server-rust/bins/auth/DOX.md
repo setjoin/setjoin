@@ -494,7 +494,7 @@ threat read still forwards to Go, which fails open until Go is removed), strict 
 postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
 the transaction settled (additive; per-class timing differs as in Go). Own
 two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
-missing reducers). A present `X-Captcha-Token` is verified like Go's middleware (403 `captcha` plus a `captcha_needed` row on failure, bound and single-use). The recorded and captcha-bound username is always "" (divergence `threat-username-handler-decode`), and a 429 writes no attempt row (divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-capped`: HTTP attempt rows persist at most 255 bytes, identities stay whole). Residual: no username lockout key exists for guest-invite (the body has no username), so only the ip rules, rate limit and captcha apply (#346).
+missing reducers). A present `X-Captcha-Token` is verified like Go's middleware (403 `captcha` plus a `captcha_needed` row on failure, bound and single-use). The recorded and captcha-bound username is always "" (divergence `threat-username-handler-decode`), and a 429 writes no attempt row (divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-bounded`: attempt rows persist a bounded, distinct-preserving name on every protocol, identities stay whole). Residual: no username lockout key exists for guest-invite (the body has no username), so only the ip rules, rate limit and captcha apply (#346).
 
 Rollout: the four guest-invite registrations (auth and gateway listener, GET and POST) stay
 OFF/go-auth in the bundled inventory until a separate activation PR qualifies them (captcha

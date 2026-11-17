@@ -75,5 +75,17 @@
     "go_source": "shared/threat/interceptor.go:383-390,930-955,1107-1109",
     "test": "gate::tests::stored_fingerprint_caps_the_agent_not_the_device_identity, setjoin-auth threat_oracle::native_long_user_agent_is_capped_where_stored",
     "original_evidence": "#433 finding 2"
+  },
+  "attempt-username-bounded": {
+    "reason": "Go stores the whole username in auth_attempts; a name past the username index limit fails the insert, so the failure row is silently lost and spray/CAPTCHA/tarpit undercount. #433 truncated HTTP names to 255 bytes, which collapsed distinct long names for detect_spray. Rust stores, on every protocol, a name up to 255 bytes unchanged and a longer one as its first <=222 bytes, '#', and 32 hex digits of SHA-256 of the whole name, so distinct names stay distinct.",
+    "issue": "#433",
+    "go_source": "shared/threat/interceptor.go:334-339,383-390",
+    "test": "gate_pool::protocol_long_name_failure_writes_a_bounded_row, gate_pool::protocol_long_names_stay_distinct_for_spray, setjoin-auth threat_oracle::native_long_usernames_stay_distinct_for_spray"
+  },
+  "lockout-key-name-bounded": {
+    "reason": "Go keys user:/ip_user: lockouts on the whole lowered name, so a long name stores a large auth_lockouts key and lockout_escalate audit row, or fails the primary-key insert and silently loses the per-user lock. Rust bounds the lowered name with bounded_name (<=255 bytes, '#'+SHA-256 suffix past 255) for check, escalate and clear alike, on every protocol, so lockout holds at any length. An account longer than 255 bytes keeps working but its pre-deploy raw-name lock is orphaned at deploy, and in a mixed Go/Rust fleet the two count on different keys (up to twice the failures before a lock). A <=255-byte literal equal to a bounded form shares that key; escalating any key needs no credential in Go either, and clearing needs that account's own successful login.",
+    "issue": "#433",
+    "go_source": "shared/threat/store.go:79-82; shared/threat/lockout.go:58-74",
+    "test": "gate::tests::lockout_keys_bound_long_names_and_keep_short_ones, gate::tests::lowering_before_bounding_keeps_check_escalate_and_clear_on_one_key, setjoin-auth threat_oracle::native_long_name_locks_and_clears_on_bounded_keys"
   }
 }
