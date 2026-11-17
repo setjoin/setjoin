@@ -1626,16 +1626,18 @@ async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
         );
     }
     server.close().await;
-    let replies: Vec<Reply> = replies.into_iter().collect::<Result<_, _>>()?;
-    let rows: i64 = ctx
+    let replies: Result<Vec<Reply>, _> = replies.into_iter().collect();
+    let rows = ctx
         .c
         .query_one(
             "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND outcome='captcha_needed' AND occurred_at>=$2::text::timestamptz",
             &[&source, &since],
         )
-        .await?
-        .get(0);
-    purge_guest_source(&ctx.c, source).await?;
+        .await;
+    // Purge before propagating any error so a failed run leaves no rows for this source.
+    let purged = purge_guest_source(&ctx.c, source).await;
+    let (replies, rows): (Vec<Reply>, i64) = (replies?, rows?.get(0));
+    purged?;
     if replies.iter().any(|r| r.status != 403 || r.body != want) || rows != 30 {
         let statuses: Vec<u16> = replies.iter().map(|r| r.status).collect();
         return Err(format!("failed-token flood: {rows} rows, replies {statuses:?}").into());
