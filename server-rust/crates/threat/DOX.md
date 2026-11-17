@@ -26,8 +26,23 @@ verified user/groups with the shared policy engine. Protocols skip CAPTCHA. Lock
 and attempt rows bound long names on every protocol (`bounded_name`: at most 255 bytes,
 distinct per name past that; divergences `lockout-key-name-bounded`, `attempt-username-bounded`).
 `Gate::refusal` writes a refused request's row under `refusal_budget` (per source and outcome, one
-INSERT...SELECT; divergence `http-refusal-rows-bounded`; `captcha_needed` also replenishes one row per
-window/(2*budget) seconds under sustained traffic, so the bound is: per source and instance, at most S + P rows from the budget branch plus at most P rows per replenishment gap of window/(2S) seconds, i.e. <= S + P*(2S+1) captcha_needed rows per tarpit window under fully concurrent bursts (P = request-pool size); sequential traffic stays <= 3S;
+INSERT...SELECT with `RETURNING 1`; divergence `http-refusal-rows-bounded`). `captcha_needed` also
+replenishes one row per window/(2S) seconds whenever the source has no `captcha_needed` row in that
+gap. Bound per source and instance, with S = max(tarpit threshold, 29)+1 and P = request-pool size:
+at most S + P rows from the budget branch plus at most P rows per replenishment gap, i.e.
+<= S + P*(2S+1) `captcha_needed` rows per tarpit window under fully concurrent bursts; sequential
+traffic stays <= 3S+1 rows per window.
+Clustered expiry cannot empty the tarpit window only after continuous traffic of at least
+threshold × gap (threshold = `tarpit_threshold`, gap = window/(2S)). Before that there is a named
+dip: after a short burst expires, the window can briefly hold fewer than threshold rows until
+replenishment refills it.
+Suppressed-row summary (CWE-779): when a budget-bounded INSERT writes 0 rows, `Gate::refusal` and
+the HTTP `http_refusal` call `note_suppressed_refusal` (`src/suppressed.rs`). It counts the outcome in
+a process-wide `SuppressedRefusals` static (fixed outcome index, no allocation per call) and, at most
+once per 60 s per process, emits one `tracing::warn!` "threat refusal rows suppressed by budget" with
+the non-zero per-outcome counts only. The event carries no source IP, username or user agent. Database
+errors are not counted. The event reaches a log only where a tracing subscriber is installed; no
+server-rust binary installs one yet.
 `attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's

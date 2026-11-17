@@ -454,9 +454,10 @@ impl AuthServer {
         let username: &str = &bounded;
         let country = self.http_country(ip);
         let fp = setjoin_threat::stored_fingerprint(agent, ip);
-        let _ = self
+        // Zero rows from RETURNING 1 is a suppressed row; a database error is not counted.
+        match self
             .exec
-            .protocol_statement(
+            .protocol_query(
                 setjoin_threat::REFUSAL_INSERT,
                 &[
                     (&ip, Type::TEXT),
@@ -469,7 +470,11 @@ impl AuthServer {
                     (&max, Type::INT8),
                 ],
             )
-            .await;
+            .await
+        {
+            Ok(rows) if rows.is_empty() => setjoin_threat::note_suppressed_refusal(outcome),
+            _ => {}
+        }
     }
 
     /// Guest-invite stepIPRules (#342): an unanswered lookup rejects, as the
