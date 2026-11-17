@@ -10,8 +10,8 @@ name: PR pre-check
 #                SERVER_RUST_STAGES=workspace). No server-rust code change: it ends after the selection.
 #                The run step is capped at 22 minutes; hitting the cap is a failure, never a pass.
 # Peak concurrency per pull request is two jobs (the gate starts after both end), next to the 19-job lane.
-# The FULL server-rust lane does not run on pull requests: it runs once per BATCH of queued pull
-# requests on the merge queue's merge_group commit (server-rust-lane.yml, whose job is also named
+# The FULL server-rust lane does not run on pull requests: it runs on the merge queue's merge_group
+# commit of each queue entry (with merge-queue batching on, only the batch head's run; server-rust-lane.yml, whose job is also named
 # `aggregate`). This workflow deliberately has no merge_group trigger, so the queue's `aggregate` is
 # the full lane's. No path filters: a filtered-out run would leave the required check pending forever.
 on:
@@ -63,7 +63,7 @@ jobs:
         run: |
           {
             echo "## PR pre-check (light); full lane runs in the merge queue"
-            echo "This job feeds the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs once per batch on the merge queue."
+            echo "This job feeds the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs on the merge queue for each queued entry. With merge-queue batching on, only the batch head runs the full lane; the exceptions are a late arrival (queued after the head had already decided), which runs its own lane, and a waiter that reaches the 90-minute cap, which runs the full lane itself."
             cat lane-artifacts/summary.md 2>/dev/null || echo "- FAIL: no summary produced (setup or plan failed)"
           } >> "$GITHUB_STEP_SUMMARY"
 

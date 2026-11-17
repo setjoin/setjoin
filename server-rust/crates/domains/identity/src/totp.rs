@@ -570,14 +570,24 @@ impl CompletionUser {
             )
             .await
             .map_err(crate::login::AdmissionFailure::Transition)?;
-        if !rows[0].get::<_, bool>(0) {
+        let allowed = rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .ok_or_else(crate::login::invalid)
+            .map_err(crate::login::AdmissionFailure::Transition)?;
+        if !allowed {
             return Ok((false, false));
         }
         let rows = exec
             .read("SELECT is_guest_account($1)", &[(&self.user, Type::INT8)])
             .await
             .map_err(crate::login::AdmissionFailure::AccountType)?;
-        Ok((true, rows[0].get(0)))
+        let guest = rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .ok_or_else(crate::login::invalid)
+            .map_err(crate::login::AdmissionFailure::AccountType)?;
+        Ok((true, guest))
     }
     pub fn claims(
         &self,

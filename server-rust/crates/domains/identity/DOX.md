@@ -12,6 +12,10 @@ bcrypt/SM3 verifier on a blocking task. Request uid/mailbox fields never enter
 that proof. Subsequent reads/writes bind its user, including live admin scope.
 Go does not resolve a mailbox for login; neither does Rust.
 
+Login, TOTP-admission, bootstrap, readiness and password-policy single-row reads use
+`rows.first()` + `try_get`: a missing row or unexpected NULL returns the function's existing
+error (callers map it to 503/500) instead of panicking. Other `rows[0]` sites: #436.
+
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is
 the entire Go transaction; it has no audit, state bump or notify. The user-scoped transport transaction must receive an explicit COMMIT
