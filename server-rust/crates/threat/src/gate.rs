@@ -715,8 +715,8 @@ pub async fn ip_rule_blocked(exec: &ScopedExecutor, source_ip: &str) -> Result<b
 /// per refusal outcome. `None`: outside auth_attempts_outcome_check, so no statement.
 pub fn refusal_budget(outcome: &str, config: &Config) -> Option<(i32, i64)> {
     match outcome {
-        // Feeds the tarpit count: stop only once the delay is at its 15 s cap and the
-        // threshold stays met while the window slides.
+        // Feeds the tarpit count. Under sustained traffic REFUSAL_INSERT also replenishes one
+        // row per window/(2*max) seconds, so clustered expiry cannot empty the window.
         "captcha_needed" => Some((
             config.tarpit_window_mins.max(1).saturating_mul(60),
             i64::from(config.tarpit_threshold.max(29)) + 1,
@@ -729,12 +729,17 @@ pub fn refusal_budget(outcome: &str, config: &Config) -> Option<(i32, i64)> {
     }
 }
 
-/// One bounded refusal row: written only while the source has fewer than `$8` rows of
-/// this outcome in the last `$7` seconds (auth_attempts_ip_time_idx serves the probe).
+/// One bounded refusal row. Written while the source has fewer than `$8` rows of this outcome in
+/// the last `$7` seconds (auth_attempts_ip_time_idx serves the probe). Replenishment: a
+/// `captcha_needed` row is also written when the source has no `captcha_needed` row in the last
+/// `$7 / (2 * $8)` seconds, so under sustained traffic the window keeps a recent row and clustered
+/// expiry cannot empty it. Bound per source: at most `3 * $8` captcha_needed rows per window
+/// (`$8` budget, `2 * $8` replenishment gaps), plus the pool-size race. Telemetry outcomes get no
+/// replenishment: at most one row per window.
 /// The probe relies on auth_attempts_admin_read (V064, USING true): if the native-RLS flip
 /// narrows SELECT for this credential, the probe sees 0 rows and the budget silently turns
 /// off (Go's unbounded behaviour) — keep this statement on a credential that can read.
-pub const REFUSAL_INSERT: &str = "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) SELECT $1::inet,$2,$3,$4,$5,$6 WHERE (SELECT count(*) FROM (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8) LIMIT $8) AS seen)<$8";
+pub const REFUSAL_INSERT: &str = "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) SELECT $1::inet,$2,$3,$4,$5,$6 WHERE ((SELECT count(*) FROM (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8) LIMIT $8) AS seen)<$8) OR ($4='captcha_needed' AND NOT EXISTS (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8/(2*$8))))";
 
 /// Decode one `lockout_check` row (#367). No row or a NULL `locked` is an
 /// error (fail closed); locked with an unreadable remainder stays locked
@@ -1084,8 +1089,8 @@ mod tests {
         assert_eq!(refusal_budget("captcha_needed", &high), Some((900, 101)));
         for config in [&default, &high] {
             let (window, max) = refusal_budget("captcha_needed", config).unwrap();
-            // The count stays at max-1 while the window slides, so the threshold holds
-            // and the delay stays at its 15 s cap.
+            // A full budget of max-1 rows still meets the threshold with the delay at its
+            // 15 s cap; replenishment (REFUSAL_INSERT) only adds rows on top of that.
             assert!(max - 1 >= i64::from(config.tarpit_threshold));
             assert!(500 * (max - 1) + 500 >= 15_000);
             assert!(window > 0);

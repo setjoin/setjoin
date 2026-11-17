@@ -26,7 +26,9 @@ verified user/groups with the shared policy engine. Protocols skip CAPTCHA. Lock
 and attempt rows bound long names on every protocol (`bounded_name`: at most 255 bytes,
 distinct per name past that; divergences `lockout-key-name-bounded`, `attempt-username-bounded`).
 `Gate::refusal` writes a refused request's row under `refusal_budget` (per source and outcome, one
-INSERT...SELECT; divergence `http-refusal-rows-bounded`); `attempt` and `record` keep one row per call.
+INSERT...SELECT; divergence `http-refusal-rows-bounded`; `captcha_needed` also replenishes one row per
+window/(2*budget) seconds under sustained traffic, so the bound is at most 3x the budget per window);
+`attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's
 feature_toggles listener) and `conditional_access`. Subscribe before reload,

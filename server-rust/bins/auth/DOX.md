@@ -533,7 +533,8 @@ A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests 
 - The begin decoy 200 never clears lockout.
 - Refusal rows (divergence `http-refusal-rows-bounded`, #433): Go writes one row per refused request;
   Rust writes a refusal row only within `refusal_budget` per source and outcome (telemetry outcomes one
-  per 60 s; `captcha_needed` max(tarpit threshold, 29)+1 per tarpit window). Login, refresh,
+  per 60 s; `captcha_needed` max(tarpit threshold, 29)+1 per tarpit window, replenished one row per
+  window/(2*budget) seconds under sustained traffic, at most 3x the budget per window). Login, refresh,
   forgot-password and guest-invite share the `captcha_needed` budget (`http_refusal`). Responses are unchanged.
 CAPTCHA_SECRET defaults to Go's HKDF of a non-empty JWT_SECRET. Peers are canonicalized before
 the TRUSTED_PROXY_IP match. Fail-closed reasons come from `setjoin-threat` (#367). Oracle:

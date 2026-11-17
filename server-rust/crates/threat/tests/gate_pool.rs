@@ -856,10 +856,11 @@ async fn protocol_long_names_stay_distinct_for_spray() {
 }
 
 /// Removes the rows a refusal test wrote for its own source IPs: attempt rows after `since`,
-/// the lockout keys `record` writes for an empty name (`ip:`, `ip_user:<ip>:`, `user:`), and
-/// the audit rows of those keys and IPs after `since`.
+/// the `ip:` and `ip_user:<ip>:` lockout keys of those IPs, and the audit rows of those keys and
+/// IPs after `since`. The shared `user:` key is never touched: `Gate::record` writes no lockout
+/// for an empty name, and these tests use empty names.
 async fn clean_refusal_rows(db: &tokio_postgres::Client, since: &str, ips: &[String]) {
-    let mut keys: Vec<String> = vec!["user:".to_owned()];
+    let mut keys: Vec<String> = Vec::new();
     for ip in ips {
         keys.push(format!("ip:{ip}"));
         keys.push(format!("ip_user:{ip}:"));
@@ -994,7 +995,8 @@ async fn refusal_budget_holds_the_tarpit_at_a_high_threshold() {
     let rows = refusal_rows(&db, &since, ip, "captcha_needed").await;
     let decision = gate.decide_with(&m, CaptchaStep::TarpitOnly).await;
     clean_refusal_rows(&db, &since, &[ip.to_owned()]).await;
-    assert_eq!(rows, 101);
+    // Replenishment (REFUSAL_INSERT) may add rows once the gap elapses: the bound is 3 * 101.
+    assert!((101..=303).contains(&rows), "{rows} captcha rows");
     assert_eq!(decision.action, ThreatAction::Tarpitted);
     assert_eq!(decision.delay, Duration::from_secs(15));
 }
@@ -1125,6 +1127,46 @@ async fn concurrent_first_refusals_write_at_most_the_pool_size() {
     );
 }
 
+/// Divergence `http-refusal-rows-bounded`: a full captcha budget is replenished, not left empty.
+/// The burst sits inside the window just before its edge (3595 s of a 3600 s window). Gap =
+/// window/(2*max) = 60 s, so the first refusal writes one replenishment row, and an immediate
+/// second refusal, with a row newer than the gap, writes nothing. Deterministic: no sleeping.
+/// Red before the fix: the full budget (30 rows) refuses the first refusal, so the count stays 30.
+#[tokio::test]
+async fn captcha_refusals_replenish_when_the_burst_is_at_the_window_edge() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    let since = refusal_since(&db).await;
+    let ip = "198.18.37.66";
+    let mut config = with(quiet(), "tarpit");
+    config.tarpit_window_mins = 60;
+    let gate = load(
+        ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
+        WorkerPools::from_dsn(&dsn).unwrap(),
+        config,
+    )
+    .await;
+    let m = meta(ip, "");
+    // A failed insert here (no partition for that instant) panics: the test never skips.
+    db.execute(
+        "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint,occurred_at) SELECT $1::text::inet,'','ldap','captcha_needed','','',now() - interval '3595 seconds' FROM generate_series(1, 30)",
+        &[&ip],
+    )
+    .await
+    .unwrap();
+    gate.refusal(&m, "captcha_needed").await;
+    let after_first = refusal_rows(&db, &since, ip, "captcha_needed").await;
+    gate.refusal(&m, "captcha_needed").await;
+    let after_second = refusal_rows(&db, &since, ip, "captcha_needed").await;
+    clean_refusal_rows(&db, &since, &[ip.to_owned()]).await;
+    assert_eq!(after_first, 31, "replenishment row after the burst");
+    assert_eq!(after_second, 31, "no second row inside the gap");
+}
+
 /// Divergence `http-refusal-rows-bounded`: `refusal_budget` names exactly the refusal outcomes
 /// of `auth_attempts_outcome_check`; outcomes outside the CHECK get no statement.
 #[tokio::test]
@@ -1134,7 +1176,7 @@ async fn refusal_budget_matches_the_outcome_check() {
     let db = connect(&dsn).await;
     let definition: String = db
         .query_one(
-            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='auth_attempts_outcome_check'",
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='auth_attempts_outcome_check' AND conrelid = 'public.auth_attempts'::regclass",
             &[],
         )
         .await

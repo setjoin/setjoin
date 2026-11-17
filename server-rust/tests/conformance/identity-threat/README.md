@@ -31,8 +31,9 @@ Approved security divergences (divergences.json):
 - Long usernames (`attempt-username-bounded`): attempt rows and lockout keys store a bounded,
   distinct-preserving name on every protocol; authentication and captcha binding see the whole name.
 - Refusal rows (`http-refusal-rows-bounded`): each source writes refusal rows per outcome under a
-  budget (telemetry: one per 60 s; `captcha_needed`: max(tarpit threshold, 29)+1 per tarpit window),
-  so the tarpit stays at its cap; success and failure rows are unchanged.
+  budget (telemetry: one per 60 s; `captcha_needed`: max(tarpit threshold, 29)+1 per tarpit window,
+  plus one replenishment row per window/(2*budget) seconds under sustained traffic, at most 3x the
+  budget per window), so clustered expiry cannot empty the tarpit window; success and failure rows are unchanged.
 - Replay mints #349 bound captcha tokens; recording mints Go-format ones.
 
 Record with the dispatch-only `gofree-record.yml`: `go_upstream=authserverd`,
