@@ -3172,3 +3172,239 @@ fn native_outcome_stamps_and_preflight_order_are_pinned() {
         );
     }
 }
+
+/// High-entropy distinct names: `len` hex digits after `prefix`, from SHA-256 chained over
+/// `seed:counter`, so no 4 KiB name repeats a short pattern that compression could fold.
+fn high_entropy_name(prefix: &str, seed: u32, len: usize) -> String {
+    let mut name = String::from(prefix);
+    let mut counter = 0u64;
+    while name.len() < prefix.len() + len {
+        let digest = Sha256::digest(format!("{seed}:{counter}").as_bytes());
+        for byte in digest {
+            name.push_str(&format!("{byte:02x}"));
+        }
+        counter += 1;
+    }
+    name.truncate(prefix.len() + len);
+    name
+}
+
+/// The lockout keys a bounded-name test owns, built as the product builds them: each name
+/// is lowered then bounded (`setjoin_authz::address::lower`, `bounded_name`).
+fn owned_lockout_keys(ips: &[String], names: &[String]) -> Vec<String> {
+    let mut keys: Vec<String> = ips.iter().map(|ip| format!("ip:{ip}")).collect();
+    for name in names {
+        let bounded =
+            setjoin_threat::bounded_name(&setjoin_authz::address::lower(name)).into_owned();
+        keys.push(format!("user:{bounded}"));
+        for ip in ips {
+            keys.push(format!("ip_user:{ip}:{bounded}"));
+        }
+    }
+    keys
+}
+
+async fn delete_bounded_lockouts(c: &Client, keys: &[String]) -> Result<(), Err> {
+    let keys = keys.to_vec();
+    c.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
+        &[&keys],
+    )
+    .await?;
+    Ok(())
+}
+
+/// Deletes the audit rows a test owns, in one transaction with replica triggers off, as the
+/// other suites do (the append-only guard on audit_log is an origin-mode trigger). Spray rows
+/// match the test's source IPs; lockout_escalate rows (user_id NULL, no source_ip) match the
+/// test's own lockout keys in metadata->>'lockout_key'. Both are limited to rows after `since`.
+async fn delete_test_audits(
+    c: &Client,
+    since: &str,
+    ips: &[String],
+    users: &[i64],
+    keys: &[String],
+) -> Result<(), Err> {
+    let ips = ips.to_vec();
+    let users = users.to_vec();
+    let keys = keys.to_vec();
+    c.batch_execute("BEGIN").await?;
+    if let Err(error) = c.batch_execute("SET LOCAL session_replication_role=replica").await {
+        c.batch_execute("ROLLBACK").await?;
+        return Err(error.into());
+    }
+    let deleted = c
+        .execute(
+            "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND ((event_type IN ('spray_detected','device_new','device_country_changed') AND (source_ip = ANY($2::text[]::inet[]) OR user_id = ANY($3::bigint[]))) OR (event_type = 'lockout_escalate' AND metadata->>'lockout_key' = ANY($4::text[])))",
+            &[&since, &ips, &users, &keys],
+        )
+        .await;
+    match deleted {
+        Ok(_) => {
+            c.batch_execute("COMMIT").await?;
+            Ok(())
+        }
+        Err(error) => {
+            c.batch_execute("ROLLBACK").await?;
+            Err(error.into())
+        }
+    }
+}
+
+/// Divergence `attempt-username-bounded`, native HTTP: three distinct 4 KiB names that share
+/// a 300-byte prefix are three spray identities, so the fourth attempt trips spray_detected
+/// before the CAPTCHA step's three-failure threshold can answer.
+#[tokio::test]
+async fn native_long_usernames_stay_distinct_for_spray() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349A-long-spray", true, &[]).await.unwrap() else {
+        return;
+    };
+    let since: String = n
+        .c
+        .query_one("SELECT now()::text", &[])
+        .await
+        .unwrap()
+        .get(0);
+    let ips = vec!["127.0.0.130".to_owned()];
+    let prefix = "p".repeat(300);
+    let users: Vec<String> = (0..3u32)
+        .map(|seed| format!("{}@gofree349a.test", high_entropy_name(&prefix, seed, 4 * 1024)))
+        .collect();
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        let mut cfg = rust_config(&n.db, Preset::Threat, None)?;
+        cfg.threat.rate_limit_per_min = 100;
+        cfg.threat.tarpit_threshold = 10;
+        let server = serve(native_server(&n.db, cfg).await?).await?;
+        let mut statuses = Vec::new();
+        for user in users.iter().chain(users.first()) {
+            let body = json!({"email": user, "password": WRONG}).to_string().into_bytes();
+            let reply = send(server.addr, ip(130), LOGIN, body, &origin()).await;
+            statuses.push(reply.map(|r| {
+                (
+                    r.status,
+                    r.headers
+                        .get("x-threat-reason")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
+                )
+            }));
+        }
+        server.close().await;
+        let statuses: Vec<_> = statuses.into_iter().collect::<Result<_, _>>()?;
+        let want = vec![
+            (401, None),
+            (401, None),
+            (401, None),
+            (403, Some("spray_detected".to_owned())),
+        ];
+        if statuses != want {
+            return Err(format!("{statuses:?}").into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let owned = owned_lockout_keys(&ips, &users);
+    let cleaned = async {
+        delete_bounded_lockouts(&n.c, &owned).await?;
+        delete_test_audits(&n.c, &since, &ips, &[], &owned).await
+    }
+    .await;
+    let closed = native_close(n, &ips).await;
+    result.and(cleaned).and(closed).unwrap();
+}
+
+/// Divergence `lockout-key-name-bounded`, native: an account whose email is 300 bytes (which
+/// users_email_check admits) locks for every source and clears on the bounded `user:` and
+/// `ip_user:` keys, not on the raw lowered name.
+#[tokio::test]
+async fn native_long_name_locks_and_clears_on_bounded_keys() {
+    let _serial = SERIAL.lock().await;
+    let Some(mut n) = native_open("GOFREE349A-long-lock", true, &[]).await.unwrap() else {
+        return;
+    };
+    let since: String = n
+        .c
+        .query_one("SELECT now()::text", &[])
+        .await
+        .unwrap()
+        .get(0);
+    let domain = n.fx.email.split_once('@').expect("fixture email").1.to_owned();
+    let long = format!("{}@{domain}", "a".repeat(290));
+    n.c.execute(
+        "UPDATE users SET email=$1 WHERE id=$2",
+        &[&long, &n.fx.a.user],
+    )
+    .await
+    .unwrap();
+    n.fx.email = long.clone();
+    let bounded = setjoin_threat::bounded_name(&setjoin_authz::address::lower(&long)).into_owned();
+    let user_key = format!("user:{bounded}");
+    let ip_user = format!("ip_user:127.0.0.126:{bounded}");
+    let ips: Vec<String> = (120..=126u8).map(|last| format!("127.0.0.{last}")).collect();
+    let result = async {
+        clear_state(&n.c, &ips, &long).await?;
+        let server =
+            serve(native_server(&n.db, rust_config(&n.db, Preset::Off, None)?).await?).await?;
+        let wrong = |email: &str| json!({"email": email, "password": WRONG}).to_string().into_bytes();
+        // (a) five wrong passwords from five sources reach the user threshold (5); a sixth
+        // source is refused by the user lock.
+        for last in 120..125u8 {
+            let reply = send(server.addr, ip(last), LOGIN, wrong(&long), &origin()).await?;
+            if reply.status != 401 {
+                server.close().await;
+                return Err(format!("{} {}", reply.status, reply.body).into());
+            }
+        }
+        let sixth = send(server.addr, ip(125), LOGIN, wrong(&long), &origin()).await?;
+        if sixth.status != 403
+            || sixth.headers.get("x-threat-reason").and_then(Value::as_str) != Some("lockout")
+        {
+            server.close().await;
+            return Err(format!("{} {}", sixth.status, sixth.body).into());
+        }
+        // (b) on a cleared state: two wrong passwords from source 126, then the right one.
+        clear_state(&n.c, &ips, &long).await?;
+        n.c.execute(
+            "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
+            &[&vec![user_key.clone(), ip_user.clone()]],
+        )
+        .await?;
+        for _ in 0..2 {
+            send(server.addr, ip(126), LOGIN, wrong(&long), &origin()).await?;
+        }
+        let failed = lockout(&n.c, &user_key).await?;
+        if failed != Some(2) {
+            server.close().await;
+            return Err(format!("user key failed_count {failed:?}").into());
+        }
+        let good = json!({"email": &long, "password": PASSWORD}).to_string().into_bytes();
+        let reply = send(server.addr, ip(126), LOGIN, good, &origin()).await?;
+        server.close().await;
+        if reply.status != 200 {
+            return Err(format!("{} {}", reply.status, reply.body).into());
+        }
+        let left: i64 = n
+            .c
+            .query_one(
+                "SELECT count(*) FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
+                &[&vec![user_key.clone(), ip_user.clone(), "ip:127.0.0.126".to_owned()]],
+            )
+            .await?
+            .get(0);
+        if left != 0 {
+            return Err(format!("{left} bounded lockout rows survived the success").into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let owned = owned_lockout_keys(&ips, std::slice::from_ref(&long));
+    let cleaned = async {
+        delete_bounded_lockouts(&n.c, &owned).await?;
+        delete_test_audits(&n.c, &since, &ips, &[n.fx.a.user], &owned).await
+    }
+    .await;
+    let closed = native_close(n, &ips).await;
+    result.and(cleaned).and(closed).unwrap();
+}

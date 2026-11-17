@@ -28,6 +28,8 @@ Approved security divergences (divergences.json):
 - Cases where only effects differ (`off-begin-lockout-divergence`, `off-refresh-jwt-email`,
   `off-login-captcha-bogus`) strip those effects, assert the Go half on the golden and the Rust
   half on the replay, and compare everything else.
+- Long usernames (`attempt-username-bounded`): attempt rows and lockout keys store a bounded,
+  distinct-preserving name on every protocol; authentication and captcha binding see the whole name.
 - Replay mints #349 bound captcha tokens; recording mints Go-format ones.
 
 Record with the dispatch-only `gofree-record.yml`: `go_upstream=authserverd`,

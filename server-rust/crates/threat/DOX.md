@@ -22,7 +22,9 @@ IMAP re-exports it for compatibility. Pipeline order is feed acquisition, IP rul
 country, lockout, spray, CAPTCHA/tarpit (HTTP only), rate, pre-auth CA, feed reject.
 IP allow continues through later steps as Go does. `record` preserves independent
 best-effort attempt/sign-in, lockout and scoped device writes; post-auth evaluates
-verified user/groups with the shared policy engine. Protocols skip CAPTCHA.
+verified user/groups with the shared policy engine. Protocols skip CAPTCHA. Lockout keys
+and attempt rows bound long names on every protocol (`bounded_name`: at most 255 bytes,
+distinct per name past that; divergences `lockout-key-name-bounded`, `attempt-username-bounded`).
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's
 feature_toggles listener) and `conditional_access`. Subscribe before reload,
