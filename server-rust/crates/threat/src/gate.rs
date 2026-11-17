@@ -583,7 +583,7 @@ impl Gate {
                     &[
                         (&user, Type::INT8),
                         (&hash, Type::TEXT),
-                        (&meta.user_agent, Type::TEXT),
+                        (&cap_agent(&meta.user_agent), Type::TEXT),
                         (&mask_ip(&meta.source_ip), Type::TEXT),
                         (&country, Type::TEXT),
                     ],
@@ -611,7 +611,7 @@ impl Gate {
         }
     }
     pub async fn attempt(&self, meta: &ConnectionMeta, outcome: &str) {
-        let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,$3,$4,$5,$6)",&[(&meta.source_ip,Type::TEXT),(&persisted_username(self.protocol(meta),&meta.username),Type::TEXT),(&self.protocol(meta),Type::TEXT),(&outcome,Type::TEXT),(&self.country(meta),Type::TEXT),(&fingerprint(&meta.user_agent,&meta.source_ip),Type::TEXT)]).await;
+        let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,$3,$4,$5,$6)",&[(&meta.source_ip,Type::TEXT),(&persisted_username(self.protocol(meta),&meta.username),Type::TEXT),(&self.protocol(meta),Type::TEXT),(&outcome,Type::TEXT),(&self.country(meta),Type::TEXT),(&stored_fingerprint(&meta.user_agent,&meta.source_ip),Type::TEXT)]).await;
     }
     pub async fn post_auth(&self, meta: &ConnectionMeta) -> (ThreatAction, String) {
         if meta.user_id <= 0 || !self.enabled("feature.conditional_access") {
@@ -732,6 +732,24 @@ fn persisted_username<'a>(protocol: &str, username: &'a str) -> &'a str {
 }
 pub fn fingerprint(agent: &str, ip: &str) -> String {
     format!("{agent}|{}", mask_ip(ip))
+}
+/// Longest user agent persisted (divergence `stored-user-agent-capped`).
+pub const MAX_STORED_AGENT: usize = 512;
+/// The persisted user agent: at most 512 bytes on a char boundary.
+pub fn cap_agent(agent: &str) -> &str {
+    prefix(agent, MAX_STORED_AGENT)
+}
+/// The persisted `agent|masked-IP`. `device_hash` keeps hashing the whole `fingerprint`.
+pub fn stored_fingerprint(agent: &str, ip: &str) -> String {
+    fingerprint(cap_agent(agent), ip)
+}
+/// The longest prefix of `s` that is at most `max` bytes and ends on a char boundary.
+fn prefix(s: &str, max: usize) -> &str {
+    let mut end = s.len().min(max);
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 impl Config {
@@ -855,6 +873,24 @@ mod tests {
         assert_eq!(persisted_username("http", &multi), "a".repeat(254));
         assert_eq!(persisted_username("imap", &ascii).len(), 300);
         assert_eq!(persisted_username("http", "a@x"), "a@x");
+    }
+
+    #[test]
+    fn stored_fingerprint_caps_the_agent_not_the_device_identity() {
+        let long = format!("a{}", "é".repeat(400));
+        let capped = cap_agent(&long);
+        assert_eq!(capped.len(), 511);
+        assert!(capped.len() <= MAX_STORED_AGENT);
+        let stored = stored_fingerprint(&long, "198.51.100.7");
+        let agent_part = stored.strip_suffix("|198.51.100.0").unwrap();
+        assert_eq!(agent_part, capped);
+        assert!(agent_part.len() <= MAX_STORED_AGENT);
+        assert!(fingerprint(&long, "198.51.100.7").contains(&long));
+        let short = "Mozilla/5.0 (X11; Linux x86_64) test";
+        assert_eq!(
+            stored_fingerprint(short, "198.51.100.7"),
+            fingerprint(short, "198.51.100.7")
+        );
     }
 
     use super::*;

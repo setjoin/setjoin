@@ -13,6 +13,7 @@ use hyper::Request;
 use serde_json::{json, Value};
 use setjoin_auth::{body, AuthServer, Config};
 use setjoin_conformance::{fixture, golden, harness::Db};
+use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1063,13 +1064,21 @@ async fn send(
     let client: hyper_util::client::legacy::Client<_, setjoin_auth::Body> =
         hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
             .build(http);
+    // A caller's user-agent header replaces the default agent (never a second one).
+    let agent = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("user-agent"))
+        .map_or(AGENT, |(_, v)| v.as_str());
     let mut req = Request::builder()
         .method("POST")
         .uri(format!("http://{addr}{path}"))
         .header("host", HOST)
-        .header("user-agent", AGENT)
+        .header("user-agent", agent)
         .header("content-type", "application/json");
     for (k, v) in headers {
+        if k.eq_ignore_ascii_case("user-agent") {
+            continue;
+        }
         req = req.header(k.as_str(), v.as_str());
     }
     let started = Instant::now();
@@ -2352,6 +2361,87 @@ async fn native_forgot_password_answers_match_for_enrolled_and_unknown_accounts(
         }
         if lock_shapes[0] != lock_shapes[1] {
             return Err(format!("lockout rows differ: {lock_shapes:?}").into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let closed = native_close(n, &ips).await;
+    result.and(closed).unwrap();
+}
+
+/// Slice B (#433 follow-up): an 8 KiB user agent is persisted capped at 512 bytes
+/// in auth_attempts and device_registry, while device identity still hashes the
+/// whole `agent|masked-IP` so an existing device does not re-register.
+#[tokio::test]
+async fn native_long_user_agent_is_capped_where_stored() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349A-long-agent", true, &[])
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let ips = vec!["127.0.0.110".to_owned(), "127.0.0.111".to_owned()];
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        let agent = format!("{MARK}-UA-{}", "u".repeat(8 * 1024));
+        let mut headers = origin();
+        headers.push(("user-agent".to_owned(), agent.clone()));
+        let server =
+            serve(native_server(&n.db, rust_config(&n.db, Preset::Off, None)?).await?).await?;
+        let reset = send(
+            server.addr,
+            ip(110),
+            RESET,
+            payload(Payload::ResetBad, &n.fx.email, None)?,
+            &headers,
+        )
+        .await;
+        let login = send(
+            server.addr,
+            ip(111),
+            LOGIN,
+            payload(Payload::LoginGood, &n.fx.email, None)?,
+            &headers,
+        )
+        .await;
+        server.close().await;
+        reset?;
+        if login?.status != 200 {
+            return Err("the control login must succeed to reach device registration".into());
+        }
+        let capped = &agent[..512];
+        let failures: Vec<String> = n
+            .c
+            .query(
+                "SELECT device_fingerprint FROM auth_attempts WHERE source_ip=$1::text::inet AND outcome='failure' ORDER BY id",
+                &[&"127.0.0.110"],
+            )
+            .await?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        if failures != vec![format!("{capped}|127.0.0.0")] {
+            return Err(format!("failure row not capped: {failures:?}").into());
+        }
+        let devices = n
+            .c
+            .query(
+                "SELECT user_agent, device_hash FROM device_registry WHERE user_id=$1",
+                &[&n.fx.a.user],
+            )
+            .await?;
+        let [device] = devices.as_slice() else {
+            return Err(format!("expected one device row, found {}", devices.len()).into());
+        };
+        let stored: String = device.get(0);
+        let hash: String = device.get(1);
+        if stored != capped {
+            return Err(format!("device user_agent is {} bytes, not the 512-byte cap", stored.len()).into());
+        }
+        let whole = format!("{:x}", Sha256::digest(format!("{agent}|127.0.0.0").as_bytes()));
+        if hash != whole {
+            return Err("device_hash must keep hashing the whole agent".into());
         }
         Ok::<_, Err>(())
     }

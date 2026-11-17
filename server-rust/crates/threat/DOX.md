@@ -64,7 +64,7 @@ Deployments must point DB_WORKER_DSN at setjoin_worker. Tests: `tests/gate_pool.
 reconciliation after a LISTEN gap; the auth-process cache keeps Go's independent
 30-second schedule and no notification subscription.
 
-HTTP adapters may reuse the exported `fingerprint`/`mask_ip` codecs (#339).
+HTTP adapters may reuse the exported `fingerprint`/`mask_ip` codecs (#339). Persisted rows use `stored_fingerprint` and `cap_agent` (512-byte user agent cap, divergence `stored-user-agent-capped`); `device_hash` keeps hashing the whole `fingerprint`.
 The OP oracle pins the same anonymous `agent|masked-IP` attempt metadata.
 
 `registry` (ProtocolSessionRegistry) and `tracker` (per-user ConnTracker) moved here from

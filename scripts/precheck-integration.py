@@ -16,7 +16,8 @@ Rule (owner decision 2026-11-16):
     (dev-dependency edges do not count) join only when there are at most MAX_RDEPS of them;
     otherwise only the changed package itself runs, noted (pg, db, contracts, authz, ...).
   * A selected package runs ALL its integration test targets (tests/*.rs), except a HEAVY one
-    (setjoin-gateway: ~234 targets, ~214 test-minutes) that runs only the targets
+    (setjoin-gateway: ~234 targets, ~214 test-minutes; setjoin-auth: ~41 targets, a domain-crate change
+    selecting all of them overran the 22-minute cap on #437) that runs only the targets
       exact       whose own tests/<name>.rs changed,
       referenced  whose tests/<name>.rs names a changed tests/<dir>/ (for golden/fixtures/testdata:
                   the changed file's basename),
@@ -32,7 +33,7 @@ import subprocess
 import sys
 
 MAX_RDEPS = 5
-HEAVY = {"setjoin-gateway": 30}
+HEAVY = {"setjoin-gateway": 30, "setjoin-auth": 20}
 WORKSPACE_WIDE = ("server-rust/Cargo.toml", "server-rust/Cargo.lock")
 GENERIC = {"src", "tests", "lib", "main", "mod", "common", "fixtures", "golden", "goldens", "testdata",
            "support", "util", "utils", "helpers", "build", "benches", "examples", "setjoin", "crates",
@@ -220,7 +221,9 @@ def selftest():
         ("gateway-src-no-dev-edge", [gw + "src/chat_compliance.rs"], {"setjoin-gateway": ["chat_compliance_recorded"]}, None),
         ("word-match", [gw + "src/compliance/mod.rs"], {"setjoin-gateway": ["chat_compliance_recorded", "compliance_recorded"]}, None),
         ("light-rdep-runs-whole", ["server-rust/crates/domains/identity/src/login.rs"],
-         {"setjoin-auth": ["guest_invite_oracle", "startup"], "setjoin-gateway": ["identity_self_service"], "setjoin-identity": ["login_flow"]}, None),
+         {"setjoin-gateway": ["identity_self_service"], "setjoin-identity": ["login_flow"]}, "setjoin-auth: the change names no integration test target"),
+        ("auth-heavy-path-match", ["server-rust/crates/domains/identity/src/guest_invite.rs"],
+         {"setjoin-auth": ["guest_invite_oracle"], "setjoin-gateway": ["identity_self_service"], "setjoin-identity": ["login_flow"]}, None),
         ("rdep-cap", ["server-rust/crates/pg/src/lib.rs"], {"setjoin-pg": ["pg_db"]}, "reverse dependents (over 5)"),
         ("exact-test-file", [gw + "tests/startup.rs"], {"setjoin-gateway": ["startup"]}, None),
         ("referenced-dir", [gw + "tests/static_oracle/cases.rs"], {"setjoin-gateway": ["static_recorded"]}, None),
