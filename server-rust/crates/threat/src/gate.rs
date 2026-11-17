@@ -733,8 +733,10 @@ pub fn refusal_budget(outcome: &str, config: &Config) -> Option<(i32, i64)> {
 /// the last `$7` seconds (auth_attempts_ip_time_idx serves the probe). Replenishment: a
 /// `captcha_needed` row is also written when the source has no `captcha_needed` row in the last
 /// `$7 / (2 * $8)` seconds, so under sustained traffic the window keeps a recent row and clustered
-/// expiry cannot empty it. Bound per source: at most `3 * $8` captcha_needed rows per window
-/// (`$8` budget, `2 * $8` replenishment gaps), plus the pool-size race. Telemetry outcomes get no
+/// expiry cannot empty it. Bound per source and instance: at most `$8` + P rows from the budget branch plus at most P rows
+/// per replenishment gap of `$7 / (2 * $8)` seconds, i.e. at most `$8 + P * (2 * $8 + 1)`
+/// captcha_needed rows per window under fully concurrent bursts (P = request-pool size);
+/// sequential traffic stays at most `3 * $8`. Telemetry outcomes get no
 /// replenishment: at most one row per window.
 /// The probe relies on auth_attempts_admin_read (V064, USING true): if the native-RLS flip
 /// narrows SELECT for this credential, the probe sees 0 rows and the budget silently turns

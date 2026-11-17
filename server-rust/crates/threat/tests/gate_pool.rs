@@ -912,10 +912,13 @@ async fn refusal_rows_are_bounded_per_source_and_window() {
         .unwrap();
     let since = refusal_since(&db).await;
     let ip = "198.18.37.60";
+    // Window 1440 min: the replenishment gap is window/(2*30) = 24 min, so no pause here adds a row.
+    let mut config = with(quiet(), "tarpit");
+    config.tarpit_window_mins = 1440;
     let gate = load(
         ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
         WorkerPools::from_dsn(&dsn).unwrap(),
-        with(quiet(), "tarpit"),
+        config,
     )
     .await;
     let m = meta(ip, "");
@@ -980,8 +983,10 @@ async fn refusal_budget_holds_the_tarpit_at_a_high_threshold() {
         .unwrap();
     let since = refusal_since(&db).await;
     let ip = "198.18.37.61";
+    // Window 1440 min: the replenishment gap is 86400/(2*101) s, far longer than this test.
     let mut config = with(quiet(), "tarpit");
     config.tarpit_threshold = 100;
+    config.tarpit_window_mins = 1440;
     let gate = load(
         ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
         WorkerPools::from_dsn(&dsn).unwrap(),
@@ -995,8 +1000,7 @@ async fn refusal_budget_holds_the_tarpit_at_a_high_threshold() {
     let rows = refusal_rows(&db, &since, ip, "captcha_needed").await;
     let decision = gate.decide_with(&m, CaptchaStep::TarpitOnly).await;
     clean_refusal_rows(&db, &since, &[ip.to_owned()]).await;
-    // Replenishment (REFUSAL_INSERT) may add rows once the gap elapses: the bound is 3 * 101.
-    assert!((101..=303).contains(&rows), "{rows} captcha rows");
+    assert_eq!(rows, 101);
     assert_eq!(decision.action, ThreatAction::Tarpitted);
     assert_eq!(decision.delay, Duration::from_secs(15));
 }
@@ -1065,10 +1069,13 @@ async fn refusal_budget_is_per_source_and_outcome() {
         .unwrap();
     let since = refusal_since(&db).await;
     let (a, b) = ("198.18.37.63", "198.18.37.64");
+    // Window 1440 min: the replenishment gap is 24 min, so the 31st call below adds no row.
+    let mut config = quiet();
+    config.tarpit_window_mins = 1440;
     let gate = load(
         ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
         WorkerPools::from_dsn(&dsn).unwrap(),
-        quiet(),
+        config,
     )
     .await;
     let (ma, mb) = (meta(a, ""), meta(b, ""));
@@ -1128,9 +1135,9 @@ async fn concurrent_first_refusals_write_at_most_the_pool_size() {
 }
 
 /// Divergence `http-refusal-rows-bounded`: a full captcha budget is replenished, not left empty.
-/// The burst sits inside the window just before its edge (3595 s of a 3600 s window). Gap =
-/// window/(2*max) = 60 s, so the first refusal writes one replenishment row, and an immediate
-/// second refusal, with a row newer than the gap, writes nothing. Deterministic: no sleeping.
+/// The burst sits inside the 3600 s window but older than the 60 s gap (window/(2*30)): seeded
+/// 1800 s ago. The first refusal writes one replenishment row; an immediate second refusal, with a
+/// row newer than the gap, writes nothing. No timing margin under about 30 minutes.
 /// Red before the fix: the full budget (30 rows) refuses the first refusal, so the count stays 30.
 #[tokio::test]
 async fn captcha_refusals_replenish_when_the_burst_is_at_the_window_edge() {
@@ -1153,7 +1160,7 @@ async fn captcha_refusals_replenish_when_the_burst_is_at_the_window_edge() {
     let m = meta(ip, "");
     // A failed insert here (no partition for that instant) panics: the test never skips.
     db.execute(
-        "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint,occurred_at) SELECT $1::text::inet,'','ldap','captcha_needed','','',now() - interval '3595 seconds' FROM generate_series(1, 30)",
+        "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint,occurred_at) SELECT $1::text::inet,'','ldap','captcha_needed','','',now() - interval '1800 seconds' FROM generate_series(1, 30)",
         &[&ip],
     )
     .await

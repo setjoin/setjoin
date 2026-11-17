@@ -3273,6 +3273,8 @@ async fn native_refusal_floods_write_bounded_rows() {
         clear_state(&n.c, &ips, &n.fx.email).await?;
         let mut cfg = rust_config(&n.db, Preset::Threat, None)?;
         cfg.threat.tarpit_threshold = 10;
+        // A day-long window: the replenishment gap is 1440*60/(2*30) s, about 24 min.
+        cfg.threat.tarpit_window_mins = 1440;
         let server = serve(native_server(&n.db, cfg).await?).await?;
         let raw = json!({"email": n.fx.email, "password": WRONG})
             .to_string()
@@ -3390,6 +3392,8 @@ async fn native_login_and_guest_share_the_captcha_budget() {
         // raised so it cannot answer first (the Threat preset allows 3 per minute).
         let mut cfg = rust_config(&n.db, Preset::Threat, None)?;
         cfg.threat.overrides.insert("feature.tarpit".to_owned(), false);
+        // A day-long window: the replenishment gap is about 24 min, so 30 rows stay exact.
+        cfg.threat.tarpit_window_mins = 1440;
         cfg.threat.rate_limit_per_min = 100;
         let server = serve(native_server(&n.db, cfg).await?).await?;
         let mut headers = origin();

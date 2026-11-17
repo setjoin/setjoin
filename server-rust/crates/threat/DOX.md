@@ -27,7 +27,7 @@ and attempt rows bound long names on every protocol (`bounded_name`: at most 255
 distinct per name past that; divergences `lockout-key-name-bounded`, `attempt-username-bounded`).
 `Gate::refusal` writes a refused request's row under `refusal_budget` (per source and outcome, one
 INSERT...SELECT; divergence `http-refusal-rows-bounded`; `captcha_needed` also replenishes one row per
-window/(2*budget) seconds under sustained traffic, so the bound is at most 3x the budget per window);
+window/(2*budget) seconds under sustained traffic, so the bound is: per source and instance, at most S + P rows from the budget branch plus at most P rows per replenishment gap of window/(2S) seconds, i.e. <= S + P*(2S+1) captcha_needed rows per tarpit window under fully concurrent bursts (P = request-pool size); sequential traffic stays <= 3S;
 `attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's

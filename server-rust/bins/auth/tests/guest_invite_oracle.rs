@@ -1557,9 +1557,23 @@ native!(guest_upgrade_reducers_absent, reducers_absent);
 
 /// Divergence `http-refusal-rows-bounded`: 35 failed tokens from one source answer 35 `captcha`
 /// refusals, and the rows they write stop at the 30-row budget.
+/// `native_server` with the threat tarpit window set. The replenishment gap follows the window
+/// (window/(2*budget)), so a day-long window keeps the exact 30-row count below.
+async fn native_server_with_tarpit_window(ctx: &Ctx, minutes: i32) -> Result<Server, Err> {
+    let mut cfg = Config::for_secret(ctx.secret().into());
+    cfg.signing_alg = "ES256".into();
+    cfg.dsn = ctx.db.dsn.clone();
+    cfg.threat.tarpit_window_mins = minutes;
+    let exec =
+        setjoin_pg::ScopedExecutor::from_dsn(ctx.db.app.as_deref().unwrap_or(&ctx.db.dsn), 4)
+            .unwrap();
+    let server = AuthServer::load(exec, cfg).await?;
+    Ok(auth_server(Arc::new(server), false).await)
+}
+
 async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
     let fx = seed(&ctx.c, "valid").await?;
-    let server = native_server(ctx).await?;
+    let server = native_server_with_tarpit_window(ctx, 1440).await?;
     let (target, payload) = shape("POST", "success", &fx.token);
     let since: String = ctx
         .c
