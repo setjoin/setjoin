@@ -74,6 +74,8 @@
   {
     "case": "attempt-username-bounded",
     "issue": "#433",
+    "reviewed": true,
+    "reviewer": "Fable #433 follow-up plan review (rev 2) + #439 code review, Codex #439; owner policy 2026-11-05",
     "reason": "Go stores the whole username in auth_attempts; a name past the username index limit fails the insert, so the failure row is silently lost and spray/CAPTCHA/tarpit undercount. #433 truncated HTTP names to 255 bytes, which collapsed distinct long names for detect_spray. Rust now stores, for every protocol, names up to 255 bytes unchanged and a longer name as its first ≤222 bytes, '#', and 32 hex digits of SHA-256 of the whole name, so distinct names stay distinct. users_email_check admits no '#', so a bounded form is never a stored account name; an account longer than 255 bytes (not excluded by the schema) loses the user-risk join and auth_attempts_self visibility for its rows. A ≤255-byte literal equal to a bounded form shares its spray identity. Authentication and captcha binding see the whole name.",
     "go_source": "shared/threat/interceptor.go:334-339,383-390",
     "secure_test": "crates/threat gate::tests::stored_names_are_bounded_and_distinct, gate::tests::bounded_forms_never_look_like_an_account_and_alias_is_pinned; crates/threat/tests/gate_pool.rs::protocol_long_name_failure_writes_a_bounded_row, protocol_long_names_stay_distinct_for_spray; bins/auth/tests/threat_oracle.rs::native_long_usernames_stay_distinct_for_spray"
@@ -111,8 +113,10 @@
   {
     "case": "stored-user-agent-capped",
     "issue": "#433",
+    "reviewed": true,
+    "reviewer": "Fable #433 follow-up plan review + #438 code review, Codex #438; owner policy 2026-11-05",
     "reason": "Go stores the whole User-Agent (up to the 1 MiB header limit) in auth_attempts.device_fingerprint and device_registry.user_agent. Rust stores at most 512 bytes (char boundary) in both; device_hash still hashes the whole agent|masked-IP, so device identity and new-device detection match Go. Conditional-access evaluation sees the whole agent.",
-    "go_source": "shared/threat/interceptor.go:383-390,930-955,1107-1109",
+    "go_source": "shared/threat/interceptor.go:332-339,383-390,930-955,1107-1109",
     "secure_test": "bins/auth/tests/threat_oracle.rs::native_long_user_agent_is_capped_where_stored, crates/threat/src/gate.rs tests::stored_fingerprint_caps_the_agent_not_the_device_identity"
   },
   {
