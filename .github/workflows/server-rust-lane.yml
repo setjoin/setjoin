@@ -2,8 +2,19 @@ name: server-rust lane
 
 # The Go-free Rust server lane on GitHub-hosted runners (no self-hosted runner anywhere).
 # STAGE 2 of the merge-queue rollout (stage 1 kept `pull_request` here): the FULL lane runs on the
-# merge queue's merge-group commit (a BATCH of up to 5 ready pull requests, one lane run per batch),
-# and on workflow_dispatch. Pull requests do NOT run it: the required `aggregate` on a PR comes from
+# merge queue's merge-group commit, and on workflow_dispatch. Every queue entry gets its own run.
+# Merge-queue batching (only with repo variable LANE_QUEUE_BATCHING=1 and the ruleset on HEADGREEN):
+# the `queue` job decides per entry. An entry with a LATER queued entry (one whose commit descends from
+# ours, i.e. a batch that includes ours) WAITS: its run stays in progress, its queue job polls every 60 s
+# and runs no lane. Its `aggregate` stays pending, never green or red, until the entry is merged with the
+# later batch (its ref is then gone and the run ends `gone`) or the wait ends. The entry with no later
+# entry (the batch head) runs the full lane on its own commit, which contains every earlier entry. The
+# switch unset or any other event: `queue` prints head at once, so every entry runs the full lane, as before.
+# Worst case for one entry: SETTLE 120 s + CAP 5400 s + the lane; the queue job's timeout is 100 minutes.
+# An ls-remote/fetch error is "unknown": the entry keeps waiting and retries; at the CAP it runs the full lane
+# itself (slower, never unsafe). An entry that leaves the queue while waiting ends `gone` without running.
+# A check_response_timeout (360 min) overrun ejects the entry; that fails closed and never merges it.
+# Pull requests do NOT run it: the required `aggregate` on a PR comes from
 # pr-precheck.yml (light pre-check + selected integration tests), and the merge queue then requires this workflow's `aggregate`
 # on the batch. Apply only with the merge-queue ruleset active.
 # What main does (the plan job's `mode` output; the queue already tested what lands on main):
@@ -11,9 +22,13 @@ name: server-rust lane
 #                                test, coverage, replay or guard job runs; the run is NOT a test pass
 #   schedule 02:30   mode=full   the FULL lane plus coverage, the backstop (also saves caches); mode=skip
 #                                (green, summary says why) when main had no commit in the last 26 hours
-#   merge_group, workflow_dispatch   mode=full, unchanged
+#   merge_group, workflow_dispatch   mode=full, unchanged (a queue entry whose queue role is `gone` is mode=gone
+#                                    instead: its ref left the queue while waiting; no job runs; aggregate is RED
+#                                    with "nothing ran; not a test pass"; the red sits on a commit nothing reads)
 # The lane jobs:
-#   plan            decides debug or full and the shard lists
+#   queue           first on every run: a merge_group entry with the switch on decides head|gone (waits while a
+#                   later entry is queued, see above); every other run prints head without any network call
+#   plan            decides debug, full, cache, skip or gone, and the shard lists
 #   gomod-cache     (mode=cache only) go mod download + save of the Go module cache (shard 1 saves it in full mode)
 #   build           one nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
@@ -75,7 +90,34 @@ env:
   GOFREE_AIRGAP_FIXTURE_ROOT: /dev/shm
 
 jobs:
+  # Merge-queue batching decision (scripts/lane-job-gate.py queue-role). No gh API call, no extra permission:
+  # ls-remote and fetch are anonymous reads of the public repository. Timeout 100 min is above CAP (90 min) plus
+  # one poll's worst overshoot, so the script always exits by itself; a cancelled job would be red.
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    outputs:
+      role: ${{ steps.role.outputs.role }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: |
+            scripts/lane-job-gate.py
+      - id: role
+        env:
+          EVENT: ${{ github.event_name }}
+          OWN_REF: ${{ github.ref }}
+          OWN_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          BATCHING: ${{ vars.LANE_QUEUE_BATCHING }}
+        run: |
+          set -euo pipefail
+          role="$(python3 scripts/lane-job-gate.py queue-role)"
+          echo "role=$role" >> "$GITHUB_OUTPUT"
+          echo "queue role: $role (event=$EVENT)"
+
   plan:
+    needs: queue
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -108,6 +150,7 @@ jobs:
       - id: mode
         env:
           EVENT: ${{ github.event_name }}
+          QUEUE_ROLE: ${{ needs.queue.outputs.role }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
@@ -212,7 +255,7 @@ jobs:
 
   build:
     needs: plan
-    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode != 'skip'
+    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode != 'skip' && needs.plan.outputs.mode != 'gone'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     env:
@@ -446,7 +489,7 @@ jobs:
 
   coverage-build:
     needs: plan
-    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode != 'skip'
+    if: needs.plan.outputs.debug != 'true' && needs.plan.outputs.mode != 'skip' && needs.plan.outputs.mode != 'gone'
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
@@ -533,7 +576,7 @@ jobs:
   # so in the step summary. merge_group and workflow_dispatch are red unless plan chose mode=full, so a
   # mis-planned or skipped queue run can never pass vacuously.
   aggregate:
-    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard, gomod-cache]
+    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard, gomod-cache, queue]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -557,6 +600,9 @@ jobs:
           elif [ "$MODE" = skip ]; then
             echo "### server-rust lane: nightly skipped" >> "$GITHUB_STEP_SUMMARY"
             echo "No commit landed on main in the last 26 hours, so no full lane was due. Nothing ran: this is **not** a test pass." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$MODE" = gone ]; then
+            echo "### server-rust lane: queue entry left the queue; nothing ran" >> "$GITHUB_STEP_SUMMARY"
+            echo "This merge-queue entry was waiting behind a later entry, and its queue branch was removed (merged with that batch, ejected or rebuilt) before its lane was due. Nothing ran: this is **not** a test pass. The red result is expected and cosmetic: the commit it sits on is no longer in the queue." >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'

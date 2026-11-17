@@ -93,6 +93,11 @@ run_check() {
   require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'STALE known-red pgTAP' 'pgTAP known-red ratchet' || failed=1
   require_literal "$LANE_WORKFLOW" '--verify tap' 'server-rust lane pgTAP evidence verification' || failed=1
   require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
+  require_literal "$LANE_WORKFLOW" 'gomod-cache, queue]' 'server-rust lane aggregate gates on the merge-queue decision (queue appended last)' || failed=1
+  require_literal "$LANE_WORKFLOW" 'python3 scripts/lane-job-gate.py queue-role' 'server-rust lane queue job runs the queue-role decision' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'plan' 'needs: queue' 'server-rust lane plan waits for the queue decision' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'build' "needs.plan.outputs.mode != 'gone'" 'server-rust lane build does not run for a queue entry that left the queue' || failed=1
+  require_job_literal "$LANE_WORKFLOW" 'coverage-build' "needs.plan.outputs.mode != 'gone'" 'server-rust lane coverage-build does not run for a queue entry that left the queue' || failed=1
   require_literal "$ROOT/scripts/lane-job-gate.py" '"roots", "pgtap", "guards", "shard"' 'server-rust lane aggregate requires the guards job' || failed=1
   require_literal "$LANE_WORKFLOW" 'python3 scripts/lane-job-gate.py verdict' 'server-rust lane aggregate runs the gate verdict' || failed=1
   require_literal "$LANE_WORKFLOW" 'python3 scripts/test-lane-job-gate.py' 'server-rust lane aggregate runs the gate tests first' || failed=1

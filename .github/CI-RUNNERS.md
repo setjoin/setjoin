@@ -34,8 +34,25 @@ The same guard enforces this.
 ## server-rust lane (GitHub-hosted)
 
 `.github/workflows/server-rust-lane.yml` (its `pgtap` job runs the mailserver/authserver reducer pgTAP suites and its `guards` job runs `scripts/run-guards.sh --known-red scripts/guards-known-red.txt`; both gate `aggregate`) runs only on GitHub-hosted `ubuntu-latest` runners (no
-self-hosted label) and, on the `main` merge queue, runs the FULL lane on `merge_group` (once per batch of up to 5 PRs)
-and `workflow_dispatch`. A push to `main` only refreshes the caches (`build`, `coverage-build`, `gomod-cache`; no tests, summary
+self-hosted label) and, on the `main` merge queue, runs the FULL lane on `merge_group` and `workflow_dispatch`.
+Each queue entry has its own run. Without batching (the default) every entry runs the full lane on its own commit.
+With `LANE_QUEUE_BATCHING=1` (repo variable) and the ruleset on HEADGREEN, the `queue` job lets the entry with no
+later queued entry (the batch head) run the full lane on its commit, which contains every earlier entry, while each
+entry with a later queued entry waits: its run stays in progress, its queue job polls every 60 s and runs no lane.
+Later means a queue branch whose commit descends from the entry's commit (`git for-each-ref --contains` over a
+`--filter=tree:0` fetch of the public repo; anonymous, no API call). The name suffix is logged as a cross-check only.
+Timing: SETTLE 120 s before the first decision, CAP 5400 s (90 min); no git call starts at or after the CAP, and the
+worst-case git I/O of one poll is 180 s, and each git subprocess checks the deadline first. The ancestry
+fetch is `--depth 6` (the ruleset's batch of 5 plus one); a shallow miss means head, never an untested merge. The queue job
+times out at 100 min, above CAP + 180 s + 300 s of setup.
+Worst case for one entry: SETTLE + CAP + the lane. Any ls-remote or fetch error waits, and at the CAP the entry runs the
+full lane itself: slower, never unsafe. A late arrival (queued after the head had already decided) runs its own lane. A waiter holds one hosted runner (up to four
+while a head runs). A `gone` entry (its branch left the queue) runs nothing and its `aggregate` is red, with the summary
+"nothing ran; not a test pass"; the red sits on a commit nothing reads. A check_response_timeout (360 min) overrun
+ejects the entry, which fails closed. Every waiter keeps `aggregate` pending until it ends, never green. Intermediate
+commits of a batch are not tested one by one: the batch tip's lane is their test. The nightly full lane is the backstop.
+Rollback and rollout: `server-rust/DOX.md#parallel-full-lane-550`.
+A push to `main` only refreshes the caches (`build`, `coverage-build`, `gomod-cache`; no tests, summary
 "cache refresh only, no tests"), and a nightly `schedule` (02:30 UTC) runs the full lane plus coverage as the backstop,
 skipping cleanly when main has no commit in the last 26 hours. It never runs on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
 (jobs `light` = `scripts/quick-check.sh` and `integration` = the changed packages' integration tests selected by
@@ -51,7 +68,7 @@ passes fails the run until its line is removed; a name with no guard file is an 
 ## quick check (agent branches)
 
 `.github/workflows/quick-check.yml` is one `ubuntu-latest` job (pinned lane image, `scripts/quick-check.sh`) on `workflow_dispatch` only (`packages`, `tests`; pull requests get the same script from `pr-precheck.yml`): `cargo clippy --all-targets` (errors fail, lints are warnings) + `cargo test --lib` for changed packages, cheap guards, rustfmt on added files.
-It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests run only `pr-precheck` and the merge queue runs the full lane.
+It stays one job so it never competes with the 19-job full lane for the 20-job concurrency limit; pull requests run only `pr-precheck` and the merge queue runs the full lane (per batch head when batching is on; waiting entries run none).
 
 ## PR pre-check (`pr-precheck.yml`)
 
