@@ -1,6 +1,9 @@
 //! #367: pooled, bounded, fail-closed Gate worker statements.
 use setjoin_pg::{ScopedExecutor, Timeouts};
-use setjoin_threat::{bounded_name, Config, ConnectionMeta, Gate, ThreatAction, WorkerPools};
+use setjoin_threat::{
+    bounded_name, refusal_budget, CaptchaStep, Config, ConnectionMeta, Gate, ThreatAction,
+    WorkerPools,
+};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -850,4 +853,316 @@ async fn protocol_long_names_stay_distinct_for_spray() {
     forget(&db, ip, "").await;
     assert_eq!(decision.action, ThreatAction::Reject);
     assert_eq!(decision.reason, "spray_detected");
+}
+
+/// Removes the rows a refusal test wrote for its own source IPs: attempt rows after `since`,
+/// the lockout keys `record` writes for an empty name (`ip:`, `ip_user:<ip>:`, `user:`), and
+/// the audit rows of those keys and IPs after `since`.
+async fn clean_refusal_rows(db: &tokio_postgres::Client, since: &str, ips: &[String]) {
+    let mut keys: Vec<String> = vec!["user:".to_owned()];
+    for ip in ips {
+        keys.push(format!("ip:{ip}"));
+        keys.push(format!("ip_user:{ip}:"));
+    }
+    db.execute(
+        "DELETE FROM auth_attempts WHERE source_ip = ANY($1::text[]::inet[]) AND occurred_at >= $2::text::timestamptz",
+        &[&ips.to_vec(), &since],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key = ANY($1::text[])",
+        &[&keys],
+    )
+    .await
+    .unwrap();
+    delete_audits(db, since, ips, &keys).await;
+}
+
+/// A refusal test's start: an hour back, so backdated seeds are inside it. Every delete is also
+/// scoped by the test's own source IPs.
+async fn refusal_since(db: &tokio_postgres::Client) -> String {
+    db.query_one("SELECT (now() - interval '1 hour')::text", &[])
+        .await
+        .unwrap()
+        .get(0)
+}
+
+/// Rows of one outcome one source wrote after `since`.
+async fn refusal_rows(db: &tokio_postgres::Client, since: &str, ip: &str, outcome: &str) -> i64 {
+    db.query_one(
+        "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND outcome=$2 AND occurred_at>=$3::text::timestamptz",
+        &[&ip, &outcome, &since],
+    )
+    .await
+    .unwrap()
+    .get(0)
+}
+
+/// Divergence `http-refusal-rows-bounded`: one source's refusals write one row per telemetry
+/// outcome and at most 30 captcha_needed rows, and the tarpit still answers at its 15 s cap.
+#[tokio::test]
+async fn refusal_rows_are_bounded_per_source_and_window() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    let since = refusal_since(&db).await;
+    let ip = "198.18.37.60";
+    let gate = load(
+        ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
+        WorkerPools::from_dsn(&dsn).unwrap(),
+        with(quiet(), "tarpit"),
+    )
+    .await;
+    let m = meta(ip, "");
+    for _ in 0..40 {
+        gate.refusal(&m, "captcha_needed").await;
+    }
+    for outcome in [
+        "rate_limited",
+        "lockout",
+        "spray_detected",
+        "geo_blocked",
+        "threat_blocked",
+    ] {
+        for _ in 0..5 {
+            gate.refusal(&m, outcome).await;
+        }
+    }
+    for _ in 0..3 {
+        gate.refusal(&m, "tarpit_applied").await;
+        gate.record(&m, false, 0).await;
+    }
+    let mut counts = Vec::new();
+    for outcome in [
+        "captcha_needed",
+        "rate_limited",
+        "lockout",
+        "spray_detected",
+        "geo_blocked",
+        "threat_blocked",
+        "failure",
+    ] {
+        counts.push((outcome, refusal_rows(&db, &since, ip, outcome).await));
+    }
+    let decision = gate.decide_with(&m, CaptchaStep::TarpitOnly).await;
+    clean_refusal_rows(&db, &since, &[ip.to_owned()]).await;
+    assert_eq!(
+        counts,
+        vec![
+            ("captcha_needed", 30),
+            ("rate_limited", 1),
+            ("lockout", 1),
+            ("spray_detected", 1),
+            ("geo_blocked", 1),
+            ("threat_blocked", 1),
+            ("failure", 3),
+        ]
+    );
+    assert_eq!(decision.action, ThreatAction::Tarpitted);
+    assert_eq!(decision.reason, "tarpit_applied");
+    assert_eq!(decision.delay, Duration::from_secs(15));
+}
+
+/// Divergence `http-refusal-rows-bounded`: at a high tarpit threshold the budget is threshold+1
+/// rows, so a flood still answers the tarpit at its 15 s cap.
+#[tokio::test]
+async fn refusal_budget_holds_the_tarpit_at_a_high_threshold() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    let since = refusal_since(&db).await;
+    let ip = "198.18.37.61";
+    let mut config = with(quiet(), "tarpit");
+    config.tarpit_threshold = 100;
+    let gate = load(
+        ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
+        WorkerPools::from_dsn(&dsn).unwrap(),
+        config,
+    )
+    .await;
+    let m = meta(ip, "");
+    for _ in 0..150 {
+        gate.refusal(&m, "captcha_needed").await;
+    }
+    let rows = refusal_rows(&db, &since, ip, "captcha_needed").await;
+    let decision = gate.decide_with(&m, CaptchaStep::TarpitOnly).await;
+    clean_refusal_rows(&db, &since, &[ip.to_owned()]).await;
+    assert_eq!(rows, 101);
+    assert_eq!(decision.action, ThreatAction::Tarpitted);
+    assert_eq!(decision.delay, Duration::from_secs(15));
+}
+
+/// Divergence `http-refusal-rows-bounded`: the budget counts only rows inside its window, so
+/// backdated rows neither fill it nor count for the tarpit, and the window slides.
+#[tokio::test]
+async fn refusal_budget_slides_with_the_window() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    let since = refusal_since(&db).await;
+    let ip = "198.18.37.62";
+    let mut config = with(quiet(), "tarpit");
+    config.tarpit_window_mins = 1;
+    let gate = load(
+        ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
+        WorkerPools::from_dsn(&dsn).unwrap(),
+        config,
+    )
+    .await;
+    let m = meta(ip, "");
+    // Seeds outside the 60 s window. A month partition that does not hold them fails this
+    // insert, which panics: the test never passes by skipping.
+    db.execute(
+        "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint,occurred_at) SELECT $1::text::inet,'','ldap','captcha_needed','','',now() - interval '2 minutes' FROM generate_series(1, 30)",
+        &[&ip],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint,occurred_at) VALUES($1::text::inet,'','ldap','rate_limited','','',now() - interval '61 seconds')",
+        &[&ip],
+    )
+    .await
+    .unwrap();
+    gate.refusal(&m, "captcha_needed").await;
+    gate.refusal(&m, "rate_limited").await;
+    // 1 + 28 in-window rows, then the 30th in-window row.
+    for _ in 0..28 {
+        gate.refusal(&m, "captcha_needed").await;
+    }
+    gate.refusal(&m, "captcha_needed").await;
+    let captcha = refusal_rows(&db, &since, ip, "captcha_needed").await;
+    let rate = refusal_rows(&db, &since, ip, "rate_limited").await;
+    let decision = gate.decide_with(&m, CaptchaStep::TarpitOnly).await;
+    clean_refusal_rows(&db, &since, &[ip.to_owned()]).await;
+    assert_eq!(captcha, 60);
+    assert_eq!(rate, 2);
+    assert_eq!(decision.action, ThreatAction::Tarpitted);
+    assert_eq!(decision.delay, Duration::from_secs(15));
+}
+
+/// Divergence `http-refusal-rows-bounded`: the budget is per source and outcome. One source's
+/// exhausted captcha budget does not stop another source, or its own other outcomes.
+#[tokio::test]
+async fn refusal_budget_is_per_source_and_outcome() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    let since = refusal_since(&db).await;
+    let (a, b) = ("198.18.37.63", "198.18.37.64");
+    let gate = load(
+        ScopedExecutor::from_dsn(&dsn, 2).unwrap(),
+        WorkerPools::from_dsn(&dsn).unwrap(),
+        quiet(),
+    )
+    .await;
+    let (ma, mb) = (meta(a, ""), meta(b, ""));
+    for _ in 0..30 {
+        gate.refusal(&ma, "captcha_needed").await;
+    }
+    gate.refusal(&ma, "captcha_needed").await;
+    gate.refusal(&ma, "lockout").await;
+    gate.refusal(&ma, "rate_limited").await;
+    gate.refusal(&mb, "captcha_needed").await;
+    gate.refusal(&mb, "lockout").await;
+    let counts = [
+        refusal_rows(&db, &since, a, "captcha_needed").await,
+        refusal_rows(&db, &since, a, "lockout").await,
+        refusal_rows(&db, &since, a, "rate_limited").await,
+        refusal_rows(&db, &since, b, "captcha_needed").await,
+        refusal_rows(&db, &since, b, "lockout").await,
+    ];
+    clean_refusal_rows(&db, &since, &[a.to_owned(), b.to_owned()]).await;
+    assert_eq!(counts, [30, 1, 1, 1, 1]);
+}
+
+/// Divergence `http-refusal-rows-bounded`: racing first refusals write at least one row and at
+/// most one per request-pool connection (the accepted race, pool size 4 here).
+#[tokio::test]
+async fn concurrent_first_refusals_write_at_most_the_pool_size() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    db.batch_execute("SELECT create_monthly_partitions()")
+        .await
+        .unwrap();
+    let since = refusal_since(&db).await;
+    let ip = "198.18.37.65";
+    let gate = load(
+        pool(&dsn, 4, 5000, 5000),
+        WorkerPools::from_dsn(&dsn).unwrap(),
+        quiet(),
+    )
+    .await;
+    let m = meta(ip, "");
+    let tasks: Vec<_> = (0..64)
+        .map(|_| {
+            let (gate, m) = (gate.clone(), m.clone());
+            tokio::spawn(async move { gate.refusal(&m, "rate_limited").await })
+        })
+        .collect();
+    for task in tasks {
+        task.await.unwrap();
+    }
+    let rows = refusal_rows(&db, &since, ip, "rate_limited").await;
+    clean_refusal_rows(&db, &since, &[ip.to_owned()]).await;
+    assert!(
+        (1..=4).contains(&rows),
+        "{rows} rows from 64 racing refusals"
+    );
+}
+
+/// Divergence `http-refusal-rows-bounded`: `refusal_budget` names exactly the refusal outcomes
+/// of `auth_attempts_outcome_check`; outcomes outside the CHECK get no statement.
+#[tokio::test]
+async fn refusal_budget_matches_the_outcome_check() {
+    let _s = SERIAL.lock().await;
+    let dsn = dsn();
+    let db = connect(&dsn).await;
+    let definition: String = db
+        .query_one(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='auth_attempts_outcome_check'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    // Quoted literals sit at the odd positions of a split on the quote character.
+    let listed: Vec<&str> = definition.split('\'').skip(1).step_by(2).collect();
+    let defaults = Config::default();
+    for outcome in [
+        "captcha_needed",
+        "rate_limited",
+        "lockout",
+        "spray_detected",
+        "geo_blocked",
+        "threat_blocked",
+    ] {
+        assert!(listed.contains(&outcome), "{outcome} is not in the CHECK");
+    }
+    for outcome in &listed {
+        let refusal = !matches!(*outcome, "success" | "failure");
+        assert_eq!(
+            refusal_budget(outcome, &defaults).is_some(),
+            refusal,
+            "{outcome}"
+        );
+    }
+    for outcome in ["tarpit_applied", "ip_blocked", "conditional_access_blocked"] {
+        assert!(!listed.contains(&outcome), "{outcome} is in the CHECK");
+        assert_eq!(refusal_budget(outcome, &defaults), None, "{outcome}");
+    }
 }

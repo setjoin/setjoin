@@ -1551,8 +1551,59 @@ native!(
     toggles_follow_login
 );
 native!(guest_post_captcha_header_native, captcha_header);
+native!(guest_post_failed_captcha_rows_are_bounded, failed_captcha_flood);
 native!(guest_post_threat_username_keys, username_keys);
 native!(guest_upgrade_reducers_absent, reducers_absent);
+
+/// Divergence `http-refusal-rows-bounded`: 35 failed tokens from one source answer 35 `captcha`
+/// refusals, and the rows they write stop at the 30-row budget.
+async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
+    let fx = seed(&ctx.c, "valid").await?;
+    let server = native_server(ctx).await?;
+    let (target, payload) = shape("POST", "success", &fx.token);
+    let since: String = ctx
+        .c
+        .query_one("SELECT (now() - interval '1 hour')::text", &[])
+        .await?
+        .get(0);
+    let source = "127.0.0.143";
+    let want = "{\"captcha_prompt\":\"CAPTCHA verification failed\",\"error\":\"captcha\"}\n";
+    let mut replies = Vec::new();
+    for _ in 0..35 {
+        replies.push(
+            request(
+                server.addr,
+                Ipv4Addr::new(127, 0, 0, 143),
+                "POST",
+                &target,
+                payload.clone(),
+                &[("x-captcha-token", "bogus".to_owned())],
+            )
+            .await,
+        );
+    }
+    server.close().await;
+    let replies: Vec<Reply> = replies.into_iter().collect::<Result<_, _>>()?;
+    let rows: i64 = ctx
+        .c
+        .query_one(
+            "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND outcome='captcha_needed' AND occurred_at>=$2::text::timestamptz",
+            &[&source, &since],
+        )
+        .await?
+        .get(0);
+    ctx.c
+        .execute(
+            "DELETE FROM auth_attempts WHERE source_ip=$1::text::inet AND occurred_at>=$2::text::timestamptz",
+            &[&source, &since],
+        )
+        .await?;
+    if replies.iter().any(|r| r.status != 403 || r.body != want) || rows != 30 {
+        let statuses: Vec<u16> = replies.iter().map(|r| r.status).collect();
+        return Err(format!("failed-token flood: {rows} rows, replies {statuses:?}").into());
+    }
+    Ok(())
+}
 native!(guest_upgrade_worker_without_bypassrls, without_bypassrls);
 native!(guest_other_methods_are_405, other_methods);
 

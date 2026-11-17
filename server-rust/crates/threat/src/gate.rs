@@ -615,6 +615,33 @@ impl Gate {
         let username: &str = &bounded_name(&meta.username);
         let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,$3,$4,$5,$6)",&[(&meta.source_ip,Type::TEXT),(&username,Type::TEXT),(&self.protocol(meta),Type::TEXT),(&outcome,Type::TEXT),(&self.country(meta),Type::TEXT),(&stored_fingerprint(&meta.user_agent,&meta.source_ip),Type::TEXT)]).await;
     }
+    /// A refused request's attempt row under its budget (divergence `http-refusal-rows-bounded`).
+    /// Best-effort like `attempt`; no statement when `refusal_budget` is `None`.
+    pub async fn refusal(&self, meta: &ConnectionMeta, outcome: &str) {
+        let Some((window, max)) = refusal_budget(outcome, &self.config) else {
+            return;
+        };
+        let username: &str = &bounded_name(&meta.username);
+        let _ = self
+            .exec
+            .protocol_statement(
+                REFUSAL_INSERT,
+                &[
+                    (&meta.source_ip, Type::TEXT),
+                    (&username, Type::TEXT),
+                    (&self.protocol(meta), Type::TEXT),
+                    (&outcome, Type::TEXT),
+                    (&self.country(meta), Type::TEXT),
+                    (
+                        &stored_fingerprint(&meta.user_agent, &meta.source_ip),
+                        Type::TEXT,
+                    ),
+                    (&window, Type::INT4),
+                    (&max, Type::INT8),
+                ],
+            )
+            .await;
+    }
     pub async fn post_auth(&self, meta: &ConnectionMeta) -> (ThreatAction, String) {
         if meta.user_id <= 0 || !self.enabled("feature.conditional_access") {
             return (ThreatAction::Allow, String::new());
@@ -683,6 +710,31 @@ pub async fn ip_rule_blocked(exec: &ScopedExecutor, source_ip: &str) -> Result<b
             .map_err(|_| ()),
     }
 }
+
+/// Divergence `http-refusal-rows-bounded`: `(window seconds, max rows)` one source may write
+/// per refusal outcome. `None`: outside auth_attempts_outcome_check, so no statement.
+pub fn refusal_budget(outcome: &str, config: &Config) -> Option<(i32, i64)> {
+    match outcome {
+        // Feeds the tarpit count: stop only once the delay is at its 15 s cap and the
+        // threshold stays met while the window slides.
+        "captcha_needed" => Some((
+            config.tarpit_window_mins.max(1).saturating_mul(60),
+            i64::from(config.tarpit_threshold.max(29)) + 1,
+        )),
+        // Telemetry only: no counter reads these.
+        "rate_limited" | "lockout" | "spray_detected" | "geo_blocked" | "threat_blocked" => {
+            Some((60, 1))
+        }
+        _ => None,
+    }
+}
+
+/// One bounded refusal row: written only while the source has fewer than `$8` rows of
+/// this outcome in the last `$7` seconds (auth_attempts_ip_time_idx serves the probe).
+/// The probe relies on auth_attempts_admin_read (V064, USING true): if the native-RLS flip
+/// narrows SELECT for this credential, the probe sees 0 rows and the budget silently turns
+/// off (Go's unbounded behaviour) — keep this statement on a credential that can read.
+pub const REFUSAL_INSERT: &str = "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) SELECT $1::inet,$2,$3,$4,$5,$6 WHERE (SELECT count(*) FROM (SELECT 1 FROM auth_attempts WHERE source_ip=$1::inet AND outcome=$4 AND occurred_at>now()-make_interval(secs=>$7::float8) LIMIT $8) AS seen)<$8";
 
 /// Decode one `lockout_check` row (#367). No row or a NULL `locked` is an
 /// error (fail closed); locked with an unreadable remainder stays locked
@@ -1021,6 +1073,64 @@ mod tests {
             protocol: "ldap".into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn refusal_budget_bounds_rows_without_starving_the_tarpit() {
+        let default = Config::default();
+        assert_eq!(refusal_budget("captcha_needed", &default), Some((900, 30)));
+        let mut high = Config::default();
+        high.tarpit_threshold = 100;
+        assert_eq!(refusal_budget("captcha_needed", &high), Some((900, 101)));
+        for config in [&default, &high] {
+            let (window, max) = refusal_budget("captcha_needed", config).unwrap();
+            // The count stays at max-1 while the window slides, so the threshold holds
+            // and the delay stays at its 15 s cap.
+            assert!(max - 1 >= i64::from(config.tarpit_threshold));
+            assert!(500 * (max - 1) + 500 >= 15_000);
+            assert!(window > 0);
+        }
+        for outcome in [
+            "rate_limited",
+            "lockout",
+            "spray_detected",
+            "geo_blocked",
+            "threat_blocked",
+        ] {
+            assert_eq!(refusal_budget(outcome, &default), Some((60, 1)), "{outcome}");
+        }
+        for outcome in [
+            "tarpit_applied",
+            "ip_blocked",
+            "conditional_access_blocked",
+            "lockout_unavailable",
+            "success",
+            "failure",
+        ] {
+            assert_eq!(refusal_budget(outcome, &default), None, "{outcome}");
+        }
+        let mut long = Config::default();
+        long.tarpit_window_mins = 43_200;
+        assert_eq!(
+            refusal_budget("captcha_needed", &long),
+            Some((2_592_000, 30))
+        );
+        for minutes in [0, -5] {
+            let mut clamped = Config::default();
+            clamped.tarpit_window_mins = minutes;
+            assert_eq!(refusal_budget("captcha_needed", &clamped), Some((60, 30)));
+        }
+    }
+
+    #[tokio::test]
+    async fn refusal_with_unavailable_pool_is_bounded_and_skips_unlisted_outcomes() {
+        let gate = gate();
+        let m = meta("alice");
+        // Pool faults are best-effort, as in `attempt`: the call returns with no row.
+        gate.refusal(&m, "captcha_needed").await;
+        // Outside the outcome CHECK the budget is None, so `refusal` returns before any checkout.
+        assert_eq!(refusal_budget("lockout_unavailable", &gate.config), None);
+        gate.refusal(&m, "lockout_unavailable").await;
     }
 
     #[tokio::test]

@@ -8,7 +8,7 @@ mod gate;
 pub use gate::{CaptchaStep, Config, ConnectionMeta, Decision, Gate, ThreatAction, ThreatGate, WorkerPools, RECORD_POOL_SIZE, WORKER_POOL_SIZE};
 pub use gate::{
     bounded_name, cap_agent, fingerprint, ip_rule_blocked, mask_ip, stored_fingerprint,
-    MAX_STORED_AGENT, MAX_STORED_NAME,
+    refusal_budget, MAX_STORED_AGENT, MAX_STORED_NAME, REFUSAL_INSERT,
 };
 // Shared authentication runtime tasks and protocol threat admission (#420).
 use setjoin_pg::{workers::WorkerDatabase, Type};

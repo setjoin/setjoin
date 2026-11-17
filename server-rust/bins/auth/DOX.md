@@ -494,7 +494,7 @@ threat read still forwards to Go, which fails open until Go is removed), strict 
 postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
 the transaction settled (additive; per-class timing differs as in Go). Own
 two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
-missing reducers). A present `X-Captcha-Token` is verified like Go's middleware (403 `captcha` plus a `captcha_needed` row on failure, bound and single-use). The recorded and captcha-bound username is always "" (divergence `threat-username-handler-decode`), and a 429 writes no attempt row (divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-bounded`: attempt rows persist a bounded, distinct-preserving name on every protocol, identities stay whole). Residual: no username lockout key exists for guest-invite (the body has no username), so only the ip rules, rate limit and captcha apply (#346).
+missing reducers). A present `X-Captcha-Token` is verified like Go's middleware (403 `captcha` plus a `captcha_needed` row on failure, within the source's shared refusal budget, divergence `http-refusal-rows-bounded`; bound and single-use). The recorded and captcha-bound username is always "" (divergence `threat-username-handler-decode`), and a 429 writes no attempt row (divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-bounded`: attempt rows persist a bounded, distinct-preserving name on every protocol, identities stay whole). Residual: no username lockout key exists for guest-invite (the body has no username), so only the ip rules, rate limit and captcha apply (#346).
 
 Rollout: the four guest-invite registrations (auth and gateway listener, GET and POST) stay
 OFF/go-auth in the bundled inventory until a separate activation PR qualifies them (captcha
@@ -512,7 +512,7 @@ stays fatal for every other case.
 `src/http_threat.rs` is Go's `threat.Middleware` for POST /auth/login, /auth/refresh and
 /auth/forgot-password/{begin,verify,reset}. It runs in three stages:
 - `threat_stage`: mount check, OPTIONS, the 1 MiB / 15 s body read, and the username.
-- `threat_admit`: `Gate::decide_with`, Go's response bytes and the attempt row.
+- `threat_admit`: `Gate::decide_with`, Go's response bytes and the bounded refusal row (`Gate::refusal`).
 - `threat_tail`: `Gate::record` and `ThreatOutcome`.
 Login and refresh are admitted only while one of the six gate toggles is on (env overrides
 included). The forgot-password routes are always admitted. Forwards decided by headers or
@@ -531,6 +531,10 @@ A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests 
   restart is accepted once more within its 120 s life (still bound to IP, route and username),
   and with several auth processes a token is accepted once per process; production runs one.
 - The begin decoy 200 never clears lockout.
+- Refusal rows (divergence `http-refusal-rows-bounded`, #433): Go writes one row per refused request;
+  Rust writes a refusal row only within `refusal_budget` per source and outcome (telemetry outcomes one
+  per 60 s; `captcha_needed` max(tarpit threshold, 29)+1 per tarpit window). Login, refresh,
+  forgot-password and guest-invite share the `captcha_needed` budget (`http_refusal`). Responses are unchanged.
 CAPTCHA_SECRET defaults to Go's HKDF of a non-empty JWT_SECRET. Peers are canonicalized before
 the TRUSTED_PROXY_IP match. Fail-closed reasons come from `setjoin-threat` (#367). Oracle:
 `tests/threat_oracle.rs`.
