@@ -81,7 +81,8 @@ pub async fn mfa_status(exec:&ScopedExecutor,p:&PasswordProof)->Result<String,St
 }
 pub async fn mfa_policy(exec:&ScopedExecutor,p:&PasswordProof)->Result<Value,StatementFailure>{
     let rows=exec.read("SELECT mfa_status($1)::text",&[(&p.user,Type::INT8)]).await?;
-    let v:Value=serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|invalid())?;
+    let raw:String=rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)?;
+    let v:Value=serde_json::from_str(&raw).map_err(|_|invalid())?;
     if v.get("message").is_some_and(|v|!v.is_null()&&!v.is_string()){return Err(invalid())}
     match v["status"].as_str(){Some("exempt"|"enrolled"|"enrollment_required"|"optional")=>Ok(v),_=>Err(invalid())}
 }
@@ -96,7 +97,7 @@ pub async fn bootstrap_mfa_grant(exec:&ScopedExecutor,p:&PasswordProof,token:&st
     let hash=format!("{:x}",Sha256::digest(token.as_bytes()));
     exec.run_user_command(setjoin_contracts::ids::ActorId::new(p.user).expect("password proof"),setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
         "SELECT rust_identity_mfa_bootstrap_grant($1,$2,$3,$4)",
-        &[(&p.user,Type::INT8),(&p.hash,Type::TEXT),(&hash,Type::TEXT),(&jti,Type::TEXT)],|rows|Ok(rows[0].get(0))).await
+        &[(&p.user,Type::INT8),(&p.hash,Type::TEXT),(&hash,Type::TEXT),(&jti,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get::<_,bool>(0).ok()).ok_or_else(invalid)).await
 }
 pub async fn guest_scope(
     exec: &ScopedExecutor,
@@ -105,7 +106,9 @@ pub async fn guest_scope(
     let rows = exec
         .read("SELECT is_guest_account($1)", &[(&p.user, Type::INT8)])
         .await?;
-    Ok(rows[0].get(0))
+    rows.first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
 }
 #[derive(Debug)]
 pub enum AdmissionFailure {
@@ -123,7 +126,12 @@ pub async fn admission(
         )
         .await
         .map_err(AdmissionFailure::Transition)?;
-    if !rows[0].get::<_, bool>(0) {
+    let allowed = rows
+        .first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
+        .map_err(AdmissionFailure::Transition)?;
+    if !allowed {
         return Ok((false, false));
     }
     Ok((
@@ -141,7 +149,10 @@ pub async fn domain_scope(
         return Ok(None);
     }
     let rows=exec.read("SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&p.user,Type::INT8)]).await?;
-    Ok(rows[0].get(0))
+    rows.first()
+        .ok_or_else(invalid)?
+        .try_get::<_, Option<i64>>(0)
+        .map_err(|_| invalid())
 }
 pub async fn mint(
     exec: &ScopedExecutor,
@@ -247,7 +258,9 @@ pub async fn enabled(exec: &ScopedExecutor, key: &str) -> Result<bool, Statement
             &[(&key, Type::TEXT)],
         )
         .await?;
-    Ok(rows[0].get(0))
+    rows.first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
 }
 pub fn claims(
     p: &PasswordProof,
@@ -278,7 +291,7 @@ pub fn claims(
     }
     c
 }
-fn invalid() -> StatementFailure {
+pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
         sqlstate: None,
         hint: None,

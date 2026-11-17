@@ -105,7 +105,15 @@ pub async fn readiness(worker: &ScopedExecutor) -> Result<(), String> {
          AND to_regprocedure('rust_guest_invite_accept_finish(bigint,bigint,text,text,inet)') IS NOT NULL",
         &[],
     ).await.map_err(|e| format!("readiness query failed: {}", e.message))?;
-    let (bypass, reducers): (bool, bool) = (rows[0].get(0), rows[0].get(1));
+    let r = rows
+        .first()
+        .ok_or_else(|| "readiness query returned no row".to_string())?;
+    let bypass: bool = r
+        .try_get(0)
+        .map_err(|_| "readiness query returned an invalid row".to_string())?;
+    let reducers: bool = r
+        .try_get(1)
+        .map_err(|_| "readiness query returned an invalid row".to_string())?;
     match (bypass, reducers) {
         (true, true) => Ok(()),
         (false, _) => Err(
