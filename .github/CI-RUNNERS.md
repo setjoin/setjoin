@@ -40,11 +40,15 @@ With `LANE_QUEUE_BATCHING=1` (repo variable) and the ruleset on HEADGREEN, the `
 later queued entry (the batch head) run the full lane on its commit, which contains every earlier entry, while each
 entry with a later queued entry waits: its run stays in progress, its queue job polls every 60 s and runs no lane.
 Later means a queue branch whose commit descends from the entry's commit (`git for-each-ref --contains` over a
-`--filter=tree:0` fetch of the public repo; anonymous, no API call). The name suffix is logged as a cross-check only.
-Timing: SETTLE 120 s before the first decision, CAP 5400 s (90 min); no git call starts at or after the CAP, and the
-worst-case git I/O of one poll is 180 s, and each git subprocess checks the deadline first. The ancestry
-fetch is `--depth 6` (the ruleset's batch of 5 plus one); a shallow miss means head, never an untested merge. The queue job
-times out at 100 min, above CAP + 180 s + 300 s of setup.
+`--filter=tree:0` fetch of the public repo; anonymous). The name suffix is logged as a cross-check only.
+A later ref whose merge_group lane run is completed with a conclusion other than `success` does not count: GitHub
+keeps a failed entry's ref queued under HEADGREEN, which held the earlier entries until CAP in the live pilot
+(2026-11-17). The `queue` job asks the Actions API for that (one curl child per later sha, `actions: read`, the only API call
+of the queue job; `server-rust/DOX.md#parallel-full-lane-550`). Unknown answers keep the ref later.
+Timing: SETTLE 120 s before the first decision, CAP 5400 s (90 min); no git or API call starts at or after the CAP, and the
+worst-case I/O of one poll is 255 s (git 180 s, plus up to five run lookups of 15 s), and each subprocess checks the deadline first.
+The ancestry fetch is `--depth 6` (the ruleset's batch of 5 plus one); a shallow miss means head, never an untested merge. The queue job
+times out at 110 min (6600 s), above CAP + 255 s + 300 s of setup (5955 s). The 255 s is enforced by subprocess kills: each git call and each API lookup is a child run by `subprocess.run` with a timeout, and the child is killed at it. A per-socket urlopen timeout would not bound a trickling response.
 Worst case for one entry: SETTLE + CAP + the lane. Any ls-remote or fetch error waits, and at the CAP the entry runs the
 full lane itself: slower, never unsafe. A late arrival (queued after the head had already decided) runs its own lane. A waiter holds one hosted runner (up to four
 while a head runs). A `gone` entry (its branch left the queue) runs nothing and its `aggregate` is red, with the summary

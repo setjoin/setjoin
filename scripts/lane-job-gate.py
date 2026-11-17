@@ -7,7 +7,9 @@
   lane-job-gate.py queue-role             the `queue` job's decision for this merge-queue entry: prints head or gone
                                           on stdout (logs go to stderr). Env: EVENT, OWN_REF (github.ref), OWN_SHA
                                           (github.sha), REPO, BATCHING (vars.LANE_QUEUE_BATCHING; only "1" enables
-                                          waiting). Optional LANE_QUEUE_POLL / LANE_QUEUE_SETTLE / LANE_QUEUE_CAP in seconds.
+                                          waiting). GH_TOKEN (github.token, actions: read) is used only on that path, to
+                                          ask the Actions API whether a later ref's lane run already failed.
+                                          Optional LANE_QUEUE_POLL / LANE_QUEUE_SETTLE / LANE_QUEUE_CAP in seconds.
 
 Tests: python3 scripts/test-lane-job-gate.py"""
 import json
@@ -20,11 +22,11 @@ import time
 FULL_JOBS = {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
 CACHE_JOBS = {"plan", "build", "coverage-build", "gomod-cache"}
 
-# Merge-queue batching. Worst case for one entry: SETTLE + CAP + the lane. No git call starts at or after CAP, so the
-# loop returns by CAP + QUEUE_POLL_WORST_IO_S at the latest (one ls-remote, then init, fetch, cat-file, for-each-ref,
-# each started before CAP). The queue
+# Merge-queue batching. Worst case for one entry: SETTLE + CAP + the lane. No git or API call starts at or after CAP,
+# so the loop returns by CAP + QUEUE_POLL_WORST_IO_S at the latest (one ls-remote, init, fetch, cat-file, for-each-ref,
+# then up to QUEUE_MAX_BATCH run lookups, each started before CAP). The queue
 # job's timeout-minutes (server-rust-lane.yml) is QUEUE_JOB_TIMEOUT_S; CAP + worst I/O + QUEUE_SETUP_MARGIN_S (checkout,
-# interpreter start) must stay below it. tests/test-lane-job-gate.py asserts this and ties the constant to the YAML.
+# interpreter start) must stay below it. scripts/test-lane-job-gate.py asserts this and ties the constant to the YAML.
 QUEUE_POLL_S = 60
 QUEUE_SETTLE_S = 120
 QUEUE_CAP_S = 5400
@@ -38,11 +40,16 @@ QUEUE_GIT_INIT_TIMEOUT_S = 15
 QUEUE_CAT_FILE_TIMEOUT_S = 15
 QUEUE_FETCH_TIMEOUT_S = 60
 QUEUE_FOR_EACH_TIMEOUT_S = 30
+# One GitHub REST lookup per later ref (failed_later_from_api), at most QUEUE_MAX_BATCH of them per poll.
+QUEUE_RUN_LOOKUP_TIMEOUT_S = 15  # the hard bound: subprocess.run kills the curl child at this timeout
+QUEUE_RUN_CURL_MAX_TIME_S = 12  # curl's own cap, inside the hard bound
 QUEUE_POLL_WORST_IO_S = (QUEUE_LS_REMOTE_TIMEOUT_S + QUEUE_GIT_INIT_TIMEOUT_S + QUEUE_CAT_FILE_TIMEOUT_S
-                         + QUEUE_FETCH_TIMEOUT_S + QUEUE_FOR_EACH_TIMEOUT_S)
+                         + QUEUE_FETCH_TIMEOUT_S + QUEUE_FOR_EACH_TIMEOUT_S
+                         + QUEUE_MAX_BATCH * QUEUE_RUN_LOOKUP_TIMEOUT_S)
 QUEUE_SETUP_MARGIN_S = 300
-QUEUE_JOB_TIMEOUT_S = 100 * 60
+QUEUE_JOB_TIMEOUT_S = 110 * 60
 QUEUE_REF_PREFIX = "refs/heads/gh-readonly-queue/main/"
+QUEUE_RUN_WORKFLOW = "server-rust-lane.yml"
 
 
 def mode_for(event, commits=None, queue_role="head"):
@@ -107,10 +114,16 @@ def queue_role(own_ref, own_sha, remote, later, waited_s, *, enabled, settle_s, 
     return "head"
 
 
-def wait_for_role(own_ref, own_sha, *, enabled, poll_s, settle_s, cap_s, ls_remote, descendants, sleep, now, log):
+def wait_for_role(own_ref, own_sha, *, enabled, poll_s, settle_s, cap_s, ls_remote, descendants, failed_later,
+                  sleep, now, log):
     """Poll until queue_role is not wait. ls_remote() -> {ref: sha} or None; descendants(own_sha, remote, may_start)
-    -> set or None (may_start() is False once the cap is reached; descendants then returns None without more git). descendants runs only when the queued sha set changed since the last answer, or the last answer was None.
-    Every git call, the clock and the sleep are injected, so tests run with no network and no waiting."""
+    -> set or None (may_start() is False once the cap is reached; descendants then returns None without more git).
+    descendants runs only when the queued sha set changed since the last answer, or the last answer was None.
+    failed_later(shas, may_start) -> {sha: conclusion} for the later refs' head shas whose merge_group lane run is
+    completed and not successful, or None when unknown (every later ref then keeps counting). A failed later ref is
+    dropped from the later set. It is asked on every poll that has later refs, because run states change while the
+    sha set stays the same.
+    Every git and API call, the clock and the sleep are injected, so tests run with no network and no waiting."""
     if not enabled:
         return "head"
     start = now()
@@ -132,12 +145,25 @@ def wait_for_role(own_ref, own_sha, *, enabled, poll_s, settle_s, cap_s, ls_remo
                 later = descendants(own_sha, remote, may_start)
                 last_key = key
                 waited = now() - start
-        role = queue_role(own_ref, own_sha, remote, later, waited,
+        live, failed_state, excluded, answer = later, "not-asked", [], {}
+        if later and remote is not None:
+            heads = sorted({remote[r] for r in later if r in remote})
+            answer = failed_later(heads, may_start) if heads else {}
+            waited = now() - start  # the lookups may have taken time
+            if answer is None:
+                failed_state = "unknown"
+            else:
+                failed_state = "ok"
+                excluded = sorted(r for r in later if r in remote and remote[r] in answer)
+                live = {r for r in later if r not in excluded}
+        role = queue_role(own_ref, own_sha, remote, live, waited,
                           enabled=True, settle_s=settle_s, cap_s=cap_s)
         successors = sorted(r for r in (remote or {}) if r.endswith("-" + own_sha))
+        excluded_txt = ", ".join(f"{r} sha={remote[r]} conclusion={answer[remote[r]]}" for r in excluded)
         log(f"queue-role={role} waited={int(waited)}s entry={own_ref} sha={own_sha[:12]} "
             f"ancestry_later={sorted(later) if later is not None else 'unknown'} "
-            f"name_successors={successors or 'none'}")
+            f"name_successors={successors or 'none'} failed_later={failed_state} "
+            f"excluded_failed=[{excluded_txt}]")
         if role != "wait":
             return role
         sleep(min(poll_s, cap_s - waited))  # wait only happens below the cap, so this is positive
@@ -203,12 +229,48 @@ def descendants_of(own_ref, own_sha, remote, git_dir, url, may_start=lambda: Tru
     return {r for r in names if r != own_ref and r in remote}
 
 
+def failed_later_from_api(shas, may_start, *, repo, token, run_cmd=subprocess.run):
+    """Map each sha whose merge_group lane run has COMPLETED with a conclusion other than success to that conclusion.
+    A sha with no run, or a run still queued or in progress, is not in the map, so it stays later. One curl child
+    process per sha; the newest run (max id) with that head_sha decides. The child runs under subprocess.run with
+    timeout=QUEUE_RUN_LOOKUP_TIMEOUT_S, which kills it at the timeout, so a slow or trickling response can never
+    outlive the bound (urlopen's timeout bounds each socket operation, not the whole response). The headers, token
+    included, go on stdin (curl -H @-), never in argv. Any non-zero exit, timeout, bad JSON or bad shape returns None,
+    and so does may_start() going False before a request, which then starts nothing. The token is never logged."""
+    failed = {}
+    for sha in shas:
+        if not may_start():
+            return None
+        url = (f"https://api.github.com/repos/{repo}/actions/workflows/{QUEUE_RUN_WORKFLOW}/runs"
+               f"?event=merge_group&head_sha={sha}&per_page=5")
+        headers = (f"Authorization: Bearer {token}\n"
+                   "Accept: application/vnd.github+json\n"
+                   "X-GitHub-Api-Version: 2022-11-28\n")
+        argv = ["curl", "-sS", "--fail", "--max-time", str(QUEUE_RUN_CURL_MAX_TIME_S), "-H", "@-", url]
+        try:
+            done = run_cmd(argv, input=headers, capture_output=True, text=True,
+                           timeout=QUEUE_RUN_LOOKUP_TIMEOUT_S, check=False)
+            if done.returncode != 0:
+                return None
+            body = json.loads(done.stdout)
+            runs = [run for run in body["workflow_runs"] if run["head_sha"] == sha]
+            newest = max(runs, key=lambda run: run["id"], default=None)
+            status = newest["status"] if newest is not None else None
+            conclusion = newest.get("conclusion") if newest is not None else None
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+        if status == "completed" and conclusion != "success":
+            failed[sha] = str(conclusion)
+    return failed
+
+
 def queue_role_cli(env):
     if env.get("EVENT") != "merge_group" or env.get("BATCHING") != "1":
-        return "head"  # switch off or not a queue entry: no git call at all
+        return "head"  # switch off or not a queue entry: no git call and no API call at all
     own_ref, own_sha, repo = env["OWN_REF"], env["OWN_SHA"], env["REPO"]
     url = f"https://github.com/{repo}.git"
     git_dir = os.path.join(env.get("RUNNER_TEMP") or tempfile.gettempdir(), "q.git")
+    token = env.get("GH_TOKEN", "")
     return wait_for_role(
         own_ref, own_sha, enabled=True,
         poll_s=int(env.get("LANE_QUEUE_POLL", QUEUE_POLL_S)),
@@ -216,6 +278,7 @@ def queue_role_cli(env):
         cap_s=int(env.get("LANE_QUEUE_CAP", QUEUE_CAP_S)),
         ls_remote=lambda: ls_remote_queue(url),
         descendants=lambda sha, remote, may_start: descendants_of(own_ref, sha, remote, git_dir, url, may_start),
+        failed_later=lambda shas, may_start: failed_later_from_api(shas, may_start, repo=repo, token=token),
         sleep=time.sleep,
         now=time.monotonic,
         log=lambda msg: print(msg, file=sys.stderr),

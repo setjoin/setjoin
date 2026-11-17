@@ -479,16 +479,35 @@ it ends `mode=gone`: no job runs, `aggregate` is red with "nothing ran; not a te
 longer queued). Exceptions that run the full lane: a late arrival (queued after the head had already decided) runs its own
 lane, and a waiter that reaches the CAP (5400 s) runs it too; errors keep the waiter waiting until then. The clock is read
 after every git call, and the deadline is checked before EACH git subprocess of the ancestry check, so no subprocess
-starts at or after CAP and a waiter returns by CAP + 180 s of worst-case I/O (ls-remote 60 s, init 15 s, cat-file 15 s,
-fetch 60 s, for-each-ref 30 s). The fetch depth is `--depth 6`, which is QUEUE_FETCH_DEPTH: the ruleset's
+starts at or after CAP and a waiter returns by CAP + 255 s of worst-case I/O (ls-remote 60 s, init 15 s, cat-file 15 s,
+fetch 60 s, for-each-ref 30 s, and up to five run lookups of 15 s each, `QUEUE_POLL_WORST_IO_S`). The fetch depth is `--depth 6`, which is QUEUE_FETCH_DEPTH: the ruleset's
 `max_entries_to_build` 5 plus one, so a later entry is at most 5 commits above ours. Shallow history can only HIDE a
 descendant, and a hidden one means `head`, which runs our own full lane: a miss is safe. A reported descendant is always
 real, because a ref is listed only when our commit is an ancestor of its tip in the fetched graph. A failed command, a
 missing own commit (`cat-file -e`) or a passed deadline returns unknown (None), never an empty set. Worst case per entry is SETTLE + CAP + the lane; the queue job
-times out at 100 min, above CAP + 180 s + 300 s of checkout and setup, and `scripts/test-lane-job-gate.py` asserts that. A `check_response_timeout`
+times out at 110 min (6600 s), above CAP + 255 s + 300 s of checkout and setup (5955 s), and `scripts/test-lane-job-gate.py` asserts that. The 255 s is ENFORCED, not assumed: every git call and every API lookup is a child process run by `subprocess.run` with a timeout (`QUEUE_*_TIMEOUT_S`), and the child is killed at that timeout. A per-socket timeout would not do: `urlopen(timeout=)` bounds each blocking socket operation, not the whole response, so a trickling body could outlive the job. A `check_response_timeout`
 overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/test-lane-job-gate.py`
-(git, clock and sleep injected; no network). Commits on main before a batch's last commit are not tested individually;
+(git, clock, sleep and the Actions API injected; no network).
+
+Commits on main before a batch's last commit are not tested individually;
 the tip is, and the nightly full lane is the backstop. Known: a `gone` run and a rebuilt entry leave red marks on discarded commits.
+
+Why the failed-later check exists (GitHub HEADGREEN behaviour, live pilot 2026-11-17): the queue held #441, #446 and #447.
+#447's lane run concluded `failure` at 10:09, but under HEADGREEN GitHub did NOT remove #447 or delete its
+`gh-readonly-queue` branch while the earlier entries' checks were pending. #441 and #446 kept seeing #447 as a later
+descendant and waited until the CAP (90 min); dequeuing #447 by hand freed them at once. So a later ref whose
+server-rust lane run for its merge_group commit is COMPLETED with a conclusion other than `success` no longer counts as
+later. `failed_later_from_api` runs one `curl` child per later head sha (`--fail --max-time 12`, under `subprocess.run` with a 15 s hard timeout; headers, token included, on stdin via `-H @-`, never in argv), `GET /repos/{REPO}/actions/workflows/server-rust-lane.yml/runs?event=merge_group&head_sha={sha}&per_page=5`,
+and the newest run (max id) decides; the function returns the failed shas with their conclusions. A run that is queued, in
+progress or missing keeps the ref later, and `success` does too (GitHub then merges us with it). It is asked on every poll
+that has later refs (run states change while the sha set stays the same); the descendant sha-set cache is unchanged. Any
+non-zero exit, timeout, JSON or shape error, or a CAP reached before a request, returns unknown, which keeps every later
+ref, so the entry waits until CAP and runs its own full lane: fail-safe. Each poll logs one line (`excluded_failed=[ref sha=... conclusion=...]`);
+the token is never logged.
+Permission: only the `queue` job gets `permissions: { contents: read, actions: read }` at job level (the workflow-level
+permissions are unchanged; no other job gains one). `GH_TOKEN: ${{ github.token }}` is passed to the queue step, and it is
+used only when `LANE_QUEUE_BATCHING=1` on a `merge_group` event; otherwise the head-at-once path makes no network call.
+`scripts/check-test-gate-wiring.sh` pins `actions: read` and the token env in the queue job.
 Rollout and rollback (coordinator, not this PR): the ruleset (`rulesets/27288657`, merge_queue `grouping_strategy` and
 `max_entries_to_build` 5) and `vars.LANE_QUEUE_BATCHING` change together, back up the ruleset first. Rollback: delete the
 variable (`gh variable delete LANE_QUEUE_BATCHING -R setjoin/setjoin`), restore the saved ruleset (`gh api -X PUT

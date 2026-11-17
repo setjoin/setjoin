@@ -10,7 +10,10 @@ name: server-rust lane
 # later batch (its ref is then gone and the run ends `gone`) or the wait ends. The entry with no later
 # entry (the batch head) runs the full lane on its own commit, which contains every earlier entry. The
 # switch unset or any other event: `queue` prints head at once, so every entry runs the full lane, as before.
-# Worst case for one entry: SETTLE 120 s + CAP 5400 s + the lane; the queue job's timeout is 100 minutes.
+# A later entry whose own lane run already concluded with anything but success does not count as later: GitHub
+# can keep a failed entry's ref queued while the earlier entries wait, so the `queue` job asks the Actions API
+# (actions: read, GH_TOKEN, merge_group runs only) on every poll and an unknown answer keeps the entry waiting.
+# Worst case for one entry: SETTLE 120 s + CAP 5400 s + the lane; the queue job's timeout is 110 minutes.
 # An ls-remote/fetch error is "unknown": the entry keeps waiting and retries; at the CAP it runs the full lane
 # itself (slower, never unsafe). An entry that leaves the queue while waiting ends `gone` without running.
 # A check_response_timeout (360 min) overrun ejects the entry; that fails closed and never merges it.
@@ -90,12 +93,18 @@ env:
   GOFREE_AIRGAP_FIXTURE_ROOT: /dev/shm
 
 jobs:
-  # Merge-queue batching decision (scripts/lane-job-gate.py queue-role). No gh API call, no extra permission:
-  # ls-remote and fetch are anonymous reads of the public repository. Timeout 100 min is above CAP (90 min) plus
-  # one poll's worst overshoot, so the script always exits by itself; a cancelled job would be red.
+  # Merge-queue batching decision (scripts/lane-job-gate.py queue-role). ls-remote and fetch are anonymous reads of
+  # the public repository. actions: read is for one Actions API GET per later ref (failed_later_from_api): a later
+  # ref whose lane run already failed no longer holds us back. The token is used only with the switch on, on a
+  # merge_group event. Timeout 110 min is above CAP (90 min) plus the worst I/O of one poll (255 s) plus setup
+  # margin. Every git and curl child is killed at its own timeout (subprocess.run), so the script exits by itself;
+  # a cancelled job would be red.
   queue:
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 110
+    permissions:
+      contents: read
+      actions: read
     outputs:
       role: ${{ steps.role.outputs.role }}
     steps:
@@ -110,6 +119,7 @@ jobs:
           OWN_SHA: ${{ github.sha }}
           REPO: ${{ github.repository }}
           BATCHING: ${{ vars.LANE_QUEUE_BATCHING }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           role="$(python3 scripts/lane-job-gate.py queue-role)"
