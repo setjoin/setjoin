@@ -63,7 +63,7 @@ jobs:
         run: |
           {
             echo "## PR pre-check (light); full lane runs in the merge queue"
-            echo "This job feeds the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs on the merge queue for each queued entry (the batch head only, when batching is on)."
+            echo "This job feeds the PR's required \`aggregate\` check. It is NOT the full server-rust lane: that runs on the merge queue for each queued entry. With merge-queue batching on, only the batch head runs the full lane; the exceptions are a late arrival (queued after the head had already decided), which runs its own lane, and a waiter that reaches the 90-minute cap, which runs the full lane itself."
             cat lane-artifacts/summary.md 2>/dev/null || echo "- FAIL: no summary produced (setup or plan failed)"
           } >> "$GITHUB_STEP_SUMMARY"
 

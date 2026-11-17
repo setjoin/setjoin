@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for scripts/lane-job-gate.py (mode choice, the aggregate verdict and the merge-queue role). No cargo,
-no network: every git call, the clock and the sleep are injected or the CLI is run on a branch that never calls git.
+no network: the role logic gets injected git, clock and sleep; the real git functions run only against local
+file:// fixtures in a temp dir; the CLI runs only on paths that never call git.
 python3 scripts/test-lane-job-gate.py"""
 import contextlib
 import importlib.util
@@ -9,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -235,7 +237,7 @@ class WaitLoop(unittest.TestCase):
         role, clock, _, _ = drive([None])
         self.assertEqual(role, "head")
         self.assertEqual(clock.t, CAP)
-        self.assertLess(CAP + 300, gate.QUEUE_JOB_TIMEOUT_S)  # one poll's worst overshoot fits under the timeout
+        self.assertLess(CAP + gate.QUEUE_POLL_WORST_IO_S + gate.QUEUE_SETUP_MARGIN_S, gate.QUEUE_JOB_TIMEOUT_S)
 
     def test_e_output_is_only_head_or_gone(self):
         outcomes = {
@@ -284,13 +286,108 @@ class QueueRoleCli(unittest.TestCase):
         self.assertEqual((rc, out), (0, "full\n"))
 
 
+class WorstCaseTiming(unittest.TestCase):
+    """Slow git calls advance the fake clock. Every poll's git calls start before CAP, and the loop returns by
+    CAP + one poll's worst I/O, which leaves the setup margin under the queue job timeout."""
+
+    def test_no_git_call_starts_at_or_after_cap_and_return_is_within_worst_io(self):
+        for poll in (45, 60, 77):
+            for ls_cost, desc_cost in ((gate.QUEUE_LS_REMOTE_TIMEOUT_S, gate.QUEUE_POLL_WORST_IO_S - gate.QUEUE_LS_REMOTE_TIMEOUT_S),
+                                       (1, 1), (60, 0)):
+                clock, starts, nonce = FakeClock(), [], [0]
+
+                def ls():
+                    starts.append(clock.t)
+                    clock.t += ls_cost
+                    nonce[0] += 1  # a new stale ref each poll, so the ancestry check runs every poll
+                    return {OWN_REF: OWN, LATER_REF: OWN, f"{gate.QUEUE_REF_PREFIX}pr-9-{nonce[0]}": "e" * 40}
+
+                def desc(_sha, _remote):
+                    starts.append(clock.t)
+                    clock.t += desc_cost
+                    return {LATER_REF}
+
+                role = gate.wait_for_role(OWN_REF, OWN, enabled=True, poll_s=poll, settle_s=SETTLE, cap_s=CAP,
+                                          ls_remote=ls, descendants=desc, sleep=clock.sleep, now=clock.now,
+                                          log=lambda _m: None)
+                context = (poll, ls_cost, desc_cost)
+                self.assertEqual(role, "head", context)
+                self.assertTrue(all(s < CAP for s in starts), context)
+                self.assertLessEqual(clock.t, CAP + ls_cost + desc_cost, context)
+                self.assertLessEqual(clock.t, CAP + gate.QUEUE_POLL_WORST_IO_S, context)
+
+
 class WorkflowWiring(unittest.TestCase):
-    def test_queue_job_timeout_matches_the_gate_constant(self):
+    def test_queue_job_timeout_matches_the_gate_constant_and_covers_worst_case(self):
         text = WORKFLOW.read_text()
         block = text.split("\n  queue:\n", 1)[1].split("\n  plan:\n", 1)[0]
         minutes = int(re.search(r"timeout-minutes: (\d+)", block).group(1))
         self.assertEqual(minutes * 60, gate.QUEUE_JOB_TIMEOUT_S)
-        self.assertLess(gate.QUEUE_CAP_S + 300, minutes * 60)
+        self.assertLess(gate.QUEUE_CAP_S + gate.QUEUE_POLL_WORST_IO_S + gate.QUEUE_SETUP_MARGIN_S, minutes * 60)
+        self.assertEqual(gate.QUEUE_POLL_WORST_IO_S, 180)
+
+
+class RealAncestry(unittest.TestCase):
+    """Production ls_remote_queue and descendants_of over file:// URLs of a real local git DAG (no network).
+    Layout: ROOT -> P -> A -> C on main, X branches from ROOT. Our entry is A; C is a later entry (descendant);
+    P is an earlier entry (ancestor, never later); X is an unrelated stale branch."""
+
+    def git(self, cwd, *args):
+        env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        done = subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env=env)
+        return done.stdout.strip()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.work, self.remote, self.qdir = root / "work", root / "remote.git", root / "q.git"
+        self.git(root, "init", "-q", "-b", "main", str(self.work))
+        self.git(self.work, "commit", "-q", "--allow-empty", "-m", "root")
+        self.root = self.git(self.work, "rev-parse", "HEAD")
+        self.git(self.work, "commit", "-q", "--allow-empty", "-m", "p")
+        self.p = self.git(self.work, "rev-parse", "HEAD")
+        self.git(self.work, "commit", "-q", "--allow-empty", "-m", "a")
+        self.a = self.git(self.work, "rev-parse", "HEAD")
+        self.git(self.work, "commit", "-q", "--allow-empty", "-m", "c")
+        self.c = self.git(self.work, "rev-parse", "HEAD")
+        self.git(self.work, "checkout", "-q", "-b", "stale", self.root)
+        self.git(self.work, "commit", "-q", "--allow-empty", "-m", "x")
+        self.x = self.git(self.work, "rev-parse", "HEAD")
+        self.git(root, "init", "-q", "--bare", str(self.remote))
+        # GitHub serves tree:0 partial fetches; the fixture remote must allow the filter too.
+        self.git(self.remote, "config", "uploadpack.allowFilter", "true")
+        base = "refs/heads/gh-readonly-queue/main/"
+        self.own_ref, self.later_ref = base + "pr-5-aaa", base + "pr-6-ccc"
+        self.git(self.work, "push", "-q", str(self.remote),
+                 f"{self.a}:{self.own_ref}", f"{self.c}:{self.later_ref}",
+                 f"{self.p}:{base}pr-4-ppp", f"{self.x}:{base}pr-1-zzz")
+        self.url = self.remote.as_uri()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_only_the_descendant_is_later(self):
+        remote = gate.ls_remote_queue(self.url)
+        self.assertEqual(set(remote), {self.own_ref, self.later_ref, gate.QUEUE_REF_PREFIX + "pr-4-ppp",
+                                       gate.QUEUE_REF_PREFIX + "pr-1-zzz"})
+        self.assertEqual(remote[self.own_ref], self.a)
+        later = gate.descendants_of(self.own_ref, self.a, remote, str(self.qdir), self.url)
+        self.assertEqual(later, {self.later_ref})
+
+    def test_deleted_later_ref_is_pruned_and_not_later(self):
+        gate.descendants_of(self.own_ref, self.a, gate.ls_remote_queue(self.url), str(self.qdir), self.url)
+        self.git(self.remote, "update-ref", "-d", self.later_ref)
+        remote = gate.ls_remote_queue(self.url)
+        self.assertNotIn(self.later_ref, remote)
+        self.assertEqual(gate.descendants_of(self.own_ref, self.a, remote, str(self.qdir), self.url), set())
+        self.assertNotIn("refs/q/pr-6-ccc", self.git(self.qdir, "for-each-ref", "--format=%(refname)"))
+
+    def test_bad_url_returns_none(self):
+        bad = (Path(self.tmp.name) / "no-such-remote.git").as_uri()
+        self.assertIsNone(gate.ls_remote_queue(bad))
+        self.assertIsNone(gate.descendants_of(self.own_ref, self.a, {self.own_ref: self.a},
+                                              str(Path(self.tmp.name) / "q2.git"), bad))
 
 
 if __name__ == "__main__":

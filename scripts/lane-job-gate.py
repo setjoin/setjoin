@@ -20,12 +20,19 @@ import time
 FULL_JOBS = {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-build", "coverage-shard"}
 CACHE_JOBS = {"plan", "build", "coverage-build", "gomod-cache"}
 
-# Merge-queue batching. Worst case for one entry: SETTLE + CAP + the lane. The queue job's timeout-minutes
-# (server-rust-lane.yml) is QUEUE_JOB_TIMEOUT_S; CAP plus one poll's worst overshoot (git timeouts
-# 60 + 30 + 120 + 30 = 240 s) must stay below it, and tests/test-lane-job-gate.py asserts both.
+# Merge-queue batching. Worst case for one entry: SETTLE + CAP + the lane. No git call starts at or after CAP, so the
+# loop returns by CAP + QUEUE_POLL_WORST_IO_S at the latest (one ls-remote, then init + fetch + for-each-ref). The queue
+# job's timeout-minutes (server-rust-lane.yml) is QUEUE_JOB_TIMEOUT_S; CAP + worst I/O + QUEUE_SETUP_MARGIN_S (checkout,
+# interpreter start) must stay below it. tests/test-lane-job-gate.py asserts this and ties the constant to the YAML.
 QUEUE_POLL_S = 60
 QUEUE_SETTLE_S = 120
 QUEUE_CAP_S = 5400
+QUEUE_LS_REMOTE_TIMEOUT_S = 60
+QUEUE_GIT_INIT_TIMEOUT_S = 30
+QUEUE_FETCH_TIMEOUT_S = 60
+QUEUE_FOR_EACH_TIMEOUT_S = 30
+QUEUE_POLL_WORST_IO_S = QUEUE_LS_REMOTE_TIMEOUT_S + QUEUE_GIT_INIT_TIMEOUT_S + QUEUE_FETCH_TIMEOUT_S + QUEUE_FOR_EACH_TIMEOUT_S
+QUEUE_SETUP_MARGIN_S = 300
 QUEUE_JOB_TIMEOUT_S = 100 * 60
 QUEUE_REF_PREFIX = "refs/heads/gh-readonly-queue/main/"
 
@@ -102,13 +109,16 @@ def wait_for_role(own_ref, own_sha, *, enabled, poll_s, settle_s, cap_s, ls_remo
     later = None
     last_key = None
     while True:
-        waited = now() - start
+        if now() - start >= cap_s:
+            return "head"  # capped: no further git call starts; the entry runs the full lane
         remote = ls_remote()
-        if remote is not None and remote.get(own_ref) == own_sha and waited >= settle_s:
+        waited = now() - start  # the clock is read after each call: a slow call can cross the cap
+        if remote is not None and remote.get(own_ref) == own_sha and settle_s <= waited < cap_s:
             key = tuple(sorted(remote.items()))
             if key != last_key or later is None:
                 later = descendants(own_sha, remote)
                 last_key = key
+                waited = now() - start
         role = queue_role(own_ref, own_sha, remote, later, waited,
                           enabled=True, settle_s=settle_s, cap_s=cap_s)
         successors = sorted(r for r in (remote or {}) if r.endswith("-" + own_sha))
@@ -117,7 +127,7 @@ def wait_for_role(own_ref, own_sha, *, enabled, poll_s, settle_s, cap_s, ls_remo
             f"name_successors={successors or 'none'}")
         if role != "wait":
             return role
-        sleep(poll_s)
+        sleep(min(poll_s, cap_s - waited))  # wait only happens below the cap, so this is positive
 
 
 def _git(args, timeout):
@@ -132,7 +142,7 @@ def _git(args, timeout):
 
 def ls_remote_queue(url):
     """Anonymous ls-remote of the queue branches of a public repo (no API, no token). None on failure."""
-    out = _git(["ls-remote", url, QUEUE_REF_PREFIX + "*"], timeout=60)
+    out = _git(["ls-remote", url, QUEUE_REF_PREFIX + "*"], timeout=QUEUE_LS_REMOTE_TIMEOUT_S)
     if out is None:
         return None
     remote = {}
@@ -146,14 +156,15 @@ def ls_remote_queue(url):
 def descendants_of(own_ref, own_sha, remote, git_dir, url):
     """Queue refs whose commit descends from own_sha, excluding own_ref. Commits only (--filter=tree:0) into a
     bare repo, so the shallow checkout is never used. None when fetch or lookup fails."""
-    if _git(["init", "-q", "--bare", git_dir], timeout=30) is None:
+    if _git(["init", "-q", "--bare", git_dir], timeout=QUEUE_GIT_INIT_TIMEOUT_S) is None:
         return None
     fetched = _git(["-C", git_dir, "fetch", "-q", "--prune", "--no-tags", "--filter=tree:0", url,
-                    f"+{QUEUE_REF_PREFIX}*:refs/q/*"], timeout=120)
+                    f"+{QUEUE_REF_PREFIX}*:refs/q/*"], timeout=QUEUE_FETCH_TIMEOUT_S)
     if fetched is None:
         return None
     # for-each-ref --contains lists the refs whose tip has own_sha as an ancestor (own_sha itself included).
-    listed = _git(["-C", git_dir, "for-each-ref", "--contains", own_sha, "--format=%(refname)", "refs/q/"], timeout=30)
+    listed = _git(["-C", git_dir, "for-each-ref", "--contains", own_sha, "--format=%(refname)", "refs/q/"],
+                  timeout=QUEUE_FOR_EACH_TIMEOUT_S)
     if listed is None:
         return None
     names = {QUEUE_REF_PREFIX + line[len("refs/q/"):] for line in listed.splitlines() if line.startswith("refs/q/")}

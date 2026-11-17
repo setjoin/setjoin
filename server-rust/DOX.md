@@ -476,9 +476,11 @@ which contains every earlier entry; an entry with a later queued entry (a queue 
 own, found by `git for-each-ref --contains` over a `--filter=tree:0` fetch) waits and runs no lane, polling `ls-remote`
 every 60 s after a 120 s settle. A waiter's run stays in progress and its `aggregate` pending. When its branch is gone
 it ends `mode=gone`: no job runs, `aggregate` is red with "nothing ran; not a test pass" (cosmetic, the commit is no
-longer queued). The CAP is 5400 s; after it, or on any ls-remote/fetch error past it, the entry runs the full lane.
-Worst case per entry is SETTLE + CAP + the lane; the queue job times out at 100 min, above CAP plus one poll's worst
-overshoot (git timeouts 60 + 30 + 120 + 30 = 240 s), and `scripts/test-lane-job-gate.py` asserts that. A `check_response_timeout`
+longer queued). Exceptions that run the full lane: a late arrival (queued after the head had already decided) runs its own
+lane, and a waiter that reaches the CAP (5400 s) runs it too; errors keep the waiter waiting until then. The clock is read
+after every git call and no git call starts at or after CAP, so a waiter returns by CAP + 180 s of worst-case git I/O
+(ls-remote 60 s, init 30 s, fetch 60 s, for-each-ref 30 s). Worst case per entry is SETTLE + CAP + the lane; the queue job
+times out at 100 min, above CAP + 180 s + 300 s of checkout and setup, and `scripts/test-lane-job-gate.py` asserts that. A `check_response_timeout`
 overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/test-lane-job-gate.py`
 (git, clock and sleep injected; no network). Commits on main before a batch's last commit are not tested individually;
 the tip is, and the nightly full lane is the backstop. Known: a `gone` run and a rebuilt entry leave red marks on discarded commits.

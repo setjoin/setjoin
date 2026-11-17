@@ -41,9 +41,10 @@ later queued entry (the batch head) run the full lane on its commit, which conta
 entry with a later queued entry waits: its run stays in progress, its queue job polls every 60 s and runs no lane.
 Later means a queue branch whose commit descends from the entry's commit (`git for-each-ref --contains` over a
 `--filter=tree:0` fetch of the public repo; anonymous, no API call). The name suffix is logged as a cross-check only.
-Timing: SETTLE 120 s before the first decision, CAP 5400 s (90 min); the queue job times out at 100 min, above CAP plus
-one poll's worst overshoot. Worst case for one entry: SETTLE + CAP + the lane. Any ls-remote or fetch error waits, and
-at the CAP the entry runs the full lane itself: slower, never unsafe. A waiter holds one hosted runner (up to four
+Timing: SETTLE 120 s before the first decision, CAP 5400 s (90 min); no git call starts at or after the CAP, and the
+worst-case git I/O of one poll is 180 s. The queue job times out at 100 min, above CAP + 180 s + 300 s of setup.
+Worst case for one entry: SETTLE + CAP + the lane. Any ls-remote or fetch error waits, and at the CAP the entry runs the
+full lane itself: slower, never unsafe. A late arrival (queued after the head had already decided) runs its own lane. A waiter holds one hosted runner (up to four
 while a head runs). A `gone` entry (its branch left the queue) runs nothing and its `aggregate` is red, with the summary
 "nothing ran; not a test pass"; the red sits on a commit nothing reads. A check_response_timeout (360 min) overrun
 ejects the entry, which fails closed. Every waiter keeps `aggregate` pending until it ends, never green. Intermediate

@@ -51,7 +51,7 @@ configuration error is an evidence failure, not a clean result.
   ports, tracked bytecode, context budget, hosted-lane shard merge; `--lane <filter|changed>` prints the quick-lane command).
 - Oracle adequacy: replays and mutants run `LANE_ADEQUACY_JOBS` (default `LANE_JOBS`) at a time on per-replay clones; timeouts: `LANE_REPLAY_TIMEOUT` (default 900 s, run time of one replay or mutant,
 - Rust server full lane in parallel (#550): the `server-rust lane` workflow on GitHub-hosted
-  runners (merge-queue entries, one lane per batch head when batching is on, and manual dispatch: full lane plus coverage, sharded; `aggregate` is the
+  runners (merge-queue entries: with batching on, only the batch head runs the lane; exceptions are a late arrival queued after the head had decided, which runs its own lane, and a waiter that reaches the 90-minute cap, which runs the full lane itself; manual dispatch: full lane plus coverage, sharded; `aggregate` is the
   required check; pull requests run only `pr-precheck.yml`, whose `aggregate` gates its `light` quick check and its `integration` job (selected `tests/*.rs` targets on the lane Postgres; selection self-test `python3 scripts/precheck-integration.py selftest`); a push to `main` only refreshes caches, and a nightly 02:30 UTC run is the full-lane backstop), or locally `LANE_PG_PORT=<port> PGPASSWORD=<pw> bash scripts/server-rust-parallel-lane.sh`
   test with serial groups for docker/fixed-port/`/dev/shm` binaries; on a dev host `LANE_MODE=serial` is the
 - Upgrade contract guard: `bash scripts/check-upgrade-contracts.sh`
