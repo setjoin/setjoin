@@ -128,6 +128,9 @@ jobs:
       coverage_shards: ${{ steps.plan.outputs.coverage_shards }}
       coverage_count: ${{ steps.plan.outputs.coverage_count }}
     steps:
+      - name: CI pilot E - deliberate merge-queue failure (throwaway, never merges)
+        if: github.event_name == 'merge_group'
+        run: exit 1
       # Fail fast and loudly while the image pins are still the bootstrap placeholders (every other
       # job needs plan, so nothing else starts and nothing hangs).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
