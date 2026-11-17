@@ -578,7 +578,7 @@ jobs:
           python3 scripts/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
             --shards "$SHARDS" --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Go-deletion rehearsal (#141)
-        if: always() && needs.plan.outputs.debug == 'false'
+        if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
         env:
           SHARDS: ${{ needs.plan.outputs.shard_count }}
           COVERAGE: ${{ needs.plan.outputs.coverage_count }}
