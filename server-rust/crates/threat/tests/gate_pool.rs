@@ -703,14 +703,36 @@ fn high_entropy_name(prefix: &str, seed: u32, len: usize) -> String {
     name
 }
 
-/// Deletes the audit rows these tests write for their sources, written after `since`.
-async fn delete_audits(db: &tokio_postgres::Client, since: &str, ips: &[String]) {
-    db.execute(
-        "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND source_ip = ANY($2::text[]::inet[]) AND event_type IN ('spray_detected','lockout_escalate','device_new','device_country_changed')",
-        &[&since, &ips.to_vec()],
+/// Deletes audit rows in one transaction with replica triggers off, as the other suites do
+/// (the append-only guard on audit_log is an origin-mode trigger). The SQL takes only
+/// test-generated parameters.
+async fn delete_audit_rows(
+    db: &tokio_postgres::Client,
+    sql: &str,
+    params: &[&(dyn tokio_postgres::types::ToSql + Sync)],
+) {
+    db.batch_execute("BEGIN; SET LOCAL session_replication_role=replica")
+        .await
+        .unwrap();
+    if let Err(error) = db.execute(sql, params).await {
+        db.batch_execute("ROLLBACK").await.unwrap();
+        panic!("audit cleanup failed: {error}");
+    }
+    db.batch_execute("COMMIT").await.unwrap();
+}
+
+/// Audit rows these tests own: spray_detected by their source IPs, and lockout_escalate rows
+/// whose metadata lockout_key is one of the lockout keys the test owns (the writer sets
+/// user_id NULL and no source_ip on those rows).
+async fn delete_audits(db: &tokio_postgres::Client, since: &str, ips: &[String], keys: &[String]) {
+    let ips = ips.to_vec();
+    let keys = keys.to_vec();
+    delete_audit_rows(
+        db,
+        "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND ((event_type = 'spray_detected' AND source_ip = ANY($2::text[]::inet[])) OR (event_type = 'lockout_escalate' AND metadata->>'lockout_key' = ANY($3::text[])))",
+        &[&since, &ips, &keys],
     )
-    .await
-    .unwrap();
+    .await;
 }
 
 /// Divergence `attempt-username-bounded`: a long IMAP, SMTP or LDAP failure writes exactly
@@ -729,6 +751,7 @@ async fn protocol_long_name_failure_writes_a_bounded_row() {
         .unwrap()
         .get(0);
     let mut ips = Vec::new();
+    let mut owned = Vec::new();
     let mut observed = Vec::new();
     for (i, protocol) in ["imap", "smtp", "ldap"].into_iter().enumerate() {
         let ip = format!("198.18.37.{}", 40 + i);
@@ -761,10 +784,11 @@ async fn protocol_long_name_failure_writes_a_bounded_row() {
             .map(|r| r.get(0))
             .collect();
         forget(&db, &ip, &bounded).await;
+        owned.extend(keys(&ip, &bounded));
         observed.push((protocol, bounded, stored));
         ips.push(ip);
     }
-    delete_audits(&db, &since, &ips).await;
+    delete_audits(&db, &since, &ips, &owned).await;
     for (protocol, bounded, stored) in observed {
         assert_eq!(stored, vec![bounded], "{protocol}");
     }
@@ -822,7 +846,7 @@ async fn protocol_long_names_stay_distinct_for_spray() {
     )
     .await
     .unwrap();
-    delete_audits(&db, &since, &[ip.to_owned()]).await;
+    delete_audits(&db, &since, &[ip.to_owned()], &cleanup).await;
     forget(&db, ip, "").await;
     assert_eq!(decision.action, ThreatAction::Reject);
     assert_eq!(decision.reason, "spray_detected");

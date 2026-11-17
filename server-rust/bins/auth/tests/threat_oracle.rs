@@ -3189,17 +3189,23 @@ fn high_entropy_name(prefix: &str, seed: u32, len: usize) -> String {
     name
 }
 
-/// Deletes the lockout rows a bounded-name test owns, keyed as the product keys them:
-/// each name is lowered then bounded (`setjoin_authz::address::lower`, `bounded_name`).
-async fn delete_bounded_lockouts(c: &Client, ips: &[String], names: &[String]) -> Result<(), Err> {
+/// The lockout keys a bounded-name test owns, built as the product builds them: each name
+/// is lowered then bounded (`setjoin_authz::address::lower`, `bounded_name`).
+fn owned_lockout_keys(ips: &[String], names: &[String]) -> Vec<String> {
     let mut keys: Vec<String> = ips.iter().map(|ip| format!("ip:{ip}")).collect();
     for name in names {
-        let bounded = setjoin_threat::bounded_name(&setjoin_authz::address::lower(name)).into_owned();
+        let bounded =
+            setjoin_threat::bounded_name(&setjoin_authz::address::lower(name)).into_owned();
         keys.push(format!("user:{bounded}"));
         for ip in ips {
             keys.push(format!("ip_user:{ip}:{bounded}"));
         }
     }
+    keys
+}
+
+async fn delete_bounded_lockouts(c: &Client, keys: &[String]) -> Result<(), Err> {
+    let keys = keys.to_vec();
     c.execute(
         "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
         &[&keys],
@@ -3208,19 +3214,38 @@ async fn delete_bounded_lockouts(c: &Client, ips: &[String], names: &[String]) -
     Ok(())
 }
 
-/// Deletes the audit rows a test wrote for its sources or users after `since` (DB clock).
+/// Deletes the audit rows a test owns, in one transaction with replica triggers off, as the
+/// other suites do (the append-only guard on audit_log is an origin-mode trigger). Spray rows
+/// match the test's source IPs; lockout_escalate rows (user_id NULL, no source_ip) match the
+/// test's own lockout keys in metadata->>'lockout_key'. Both are limited to rows after `since`.
 async fn delete_test_audits(
     c: &Client,
     since: &str,
     ips: &[String],
     users: &[i64],
+    keys: &[String],
 ) -> Result<(), Err> {
-    c.execute(
-        "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND (source_ip = ANY($2::text[]::inet[]) OR user_id = ANY($3::bigint[])) AND event_type IN ('spray_detected','lockout_escalate','device_new','device_country_changed')",
-        &[&since, &ips.to_vec(), &users.to_vec()],
-    )
-    .await?;
-    Ok(())
+    let ips = ips.to_vec();
+    let users = users.to_vec();
+    let keys = keys.to_vec();
+    c.batch_execute("BEGIN; SET LOCAL session_replication_role=replica")
+        .await?;
+    let deleted = c
+        .execute(
+            "DELETE FROM audit_log WHERE occurred_at >= $1::text::timestamptz AND ((event_type IN ('spray_detected','device_new','device_country_changed') AND (source_ip = ANY($2::text[]::inet[]) OR user_id = ANY($3::bigint[]))) OR (event_type = 'lockout_escalate' AND metadata->>'lockout_key' = ANY($4::text[])))",
+            &[&since, &ips, &users, &keys],
+        )
+        .await;
+    match deleted {
+        Ok(_) => {
+            c.batch_execute("COMMIT").await?;
+            Ok(())
+        }
+        Err(error) => {
+            c.batch_execute("ROLLBACK").await?;
+            Err(error.into())
+        }
+    }
 }
 
 /// Divergence `attempt-username-bounded`, native HTTP: three distinct 4 KiB names that share
@@ -3277,9 +3302,10 @@ async fn native_long_usernames_stay_distinct_for_spray() {
         Ok::<_, Err>(())
     }
     .await;
+    let owned = owned_lockout_keys(&ips, &users);
     let cleaned = async {
-        delete_bounded_lockouts(&n.c, &ips, &users).await?;
-        delete_test_audits(&n.c, &since, &ips, &[]).await
+        delete_bounded_lockouts(&n.c, &owned).await?;
+        delete_test_audits(&n.c, &since, &ips, &[], &owned).await
     }
     .await;
     let closed = native_close(n, &ips).await;
@@ -3370,9 +3396,10 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
         Ok::<_, Err>(())
     }
     .await;
+    let owned = owned_lockout_keys(&ips, std::slice::from_ref(&long));
     let cleaned = async {
-        delete_bounded_lockouts(&n.c, &ips, std::slice::from_ref(&long)).await?;
-        delete_test_audits(&n.c, &since, &ips, &[n.fx.a.user]).await
+        delete_bounded_lockouts(&n.c, &owned).await?;
+        delete_test_audits(&n.c, &since, &ips, &[n.fx.a.user], &owned).await
     }
     .await;
     let closed = native_close(n, &ips).await;
