@@ -42,7 +42,9 @@ entry with a later queued entry waits: its run stays in progress, its queue job 
 Later means a queue branch whose commit descends from the entry's commit (`git for-each-ref --contains` over a
 `--filter=tree:0` fetch of the public repo; anonymous, no API call). The name suffix is logged as a cross-check only.
 Timing: SETTLE 120 s before the first decision, CAP 5400 s (90 min); no git call starts at or after the CAP, and the
-worst-case git I/O of one poll is 180 s. The queue job times out at 100 min, above CAP + 180 s + 300 s of setup.
+worst-case git I/O of one poll is 180 s, and each git subprocess checks the deadline first. The ancestry
+fetch is `--depth 6` (the ruleset's batch of 5 plus one); a shallow miss means head, never an untested merge. The queue job
+times out at 100 min, above CAP + 180 s + 300 s of setup.
 Worst case for one entry: SETTLE + CAP + the lane. Any ls-remote or fetch error waits, and at the CAP the entry runs the
 full lane itself: slower, never unsafe. A late arrival (queued after the head had already decided) runs its own lane. A waiter holds one hosted runner (up to four
 while a head runs). A `gone` entry (its branch left the queue) runs nothing and its `aggregate` is red, with the summary

@@ -13,6 +13,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("gate", Path(__file__).with_name("lane-job-gate.py"))
 gate = importlib.util.module_from_spec(spec)
@@ -286,35 +287,87 @@ class QueueRoleCli(unittest.TestCase):
         self.assertEqual((rc, out), (0, "full\n"))
 
 
-class WorstCaseTiming(unittest.TestCase):
-    """Slow git calls advance the fake clock. Every poll's git calls start before CAP, and the loop returns by
-    CAP + one poll's worst I/O, which leaves the setup margin under the queue job timeout."""
+GIT_OUT = {"init": "", "fetch": "", "cat-file": "", "for-each-ref": f"refs/q/pr-6-{OWN}\n"}
 
-    def test_no_git_call_starts_at_or_after_cap_and_return_is_within_worst_io(self):
+
+def fake_git(clock, starts, worst):
+    """Stands in for gate._git: each command is modelled on its own. It starts at the clock, takes its full timeout
+    (worst) or 1 s, and answers like git would. Subcommand is args[0], or args[2] after `-C <dir>`."""
+
+    def run(args, timeout):
+        kind = args[2] if args[0] == "-C" else args[0]
+        starts.append((kind, clock.t))
+        clock.t += timeout if worst else 1
+        return GIT_OUT.get(kind)
+
+    return run
+
+
+class WorstCaseTiming(unittest.TestCase):
+    """Each git subprocess and each ls-remote advances the fake clock and records its start. The production
+    wait_for_role and descendants_of run unchanged on top of them."""
+
+    def test_no_subprocess_starts_at_or_after_cap_and_return_is_within_worst_io(self):
         for poll in (45, 60, 77):
-            for ls_cost, desc_cost in ((gate.QUEUE_LS_REMOTE_TIMEOUT_S, gate.QUEUE_POLL_WORST_IO_S - gate.QUEUE_LS_REMOTE_TIMEOUT_S),
-                                       (1, 1), (60, 0)):
+            for worst in (True, False):
                 clock, starts, nonce = FakeClock(), [], [0]
 
                 def ls():
-                    starts.append(clock.t)
-                    clock.t += ls_cost
+                    starts.append(("ls-remote", clock.t))
+                    clock.t += gate.QUEUE_LS_REMOTE_TIMEOUT_S if worst else 1
                     nonce[0] += 1  # a new stale ref each poll, so the ancestry check runs every poll
                     return {OWN_REF: OWN, LATER_REF: OWN, f"{gate.QUEUE_REF_PREFIX}pr-9-{nonce[0]}": "e" * 40}
 
-                def desc(_sha, _remote):
-                    starts.append(clock.t)
-                    clock.t += desc_cost
-                    return {LATER_REF}
-
-                role = gate.wait_for_role(OWN_REF, OWN, enabled=True, poll_s=poll, settle_s=SETTLE, cap_s=CAP,
-                                          ls_remote=ls, descendants=desc, sleep=clock.sleep, now=clock.now,
-                                          log=lambda _m: None)
-                context = (poll, ls_cost, desc_cost)
+                with mock.patch.object(gate, "_git", fake_git(clock, starts, worst)):
+                    role = gate.wait_for_role(
+                        OWN_REF, OWN, enabled=True, poll_s=poll, settle_s=SETTLE, cap_s=CAP, ls_remote=ls,
+                        descendants=lambda sha, remote, may_start: gate.descendants_of(
+                            OWN_REF, sha, remote, "unused-dir", "unused-url", may_start),
+                        sleep=clock.sleep, now=clock.now, log=lambda _m: None)
+                context = (poll, worst)
                 self.assertEqual(role, "head", context)
-                self.assertTrue(all(s < CAP for s in starts), context)
-                self.assertLessEqual(clock.t, CAP + ls_cost + desc_cost, context)
+                self.assertGreater(len(starts), 5, context)  # the ancestry commands really ran in several polls
+                self.assertTrue(all(t < CAP for _kind, t in starts), (context, starts))
                 self.assertLessEqual(clock.t, CAP + gate.QUEUE_POLL_WORST_IO_S, context)
+
+    def test_deadline_stops_descendants_before_the_next_command(self):
+        for start_at in (CAP - 1, CAP - 20, CAP - 50, CAP - 80, CAP - 170):
+            clock, starts = FakeClock(), []
+            clock.t = start_at
+            with mock.patch.object(gate, "_git", fake_git(clock, starts, worst=True)):
+                out = gate.descendants_of(OWN_REF, OWN, {OWN_REF: OWN, LATER_REF: OWN}, "unused-dir", "unused-url",
+                                          may_start=lambda: clock.t < CAP)
+            context = start_at
+            self.assertTrue(all(t < CAP for _kind, t in starts), (context, starts))
+            self.assertLessEqual(clock.t, CAP + max(gate.QUEUE_FETCH_TIMEOUT_S, gate.QUEUE_LS_REMOTE_TIMEOUT_S),
+                                 context)
+            self.assertIn(out, (None, {LATER_REF}), context)
+        clock, starts = FakeClock(), []
+        clock.t = CAP - 170  # every command fits before the cap: the answer is complete
+        with mock.patch.object(gate, "_git", fake_git(clock, starts, worst=True)):
+            full = gate.descendants_of(OWN_REF, OWN, {OWN_REF: OWN, LATER_REF: OWN}, "d", "u",
+                                       may_start=lambda: clock.t < CAP)
+        self.assertEqual(full, {LATER_REF})
+        self.assertEqual([k for k, _t in starts], ["init", "fetch", "cat-file", "for-each-ref"])
+
+    def test_no_command_at_all_once_past_the_cap(self):
+        clock, starts = FakeClock(), []
+        clock.t = CAP
+        with mock.patch.object(gate, "_git", fake_git(clock, starts, worst=True)):
+            out = gate.descendants_of(OWN_REF, OWN, {LATER_REF: OWN}, "d", "u", may_start=lambda: clock.t < CAP)
+        self.assertEqual((out, starts), (None, []))
+
+    def test_a_failed_command_is_unknown_never_an_empty_set(self):
+        for failing in ("init", "fetch", "cat-file", "for-each-ref"):
+            clock, starts = FakeClock(), []
+            run = fake_git(clock, starts, worst=False)
+
+            def broken(args, timeout, run=run, failing=failing):
+                kind = args[2] if args[0] == "-C" else args[0]
+                return None if kind == failing else run(args, timeout)
+
+            with mock.patch.object(gate, "_git", broken):
+                self.assertIsNone(gate.descendants_of(OWN_REF, OWN, {LATER_REF: OWN}, "d", "u"), failing)
 
 
 class WorkflowWiring(unittest.TestCase):
@@ -388,6 +441,47 @@ class RealAncestry(unittest.TestCase):
         self.assertIsNone(gate.ls_remote_queue(bad))
         self.assertIsNone(gate.descendants_of(self.own_ref, self.a, {self.own_ref: self.a},
                                               str(Path(self.tmp.name) / "q2.git"), bad))
+
+    def chain_on(self, base, n, ref):
+        """Push a branch n empty commits above base, under ref. Returns its tip."""
+        self.git(self.work, "checkout", "-q", "--detach", base)
+        for i in range(n):
+            self.git(self.work, "commit", "-q", "--allow-empty", "-m", f"chain {i}")
+        tip = self.git(self.work, "rev-parse", "HEAD")
+        self.git(self.work, "push", "-q", str(self.remote), f"{tip}:{ref}")
+        return tip
+
+    def test_descendant_at_the_batch_bound_is_found(self):
+        within = gate.QUEUE_MAX_BATCH  # 5 commits above ours: inside the depth-6 fetch
+        ref = gate.QUEUE_REF_PREFIX + "pr-7-eee"
+        self.chain_on(self.a, within, ref)
+        remote = gate.ls_remote_queue(self.url)
+        found = gate.descendants_of(self.own_ref, self.a, remote, str(self.qdir), self.url)
+        self.assertEqual(found, {self.later_ref, ref})
+
+    def test_chain_longer_than_the_depth_is_safe(self):
+        # 7 commits above ours: our commit is cut off the shallow graph, so the deeper entry is missed. A miss means
+        # `head` (our own full lane), never an untested merge. The function must still answer, not None, not raise.
+        deep = gate.QUEUE_MAX_BATCH + 2
+        ref = gate.QUEUE_REF_PREFIX + "pr-8-fff"
+        self.chain_on(self.a, deep, ref)
+        remote = gate.ls_remote_queue(self.url)
+        found = gate.descendants_of(self.own_ref, self.a, remote, str(self.qdir), self.url)
+        self.assertIsNotNone(found)
+        self.assertEqual(found, {self.later_ref})  # the 7-deep entry is missed: documented, and safe (head)
+
+    def test_own_commit_missing_is_unknown(self):
+        remote = gate.ls_remote_queue(self.url)
+        self.assertIsNone(gate.descendants_of(self.own_ref, "f" * 40, remote, str(self.qdir), self.url))
+
+
+class DepthTie(unittest.TestCase):
+    def test_fetch_depth_is_the_ruleset_batch_bound_plus_one(self):
+        self.assertEqual(gate.QUEUE_MAX_BATCH, 5)
+        self.assertEqual(gate.QUEUE_FETCH_DEPTH, gate.QUEUE_MAX_BATCH + 1)
+        dox = (Path(__file__).resolve().parent.parent / "server-rust" / "DOX.md").read_text()
+        self.assertRegex(dox, r"`max_entries_to_build` " + str(gate.QUEUE_MAX_BATCH) + r"\b")
+        self.assertTrue(f"`--depth {gate.QUEUE_FETCH_DEPTH}`" in dox, "server-rust/DOX.md must state the fetch depth")
 
 
 if __name__ == "__main__":

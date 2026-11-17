@@ -21,17 +21,25 @@ FULL_JOBS = {"plan", "build", "roots", "pgtap", "guards", "shard", "coverage-bui
 CACHE_JOBS = {"plan", "build", "coverage-build", "gomod-cache"}
 
 # Merge-queue batching. Worst case for one entry: SETTLE + CAP + the lane. No git call starts at or after CAP, so the
-# loop returns by CAP + QUEUE_POLL_WORST_IO_S at the latest (one ls-remote, then init + fetch + for-each-ref). The queue
+# loop returns by CAP + QUEUE_POLL_WORST_IO_S at the latest (one ls-remote, then init, fetch, cat-file, for-each-ref,
+# each started before CAP). The queue
 # job's timeout-minutes (server-rust-lane.yml) is QUEUE_JOB_TIMEOUT_S; CAP + worst I/O + QUEUE_SETUP_MARGIN_S (checkout,
 # interpreter start) must stay below it. tests/test-lane-job-gate.py asserts this and ties the constant to the YAML.
 QUEUE_POLL_S = 60
 QUEUE_SETTLE_S = 120
 QUEUE_CAP_S = 5400
+# The ruleset's merge_queue max_entries_to_build (server-rust/DOX.md, rollout R2). A batch holds at most this many
+# entries, so a later entry is at most QUEUE_MAX_BATCH commits above ours. The fetch depth is one more: the tip plus
+# its QUEUE_MAX_BATCH ancestors.
+QUEUE_MAX_BATCH = 5
+QUEUE_FETCH_DEPTH = QUEUE_MAX_BATCH + 1
 QUEUE_LS_REMOTE_TIMEOUT_S = 60
-QUEUE_GIT_INIT_TIMEOUT_S = 30
+QUEUE_GIT_INIT_TIMEOUT_S = 15
+QUEUE_CAT_FILE_TIMEOUT_S = 15
 QUEUE_FETCH_TIMEOUT_S = 60
 QUEUE_FOR_EACH_TIMEOUT_S = 30
-QUEUE_POLL_WORST_IO_S = QUEUE_LS_REMOTE_TIMEOUT_S + QUEUE_GIT_INIT_TIMEOUT_S + QUEUE_FETCH_TIMEOUT_S + QUEUE_FOR_EACH_TIMEOUT_S
+QUEUE_POLL_WORST_IO_S = (QUEUE_LS_REMOTE_TIMEOUT_S + QUEUE_GIT_INIT_TIMEOUT_S + QUEUE_CAT_FILE_TIMEOUT_S
+                         + QUEUE_FETCH_TIMEOUT_S + QUEUE_FOR_EACH_TIMEOUT_S)
 QUEUE_SETUP_MARGIN_S = 300
 QUEUE_JOB_TIMEOUT_S = 100 * 60
 QUEUE_REF_PREFIX = "refs/heads/gh-readonly-queue/main/"
@@ -100,14 +108,19 @@ def queue_role(own_ref, own_sha, remote, later, waited_s, *, enabled, settle_s, 
 
 
 def wait_for_role(own_ref, own_sha, *, enabled, poll_s, settle_s, cap_s, ls_remote, descendants, sleep, now, log):
-    """Poll until queue_role is not wait. ls_remote() -> {ref: sha} or None; descendants(own_sha, remote) -> set or
-    None. descendants runs only when the queued sha set changed since the last answer, or the last answer was None.
+    """Poll until queue_role is not wait. ls_remote() -> {ref: sha} or None; descendants(own_sha, remote, may_start)
+    -> set or None (may_start() is False once the cap is reached; descendants then returns None without more git). descendants runs only when the queued sha set changed since the last answer, or the last answer was None.
     Every git call, the clock and the sleep are injected, so tests run with no network and no waiting."""
     if not enabled:
         return "head"
     start = now()
     later = None
     last_key = None
+
+    def may_start():
+        # Checked by descendants before EACH of its git commands: no subprocess starts at or after the cap.
+        return now() - start < cap_s
+
     while True:
         if now() - start >= cap_s:
             return "head"  # capped: no further git call starts; the entry runs the full lane
@@ -116,7 +129,7 @@ def wait_for_role(own_ref, own_sha, *, enabled, poll_s, settle_s, cap_s, ls_remo
         if remote is not None and remote.get(own_ref) == own_sha and settle_s <= waited < cap_s:
             key = tuple(sorted(remote.items()))
             if key != last_key or later is None:
-                later = descendants(own_sha, remote)
+                later = descendants(own_sha, remote, may_start)
                 last_key = key
                 waited = now() - start
         role = queue_role(own_ref, own_sha, remote, later, waited,
@@ -153,19 +166,38 @@ def ls_remote_queue(url):
     return remote
 
 
-def descendants_of(own_ref, own_sha, remote, git_dir, url):
-    """Queue refs whose commit descends from own_sha, excluding own_ref. Commits only (--filter=tree:0) into a
-    bare repo, so the shallow checkout is never used. None when fetch or lookup fails."""
-    if _git(["init", "-q", "--bare", git_dir], timeout=QUEUE_GIT_INIT_TIMEOUT_S) is None:
-        return None
-    fetched = _git(["-C", git_dir, "fetch", "-q", "--prune", "--no-tags", "--filter=tree:0", url,
-                    f"+{QUEUE_REF_PREFIX}*:refs/q/*"], timeout=QUEUE_FETCH_TIMEOUT_S)
-    if fetched is None:
-        return None
-    # for-each-ref --contains lists the refs whose tip has own_sha as an ancestor (own_sha itself included).
-    listed = _git(["-C", git_dir, "for-each-ref", "--contains", own_sha, "--format=%(refname)", "refs/q/"],
-                  timeout=QUEUE_FOR_EACH_TIMEOUT_S)
-    if listed is None:
+class _Unknown(Exception):
+    """A git command could not run or failed, or the deadline passed: the ancestry answer is unknown."""
+
+
+def descendants_of(own_ref, own_sha, remote, git_dir, url, may_start=lambda: True):
+    """Queue refs whose commit descends from own_sha, excluding own_ref, or None when unknown.
+
+    The fetch is depth-limited to QUEUE_FETCH_DEPTH (the ruleset's batch bound plus one) with --filter=tree:0, so a
+    long history never makes the head wait. Shallow history can only HIDE a descendant: a later entry more than
+    QUEUE_MAX_BATCH commits above ours is then missed. A missed descendant means `head`, so the entry runs its own
+    full lane, which is safe. A reported descendant is always a real one, because a ref is listed only when own_sha is
+    an ancestor of its tip in the fetched graph, and the fetched graph is a true subgraph. Any failure, a missing
+    own_sha, or may_start() going False before a command returns None, which the caller treats as unknown; a failure
+    is never an empty set."""
+
+    def git(args, timeout):
+        if not may_start():
+            raise _Unknown("deadline")
+        out = _git(args, timeout)
+        if out is None:
+            raise _Unknown(args[0])
+        return out
+
+    try:
+        git(["init", "-q", "--bare", git_dir], QUEUE_GIT_INIT_TIMEOUT_S)
+        git(["-C", git_dir, "fetch", "-q", "--prune", "--no-tags", f"--depth={QUEUE_FETCH_DEPTH}",
+             "--filter=tree:0", url, f"+{QUEUE_REF_PREFIX}*:refs/q/*"], QUEUE_FETCH_TIMEOUT_S)
+        git(["-C", git_dir, "cat-file", "-e", own_sha + "^{commit}"], QUEUE_CAT_FILE_TIMEOUT_S)
+        # for-each-ref --contains lists the refs whose tip has own_sha as an ancestor (own_sha itself included).
+        listed = git(["-C", git_dir, "for-each-ref", "--contains", own_sha, "--format=%(refname)", "refs/q/"],
+                     QUEUE_FOR_EACH_TIMEOUT_S)
+    except _Unknown:
         return None
     names = {QUEUE_REF_PREFIX + line[len("refs/q/"):] for line in listed.splitlines() if line.startswith("refs/q/")}
     return {r for r in names if r != own_ref and r in remote}
@@ -183,7 +215,7 @@ def queue_role_cli(env):
         settle_s=int(env.get("LANE_QUEUE_SETTLE", QUEUE_SETTLE_S)),
         cap_s=int(env.get("LANE_QUEUE_CAP", QUEUE_CAP_S)),
         ls_remote=lambda: ls_remote_queue(url),
-        descendants=lambda sha, remote: descendants_of(own_ref, sha, remote, git_dir, url),
+        descendants=lambda sha, remote, may_start: descendants_of(own_ref, sha, remote, git_dir, url, may_start),
         sleep=time.sleep,
         now=time.monotonic,
         log=lambda msg: print(msg, file=sys.stderr),

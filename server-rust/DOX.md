@@ -473,13 +473,18 @@ FULL lane including oracle coverage, except a queue entry that left the queue wh
 Merge-queue batching (`queue` job, `scripts/lane-job-gate.py queue-role`; default OFF, enabled by repo variable
 `LANE_QUEUE_BATCHING=1` on a ruleset with `grouping_strategy` HEADGREEN): the batch head runs the full lane on its commit,
 which contains every earlier entry; an entry with a later queued entry (a queue branch whose commit descends from its
-own, found by `git for-each-ref --contains` over a `--filter=tree:0` fetch) waits and runs no lane, polling `ls-remote`
+own, found by `git for-each-ref --contains` over a `--depth 6 --filter=tree:0` fetch) waits and runs no lane, polling `ls-remote`
 every 60 s after a 120 s settle. A waiter's run stays in progress and its `aggregate` pending. When its branch is gone
 it ends `mode=gone`: no job runs, `aggregate` is red with "nothing ran; not a test pass" (cosmetic, the commit is no
 longer queued). Exceptions that run the full lane: a late arrival (queued after the head had already decided) runs its own
 lane, and a waiter that reaches the CAP (5400 s) runs it too; errors keep the waiter waiting until then. The clock is read
-after every git call and no git call starts at or after CAP, so a waiter returns by CAP + 180 s of worst-case git I/O
-(ls-remote 60 s, init 30 s, fetch 60 s, for-each-ref 30 s). Worst case per entry is SETTLE + CAP + the lane; the queue job
+after every git call, and the deadline is checked before EACH git subprocess of the ancestry check, so no subprocess
+starts at or after CAP and a waiter returns by CAP + 180 s of worst-case I/O (ls-remote 60 s, init 15 s, cat-file 15 s,
+fetch 60 s, for-each-ref 30 s). The fetch depth is `--depth 6`, which is QUEUE_FETCH_DEPTH: the ruleset's
+`max_entries_to_build` 5 plus one, so a later entry is at most 5 commits above ours. Shallow history can only HIDE a
+descendant, and a hidden one means `head`, which runs our own full lane: a miss is safe. A reported descendant is always
+real, because a ref is listed only when our commit is an ancestor of its tip in the fetched graph. A failed command, a
+missing own commit (`cat-file -e`) or a passed deadline returns unknown (None), never an empty set. Worst case per entry is SETTLE + CAP + the lane; the queue job
 times out at 100 min, above CAP + 180 s + 300 s of checkout and setup, and `scripts/test-lane-job-gate.py` asserts that. A `check_response_timeout`
 overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/test-lane-job-gate.py`
 (git, clock and sleep injected; no network). Commits on main before a batch's last commit are not tested individually;
