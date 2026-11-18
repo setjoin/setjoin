@@ -2211,7 +2211,10 @@ async fn native_ca_toggle_read_error_refuses_before_admission() {
         server.close().await;
         spy.server.close().await;
         let reply = reply?;
-        if reply.status != 500 || !reply.body.contains("internal error") {
+        let detail = serde_json::from_str::<Value>(&reply.body)
+            .ok()
+            .and_then(|v| v["detail"].as_str().map(str::to_owned));
+        if reply.status != 500 || detail.as_deref() != Some("internal error") {
             return Err(format!(
                 "expected the local 500 internal error refusal, got {}: {}",
                 reply.status, reply.body
