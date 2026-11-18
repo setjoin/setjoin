@@ -86,7 +86,7 @@ changed path (soft caps 30 and 20: over the cap, only changed or referencing tes
 nothing for `server-rust/Cargo.toml`, `Cargo.lock` or `rust-toolchain*` changes. It runs them through
 `scripts/server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT` on the lane
 Postgres (`REQUIRE_DB=1`, skip markers, ignored and zero tests red), restoring the `lane` cargo and Go module caches
-without saving. The test step is capped at 22 minutes (job 35); hitting the cap is red. Anything not selected, doc tests,
+without saving. The test step is capped at 30 minutes (job 45; an auth-domain selection of ~2000 tests needs ~5 min build + ~16 min tests + teardown); hitting the cap is red. Anything not selected, doc tests,
 replays, mutants and coverage stay with the merge queue's full lane.
 
 ## gofree record (manual, deleted with Go)
