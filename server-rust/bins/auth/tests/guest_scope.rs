@@ -837,7 +837,7 @@ async fn n1_cell(
         None => Ok(()),
     };
     let cleaned = case.cleanup(c).await;
-    settle(result, grant.map_err(|e| -> Err { e.into() }).and(cleaned))
+    settle(result, grant.and(cleaned))
 }
 
 #[tokio::test]

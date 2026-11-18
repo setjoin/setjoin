@@ -1221,9 +1221,9 @@
     "case": "failclosed-sso-risk-read-error",
     "issue": "#454",
     "reviewed": true,
-    "reviewer": "owner, <YYYY-MM-DD>",
+    "reviewer": "owner, 2026-11-18",
     "review": "security Go bug fixed in Rust",
-    "review_reference": "owner security-bug policy; PR #<n>",
+    "review_reference": "owner security-bug policy; PR #457",
     "reason": "Frozen Go's SSO completion issues through issueTokensWithFactors, whose risk read is fail-open. Rust reads the verified user's risk once, right after settlement and before any token is signed or stored, and answers 500 'token issue failed' on a failed read (flag lookup included). The IdP code or assertion and the settlement sync are already spent, as in Go; the user signs in again.",
     "go_source": "authserver/internal/handlers/auth.go:2362; authserver/internal/handlers/auth.go:2005; authserver/internal/handlers/auth.go:2663-2683",
     "secure_test": "bins/auth/tests/rp_faults.rs::failclosed_454_sso_risk_fault_issues_no_token"
