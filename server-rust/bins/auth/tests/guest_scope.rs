@@ -1280,3 +1280,55 @@ async fn failclosed_454_webauthn_factor_fault_issues_no_token() {
     let restored = restore_flags(&c, &saved).await;
     settle(result, restored).unwrap();
 }
+
+/// #454 Codex r2: with conditional access on and rate limiting off, an oversized backup-code
+/// request answers the local 413 and never reaches the recording upstream: the 1 MiB body bound
+/// runs before any enabled-flag handoff.
+#[tokio::test]
+async fn n2_oversized_backup_refuses_locally_even_with_ca_on() {
+    let (_serial, db, c) = begin("GUEST353-n2-oversize").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let mut slot: Option<Case> = None;
+    let mut watch: Option<tokio::task::JoinHandle<()>> = None;
+    let observed: Result<(), Err> = async {
+        set_flags(&c, true, false).await?;
+        let (addr, mut seen, spy_task) = spy().await?;
+        watch = Some(spy_task);
+        slot = Some(
+            Case::new(
+                &db,
+                &c,
+                "backup",
+                true,
+                "guest353-n2-oversize",
+                Some(format!("http://{addr}")),
+            )
+            .await?,
+        );
+        let case = slot.as_mut().ok_or("case slot")?;
+        case.mat.body = format!(
+            "{{\"mfa_token\":\"x\",\"code\":\"{}\"}}",
+            "0".repeat((1 << 20) + 64)
+        );
+        let sent = case.send("").await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let forwarded = seen.try_recv().is_ok();
+        let (status, raw) = sent?;
+        check(!forwarded, "an oversized backup request reached the upstream")?;
+        check(
+            status == 413 && raw.contains("body_too_large"),
+            &format!("want the local 413 body_too_large, got {status}: {raw}"),
+        )?;
+        Ok(())
+    }
+    .await;
+    if let Some(t) = watch {
+        t.abort();
+    }
+    let cleaned = match slot {
+        Some(case) => case.cleanup(&c).await,
+        None => Ok(()),
+    };
+    let flags = restore_flags(&c, &saved).await;
+    settle(settle(observed, cleaned), flags).unwrap();
+}

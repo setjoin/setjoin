@@ -439,9 +439,9 @@ async fn text_ids(c: &tokio_postgres::Client, sql: &str) -> Result<Vec<String>, 
         .collect())
 }
 
-/// This fixture's rows only: the SSO commands' F21 receipts and the idfed2 source while unlinked.
+/// The SSO commands' F21 receipts (rp-settle, rp-mint) since the snapshot; see the #431 note in cleanup.
 const RP_RECEIPTS: &str = "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21' AND command IN ('rp-settle','rp-mint')";
-const RP_SOURCES: &str = "SELECT x.id::text FROM identity_sources x WHERE x.provider_key='oidc:idfed2' AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)";
+const RP_SOURCES: &str = "SELECT id::text FROM identity_sources";
 
 /// Ids present now and absent from `before`: the rows this test created.
 fn created_since(now: Vec<String>, before: &[String]) -> Vec<String> {
@@ -518,6 +518,28 @@ async fn failclosed_sso_risk() -> Result<(), Err> {
     }
     .await;
 
+    // The fixture's sources: those created during this test (absent from the snapshot) that the
+    // fixture subject's identity link references. Read before cleanup_identity removes the links,
+    // so a pre-existing source that loses its last link is never classified as created.
+    let fixture_sources: Result<Vec<String>, Err> = match &account {
+        Some(a) => {
+            let linked: Result<Vec<String>, Err> = env
+                .c
+                .query(
+                    "SELECT DISTINCT source_id::text FROM user_identity_links WHERE user_id=$1 AND external_subject='failclosed-rp-subject'",
+                    &[&a.user],
+                )
+                .await
+                .map(|rows| rows.iter().map(|r| r.get::<_, String>(0)).collect())
+                .map_err(Into::into);
+            linked.map(|ids| match &sources_before {
+                Some(before) => ids.into_iter().filter(|id| !before.contains(id)).collect(),
+                None => Vec::new(),
+            })
+        }
+        None => Ok(Vec::new()),
+    };
+
     // Cleanup: every step runs, failures aggregate, and nothing is short-circuited.
     let mut cleanup: Result<(), Err> = Ok(());
     if let Some(saved) = &saved {
@@ -536,6 +558,9 @@ async fn failclosed_sso_risk() -> Result<(), Err> {
         let removed: Result<(), Err> = fixture::remove(&env.c, a).await.map(|_| ()).map_err(Into::into);
         cleanup = settle(cleanup, removed);
     }
+    // #431: rust_operation_receipts has no subject or user column, so these rows cannot be tied
+    // to the fixture; the filter stays on the SSO commands since the snapshot. Hosted CI runs
+    // each case in its own database, so no other writer shares those rows.
     let receipts: Result<(), Err> = async {
         let Some(before) = &receipts_before else {
             return Ok(());
@@ -552,13 +577,10 @@ async fn failclosed_sso_risk() -> Result<(), Err> {
     .await;
     cleanup = settle(cleanup, receipts);
     let sources: Result<(), Err> = async {
-        let Some(before) = &sources_before else {
-            return Ok(());
-        };
-        let created = created_since(text_ids(&env.c, RP_SOURCES).await?, before);
+        let created = fixture_sources?;
         env.c
             .execute(
-                "WITH a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id::text = ANY($1::text[])), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id::text = ANY($1::text[])), c AS (DELETE FROM identity_shadow_divergences WHERE source_id::text = ANY($1::text[])) DELETE FROM identity_sources WHERE id::text = ANY($1::text[])",
+                "WITH a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id::text = ANY($1::text[])), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id::text = ANY($1::text[])), c AS (DELETE FROM identity_shadow_divergences WHERE source_id::text = ANY($1::text[])) DELETE FROM identity_sources WHERE id::text = ANY($1::text[]) AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id = identity_sources.id)",
                 &[&created],
             )
             .await?;

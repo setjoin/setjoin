@@ -66,17 +66,19 @@ pub async fn revoke(
     undo: &str,
     probe: &str,
 ) -> Result<Revoked, Err> {
-    let direct: Vec<bool> = c
+    // The sole direct SELECT must be non-grantable and granted by the role that runs the undo
+    // (the owner DSN's current_user), so the undo restores exactly what the fault removed.
+    let direct: Vec<(bool, bool)> = c
         .query(
-            "SELECT x.is_grantable FROM pg_class k CROSS JOIN LATERAL aclexplode(k.relacl) x WHERE k.oid=to_regclass($1) AND x.grantee=to_regrole('setjoin_app') AND x.privilege_type='SELECT'",
+            "SELECT x.is_grantable, x.grantor = (SELECT oid FROM pg_roles WHERE rolname = current_user) FROM pg_class k CROSS JOIN LATERAL aclexplode(k.relacl) x WHERE k.oid=to_regclass($1) AND x.grantee=to_regrole('setjoin_app') AND x.privilege_type='SELECT'",
             &[&table],
         )
         .await?
         .iter()
-        .map(|r| r.get(0))
+        .map(|r| (r.get(0), r.get(1)))
         .collect();
-    if direct != [false] {
-        return Err(format!("STOP: setjoin_app has no single direct, non-grantable SELECT on {table} ({direct:?}); the fault could not be undone exactly").into());
+    if direct != [(false, true)] {
+        return Err(format!("STOP: setjoin_app has no single direct, non-grantable SELECT granted by the undo role on {table} ({direct:?}); the fault could not be undone exactly").into());
     }
     let columns: bool = c
         .query_one(

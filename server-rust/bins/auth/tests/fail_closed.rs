@@ -37,6 +37,12 @@ fn absent() -> String {
         uuid::Uuid::new_v4().simple()
     )
 }
+/// A per-run source address: failed sign-ins carry no user id, so cleanup removes exactly the
+/// rows this address wrote (login_events.source_ip).
+fn fixture_ip() -> String {
+    let b = uuid::Uuid::new_v4().into_bytes();
+    format!("10.{}.{}.{}", b[0], b[1], b[2].max(1))
+}
 /// A Set-Cookie value that carries a credential: a non-empty value whose name contains "token".
 fn credential_cookie(cookie: &str) -> bool {
     let (name, rest) = cookie.split_once('=').unwrap_or((cookie, ""));
@@ -60,6 +66,7 @@ async fn login_residue(
     e: &Env,
     user: i64,
     emails: &[String],
+    ip: Option<&str>,
     before: Option<&Vec<String>>,
 ) -> Result<(), Err> {
     let lowered: Vec<String> = emails.iter().map(|m| m.to_lowercase()).collect();
@@ -80,7 +87,19 @@ async fn login_residue(
         Ok(())
     }
     .await;
-    settle(events, receipts)
+    let addresses: Result<(), Err> = match ip {
+        Some(ip) => {
+            e.c.execute(
+                "DELETE FROM login_events WHERE user_id IS NULL AND source_ip = $1::text::inet",
+                &[&ip],
+            )
+            .await
+            .map(|_| ())
+            .map_err(Into::into)
+        }
+        None => Ok(()),
+    };
+    settle(settle(events, addresses), receipts)
 }
 
 /// Setup before any account exists may panic; nothing needs undoing yet.
@@ -204,6 +223,8 @@ async fn set_flag(c: &Client, key: &str, on: bool) -> Result<(), Err> {
 async fn server(e: &Env) -> Result<AuthServer, Err> {
     let mut cfg = Config::for_secret(e.secret.clone());
     cfg.worker_dsn = None;
+    // Forwarded addresses are honoured only from the trusted proxy (fixture IPs per test).
+    cfg.client_proxy = "127.0.0.1".into();
     cfg.dsn = e.db.dsn.clone();
     cfg.db_encryption_key = ENC.into();
     Ok(AuthServer::load(e.exec.clone(), cfg)
@@ -233,6 +254,17 @@ async fn send(s: &AuthServer, r: Request<setjoin_auth::Body>) -> Result<Reply, E
         cookies,
         body,
     })
+}
+/// A JSON POST from one fixture source address (X-Forwarded-For through the trusted proxy).
+fn anonymous_from(
+    ip: &str,
+    path: &str,
+    payload: Value,
+) -> Result<Request<setjoin_auth::Body>, Err> {
+    Ok(Request::post(path)
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", ip)
+        .body(body(payload.to_string()))?)
 }
 fn anonymous(path: &str, payload: Value) -> Result<Request<setjoin_auth::Body>, Err> {
     Ok(Request::post(path)
@@ -367,15 +399,17 @@ async fn password_login_risk_lookup_error_issues_no_token() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
-    let receipts_before = receipt_ids(&e.c).await.ok();
+    let receipts_before = Some(receipt_ids(&e.c).await.unwrap());
     let absent = absent();
+    let ip = fixture_ip();
     let (a, email) = account(&e, "failclosed-risk-login").await.unwrap();
     let observed = async {
         set_flag(&e.c, "feature.rate_limit", false).await?;
         set_flag(&e.c, "feature.user_risk", true).await?;
         let s = server(&e).await?;
-        let login =
-            |who: &str, pw: &str| anonymous("/auth/login", json!({"email":who,"password":pw}));
+        let login = |who: &str, pw: &str| {
+            anonymous_from(&ip, "/auth/login", json!({"email":who,"password":pw}))
+        };
         let absent_clear = send(&s, login(&absent, "Password1!")?).await?;
         let control = send(&s, login(&email, "Password1!")?).await?;
         let before = oauth_state(&e, a.user).await?;
@@ -401,6 +435,7 @@ async fn password_login_risk_lookup_error_issues_no_token() {
             &e,
             a.user,
             &[email.clone(), absent.clone()],
+            Some(ip.as_str()),
             receipts_before.as_ref(),
         )
         .await;
@@ -478,7 +513,7 @@ async fn refresh_risk_lookup_error_is_a_retryable_503() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
-    let receipts_before = receipt_ids(&e.c).await.ok();
+    let receipts_before = Some(receipt_ids(&e.c).await.unwrap());
     let (a, email) = account(&e, "failclosed-risk-refresh").await.unwrap();
     let observed = async {
         set_flag(&e.c, "feature.rate_limit", false).await?;
@@ -521,7 +556,8 @@ async fn refresh_risk_lookup_error_is_a_retryable_503() {
     }
     .await;
     let cleaned = async {
-        let residue = login_residue(&e, a.user, &[email.clone()], receipts_before.as_ref()).await;
+        let residue =
+            login_residue(&e, a.user, &[email.clone()], None, receipts_before.as_ref()).await;
         settle(
             settle(restore_flags(&e.c, &saved).await, residue),
             cleanup(&e, &a).await,
@@ -703,7 +739,12 @@ async fn refresh_authority_decides_before_the_risk_read() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
-    let receipts_before = receipt_ids(&e.c).await.ok();
+    let receipts_before = Some(receipt_ids(&e.c).await.unwrap());
+    let audit_base: i64 =
+        e.c.query_one("SELECT coalesce(max(id),0) FROM admin_audit_log", &[])
+            .await
+            .unwrap()
+            .get(0);
     let (a, email) = account(&e, "failclosed-risk-authority").await.unwrap();
     let observed = async {
         set_flag(&e.c, "feature.rate_limit", false).await?;
@@ -730,9 +771,11 @@ async fn refresh_authority_decides_before_the_risk_read() {
     }
     .await;
     let cleaned = async {
-        let residue = login_residue(&e, a.user, &[email.clone()], receipts_before.as_ref()).await;
+        let residue =
+            login_residue(&e, a.user, &[email.clone()], None, receipts_before.as_ref()).await;
+        let audit = purge_revocation_audit(&e, a.user, audit_base).await;
         settle(
-            settle(restore_flags(&e.c, &saved).await, residue),
+            settle(settle(restore_flags(&e.c, &saved).await, residue), audit),
             cleanup(&e, &a).await,
         )
     }
@@ -766,4 +809,15 @@ async fn refresh_authority_decides_before_the_risk_read() {
         );
         assert!(!r.cookies.iter().any(|c| credential_cookie(c)));
     }
+}
+
+/// Removes the revocation audit rows this test caused: no actor (user_id NULL), the fixture user
+/// as target, written after the watermark. The append-only trigger is bypassed for this session
+/// only, as in mfa_faults.rs.
+async fn purge_revocation_audit(e: &Env, user: i64, base: i64) -> Result<(), Err> {
+    e.c.batch_execute(&format!(
+        "BEGIN; SET LOCAL session_replication_role = replica; DELETE FROM admin_audit_log WHERE id > {base} AND user_id IS NULL AND target_id = {user}; COMMIT;"
+    ))
+    .await?;
+    Ok(())
 }
