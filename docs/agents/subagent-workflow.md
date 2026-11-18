@@ -77,7 +77,7 @@ XS goes to Haiku with the exact edit. Never resume the investigator to apply a d
 
 ## Review
 
-- Codex merge gate: `codex exec -m gpt-6-astra`, reasoning `high`, read-only. At most 3
+- Codex merge gate: `codex exec -m gpt-6.2-astra` (codex-cli >= 0.169), reasoning `high`, read-only. At most 3
   rounds per ticket; a 4th means re-plan. Usage is input-bound (files read, not reasoning):
   - The prompt names the diff range, the files and callers to read, and pastes greps the
     coordinator already ran; Codex does not explore the repo beyond that or run builds.
