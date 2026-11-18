@@ -12,13 +12,18 @@ bcrypt/SM3 verifier on a blocking task. Request uid/mailbox fields never enter
 that proof. Subsequent reads/writes bind its user, including live admin scope.
 Go does not resolve a mailbox for login; neither does Rust.
 
-Login, TOTP-admission, bootstrap, readiness and password-policy single-row reads use
-`rows.first()` + `try_get`: a missing row or unexpected NULL returns the function's existing
-error (callers map it to 503/500) instead of panicking. The #436 files (push, TOTP, WebAuthn,
-possession, recovery, password, session, push delivery, identity links, OIDC grants, RP) read
-single rows the same way, with `rows.first()` + `try_get`. `rows[0]` is gone from them.
-Other files in this crate still have `.get` reads on rows (oidc.rs, oidc/consumers.rs, login.rs,
-issuance.rs, impersonation.rs, self_service.rs, rp.rs); they are not yet converted.
+TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437) use
+`rows.first()` + `try_get`. A missing row returns that function's existing error or absence result,
+and an unreadable value never panics.
+
+The #436 files (push, TOTP, WebAuthn, possession, recovery, password, session, push delivery,
+identity links, OIDC grants, RP account/link/secret) use the same `rows.first()` + `try_get` form, and
+`rows[0]` is gone from them. Decode failures there fail closed: an error reply or refusal, never a
+permissive default such as no MFA, no risk, not common or not found. Push delivery is the one
+exception: it skips the unreadable device and logs the failure. Still unconverted: WebAuthn
+`management_options` (`.expect` on the snapshot; the function returns a plain String, so it has no
+error path), and `.get`/index reads on rows in oidc.rs, oidc/consumers.rs, login.rs, issuance.rs,
+impersonation.rs, self_service.rs and rp.rs.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

@@ -751,8 +751,10 @@ impl AuthServer {
             scope,
             &factors,
         );
-        if let Some(risk) = user.risk(&self.exec).await {
-            access["risk"] = risk;
+        match user.risk(&self.exec).await {
+            Ok(Some(risk)) => access["risk"] = risk,
+            Ok(None) => {}
+            Err(_) => return Err(Self::failure(500, "token issue failed", path)),
         }
         if guest {
             access["acct"] = Value::from("guest");

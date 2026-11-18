@@ -92,35 +92,46 @@ impl Session {
             _ => Err(invalid()),
         }
     }
-    pub async fn risk(&self, exec: &ScopedExecutor) -> Option<Value> {
+    /// Query errors, a missing row and level none keep Ok(None); an unreadable or
+    /// unparsable stored risk value fails the caller closed.
+    pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<Value>, setjoin_pg::StatementFailure> {
         if !super::login::enabled(exec, "feature.user_risk")
             .await
             .unwrap_or(false)
         {
-            return None;
+            return Ok(None);
         }
-        let rows = exec
+        let Ok(actor) = setjoin_contracts::ids::ActorId::new(self.user()) else {
+            return Ok(None);
+        };
+        let Ok(rows) = exec
             .read_user_scoped(
-                setjoin_contracts::ids::ActorId::new(self.user()).ok()?,
+                actor,
                 "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
                 &[(&self.user(), Type::INT8)],
             )
             .await
-            .ok()?;
-        let r = rows.first()?;
-        let level: String = r.try_get(1).ok()?;
+        else {
+            return Ok(None);
+        };
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || setjoin_pg::StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "user risk row".into(),
+        };
+        let level: String = r.try_get(1).map_err(|_| bad())?;
         if level.is_empty() || level == "none" {
-            return None;
+            return Ok(None);
         }
-        let signals: Value = r
-            .try_get::<_, String>(2)
-            .ok()
-            .and_then(|raw| serde_json::from_str(&raw).ok())
-            .unwrap_or(Value::Null);
-        let score: i32 = r.try_get(0).ok()?;
-        Some(
+        let score: i32 = r.try_get(0).map_err(|_| bad())?;
+        let raw: String = r.try_get(2).map_err(|_| bad())?;
+        let signals: Value = serde_json::from_str(&raw).map_err(|_| bad())?;
+        Ok(Some(
             json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
-        )
+        ))
     }
     pub async fn refresh(
         &self,
@@ -173,8 +184,8 @@ impl Session {
         let user = self.user();
         let rows=exec.read("SELECT EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())),EXISTS(SELECT 1 FROM mailboxes WHERE user_id=u.id AND is_primary=true LIMIT 1),COALESCE(u.totp_enabled,false),(to_jsonb(u.totp_enabled_at AT TIME ZONE 'UTC')#>>'{}'),COALESCE(u.display_name,''),u.email FROM users u WHERE u.id=$1",&[(&user,Type::INT8)]).await.map_err(|_|"profile lookup failed")?;
         let r = rows.first().ok_or("profile lookup failed")?;
-        let delegates=exec.read("SELECT mb.id,mb.email,md.permission FROM mailbox_delegates md JOIN mailboxes mb ON mb.id=md.mailbox_id WHERE md.user_id=$1 AND md.permission IN ('send_as','full_access') AND mb.enabled=true ORDER BY lower(mb.email),mb.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().filter_map(|r|Some(json!({"id":r.try_get::<_,i64>(0).ok()?,"email":r.try_get::<_,String>(1).ok()?,"permission":r.try_get::<_,String>(2).ok()?}))).collect::<Vec<_>>();
-        let aliases=exec.read("SELECT a.email FROM aliases a JOIN mailboxes m ON m.id=a.mailbox_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary=true AND m.enabled=true AND lower(a.email)<>lower(u.email) ORDER BY lower(a.email),a.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().filter_map(|r|Some(json!({"email":r.try_get::<_,String>(0).ok()?}))).collect::<Vec<_>>();
+        let delegates=exec.read("SELECT mb.id,mb.email,md.permission FROM mailbox_delegates md JOIN mailboxes mb ON mb.id=md.mailbox_id WHERE md.user_id=$1 AND md.permission IN ('send_as','full_access') AND mb.enabled=true ORDER BY lower(mb.email),mb.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|-> Result<Value,&'static str>{Ok(json!({"id":r.try_get::<_,i64>(0).map_err(|_|"profile lookup failed")?,"email":r.try_get::<_,String>(1).map_err(|_|"profile lookup failed")?,"permission":r.try_get::<_,String>(2).map_err(|_|"profile lookup failed")?}))}).collect::<Result<Vec<_>,&'static str>>()?;
+        let aliases=exec.read("SELECT a.email FROM aliases a JOIN mailboxes m ON m.id=a.mailbox_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary=true AND m.enabled=true AND lower(a.email)<>lower(u.email) ORDER BY lower(a.email),a.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|-> Result<Value,&'static str>{Ok(json!({"email":r.try_get::<_,String>(0).map_err(|_|"profile lookup failed")?}))}).collect::<Result<Vec<_>,&'static str>>()?;
         let guest = exec
             .read("SELECT is_guest_account($1)", &[(&user, Type::INT8)])
             .await

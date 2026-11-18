@@ -278,7 +278,7 @@ impl RelyingParty {
         let r = rows.first().ok_or("no rows in result set")?;
         let mut handle = r
             .try_get::<_, Option<Vec<u8>>>(2)
-            .map_err(|_| "invalid user row")?
+            .map_err(|_| "no rows in result set")?
             .unwrap_or_default();
         if handle.is_empty() && initialize {
             let mut candidate = [0; 32];
@@ -298,12 +298,12 @@ impl RelyingParty {
             .iter()
             .map(|r| {
                 Ok(StoredCredential {
-                    id: r.try_get(0).map_err(|_| "invalid credential row")?,
-                    key: r.try_get(1).map_err(|_| "invalid credential row")?,
-                    _attestation: r.try_get(2).map_err(|_| "invalid credential row")?,
+                    id: r.try_get(0).map_err(|_| "no rows in result set")?,
+                    key: r.try_get(1).map_err(|_| "no rows in result set")?,
+                    _attestation: r.try_get(2).map_err(|_| "no rows in result set")?,
                     _count: u32::try_from(
                         r.try_get::<_, i32>(3)
-                            .map_err(|_| "invalid credential row")?,
+                            .map_err(|_| "no rows in result set")?,
                     )
                     .map_err(|_| "invalid credential counter")?,
                 })
@@ -311,8 +311,8 @@ impl RelyingParty {
             .collect::<Result<Vec<_>, String>>()?;
         Ok(User {
             id,
-            _email: r.try_get(0).map_err(|_| "invalid user row")?,
-            _display: r.try_get(1).map_err(|_| "invalid user row")?,
+            _email: r.try_get(0).map_err(|_| "no rows in result set")?,
+            _display: r.try_get(1).map_err(|_| "no rows in result set")?,
             handle,
             credentials,
         })
@@ -695,8 +695,24 @@ impl LoginProof {
             admin: r.try_get(1).map_err(|_| bad())?,
         }))
     }
-    pub async fn factors(&self, exec: &ScopedExecutor) -> (bool, bool) {
-        exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await.ok().and_then(|r|r.first().and_then(|r|Some((r.try_get::<_,bool>(0).ok()?,r.try_get::<_,bool>(1).ok()?)))).unwrap_or((false,false))
+    /// Query errors and a missing row keep the existing (false,false) result; an
+    /// unreadable factor column is a decode failure and fails closed.
+    pub async fn factors(&self, exec: &ScopedExecutor) -> Result<(bool, bool), StatementFailure> {
+        let Ok(rows) = exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await else {
+            return Ok((false, false));
+        };
+        let Some(r) = rows.first() else {
+            return Ok((false, false));
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "MFA factor row".into(),
+        };
+        Ok((
+            r.try_get::<_, bool>(0).map_err(|_| bad())?,
+            r.try_get::<_, bool>(1).map_err(|_| bad())?,
+        ))
     }
     pub async fn mint(
         &self,

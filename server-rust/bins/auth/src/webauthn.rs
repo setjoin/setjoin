@@ -214,7 +214,10 @@ impl AuthServer {
             Ok(Some(u)) => u,
             _ => return Self::failure(401, "user not found", &path),
         };
-        let (totp, push) = proof.factors(&self.exec).await;
+        let (totp, push) = match proof.factors(&self.exec).await {
+            Ok(factors) => factors,
+            Err(_) => return Self::failure(500, "internal error", &path),
+        };
         // Go webauthn.go:446 (MFA branch) and issueTokensWithFactors (direct):
         // guest scope after the assertion and credential snapshot, before any token.
         if let Err(reply) = self.completion_guest_scope(user.user(), &path).await {
@@ -294,8 +297,10 @@ impl AuthServer {
             scope,
             &factors,
         );
-        if let Some(risk) = user.risk(&self.exec).await {
-            claims["risk"] = risk;
+        match user.risk(&self.exec).await {
+            Ok(Some(risk)) => claims["risk"] = risk,
+            Ok(None) => {}
+            Err(_) => return Self::failure(500, "token issue failed", &path),
         }
         if guest {
             claims["acct"] = Value::from("guest");

@@ -664,32 +664,47 @@ impl CompletionUser {
         }
         out
     }
-    pub async fn risk(&self, exec: &ScopedExecutor) -> Option<serde_json::Value> {
+    /// Query errors, a missing row and level none keep Ok(None); an unreadable or
+    /// unparsable stored risk value fails the caller closed.
+    pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<serde_json::Value>, StatementFailure> {
         use serde_json::{json, Value};
         if !crate::login::enabled(exec, "feature.user_risk")
             .await
             .unwrap_or(false)
         {
-            return None;
+            return Ok(None);
         }
-        let rows = exec
+        let Ok(actor) = ActorId::new(self.user) else {
+            return Ok(None);
+        };
+        let Ok(rows) = exec
             .read_user_scoped(
-                ActorId::new(self.user).ok()?,
+                actor,
                 "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
                 &[(&self.user, Type::INT8)],
             )
             .await
-            .ok()?;
-        let row = rows.first()?;
-        let level: String = row.try_get(1).ok()?;
+        else {
+            return Ok(None);
+        };
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "user risk row".into(),
+        };
+        let level: String = row.try_get(1).map_err(|_| bad())?;
         if level.is_empty() || level == "none" {
-            return None;
+            return Ok(None);
         }
-        let signals: Value = serde_json::from_str(&row.try_get::<_, String>(2).ok()?).ok()?;
-        let score: i32 = row.try_get(0).ok()?;
-        Some(
+        let score: i32 = row.try_get(0).map_err(|_| bad())?;
+        let raw: String = row.try_get(2).map_err(|_| bad())?;
+        let signals: Value = serde_json::from_str(&raw).map_err(|_| bad())?;
+        Ok(Some(
             json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
-        )
+        ))
     }
     pub async fn record(
         &self,

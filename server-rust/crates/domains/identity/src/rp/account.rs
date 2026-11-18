@@ -182,13 +182,19 @@ impl Assertion {
                 )
                 .await
             {
-                user = rows.first().and_then(|r| r.try_get(0).ok());
+                user = match rows.first() {
+                    Some(r) => Some(
+                        r.try_get(0)
+                            .map_err(|_| failed("normalized identity resolution unavailable"))?,
+                    ),
+                    None => None,
+                };
             }
             let mut address_hit = false;
             // SAML: the link is (registration, NameID), never an address (#546).
             if user.is_none() && (self.kind == "oidc" || crate::mutants::on("saml-link-by-email")) {
                 let address = setjoin_authz::address::canonical(&self.email);
-                if let Ok(rows)=exec.read("SELECT u.id FROM users u WHERE u.enabled AND (lower(u.email)=lower($1) OR lower(u.ad_upn)=lower($1) OR EXISTS(SELECT 1 FROM aliases a JOIN mailboxes mb ON mb.id=a.mailbox_id WHERE mb.user_id=u.id AND lower(a.email)=lower($1))) AND identity_address_claim_count(lower($1))=1 AND NOT identity_address_quarantined(lower($1)) LIMIT 1",&[(&address.as_str(),Type::TEXT)]).await {user=rows.first().and_then(|r|r.try_get(0).ok());address_hit=user.is_some();}
+                if let Ok(rows)=exec.read("SELECT u.id FROM users u WHERE u.enabled AND (lower(u.email)=lower($1) OR lower(u.ad_upn)=lower($1) OR EXISTS(SELECT 1 FROM aliases a JOIN mailboxes mb ON mb.id=a.mailbox_id WHERE mb.user_id=u.id AND lower(a.email)=lower($1))) AND identity_address_claim_count(lower($1))=1 AND NOT identity_address_quarantined(lower($1)) LIMIT 1",&[(&address.as_str(),Type::TEXT)]).await {user=match rows.first(){Some(r)=>Some(r.try_get(0).map_err(|_|failed("normalized identity resolution unavailable"))?),None=>None};address_hit=user.is_some();}
             }
             if evidence["sourceId"].is_string() {
                 let source = number(&evidence, "sourceId")?;
@@ -253,8 +259,8 @@ impl Assertion {
         Ok(Lookup::Existing(Resolution {
             user: crate::totp::CompletionUser {
                 user,
-                email: r.try_get(0).map_err(|_| failed("identity user row"))?,
-                admin: r.try_get(1).map_err(|_| failed("identity user row"))?,
+                email: r.try_get(0).map_err(|_| failed("normalized identity resolution unavailable"))?,
+                admin: r.try_get(1).map_err(|_| failed("normalized identity resolution unavailable"))?,
             },
             fence,
         }))
@@ -476,8 +482,8 @@ impl Missing<'_> {
         Ok(Resolution {
             user: crate::totp::CompletionUser {
                 user,
-                email: r.try_get(0).map_err(|_| failed("identity user row"))?,
-                admin: r.try_get(1).map_err(|_| failed("identity user row"))?,
+                email: r.try_get(0).map_err(|_| failed("user creation failed"))?,
+                admin: r.try_get(1).map_err(|_| failed("user creation failed"))?,
             },
             fence,
         })

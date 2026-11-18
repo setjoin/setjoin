@@ -376,11 +376,11 @@ async fn finish(
             )
         })?;
         if email {
-            claims["email"] = json!(row.try_get::<_, String>(0).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: invalid column"))?);
+            claims["email"] = json!(row.try_get::<_, String>(0).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: no rows in result set"))?);
             claims["email_verified"] = json!(true);
         }
         if profile {
-            claims["name"] = json!(row.try_get::<_, String>(1).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: invalid column"))?);
+            claims["name"] = json!(row.try_get::<_, String>(1).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: no rows in result set"))?);
         }
     }
     let id_token = key

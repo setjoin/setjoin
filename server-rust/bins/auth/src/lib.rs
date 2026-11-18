@@ -890,8 +890,10 @@ impl AuthServer {
             if context["guest"] == true {
                 claims["acct"] = json!("guest");
             }
-            if let Some(risk) = session.risk(&self.exec).await {
-                claims["risk"] = risk;
+            match session.risk(&self.exec).await {
+                Ok(Some(risk)) => claims["risk"] = risk,
+                Ok(None) => {}
+                Err(_) => return Self::failure(500, "token issue failed", &path),
             }
             let access = match self.sign(&claims) {
                 Ok(t) => t,

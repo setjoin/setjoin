@@ -104,14 +104,22 @@ pub async fn change(
     .await?;
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(setjoin_authz::address::lower(new.trim()).as_bytes()).to_vec();
-    if exec
+    // A query error keeps the existing "not common" result; an unreadable or missing
+    // flag fails closed as an internal fault, never as "not common".
+    let common = match exec
         .read(
             "SELECT EXISTS(SELECT 1 FROM common_passwords WHERE password_hash=$1)",
             &[(&hash, Type::BYTEA)],
         )
         .await
-        .is_ok_and(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()).unwrap_or(false))
     {
+        Ok(rows) => match rows.first().map(|r| r.try_get::<_, bool>(0)) {
+            Some(Ok(flag)) => flag,
+            _ => return Err(reply(500, "internal error")),
+        },
+        Err(_) => false,
+    };
+    if common {
         return Err(reply(
             400,
             "This password is too common and easily guessed. Please choose a stronger password.",
@@ -161,7 +169,7 @@ pub async fn change(
             .first()
             .ok_or_else(|| reply(403, "invalid current password"))?
             .try_get(0)
-            .map_err(|_| reply(403, "invalid current password"))?;
+            .map_err(|_| reply(500, "internal error"))?;
         let candidate = old.to_owned();
         let compare = stored.clone();
         if !tokio::task::spawn_blocking(move || {
@@ -231,7 +239,7 @@ pub async fn reset(
         .first()
         .ok_or_else(|| reply(401, "user not found"))?
         .try_get::<_, bool>(0)
-        .map_err(|_| reply(401, "user not found"))?;
+        .map_err(|_| reply(500, "internal error"))?;
     check_policy(exec, new, admin).await?;
     // Preserve Go's fence error priority before hashing, then recheck in SQL.
     if exec

@@ -66,7 +66,13 @@ impl Dispatch {
    let Ok(rows)=exec.read_user_scoped(actor,"SELECT id,push_provider,push_token_enc,device_public_key FROM push_devices WHERE user_id=$1 AND push_provider IN ('apns','fcm','hms') AND revoked_at IS NULL AND device_public_key IS NOT NULL",&[(&challenge.user,Type::INT8)]).await else{return;};
    for row in rows{
     // An unreadable subscription row skips only that device.
-    let (Ok(id),Ok(provider),Ok(envelope),Ok(key)) = (row.try_get::<_,i64>(0),row.try_get::<_,String>(1),row.try_get::<_,Vec<u8>>(2),row.try_get::<_,Vec<u8>>(3)) else { continue; };
+    let (id,provider,envelope,key) = match (row.try_get::<_,i64>(0),row.try_get::<_,String>(1),row.try_get::<_,Vec<u8>>(2),row.try_get::<_,Vec<u8>>(3)) {
+     (Ok(id),Ok(provider),Ok(envelope),Ok(key)) => (id,provider,envelope,key),
+     (a,b,c,d) => {
+      eprintln!("push_delivery: unreadable device row: id={:?} provider={:?} envelope={:?} key={:?}",a.err(),b.err(),c.err(),d.err());
+      continue;
+     }
+    };
     // Keep per-device failures independent: one unreadable subscription must
     // not suppress other enrolled devices. Keys are deployment context only.
     // The command executor installs the deployment crypto GUC transaction-locally;
