@@ -893,7 +893,7 @@ impl AuthServer {
             match session.risk(&self.exec).await {
                 Ok(Some(risk)) => claims["risk"] = risk,
                 Ok(None) => {}
-                Err(_) => return Self::failure(500, "token issue failed", &path),
+                Err(_) => return Self::failure(401, "invalid or revoked refresh token", &path),
             }
             let access = match self.sign(&claims) {
                 Ok(t) => t,

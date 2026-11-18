@@ -212,7 +212,8 @@ impl AuthServer {
         };
         let user = match proof.completion(&self.exec).await {
             Ok(Some(u)) => u,
-            _ => return Self::failure(401, "user not found", &path),
+            Ok(None) => return Self::failure(401, "user not found", &path),
+            Err(_) => return Self::failure(500, "internal error", &path),
         };
         let (totp, push) = match proof.factors(&self.exec).await {
             Ok(factors) => factors,

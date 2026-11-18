@@ -16,14 +16,21 @@ TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437)
 `rows.first()` + `try_get`. A missing row returns that function's existing error or absence result,
 and an unreadable value never panics.
 
-The #436 files (push, TOTP, WebAuthn, possession, recovery, password, session, push delivery,
-identity links, OIDC grants, RP account/link/secret) use the same `rows.first()` + `try_get` form, and
-`rows[0]` is gone from them. Decode failures there fail closed: an error reply or refusal, never a
-permissive default such as no MFA, no risk, not common or not found. Push delivery is the one
-exception: it skips the unreadable device and logs the failure. Still unconverted: WebAuthn
-`management_options` (`.expect` on the snapshot; the function returns a plain String, so it has no
-error path), and `.get`/index reads on rows in oidc.rs, oidc/consumers.rs, login.rs, issuance.rs,
-impersonation.rs, self_service.rs and rp.rs.
+The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password including the
+history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret) use the
+same form, and `rows[0]` is gone from those files. Their decode failures fail closed: an error
+reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive default. Exceptions,
+all deliberate:
+- `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops
+  late row errors the same way).
+- Push delivery skips a device whose row or token result cannot be decoded, and logs it to stderr
+  with the error text only. Encrypt and send failures are not logged here.
+- Recovery `Principal::resolve` decode failures get the same non-enumerating reply as a refusal,
+  and are logged to stderr.
+
+Not converted: WebAuthn `management_options` (`.expect` on the snapshot; the function returns a
+plain String, so it has no error path), and `.get`/index reads on rows in oidc.rs,
+oidc/consumers.rs, login.rs, issuance.rs, impersonation.rs, self_service.rs and rp.rs.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

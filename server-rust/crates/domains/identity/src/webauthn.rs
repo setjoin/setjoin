@@ -329,16 +329,21 @@ impl RelyingParty {
                 &[(&email.as_str(), Type::TEXT)],
             )
             .await;
-        let user = match rows
-            .ok()
-            .and_then(|r| r.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
-        {
-            Some(id) => self
-                .load_user(exec, id, true)
-                .await
-                .ok()
-                .filter(|u| !u.credentials.is_empty()),
-            None => None,
+        // A query error, an absent user or an empty credential list take the decoy path.
+        // An unreadable user id or an unloadable user is a decode failure and fails closed.
+        let user = match rows {
+            Err(_) => None,
+            Ok(rows) => match rows.first() {
+                None => None,
+                Some(r) => {
+                    let id: i64 = r.try_get(0).map_err(|_| "internal error")?;
+                    let loaded = self
+                        .load_user(exec, id, true)
+                        .await
+                        .map_err(|_| "internal error")?;
+                    Some(loaded).filter(|u| !u.credentials.is_empty())
+                }
+            },
         };
         let (uid, handle, ids) = if let Some(u) = user {
             (
@@ -511,7 +516,7 @@ impl RelyingParty {
         let actor = setjoin_contracts::ids::ActorId::new(user.id)
             .map_err(|_| refuse("no rows in result set"))?;
         let op = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
-        match exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-counter"}).run_user_command(actor,op,"SELECT rust_identity_webauthn_login_claim($1,$2,$3,$4,$5)",&[(&user.id,Type::INT8),(&credential.id,Type::BYTEA),(&credential.key,Type::BYTEA),(&count,Type::INT4),(&Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes()).to_vec(),Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(bad_result)).await{
+        match exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-counter"}).run_user_command(actor,op,"SELECT rust_identity_webauthn_login_claim($1,$2,$3,$4,$5)",&[(&user.id,Type::INT8),(&credential.id,Type::BYTEA),(&credential.key,Type::BYTEA),(&count,Type::INT4),(&Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes()).to_vec(),Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(|| StatementFailure{sqlstate:None,hint:None,message:"database error".into()})).await{
             setjoin_pg::CommandOutcome::Committed(status) if status=="accepted"=>Ok(LoginProof{user:user.id}),
             setjoin_pg::CommandOutcome::Committed(detail)=>Err(refuse(&detail)),
             setjoin_pg::CommandOutcome::Unknown{operation}=>Err(LoginFailure::Unknown(operation)),

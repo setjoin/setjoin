@@ -360,10 +360,25 @@ pub async fn harvest(
     token: &str,
 ) -> setjoin_pg::CommandOutcome<bool, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
-    use setjoin_pg::{CommandOutcome, Type};
+    use setjoin_pg::{CommandOutcome, Rejection, StatementFailure, Type};
     let user = pending.user();
     let approved=exec.read("SELECT approved_at IS NOT NULL FROM push_mfa_challenges WHERE nonce=decode($1,'hex') AND user_id=$2 ORDER BY created_at DESC LIMIT 1",&[(&nonce,Type::TEXT),(&user,Type::INT8)]).await;
-    if !approved.is_ok_and(|rows| rows.first().is_some_and(|r| r.try_get::<_, bool>(0).unwrap_or(false))) {
+    // A query error or no row is not approved; an unreadable flag is a statement failure.
+    let approved = match approved {
+        Ok(rows) => match rows.first().map(|r| r.try_get::<_, bool>(0)) {
+            Some(Ok(flag)) => flag,
+            Some(Err(_)) => {
+                return CommandOutcome::RolledBack(Rejection::Statement(StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "push approval row".into(),
+                }))
+            }
+            None => false,
+        },
+        Err(_) => false,
+    };
+    if !approved {
         return CommandOutcome::Committed(false);
     }
     let exec = exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand {

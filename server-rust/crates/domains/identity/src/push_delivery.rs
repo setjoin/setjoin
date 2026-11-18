@@ -78,7 +78,17 @@ impl Dispatch {
     // The command executor installs the deployment crypto GUC transaction-locally;
     // read_user_scoped intentionally carries only the user scope.
     let token=exec.run_user_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT pgp_sym_decrypt($1::bytea,current_setting('app.encryption_key'))::text",&[(&envelope,Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(||setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"push token row".into()})).await;
-    let setjoin_pg::CommandOutcome::Committed(token)=token else{continue;};if token.is_empty(){continue;}
+    let token = match token {
+     setjoin_pg::CommandOutcome::Committed(token) => token,
+     other => {
+      let reason = match &other {
+       setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(e)) => e.message.as_str(),
+       _ => "outcome unavailable",
+      };
+      eprintln!("push_delivery: unreadable device token result: {reason}");
+      continue;
+     }
+    };if token.is_empty(){continue;}
     let payload=serde_json::json!({"type":"push_mfa","protocol":"setjoin.push-approval.v1","nonce":challenge.nonce,"code":challenge.code,"device_id":id,"user_id":challenge.user,"session_id":challenge.session,"expires_at":challenge.expires}).to_string();
     let Ok(encrypted)=encrypt_native(&key,payload.as_bytes())else{continue;};
     let _=sender.lock().await.send(&provider,&token,&encrypted).await;

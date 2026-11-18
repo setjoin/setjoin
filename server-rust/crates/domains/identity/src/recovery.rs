@@ -7,20 +7,31 @@ pub struct Principal {
     totp: bool,
 }
 impl Principal {
-    pub async fn resolve(exec: &ScopedExecutor, email: &str) -> Option<Self> {
+    /// A query error or a missing row is Ok(None). An unreadable column is a decode
+    /// failure, reported as Err so the caller can answer with the same non-enumerating reply.
+    pub async fn resolve(exec: &ScopedExecutor, email: &str) -> Result<Option<Self>, StatementFailure> {
         // Preserve CredentialStore's full enabled snapshot, including its ancillary reads.
-        let rows=exec.read("SELECT u.id,u.email,COALESCE(u.totp_enabled,FALSE),COALESCE(u.push_mfa_enabled,FALSE),EXISTS(SELECT 1 FROM passkey_credentials pc WHERE pc.user_id=u.id AND pc.revoked_at IS NULL),COALESCE(array_length(u.totp_backup_codes_enc,1),0)>0 FROM users u WHERE lower(u.email)=lower($1) AND u.enabled=TRUE",&[(&email,Type::TEXT)]).await.ok()?;
-        let row = rows.first()?;
-        let totp: bool = row.try_get(2).ok()?;
-        let push: bool = row.try_get(3).ok()?;
+        let Ok(rows) = exec.read("SELECT u.id,u.email,COALESCE(u.totp_enabled,FALSE),COALESCE(u.push_mfa_enabled,FALSE),EXISTS(SELECT 1 FROM passkey_credentials pc WHERE pc.user_id=u.id AND pc.revoked_at IS NULL),COALESCE(array_length(u.totp_backup_codes_enc,1),0)>0 FROM users u WHERE lower(u.email)=lower($1) AND u.enabled=TRUE",&[(&email,Type::TEXT)]).await else {
+            return Ok(None);
+        };
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "recovery principal row".into(),
+        };
+        let totp: bool = row.try_get(2).map_err(|_| bad())?;
+        let push: bool = row.try_get(3).map_err(|_| bad())?;
         if !totp && !push {
-            return None;
+            return Ok(None);
         }
-        Some(Self {
-            user: row.try_get(0).ok()?,
+        Ok(Some(Self {
+            user: row.try_get(0).map_err(|_| bad())?,
             email: email.to_owned(),
             totp,
-        })
+        }))
     }
     pub fn method(&self) -> &'static str {
         if self.totp {

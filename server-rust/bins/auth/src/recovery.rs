@@ -59,9 +59,17 @@ impl AuthServer {
             return Self::recovery_json(400, json!({"error":"email is required"}));
         }
         let decoy = json!({"method":"totp","message":GENERIC});
-        let Some(principal) = recovery::Principal::resolve(&self.exec, email).await else {
-            Self::recovery_floor(start).await;
-            return Self::recovery_json(200, decoy);
+        let principal = match recovery::Principal::resolve(&self.exec, email).await {
+            Ok(Some(principal)) => principal,
+            Ok(None) => {
+                Self::recovery_floor(start).await;
+                return Self::recovery_json(200, decoy);
+            }
+            Err(e) => {
+                eprintln!("recovery: unreadable principal row: {}", e.message);
+                Self::recovery_floor(start).await;
+                return Self::recovery_json(200, decoy);
+            }
         };
         if principal
             .budget_refused(self.recovery_worker.as_ref(), &self.exec, &ip)
@@ -125,9 +133,17 @@ impl AuthServer {
             return Self::recovery_json(400, json!({"error":"email is required"}));
         }
         let invalid = || Self::recovery_json(401, json!({"error":"invalid verification code"}));
-        let Some(principal) = recovery::Principal::resolve(&self.exec, get("email")).await else {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            return invalid();
+        let principal = match recovery::Principal::resolve(&self.exec, get("email")).await {
+            Ok(Some(principal)) => principal,
+            Ok(None) => {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                return invalid();
+            }
+            Err(e) => {
+                eprintln!("recovery: unreadable principal row: {}", e.message);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                return invalid();
+            }
         };
         if principal
             .budget_refused(self.recovery_worker.as_ref(), &self.exec, &ip)

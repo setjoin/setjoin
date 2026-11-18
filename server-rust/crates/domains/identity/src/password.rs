@@ -139,7 +139,16 @@ pub async fn change(
     }
     let canonical = setjoin_authz::address::canonical(proof.text("email"));
     let email = canonical.as_str();
-    let depth=exec.read("SELECT COALESCE((SELECT (value->>0)::INT FROM system_config WHERE key='password_history_depth'),5)",&[]).await.ok().and_then(|r|r[0].try_get::<_,i32>(0).ok()).filter(|n|*n>0).unwrap_or(5);
+    // A query error, a missing row or an unreadable depth is the 500 internal fault; the
+    // SQL already COALESCEs an absent setting to 5, so a decode error never falls back to 5.
+    let depth = match exec.read("SELECT COALESCE((SELECT (value->>0)::INT FROM system_config WHERE key='password_history_depth'),5)",&[]).await {
+        Ok(rows) => match rows.first().map(|r| r.try_get::<_, i32>(0)) {
+            Some(Ok(n)) => n,
+            _ => return Err(reply(500, "internal error")),
+        },
+        Err(_) => return Err(reply(500, "internal error")),
+    };
+    let depth = if depth > 0 { depth } else { 5 };
     for _ in 0..4 {
         if exec
             .read(
