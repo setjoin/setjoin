@@ -21,8 +21,6 @@ history depth, session, push delivery, identity links, OIDC grant, RP account/li
 same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
 closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
 default. Exceptions, all deliberate:
-- push.rs reducer JSON values `secret`, `failures` and `key` still default permissively. This is
-  tracked in #455.
 - WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a
   distinct reply cannot reveal that an account exists.
 - `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops

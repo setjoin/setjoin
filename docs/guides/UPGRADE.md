@@ -50,6 +50,10 @@
 6. **Notify users:** send the maintenance-window notice.
 7. **Check current version:** `curl -s http://localhost:80/admin/system/version`
    (requires admin auth) or check the build hash.
+8. **Check stored TOTP secrets before the first deployment of the #455 fix:** the Rust auth server
+   no longer verifies a TOTP secret that decrypts to empty or blank (frozen Go did). With
+   `app.encryption_key` set, `SELECT id FROM users WHERE totp_enabled AND totp_secret_enc IS NOT NULL AND regexp_replace(pgp_sym_decrypt(totp_secret_enc::bytea, current_setting('app.encryption_key')), '[[:space:]=]', '', 'g') = '';`
+   must return no rows; a listed user cannot pass TOTP after the upgrade.
 
 ## Choose the installed layout first
 

@@ -46,5 +46,16 @@
     "reason": "owner-approved security fix 2026-11-05 (#498): a TOTP time-step counter is single-use per user and factor; Go re-accepts a still-valid code once its rolling 30-second guard elapses. Rust claims the counter atomically under FORCE RLS (V278 totp_counter_claims), so the replay is refused with 401 and counts as a failure.",
     "reviewer": "owner 2026-11-05",
     "reviewed": true
+  },
+  {
+    "case": "failclosed-empty-totp-key",
+    "issue": "#455",
+    "reviewed": true,
+    "reviewer": "owner, <YYYY-MM-DD>",
+    "review": "security Go bug fixed in Rust",
+    "review_reference": "owner security-bug policy; PR #<n>",
+    "reason": "Frozen Go's TOTP generator accepts an empty decoded secret (totp-secret-vectors.json records '' -> 812658), so a stored secret that decrypts to empty or blank verifies against an HMAC key anyone can compute. Rust's counter_proof refuses an empty key on every verifier (login cycle, confirm, bootstrap confirm, possession grant): the attempt is an evaluated wrong code. A ready reducer row without a string secret is a statement failure (500, rollback), as Go's failed Scan.",
+    "go_source": "authserver/internal/authn/totp.go:42-58; authserver/internal/authn/totp.go:104-122; server-rust/tests/conformance/identity-mfa/totp_secret_vectors.go.txt",
+    "secure_test": "crates/domains/identity/src/totp.rs::fail_closed::empty_key_proves_nothing, bins/auth/tests/fail_closed.rs::empty_totp_secret_proves_no_possession"
   }
 ]

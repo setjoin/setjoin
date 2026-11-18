@@ -134,7 +134,7 @@ pub async fn totp_grant(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let proof=crate::totp::counter_proof(code,value["secret"].as_str().unwrap_or(""),now);
+            let proof=crate::totp::counter_proof(code,crate::totp::ready_secret(&value)?,now);
             let counter=proof.as_ref().map(|p|p.0);let factor=proof.map(|p|p.1);let valid=counter.is_some();
             Ok(ProvenStatement::new(
                 "SELECT rust_identity_possession_totp_issue($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8)::text",
@@ -453,6 +453,42 @@ pub fn verify_approval(key: &[u8], canonical: &[u8], signature: &str) -> bool {
             .verify(canonical, &raw)
             .is_ok()
 }
+/// Go's MFAApprove decision (device.go:307-345) over the locked reducer row. A missing or
+/// mistyped `failures`, `expires`, `code`, `session` or hex `key` is Go's failed Scan: a uniform
+/// "invalid" with no burn, failure count or approval, never zero failures (#455).
+fn approval_result(value: &serde_json::Value, assertion: &Approval, user: i64, now: i64) -> &'static str {
+    use subtle::ConstantTimeEq;
+    let (Some(failures), Some(expires), Some(code), Some(session), Some(key)) = (
+        value["failures"].as_i64(),
+        value["expires"].as_i64(),
+        value["code"].as_str(),
+        value["session"].as_str(),
+        value["key"]
+            .as_str()
+            .and_then(|k| data_encoding::HEXLOWER_PERMISSIVE.decode(k.as_bytes()).ok()),
+    ) else {
+        return "invalid";
+    };
+    if failures >= 3 {
+        "burn"
+    } else if assertion.issued < now - 120
+        || assertion.issued > now + 30
+        || assertion.expires <= now
+        || assertion.expires > expires
+        || assertion
+            .expires
+            .checked_sub(assertion.issued)
+            .is_none_or(|d| d > 120)
+        || !verify_approval(&key, &assertion.canonical(user, session), &assertion.signature)
+    {
+        "invalid"
+    } else if !bool::from(code.as_bytes().ct_eq(assertion.code.as_bytes())) {
+        "wrong"
+    } else {
+        "accepted"
+    }
+}
+
 /// Preauth capability lookup resolves a possible owner only; the locked callback
 /// authenticates the device signature before the reducer can approve any row.
 pub async fn approve(
@@ -461,7 +497,6 @@ pub async fn approve(
 ) -> setjoin_pg::CommandOutcome<String, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
     use setjoin_pg::{CommandOutcome, ProvenStatement, Type};
-    use subtle::ConstantTimeEq;
     let invalid = || CommandOutcome::Committed("invalid".to_owned());
     let Some(nonce) = assertion.nonce_bytes() else {
         return invalid();
@@ -500,37 +535,7 @@ pub async fn approve(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let key = data_encoding::HEXLOWER_PERMISSIVE
-                .decode(value["key"].as_str().unwrap_or("").as_bytes())
-                .unwrap_or_default();
-            let result = if value["failures"].as_i64().unwrap_or(0) >= 3 {
-                "burn"
-            } else if assertion.issued < now - 120
-                || assertion.issued > now + 30
-                || assertion.expires <= now
-                || assertion.expires > value["expires"].as_i64().unwrap_or(0)
-                || assertion
-                    .expires
-                    .checked_sub(assertion.issued)
-                    .is_none_or(|d| d > 120)
-                || !verify_approval(
-                    &key,
-                    &assertion.canonical(user, value["session"].as_str().unwrap_or("")),
-                    &assertion.signature,
-                )
-            {
-                "invalid"
-            } else if !bool::from(
-                value["code"]
-                    .as_str()
-                    .unwrap_or("")
-                    .as_bytes()
-                    .ct_eq(assertion.code.as_bytes()),
-            ) {
-                "wrong"
-            } else {
-                "accepted"
-            };
+            let result = approval_result(&value, assertion, user, now);
             Ok(
                 ProvenStatement::new("SELECT rust_identity_push_approval_finish($1,$2,$3)")
                     .bind(user, Type::INT8)
@@ -665,5 +670,78 @@ pub(super) async fn generate_for(
         })),
         CommandOutcome::Unknown { operation } => CommandOutcome::Unknown { operation },
         CommandOutcome::RolledBack(e) => CommandOutcome::RolledBack(e),
+    }
+}
+
+#[cfg(test)]
+mod fail_closed_455 {
+    //! #455: an unreadable failure count, key, code, session or expiry is Go's failed Scan
+    //! ("invalid"), never zero failures; the three-strike burn holds at the boundary.
+    use super::{approval_result, Approval};
+    use base64::Engine;
+    use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_FIXED_SIGNING};
+    use serde_json::{json, Value};
+    const NOW: i64 = 1_800_000_000;
+    const USER: i64 = 7;
+
+    fn signed() -> (Approval, String) {
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+        let mut a = Approval {
+            nonce: "11".repeat(32),
+            code: "42".into(),
+            device: 9,
+            decision: "approve".into(),
+            issued: NOW,
+            expires: NOW + 60,
+            signature: String::new(),
+        };
+        let signature = pair.sign(&rng, &a.canonical(USER, "session")).unwrap();
+        a.signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.as_ref());
+        (a, data_encoding::HEXLOWER.encode(pair.public_key().as_ref()))
+    }
+    fn row(key: &str) -> Value {
+        json!({"status":"ready","id":1,"user":USER,"code":"42","session":"session","expires":NOW+120,"failures":0,"key":key})
+    }
+
+    #[test]
+    fn three_strike_boundary() {
+        let (a, key) = signed();
+        let mut r = row(&key);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "accepted");
+        r["failures"] = json!(2);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "accepted", "two strikes still allow the right code");
+        r["code"] = json!("43");
+        assert_eq!(approval_result(&r, &a, USER, NOW), "wrong", "the third wrong answer is counted (the reducer burns at 3)");
+        r["code"] = json!("42");
+        r["failures"] = json!(3);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "burn", "three strikes burn even the right code");
+    }
+
+    #[test]
+    fn unreadable_values_are_invalid_never_zero_failures() {
+        let (a, key) = signed();
+        for (field, bad) in [
+            ("failures", Value::Null),
+            ("failures", json!("0")),
+            ("failures", json!(0.5)),
+            ("expires", Value::Null),
+            ("code", Value::Null),
+            ("session", Value::Null),
+            ("key", Value::Null),
+            ("key", json!("zz")),
+            ("key", json!(7)),
+        ] {
+            let mut r = row(&key);
+            r[field] = bad.clone();
+            assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "{field}={bad}");
+            r.as_object_mut().unwrap().remove(field);
+            assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "{field} missing");
+        }
+        let mut r = row("");
+        assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "an empty key verifies nothing");
+        r["failures"] = json!(3);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "burn", "Go order: the burn precedes the signature check");
     }
 }

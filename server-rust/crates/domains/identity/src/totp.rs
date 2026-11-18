@@ -193,6 +193,9 @@ pub fn validate(presented: &str, secret: &str, unix: i64) -> bool {
 /// retains the fixed three-window verification work.
 pub(crate) fn counter_proof(presented:&str,secret:&str,unix:i64)->Option<(i64,Vec<u8>)>{
     use subtle::{ConstantTimeEq,ConditionallySelectable};
+    // #455: an empty decoded key (missing, blank or all-padding secret) proves nothing.
+    // Frozen Go's generator accepts it (totp-secret-vectors.json: "" -> 812658); Rust refuses.
+    if secret_key(secret)?.is_empty(){return None;}
     let mut found=subtle::Choice::from(0);let mut counter=0u64;
     for offset in [-30,0,30]{
         if let Some(expected)=code(secret,unix+offset){
@@ -203,6 +206,16 @@ pub(crate) fn counter_proof(presented:&str,secret:&str,unix:i64)->Option<(i64,Ve
     }
     if !bool::from(found){return None;}
     Some((counter as i64,Sha256::digest(secret_key(secret)?).to_vec()))
+}
+
+/// The `secret` of a `ready` TOTP reducer row (#455). A missing, NULL or non-string value is
+/// frozen Go's failed Scan (a bookkeeping error: rollback, no counter), never an empty key.
+pub(crate) fn ready_secret(value: &serde_json::Value) -> Result<&str, StatementFailure> {
+    value["secret"].as_str().ok_or_else(|| StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "TOTP secret".into(),
+    })
 }
 
 
@@ -537,7 +550,7 @@ pub async fn confirm(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let Some((counter,factor))=counter_proof(presented,result["secret"].as_str().unwrap_or(""),now) else {
+            let Some((counter,factor))=counter_proof(presented,ready_secret(&result)?,now) else {
                 return Ok(setjoin_pg::ProvenStatement::new(
                     "SELECT '{\"status\":\"invalid_code\"}'::text",
                 ));
@@ -822,7 +835,7 @@ where
             let result=read?;
             if result["status"]!="ready"{return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(result.to_string(),Type::TEXT));}
             let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-            let Some((counter,factor))=counter_proof(presented,result["secret"].as_str().unwrap_or(""),now)else{return Ok(setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_bootstrap_fail($1)::text").bind(user,Type::INT8));};
+            let Some((counter,factor))=counter_proof(presented,ready_secret(&result)?,now)else{return Ok(setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_bootstrap_fail($1)::text").bind(user,Type::INT8));};
             if result["user_enabled"]!=true{return Ok(setjoin_pg::ProvenStatement::new("SELECT '{\"status\":\"state_changed\"}'::text"));}
             let anchor=match prepare(family.clone()).await{Ok(a)=>a,Err(v)=>return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(v.to_string(),Type::TEXT))};
             let refresh_hash=Sha256::digest(anchor.refresh.as_bytes()).to_vec();
@@ -830,4 +843,38 @@ where
                 .bind(user,Type::INT8).bind(final_claims.to_string(),Type::TEXT).bind(final_hash.to_string(),Type::TEXT).bind(enrollment.to_owned(),Type::TEXT).bind(ip.to_owned(),Type::TEXT)
                 .bind(refresh_hash,Type::BYTEA).bind(anchor.lifetime,Type::INT8).bind(family,Type::TEXT).bind(counter,Type::INT8).bind(factor,Type::BYTEA))
         }},json_row,tail).await
+}
+
+#[cfg(test)]
+mod fail_closed {
+    //! #455: an empty TOTP key proves nothing, and a ready row without a string secret is a
+    //! statement failure. #454: completion risk lookup errors fail closed.
+    use super::{code, counter_proof, ready_secret};
+    const SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+    #[test]
+    fn empty_key_proves_nothing() {
+        let now = 1_793_843_342;
+        // Frozen Go's generator yields a code for the empty key (totp-secret-vectors.json).
+        assert_eq!(code("", 59).as_deref(), Some("812658"));
+        for secret in ["", "   ", "\r\n"] {
+            let presented = code(secret, now).expect("Go-compatible empty-key code");
+            assert!(counter_proof(&presented, secret, now).is_none(), "{secret:?}");
+        }
+        let presented = code(SECRET, now).unwrap();
+        assert!(counter_proof(&presented, SECRET, now).is_some(), "control: an enrolled key still proves");
+    }
+
+    #[test]
+    fn ready_row_without_a_string_secret_is_a_statement_failure() {
+        use serde_json::json;
+        for row in [
+            json!({"status":"ready"}),
+            json!({"status":"ready","secret":null}),
+            json!({"status":"ready","secret":42}),
+        ] {
+            assert!(ready_secret(&row).is_err(), "{row}");
+        }
+        assert_eq!(ready_secret(&json!({"status":"ready","secret":SECRET})).unwrap(), SECRET);
+    }
 }
