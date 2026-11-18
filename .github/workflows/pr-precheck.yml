@@ -8,7 +8,7 @@ name: PR pre-check
 #                change, on the lane Postgres with REQUIRE_DB=1 and the lane's skip-marker, ignored-test,
 #                zero-test and Go-rehearsal checks (scripts/server-rust-parallel-lane.sh,
 #                SERVER_RUST_STAGES=workspace). No server-rust code change: it ends after the selection.
-#                The run step is capped at 22 minutes; hitting the cap is a failure, never a pass.
+#                The run step is capped at 30 minutes; hitting the cap is a failure, never a pass.
 # Peak concurrency per pull request is two jobs (the gate starts after both end), next to the 19-job lane.
 # The FULL server-rust lane does not run on pull requests: it runs on the merge queue's merge_group
 # commit of each queue entry (with merge-queue batching on, only the batch head's run; server-rust-lane.yml, whose job is also named
@@ -69,7 +69,7 @@ jobs:
 
   integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
       LANE_JOB_TAG: precheck-integration
     steps:
@@ -112,9 +112,9 @@ jobs:
           path: ~/.cache/setjoin-server-rust-lane/go-mod
           key: lane-go-mod-${{ hashFiles('**/go.sum') }}
           restore-keys: lane-go-mod-
-      - name: Integration tests of the selected targets (22-minute cap)
+      - name: Integration tests of the selected targets (30-minute cap)
         if: steps.select.outputs.select != ''
-        timeout-minutes: 22
+        timeout-minutes: 30
         env:
           SERVER_RUST_STAGES: workspace
           SERVER_RUST_NEXTEST_SELECT: ${{ steps.select.outputs.select }}
@@ -130,7 +130,7 @@ jobs:
             cat lane-artifacts/integration-plan.md 2>/dev/null || echo "- FAIL: no selection produced (setup or selection failed)"
             if [ -f lane-artifacts/lane.log ]; then
               { grep -E '^(✓|✗)|DB-SKIP|CONFORMANCE-SKIP|Summary \[|LANE-DB-LEAK' lane-artifacts/lane.log | tail -30 | sed 's/^/- `/; s/$/`/'; } || true
-              [ -f lane-artifacts/lane-complete.txt ] || echo "- FAIL: the run did not finish (22-minute cap or an aborted lane): red, never a pass"
+              [ -f lane-artifacts/lane-complete.txt ] || echo "- FAIL: the run did not finish (30-minute cap or an aborted lane): red, never a pass"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

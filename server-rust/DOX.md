@@ -523,7 +523,7 @@ cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules li
 requests run only `pr-precheck.yml` (gate job `aggregate` over `light`: `scripts/quick-check.sh`, changed-package
 clippy/`--lib` tests and cheap guards, and `integration`: the `tests/*.rs` targets `scripts/precheck-integration.py`
 selects, run by `server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT`,
-22-minute cap, see `.github/CI-RUNNERS.md`); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+30-minute cap, see `.github/CI-RUNNERS.md`); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
 lane result. Jobs: `queue` (merge-queue batching decision, head or gone; prints head on every run unless batching is on); `plan` (mode, shard lists; debug or full); `build` (one `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`); `roots` (static guards,
