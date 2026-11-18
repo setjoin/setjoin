@@ -582,8 +582,10 @@ impl AuthServer {
         if self.config.vapid_private_key.is_empty() {
             return Self::push_named_problem(404, "push MFA not configured", "not-found", &path);
         }
-        if self.totp_completion_unported(&req).await {
-            return self.forward(req).await;
+        match self.totp_completion_route(&req).await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -624,13 +626,19 @@ impl AuthServer {
             .get("dpop_jwk")
             .and_then(Value::as_object)
             .is_some_and(|v| !v.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         match push::harvest(&self.exec, &pending, nonce, token).await {
             setjoin_pg::CommandOutcome::Committed(true) => {}
             setjoin_pg::CommandOutcome::Unknown { operation } => {
@@ -659,6 +667,7 @@ impl AuthServer {
             secure,
             Some(factors),
             (500, "user lookup failed"),
+            risk,
         )
         .await
     }

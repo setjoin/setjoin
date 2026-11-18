@@ -4,6 +4,8 @@
 // Shared fixtures only; this binary uses a subset of the helpers.
 #[allow(dead_code)]
 mod common;
+#[path = "common/revoke.rs"]
+mod revoke;
 use base64::Engine as _;
 use http_body_util::BodyExt;
 use hyper::Request;
@@ -14,22 +16,6 @@ use setjoin_conformance::{fixture, harness::Db};
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 type Err = Box<dyn std::error::Error + Send + Sync>;
-
-/// Receipt families the guest cases write: every login, refresh, backup
-/// consumption, WebAuthn and bootstrap-confirm flow here records under F21 (commands
-/// mfa-bootstrap/refresh/mfa-mint/mfa-bootstrap-grant/rp-mint: reducers
-/// mailserver/sql/reducers/rust_identity_{totp_bootstrap_confirm,refresh,mfa_mint,
-/// mfa_bootstrap_grant,rp_mint}.sql; rp-settle: crates/domains/identity/src/rp/account.rs:300;
-/// guest invites: crates/domains/identity/src/guest_invite.rs:192). Only these
-/// families are snapshotted and cleaned, never other families' receipts.
-const RECEIPT_FAMILIES: [&str; 1] = ["F21"];
-
-/// Operation-receipt ids of RECEIPT_FAMILIES present when the serialised case
-/// began. Receipts have no user foreign key, so account deletion cannot cascade
-/// them; the case's own receipts are the family ids absent from this snapshot
-/// (cases run one at a time under SERIAL and the identity-login advisory lock,
-/// against an assigned DB).
-static RECEIPTS_BEFORE: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
 
 /// Combines a case result with a cleanup result: the case error is never
 /// replaced by a cleanup error (the cleanup error is appended to it); a cleanup
@@ -190,14 +176,6 @@ async fn cleanup_account(c: &tokio_postgres::Client, a: &fixture::Account) -> Re
 async fn purge_user_rows(c: &tokio_postgres::Client, u: i64, email: &str) -> Result<(), Err> {
     c.execute("DELETE FROM auth_event_log WHERE email=$1", &[&email])
         .await?;
-    let before = RECEIPTS_BEFORE.lock().unwrap().clone();
-    if let Some(before) = before {
-        c.execute(
-            "DELETE FROM rust_operation_receipts WHERE family = ANY($1) AND operation_id::text <> ALL($2::text[])",
-            &[&RECEIPT_FAMILIES.as_slice(), &before],
-        )
-        .await?;
-    }
     for t in [
         "login_events",
         "sessions",
@@ -237,16 +215,6 @@ async fn begin(
     )
     .await?;
     guest_function_pristine(&c).await?;
-    let ids: Vec<String> = c
-        .query(
-            "SELECT operation_id::text FROM rust_operation_receipts WHERE family = ANY($1)",
-            &[&RECEIPT_FAMILIES.as_slice()],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    *RECEIPTS_BEFORE.lock().unwrap() = Some(ids);
     Ok((serial, db, c))
 }
 
@@ -393,7 +361,7 @@ const VAPID: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
 const TOTP_SQL: &str = "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),totp_enabled_at=now(),totp_backup_codes_enc=$4,factor_generation=2 WHERE id=$1";
 const BACKUP: &str = "backup353";
 const ROUTES: [&str; 6] = ["login", "verify", "confirm", "backup", "push", "webauthn"];
-const FLAGS: &str = "('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding')";
+const FLAGS: &str = "('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding','feature.user_risk')";
 
 struct Mat {
     method: &'static str,
@@ -631,11 +599,12 @@ impl Case {
     }
 
     async fn cleanup(self, c: &tokio_postgres::Client) -> Result<(), Err> {
+        // Both steps always run; the account is removed even if the purge fails.
         let a = self.a.clone();
-        purge_user_rows(c, a.user, &self.email).await?;
+        let purged = purge_user_rows(c, a.user, &self.email).await;
         drop(self);
-        fixture::remove(c, &a).await?;
-        Ok(())
+        let removed: Result<(), Err> = fixture::remove(c, &a).await.map(|_| ()).map_err(Into::into);
+        settle(purged, removed)
     }
 }
 
@@ -713,8 +682,6 @@ async fn save_flags(c: &tokio_postgres::Client) -> Result<String, Err> {
     Ok(c.query_one(&format!("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key IN {FLAGS}"), &[]).await?.get(0))
 }
 async fn restore_flags(c: &tokio_postgres::Client, saved: &str) -> Result<(), Err> {
-    c.batch_execute("GRANT SELECT ON feature_toggles TO setjoin_app")
-        .await?;
     c.execute(
         &format!("DELETE FROM feature_toggles WHERE key IN {FLAGS}"),
         &[],
@@ -740,6 +707,8 @@ fn tokens_of(raw: &str) -> Result<(Value, Value), Err> {
     ))
 }
 
+/// The matrix conditions. `FlagErr` makes the routing-flag read fail: the completion refuses
+/// with 500 and never forwards (#454 Codex r1); `Ca`/`Dt` forward whole; `Clear` stays native.
 #[derive(Clone, Copy, Debug)]
 enum Cond {
     Ca,
@@ -774,6 +743,8 @@ async fn n1_cell(
             return Err(e);
         }
     };
+    // Held for the teardown: the feature_toggles privilege is restored through this guard only.
+    let mut feature_guard: Option<revoke::Revoked> = None;
     let result: Result<(), Err> = async {
         match cond {
             Cond::Ca => set_flags(c, true, false).await?,
@@ -784,17 +755,9 @@ async fn n1_cell(
                     db.app.is_some(),
                     "flag-error cell needs a distinct app role DSN",
                 )?;
-                c.batch_execute("REVOKE SELECT ON feature_toggles FROM setjoin_app")
-                    .await?;
                 let probe = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap(), 1)
                     .map_err(|e| e.0)?;
-                check(
-                    probe
-                        .read("SELECT enabled FROM feature_toggles LIMIT 1", &[])
-                        .await
-                        .is_err(),
-                    "precondition: the app read of feature_toggles must fail",
-                )?;
+                feature_guard = Some(revoke::table(&db.dsn, c, &probe, "feature_toggles").await?);
             }
             Cond::Clear => {
                 set_flags(c, false, false).await?;
@@ -826,6 +789,22 @@ async fn n1_cell(
                 refresh.get("acct").is_none(),
                 &format!("{what}: refresh must not carry acct"),
             )?;
+        } else if matches!(cond, Cond::FlagErr) {
+            // #454 (Codex r1): an unreadable routing flag refuses; frozen Go, whose risk read
+            // fails open, must never receive the completion.
+            check(
+                status == 500 && raw.contains("internal error"),
+                &format!("{what}: want 500 internal error, got {status}: {raw}"),
+            )?;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            check(
+                seen.try_recv().is_err(),
+                &format!("{what}: a flag-lookup error reached the upstream"),
+            )?;
+            check(
+                before == after,
+                &format!("{what}: the refusal consumed state: {before} -> {after}"),
+            )?;
         } else {
             let got = tokio::time::timeout(std::time::Duration::from_secs(10), seen.recv())
                 .await
@@ -853,15 +832,16 @@ async fn n1_cell(
     }
     .await;
     spy_task.abort();
-    let grant = c
-        .batch_execute("GRANT SELECT ON feature_toggles TO setjoin_app")
-        .await;
+    let grant: Result<(), Err> = match &feature_guard {
+        Some(guard) => guard.restore(c).await,
+        None => Ok(()),
+    };
     let cleaned = case.cleanup(c).await;
-    settle(result, grant.map_err(|e| -> Err { e.into() }).and(cleaned))
+    settle(result, grant.and(cleaned))
 }
 
 #[tokio::test]
-async fn n1_handoff_matrix_forwards_whole_and_clear_is_native() {
+async fn n1_handoff_matrix_forwards_whole_flag_error_refuses_clear_is_native() {
     let (_serial, db, c) = begin("GUEST353-n1").await.unwrap();
     let saved = save_flags(&c).await.unwrap();
     let mut result: Result<(), Err> = Ok(());
@@ -1146,4 +1126,181 @@ async fn tf_guest_force_password_change_token_has_no_acct() {
         settle(r, case.cleanup(c).await)
     })
     .await;
+}
+
+/// Snapshot halves: the token/session/event counts before `#`, the route's own state after it.
+fn tokens_part(s: &str) -> &str {
+    s.split('#').next().unwrap_or("")
+}
+fn own_part(s: &str) -> &str {
+    s.split_once('#').map(|(_, own)| own).unwrap_or("")
+}
+
+/// #454 (Q4): with a failing risk read, every completion answers 500 'token issue failed'
+/// before any token is signed or stored; TOTP, confirm, backup and push also leave their
+/// factor unspent. Login and WebAuthn compare only tokens/sessions/login events: the password
+/// tail and the passkey claim precede the point where the user is known.
+#[tokio::test]
+async fn failclosed_454_risk_fault_spends_no_factor_and_issues_no_token() {
+    let (_serial, db, c) = begin("GUEST353-failclosed-risk").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
+    let mut result: Result<(), Err> = Ok(());
+    for (n, route) in ROUTES.iter().enumerate() {
+        result = failclosed_risk_cell(&db, &c, &app, route, n).await;
+        if result.is_err() {
+            break;
+        }
+    }
+    let restored = restore_flags(&c, &saved).await;
+    settle(result, restored).unwrap();
+}
+
+async fn failclosed_risk_cell(
+    db: &Db,
+    c: &tokio_postgres::Client,
+    app: &setjoin_pg::ScopedExecutor,
+    route: &str,
+    n: usize,
+) -> Result<(), Err> {
+    set_flags(c, false, false).await?;
+    c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.user_risk',true) ON CONFLICT(key) DO UPDATE SET enabled=true", &[]).await?;
+    let case = Case::new(db, c, route, false, &format!("failclosed-risk-{n}"), None).await?;
+    let result = async {
+        let before = case.snap(c).await?;
+        let guard = revoke::table(&db.dsn, c, app, "user_risk").await?;
+        let (status, raw) = case.send("").await?;
+        guard.restore(c).await?;
+        let after = case.snap(c).await?;
+        check(status == 500 && raw.contains("token issue failed"), &format!("{route}: want 500 token issue failed, got {status}: {raw}"))?;
+        check(!raw.contains("access_token") && !raw.contains("refresh_token") && !raw.contains("mfa_token"), &format!("{route}: refused completion leaked a token: {raw}"))?;
+        check(tokens_part(&before) == tokens_part(&after), &format!("{route}: the fault minted or revoked tokens/sessions/events: {before} -> {after}"))?;
+        match route {
+            // A refused password login writes no auth_event_log row: record_success runs only after
+            // the mint (lib.rs, after the risk read), and record_failure only for a wrong password.
+            "login" => check(own_part(&before) == own_part(&after), &format!("login: a refused login must add no auth_event_log row: {before} -> {after}"))?,
+            // The passkey counter is claimed in finish_login before the user is known (reducer
+            // rust_identity_webauthn_login_claim sets sign_count = greatest(stored, presented));
+            // the vector's presented counter is 8 and the stored counter 7.
+            "webauthn" => check(own_part(&before) == "7" && own_part(&after) == "8", &format!("webauthn: the claim must move sign_count 7 -> 8 and nothing else: {before} -> {after}"))?,
+            _ => check(own_part(&before) == own_part(&after), &format!("{route}: the fault spent state: {before} -> {after}"))?,
+        }
+        Ok::<(), Err>(())
+    }
+    .await;
+    let cleaned = case.cleanup(c).await;
+    settle(result, cleaned)
+}
+
+/// #454: a failed MFA-factor read after a verified passkey answers 500 'internal error' and
+/// issues no token (the read loses only `push_mfa_enabled`; every other users column stays
+/// readable so the assertion and completion reads still succeed).
+#[tokio::test]
+async fn failclosed_454_webauthn_factor_fault_issues_no_token() {
+    let (_serial, db, c) = begin("GUEST353-failclosed-factors").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
+    let result = async {
+        set_flags(&c, false, false).await?;
+        let case = Case::new(&db, &c, "webauthn", false, "failclosed-factors", None).await?;
+        let inner = async {
+            let cols: String = c.query_one("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute WHERE attrelid='public.users'::regclass AND attnum>0 AND NOT attisdropped AND attname<>'push_mfa_enabled'", &[]).await?.get(0);
+            let before = case.snap(&c).await?;
+            let guard = revoke::revoke(
+                &db.dsn,
+                &c,
+                &app,
+                "users",
+                &format!("REVOKE SELECT ON users FROM setjoin_app; GRANT SELECT ({cols}) ON users TO setjoin_app"),
+                &format!("REVOKE SELECT ({cols}) ON users FROM setjoin_app; GRANT SELECT ON users TO setjoin_app"),
+                "SELECT push_mfa_enabled FROM users LIMIT 1",
+            )
+            .await?;
+            let readable = app.read("SELECT email FROM users LIMIT 1", &[]).await.is_ok();
+            // S4: completion()'s own query must still succeed, so the 500 comes from factors().
+            let completion_readable = app.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id) FROM users u WHERE u.enabled LIMIT 1", &[]).await.is_ok();
+            let (status, raw) = case.send("").await?;
+            guard.restore(&c).await?;
+            let after = case.snap(&c).await?;
+            check(readable, "precondition: the other users columns must stay readable")?;
+            check(completion_readable, "precondition: completion()'s query must still succeed for setjoin_app")?;
+            check(status == 500 && raw.contains("internal error"), &format!("want 500 internal error, got {status}: {raw}"))?;
+            check(!raw.contains("access_token") && !raw.contains("refresh_token") && !raw.contains("mfa_token"), &format!("refused finish leaked a token: {raw}"))?;
+            check(tokens_part(&before) == tokens_part(&after), &format!("tokens/sessions changed: {before} -> {after}"))?;
+            // The passkey counter is claimed before factors() is read: sign_count 7 -> 8 (vectors.json success counter).
+            check(own_part(&before) == "7" && own_part(&after) == "8", &format!("the claim must move sign_count 7 -> 8: {before} -> {after}"))?;
+            Ok::<(), Err>(())
+        }
+        .await;
+        let cleaned = case.cleanup(&c).await;
+        settle(inner, cleaned)
+    }
+    .await;
+    let restored = restore_flags(&c, &saved).await;
+    settle(result, restored).unwrap();
+}
+
+/// #454 Codex r2: with conditional access on and rate limiting off, an oversized backup-code
+/// request answers the local 413 and never reaches the recording upstream: the 1 MiB body bound
+/// runs before any enabled-flag handoff.
+#[tokio::test]
+async fn n2_oversized_backup_refuses_locally_even_with_ca_on() {
+    let (_serial, db, c) = begin("GUEST353-n2-oversize").await.unwrap();
+    // set_flags changes exactly these four keys, so only they are snapshotted and restored.
+    const SET_KEYS: &str = "('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding')";
+    let saved: String = c
+        .query_one(&format!("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key IN {SET_KEYS}"), &[])
+        .await
+        .unwrap()
+        .get(0);
+    let mut slot: Option<Case> = None;
+    let mut watch: Option<tokio::task::JoinHandle<()>> = None;
+    let observed: Result<(), Err> = async {
+        set_flags(&c, true, false).await?;
+        let (addr, mut seen, spy_task) = spy().await?;
+        watch = Some(spy_task);
+        slot = Some(
+            Case::new(
+                &db,
+                &c,
+                "backup",
+                true,
+                "guest353-n2-oversize",
+                Some(format!("http://{addr}")),
+            )
+            .await?,
+        );
+        let case = slot.as_mut().ok_or("case slot")?;
+        case.mat.body = format!(
+            "{{\"mfa_token\":\"x\",\"code\":\"{}\"}}",
+            "0".repeat((1 << 20) + 64)
+        );
+        let sent = case.send("").await;
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let forwarded = seen.try_recv().is_ok();
+        let (status, raw) = sent?;
+        check(!forwarded, "an oversized backup request reached the upstream")?;
+        check(
+            status == 413 && raw.contains("body_too_large"),
+            &format!("want the local 413 body_too_large, got {status}: {raw}"),
+        )?;
+        Ok(())
+    }
+    .await;
+    if let Some(t) = watch {
+        t.abort();
+    }
+    let cleaned = match slot {
+        Some(case) => case.cleanup(&c).await,
+        None => Ok(()),
+    };
+    // This case never revokes a privilege, so only the saved flag rows are restored (no GRANT).
+    let flags: Result<(), Err> = async {
+        c.execute(&format!("DELETE FROM feature_toggles WHERE key IN {SET_KEYS}"), &[])
+            .await?;
+        c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)", &[&saved]).await?;
+        Ok(())
+    }
+    .await;
+    settle(settle(observed, cleaned), flags).unwrap();
 }

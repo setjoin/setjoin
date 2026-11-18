@@ -256,6 +256,13 @@ impl AuthServer {
         if self.totp_threat_pending().await {
             return Err(self.forward(req).await);
         }
+        self.totp_bounded(req).await
+    }
+    /// Bounds the complete body before any completion routing reads a flag (#454 Codex r1, F1).
+    pub(super) async fn totp_bounded(
+        &self,
+        req: Request<Body>,
+    ) -> Result<Request<Body>, Response<Body>> {
         let (parts, input) = req.into_parts();
         match Limited::new(input,1<<20).collect().await {
             Ok(raw)=>Ok(Request::from_parts(parts,body(raw.to_bytes()))),
@@ -620,9 +627,12 @@ pub(super) enum GuestMint {
     Refuse,
 }
 impl AuthServer {
-    pub(super) async fn totp_completion_unported(&self, req: &Request<Body>) -> bool {
-        if self.totp_threat_pending().await {
-            return true;
+    /// Completion routing (#405/#420). Ok(true) forwards whole to frozen Go, Ok(false) stays
+    /// native, and a flag-lookup error refuses (#454 Codex r1): Go's risk read fails open, so an
+    /// unreadable routing flag must never hand a completion to it.
+    pub(super) async fn totp_completion_route(&self, req: &Request<Body>) -> Result<bool, ()> {
+        if self.config.threat_controls.iter().any(|v| *v) {
+            return Ok(true);
         }
         if [
             "x-device-id",
@@ -634,17 +644,25 @@ impl AuthServer {
         .iter()
         .any(|h| req.headers().contains_key(*h))
         {
-            return true;
+            return Ok(true);
         } // #420.
         for key in [
+            "feature.rate_limit",
             "feature.conditional_access",
             "feature.device_trust_enforcement",
         ] {
-            if !matches!(login::enabled(&self.exec, key).await, Ok(false)) {
-                return true;
+            if login::enabled(&self.exec, key).await.map_err(|_| ())? {
+                return Ok(true);
             } // #405/#420.
         }
-        false
+        Ok(false)
+    }
+    /// The `feature.token_binding` handoff for a request carrying a `dpop_jwk` (#405). Ok(true)
+    /// forwards whole, Ok(false) stays native, and a lookup error is a 500 refusal (#454 Codex r1).
+    pub(super) async fn token_binding_handoff(&self, path: &str) -> Result<bool, Response<Body>> {
+        login::enabled(&self.exec, "feature.token_binding")
+            .await
+            .map_err(|_| Self::failure(500, "internal error", path))
     }
     /// Go evaluateCompletionConditionalAccess → populateGuestCAScope (auth.go:2603,
     /// 2499-2517): every factor completion resolves guest scope before domain
@@ -691,6 +709,7 @@ impl AuthServer {
         path: &str,
         family: Option<String>,
         factors: Option<Vec<String>>,
+        risk: Option<Value>,
     ) -> Result<MfaTokens, Response<Body>> {
         self.completion_guest_scope(user.user(), path).await?;
         self.completion_tokens(
@@ -699,11 +718,12 @@ impl AuthServer {
             family,
             factors.unwrap_or_else(|| totp::factors(pending)),
             GuestMint::Allow,
+            risk,
         )
         .await
     }
     pub(super) async fn completion_tokens(
-        &self,user:&totp::CompletionUser,path:&str,family:Option<String>,factors:Vec<String>,guest_mint:GuestMint,
+        &self,user:&totp::CompletionUser,path:&str,family:Option<String>,factors:Vec<String>,guest_mint:GuestMint,risk:Option<Value>,
     )->Result<MfaTokens,Response<Body>> {
         let scope = user
             .scope(&self.exec)
@@ -751,10 +771,9 @@ impl AuthServer {
             scope,
             &factors,
         );
-        match user.risk(&self.exec).await {
-            Ok(Some(risk)) => access["risk"] = risk,
-            Ok(None) => {}
-            Err(_) => return Err(Self::failure(500, "token issue failed", path)),
+        // #454: the caller read the risk before any factor or assertion was spent.
+        if let Some(risk) = risk {
+            access["risk"] = risk;
         }
         if guest {
             access["acct"] = Value::from("guest");
@@ -820,7 +839,15 @@ impl AuthServer {
         r
     }
     pub(super) async fn totp_verify(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_completion_unported(&req).await {
+        let route = self.totp_completion_route(&req).await;
+        if route.is_err() {
+            return Self::failure(500, "internal error", req.uri().path());
+        }
+        let req = match self.totp_bounded(req).await {
+            Ok(req) => req,
+            Err(reply) => return reply,
+        };
+        if route == Ok(true) {
             return self.forward(req).await;
         }
         let path = req.uri().path().to_owned();
@@ -856,14 +883,20 @@ impl AuthServer {
             .get("dpop_jwk")
             .and_then(Value::as_object)
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
         let code = input.get("code").and_then(Value::as_str).unwrap_or("");
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         match totp::cycle(&self.exec, &pending, code).await {
             setjoin_pg::CommandOutcome::Committed(s) => match s.as_str() {
                 "accepted" => {}
@@ -899,7 +932,7 @@ impl AuthServer {
             Ok(None) => return Self::failure(401, "user not found", &path),
             Err(_) => return Self::failure(500, "internal error", &path),
         };
-        let tokens = match self.mfa_tokens(&user, &pending, &path, None, None).await {
+        let tokens = match self.mfa_tokens(&user, &pending, &path, None, None, risk).await {
             Ok(t) => t,
             Err(r) => return r,
         };
@@ -967,7 +1000,15 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn totp_bootstrap_confirm(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_completion_unported(&req).await {
+        let route = self.totp_completion_route(&req).await;
+        if route.is_err() {
+            return Self::failure(500, "internal error", req.uri().path());
+        }
+        let req = match self.totp_bounded(req).await {
+            Ok(req) => req,
+            Err(reply) => return reply,
+        };
+        if route == Ok(true) {
             return self.forward(req).await;
         }
         let path = req.uri().path().to_owned();
@@ -1020,12 +1061,12 @@ impl AuthServer {
             .get("dpop_jwk")
             .and_then(Value::as_object)
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
         let signed = !pending.text("credential_fence").is_empty()
             || pending
@@ -1041,12 +1082,19 @@ impl AuthServer {
         } else {
             None
         };
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         let prepared = std::sync::Mutex::<Option<(totp::CompletionUser, MfaTokens)>>::new(None);
         let failed = std::sync::Mutex::<Option<Response<Body>>>::new(None);
         let output = &prepared;
         let failure = &failed;
         let pending_ref = &pending;
         let path_ref = &path;
+        let risk_ref = &risk;
         let result = totp::bootstrap_confirm(
             &self.exec,
             &pending,
@@ -1072,7 +1120,7 @@ impl AuthServer {
                     },
                 };
                 let tokens = match self
-                    .mfa_tokens(&user, pending_ref, path_ref, Some(family), None)
+                    .mfa_tokens(&user, pending_ref, path_ref, Some(family), None, risk_ref.clone())
                     .await
                 {
                     Ok(t) => t,
@@ -1219,8 +1267,17 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn backup_verify(&self, req: Request<Body>) -> Response<Body> {
-        let req=match self.totp_ingress(req).await{Ok(req)=>req,Err(reply)=>return reply};
-        if self.totp_completion_unported(&req).await {
+        // #454 Codex r2: a flag error refuses locally, and the body bound runs before any
+        // handoff, so an oversized request answers 413 here and never reaches the upstream.
+        let route = self.totp_completion_route(&req).await;
+        if route.is_err() {
+            return Self::failure(500, "internal error", req.uri().path());
+        }
+        let req = match self.totp_bounded(req).await {
+            Ok(req) => req,
+            Err(reply) => return reply,
+        };
+        if route == Ok(true) {
             return self.forward(req).await;
         }
         let path = req.uri().path().to_owned();
@@ -1259,29 +1316,35 @@ impl AuthServer {
             .get("dpop_jwk")
             .and_then(Value::as_object)
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         match setjoin_identity::push::consume_backup(&self.exec,&pending,code).await{
             setjoin_pg::CommandOutcome::Committed(true)=>{},
             setjoin_pg::CommandOutcome::Committed(false)=>return Self::failure(401,"invalid or used backup code",&path),
             setjoin_pg::CommandOutcome::Unknown{operation}=>{let mut r=Self::failure(503,"Backup-code verification outcome unavailable. Inspect the operation before retrying.",&path);r.headers_mut().insert("x-operation-id",uuid::Uuid::from_bytes(operation.0).to_string().parse().unwrap());return r;},
             _=>return Self::failure(500,"verification failed",&path)
         }
-        self.mfa_finish(pending,path,ip,agent,secure,None,(401,"user not found")).await
+        self.mfa_finish(pending,path,ip,agent,secure,None,(401,"user not found"),risk).await
     }
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn mfa_finish(&self,pending:Session,path:String,ip:String,agent:String,secure:bool,factors:Option<Vec<String>>,missing:(u16,&str))->Response<Body>{
+    pub(super) async fn mfa_finish(&self,pending:Session,path:String,ip:String,agent:String,secure:bool,factors:Option<Vec<String>>,missing:(u16,&str),risk:Option<Value>)->Response<Body>{
         let user = match totp::CompletionUser::load(&self.exec, &pending).await {
             Ok(Some(u)) => u,
             Err(_) => return Self::failure(500, "internal error", &path),
             _ => return Self::failure(missing.0, missing.1, &path),
         };
-        let tokens = match self.mfa_tokens(&user, &pending, &path, None, factors).await {
+        let tokens = match self.mfa_tokens(&user, &pending, &path, None, factors, risk).await {
             Ok(t) => t,
             Err(r) => return r,
         };
