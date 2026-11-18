@@ -1329,6 +1329,13 @@ async fn n2_oversized_backup_refuses_locally_even_with_ca_on() {
         Some(case) => case.cleanup(&c).await,
         None => Ok(()),
     };
-    let flags = restore_flags(&c, &saved).await;
+    // This case never revokes a privilege, so only the saved flag rows are restored (no GRANT).
+    let flags: Result<(), Err> = async {
+        c.execute(&format!("DELETE FROM feature_toggles WHERE key IN {FLAGS}"), &[])
+            .await?;
+        c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)", &[&saved]).await?;
+        Ok(())
+    }
+    .await;
     settle(settle(observed, cleaned), flags).unwrap();
 }

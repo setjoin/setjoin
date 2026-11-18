@@ -30,15 +30,15 @@ struct Reply {
     body: String,
 }
 const ENC: &str = "2222222222222222222222222222222222222222222222222222222222222222";
-/// A fresh absent address per run, so audit rows it causes are this run's alone.
+/// A fresh absent address per run, so its auth_event_log rows match this run only.
 fn absent() -> String {
     format!(
         "nobody-failclosed-{}@nowhere.invalid",
         uuid::Uuid::new_v4().simple()
     )
 }
-/// A per-run source address: failed sign-ins carry no user id, so cleanup removes exactly the
-/// rows this address wrote (login_events.source_ip).
+/// A per-run source address for this test's failed sign-ins (X-Forwarded-For through the
+/// trusted proxy). The address is not used for cleanup; it keeps the assertions per-run.
 fn fixture_ip() -> String {
     let b = uuid::Uuid::new_v4().into_bytes();
     format!("10.{}.{}.{}", b[0], b[1], b[2].max(1))
@@ -49,57 +49,16 @@ fn credential_cookie(cookie: &str) -> bool {
     let value = rest.split(';').next().unwrap_or("");
     name.trim().to_ascii_lowercase().contains("token") && !value.is_empty()
 }
-async fn receipt_ids(c: &Client) -> Result<Vec<String>, Err> {
-    Ok(c.query(
-        "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21'",
-        &[],
-    )
-    .await?
-    .iter()
-    .map(|r| r.get::<_, String>(0))
-    .collect())
-}
-/// What a login-driving case writes outside the account: auth_event_log rows for its addresses
-/// (failed logins store user_id NULL) and the F21 receipts created since `before` (none when
-/// the snapshot was never captured).
-async fn login_residue(
-    e: &Env,
-    user: i64,
-    emails: &[String],
-    ip: Option<&str>,
-    before: Option<&Vec<String>>,
-) -> Result<(), Err> {
+/// The fixture's own auth_event_log rows: by user id, or by the per-run unique address (failed
+/// sign-ins store no user id). login_events and receipts are left for the throwaway database.
+async fn login_residue(e: &Env, user: i64, emails: &[String]) -> Result<(), Err> {
     let lowered: Vec<String> = emails.iter().map(|m| m.to_lowercase()).collect();
-    let events: Result<(), Err> =
-        e.c.execute(
-            "DELETE FROM auth_event_log WHERE user_id=$1 OR lower(email)=ANY($2)",
-            &[&user, &lowered],
-        )
-        .await
-        .map(|_| ())
-        .map_err(Into::into);
-    let receipts: Result<(), Err> = async {
-        let Some(before) = before else {
-            return Ok(());
-        };
-        let created: Vec<String> = receipt_ids(&e.c).await?.into_iter().filter(|id| !before.contains(id)).collect();
-        e.c.execute("DELETE FROM rust_operation_receipts WHERE family='F21' AND operation_id::text = ANY($1::text[])", &[&created]).await?;
-        Ok(())
-    }
-    .await;
-    let addresses: Result<(), Err> = match ip {
-        Some(ip) => {
-            e.c.execute(
-                "DELETE FROM login_events WHERE user_id IS NULL AND source_ip = $1::text::inet",
-                &[&ip],
-            )
-            .await
-            .map(|_| ())
-            .map_err(Into::into)
-        }
-        None => Ok(()),
-    };
-    settle(settle(events, addresses), receipts)
+    e.c.execute(
+        "DELETE FROM auth_event_log WHERE user_id=$1 OR lower(email)=ANY($2)",
+        &[&user, &lowered],
+    )
+    .await?;
+    Ok(())
 }
 
 /// Setup before any account exists may panic; nothing needs undoing yet.
@@ -399,7 +358,6 @@ async fn password_login_risk_lookup_error_issues_no_token() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
-    let receipts_before = Some(receipt_ids(&e.c).await.unwrap());
     let absent = absent();
     let ip = fixture_ip();
     let (a, email) = account(&e, "failclosed-risk-login").await.unwrap();
@@ -431,14 +389,7 @@ async fn password_login_risk_lookup_error_issues_no_token() {
     }
     .await;
     let cleaned = async {
-        let residue = login_residue(
-            &e,
-            a.user,
-            &[email.clone(), absent.clone()],
-            Some(ip.as_str()),
-            receipts_before.as_ref(),
-        )
-        .await;
+        let residue = login_residue(&e, a.user, &[email.clone(), absent.clone()]).await;
         settle(
             settle(restore_flags(&e.c, &saved).await, residue),
             cleanup(&e, &a).await,
@@ -513,7 +464,6 @@ async fn refresh_risk_lookup_error_is_a_retryable_503() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
-    let receipts_before = Some(receipt_ids(&e.c).await.unwrap());
     let (a, email) = account(&e, "failclosed-risk-refresh").await.unwrap();
     let observed = async {
         set_flag(&e.c, "feature.rate_limit", false).await?;
@@ -556,8 +506,7 @@ async fn refresh_risk_lookup_error_is_a_retryable_503() {
     }
     .await;
     let cleaned = async {
-        let residue =
-            login_residue(&e, a.user, &[email.clone()], None, receipts_before.as_ref()).await;
+        let residue = login_residue(&e, a.user, &[email.clone()]).await;
         settle(
             settle(restore_flags(&e.c, &saved).await, residue),
             cleanup(&e, &a).await,
@@ -739,12 +688,6 @@ async fn refresh_authority_decides_before_the_risk_read() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
-    let receipts_before = Some(receipt_ids(&e.c).await.unwrap());
-    let audit_base: i64 =
-        e.c.query_one("SELECT coalesce(max(id),0) FROM admin_audit_log", &[])
-            .await
-            .unwrap()
-            .get(0);
     let (a, email) = account(&e, "failclosed-risk-authority").await.unwrap();
     let observed = async {
         set_flag(&e.c, "feature.rate_limit", false).await?;
@@ -771,11 +714,9 @@ async fn refresh_authority_decides_before_the_risk_read() {
     }
     .await;
     let cleaned = async {
-        let residue =
-            login_residue(&e, a.user, &[email.clone()], None, receipts_before.as_ref()).await;
-        let audit = purge_revocation_audit(&e, a.user, audit_base).await;
+        let residue = login_residue(&e, a.user, &[email.clone()]).await;
         settle(
-            settle(settle(restore_flags(&e.c, &saved).await, residue), audit),
+            settle(restore_flags(&e.c, &saved).await, residue),
             cleanup(&e, &a).await,
         )
     }
@@ -809,15 +750,4 @@ async fn refresh_authority_decides_before_the_risk_read() {
         );
         assert!(!r.cookies.iter().any(|c| credential_cookie(c)));
     }
-}
-
-/// Removes the revocation audit rows this test caused: no actor (user_id NULL), the fixture user
-/// as target, written after the watermark. The append-only trigger is bypassed for this session
-/// only, as in mfa_faults.rs.
-async fn purge_revocation_audit(e: &Env, user: i64, base: i64) -> Result<(), Err> {
-    e.c.batch_execute(&format!(
-        "BEGIN; SET LOCAL session_replication_role = replica; DELETE FROM admin_audit_log WHERE id > {base} AND user_id IS NULL AND target_id = {user}; COMMIT;"
-    ))
-    .await?;
-    Ok(())
 }
