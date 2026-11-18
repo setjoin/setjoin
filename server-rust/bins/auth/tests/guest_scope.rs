@@ -633,11 +633,12 @@ impl Case {
     }
 
     async fn cleanup(self, c: &tokio_postgres::Client) -> Result<(), Err> {
+        // Both steps always run; the account is removed even if the purge fails.
         let a = self.a.clone();
-        purge_user_rows(c, a.user, &self.email).await?;
+        let purged = purge_user_rows(c, a.user, &self.email).await;
         drop(self);
-        fixture::remove(c, &a).await?;
-        Ok(())
+        let removed: Result<(), Err> = fixture::remove(c, &a).await.map(|_| ()).map_err(Into::into);
+        settle(purged, removed)
     }
 }
 
@@ -1150,6 +1151,14 @@ async fn tf_guest_force_password_change_token_has_no_acct() {
     .await;
 }
 
+/// Snapshot halves: the token/session/event counts before `#`, the route's own state after it.
+fn tokens_part(s: &str) -> &str {
+    s.split('#').next().unwrap_or("")
+}
+fn own_part(s: &str) -> &str {
+    s.split_once('#').map(|(_, own)| own).unwrap_or("")
+}
+
 /// #454 (Q4): with a failing risk read, every completion answers 500 'token issue failed'
 /// before any token is signed or stored; TOTP, confirm, backup and push also leave their
 /// factor unspent. Login and WebAuthn compare only tokens/sessions/login events: the password
@@ -1158,7 +1167,6 @@ async fn tf_guest_force_password_change_token_has_no_acct() {
 async fn failclosed_454_risk_fault_spends_no_factor_and_issues_no_token() {
     let (_serial, db, c) = begin("GUEST353-failclosed-risk").await.unwrap();
     let saved = save_flags(&c).await.unwrap();
-    let risk_flag: String = c.query_one("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key='feature.user_risk'", &[]).await.unwrap().get(0);
     let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
     let mut result: Result<(), Err> = Ok(());
     for (n, route) in ROUTES.iter().enumerate() {
@@ -1167,13 +1175,7 @@ async fn failclosed_454_risk_fault_spends_no_factor_and_issues_no_token() {
             break;
         }
     }
-    let restored = async {
-        restore_flags(&c, &saved).await?;
-        c.execute("DELETE FROM feature_toggles WHERE key='feature.user_risk'", &[]).await?;
-        c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)", &[&risk_flag]).await?;
-        Ok::<(), Err>(())
-    }
-    .await;
+    let restored = restore_flags(&c, &saved).await;
     settle(result, restored).unwrap();
 }
 
@@ -1193,16 +1195,19 @@ async fn failclosed_risk_cell(
         let (status, raw) = case.send("").await?;
         guard.restore(c).await?;
         let after = case.snap(c).await?;
-        let judged = |s: &str| -> String {
-            if matches!(route, "login" | "webauthn") {
-                s.split('#').next().unwrap_or("").to_owned()
-            } else {
-                s.to_owned()
-            }
-        };
         check(status == 500 && raw.contains("token issue failed"), &format!("{route}: want 500 token issue failed, got {status}: {raw}"))?;
         check(!raw.contains("access_token") && !raw.contains("refresh_token") && !raw.contains("mfa_token"), &format!("{route}: refused completion leaked a token: {raw}"))?;
-        check(judged(&before) == judged(&after), &format!("{route}: the fault spent state: {before} -> {after}"))?;
+        check(tokens_part(&before) == tokens_part(&after), &format!("{route}: the fault minted or revoked tokens/sessions/events: {before} -> {after}"))?;
+        match route {
+            // A refused password login writes no auth_event_log row: record_success runs only after
+            // the mint (lib.rs, after the risk read), and record_failure only for a wrong password.
+            "login" => check(own_part(&before) == own_part(&after), &format!("login: a refused login must add no auth_event_log row: {before} -> {after}"))?,
+            // The passkey counter is claimed in finish_login before the user is known (reducer
+            // rust_identity_webauthn_login_claim sets sign_count = greatest(stored, presented));
+            // the vector's presented counter is 8 and the stored counter 7.
+            "webauthn" => check(own_part(&before) == "7" && own_part(&after) == "8", &format!("webauthn: the claim must move sign_count 7 -> 8 and nothing else: {before} -> {after}"))?,
+            _ => check(own_part(&before) == own_part(&after), &format!("{route}: the fault spent state: {before} -> {after}"))?,
+        }
         Ok::<(), Err>(())
     }
     .await;
@@ -1243,7 +1248,9 @@ async fn failclosed_454_webauthn_factor_fault_issues_no_token() {
             check(completion_readable, "precondition: completion()'s query must still succeed for setjoin_app")?;
             check(status == 500 && raw.contains("internal error"), &format!("want 500 internal error, got {status}: {raw}"))?;
             check(!raw.contains("access_token") && !raw.contains("refresh_token") && !raw.contains("mfa_token"), &format!("refused finish leaked a token: {raw}"))?;
-            check(before.split('#').next() == after.split('#').next(), &format!("tokens/sessions changed: {before} -> {after}"))?;
+            check(tokens_part(&before) == tokens_part(&after), &format!("tokens/sessions changed: {before} -> {after}"))?;
+            // The passkey counter is claimed before factors() is read: sign_count 7 -> 8 (vectors.json success counter).
+            check(own_part(&before) == "7" && own_part(&after) == "8", &format!("the claim must move sign_count 7 -> 8: {before} -> {after}"))?;
             Ok::<(), Err>(())
         }
         .await;

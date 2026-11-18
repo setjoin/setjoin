@@ -87,16 +87,26 @@ fn settle<T>(case: Result<T, Err>, cleanup: Result<(), Err>) -> Result<T, Err> {
     }
 }
 async fn cleanup(e: &Env, a: &fixture::Account) -> Result<(), Err> {
+    // Every step runs; the account is always removed, and failures are aggregated.
+    let mut outcome: Result<(), Err> = Ok(());
     for sql in [
         "DELETE FROM oauth_tokens WHERE user_id=$1",
         "DELETE FROM sessions WHERE user_id=$1",
         "DELETE FROM user_risk WHERE user_id=$1",
         "DELETE FROM mfa_reauth_step_ups WHERE user_id=$1",
     ] {
-        e.c.execute(sql, &[&a.user]).await?;
+        let step: Result<(), Err> =
+            e.c.execute(sql, &[&a.user])
+                .await
+                .map(|_| ())
+                .map_err(Into::into);
+        outcome = settle(outcome, step);
     }
-    fixture::remove(&e.c, a).await?;
-    Ok(())
+    let removed: Result<(), Err> = fixture::remove(&e.c, a)
+        .await
+        .map(|_| ())
+        .map_err(Into::into);
+    settle(outcome, removed)
 }
 /// Creates and seeds an account; a seeding error removes it before returning.
 async fn account(e: &Env, label: &str) -> Result<(fixture::Account, String), Err> {
@@ -243,11 +253,7 @@ async fn risk_lookup_errors_fail_closed_in_every_issuer() {
         Ok::<_, Err>(DomainSeen { risky, clean, risk_fault, flag_fault })
     }
     .await;
-    let cleaned = async {
-        restore_flags(&e.c, &saved).await?;
-        cleanup(&e, &a).await
-    }
-    .await;
+    let cleaned = async { settle(restore_flags(&e.c, &saved).await, cleanup(&e, &a).await) }.await;
     let seen = settle(observed, cleaned).unwrap();
     for r in &seen.risky {
         let v = r
@@ -312,11 +318,7 @@ async fn password_login_risk_lookup_error_issues_no_token() {
         })
     }
     .await;
-    let cleaned = async {
-        restore_flags(&e.c, &saved).await?;
-        cleanup(&e, &a).await
-    }
-    .await;
+    let cleaned = async { settle(restore_flags(&e.c, &saved).await, cleanup(&e, &a).await) }.await;
     let s = settle(observed, cleaned).unwrap();
     assert_eq!(s.control.status, 200, "{}", s.control.body);
     assert!(
@@ -405,11 +407,7 @@ async fn refresh_risk_lookup_error_is_a_retryable_503() {
         })
     }
     .await;
-    let cleaned = async {
-        restore_flags(&e.c, &saved).await?;
-        cleanup(&e, &a).await
-    }
-    .await;
+    let cleaned = async { settle(restore_flags(&e.c, &saved).await, cleanup(&e, &a).await) }.await;
     let s = settle(observed, cleaned).unwrap();
     assert_eq!(s.login.status, 200, "{}", s.login.body);
     assert!(
@@ -450,12 +448,17 @@ async fn common_password_lookup_error_refuses_the_change() {
     let (a, email) = account(&e, "failclosed-common").await.unwrap();
     let listed = "Zq9#listed-common-phrase";
     let digest = Sha256::digest(listed.trim().to_lowercase().as_bytes()).to_vec();
+    let mut inserted = false;
     let observed = async {
-        e.c.execute(
-            "INSERT INTO common_passwords(password_hash) VALUES($1) ON CONFLICT DO NOTHING",
-            &[&digest],
-        )
-        .await?;
+        // Only a row this test inserted is removed again (a pre-existing listing is kept).
+        let row = e
+            .c
+            .query_opt(
+                "INSERT INTO common_passwords(password_hash) VALUES($1) ON CONFLICT DO NOTHING RETURNING 1",
+                &[&digest],
+            )
+            .await?;
+        inserted = row.is_some();
         let t = token(
             &e.secret,
             json!({"uid":a.user,"email":email,"jti":"failclosed-common-jti"}),
@@ -484,12 +487,18 @@ async fn common_password_lookup_error_refuses_the_change() {
     }
     .await;
     let cleaned = async {
-        e.c.execute(
-            "DELETE FROM common_passwords WHERE password_hash=$1",
-            &[&digest],
-        )
-        .await?;
-        cleanup(&e, &a).await
+        let deleted: Result<(), Err> = if inserted {
+            e.c.execute(
+                "DELETE FROM common_passwords WHERE password_hash=$1",
+                &[&digest],
+            )
+            .await
+            .map(|_| ())
+            .map_err(Into::into)
+        } else {
+            Ok(())
+        };
+        settle(deleted, cleanup(&e, &a).await)
     }
     .await;
     let s = settle(observed, cleaned).unwrap();
