@@ -256,6 +256,13 @@ impl AuthServer {
         if self.totp_threat_pending().await {
             return Err(self.forward(req).await);
         }
+        self.totp_bounded(req).await
+    }
+    /// Bounds the complete body before any completion routing reads a flag (#454 Codex r1, F1).
+    pub(super) async fn totp_bounded(
+        &self,
+        req: Request<Body>,
+    ) -> Result<Request<Body>, Response<Body>> {
         let (parts, input) = req.into_parts();
         match Limited::new(input,1<<20).collect().await {
             Ok(raw)=>Ok(Request::from_parts(parts,body(raw.to_bytes()))),
@@ -620,9 +627,12 @@ pub(super) enum GuestMint {
     Refuse,
 }
 impl AuthServer {
-    pub(super) async fn totp_completion_unported(&self, req: &Request<Body>) -> bool {
-        if self.totp_threat_pending().await {
-            return true;
+    /// Completion routing (#405/#420). Ok(true) forwards whole to frozen Go, Ok(false) stays
+    /// native, and a flag-lookup error refuses (#454 Codex r1): Go's risk read fails open, so an
+    /// unreadable routing flag must never hand a completion to it.
+    pub(super) async fn totp_completion_route(&self, req: &Request<Body>) -> Result<bool, ()> {
+        if self.config.threat_controls.iter().any(|v| *v) {
+            return Ok(true);
         }
         if [
             "x-device-id",
@@ -634,17 +644,25 @@ impl AuthServer {
         .iter()
         .any(|h| req.headers().contains_key(*h))
         {
-            return true;
+            return Ok(true);
         } // #420.
         for key in [
+            "feature.rate_limit",
             "feature.conditional_access",
             "feature.device_trust_enforcement",
         ] {
-            if !matches!(login::enabled(&self.exec, key).await, Ok(false)) {
-                return true;
+            if login::enabled(&self.exec, key).await.map_err(|_| ())? {
+                return Ok(true);
             } // #405/#420.
         }
-        false
+        Ok(false)
+    }
+    /// The `feature.token_binding` handoff for a request carrying a `dpop_jwk` (#405). Ok(true)
+    /// forwards whole, Ok(false) stays native, and a lookup error is a 500 refusal (#454 Codex r1).
+    pub(super) async fn token_binding_handoff(&self, path: &str) -> Result<bool, Response<Body>> {
+        login::enabled(&self.exec, "feature.token_binding")
+            .await
+            .map_err(|_| Self::failure(500, "internal error", path))
     }
     /// Go evaluateCompletionConditionalAccess → populateGuestCAScope (auth.go:2603,
     /// 2499-2517): every factor completion resolves guest scope before domain
@@ -821,8 +839,10 @@ impl AuthServer {
         r
     }
     pub(super) async fn totp_verify(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_completion_unported(&req).await {
-            return self.forward(req).await;
+        match self.totp_completion_route(&req).await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -857,12 +877,12 @@ impl AuthServer {
             .get("dpop_jwk")
             .and_then(Value::as_object)
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
         let code = input.get("code").and_then(Value::as_str).unwrap_or("");
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
@@ -974,8 +994,10 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn totp_bootstrap_confirm(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_completion_unported(&req).await {
-            return self.forward(req).await;
+        match self.totp_completion_route(&req).await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -1027,12 +1049,12 @@ impl AuthServer {
             .get("dpop_jwk")
             .and_then(Value::as_object)
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
         let signed = !pending.text("credential_fence").is_empty()
             || pending
@@ -1233,10 +1255,12 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn backup_verify(&self, req: Request<Body>) -> Response<Body> {
-        let req=match self.totp_ingress(req).await{Ok(req)=>req,Err(reply)=>return reply};
-        if self.totp_completion_unported(&req).await {
-            return self.forward(req).await;
+        match self.totp_completion_route(&req).await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
+        let req=match self.totp_bounded(req).await{Ok(req)=>req,Err(reply)=>return reply};
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -1273,12 +1297,12 @@ impl AuthServer {
             .get("dpop_jwk")
             .and_then(Value::as_object)
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
         // here, so no factor is spent and no token is signed or stored.

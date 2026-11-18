@@ -833,21 +833,11 @@ impl AuthServer {
         let hash = Sha256::digest(token.as_bytes()).to_vec();
         let operation = uuid::Uuid::new_v4();
         let op = setjoin_contracts::ids::OperationId(*operation.as_bytes());
-        // #454 (owner Q1): the risk claim is read once, before anything is signed or rotated.
-        // A failed read (flag lookup included) is retryable: 503 + Retry-After, never 401,
-        // so clients keep their refresh token.
-        let risk = match session.risk(&self.exec).await {
-            Ok(risk) => risk,
-            Err(_) => {
-                let mut r = Self::failure(
-                    503,
-                    "Token refresh temporarily unavailable. Please try again.",
-                    &path,
-                );
-                r.headers_mut().insert("retry-after", "5".parse().unwrap());
-                return r;
-            }
-        };
+        // #454 (owner Q1, Codex r1): the reducer's first call decides authority, revocation and
+        // reuse (its revoke side effect included) and rotates nothing. Only a request it would
+        // mint reads the risk claim, once across retries, before anything is signed or rotated.
+        // A failed read (flag lookup included) is retryable: 503 + Retry-After, never 401.
+        let mut risk: Option<Option<Value>> = None;
         for _ in 0..8 {
             let context = match session
                 .refresh(
@@ -870,6 +860,20 @@ impl AuthServer {
                 }
                 _ => return Self::failure(401, "invalid or revoked refresh token", &path),
             };
+            if risk.is_none() {
+                match session.risk(&self.exec).await {
+                    Ok(read) => risk = Some(read),
+                    Err(_) => {
+                        let mut r = Self::failure(
+                            503,
+                            "Token refresh temporarily unavailable. Please try again.",
+                            &path,
+                        );
+                        r.headers_mut().insert("retry-after", "5".parse().unwrap());
+                        return r;
+                    }
+                }
+            }
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -905,7 +909,7 @@ impl AuthServer {
             if context["guest"] == true {
                 claims["acct"] = json!("guest");
             }
-            if let Some(risk) = &risk {
+            if let Some(Some(risk)) = &risk {
                 claims["risk"] = risk.clone();
             }
             let access = match self.sign(&claims) {
@@ -1200,8 +1204,10 @@ impl AuthServer {
         {
             return self.forward(req).await;
         }
-        if self.login_ca_pending().await {
-            return self.forward(req).await;
+        match self.login_ca_route().await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
         let staged = match self.threat_stage(req, http_threat::Route::Login).await {
             Ok(staged) => staged,
@@ -1210,13 +1216,12 @@ impl AuthServer {
         // A mounted request decides the dpop_jwk handoff (#352) from its buffered
         // body before admission; an unmounted one keeps the late check below.
         let dpop_decided = staged.raw().is_some();
-        if staged.raw().is_some_and(Self::login_dpop_requested)
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
-        {
-            return self.forward(staged.into_request()).await;
+        if staged.raw().is_some_and(Self::login_dpop_requested) {
+            match self.token_binding_handoff("/auth/login").await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(staged.into_request()).await,
+                Err(reply) => return reply,
+            }
         }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
@@ -1335,12 +1340,12 @@ impl AuthServer {
         };
         if !dpop_decided
             && input.dpop.as_object().is_some_and(|v| !v.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         }
         let family = uuid::Uuid::new_v4().to_string();
         let (jti, refresh_jti) = match (login::random_jti(), login::random_jti()) {

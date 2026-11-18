@@ -26,10 +26,62 @@ struct Env {
 struct Reply {
     status: u16,
     retry_after: Option<String>,
+    cookies: Vec<String>,
     body: String,
 }
 const ENC: &str = "2222222222222222222222222222222222222222222222222222222222222222";
-const ABSENT: &str = "nobody-failclosed@nowhere.invalid";
+/// A fresh absent address per run, so audit rows it causes are this run's alone.
+fn absent() -> String {
+    format!(
+        "nobody-failclosed-{}@nowhere.invalid",
+        uuid::Uuid::new_v4().simple()
+    )
+}
+/// A Set-Cookie value that carries a credential: a non-empty value whose name contains "token".
+fn credential_cookie(cookie: &str) -> bool {
+    let (name, rest) = cookie.split_once('=').unwrap_or((cookie, ""));
+    let value = rest.split(';').next().unwrap_or("");
+    name.trim().to_ascii_lowercase().contains("token") && !value.is_empty()
+}
+async fn receipt_ids(c: &Client) -> Result<Vec<String>, Err> {
+    Ok(c.query(
+        "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21'",
+        &[],
+    )
+    .await?
+    .iter()
+    .map(|r| r.get::<_, String>(0))
+    .collect())
+}
+/// What a login-driving case writes outside the account: auth_event_log rows for its addresses
+/// (failed logins store user_id NULL) and the F21 receipts created since `before` (none when
+/// the snapshot was never captured).
+async fn login_residue(
+    e: &Env,
+    user: i64,
+    emails: &[String],
+    before: Option<&Vec<String>>,
+) -> Result<(), Err> {
+    let lowered: Vec<String> = emails.iter().map(|m| m.to_lowercase()).collect();
+    let events: Result<(), Err> =
+        e.c.execute(
+            "DELETE FROM auth_event_log WHERE user_id=$1 OR lower(email)=ANY($2)",
+            &[&user, &lowered],
+        )
+        .await
+        .map(|_| ())
+        .map_err(Into::into);
+    let receipts: Result<(), Err> = async {
+        let Some(before) = before else {
+            return Ok(());
+        };
+        let created: Vec<String> = receipt_ids(&e.c).await?.into_iter().filter(|id| !before.contains(id)).collect();
+        e.c.execute("DELETE FROM rust_operation_receipts WHERE family='F21' AND operation_id::text = ANY($1::text[])", &[&created]).await?;
+        Ok(())
+    }
+    .await;
+    settle(events, receipts)
+}
 
 /// Setup before any account exists may panic; nothing needs undoing yet.
 async fn env(case: &str) -> Option<Env> {
@@ -94,6 +146,8 @@ async fn cleanup(e: &Env, a: &fixture::Account) -> Result<(), Err> {
         "DELETE FROM sessions WHERE user_id=$1",
         "DELETE FROM user_risk WHERE user_id=$1",
         "DELETE FROM mfa_reauth_step_ups WHERE user_id=$1",
+        "DELETE FROM session_revocations WHERE user_id=$1",
+        "DELETE FROM login_events WHERE user_id=$1",
     ] {
         let step: Result<(), Err> =
             e.c.execute(sql, &[&a.user])
@@ -165,15 +219,25 @@ async fn send(s: &AuthServer, r: Request<setjoin_auth::Body>) -> Result<Reply, E
         .get("retry-after")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
+    let cookies: Vec<String> = r
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .map(str::to_owned)
+        .collect();
     let body = String::from_utf8_lossy(&r.into_body().collect().await?.to_bytes()).into_owned();
     Ok(Reply {
         status,
         retry_after,
+        cookies,
         body,
     })
 }
 fn anonymous(path: &str, payload: Value) -> Result<Request<setjoin_auth::Body>, Err> {
-    Ok(Request::post(path).body(body(payload.to_string()))?)
+    Ok(Request::post(path)
+        .header("content-type", "application/json")
+        .body(body(payload.to_string()))?)
 }
 fn bearer(
     method: &str,
@@ -187,6 +251,7 @@ fn bearer(
         .header("host", "mail.test")
         .header("origin", "http://mail.test")
         .header("authorization", format!("Bearer {token}"))
+        .header("content-type", "application/json")
         .body(body(payload.to_string()))?)
 }
 async fn oauth_state(e: &Env, user: i64) -> Result<(i64, i64), Err> {
@@ -214,6 +279,7 @@ async fn three(
 
 struct DomainSeen {
     risky: Vec<Risk>,
+    malformed: Vec<Risk>,
     clean: Vec<Risk>,
     risk_fault: Vec<Risk>,
     flag_fault: Vec<Risk>,
@@ -241,6 +307,11 @@ async fn risk_lookup_errors_fail_closed_in_every_issuer() {
         let user = setjoin_identity::totp::CompletionUser::load(&e.exec, &session).await.map_err(sf)?.ok_or("no completion user")?;
         e.c.execute("INSERT INTO user_risk(user_id,score,level,signals) VALUES($1,55,'medium','[\"geo\"]'::jsonb)", &[&a.user]).await?;
         let risky = three(&e, &proof, &session, &user).await;
+        let mut malformed = Vec::new();
+        for bad in ["{\"geo\":1}", "null", "[1]", "\"geo\""] {
+            e.c.execute("UPDATE user_risk SET signals=$2::text::jsonb WHERE user_id=$1", &[&a.user, &bad]).await?;
+            malformed.extend(three(&e, &proof, &session, &user).await);
+        }
         e.c.execute("DELETE FROM user_risk WHERE user_id=$1", &[&a.user]).await?;
         let clean = three(&e, &proof, &session, &user).await;
         let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "user_risk").await?;
@@ -250,7 +321,7 @@ async fn risk_lookup_errors_fail_closed_in_every_issuer() {
         let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "feature_toggles").await?;
         let flag_fault = three(&e, &proof, &session, &user).await;
         guard.restore(&e.c).await?;
-        Ok::<_, Err>(DomainSeen { risky, clean, risk_fault, flag_fault })
+        Ok::<_, Err>(DomainSeen { risky, malformed, clean, risk_fault, flag_fault })
     }
     .await;
     let cleaned = async { settle(restore_flags(&e.c, &saved).await, cleanup(&e, &a).await) }.await;
@@ -267,7 +338,12 @@ async fn risk_lookup_errors_fail_closed_in_every_issuer() {
     for r in &seen.clean {
         assert_eq!(r, &Ok(None), "no row is no claim");
     }
-    for r in seen.risk_fault.iter().chain(seen.flag_fault.iter()) {
+    for r in seen
+        .risk_fault
+        .iter()
+        .chain(seen.flag_fault.iter())
+        .chain(seen.malformed.iter())
+    {
         assert!(r.is_err(), "a failed read must not be 'no risk': {r:?}");
     }
 }
@@ -291,6 +367,8 @@ async fn password_login_risk_lookup_error_issues_no_token() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
+    let receipts_before = receipt_ids(&e.c).await.ok();
+    let absent = absent();
     let (a, email) = account(&e, "failclosed-risk-login").await.unwrap();
     let observed = async {
         set_flag(&e.c, "feature.rate_limit", false).await?;
@@ -298,12 +376,12 @@ async fn password_login_risk_lookup_error_issues_no_token() {
         let s = server(&e).await?;
         let login =
             |who: &str, pw: &str| anonymous("/auth/login", json!({"email":who,"password":pw}));
-        let absent_clear = send(&s, login(ABSENT, "Password1!")?).await?;
+        let absent_clear = send(&s, login(&absent, "Password1!")?).await?;
         let control = send(&s, login(&email, "Password1!")?).await?;
         let before = oauth_state(&e, a.user).await?;
         let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "user_risk").await?;
         let faulted = send(&s, login(&email, "Password1!")?).await?;
-        let absent_faulted = send(&s, login(ABSENT, "Password1!")?).await?;
+        let absent_faulted = send(&s, login(&absent, "Password1!")?).await?;
         let wrong_faulted = send(&s, login(&email, "Wrong-Password1!")?).await?;
         guard.restore(&e.c).await?;
         let after = oauth_state(&e, a.user).await?;
@@ -318,7 +396,20 @@ async fn password_login_risk_lookup_error_issues_no_token() {
         })
     }
     .await;
-    let cleaned = async { settle(restore_flags(&e.c, &saved).await, cleanup(&e, &a).await) }.await;
+    let cleaned = async {
+        let residue = login_residue(
+            &e,
+            a.user,
+            &[email.clone(), absent.clone()],
+            receipts_before.as_ref(),
+        )
+        .await;
+        settle(
+            settle(restore_flags(&e.c, &saved).await, residue),
+            cleanup(&e, &a).await,
+        )
+    }
+    .await;
     let s = settle(observed, cleaned).unwrap();
     assert_eq!(s.control.status, 200, "{}", s.control.body);
     assert!(
@@ -338,14 +429,35 @@ async fn password_login_risk_lookup_error_issues_no_token() {
         "a refused login stores no refresh anchor"
     );
     assert_eq!(
-        (s.wrong_faulted.status, &s.wrong_faulted.body),
-        (s.absent_faulted.status, &s.absent_faulted.body),
+        (
+            s.wrong_faulted.status,
+            &s.wrong_faulted.body,
+            &s.wrong_faulted.cookies
+        ),
+        (
+            s.absent_faulted.status,
+            &s.absent_faulted.body,
+            &s.absent_faulted.cookies
+        ),
         "under the fault an existing account with a wrong password answers like an absent one"
     );
     assert_eq!(
-        (s.absent_faulted.status, &s.absent_faulted.body),
-        (s.absent_clear.status, &s.absent_clear.body),
+        (
+            s.absent_faulted.status,
+            &s.absent_faulted.body,
+            &s.absent_faulted.cookies
+        ),
+        (
+            s.absent_clear.status,
+            &s.absent_clear.body,
+            &s.absent_clear.cookies
+        ),
         "the fault does not change an absent account's reply"
+    );
+    assert!(
+        !s.faulted.cookies.iter().any(|c| credential_cookie(c)),
+        "a refused login sets no credential cookie: {:?}",
+        s.faulted.cookies
     );
 }
 
@@ -366,6 +478,7 @@ async fn refresh_risk_lookup_error_is_a_retryable_503() {
         return;
     };
     let saved = save_flags(&e.c).await.unwrap();
+    let receipts_before = receipt_ids(&e.c).await.ok();
     let (a, email) = account(&e, "failclosed-risk-refresh").await.unwrap();
     let observed = async {
         set_flag(&e.c, "feature.rate_limit", false).await?;
@@ -407,9 +520,21 @@ async fn refresh_risk_lookup_error_is_a_retryable_503() {
         })
     }
     .await;
-    let cleaned = async { settle(restore_flags(&e.c, &saved).await, cleanup(&e, &a).await) }.await;
+    let cleaned = async {
+        let residue = login_residue(&e, a.user, &[email.clone()], receipts_before.as_ref()).await;
+        settle(
+            settle(restore_flags(&e.c, &saved).await, residue),
+            cleanup(&e, &a).await,
+        )
+    }
+    .await;
     let s = settle(observed, cleaned).unwrap();
     assert_eq!(s.login.status, 200, "{}", s.login.body);
+    assert!(
+        !s.faulted.cookies.iter().any(|c| credential_cookie(c)),
+        "a refused refresh sets no credential cookie: {:?}",
+        s.faulted.cookies
+    );
     assert!(
         !s.refresh_token.is_empty(),
         "login must return a refresh_token: {}",
@@ -527,8 +652,10 @@ async fn empty_totp_secret_proves_no_possession() {
     let Some(e) = env("failclosed-empty-totp").await else {
         return;
     };
+    let saved = save_flags(&e.c).await.unwrap();
     let (a, _email) = account(&e, "failclosed-empty-totp").await.unwrap();
     let observed = async {
+        set_flag(&e.c, "feature.rate_limit", false).await?;
         let seed = "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),totp_enabled_at=now(),totp_failed_attempts=0,totp_locked_until=NULL WHERE id=$1";
         let t = token(&e.secret, json!({"uid":a.user,"jti":"failclosed-empty-totp-jti"}));
         let s = server(&e).await?;
@@ -543,7 +670,7 @@ async fn empty_totp_secret_proves_no_possession() {
         Ok::<_, Err>(TotpSeen { control, empty, grants, failures })
     }
     .await;
-    let cleaned = cleanup(&e, &a).await;
+    let cleaned = async { settle(restore_flags(&e.c, &saved).await, cleanup(&e, &a).await) }.await;
     let s = settle(observed, cleaned).unwrap();
     assert_eq!(
         s.control.status, 200,
@@ -558,4 +685,85 @@ async fn empty_totp_secret_proves_no_possession() {
     );
     assert_eq!(s.grants, 0, "an empty key issues no grant");
     assert_eq!(s.failures, 1, "an empty key is an evaluated wrong code");
+}
+
+struct AuthoritySeen {
+    replay: Reply,
+    revoked: Reply,
+    live_after_replay: i64,
+    all_revocations: i64,
+}
+
+/// HTTP (Codex r1 P1-1): the reducer decides authority before the risk read. Under a risk
+/// fault, a rotated parent replayed outside the 30 s grace still gets the existing 401 and
+/// still revokes every session, and a revoked token still gets 401 (never 503).
+#[tokio::test]
+async fn refresh_authority_decides_before_the_risk_read() {
+    let Some(e) = env("failclosed-risk-authority").await else {
+        return;
+    };
+    let saved = save_flags(&e.c).await.unwrap();
+    let receipts_before = receipt_ids(&e.c).await.ok();
+    let (a, email) = account(&e, "failclosed-risk-authority").await.unwrap();
+    let observed = async {
+        set_flag(&e.c, "feature.rate_limit", false).await?;
+        set_flag(&e.c, "feature.user_risk", true).await?;
+        let s = server(&e).await?;
+        let token_of = |reply: &Reply| {
+            serde_json::from_str::<Value>(&reply.body)
+                .ok()
+                .and_then(|v| v["refresh_token"].as_str().map(str::to_owned))
+        };
+        let login = send(&s, anonymous("/auth/login", json!({"email":email,"password":"Password1!"}))?).await?;
+        let parent = token_of(&login).ok_or_else(|| format!("login returned no refresh_token: {}", login.body))?;
+        let rotated = send(&s, anonymous("/auth/refresh", json!({"refresh_token":parent}))?).await?;
+        let child = token_of(&rotated).ok_or_else(|| format!("first refresh did not rotate: {} {}", rotated.status, rotated.body))?;
+        let parent_hash = Sha256::digest(parent.as_bytes()).to_vec();
+        e.c.execute("UPDATE oauth_tokens SET rotated_at=now()-interval '60 seconds' WHERE user_id=$1 AND token_hash=$2", &[&a.user, &parent_hash]).await?;
+        let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "user_risk").await?;
+        let replay = send(&s, anonymous("/auth/refresh", json!({"refresh_token":parent}))?).await?;
+        let revoked = send(&s, anonymous("/auth/refresh", json!({"refresh_token":child}))?).await?;
+        guard.restore(&e.c).await?;
+        let live_after_replay: i64 = e.c.query_one("SELECT count(*) FROM oauth_tokens WHERE user_id=$1 AND revoked_at IS NULL", &[&a.user]).await?.get(0);
+        let all_revocations: i64 = e.c.query_one("SELECT count(*) FROM session_revocations WHERE user_id=$1 AND scope='all'", &[&a.user]).await?.get(0);
+        Ok::<_, Err>(AuthoritySeen { replay, revoked, live_after_replay, all_revocations })
+    }
+    .await;
+    let cleaned = async {
+        let residue = login_residue(&e, a.user, &[email.clone()], receipts_before.as_ref()).await;
+        settle(
+            settle(restore_flags(&e.c, &saved).await, residue),
+            cleanup(&e, &a).await,
+        )
+    }
+    .await;
+    let s = settle(observed, cleaned).unwrap();
+    assert_eq!(s.replay.status, 401, "{}", s.replay.body);
+    assert!(
+        s.replay.body.contains("invalid or revoked refresh token"),
+        "{}",
+        s.replay.body
+    );
+    assert_eq!(
+        s.live_after_replay, 0,
+        "reuse detection must still revoke every refresh token"
+    );
+    assert_eq!(
+        s.all_revocations, 1,
+        "reuse detection must still record the all-session revocation"
+    );
+    assert_eq!(s.revoked.status, 401, "{}", s.revoked.body);
+    assert!(
+        s.revoked.body.contains("invalid or revoked refresh token"),
+        "{}",
+        s.revoked.body
+    );
+    for r in [&s.replay, &s.revoked] {
+        assert!(
+            r.retry_after.is_none(),
+            "a denied token is not retryable: {:?}",
+            r.retry_after
+        );
+        assert!(!r.cookies.iter().any(|c| credential_cookie(c)));
+    }
 }

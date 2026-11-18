@@ -100,8 +100,10 @@ impl AuthServer {
         }
         // Login-time CA/device completion remains with #405/#420. Decide
         // before token exchange or any identity/profile write.
-        if self.rp_completion_unported(&req).await {
-            return self.forward(req).await;
+        match self.rp_completion_route(&req).await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
         let query = setjoin_identity::issuance::query(req.uri().query().unwrap_or(""));
         if cookie_value(req.headers(), "oidc_state").as_deref()
@@ -711,7 +713,9 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    pub(super) async fn rp_completion_unported(&self, req: &Request<Body>) -> bool {
+    /// Ok(true) hands the completion off, Ok(false) stays native, a flag-lookup error refuses
+    /// (#454 Codex r1).
+    pub(super) async fn rp_completion_route(&self, req: &Request<Body>) -> Result<bool, ()> {
         if [
             "x-device-id",
             "x-device-hmac",
@@ -722,17 +726,17 @@ impl AuthServer {
         .iter()
         .any(|h| req.headers().contains_key(*h))
         {
-            return true;
+            return Ok(true);
         } // #420 native device completion.
         for flag in [
             "feature.conditional_access",
             "feature.device_trust_enforcement",
         ] {
-            if !matches!(login::enabled(&self.exec, flag).await, Ok(false)) {
-                return true;
+            if login::enabled(&self.exec, flag).await.map_err(|_| ())? {
+                return Ok(true);
             }
         } // #405/#420, before all effects.
-        false
+        Ok(false)
     }
 }
 

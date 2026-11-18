@@ -366,17 +366,17 @@ impl AuthServer {
 
     /// Login preflight (#349 F7): CA and device trust still forward whole (#351);
     /// both are decided from toggles alone, before any admission effect. A read
-    /// error forwards (fail closed toward Go's full pipeline).
-    pub(super) async fn login_ca_pending(&self) -> bool {
+    /// error refuses (#454 Codex r1): Go's risk read fails open, so it is never the fallback.
+    pub(super) async fn login_ca_route(&self) -> Result<bool, ()> {
         for control in [
             "feature.conditional_access",
             "feature.device_trust_enforcement",
         ] {
-            if !matches!(login::enabled(&self.exec, control).await, Ok(false)) {
-                return true;
+            if login::enabled(&self.exec, control).await.map_err(|_| ())? {
+                return Ok(true);
             }
         }
-        false
+        Ok(false)
     }
 
     /// The same decode the login handler uses: a non-empty `dpop_jwk` object.

@@ -161,8 +161,10 @@ impl AuthServer {
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
         };
-        if self.totp_completion_unported(&req).await {
-            return self.forward(req).await;
+        match self.totp_completion_route(&req).await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
         let path = req.uri().path().to_owned();
         let Some(session_cookie) = cookie_value(req.headers(), "wa_login_sess") else {
@@ -193,12 +195,12 @@ impl AuthServer {
             .and_then(|v| v.get("dpop_jwk").cloned())
             .and_then(|v| v.as_object().cloned())
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
         let proof = match rp.finish_login(&self.exec, &transport, &raw).await {
             Ok(p) => p,

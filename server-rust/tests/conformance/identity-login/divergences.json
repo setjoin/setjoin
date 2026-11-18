@@ -104,9 +104,9 @@
     "reviewer": "owner, <YYYY-MM-DD>",
     "review": "security Go bug fixed in Rust",
     "review_reference": "owner security-bug policy; PR #<n>",
-    "reason": "Frozen Go reads user_risk fail-open: a failed risk read drops the risk claim and its requires_mfa step-up. Rust refuses before any token is signed or stored, including when the feature.user_risk lookup itself fails: password login answers 500 'token issue failed'; refresh reads the risk once before rotating and answers 503 with Retry-After: 5, rotating and signing nothing.",
+    "reason": "Frozen Go reads user_risk fail-open: a failed risk read drops the risk claim and its requires_mfa step-up. Rust refuses before any token is signed or stored, including when the feature.user_risk lookup itself fails: password login answers 500 'token issue failed'; refresh reads the risk only after the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation) and answers 503 with Retry-After: 5, rotating and signing nothing. A stored signals value that is not an array of strings refuses the same way (Go issues the claim with null signals).",
     "go_source": "authserver/internal/handlers/auth.go:2663-2683; authserver/internal/token/refresh.go:49-71",
-    "secure_test": "bins/auth/tests/fail_closed.rs::risk_lookup_errors_fail_closed_in_every_issuer, bins/auth/tests/fail_closed.rs::password_login_risk_lookup_error_issues_no_token, bins/auth/tests/fail_closed.rs::refresh_risk_lookup_error_is_a_retryable_503"
+    "secure_test": "bins/auth/tests/fail_closed.rs::risk_lookup_errors_fail_closed_in_every_issuer, bins/auth/tests/fail_closed.rs::password_login_risk_lookup_error_issues_no_token, bins/auth/tests/fail_closed.rs::refresh_risk_lookup_error_is_a_retryable_503, bins/auth/tests/fail_closed.rs::refresh_authority_decides_before_the_risk_read"
   },
   {
     "case": "failclosed-common-password-read-error",

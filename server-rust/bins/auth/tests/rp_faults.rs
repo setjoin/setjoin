@@ -439,6 +439,10 @@ async fn text_ids(c: &tokio_postgres::Client, sql: &str) -> Result<Vec<String>, 
         .collect())
 }
 
+/// This fixture's rows only: the SSO commands' F21 receipts and the idfed2 source while unlinked.
+const RP_RECEIPTS: &str = "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21' AND command IN ('rp-settle','rp-mint')";
+const RP_SOURCES: &str = "SELECT x.id::text FROM identity_sources x WHERE x.provider_key='oidc:idfed2' AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)";
+
 /// Ids present now and absent from `before`: the rows this test created.
 fn created_since(now: Vec<String>, before: &[String]) -> Vec<String> {
     now.into_iter().filter(|id| !before.contains(id)).collect()
@@ -452,16 +456,13 @@ async fn failclosed_sso_risk() -> Result<(), Err> {
     let env = flows::Env::start(false).await?;
     let mut saved: Option<String> = None;
     let mut account: Option<fixture::Account> = None;
-    let mut receipts_before: Vec<String> = Vec::new();
-    let mut sources_before: Vec<String> = Vec::new();
+    // A snapshot that was never captured deletes nothing (Codex r1 P1-3).
+    let mut receipts_before: Option<Vec<String>> = None;
+    let mut sources_before: Option<Vec<String>> = None;
     let result: Result<(), Err> = async {
         settlement::cleanup_leftovers(&env.c).await?;
-        receipts_before = text_ids(
-            &env.c,
-            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21'",
-        )
-        .await?;
-        sources_before = text_ids(&env.c, "SELECT id::text FROM identity_sources").await?;
+        receipts_before = Some(text_ids(&env.c, RP_RECEIPTS).await?);
+        sources_before = Some(text_ids(&env.c, RP_SOURCES).await?);
         let db = Db::for_case("IDFED2-failclosed").ok_or("assigned DB required")?;
         let app = setjoin_pg::ScopedExecutor::from_dsn(
             db.app.as_deref().ok_or("DB_APP_DSN required")?,
@@ -535,9 +536,11 @@ async fn failclosed_sso_risk() -> Result<(), Err> {
         let removed: Result<(), Err> = fixture::remove(&env.c, a).await.map(|_| ()).map_err(Into::into);
         cleanup = settle(cleanup, removed);
     }
-    let receipts_now = text_ids(&env.c, "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21'").await;
     let receipts: Result<(), Err> = async {
-        let created = created_since(receipts_now?, &receipts_before);
+        let Some(before) = &receipts_before else {
+            return Ok(());
+        };
+        let created = created_since(text_ids(&env.c, RP_RECEIPTS).await?, before);
         env.c
             .execute(
                 "DELETE FROM rust_operation_receipts WHERE family='F21' AND operation_id::text = ANY($1::text[])",
@@ -548,9 +551,11 @@ async fn failclosed_sso_risk() -> Result<(), Err> {
     }
     .await;
     cleanup = settle(cleanup, receipts);
-    let sources_now = text_ids(&env.c, "SELECT id::text FROM identity_sources").await;
     let sources: Result<(), Err> = async {
-        let created = created_since(sources_now?, &sources_before);
+        let Some(before) = &sources_before else {
+            return Ok(());
+        };
+        let created = created_since(text_ids(&env.c, RP_SOURCES).await?, before);
         env.c
             .execute(
                 "WITH a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id::text = ANY($1::text[])), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id::text = ANY($1::text[])), c AS (DELETE FROM identity_shadow_divergences WHERE source_id::text = ANY($1::text[])) DELETE FROM identity_sources WHERE id::text = ANY($1::text[])",

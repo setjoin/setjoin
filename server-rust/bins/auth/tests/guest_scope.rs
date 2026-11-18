@@ -395,7 +395,7 @@ const VAPID: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
 const TOTP_SQL: &str = "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),totp_enabled_at=now(),totp_backup_codes_enc=$4,factor_generation=2 WHERE id=$1";
 const BACKUP: &str = "backup353";
 const ROUTES: [&str; 6] = ["login", "verify", "confirm", "backup", "push", "webauthn"];
-const FLAGS: &str = "('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding')";
+const FLAGS: &str = "('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding','feature.user_risk')";
 
 struct Mat {
     method: &'static str,
@@ -743,6 +743,8 @@ fn tokens_of(raw: &str) -> Result<(Value, Value), Err> {
     ))
 }
 
+/// The matrix conditions. `FlagErr` makes the routing-flag read fail: the completion refuses
+/// with 500 and never forwards (#454 Codex r1); `Ca`/`Dt` forward whole; `Clear` stays native.
 #[derive(Clone, Copy, Debug)]
 enum Cond {
     Ca,
@@ -829,6 +831,22 @@ async fn n1_cell(
                 refresh.get("acct").is_none(),
                 &format!("{what}: refresh must not carry acct"),
             )?;
+        } else if matches!(cond, Cond::FlagErr) {
+            // #454 (Codex r1): an unreadable routing flag refuses; frozen Go, whose risk read
+            // fails open, must never receive the completion.
+            check(
+                status == 500 && raw.contains("internal error"),
+                &format!("{what}: want 500 internal error, got {status}: {raw}"),
+            )?;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            check(
+                seen.try_recv().is_err(),
+                &format!("{what}: a flag-lookup error reached the upstream"),
+            )?;
+            check(
+                before == after,
+                &format!("{what}: the refusal consumed state: {before} -> {after}"),
+            )?;
         } else {
             let got = tokio::time::timeout(std::time::Duration::from_secs(10), seen.recv())
                 .await
@@ -864,7 +882,7 @@ async fn n1_cell(
 }
 
 #[tokio::test]
-async fn n1_handoff_matrix_forwards_whole_and_clear_is_native() {
+async fn n1_handoff_matrix_forwards_whole_flag_error_refuses_clear_is_native() {
     let (_serial, db, c) = begin("GUEST353-n1").await.unwrap();
     let saved = save_flags(&c).await.unwrap();
     let mut result: Result<(), Err> = Ok(());
@@ -1233,6 +1251,7 @@ async fn failclosed_454_webauthn_factor_fault_issues_no_token() {
                 &db.dsn,
                 &c,
                 &app,
+                "users",
                 &format!("REVOKE SELECT ON users FROM setjoin_app; GRANT SELECT ({cols}) ON users TO setjoin_app"),
                 &format!("REVOKE SELECT ({cols}) ON users FROM setjoin_app; GRANT SELECT ON users TO setjoin_app"),
                 "SELECT push_mfa_enabled FROM users LIMIT 1",

@@ -53,31 +53,57 @@ impl Drop for Revoked {
     }
 }
 
-/// Run `fault` as the owner and prove `probe` now fails for the request role. The guard exists
-/// before `fault` runs, so a half-applied fault is undone too.
+/// Run `fault` as the owner and prove `probe` now fails for the request role with
+/// insufficient_privilege. Preconditions make `undo` an exact restore: setjoin_app holds a
+/// direct, non-grantable table-level SELECT on `table`, no column-level grant there, and the
+/// probe succeeds before the fault. The guard exists before `fault` runs.
 pub async fn revoke(
     owner_dsn: &str,
     c: &tokio_postgres::Client,
     app: &setjoin_pg::ScopedExecutor,
+    table: &str,
     fault: &str,
     undo: &str,
     probe: &str,
 ) -> Result<Revoked, Err> {
+    let direct: Vec<bool> = c
+        .query(
+            "SELECT x.is_grantable FROM pg_class k CROSS JOIN LATERAL aclexplode(k.relacl) x WHERE k.oid=to_regclass($1) AND x.grantee=to_regrole('setjoin_app') AND x.privilege_type='SELECT'",
+            &[&table],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    if direct != [false] {
+        return Err(format!("STOP: setjoin_app has no single direct, non-grantable SELECT on {table} ({direct:?}); the fault could not be undone exactly").into());
+    }
+    let columns: bool = c
+        .query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_attribute a CROSS JOIN LATERAL aclexplode(a.attacl) x WHERE a.attrelid=to_regclass($1) AND a.attacl IS NOT NULL AND x.grantee=to_regrole('setjoin_app'))",
+            &[&table],
+        )
+        .await?
+        .get(0);
+    if columns {
+        return Err(format!("STOP: setjoin_app already holds column-level grants on {table}; the fault could not be undone exactly").into());
+    }
+    if let Err(f) = app.read(probe, &[]).await {
+        return Err(format!("precondition: `{probe}` fails before the fault: {f:?}").into());
+    }
     let guard = Revoked {
         owner: owner_dsn.to_owned(),
         undo: undo.to_owned(),
     };
     c.batch_execute(fault).await?;
-    if app.read(probe, &[]).await.is_ok() {
-        return Err(format!(
-            "precondition: `{probe}` still succeeds for setjoin_app after `{fault}` (granted through PUBLIC or a group role?)"
-        )
-        .into());
+    match app.read(probe, &[]).await {
+        Err(f) if f.sqlstate.as_deref() == Some("42501") => Ok(guard),
+        Err(f) => Err(format!("precondition: `{probe}` failed after `{fault}` with {f:?}, not insufficient_privilege (42501)").into()),
+        Ok(_) => Err(format!("precondition: `{probe}` still succeeds for setjoin_app after `{fault}`").into()),
     }
-    Ok(guard)
 }
 
-/// Revoke SELECT on one table from the request role.
+/// Revoke SELECT on one table from the request role; the undo re-grants exactly that SELECT.
 pub async fn table(
     owner_dsn: &str,
     c: &tokio_postgres::Client,
@@ -88,6 +114,7 @@ pub async fn table(
         owner_dsn,
         c,
         app,
+        table,
         &format!("REVOKE SELECT ON {table} FROM setjoin_app"),
         &format!("GRANT SELECT ON {table} TO setjoin_app"),
         &format!("SELECT 1 FROM {table} LIMIT 1"),

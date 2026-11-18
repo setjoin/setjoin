@@ -486,12 +486,12 @@ cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test 
 A failed MFA-factor, risk or `feature.user_risk` read, or a failed common-password lookup, refuses
 before any token is signed or stored: WebAuthn finish 500 `internal error` (factors), password
 login, WebAuthn, SSO and MFA completions 500 `token issue failed`, refresh 503 with
-`Retry-After: 5` (no rotation), password change 500 `internal error`. TOTP, backup-code,
+`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A routing-flag lookup error (`feature.rate_limit`, CA, device trust, token binding) on these completions, password login and SSO refuses with 500 `internal error` and never forwards; routing decided by `config.threat_controls` or an `x-device-*` header still hands off to Go before any flag is read (by design, #420), so Go's fail-open risk read stays reachable that way while an upstream is configured. Stored risk `signals` must be an array of strings. TOTP, backup-code,
 push-status and bootstrap completions read the risk from the pending token before consuming
 the factor, so the factor stays unspent. Push status reads the risk on every poll, so under a
 fault a poll that is not yet approved answers 500 instead of `{"approved":false}`. Frozen Go fails
 open on all of these; the divergences are in `tests/conformance/identity-{login,mfa,webauthn,rp}/divergences.json`.
-An empty TOTP key never verifies; push approval with an unreadable reducer value answers Go's 400.
+An empty TOTP key never verifies; push approval with an unreadable or negative failure count, or another unreadable reducer value, answers the uniform 400.
 Tests: `tests/fail_closed.rs`, `guest_scope.rs` and `rp_faults.rs` `failclosed_454_*` (privilege
 faults on the request role through `tests/common/revoke.rs`, undone on every path including panics).
 

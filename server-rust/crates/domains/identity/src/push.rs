@@ -469,6 +469,10 @@ fn approval_result(value: &serde_json::Value, assertion: &Approval, user: i64, n
     ) else {
         return "invalid";
     };
+    // A negative count would grant extra guesses before the burn: uniform invalid, unevaluated.
+    if failures < 0 {
+        return "invalid";
+    }
     if failures >= 3 {
         "burn"
     } else if assertion.issued < now - 120
@@ -717,6 +721,8 @@ mod fail_closed_455 {
         r["code"] = json!("42");
         r["failures"] = json!(3);
         assert_eq!(approval_result(&r, &a, USER, NOW), "burn", "three strikes burn even the right code");
+        r["failures"] = json!(-1);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "a negative count is never a fresh challenge");
     }
 
     #[test]

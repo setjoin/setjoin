@@ -121,7 +121,7 @@ impl Session {
         }
         let score: i32 = r.try_get(0).map_err(|_| bad())?;
         let raw: String = r.try_get(2).map_err(|_| bad())?;
-        let signals: Value = serde_json::from_str(&raw).map_err(|_| bad())?;
+        let signals: Vec<String> = serde_json::from_str(&raw).map_err(|_| bad())?;
         Ok(Some(
             json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
         ))
