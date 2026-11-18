@@ -677,36 +677,29 @@ impl CompletionUser {
         }
         out
     }
-    /// Query errors, a missing row and level none keep Ok(None); an unreadable or
-    /// unparsable stored risk value fails the caller closed.
+    /// #454: a feature-flag or risk query error (also with the flag off), an invalid actor
+    /// and an unreadable or unparsable stored value fail closed; only a missing row or level
+    /// none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
     pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<serde_json::Value>, StatementFailure> {
         use serde_json::{json, Value};
-        if !crate::login::enabled(exec, "feature.user_risk")
-            .await
-            .unwrap_or(false)
-        {
-            return Ok(None);
-        }
-        let Ok(actor) = ActorId::new(self.user) else {
-            return Ok(None);
-        };
-        let Ok(rows) = exec
-            .read_user_scoped(
-                actor,
-                "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
-                &[(&self.user, Type::INT8)],
-            )
-            .await
-        else {
-            return Ok(None);
-        };
-        let Some(row) = rows.first() else {
-            return Ok(None);
-        };
         let bad = || StatementFailure {
             sqlstate: None,
             hint: None,
             message: "user risk row".into(),
+        };
+        if !crate::login::enabled(exec, "feature.user_risk").await? {
+            return Ok(None);
+        }
+        let actor = ActorId::new(self.user).map_err(|_| bad())?;
+        let rows = exec
+            .read_user_scoped(
+                actor,
+                "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
+                &[(&self.user, Type::INT8)],
+            )
+            .await?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
         };
         let level: String = row.try_get(1).map_err(|_| bad())?;
         if level.is_empty() || level == "none" {
@@ -849,7 +842,7 @@ where
 mod fail_closed {
     //! #455: an empty TOTP key proves nothing, and a ready row without a string secret is a
     //! statement failure. #454: completion risk lookup errors fail closed.
-    use super::{code, counter_proof, ready_secret};
+    use super::{code, counter_proof, ready_secret, CompletionUser};
     const SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
     #[test]
@@ -876,5 +869,15 @@ mod fail_closed {
             assert!(ready_secret(&row).is_err(), "{row}");
         }
         assert_eq!(ready_secret(&json!({"status":"ready","secret":SECRET})).unwrap(), SECRET);
+    }
+
+    #[test]
+    fn completion_risk_lookup_error_is_an_error() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
+            let user = CompletionUser { user: 7, email: String::new(), admin: false };
+            assert!(user.risk(&exec).await.is_err());
+        });
     }
 }

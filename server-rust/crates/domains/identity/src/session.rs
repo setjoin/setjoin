@@ -92,35 +92,28 @@ impl Session {
             _ => Err(invalid()),
         }
     }
-    /// Query errors, a missing row and level none keep Ok(None); an unreadable or
-    /// unparsable stored risk value fails the caller closed.
+    /// #454: a feature-flag or risk query error (also with the flag off), an invalid actor
+    /// and an unreadable or unparsable stored value fail closed; only a missing row or level
+    /// none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
     pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<Value>, setjoin_pg::StatementFailure> {
-        if !super::login::enabled(exec, "feature.user_risk")
-            .await
-            .unwrap_or(false)
-        {
-            return Ok(None);
-        }
-        let Ok(actor) = setjoin_contracts::ids::ActorId::new(self.user()) else {
-            return Ok(None);
-        };
-        let Ok(rows) = exec
-            .read_user_scoped(
-                actor,
-                "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
-                &[(&self.user(), Type::INT8)],
-            )
-            .await
-        else {
-            return Ok(None);
-        };
-        let Some(r) = rows.first() else {
-            return Ok(None);
-        };
         let bad = || setjoin_pg::StatementFailure {
             sqlstate: None,
             hint: None,
             message: "user risk row".into(),
+        };
+        if !super::login::enabled(exec, "feature.user_risk").await? {
+            return Ok(None);
+        }
+        let actor = setjoin_contracts::ids::ActorId::new(self.user()).map_err(|_| bad())?;
+        let rows = exec
+            .read_user_scoped(
+                actor,
+                "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
+                &[(&self.user(), Type::INT8)],
+            )
+            .await?;
+        let Some(r) = rows.first() else {
+            return Ok(None);
         };
         let level: String = r.try_get(1).map_err(|_| bad())?;
         if level.is_empty() || level == "none" {
@@ -206,5 +199,21 @@ impl Session {
             out["actor_id"] = actor.clone();
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod fail_closed_454 {
+    //! #454: a failed feature-flag or risk read is an error, never "no risk claim".
+    #[test]
+    fn risk_lookup_error_is_an_error() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
+            let mut claims = serde_json::Map::new();
+            claims.insert("uid".into(), serde_json::json!(7));
+            let session = super::Session { claims, hash: Vec::new() };
+            assert!(session.risk(&exec).await.is_err());
+        });
     }
 }

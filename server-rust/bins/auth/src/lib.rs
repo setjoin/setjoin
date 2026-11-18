@@ -833,6 +833,21 @@ impl AuthServer {
         let hash = Sha256::digest(token.as_bytes()).to_vec();
         let operation = uuid::Uuid::new_v4();
         let op = setjoin_contracts::ids::OperationId(*operation.as_bytes());
+        // #454 (owner Q1): the risk claim is read once, before anything is signed or rotated.
+        // A failed read (flag lookup included) is retryable: 503 + Retry-After, never 401,
+        // so clients keep their refresh token.
+        let risk = match session.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => {
+                let mut r = Self::failure(
+                    503,
+                    "Token refresh temporarily unavailable. Please try again.",
+                    &path,
+                );
+                r.headers_mut().insert("retry-after", "5".parse().unwrap());
+                return r;
+            }
+        };
         for _ in 0..8 {
             let context = match session
                 .refresh(
@@ -890,10 +905,8 @@ impl AuthServer {
             if context["guest"] == true {
                 claims["acct"] = json!("guest");
             }
-            match session.risk(&self.exec).await {
-                Ok(Some(risk)) => claims["risk"] = risk,
-                Ok(None) => {}
-                Err(_) => return Self::failure(401, "invalid or revoked refresh token", &path),
+            if let Some(risk) = &risk {
+                claims["risk"] = risk.clone();
             }
             let access = match self.sign(&claims) {
                 Ok(t) => t,
@@ -1344,8 +1357,10 @@ impl AuthServer {
             self.config.access_seconds,
             domain,
         );
-        if let Some(risk) = login::risk(&self.exec, &proof).await {
-            access_claims["risk"] = risk;
+        match login::risk(&self.exec, &proof).await {
+            Ok(Some(risk)) => access_claims["risk"] = risk,
+            Ok(None) => {}
+            Err(_) => return Self::failure(500, "token issue failed", &path),
         }
         // Go IssueInput.AccountType (auth.go:2005-2012): the access token only.
         if guest {

@@ -715,20 +715,16 @@ impl LoginProof {
             admin: r.try_get(1).map_err(|_| bad())?,
         }))
     }
-    /// Query errors and a missing row keep the existing (false,false) result; an
-    /// unreadable factor column is a decode failure and fails closed.
+    /// #454: a query error, a missing row (the user was disabled or deleted after
+    /// `completion`) or an unreadable factor column fails closed, never "no MFA enrolled".
     pub async fn factors(&self, exec: &ScopedExecutor) -> Result<(bool, bool), StatementFailure> {
-        let Ok(rows) = exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await else {
-            return Ok((false, false));
-        };
-        let Some(r) = rows.first() else {
-            return Ok((false, false));
-        };
         let bad = || StatementFailure {
             sqlstate: None,
             hint: None,
             message: "MFA factor row".into(),
         };
+        let rows = exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await?;
+        let r = rows.first().ok_or_else(bad)?;
         Ok((
             r.try_get::<_, bool>(0).map_err(|_| bad())?,
             r.try_get::<_, bool>(1).map_err(|_| bad())?,
@@ -1448,5 +1444,36 @@ mod secfix3_safetynet {
     #[test]
     fn a_stale_response_is_refused() {
         assert!(safetynet_policy(Some(&statement(&[CHAINED, CA], 120_000, AUTH, CLIENT)), AUTH, CLIENT).is_err());
+    }
+}
+
+#[cfg(test)]
+mod fail_closed_454 {
+    //! #454: a failed or empty MFA factor read is an error, never "no MFA enrolled".
+    use super::LoginProof;
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    }
+    #[test]
+    fn factor_query_error_is_an_error() {
+        runtime().block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
+            assert!(LoginProof { user: 7 }.factors(&exec).await.is_err());
+        });
+    }
+    #[test]
+    fn absent_user_row_is_an_error() {
+        let Some(dsn) = std::env::var("TEST_DB_DSN").ok().filter(|v| !v.is_empty()) else {
+            assert!(
+                std::env::var("REQUIRE_DB").unwrap_or_default().is_empty(),
+                "TEST_DB_DSN (REQUIRE_DB lane)"
+            );
+            eprintln!("IDENTITY-DB-SKIP (reason=no-dsn) test=absent_user_row_is_an_error");
+            return;
+        };
+        runtime().block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn(&dsn, 1).unwrap();
+            assert!(LoginProof { user: i64::MAX }.factors(&exec).await.is_err());
+        });
     }
 }

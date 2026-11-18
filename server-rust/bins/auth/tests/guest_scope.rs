@@ -4,6 +4,8 @@
 // Shared fixtures only; this binary uses a subset of the helpers.
 #[allow(dead_code)]
 mod common;
+#[path = "common/revoke.rs"]
+mod revoke;
 use base64::Engine as _;
 use http_body_util::BodyExt;
 use hyper::Request;
@@ -1146,4 +1148,109 @@ async fn tf_guest_force_password_change_token_has_no_acct() {
         settle(r, case.cleanup(c).await)
     })
     .await;
+}
+
+/// #454 (Q4): with a failing risk read, every completion answers 500 'token issue failed'
+/// before any token is signed or stored; TOTP, confirm, backup and push also leave their
+/// factor unspent. Login and WebAuthn compare only tokens/sessions/login events: the password
+/// tail and the passkey claim precede the point where the user is known.
+#[tokio::test]
+async fn failclosed_454_risk_fault_spends_no_factor_and_issues_no_token() {
+    let (_serial, db, c) = begin("GUEST353-failclosed-risk").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let risk_flag: String = c.query_one("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key='feature.user_risk'", &[]).await.unwrap().get(0);
+    let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
+    let mut result: Result<(), Err> = Ok(());
+    for (n, route) in ROUTES.iter().enumerate() {
+        result = failclosed_risk_cell(&db, &c, &app, route, n).await;
+        if result.is_err() {
+            break;
+        }
+    }
+    let restored = async {
+        restore_flags(&c, &saved).await?;
+        c.execute("DELETE FROM feature_toggles WHERE key='feature.user_risk'", &[]).await?;
+        c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)", &[&risk_flag]).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+    settle(result, restored).unwrap();
+}
+
+async fn failclosed_risk_cell(
+    db: &Db,
+    c: &tokio_postgres::Client,
+    app: &setjoin_pg::ScopedExecutor,
+    route: &str,
+    n: usize,
+) -> Result<(), Err> {
+    set_flags(c, false, false).await?;
+    c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.user_risk',true) ON CONFLICT(key) DO UPDATE SET enabled=true", &[]).await?;
+    let case = Case::new(db, c, route, false, &format!("failclosed-risk-{n}"), None).await?;
+    let result = async {
+        let before = case.snap(c).await?;
+        let guard = revoke::table(&db.dsn, c, app, "user_risk").await?;
+        let (status, raw) = case.send("").await?;
+        guard.restore(c).await?;
+        let after = case.snap(c).await?;
+        let judged = |s: &str| -> String {
+            if matches!(route, "login" | "webauthn") {
+                s.split('#').next().unwrap_or("").to_owned()
+            } else {
+                s.to_owned()
+            }
+        };
+        check(status == 500 && raw.contains("token issue failed"), &format!("{route}: want 500 token issue failed, got {status}: {raw}"))?;
+        check(!raw.contains("access_token") && !raw.contains("refresh_token") && !raw.contains("mfa_token"), &format!("{route}: refused completion leaked a token: {raw}"))?;
+        check(judged(&before) == judged(&after), &format!("{route}: the fault spent state: {before} -> {after}"))?;
+        Ok::<(), Err>(())
+    }
+    .await;
+    let cleaned = case.cleanup(c).await;
+    settle(result, cleaned)
+}
+
+/// #454: a failed MFA-factor read after a verified passkey answers 500 'internal error' and
+/// issues no token (the read loses only `push_mfa_enabled`; every other users column stays
+/// readable so the assertion and completion reads still succeed).
+#[tokio::test]
+async fn failclosed_454_webauthn_factor_fault_issues_no_token() {
+    let (_serial, db, c) = begin("GUEST353-failclosed-factors").await.unwrap();
+    let saved = save_flags(&c).await.unwrap();
+    let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
+    let result = async {
+        set_flags(&c, false, false).await?;
+        let case = Case::new(&db, &c, "webauthn", false, "failclosed-factors", None).await?;
+        let inner = async {
+            let cols: String = c.query_one("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute WHERE attrelid='public.users'::regclass AND attnum>0 AND NOT attisdropped AND attname<>'push_mfa_enabled'", &[]).await?.get(0);
+            let before = case.snap(&c).await?;
+            let guard = revoke::revoke(
+                &db.dsn,
+                &c,
+                &app,
+                &format!("REVOKE SELECT ON users FROM setjoin_app; GRANT SELECT ({cols}) ON users TO setjoin_app"),
+                &format!("REVOKE SELECT ({cols}) ON users FROM setjoin_app; GRANT SELECT ON users TO setjoin_app"),
+                "SELECT push_mfa_enabled FROM users LIMIT 1",
+            )
+            .await?;
+            let readable = app.read("SELECT email FROM users LIMIT 1", &[]).await.is_ok();
+            // S4: completion()'s own query must still succeed, so the 500 comes from factors().
+            let completion_readable = app.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id) FROM users u WHERE u.enabled LIMIT 1", &[]).await.is_ok();
+            let (status, raw) = case.send("").await?;
+            guard.restore(&c).await?;
+            let after = case.snap(&c).await?;
+            check(readable, "precondition: the other users columns must stay readable")?;
+            check(completion_readable, "precondition: completion()'s query must still succeed for setjoin_app")?;
+            check(status == 500 && raw.contains("internal error"), &format!("want 500 internal error, got {status}: {raw}"))?;
+            check(!raw.contains("access_token") && !raw.contains("refresh_token") && !raw.contains("mfa_token"), &format!("refused finish leaked a token: {raw}"))?;
+            check(before.split('#').next() == after.split('#').next(), &format!("tokens/sessions changed: {before} -> {after}"))?;
+            Ok::<(), Err>(())
+        }
+        .await;
+        let cleaned = case.cleanup(&c).await;
+        settle(inner, cleaned)
+    }
+    .await;
+    let restored = restore_flags(&c, &saved).await;
+    settle(result, restored).unwrap();
 }

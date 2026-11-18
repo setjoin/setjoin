@@ -11,6 +11,8 @@ mod observation;
 mod settlement;
 #[path = "common/webauthn_commit.rs"]
 mod wire;
+#[path = "common/revoke.rs"]
+mod revoke;
 use setjoin_conformance::fixture;
 struct Proxy(tokio::task::JoinHandle<std::io::Result<wire::CommitCut>>);
 impl Drop for Proxy {
@@ -426,4 +428,76 @@ async fn n7_sso_guest_scope() -> Result<(), Err> {
 #[tokio::test]
 async fn n7_sso_refuses_guest_rows_at_mint() {
     n7_sso_guest_scope().await.unwrap();
+}
+
+/// #454: SSO completion with a failing risk read answers 500 'token issue failed' before any
+/// token is signed or stored; the same login succeeds once the read works again.
+async fn failclosed_sso_risk() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let env = flows::Env::start(false).await?;
+    settlement::cleanup_leftovers(&env.c).await?;
+    let receipts = common::receipt_ids(&env.c).await;
+    let db = Db::for_case("IDFED2-failclosed").ok_or("assigned DB required")?;
+    let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().ok_or("DB_APP_DSN required")?, 2).map_err(|e| e.0)?;
+    let saved: String = env.c.query_one("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key='feature.user_risk'", &[]).await?.get(0);
+    let a = fixture::account(&env.c, "failclosed-rp-member").await?;
+    let result = async {
+        let email: String = env.c.query_one("SELECT email FROM users WHERE id=$1", &[&a.user]).await?.get(0);
+        env.c.execute("UPDATE users SET oidc_subject='failclosed-rp-subject',oidc_issuer=$2 WHERE id=$1", &[&a.user, &idp::ISSUER]).await?;
+        env.c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.user_risk',true) ON CONFLICT(key) DO UPDATE SET enabled=true", &[]).await?;
+        let before = sso_effects(&env.c, a.user).await?;
+        let guard = revoke::table(&db.dsn, &env.c, &app, "user_risk").await?;
+        let (status, headers, raw) = sso_once(&env, &email, "failclosed-rp-subject").await?;
+        guard.restore(&env.c).await?;
+        let after = sso_effects(&env.c, a.user).await?;
+        if status != 500 || !raw.contains("token issue failed") {
+            return Err(format!("want 500 token issue failed, got {status}: {raw}").into());
+        }
+        if raw.contains("access_token") || raw.contains("refresh_token") || headers.get("location").is_some() || flows::cookies(&headers).get("access_token").is_some_and(|v| !v.is_empty()) {
+            return Err("refused SSO leaked credentials".into());
+        }
+        if after != before {
+            return Err(format!("refused SSO left token/session rows: {before:?} -> {after:?}").into());
+        }
+        let (status, headers, raw) = sso_once(&env, &email, "failclosed-rp-subject").await?;
+        if status != 302 && status != 200 {
+            return Err(format!("control SSO status {status}: {raw}").into());
+        }
+        flows::cookies(&headers).get("access_token").filter(|v| !v.is_empty()).ok_or("control SSO set no access cookie")?;
+        Ok::<(), Err>(())
+    }
+    .await;
+    let flag = async {
+        env.c.execute("DELETE FROM feature_toggles WHERE key='feature.user_risk'", &[]).await?;
+        env.c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)", &[&saved]).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+    let identity = settlement::cleanup_identity(&env.c, a.user).await;
+    let removed = fixture::remove(&env.c, &a).await;
+    let receipts_restored = env
+        .c
+        .execute("DELETE FROM rust_operation_receipts WHERE family='F21' AND operation_id::text<>ALL($1::text[])", &[&receipts])
+        .await
+        .map(|_| ());
+    let sources = env
+        .c
+        .execute(
+            "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
+            &[],
+        )
+        .await
+        .map(|_| ());
+    let closed = env.close().await;
+    let cleanup = flag
+        .and(identity)
+        .and(removed.map_err(|e| -> Err { e.into() }))
+        .and(receipts_restored.map_err(|e| -> Err { e.into() }))
+        .and(sources.map_err(|e| -> Err { e.into() }))
+        .and(closed);
+    settle(result, cleanup)
+}
+#[tokio::test]
+async fn failclosed_454_sso_risk_fault_issues_no_token() {
+    failclosed_sso_risk().await.unwrap();
 }

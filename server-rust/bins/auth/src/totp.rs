@@ -691,6 +691,7 @@ impl AuthServer {
         path: &str,
         family: Option<String>,
         factors: Option<Vec<String>>,
+        risk: Option<Value>,
     ) -> Result<MfaTokens, Response<Body>> {
         self.completion_guest_scope(user.user(), path).await?;
         self.completion_tokens(
@@ -699,11 +700,12 @@ impl AuthServer {
             family,
             factors.unwrap_or_else(|| totp::factors(pending)),
             GuestMint::Allow,
+            risk,
         )
         .await
     }
     pub(super) async fn completion_tokens(
-        &self,user:&totp::CompletionUser,path:&str,family:Option<String>,factors:Vec<String>,guest_mint:GuestMint,
+        &self,user:&totp::CompletionUser,path:&str,family:Option<String>,factors:Vec<String>,guest_mint:GuestMint,risk:Option<Value>,
     )->Result<MfaTokens,Response<Body>> {
         let scope = user
             .scope(&self.exec)
@@ -751,10 +753,9 @@ impl AuthServer {
             scope,
             &factors,
         );
-        match user.risk(&self.exec).await {
-            Ok(Some(risk)) => access["risk"] = risk,
-            Ok(None) => {}
-            Err(_) => return Err(Self::failure(500, "token issue failed", path)),
+        // #454: the caller read the risk before any factor or assertion was spent.
+        if let Some(risk) = risk {
+            access["risk"] = risk;
         }
         if guest {
             access["acct"] = Value::from("guest");
@@ -864,6 +865,12 @@ impl AuthServer {
             return self.forward(Request::from_parts(parts, body(raw))).await;
         } // #405.
         let code = input.get("code").and_then(Value::as_str).unwrap_or("");
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         match totp::cycle(&self.exec, &pending, code).await {
             setjoin_pg::CommandOutcome::Committed(s) => match s.as_str() {
                 "accepted" => {}
@@ -899,7 +906,7 @@ impl AuthServer {
             Ok(None) => return Self::failure(401, "user not found", &path),
             Err(_) => return Self::failure(500, "internal error", &path),
         };
-        let tokens = match self.mfa_tokens(&user, &pending, &path, None, None).await {
+        let tokens = match self.mfa_tokens(&user, &pending, &path, None, None, risk).await {
             Ok(t) => t,
             Err(r) => return r,
         };
@@ -1041,12 +1048,19 @@ impl AuthServer {
         } else {
             None
         };
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         let prepared = std::sync::Mutex::<Option<(totp::CompletionUser, MfaTokens)>>::new(None);
         let failed = std::sync::Mutex::<Option<Response<Body>>>::new(None);
         let output = &prepared;
         let failure = &failed;
         let pending_ref = &pending;
         let path_ref = &path;
+        let risk_ref = &risk;
         let result = totp::bootstrap_confirm(
             &self.exec,
             &pending,
@@ -1072,7 +1086,7 @@ impl AuthServer {
                     },
                 };
                 let tokens = match self
-                    .mfa_tokens(&user, pending_ref, path_ref, Some(family), None)
+                    .mfa_tokens(&user, pending_ref, path_ref, Some(family), None, risk_ref.clone())
                     .await
                 {
                     Ok(t) => t,
@@ -1266,22 +1280,28 @@ impl AuthServer {
         {
             return self.forward(Request::from_parts(parts, body(raw))).await;
         } // #405.
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         match setjoin_identity::push::consume_backup(&self.exec,&pending,code).await{
             setjoin_pg::CommandOutcome::Committed(true)=>{},
             setjoin_pg::CommandOutcome::Committed(false)=>return Self::failure(401,"invalid or used backup code",&path),
             setjoin_pg::CommandOutcome::Unknown{operation}=>{let mut r=Self::failure(503,"Backup-code verification outcome unavailable. Inspect the operation before retrying.",&path);r.headers_mut().insert("x-operation-id",uuid::Uuid::from_bytes(operation.0).to_string().parse().unwrap());return r;},
             _=>return Self::failure(500,"verification failed",&path)
         }
-        self.mfa_finish(pending,path,ip,agent,secure,None,(401,"user not found")).await
+        self.mfa_finish(pending,path,ip,agent,secure,None,(401,"user not found"),risk).await
     }
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn mfa_finish(&self,pending:Session,path:String,ip:String,agent:String,secure:bool,factors:Option<Vec<String>>,missing:(u16,&str))->Response<Body>{
+    pub(super) async fn mfa_finish(&self,pending:Session,path:String,ip:String,agent:String,secure:bool,factors:Option<Vec<String>>,missing:(u16,&str),risk:Option<Value>)->Response<Body>{
         let user = match totp::CompletionUser::load(&self.exec, &pending).await {
             Ok(Some(u)) => u,
             Err(_) => return Self::failure(500, "internal error", &path),
             _ => return Self::failure(missing.0, missing.1, &path),
         };
-        let tokens = match self.mfa_tokens(&user, &pending, &path, None, factors).await {
+        let tokens = match self.mfa_tokens(&user, &pending, &path, None, factors, risk).await {
             Ok(t) => t,
             Err(r) => return r,
         };

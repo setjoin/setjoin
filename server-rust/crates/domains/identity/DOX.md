@@ -20,7 +20,18 @@ The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password i
 history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret) use the
 same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
 closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
-default. Exceptions, all deliberate:
+default. Query errors fail closed too (#454, security divergences from frozen Go's fail-open):
+WebAuthn `factors()` (a missing row included), every `risk()` with its `feature.user_risk`
+lookup (also when the flag is off), and the change-password common-password check refuse before
+any token is signed or stored. MFA completions read the risk from the pending token before the
+second factor is consumed, so a failed read spends no factor; push status does this on every
+poll, so a fault answers 500 rather than `{"approved":false}`. Refresh reads it once before
+rotating. `user_risk.score` is smallint and is read as `score::int4`. Verification inputs are
+never defaulted (#455): a `ready` TOTP row without a string `secret` is a statement failure (Go's
+failed Scan), `counter_proof` refuses an empty decoded key (Go accepts it), and push approval
+treats a missing or mistyped `failures`, `key`, `code`, `session` or `expires` as Go's uniform
+invalid, never as zero failures. Tests: `bins/auth/tests/fail_closed.rs`, the `failclosed_454_*`
+cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit modules. Exceptions, all deliberate:
 - WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a
   distinct reply cannot reveal that an account exists.
 - `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops

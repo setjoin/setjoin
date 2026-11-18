@@ -307,25 +307,59 @@ pub fn random_jti() -> Result<String, String> {
         .map_err(|_| "random jti failed")?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
-pub async fn risk(exec: &ScopedExecutor, p: &PasswordProof) -> Option<Value> {
-    if !enabled(exec, "feature.user_risk").await.unwrap_or(false) {
-        return None;
+/// #454: a feature-flag or risk query error (also with the flag off), an invalid actor and
+/// an unreadable or unparsable stored value fail closed (no panicking decode); only a missing
+/// row or level none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
+pub async fn risk(exec: &ScopedExecutor, p: &PasswordProof) -> Result<Option<Value>, StatementFailure> {
+    let bad = || StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "user risk row".into(),
+    };
+    if !enabled(exec, "feature.user_risk").await? {
+        return Ok(None);
     }
+    let actor = setjoin_contracts::ids::ActorId::new(p.user).map_err(|_| bad())?;
     let rows = exec
         .read_user_scoped(
-            setjoin_contracts::ids::ActorId::new(p.user).ok()?,
-            "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
+            actor,
+            "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
             &[(&p.user, Type::INT8)],
         )
-        .await
-        .ok()?;
-    let r = rows.first()?;
-    let level: String = r.get(1);
+        .await?;
+    let Some(r) = rows.first() else {
+        return Ok(None);
+    };
+    let level: String = r.try_get(1).map_err(|_| bad())?;
     if level.is_empty() || level == "none" {
-        return None;
+        return Ok(None);
     }
-    let signals: Value = serde_json::from_str(&r.get::<_, String>(2)).unwrap_or(Value::Null);
-    Some(
-        json!({"user_score":r.get::<_,i32>(0),"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
-    )
+    let score: i32 = r.try_get(0).map_err(|_| bad())?;
+    let raw: String = r.try_get(2).map_err(|_| bad())?;
+    let signals: Value = serde_json::from_str(&raw).map_err(|_| bad())?;
+    Ok(Some(
+        json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
+    ))
+}
+
+#[cfg(test)]
+mod fail_closed_454 {
+    //! #454: a failed feature-flag or risk read is an error, never "no risk claim".
+    #[test]
+    fn password_login_risk_lookup_error_is_an_error() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
+            let proof = super::PasswordProof {
+                user: 7,
+                email: String::new(),
+                hash: String::new(),
+                admin: false,
+                totp: false,
+                push: false,
+                force_change: false,
+            };
+            assert!(super::risk(&exec, &proof).await.is_err());
+        });
+    }
 }

@@ -332,6 +332,12 @@ impl AuthServer {
                 return reply;
             }
         };
+        // #454: the verified user is known only after settlement; read the risk once here,
+        // before any token is signed or stored, and pass it into both mint paths.
+        let risk = match user.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", path),
+        };
         if resolution.guest_scope(&self.exec).await.is_err() {
             return Self::failure(503, "conditional access context unavailable", path);
         }
@@ -349,7 +355,7 @@ impl AuthServer {
                     worker,
                     |family| async {
                         match self
-                            .completion_tokens(&user, path, Some(family), vec!["pwd".into()], super::totp::GuestMint::Refuse)
+                            .completion_tokens(&user, path, Some(family), vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone())
                             .await
                         {
                             Ok(tokens) => {
@@ -390,7 +396,7 @@ impl AuthServer {
                 .await
         } else {
             let tokens = match self
-                .completion_tokens(&user, path, None, vec!["pwd".into()], super::totp::GuestMint::Refuse)
+                .completion_tokens(&user, path, None, vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone())
                 .await
             {
                 Ok(t) => t,

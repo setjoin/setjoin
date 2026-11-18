@@ -481,6 +481,20 @@ cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test 
 (callback with Lax-eligible cookies only); mutants `scripts/test-oidclax-mutants.py`.
 
 
+## Fail-closed identity reads (#454, #455)
+
+A failed MFA-factor, risk or `feature.user_risk` read, or a failed common-password lookup, refuses
+before any token is signed or stored: WebAuthn finish 500 `internal error` (factors), password
+login, WebAuthn, SSO and MFA completions 500 `token issue failed`, refresh 503 with
+`Retry-After: 5` (no rotation), password change 500 `internal error`. TOTP, backup-code,
+push-status and bootstrap completions read the risk from the pending token before consuming
+the factor, so the factor stays unspent. Push status reads the risk on every poll, so under a
+fault a poll that is not yet approved answers 500 instead of `{"approved":false}`. Frozen Go fails
+open on all of these; the divergences are in `tests/conformance/identity-{login,mfa,webauthn,rp}/divergences.json`.
+An empty TOTP key never verifies; push approval with an unreadable reducer value answers Go's 400.
+Tests: `tests/fail_closed.rs`, `guest_scope.rs` and `rp_faults.rs` `failclosed_454_*` (privilege
+faults on the request role through `tests/common/revoke.rs`, undone on every path including panics).
+
 ## Guest invitation acceptance (#342)
 
 `src/guest_invite.rs` mirrors frozen Go GET/HEAD/POST `/auth/guest-invite/accept`.

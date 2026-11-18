@@ -104,8 +104,8 @@ pub async fn change(
     .await?;
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(setjoin_authz::address::lower(new.trim()).as_bytes()).to_vec();
-    // A query error keeps the existing "not common" result; an unreadable or missing
-    // flag fails closed as an internal fault, never as "not common".
+    // #454: a query error, an unreadable or a missing flag fails closed as an internal
+    // fault, never as "not common" (frozen Go proceeds on a failed lookup).
     let common = match exec
         .read(
             "SELECT EXISTS(SELECT 1 FROM common_passwords WHERE password_hash=$1)",
@@ -117,7 +117,7 @@ pub async fn change(
             Some(Ok(flag)) => flag,
             _ => return Err(reply(500, "internal error")),
         },
-        Err(_) => false,
+        Err(_) => return Err(reply(500, "internal error")),
     };
     if common {
         return Err(reply(

@@ -631,6 +631,12 @@ impl AuthServer {
         {
             return self.forward(Request::from_parts(parts, body(raw))).await;
         } // #405.
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
+        let risk = match pending.risk(&self.exec).await {
+            Ok(risk) => risk,
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        };
         match push::harvest(&self.exec, &pending, nonce, token).await {
             setjoin_pg::CommandOutcome::Committed(true) => {}
             setjoin_pg::CommandOutcome::Unknown { operation } => {
@@ -659,6 +665,7 @@ impl AuthServer {
             secure,
             Some(factors),
             (500, "user lookup failed"),
+            risk,
         )
         .await
     }
