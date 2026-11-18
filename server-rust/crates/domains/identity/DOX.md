@@ -12,9 +12,29 @@ bcrypt/SM3 verifier on a blocking task. Request uid/mailbox fields never enter
 that proof. Subsequent reads/writes bind its user, including live admin scope.
 Go does not resolve a mailbox for login; neither does Rust.
 
-Login, TOTP-admission, bootstrap, readiness and password-policy single-row reads use
-`rows.first()` + `try_get`: a missing row or unexpected NULL returns the function's existing
-error (callers map it to 503/500) instead of panicking. Other `rows[0]` sites: #436.
+TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437) use
+`rows.first()` + `try_get`. A missing row returns that function's existing error or absence result,
+and an unreadable value never panics.
+
+The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password including the
+history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret) use the
+same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
+closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
+default. Exceptions, all deliberate:
+- push.rs reducer JSON values `secret`, `failures` and `key` still default permissively. This is
+  tracked in #455.
+- WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a
+  distinct reply cannot reveal that an account exists.
+- `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops
+  late row errors the same way).
+- Push delivery skips a device whose row or token result cannot be decoded, and logs it to stderr
+  with the error text only. Encrypt and send failures are not logged here.
+- Recovery `Principal::resolve` decode failures get the same non-enumerating reply as a refusal,
+  and are logged to stderr.
+
+Not converted: WebAuthn `management_options` (`.expect` on the snapshot; the function returns a
+plain String, so it has no error path), and `.get`/index reads on rows in oidc.rs,
+oidc/consumers.rs, login.rs, issuance.rs, impersonation.rs, self_service.rs and rp.rs.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

@@ -92,30 +92,46 @@ impl Session {
             _ => Err(invalid()),
         }
     }
-    pub async fn risk(&self, exec: &ScopedExecutor) -> Option<Value> {
+    /// Query errors, a missing row and level none keep Ok(None); an unreadable or
+    /// unparsable stored risk value fails the caller closed.
+    pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<Value>, setjoin_pg::StatementFailure> {
         if !super::login::enabled(exec, "feature.user_risk")
             .await
             .unwrap_or(false)
         {
-            return None;
+            return Ok(None);
         }
-        let rows = exec
+        let Ok(actor) = setjoin_contracts::ids::ActorId::new(self.user()) else {
+            return Ok(None);
+        };
+        let Ok(rows) = exec
             .read_user_scoped(
-                setjoin_contracts::ids::ActorId::new(self.user()).ok()?,
+                actor,
                 "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
                 &[(&self.user(), Type::INT8)],
             )
             .await
-            .ok()?;
-        let r = rows.first()?;
-        let level: String = r.get(1);
+        else {
+            return Ok(None);
+        };
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || setjoin_pg::StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "user risk row".into(),
+        };
+        let level: String = r.try_get(1).map_err(|_| bad())?;
         if level.is_empty() || level == "none" {
-            return None;
+            return Ok(None);
         }
-        let signals: Value = serde_json::from_str(&r.get::<_, String>(2)).unwrap_or(Value::Null);
-        Some(
-            json!({"user_score":r.get::<_,i32>(0),"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
-        )
+        let score: i32 = r.try_get(0).map_err(|_| bad())?;
+        let raw: String = r.try_get(2).map_err(|_| bad())?;
+        let signals: Value = serde_json::from_str(&raw).map_err(|_| bad())?;
+        Ok(Some(
+            json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
+        ))
     }
     pub async fn refresh(
         &self,
@@ -134,7 +150,7 @@ impl Session {
         let claim_family = self.text("fam");
         let write = expected.is_some();
         let user = self.user();
-        exec.run_user_command_with_tail(actor,operation,"SELECT rust_identity_refresh($1,$2,$3,$4::text::jsonb,$5,$6,$7::text::uuid)::text",&[(&self.user(),Type::INT8),(&hash,Type::BYTEA),(&claim_family,Type::TEXT),(&expected,Type::TEXT),(&new_hash,Type::BYTEA),(&expiry,Type::INT8),(&family,Type::TEXT)],|rows|{let raw:String=rows[0].get(0);serde_json::from_str(&raw).map_err(|_|setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"refresh result".into()})},|value:&Value|{
+        exec.run_user_command_with_tail(actor,operation,"SELECT rust_identity_refresh($1,$2,$3,$4::text::jsonb,$5,$6,$7::text::uuid)::text",&[(&self.user(),Type::INT8),(&hash,Type::BYTEA),(&claim_family,Type::TEXT),(&expected,Type::TEXT),(&new_hash,Type::BYTEA),(&expiry,Type::INT8),(&family,Type::TEXT)],|rows|{let raw:String=rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"refresh result row".into()})?;serde_json::from_str(&raw).map_err(|_|setjoin_pg::StatementFailure{sqlstate:None,hint:None,message:"refresh result".into()})},|value:&Value|{
             let record=write && value["status"]=="mint";let email=value["email"].as_str().unwrap_or("").to_owned();
             async move {if record {let _=exec.protocol_statement("INSERT INTO auth_event_log(user_id,event,provider,email) VALUES($1,'login','jwt',NULLIF($2,''))",&[(&user,Type::INT8),(&email,Type::TEXT)]).await;}}
         }).await
@@ -153,9 +169,9 @@ impl Session {
             "SELECT revoke_user_sessions($1,'all','token_revoke_all',NULL,NULL,NULL)",
             &[(&self.user(), Type::INT8)],
             |rows| {
-                rows[0]
-                    .try_get(0)
-                    .map_err(|_| setjoin_pg::StatementFailure {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(|| setjoin_pg::StatementFailure {
                         sqlstate: None,
                         hint: None,
                         message: "revocation result".into(),
@@ -168,15 +184,23 @@ impl Session {
         let user = self.user();
         let rows=exec.read("SELECT EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())),EXISTS(SELECT 1 FROM mailboxes WHERE user_id=u.id AND is_primary=true LIMIT 1),COALESCE(u.totp_enabled,false),(to_jsonb(u.totp_enabled_at AT TIME ZONE 'UTC')#>>'{}'),COALESCE(u.display_name,''),u.email FROM users u WHERE u.id=$1",&[(&user,Type::INT8)]).await.map_err(|_|"profile lookup failed")?;
         let r = rows.first().ok_or("profile lookup failed")?;
-        let delegates=exec.read("SELECT mb.id,mb.email,md.permission FROM mailbox_delegates md JOIN mailboxes mb ON mb.id=md.mailbox_id WHERE md.user_id=$1 AND md.permission IN ('send_as','full_access') AND mb.enabled=true ORDER BY lower(mb.email),mb.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|json!({"id":r.get::<_,i64>(0),"email":r.get::<_,String>(1),"permission":r.get::<_,String>(2)})).collect::<Vec<_>>();
-        let aliases=exec.read("SELECT a.email FROM aliases a JOIN mailboxes m ON m.id=a.mailbox_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary=true AND m.enabled=true AND lower(a.email)<>lower(u.email) ORDER BY lower(a.email),a.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|json!({"email":r.get::<_,String>(0)})).collect::<Vec<_>>();
+        let delegates=exec.read("SELECT mb.id,mb.email,md.permission FROM mailbox_delegates md JOIN mailboxes mb ON mb.id=md.mailbox_id WHERE md.user_id=$1 AND md.permission IN ('send_as','full_access') AND mb.enabled=true ORDER BY lower(mb.email),mb.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|-> Result<Value,&'static str>{Ok(json!({"id":r.try_get::<_,i64>(0).map_err(|_|"profile lookup failed")?,"email":r.try_get::<_,String>(1).map_err(|_|"profile lookup failed")?,"permission":r.try_get::<_,String>(2).map_err(|_|"profile lookup failed")?}))}).collect::<Result<Vec<_>,&'static str>>()?;
+        let aliases=exec.read("SELECT a.email FROM aliases a JOIN mailboxes m ON m.id=a.mailbox_id JOIN users u ON u.id=m.user_id WHERE m.user_id=$1 AND m.is_primary=true AND m.enabled=true AND lower(a.email)<>lower(u.email) ORDER BY lower(a.email),a.id",&[(&user,Type::INT8)]).await.unwrap_or_default().iter().map(|r|-> Result<Value,&'static str>{Ok(json!({"email":r.try_get::<_,String>(0).map_err(|_|"profile lookup failed")?}))}).collect::<Result<Vec<_>,&'static str>>()?;
         let guest = exec
             .read("SELECT is_guest_account($1)", &[(&user, Type::INT8)])
             .await
-            .map_err(|_| "account type lookup failed")?[0]
-            .get::<_, bool>(0);
-        let at: Option<String> = r.get(3);
-        let mut out = json!({"user_id":user,"email":r.get::<_,String>(5),"display_name":r.get::<_,String>(4),"is_admin":r.get::<_,bool>(0),"has_mailbox":r.get::<_,bool>(1),"totp_enabled":r.get::<_,bool>(2),"totp_enabled_at":at.map(|s|s+"Z"),"delegates":delegates,"aliases":aliases,"account_type":if guest {"guest"}else{"member"}});
+            .map_err(|_| "account type lookup failed")?
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .ok_or("account type lookup failed")?;
+        let bad_profile = "profile lookup failed";
+        let is_admin: bool = r.try_get(0).map_err(|_| bad_profile)?;
+        let has_mailbox: bool = r.try_get(1).map_err(|_| bad_profile)?;
+        let totp_enabled: bool = r.try_get(2).map_err(|_| bad_profile)?;
+        let at: Option<String> = r.try_get(3).map_err(|_| bad_profile)?;
+        let display_name: String = r.try_get(4).map_err(|_| bad_profile)?;
+        let email: String = r.try_get(5).map_err(|_| bad_profile)?;
+        let mut out = json!({"user_id":user,"email":email,"display_name":display_name,"is_admin":is_admin,"has_mailbox":has_mailbox,"totp_enabled":totp_enabled,"totp_enabled_at":at.map(|s|s+"Z"),"delegates":delegates,"aliases":aliases,"account_type":if guest {"guest"}else{"member"}});
         if let Some(actor) = self.claims.get("act").filter(|v| !v.is_null()) {
             out["impersonating"] = json!(true);
             out["actor_id"] = actor.clone();

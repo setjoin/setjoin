@@ -4,6 +4,18 @@ use serde_json::Value;
 use setjoin_contracts::ids::{ActorId, OperationId};
 use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
 use sha2::{Digest, Sha256};
+/// The reducer's JSON text is the first row's column. A missing row, NULL, wrong type or
+/// bad JSON rejects the statement with the function's existing failure.
+fn json_row(rows: &[setjoin_pg::Row], message: &str) -> Result<Value, StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: message.into(),
+        })
+}
 pub async fn begin(
     exec: &ScopedExecutor,
     session: &Session,
@@ -35,8 +47,7 @@ pub async fn begin(
             (&hash, Type::TEXT),
         ],
         |rows| {
-            let mut value: Value =
-                serde_json::from_str(&rows[0].get::<_, String>(0)).expect("ceremony JSON");
+            let mut value: Value = json_row(rows, "ceremony JSON row")?;
             if value["status"] == "created" {
                 value["options"] = serde_json::json!(rp.management_options(&value, &challenge));
             }
@@ -73,10 +84,18 @@ pub async fn peek(
         "session"
     };
     let rows=exec.read_user_scoped(actor,"SELECT challenge_hash,operation,target_ref FROM webauthn_ceremonies WHERE user_id=$1 AND kind='management_assertion' AND token_scope=$2 AND session_jti=$3 AND expires_at>now() ORDER BY created_at DESC LIMIT 1",&[(&session.user(),Type::INT8),(&scope,Type::TEXT),(&session.text("jti"),Type::TEXT)]).await?;
-    Ok(rows.first().map(|row| Ceremony {
-        hash: row.get(0),
-        operation: row.get(1),
-        target: row.get(2),
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let bad = || StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "ceremony row".into(),
+    };
+    Ok(Some(Ceremony {
+        hash: row.try_get(0).map_err(|_| bad())?,
+        operation: row.try_get(1).map_err(|_| bad())?,
+        target: row.try_get(2).map_err(|_| bad())?,
     }))
 }
 pub async fn finish(
@@ -113,9 +132,9 @@ pub async fn finish(
     exec.run_user_proof_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),
   "SELECT rust_identity_possession_webauthn_read($1,$2::text::jsonb,$3)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT),(&ceremony.hash,Type::TEXT)],
   |rows|{
-   let value:Value=serde_json::from_str(&rows[0].get::<_,String>(0)).expect("management snapshot");
+   let value:Value=json_row(rows,"management snapshot row")?;
    if value["status"]!="ready"{return Ok(ProvenStatement::new("SELECT $1::text").bind(value.to_string(),Type::TEXT));}
    let (verdict,factor)=match rp.management_verify(&value,&ceremony.hash,raw){ManagementResult::Malformed=>("malformed",None),ManagementResult::Rejected=>("invalid",None),ManagementResult::Accepted(id)=>("accepted",Some(id))};
    Ok(ProvenStatement::new("SELECT rust_identity_possession_webauthn_finish($1,$2::text::jsonb,$3,$4,$5,$6)::text").bind(session.user(),Type::INT8).bind(claims.clone(),Type::TEXT).bind(ceremony.hash.clone(),Type::TEXT).bind(verdict.to_owned(),Type::TEXT).bind(factor,Type::BYTEA).bind(grant_hash,Type::TEXT))
-  },|rows|{let mut value:Value=serde_json::from_str(&rows[0].get::<_,String>(0)).expect("management result");if value["status"]=="issued"{value["pending"]=serde_json::json!(pending);if !pending{value["token"]=serde_json::json!(token);}}Ok(value)}).await
+  },|rows|{let mut value:Value=json_row(rows,"management result row")?;if value["status"]=="issued"{value["pending"]=serde_json::json!(pending);if !pending{value["token"]=serde_json::json!(token);}}Ok(value)}).await
 }

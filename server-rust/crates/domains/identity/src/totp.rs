@@ -114,7 +114,15 @@ pub async fn remove(
             (&hash, Type::TEXT),
             (&ip, Type::TEXT),
         ],
-        |rows| Ok(rows[0].get(0)),
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "TOTP row".into(),
+                })
+        },
     )
     .await
 }
@@ -222,13 +230,18 @@ pub(crate) async fn cycle_for(
         "SELECT * FROM rust_identity_totp_cycle_read($1)",
         &[(&user, Type::INT8)],
         |rows| {
-            let outcome: String = rows[0].get(0);
+            let bad = || StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "TOTP cycle row".into(),
+            };
+            let outcome: String = rows.first().ok_or_else(bad)?.try_get(0).map_err(|_| bad())?;
             if outcome != "evaluate" {
                 return Ok(
                     setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(outcome, Type::TEXT)
                 );
             }
-            let secret: Option<String> = rows[0].get(1);
+            let secret: Option<String> = rows.first().ok_or_else(bad)?.try_get(1).map_err(|_| bad())?;
             let Some(secret) = secret else {
                 return Ok(setjoin_pg::ProvenStatement::new(
                     "SELECT 'bookkeeping'::text",
@@ -247,7 +260,15 @@ pub(crate) async fn cycle_for(
                     .bind(valid, Type::BOOL).bind(counter,Type::INT8).bind(factor,Type::BYTEA),
             )
         },
-        |rows| Ok(rows[0].get(0)),
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "TOTP row".into(),
+                })
+        },
     )
     .await
 }
@@ -292,14 +313,14 @@ pub async fn begin(
     let user = session.user();
     let rows=exec.read("SELECT COALESCE(totp_enabled,false),COALESCE(totp_backup_codes_enc,'{}') FROM users WHERE id=$1",&[(&user,Type::INT8)]).await.map_err(|_|internal())?;
     let row = rows.first().ok_or_else(internal)?;
-    if !row.get::<_, bool>(0) {
+    if !row.try_get::<_, bool>(0).map_err(|_| internal())? {
         return Err(Failure::Reply(
             409,
             "TOTP is not enabled",
             Some("totp not enabled"),
         ));
     }
-    let backups: Vec<String> = row.get(1);
+    let backups: Vec<String> = row.try_get(1).map_err(|_| internal())?;
     let hashes = exec
         .read(
             "SELECT password_hash FROM users WHERE id=$1",
@@ -307,7 +328,7 @@ pub async fn begin(
         )
         .await
         .map_err(|_| internal())?;
-    let hash: String = hashes.first().ok_or_else(internal)?.get(0);
+    let hash: String = hashes.first().ok_or_else(internal)?.try_get(0).map_err(|_| internal())?;
     let password = password.to_owned();
     if !tokio::task::spawn_blocking(move || setjoin_authz::password::verify(&hash, &password))
         .await
@@ -343,7 +364,7 @@ pub async fn begin(
                     )
                     .await
                     .map_err(|_| internal())?;
-                let hashes: Option<Vec<String>> = rows.first().ok_or_else(internal)?.get(0);
+                let hashes: Option<Vec<String>> = rows.first().ok_or_else(internal)?.try_get(0).map_err(|_| internal())?;
                 let code = presented.to_owned();
                 accepted = tokio::task::spawn_blocking(move || {
                     hashes
@@ -435,11 +456,14 @@ async fn stage(
             (&secret, Type::TEXT),
         ],
         |rows| {
-            serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| StatementFailure {
-                sqlstate: None,
-                hint: None,
-                message: "TOTP setup result".into(),
-            })
+            rows.first()
+                .and_then(|r| r.try_get::<_, String>(0).ok())
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .ok_or_else(|| StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "TOTP setup result".into(),
+                })
         },
     )
     .await
@@ -468,11 +492,14 @@ pub fn provisioning_uri(secret: &str, email: &str, issuer: &str) -> String {
 }
 
 fn json_row(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, StatementFailure> {
-    serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| StatementFailure {
-        sqlstate: None,
-        hint: None,
-        message: "TOTP result".into(),
-    })
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "TOTP result".into(),
+        })
 }
 pub async fn confirm(
     exec: &ScopedExecutor,
@@ -546,10 +573,18 @@ impl CompletionUser {
     ) -> Result<Option<Self>, StatementFailure> {
         let user = pending.user();
         let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await?;
-        Ok(rows.first().map(|r| Self {
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "completion user row".into(),
+        };
+        Ok(Some(Self {
             user,
-            email: r.get(0),
-            admin: r.get(1),
+            email: r.try_get(0).map_err(|_| bad())?,
+            admin: r.try_get(1).map_err(|_| bad())?,
         }))
     }
     pub async fn scope(&self, exec: &ScopedExecutor) -> Result<Option<i64>, StatementFailure> {
@@ -557,7 +592,12 @@ impl CompletionUser {
             return Ok(None);
         }
         let rows=exec.read("SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&self.user,Type::INT8)]).await?;
-        Ok(rows[0].get(0))
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "admin scope row".into(),
+        };
+        rows.first().ok_or_else(bad)?.try_get(0).map_err(|_| bad())
     }
     pub async fn admission(
         &self,
@@ -624,31 +664,47 @@ impl CompletionUser {
         }
         out
     }
-    pub async fn risk(&self, exec: &ScopedExecutor) -> Option<serde_json::Value> {
+    /// Query errors, a missing row and level none keep Ok(None); an unreadable or
+    /// unparsable stored risk value fails the caller closed.
+    pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<serde_json::Value>, StatementFailure> {
         use serde_json::{json, Value};
         if !crate::login::enabled(exec, "feature.user_risk")
             .await
             .unwrap_or(false)
         {
-            return None;
+            return Ok(None);
         }
-        let rows = exec
+        let Ok(actor) = ActorId::new(self.user) else {
+            return Ok(None);
+        };
+        let Ok(rows) = exec
             .read_user_scoped(
-                ActorId::new(self.user).ok()?,
+                actor,
                 "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
                 &[(&self.user, Type::INT8)],
             )
             .await
-            .ok()?;
-        let row = rows.first()?;
-        let level: String = row.get(1);
+        else {
+            return Ok(None);
+        };
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "user risk row".into(),
+        };
+        let level: String = row.try_get(1).map_err(|_| bad())?;
         if level.is_empty() || level == "none" {
-            return None;
+            return Ok(None);
         }
-        let signals: Value = serde_json::from_str(&row.get::<_, String>(2)).ok()?;
-        Some(
-            json!({"user_score":row.get::<_,i32>(0),"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
-        )
+        let score: i32 = row.try_get(0).map_err(|_| bad())?;
+        let raw: String = row.try_get(2).map_err(|_| bad())?;
+        let signals: Value = serde_json::from_str(&raw).map_err(|_| bad())?;
+        Ok(Some(
+            json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
+        ))
     }
     pub async fn record(
         &self,

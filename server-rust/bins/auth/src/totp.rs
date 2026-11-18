@@ -751,8 +751,10 @@ impl AuthServer {
             scope,
             &factors,
         );
-        if let Some(risk) = user.risk(&self.exec).await {
-            access["risk"] = risk;
+        match user.risk(&self.exec).await {
+            Ok(Some(risk)) => access["risk"] = risk,
+            Ok(None) => {}
+            Err(_) => return Err(Self::failure(500, "token issue failed", path)),
         }
         if guest {
             access["acct"] = Value::from("guest");
@@ -894,7 +896,8 @@ impl AuthServer {
         }
         let user = match totp::CompletionUser::load(&self.exec, &pending).await {
             Ok(Some(u)) => u,
-            _ => return Self::failure(401, "user not found", &path),
+            Ok(None) => return Self::failure(401, "user not found", &path),
+            Err(_) => return Self::failure(500, "internal error", &path),
         };
         let tokens = match self.mfa_tokens(&user, &pending, &path, None, None).await {
             Ok(t) => t,
@@ -1032,7 +1035,8 @@ impl AuthServer {
         let early = if signed {
             match totp::CompletionUser::load(&self.exec, &pending).await {
                 Ok(Some(u)) => Some(u),
-                _ => return Self::failure(401, "user not found", &path),
+                Ok(None) => return Self::failure(401, "user not found", &path),
+                Err(_) => return Self::failure(500, "internal error", &path),
             }
         } else {
             None
@@ -1055,6 +1059,11 @@ impl AuthServer {
                     Some(u) => u,
                     None => match totp::CompletionUser::load(&self.exec, pending_ref).await {
                         Ok(Some(u)) => u,
+                        Err(_) => {
+                            *failure.lock().unwrap() =
+                                Some(Self::failure(500, "internal error", path_ref));
+                            return Err(json!({"status":"completion_reply"}));
+                        }
                         _ => {
                             *failure.lock().unwrap() =
                                 Some(Self::failure(401, "user not found", path_ref));
@@ -1269,6 +1278,7 @@ impl AuthServer {
     pub(super) async fn mfa_finish(&self,pending:Session,path:String,ip:String,agent:String,secure:bool,factors:Option<Vec<String>>,missing:(u16,&str))->Response<Body>{
         let user = match totp::CompletionUser::load(&self.exec, &pending).await {
             Ok(Some(u)) => u,
+            Err(_) => return Self::failure(500, "internal error", &path),
             _ => return Self::failure(missing.0, missing.1, &path),
         };
         let tokens = match self.mfa_tokens(&user, &pending, &path, None, factors).await {
