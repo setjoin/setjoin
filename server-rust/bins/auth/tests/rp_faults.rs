@@ -130,14 +130,8 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
     settlement::cleanup_identity(&env.c, a.user).await?;
     fixture::remove(&env.c, &a).await?;
     fixture::remove(&env.c, &b).await?;
-    // Any settled OIDC login creates the source, not only the normalized variants: remove it
-    // (once unlinked) so no later suite sees a leftover identity source.
-    env.c
-        .execute(
-            "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
-            &[],
-        )
-        .await?;
+    // #431: shared oidc:idfed2 source rows are left for the throwaway CI database; the sweep
+    // is provider-wide and would remove other cases' rows.
     env.close().await?;
     result
 }
@@ -408,20 +402,13 @@ async fn n7_sso_guest_scope() -> Result<(), Err> {
         .execute("DELETE FROM rust_operation_receipts WHERE family='F21' AND operation_id::text<>ALL($1::text[])", &[&receipts])
         .await
         .map(|_| ());
-    let sources = env
-        .c
-        .execute(
-            "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
-            &[],
-        )
-        .await
-        .map(|_| ());
+    // #431: shared oidc:idfed2 source rows are left for the throwaway CI database; the sweep
+    // is provider-wide and would remove other cases' rows.
     let closed = env.close().await;
     let cleanup = pristine
         .and(identity)
         .and(removed.map_err(|e| -> Err { e.into() }))
         .and(receipts_restored.map_err(|e| -> Err { e.into() }))
-        .and(sources.map_err(|e| -> Err { e.into() }))
         .and(closed);
     settle(result, cleanup)
 }

@@ -17,22 +17,6 @@ static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 type Err = Box<dyn std::error::Error + Send + Sync>;
 
-/// Receipt families the guest cases write: every login, refresh, backup
-/// consumption, WebAuthn and bootstrap-confirm flow here records under F21 (commands
-/// mfa-bootstrap/refresh/mfa-mint/mfa-bootstrap-grant/rp-mint: reducers
-/// mailserver/sql/reducers/rust_identity_{totp_bootstrap_confirm,refresh,mfa_mint,
-/// mfa_bootstrap_grant,rp_mint}.sql; rp-settle: crates/domains/identity/src/rp/account.rs:300;
-/// guest invites: crates/domains/identity/src/guest_invite.rs:192). Only these
-/// families are snapshotted and cleaned, never other families' receipts.
-const RECEIPT_FAMILIES: [&str; 1] = ["F21"];
-
-/// Operation-receipt ids of RECEIPT_FAMILIES present when the serialised case
-/// began. Receipts have no user foreign key, so account deletion cannot cascade
-/// them; the case's own receipts are the family ids absent from this snapshot
-/// (cases run one at a time under SERIAL and the identity-login advisory lock,
-/// against an assigned DB).
-static RECEIPTS_BEFORE: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
-
 /// Combines a case result with a cleanup result: the case error is never
 /// replaced by a cleanup error (the cleanup error is appended to it); a cleanup
 /// error alone fails an otherwise passing case.
@@ -192,14 +176,6 @@ async fn cleanup_account(c: &tokio_postgres::Client, a: &fixture::Account) -> Re
 async fn purge_user_rows(c: &tokio_postgres::Client, u: i64, email: &str) -> Result<(), Err> {
     c.execute("DELETE FROM auth_event_log WHERE email=$1", &[&email])
         .await?;
-    let before = RECEIPTS_BEFORE.lock().unwrap().clone();
-    if let Some(before) = before {
-        c.execute(
-            "DELETE FROM rust_operation_receipts WHERE family = ANY($1) AND operation_id::text <> ALL($2::text[])",
-            &[&RECEIPT_FAMILIES.as_slice(), &before],
-        )
-        .await?;
-    }
     for t in [
         "login_events",
         "sessions",
@@ -239,16 +215,6 @@ async fn begin(
     )
     .await?;
     guest_function_pristine(&c).await?;
-    let ids: Vec<String> = c
-        .query(
-            "SELECT operation_id::text FROM rust_operation_receipts WHERE family = ANY($1)",
-            &[&RECEIPT_FAMILIES.as_slice()],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    *RECEIPTS_BEFORE.lock().unwrap() = Some(ids);
     Ok((serial, db, c))
 }
 
@@ -716,8 +682,6 @@ async fn save_flags(c: &tokio_postgres::Client) -> Result<String, Err> {
     Ok(c.query_one(&format!("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key IN {FLAGS}"), &[]).await?.get(0))
 }
 async fn restore_flags(c: &tokio_postgres::Client, saved: &str) -> Result<(), Err> {
-    c.batch_execute("GRANT SELECT ON feature_toggles TO setjoin_app")
-        .await?;
     c.execute(
         &format!("DELETE FROM feature_toggles WHERE key IN {FLAGS}"),
         &[],
@@ -779,6 +743,8 @@ async fn n1_cell(
             return Err(e);
         }
     };
+    // Held for the teardown: the feature_toggles privilege is restored through this guard only.
+    let mut feature_guard: Option<revoke::Revoked> = None;
     let result: Result<(), Err> = async {
         match cond {
             Cond::Ca => set_flags(c, true, false).await?,
@@ -789,17 +755,9 @@ async fn n1_cell(
                     db.app.is_some(),
                     "flag-error cell needs a distinct app role DSN",
                 )?;
-                c.batch_execute("REVOKE SELECT ON feature_toggles FROM setjoin_app")
-                    .await?;
                 let probe = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap(), 1)
                     .map_err(|e| e.0)?;
-                check(
-                    probe
-                        .read("SELECT enabled FROM feature_toggles LIMIT 1", &[])
-                        .await
-                        .is_err(),
-                    "precondition: the app read of feature_toggles must fail",
-                )?;
+                feature_guard = Some(revoke::table(&db.dsn, c, &probe, "feature_toggles").await?);
             }
             Cond::Clear => {
                 set_flags(c, false, false).await?;
@@ -874,9 +832,10 @@ async fn n1_cell(
     }
     .await;
     spy_task.abort();
-    let grant = c
-        .batch_execute("GRANT SELECT ON feature_toggles TO setjoin_app")
-        .await;
+    let grant: Result<(), Err> = match &feature_guard {
+        Some(guard) => guard.restore(c).await,
+        None => Ok(()),
+    };
     let cleaned = case.cleanup(c).await;
     settle(result, grant.map_err(|e| -> Err { e.into() }).and(cleaned))
 }
@@ -1287,7 +1246,13 @@ async fn failclosed_454_webauthn_factor_fault_issues_no_token() {
 #[tokio::test]
 async fn n2_oversized_backup_refuses_locally_even_with_ca_on() {
     let (_serial, db, c) = begin("GUEST353-n2-oversize").await.unwrap();
-    let saved = save_flags(&c).await.unwrap();
+    // set_flags changes exactly these four keys, so only they are snapshotted and restored.
+    const SET_KEYS: &str = "('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding')";
+    let saved: String = c
+        .query_one(&format!("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key IN {SET_KEYS}"), &[])
+        .await
+        .unwrap()
+        .get(0);
     let mut slot: Option<Case> = None;
     let mut watch: Option<tokio::task::JoinHandle<()>> = None;
     let observed: Result<(), Err> = async {
@@ -1331,7 +1296,7 @@ async fn n2_oversized_backup_refuses_locally_even_with_ca_on() {
     };
     // This case never revokes a privilege, so only the saved flag rows are restored (no GRANT).
     let flags: Result<(), Err> = async {
-        c.execute(&format!("DELETE FROM feature_toggles WHERE key IN {FLAGS}"), &[])
+        c.execute(&format!("DELETE FROM feature_toggles WHERE key IN {SET_KEYS}"), &[])
             .await?;
         c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)", &[&saved]).await?;
         Ok(())

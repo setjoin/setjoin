@@ -839,10 +839,16 @@ impl AuthServer {
         r
     }
     pub(super) async fn totp_verify(&self, req: Request<Body>) -> Response<Body> {
-        match self.totp_completion_route(&req).await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(req).await,
-            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
+        let route = self.totp_completion_route(&req).await;
+        if route.is_err() {
+            return Self::failure(500, "internal error", req.uri().path());
+        }
+        let req = match self.totp_bounded(req).await {
+            Ok(req) => req,
+            Err(reply) => return reply,
+        };
+        if route == Ok(true) {
+            return self.forward(req).await;
         }
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -994,10 +1000,16 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn totp_bootstrap_confirm(&self, req: Request<Body>) -> Response<Body> {
-        match self.totp_completion_route(&req).await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(req).await,
-            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
+        let route = self.totp_completion_route(&req).await;
+        if route.is_err() {
+            return Self::failure(500, "internal error", req.uri().path());
+        }
+        let req = match self.totp_bounded(req).await {
+            Ok(req) => req,
+            Err(reply) => return reply,
+        };
+        if route == Ok(true) {
+            return self.forward(req).await;
         }
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();

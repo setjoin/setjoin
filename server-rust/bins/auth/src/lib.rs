@@ -506,8 +506,10 @@ impl AuthServer {
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/auth/webauthn/credentials" { return self.webauthn_list(req).await; }
         if req.uri().path().starts_with("/auth/webauthn/") {return Self::webauthn_mux(req);}
+        // verify and enroll/confirm bound their own body after the completion route (totp.rs), so
+        // they are not in this list: a flag error refuses locally before any handoff (#454 Codex r2).
         let req = if (req.method()==Method::POST && matches!(req.uri().path(),
-            "/auth/totp/confirm"|"/auth/totp/verify"|"/auth/totp/enroll/setup"|"/auth/totp/enroll/confirm")) ||
+            "/auth/totp/confirm"|"/auth/totp/enroll/setup")) ||
             (matches!(req.method(),&Method::GET|&Method::HEAD) && req.uri().path()=="/auth/totp/setup") {
             match self.totp_ingress(req).await {Ok(req)=>req,Err(reply)=>return reply}
         } else {req};

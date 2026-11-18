@@ -5,7 +5,7 @@
     "reviewed": true,
     "reviewer": "owner, <YYYY-MM-DD>",
     "review": "security Go bug fixed in Rust",
-    "review_reference": "owner security-bug policy; PR #457",
+    "review_reference": "owner security-bug policy; PR #<n>",
     "reason": "Frozen Go treats a negative failed_attempts as below the three-strike burn and evaluates the approval, granting extra guesses. Rust answers its uniform invalid (400 'invalid or expired challenge') without evaluating, burning or counting.",
     "go_source": "authserver/internal/handlers/device.go:307-316",
     "secure_test": "crates/domains/identity/src/push.rs::fail_closed_455::three_strike_boundary"
