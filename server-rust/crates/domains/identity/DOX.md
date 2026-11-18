@@ -23,7 +23,7 @@ closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found 
 default. Exceptions, all deliberate:
 - push.rs reducer JSON values `secret`, `failures` and `key` still default permissively. This is
   tracked in #455.
-- WebAuthn login-begin sends every failure to the decoy response (anti-enumeration), so a
+- WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a
   distinct reply cannot reveal that an account exists.
 - `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops
   late row errors the same way).
