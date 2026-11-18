@@ -490,8 +490,7 @@ mod tests {
                 let subject = cert
                     .subject_name()
                     .entries()
-                    .filter_map(|entry| entry.data().as_utf8().ok())
-                    .map(|name| name.to_string())
+                    .filter_map(|entry| entry.data().to_string().ok())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("subject={subject} notAfter={}", cert.not_after())
@@ -514,8 +513,8 @@ mod tests {
             .unwrap_or_else(|err| panic!("cannot parse bundle date {line:?}: {err}"));
         let age = Utc::now().naive_utc() - as_of;
         assert!(
-            age <= TimeDelta::days(183),
-            "CA bundle as of {line} is {} days old (limit 183); {REFRESH}",
+            (TimeDelta::zero()..=TimeDelta::days(183)).contains(&age),
+            "CA bundle as of {line} is {} days old (allowed 0..=183; a future date is invalid); {REFRESH}",
             age.num_days()
         );
     }
