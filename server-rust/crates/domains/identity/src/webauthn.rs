@@ -270,12 +270,25 @@ impl RelyingParty {
         id: i64,
         initialize: bool,
     ) -> Result<User, String> {
+        self.load_user_opt(exec, id, initialize)
+            .await?
+            .ok_or_else(|| "no rows in result set".to_owned())
+    }
+    /// Ok(None) only when the enabled user row is absent; every other failure is Err.
+    async fn load_user_opt(
+        &self,
+        exec: &ScopedExecutor,
+        id: i64,
+        initialize: bool,
+    ) -> Result<Option<User>, String> {
         use ring::rand::{SecureRandom, SystemRandom};
         use setjoin_contracts::ids::{ActorId, OperationId};
         use setjoin_pg::CommandOutcome;
         let actor = ActorId::new(id).map_err(|_| "no rows in result set".to_owned())?;
         let rows=exec.read_user_scoped(actor,"SELECT email,display_name,webauthn_user_handle FROM users WHERE id=$1 AND enabled=TRUE",&[(&id,Type::INT8)]).await.map_err(|e|e.message)?;
-        let r = rows.first().ok_or("no rows in result set")?;
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
         let mut handle = r
             .try_get::<_, Option<Vec<u8>>>(2)
             .map_err(|_| "no rows in result set")?
@@ -309,13 +322,13 @@ impl RelyingParty {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        Ok(User {
+        Ok(Some(User {
             id,
             _email: r.try_get(0).map_err(|_| "no rows in result set")?,
             _display: r.try_get(1).map_err(|_| "no rows in result set")?,
             handle,
             credentials,
-        })
+        }))
     }
     pub async fn begin_login(
         &self,
@@ -329,7 +342,8 @@ impl RelyingParty {
                 &[(&email.as_str(), Type::TEXT)],
             )
             .await;
-        // A query error, an absent user or an empty credential list take the decoy path.
+        // A query error, a user that is absent or disabled (including one that disappears
+        // between the two reads) or an empty credential list take the decoy path.
         // An unreadable user id or an unloadable user is a decode failure and fails closed.
         let user = match rows {
             Err(_) => None,
@@ -337,11 +351,14 @@ impl RelyingParty {
                 None => None,
                 Some(r) => {
                     let id: i64 = r.try_get(0).map_err(|_| "internal error")?;
-                    let loaded = self
-                        .load_user(exec, id, true)
+                    match self
+                        .load_user_opt(exec, id, true)
                         .await
-                        .map_err(|_| "internal error")?;
-                    Some(loaded).filter(|u| !u.credentials.is_empty())
+                        .map_err(|_| "internal error")?
+                    {
+                        Some(loaded) => Some(loaded).filter(|u| !u.credentials.is_empty()),
+                        None => None,
+                    }
                 }
             },
         };
