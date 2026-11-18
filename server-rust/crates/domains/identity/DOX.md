@@ -18,9 +18,13 @@ and an unreadable value never panics.
 
 The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password including the
 history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret) use the
-same form, and `rows[0]` is gone from those files. Their decode failures fail closed: an error
-reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive default. Exceptions,
-all deliberate:
+same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
+closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
+default. Exceptions, all deliberate:
+- push.rs reducer JSON values `secret`, `failures` and `key` still default permissively. This is
+  tracked in #455.
+- WebAuthn login-begin sends every failure to the decoy response (anti-enumeration), so a
+  distinct reply cannot reveal that an account exists.
 - `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops
   late row errors the same way).
 - Push delivery skips a device whose row or token result cannot be decoded, and logs it to stderr

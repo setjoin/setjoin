@@ -342,24 +342,22 @@ impl RelyingParty {
                 &[(&email.as_str(), Type::TEXT)],
             )
             .await;
-        // A query error, a user that is absent or disabled (including one that disappears
-        // between the two reads) or an empty credential list take the decoy path.
-        // An unreadable user id or an unloadable user is a decode failure and fails closed.
+        // Every failure (query error, absent, disabled or vanished user, undecodable row,
+        // handle persist failure, no credentials) takes the decoy path: a distinct response
+        // here would reveal that the account exists.
         let user = match rows {
             Err(_) => None,
             Ok(rows) => match rows.first() {
                 None => None,
-                Some(r) => {
-                    let id: i64 = r.try_get(0).map_err(|_| "internal error")?;
-                    match self
+                Some(r) => match r.try_get::<_, i64>(0) {
+                    Ok(id) => self
                         .load_user_opt(exec, id, true)
                         .await
-                        .map_err(|_| "internal error")?
-                    {
-                        Some(loaded) => Some(loaded).filter(|u| !u.credentials.is_empty()),
-                        None => None,
-                    }
-                }
+                        .ok()
+                        .flatten()
+                        .filter(|u| !u.credentials.is_empty()),
+                    Err(_) => None,
+                },
             },
         };
         let (uid, handle, ids) = if let Some(u) = user {
