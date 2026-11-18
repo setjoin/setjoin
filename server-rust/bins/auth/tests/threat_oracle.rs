@@ -2187,9 +2187,11 @@ async fn native_device_proof_preflight_forwards_before_any_admission_effect() {
         .unwrap();
 }
 
-/// F5: a toggle read error forwards whole before admission (no row, no count).
+/// F5 (#454 Codex r1): a routing-toggle read error refuses before admission. Login CA
+/// routing is decided by `login_ca_route`, which answers 500 "internal error" on a lookup error
+/// and never forwards to frozen Go (whose risk read fails open). No row, no count, no hit.
 #[tokio::test]
-async fn native_ca_toggle_read_error_forwards_before_admission() {
+async fn native_ca_toggle_read_error_refuses_before_admission() {
     let _serial = SERIAL.lock().await;
     let Some(n) = native_open("GOFREE349A-ca-fault", true, &[]).await.unwrap() else {
         return;
@@ -2208,8 +2210,16 @@ async fn native_ca_toggle_read_error_forwards_before_admission() {
         let hits = spy.hits.lock().unwrap().len();
         server.close().await;
         spy.server.close().await;
-        if reply?.status != 418 || hits != 1 {
-            return Err(format!("expected one whole forward, {hits} hits").into());
+        let reply = reply?;
+        if reply.status != 500 || !reply.body.contains("internal error") {
+            return Err(format!(
+                "expected the local 500 internal error refusal, got {}: {}",
+                reply.status, reply.body
+            )
+            .into());
+        }
+        if hits != 0 {
+            return Err(format!("a lookup error forwarded to Go ({hits} hits)").into());
         }
         let rows: i64 = n
             .c
@@ -2220,7 +2230,7 @@ async fn native_ca_toggle_read_error_forwards_before_admission() {
             .await?
             .get(0);
         if rows != 0 {
-            return Err("admission ran before the forward".into());
+            return Err("admission ran before the refusal".into());
         }
         Ok::<_, Err>(())
     }
