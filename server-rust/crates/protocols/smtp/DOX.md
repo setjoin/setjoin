@@ -277,3 +277,13 @@ notify capture behind `ImipNotify` and the `security-imip*`/`security-joint*` co
 auth corpus uses, so what the auth recording captures is unchanged and re-pinning is correct); re-pin by hand after any
 such change, checking every entry against the files.
 Test files that share the fixed fixtures take a per-file `SERIAL` lock (do not re-enter it).
+
+## Trust bundle (#333)
+
+`src/inbound/cacert.pem` is the S/MIME trust bundle: curl's extract of Mozilla NSS data
+(source: https://curl.se/docs/caextract.html). Current data: "as of Thu Nov 5 04:12:01 2026 GMT",
+118 roots, sha256 `427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285`.
+The Go copy `mailserver/internal/smime/cacert.pem` must stay byte-identical while Go exists (`cmp`).
+Refresh both together: `curl -fsS https://curl.se/ca/cacert.pem -o server-rust/crates/protocols/smtp/src/inbound/cacert.pem && cp server-rust/crates/protocols/smtp/src/inbound/cacert.pem mailserver/internal/smime/cacert.pem`.
+Refresh at least every release. The `smime::tests` in `src/inbound/smime.rs` enforce the parse (root count
+equals PEM blocks and exceeds 100), a 30-day notAfter window per root, and a 183-day age limit from the header date.

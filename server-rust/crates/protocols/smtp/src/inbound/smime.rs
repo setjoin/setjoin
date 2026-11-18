@@ -461,7 +461,64 @@ pub(super) fn bundled_anchor(anchor: &[u8]) -> bool {
 }
 #[cfg(test)]
 mod tests {
-    use super::extract;
+    use super::{bundled, extract};
+    use chrono::{NaiveDateTime, TimeDelta, Utc};
+    use openssl::asn1::Asn1Time;
+    use std::cmp::Ordering;
+    const BUNDLE: &str = include_str!("cacert.pem");
+    const AS_OF: &str = "## Certificate data from Mozilla as of: ";
+    const REFRESH: &str = "refresh both byte-identical copies: curl -fsS https://curl.se/ca/cacert.pem -o server-rust/crates/protocols/smtp/src/inbound/cacert.pem && cp server-rust/crates/protocols/smtp/src/inbound/cacert.pem mailserver/internal/smime/cacert.pem";
+    #[test]
+    fn bundled_roots_parse() {
+        let blocks = BUNDLE.matches("-----BEGIN CERTIFICATE-----").count();
+        let roots = bundled().len();
+        assert_eq!(
+            roots, blocks,
+            "bundled() parsed {roots} of {blocks} PEM blocks; the bundle is truncated or corrupt"
+        );
+        assert!(roots > 100, "bundled() parsed only {roots} roots");
+    }
+    #[test]
+    fn bundled_roots_not_expiring_within_30_days() {
+        let limit = Asn1Time::days_from_now(30).expect("30-day notAfter limit");
+        let expiring: Vec<String> = bundled()
+            .iter()
+            .filter(|cert| {
+                cert.not_after().compare(&limit).expect("compare notAfter") == Ordering::Less
+            })
+            .map(|cert| {
+                let subject = cert
+                    .subject_name()
+                    .entries()
+                    .filter_map(|entry| entry.data().as_utf8().ok())
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("subject={subject} notAfter={}", cert.not_after())
+            })
+            .collect();
+        assert!(
+            expiring.is_empty(),
+            "{} root(s) expire within 30 days:\n  {}\n{REFRESH}",
+            expiring.len(),
+            expiring.join("\n  ")
+        );
+    }
+    #[test]
+    fn bundled_roots_not_stale() {
+        let line = BUNDLE
+            .lines()
+            .find_map(|line| line.strip_prefix(AS_OF))
+            .unwrap_or_else(|| panic!("bundle has no `{AS_OF}` header line; {REFRESH}"));
+        let as_of = NaiveDateTime::parse_from_str(line.trim(), "%a %b %d %H:%M:%S %Y GMT")
+            .unwrap_or_else(|err| panic!("cannot parse bundle date {line:?}: {err}"));
+        let age = Utc::now().naive_utc() - as_of;
+        assert!(
+            age <= TimeDelta::days(183),
+            "CA bundle as of {line} is {} days old (limit 183); {REFRESH}",
+            age.num_days()
+        );
+    }
     const HEAD: &str = "Content-Type: multipart/signed; protocol=\"application/pkcs7-signature\"; boundary=\"b\"\r\n\r\n";
     const SIGNED: &str = "--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n";
     const SIGNATURE: &str = "--b\r\nContent-Type: application/pkcs7-signature\r\nContent-Transfer-Encoding: base64\r\n\r\nQUJD\r\n";

@@ -18,7 +18,7 @@ Status column:
 
 | Item | Path | License (SPDX) | Status | Source |
 |---|---|---|---|---|
-| Mozilla CA certificate bundle (curl `cacert.pem`, Mozilla data as of 2026-05-14) | `mailserver/internal/smime/cacert.pem`, `server-rust/crates/protocols/smtp/src/inbound/cacert.pem` | MPL-2.0 | upstream | https://curl.se/docs/caextract.html (from Mozilla NSS `certdata.txt`) |
+| Mozilla CA certificate bundle (curl `cacert.pem`, Mozilla data as of 2026-11-05) | `mailserver/internal/smime/cacert.pem`, `server-rust/crates/protocols/smtp/src/inbound/cacert.pem` | MPL-2.0 | upstream | https://curl.se/docs/caextract.html (from Mozilla NSS `certdata.txt`) |
 | Excalidraw 0.18.1 (npm package, built into the webmail bundle; only its fonts are vendored) | `mailserver/webmail/package.json` dependency | MIT | in tree (npm `package.json`) | https://github.com/excalidraw/excalidraw |
 | Assistant font (4 files) | `mailserver/webmail/static/excalidraw/fonts/Assistant/` | OFL-1.1 | in tree | https://github.com/hafontia/Assistant |
 | Cascadia Code font (1 file) | `mailserver/webmail/static/excalidraw/fonts/Cascadia/` | OFL-1.1 | in tree | https://github.com/microsoft/cascadia-code |
