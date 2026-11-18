@@ -78,7 +78,15 @@ XS goes to Haiku with the exact edit. Never resume the investigator to apply a d
 ## Review
 
 - Codex merge gate: `codex exec -m gpt-6-astra`, reasoning `high`, read-only. At most 3
-  rounds per ticket; a 4th means re-plan.
+  rounds per ticket; a 4th means re-plan. Usage is input-bound (files read, not reasoning):
+  - The prompt names the diff range, the files and callers to read, and pastes greps the
+    coordinator already ran; Codex does not explore the repo beyond that or run builds.
+  - Before round 1 a Haiku pre-check reads the diff against the coordinator's recurring
+    Codex findings list. Fix rounds get a delta review of the fix commits only.
+  - Small PRs that queue together may share one call, with one verdict per PR.
+  - No Codex for PRs that change no code and weaken no check: docs only, deleting
+    unreferenced files (coordinator greps for references), Dependabot version bumps
+    (CI is the gate). Changes to CI, guards, `deny.toml` or other checks keep Codex.
 - Fable reviews risk areas (plan review before code, code review after Codex is clean).
   Opus reviews other M/L work. No Claude review for XS or for S outside risk areas.
 - Never review with the planner or the implementer.
