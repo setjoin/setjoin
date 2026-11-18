@@ -32,11 +32,14 @@ fn fresh(session: &crate::session::Session, seconds: i64) -> bool {
             .is_some_and(|iat| (now() as i128) - (iat as i128) <= seconds as i128)
 }
 fn row(rows: &[setjoin_pg::Row]) -> Result<Value, StatementFailure> {
-    serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| StatementFailure {
-        sqlstate: None,
-        hint: None,
-        message: "invalid identity link result".into(),
-    })
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "invalid identity link result".into(),
+        })
 }
 impl LinkFlow {
     pub fn begin(
@@ -176,7 +179,7 @@ impl LinkFlow {
         {
             return Err("linking session changed");
         }
-        let live=exec.read("SELECT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND token_hash=digest($2,'sha256') AND expires_at>statement_timestamp())",&[(&w.user_id,Type::INT8),(&raw,Type::TEXT)]).await.ok().is_some_and(|r|r[0].get::<_,bool>(0));
+        let live=exec.read("SELECT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND token_hash=digest($2,'sha256') AND expires_at>statement_timestamp())",&[(&w.user_id,Type::INT8),(&raw,Type::TEXT)]).await.ok().is_some_and(|r|r.first().and_then(|r|r.try_get::<_,bool>(0).ok()).unwrap_or(false));
         if !live {
             return Err("linking session is no longer active");
         }

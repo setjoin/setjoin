@@ -276,13 +276,16 @@ impl RelyingParty {
         let actor = ActorId::new(id).map_err(|_| "no rows in result set".to_owned())?;
         let rows=exec.read_user_scoped(actor,"SELECT email,display_name,webauthn_user_handle FROM users WHERE id=$1 AND enabled=TRUE",&[(&id,Type::INT8)]).await.map_err(|e|e.message)?;
         let r = rows.first().ok_or("no rows in result set")?;
-        let mut handle = r.get::<_, Option<Vec<u8>>>(2).unwrap_or_default();
+        let mut handle = r
+            .try_get::<_, Option<Vec<u8>>>(2)
+            .map_err(|_| "invalid user row")?
+            .unwrap_or_default();
         if handle.is_empty() && initialize {
             let mut candidate = [0; 32];
             SystemRandom::new()
                 .fill(&mut candidate)
                 .map_err(|_| "webauthn: generate user handle")?;
-            match exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"UPDATE users SET webauthn_user_handle=COALESCE(webauthn_user_handle,$1) WHERE id=$2 RETURNING webauthn_user_handle",&[(&candidate.as_slice(),Type::BYTEA),(&id,Type::INT8)],|rows|Ok(rows[0].get::<_,Vec<u8>>(0))).await {
+            match exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"UPDATE users SET webauthn_user_handle=COALESCE(webauthn_user_handle,$1) WHERE id=$2 RETURNING webauthn_user_handle",&[(&candidate.as_slice(),Type::BYTEA),(&id,Type::INT8)],|rows|rows.first().and_then(|r|r.try_get::<_,Vec<u8>>(0).ok()).ok_or_else(bad_result)).await {
                 CommandOutcome::Committed(h)=>handle=h,
                 _=>return Err("webauthn: persist user handle".into()),
             }
@@ -295,18 +298,21 @@ impl RelyingParty {
             .iter()
             .map(|r| {
                 Ok(StoredCredential {
-                    id: r.get(0),
-                    key: r.get(1),
-                    _attestation: r.get(2),
-                    _count: u32::try_from(r.get::<_, i32>(3))
-                        .map_err(|_| "invalid credential counter")?,
+                    id: r.try_get(0).map_err(|_| "invalid credential row")?,
+                    key: r.try_get(1).map_err(|_| "invalid credential row")?,
+                    _attestation: r.try_get(2).map_err(|_| "invalid credential row")?,
+                    _count: u32::try_from(
+                        r.try_get::<_, i32>(3)
+                            .map_err(|_| "invalid credential row")?,
+                    )
+                    .map_err(|_| "invalid credential counter")?,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(User {
             id,
-            _email: r.get(0),
-            _display: r.get(1),
+            _email: r.try_get(0).map_err(|_| "invalid user row")?,
+            _display: r.try_get(1).map_err(|_| "invalid user row")?,
             handle,
             credentials,
         })
@@ -325,7 +331,7 @@ impl RelyingParty {
             .await;
         let user = match rows
             .ok()
-            .and_then(|r| r.first().map(|r| r.get::<_, i64>(0)))
+            .and_then(|r| r.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
         {
             Some(id) => self
                 .load_user(exec, id, true)
@@ -505,7 +511,7 @@ impl RelyingParty {
         let actor = setjoin_contracts::ids::ActorId::new(user.id)
             .map_err(|_| refuse("no rows in result set"))?;
         let op = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
-        match exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-counter"}).run_user_command(actor,op,"SELECT rust_identity_webauthn_login_claim($1,$2,$3,$4,$5)",&[(&user.id,Type::INT8),(&credential.id,Type::BYTEA),(&credential.key,Type::BYTEA),(&count,Type::INT4),(&Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes()).to_vec(),Type::BYTEA)],|rows|Ok(rows[0].get::<_,String>(0))).await{
+        match exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-counter"}).run_user_command(actor,op,"SELECT rust_identity_webauthn_login_claim($1,$2,$3,$4,$5)",&[(&user.id,Type::INT8),(&credential.id,Type::BYTEA),(&credential.key,Type::BYTEA),(&count,Type::INT4),(&Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes()).to_vec(),Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(bad_result)).await{
             setjoin_pg::CommandOutcome::Committed(status) if status=="accepted"=>Ok(LoginProof{user:user.id}),
             setjoin_pg::CommandOutcome::Committed(detail)=>Err(refuse(&detail)),
             setjoin_pg::CommandOutcome::Unknown{operation}=>Err(LoginFailure::Unknown(operation)),
@@ -675,14 +681,22 @@ impl LoginProof {
         exec: &ScopedExecutor,
     ) -> Result<Option<crate::totp::CompletionUser>, StatementFailure> {
         let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&self.user,Type::INT8)]).await?;
-        Ok(rows.first().map(|r| crate::totp::CompletionUser {
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "completion user row".into(),
+        };
+        Ok(Some(crate::totp::CompletionUser {
             user: self.user,
-            email: r.get(0),
-            admin: r.get(1),
+            email: r.try_get(0).map_err(|_| bad())?,
+            admin: r.try_get(1).map_err(|_| bad())?,
         }))
     }
     pub async fn factors(&self, exec: &ScopedExecutor) -> (bool, bool) {
-        exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await.ok().and_then(|r|r.first().map(|r|(r.get(0),r.get(1)))).unwrap_or((false,false))
+        exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await.ok().and_then(|r|r.first().and_then(|r|Some((r.try_get::<_,bool>(0).ok()?,r.try_get::<_,bool>(1).ok()?)))).unwrap_or((false,false))
     }
     pub async fn mint(
         &self,
@@ -715,13 +729,14 @@ impl LoginProof {
                     (&family, Type::TEXT),
                 ],
                 |rows| {
-                    serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| {
-                        StatementFailure {
+                    rows.first()
+                        .and_then(|r| r.try_get::<_, String>(0).ok())
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                        .ok_or_else(|| StatementFailure {
                             sqlstate: None,
                             hint: None,
                             message: "invalid mint result".into(),
-                        }
-                    })
+                        })
                 },
             )
             .await
@@ -759,7 +774,7 @@ impl RelyingParty {
             return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
         };
         exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-register-begin"}).run_user_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT rust_identity_webauthn_begin($1,$2::text::jsonb,$3,$4,$5)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT),(&token_hash,Type::TEXT),(&challenge_hash,Type::TEXT),(&candidate.as_slice(),Type::BYTEA)],|rows|{
-            let outcome:serde_json::Value=serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|bad_result())?;
+            let outcome:serde_json::Value=reducer_json(rows)?;
             if outcome["status"]!="created"{return Ok(RegistrationBegin{outcome,options:None,session:None});}
             let handle=hex_bytes(outcome["handle"].as_str().unwrap_or("")).ok_or_else(bad_result)?;
             let params=credential_parameters();
@@ -775,6 +790,14 @@ fn bad_result() -> StatementFailure {
         hint: None,
         message: "invalid WebAuthn reducer result".into(),
     }
+}
+/// Reducer JSON is the first row's text column; a missing row, NULL, wrong type or bad JSON
+/// is the reducer-result rejection.
+fn reducer_json(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .ok_or_else(bad_result)
 }
 fn credential_parameters() -> String {
     format!(
@@ -988,14 +1011,14 @@ impl RelyingParty {
             return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
         };
         exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-register-finish"}).run_user_proof_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT rust_identity_webauthn_registration_read($1,$2::text::jsonb)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT)],|rows|{
-            let result:serde_json::Value=serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|bad_result())?;
+            let result:serde_json::Value=reducer_json(rows)?;
             if result["status"]!="ready"{return Ok(ProvenStatement::new("SELECT $1::text").bind(result.to_string(),Type::TEXT));}
             let handle=hex_bytes(result["handle"].as_str().unwrap_or("")).ok_or_else(bad_result)?;
             let credential=self.verify_registration(&handle,&transport,raw).map_err(|detail|StatementFailure{sqlstate:None,hint:Some("webauthn-verification".into()),message:detail})?;
             Ok(ProvenStatement::new("SELECT rust_identity_webauthn_finish($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8,$9,$10)::text")
                 .bind(session.user(),Type::INT8).bind(claims.clone(),Type::TEXT).bind(token_hash,Type::TEXT).bind(challenge_hash,Type::TEXT)
                 .bind(credential.id,Type::BYTEA).bind(credential.key,Type::BYTEA).bind(credential.attestation,Type::TEXT).bind(credential.count,Type::INT4).bind(credential.uv,Type::BOOL).bind(ip.to_owned(),Type::TEXT))
-        },|rows|serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|bad_result())).await
+        },|rows|reducer_json(rows)).await
     }
 }
 
@@ -1030,7 +1053,7 @@ pub async fn revoke(
                 (&id, Type::BYTEA),
                 (&ip, Type::TEXT),
             ],
-            |rows| serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| bad_result()),
+            |rows| reducer_json(rows),
         )
         .await
 }

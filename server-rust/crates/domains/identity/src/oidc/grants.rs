@@ -150,7 +150,7 @@ async fn consume(exec: &ScopedExecutor, code: &str, client_id: &str) -> Result<A
         .ok_or_else(invalid_code)?;
     // The reducer consumes only a code issued to the presenting client, so
     // client A can never burn client B's code (#523).
-    let owner: String = rows[0].get(1);
+    let owner: String = rows.first().and_then(|r| r.try_get(1).ok()).ok_or_else(invalid_code)?;
     let client_id = if crate::mutants::on("oidc-consume-any-client") { owner.as_str() } else { client_id };
     write(
         exec,
@@ -376,11 +376,11 @@ async fn finish(
             )
         })?;
         if email {
-            claims["email"] = json!(row.get::<_, String>(0));
+            claims["email"] = json!(row.try_get::<_, String>(0).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: invalid column"))?);
             claims["email_verified"] = json!(true);
         }
         if profile {
-            claims["name"] = json!(row.get::<_, String>(1));
+            claims["name"] = json!(row.try_get::<_, String>(1).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: invalid column"))?);
         }
     }
     let id_token = key
@@ -435,11 +435,15 @@ pub async fn refresh_exchange(
     let r = rows
         .first()
         .ok_or_else(|| OAuthError::new("invalid_grant", ""))?;
-    let id: String = r.get(0);
-    let owner_client: String = r.get(1);
-    let user: i64 = r.get(2);
-    let mut scopes: Vec<String> = r.get(3);
-    let (spent, live): (bool, bool) = (r.get(4), r.get(5));
+    let bad = || OAuthError::new("invalid_grant", "");
+    let id: String = r.try_get(0).map_err(|_| bad())?;
+    let owner_client: String = r.try_get(1).map_err(|_| bad())?;
+    let user: i64 = r.try_get(2).map_err(|_| bad())?;
+    let mut scopes: Vec<String> = r.try_get(3).map_err(|_| bad())?;
+    let (spent, live): (bool, bool) = (
+        r.try_get(4).map_err(|_| bad())?,
+        r.try_get(5).map_err(|_| bad())?,
+    );
     if owner_client != client.id {
         return Err(OAuthError::new("invalid_grant", ""));
     }
@@ -509,7 +513,7 @@ pub async fn refresh_exchange(
         ],
         |rows| {
             rows.first()
-                .map(|r| r.get::<_, SystemTime>(0))
+                .and_then(|r| r.try_get::<_, SystemTime>(0).ok())
                 .ok_or_else(|| StatementFailure {
                     sqlstate: None,
                     hint: None,

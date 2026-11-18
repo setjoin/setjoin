@@ -11,13 +11,13 @@ impl Principal {
         // Preserve CredentialStore's full enabled snapshot, including its ancillary reads.
         let rows=exec.read("SELECT u.id,u.email,COALESCE(u.totp_enabled,FALSE),COALESCE(u.push_mfa_enabled,FALSE),EXISTS(SELECT 1 FROM passkey_credentials pc WHERE pc.user_id=u.id AND pc.revoked_at IS NULL),COALESCE(array_length(u.totp_backup_codes_enc,1),0)>0 FROM users u WHERE lower(u.email)=lower($1) AND u.enabled=TRUE",&[(&email,Type::TEXT)]).await.ok()?;
         let row = rows.first()?;
-        let totp: bool = row.get(2);
-        let push: bool = row.get(3);
+        let totp: bool = row.try_get(2).ok()?;
+        let push: bool = row.try_get(3).ok()?;
         if !totp && !push {
             return None;
         }
         Some(Self {
-            user: row.get(0),
+            user: row.try_get(0).ok()?,
             email: email.to_owned(),
             totp,
         })
@@ -54,10 +54,14 @@ impl Principal {
                 "SELECT rust_identity_recovery_budget($1)::text",
                 &[(&self.user, Type::INT8)],
                 |rows| {
-                    Ok(
-                        serde_json::from_str::<serde_json::Value>(&rows[0].get::<_, String>(0))
-                            .expect("budget JSON"),
-                    )
+                    rows.first()
+                        .and_then(|r| r.try_get::<_, String>(0).ok())
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                        .ok_or_else(|| StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "budget JSON row".into(),
+                        })
                 },
             )
             .await;
@@ -150,8 +154,15 @@ impl Principal {
                 "SELECT rust_identity_recovery_push_read($1,$2)::text",
                 &[(&self.user, Type::INT8), (&nonce, Type::BYTEA)],
                 |rows| {
-                    let value: serde_json::Value =
-                        serde_json::from_str(&rows[0].get::<_, String>(0)).expect("push JSON");
+                    let value: serde_json::Value = rows
+                        .first()
+                        .and_then(|r| r.try_get::<_, String>(0).ok())
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                        .ok_or_else(|| StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "push JSON row".into(),
+                        })?;
                     if value["status"] != "ready" {
                         return Ok(ProvenStatement::new("SELECT $1::text").bind(
                             value["status"].as_str().unwrap_or("invalid").to_owned(),
@@ -168,11 +179,26 @@ impl Principal {
                     Ok(
                         ProvenStatement::new("SELECT rust_identity_recovery_push_finish($1,$2,$3)")
                             .bind(self.user, Type::INT8)
-                            .bind(value["id"].as_i64().expect("challenge id"), Type::INT8)
+                            .bind(
+                                value["id"].as_i64().ok_or_else(|| StatementFailure {
+                                    sqlstate: None,
+                                    hint: None,
+                                    message: "push challenge id".into(),
+                                })?,
+                                Type::INT8,
+                            )
                             .bind(valid, Type::BOOL),
                     )
                 },
-                |rows| Ok(rows[0].get::<_, String>(0)),
+                |rows| {
+                    rows.first()
+                        .and_then(|r| r.try_get::<_, String>(0).ok())
+                        .ok_or_else(|| StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "push finish row".into(),
+                        })
+                },
             )
             .await;
         match result {

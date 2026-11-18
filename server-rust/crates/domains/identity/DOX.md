@@ -14,7 +14,11 @@ Go does not resolve a mailbox for login; neither does Rust.
 
 Login, TOTP-admission, bootstrap, readiness and password-policy single-row reads use
 `rows.first()` + `try_get`: a missing row or unexpected NULL returns the function's existing
-error (callers map it to 503/500) instead of panicking. Other `rows[0]` sites: #436.
+error (callers map it to 503/500) instead of panicking. The #436 files (push, TOTP, WebAuthn,
+possession, recovery, password, session, push delivery, identity links, OIDC grants, RP) read
+single rows the same way, with `rows.first()` + `try_get`. `rows[0]` is gone from them.
+Other files in this crate still have `.get` reads on rows (oidc.rs, oidc/consumers.rs, login.rs,
+issuance.rs, impersonation.rs, self_service.rs, rp.rs); they are not yet converted.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

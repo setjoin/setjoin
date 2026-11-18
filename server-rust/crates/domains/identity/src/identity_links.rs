@@ -52,11 +52,13 @@ pub async fn unlink(
                 (&reason, Type::TEXT),
             ],
             |rows| {
-                rows[0].try_get(0).map_err(|_| StatementFailure {
-                    sqlstate: None,
-                    hint: None,
-                    message: "invalid identity unlink result".into(),
-                })
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(|| StatementFailure {
+                        sqlstate: None,
+                        hint: None,
+                        message: "invalid identity unlink result".into(),
+                    })
             },
         )
         .await

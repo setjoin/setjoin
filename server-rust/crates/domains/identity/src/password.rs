@@ -19,7 +19,11 @@ async fn check_policy(exec: &ScopedExecutor, new: &str, admin: bool) -> Result<(
         )
         .await
         .map_err(|_| reply(500, "internal error"))?;
-    let value: Value = serde_json::from_str(&rows[0].get::<_, String>(0)).unwrap_or(Value::Null);
+    let raw: String = rows
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(|| reply(500, "internal error"))?;
+    let value: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
     if value["valid"] == true {
         Ok(())
     } else {
@@ -55,7 +59,14 @@ async fn write(
                 (&reset, Type::BOOL),
             ],
             |rows| {
-                let raw: String = rows[0].get(0);
+                let raw: String = rows
+                    .first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(|| setjoin_pg::StatementFailure {
+                        sqlstate: None,
+                        hint: None,
+                        message: "password result row".into(),
+                    })?;
                 serde_json::from_str::<Value>(&raw).map_err(|_| setjoin_pg::StatementFailure {
                     sqlstate: None,
                     hint: None,
@@ -99,7 +110,7 @@ pub async fn change(
             &[(&hash, Type::BYTEA)],
         )
         .await
-        .is_ok_and(|r| r[0].get::<_, bool>(0))
+        .is_ok_and(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()).unwrap_or(false))
     {
         return Err(reply(
             400,
@@ -149,7 +160,8 @@ pub async fn change(
         let stored: String = rows
             .first()
             .ok_or_else(|| reply(403, "invalid current password"))?
-            .get(0);
+            .try_get(0)
+            .map_err(|_| reply(403, "invalid current password"))?;
         let candidate = old.to_owned();
         let compare = stored.clone();
         if !tokio::task::spawn_blocking(move || {
@@ -160,7 +172,7 @@ pub async fn change(
         {
             return Err(reply(403, "invalid current password"));
         }
-        let hashes:Vec<String>=exec.read("SELECT password_hash FROM password_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2",&[(&proof.user(),Type::INT8),(&depth,Type::INT4)]).await.map_err(|_|reply(500,"token revocation failed"))?.iter().map(|r|r.get(0)).collect();
+        let hashes:Vec<String>=exec.read("SELECT password_hash FROM password_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2",&[(&proof.user(),Type::INT8),(&depth,Type::INT4)]).await.map_err(|_|reply(500,"token revocation failed"))?.iter().map(|r|r.try_get(0)).collect::<Result<Vec<String>,_>>().map_err(|_|reply(500,"token revocation failed"))?;
         let history = json!(hashes);
         let candidate = new.to_owned();
         let (reused, new_hash) = tokio::task::spawn_blocking(move || {
@@ -218,7 +230,8 @@ pub async fn reset(
     let admin = rows
         .first()
         .ok_or_else(|| reply(401, "user not found"))?
-        .get::<_, bool>(0);
+        .try_get::<_, bool>(0)
+        .map_err(|_| reply(401, "user not found"))?;
     check_policy(exec, new, admin).await?;
     // Preserve Go's fence error priority before hashing, then recheck in SQL.
     if exec
