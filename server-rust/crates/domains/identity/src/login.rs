@@ -36,6 +36,17 @@ pub fn dummy_hash(profile: setjoin_config_secret::CryptoProfile) -> &'static str
     }
 }
 
+// Keep absent, disabled and unreadable credentials on the same password-cost path (#487).
+async fn verify_dummy(password: &str, profile: setjoin_config_secret::CryptoProfile) {
+    if !setjoin_contracts::mutants::on("login-no-dummy-hash") {
+        let password = password.to_owned();
+        let _ = tokio::task::spawn_blocking(move || {
+            setjoin_authz::password::verify(dummy_hash(profile), &password)
+        })
+        .await;
+    }
+}
+
 pub async fn verify(
     exec: &ScopedExecutor,
     email: &str,
@@ -44,19 +55,21 @@ pub async fn verify(
 ) -> Result<Option<PasswordProof>, StatementFailure> {
     let rows=exec.read("SELECT id,email,password_hash,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=users.id AND (ara.expires_at IS NULL OR ara.expires_at>now())), COALESCE(totp_enabled,false),COALESCE(push_mfa_enabled,false),COALESCE(must_change_password,false) FROM users WHERE lower(email)=lower($1) AND enabled=true",&[(&email,Type::TEXT)]).await?;
     let Some(r) = rows.first() else {
-        // Owner-approved security fix 2026-11-05 (#487): an unknown or disabled
-        // email costs the same password hash as a known one, so response timing
-        // does not reveal which accounts exist.
-        if !setjoin_contracts::mutants::on("login-no-dummy-hash") {
-            let password = password.to_owned();
-            let _ = tokio::task::spawn_blocking(move || {
-                setjoin_authz::password::verify(dummy_hash(profile), &password)
-            })
-            .await;
-        }
+        verify_dummy(password, profile).await;
         return Ok(None);
     };
-    let hash: String = r.get(2);
+    let invalid_proof = |_| StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "invalid password proof row".into(),
+    };
+    let hash: String = match r.try_get(2) {
+        Ok(hash) => hash,
+        Err(err) => {
+            verify_dummy(password, profile).await;
+            return Err(invalid_proof(err));
+        }
+    };
     let password = password.to_owned();
     let stored = hash.clone();
     let valid =
@@ -67,13 +80,13 @@ pub async fn verify(
         return Ok(None);
     }
     Ok(Some(PasswordProof {
-        user: r.get(0),
-        email: r.get(1),
+        user: r.try_get(0).map_err(invalid_proof)?,
+        email: r.try_get(1).map_err(invalid_proof)?,
         hash,
-        admin: r.get(3),
-        totp: r.get(4),
-        push: r.get(5),
-        force_change: r.get(6),
+        admin: r.try_get(3).map_err(invalid_proof)?,
+        totp: r.try_get(4).map_err(invalid_proof)?,
+        push: r.try_get(5).map_err(invalid_proof)?,
+        force_change: r.try_get(6).map_err(invalid_proof)?,
     }))
 }
 pub async fn mfa_status(exec:&ScopedExecutor,p:&PasswordProof)->Result<String,StatementFailure>{
@@ -235,7 +248,7 @@ pub async fn record_failure(exec: &ScopedExecutor, email: &str, ip: &str) {
             &[(&email, Type::TEXT)],
         )
         .await;
-    let user: Option<i64> = rows.as_ref().ok().and_then(|r| r.first()).map(|r| r.get(0));
+    let user: Option<i64> = rows.ok().and_then(|rows| rows.first()?.try_get(0).ok());
     // verifyPassword logs no user id, even for a known user's wrong password.
     let details = if user.is_none() {
         Some(r#"{"reason":"user_not_found"}"#)
