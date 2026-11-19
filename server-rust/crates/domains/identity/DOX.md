@@ -35,6 +35,7 @@ accepts it), and push approval
 treats a missing or mistyped `failures`, `key`, `code`, `session` or `expires` as Go's uniform
 invalid, never as zero failures. Tests: `bins/auth/tests/fail_closed.rs`, the `failclosed_454_*`
 cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit modules. Exceptions, all deliberate:
+- Login failure audit: a found row whose user id cannot be decoded is recorded as unresolved (`user_not_found`, NULL user); the reply is the same 401 as any failed login.
 - Issuance: an unreadable client-version row answers `up_to_date` and an unreadable introspection row
   answers `{"active":false}`; neither grants access.
 - WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a

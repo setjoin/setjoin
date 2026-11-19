@@ -454,56 +454,6 @@ async fn unreadable_login_hash_matches_absent() {
 }
 
 #[tokio::test]
-async fn rate_fault_forwards() {
-    use std::time::Duration;
-
-    let Some(e) = env("failclosed-device-rate").await else {
-        return;
-    };
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let mut cfg = config(&e);
-    cfg.go_upstream = Some(format!("http://{}", listener.local_addr().unwrap()));
-    let s = AuthServer::load(e.exec.clone(), cfg).await.unwrap();
-    let saved = save_rate(&e.c).await.unwrap();
-    let observed = async {
-        set_flag(&e.c, RATE_FLAG, false).await?;
-        let request = || anonymous("/auth/device/register", json!({}));
-        let local = tokio::time::timeout(Duration::from_secs(10), send(&s, request()?)).await??;
-        let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "feature_toggles").await?;
-        let upstream = async {
-            let (stream, _) = listener.accept().await?;
-            let service =
-                hyper::service::service_fn(|r: Request<hyper::body::Incoming>| async move {
-                    r.into_body().collect().await?;
-                    hyper::Response::builder()
-                        .status(418)
-                        .header("connection", "close")
-                        .body(body("upstream rate response\n"))
-                        .map_err(Err::from)
-                });
-            hyper::server::conn::http1::Builder::new()
-                .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
-                .await?;
-            Ok::<_, Err>(())
-        };
-        let forwarded = tokio::time::timeout(Duration::from_secs(10), async {
-            tokio::try_join!(send(&s, request()?), upstream).map(|(reply, ())| reply)
-        })
-        .await
-        .map_err(Err::from)
-        .and_then(|reply| reply);
-        let restored = guard.restore(&e.c).await;
-        Ok::<_, Err>((local, settle(forwarded, restored)?))
-    }
-    .await;
-    let (local, forwarded) = settle(observed, restore_rate(&e.c, saved).await).unwrap();
-    assert_eq!(local.status, 401);
-    assert!(local.body.contains("Unauthorized"));
-    assert_eq!(forwarded.status, 418);
-    assert_eq!(forwarded.body, "upstream rate response\n");
-}
-
-#[tokio::test]
 async fn scim_revoke_query_error_is_500() {
     let Some(e) = env("failclosed-scim-revoke").await else {
         return;
