@@ -1,0 +1,474 @@
+-- pgTAP: RRULE occurrence vectors translated from python-dateutil.
+-- Source: https://github.com/dateutil/dateutil, commit 261e29139618, tests/test_rrule.py.
+-- License: Apache-2.0. See THIRD_PARTY-calendar_rrule_vectors.md.
+-- Copyright 2017- Paul Ganssle and dateutil contributors
+
+BEGIN;
+SET LOCAL TIME ZONE 'UTC';
+SELECT plan(31);
+
+-- testDaily
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=DAILY;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-03 09:00:00+00',
+        '1997-09-04 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testDaily'
+);
+
+-- testDailyInterval
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=DAILY;INTERVAL=2;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-04 09:00:00+00',
+        '1997-09-06 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testDailyInterval'
+);
+
+-- testDailyIntervalLarge
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=DAILY;INTERVAL=92;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-12-03 09:00:00+00',
+        '1998-03-05 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testDailyIntervalLarge'
+);
+
+-- testWeekly
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=WEEKLY;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-09 09:00:00+00',
+        '1997-09-16 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testWeekly'
+);
+
+-- testWeeklyInterval
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=WEEKLY;INTERVAL=2;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-16 09:00:00+00',
+        '1997-09-30 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testWeeklyInterval'
+);
+
+-- testWeeklyIntervalLarge
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=WEEKLY;INTERVAL=20;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1998-01-20 09:00:00+00',
+        '1998-06-09 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testWeeklyIntervalLarge'
+);
+
+-- testMonthly
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=MONTHLY;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-10-02 09:00:00+00',
+        '1997-11-02 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testMonthly'
+);
+
+-- testMonthlyInterval
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=MONTHLY;INTERVAL=2;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-11-02 09:00:00+00',
+        '1998-01-02 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testMonthlyInterval'
+);
+
+-- testMonthlyIntervalLarge
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=MONTHLY;INTERVAL=18;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1999-03-02 09:00:00+00',
+        '2000-09-02 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testMonthlyIntervalLarge'
+);
+
+-- testYearly
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=YEARLY;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1998-09-02 09:00:00+00',
+        '1999-09-02 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testYearly'
+);
+
+-- testYearlyInterval
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=YEARLY;INTERVAL=2;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1999-09-02 09:00:00+00',
+        '2001-09-02 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testYearlyInterval'
+);
+
+-- testYearlyIntervalLarge
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=YEARLY;INTERVAL=100;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '2097-09-02 09:00:00+00',
+        '2197-09-02 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testYearlyIntervalLarge'
+);
+
+-- testWeeklyByWeekDay
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=WEEKLY;BYDAY=TU,TH;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-04 09:00:00+00',
+        '1997-09-09 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testWeeklyByWeekDay'
+);
+
+-- testWeeklyByNWeekDay
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=WEEKLY;BYDAY=1TU,-1TH;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-04 09:00:00+00',
+        '1997-09-09 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testWeeklyByNWeekDay'
+);
+
+-- testWkStIntervalMO
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=MO;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-07 09:00:00+00',
+        '1997-09-16 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testWkStIntervalMO'
+);
+
+-- testMonthlyByWeekDay
+-- The second upstream assertion covers the third Monday.
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-01 00:00:00+00', '1997-09-01 01:00:00+00',
+        'FREQ=MONTHLY;BYDAY=3MO',
+        '1997-09-01 00:00:00+00', '1997-12-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-15 00:00:00+00', '1997-10-20 00:00:00+00',
+        '1997-11-17 00:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testMonthlyByWeekDay'
+);
+
+-- testMonthlyByNWeekDay
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=MONTHLY;BYDAY=1TU,-1TH;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-25 09:00:00+00',
+        '1997-10-07 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testMonthlyByNWeekDay'
+);
+
+-- testUntilNotMatching
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=DAILY;UNTIL=19970905T080000Z',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-03 09:00:00+00',
+        '1997-09-04 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testUntilNotMatching'
+);
+
+-- testUntilEmpty
+SELECT is(
+    COALESCE((SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=DAILY;UNTIL=19970901T090000Z',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )), ARRAY[]::TIMESTAMPTZ[]),
+    ARRAY[]::TIMESTAMPTZ[],
+    'testUntilEmpty'
+);
+
+-- testCountZero
+SELECT is(
+    COALESCE((SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=YEARLY;COUNT=0',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )), ARRAY[]::TIMESTAMPTZ[]),
+    ARRAY[]::TIMESTAMPTZ[],
+    'testCountZero'
+);
+
+-- testDTStartIsDate
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 00:00:00+00', '1997-09-02 01:00:00+00',
+        'FREQ=DAILY;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 00:00:00+00', '1997-09-03 00:00:00+00',
+        '1997-09-04 00:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testDTStartIsDate'
+);
+
+-- testBetween
+-- A lower bound at the first event end implements the open start boundary.
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=DAILY',
+        '1997-09-02 10:00:00+00', '1997-09-06 09:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-03 09:00:00+00', '1997-09-04 09:00:00+00',
+        '1997-09-05 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testBetween'
+);
+
+-- testBetweenInc
+-- The upper bound includes the occurrence at the upstream window end.
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=DAILY',
+        '1997-09-02 09:00:00+00', '1997-09-06 09:00:00.000001+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-03 09:00:00+00',
+        '1997-09-04 09:00:00+00', '1997-09-05 09:00:00+00',
+        '1997-09-06 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testBetweenInc'
+);
+
+-- testStrSetDate
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=YEARLY;BYDAY=TU;COUNT=1',
+        '-infinity', '2500-01-01 00:00:00+00',
+        p_rdate => ARRAY[
+            '1997-09-04 09:00:00+00', '1997-09-09 09:00:00+00'
+        ]::TIMESTAMPTZ[]
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1997-09-04 09:00:00+00',
+        '1997-09-09 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testStrSetDate'
+);
+
+-- testSetExDateRevOrder
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '2004-01-01 09:00:00+00', '2004-01-01 10:00:00+00',
+        'FREQ=MONTHLY;BYMONTHDAY=10;COUNT=5',
+        '-infinity', '2500-01-01 00:00:00+00',
+        p_exdate => ARRAY[
+            '2004-04-10 09:00:00+00', '2004-02-10 09:00:00+00'
+        ]::TIMESTAMPTZ[]
+    )),
+    ARRAY[
+        '2004-01-10 09:00:00+00', '2004-03-10 09:00:00+00',
+        '2004-05-10 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testSetExDateRevOrder'
+);
+
+-- testXNamed
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '2024-01-22 12:45:00+00', '2024-01-22 13:45:00+00',
+        'FREQ=WEEKLY;BYDAY=MO;COUNT=3',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '2024-01-22 12:45:00+00', '2024-01-29 12:45:00+00',
+        '2024-02-05 12:45:00+00'
+    ]::TIMESTAMPTZ[],
+    'testXNamed'
+);
+
+-- testStrValueDatetime
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
+        'FREQ=YEARLY;COUNT=2',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 09:00:00+00', '1998-09-02 09:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testStrValueDatetime'
+);
+
+-- testStrValueDate
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-09-02 00:00:00+00', '1997-09-02 01:00:00+00',
+        'FREQ=YEARLY;COUNT=2',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-09-02 00:00:00+00', '1998-09-02 00:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testStrValueDate'
+);
+
+-- testStrUntilWithTZ
+-- New York midnight on January 1 corresponds to 05:00 UTC.
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '1997-01-01 05:00:00+00', '1997-01-01 06:00:00+00',
+        'FREQ=YEARLY;UNTIL=19990101T000000Z',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '1997-01-01 05:00:00+00', '1998-01-01 05:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'testStrUntilWithTZ'
+);
+
+-- test_rrule_roundtrip
+-- The standalone rule variant checks the expanded dates.
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '2024-01-01 00:00:00+00', '2024-01-01 01:00:00+00',
+        'FREQ=DAILY;COUNT=25',
+        '-infinity', '2500-01-01 00:00:00+00'
+    )),
+    ARRAY[
+        '2024-01-01 00:00:00+00', '2024-01-02 00:00:00+00',
+        '2024-01-03 00:00:00+00', '2024-01-04 00:00:00+00',
+        '2024-01-05 00:00:00+00', '2024-01-06 00:00:00+00',
+        '2024-01-07 00:00:00+00', '2024-01-08 00:00:00+00',
+        '2024-01-09 00:00:00+00', '2024-01-10 00:00:00+00',
+        '2024-01-11 00:00:00+00', '2024-01-12 00:00:00+00',
+        '2024-01-13 00:00:00+00', '2024-01-14 00:00:00+00',
+        '2024-01-15 00:00:00+00', '2024-01-16 00:00:00+00',
+        '2024-01-17 00:00:00+00', '2024-01-18 00:00:00+00',
+        '2024-01-19 00:00:00+00', '2024-01-20 00:00:00+00',
+        '2024-01-21 00:00:00+00', '2024-01-22 00:00:00+00',
+        '2024-01-23 00:00:00+00', '2024-01-24 00:00:00+00',
+        '2024-01-25 00:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'test_rrule_roundtrip'
+);
+
+-- test_restored_rruleset_can_invalidate_cache
+-- The updated set includes the added March 1 date.
+SELECT is(
+    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
+        '2024-01-01 00:00:00+00', '2024-01-01 01:00:00+00',
+        'FREQ=DAILY;COUNT=25',
+        '-infinity', '2500-01-01 00:00:00+00',
+        p_rdate => ARRAY[
+            '2024-03-01 00:00:00+00'
+        ]::TIMESTAMPTZ[]
+    )),
+    ARRAY[
+        '2024-01-01 00:00:00+00', '2024-01-02 00:00:00+00',
+        '2024-01-03 00:00:00+00', '2024-01-04 00:00:00+00',
+        '2024-01-05 00:00:00+00', '2024-01-06 00:00:00+00',
+        '2024-01-07 00:00:00+00', '2024-01-08 00:00:00+00',
+        '2024-01-09 00:00:00+00', '2024-01-10 00:00:00+00',
+        '2024-01-11 00:00:00+00', '2024-01-12 00:00:00+00',
+        '2024-01-13 00:00:00+00', '2024-01-14 00:00:00+00',
+        '2024-01-15 00:00:00+00', '2024-01-16 00:00:00+00',
+        '2024-01-17 00:00:00+00', '2024-01-18 00:00:00+00',
+        '2024-01-19 00:00:00+00', '2024-01-20 00:00:00+00',
+        '2024-01-21 00:00:00+00', '2024-01-22 00:00:00+00',
+        '2024-01-23 00:00:00+00', '2024-01-24 00:00:00+00',
+        '2024-01-25 00:00:00+00', '2024-03-01 00:00:00+00'
+    ]::TIMESTAMPTZ[],
+    'test_restored_rruleset_can_invalidate_cache'
+);
+
+SELECT * FROM finish();
+ROLLBACK;
