@@ -17,8 +17,9 @@ TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437)
 and an unreadable value never panics.
 
 The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password including the
-history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret) use the
-same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
+history depth, session, push delivery, identity links, OIDC client/grant/token consumers, RP
+provider configuration/account/link/secret) use the same form, and `rows[0]` is gone from those
+files. Their row and column decode failures fail
 closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
 default. Query errors fail closed too (#454, security divergences from frozen Go's fail-open):
 WebAuthn `factors()` (a missing row included), every `risk()` with its `feature.user_risk`
@@ -40,10 +41,12 @@ cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit module
   with the error text only. Encrypt and send failures are not logged here.
 - Recovery `Principal::resolve` decode failures get the same non-enumerating reply as a refusal,
   and are logged to stderr.
+- OIDC introspection reports an unreadable live-token lookup as inactive, the same reply as for
+  an inactive token.
 
 Not converted: WebAuthn `management_options` (`.expect` on the snapshot; the function returns a
-plain String, so it has no error path), and `.get`/index reads on rows in oidc.rs,
-oidc/consumers.rs, login.rs, issuance.rs, impersonation.rs, self_service.rs and rp.rs.
+plain String, so it has no error path), and `.get`/index reads on rows in login.rs,
+issuance.rs, impersonation.rs and self_service.rs.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

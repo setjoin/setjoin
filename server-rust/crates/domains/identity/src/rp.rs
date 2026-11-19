@@ -325,8 +325,14 @@ impl Registry {
         let mut providers = BTreeMap::new();
         let mut errors = Vec::new();
         for row in rows {
-            let key: String = row.get(0);
-            let raw: String = row.get(1);
+            let Ok(key) = row.try_get::<_, String>(0) else {
+                errors.push("<unknown provider>: invalid provider configuration row".into());
+                continue;
+            };
+            let Ok(raw) = row.try_get::<_, String>(1) else {
+                errors.push("invalid provider configuration row".into());
+                continue;
+            };
             let load = async {
                 let mut config: Config = serde_json::from_str(&raw)
                     .map_err(|_| "invalid provider configuration".to_owned())?;
