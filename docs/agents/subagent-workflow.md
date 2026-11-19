@@ -4,69 +4,80 @@ Binding rules for delegating work to subagents. The latest owner instruction win
 
 ## Roles
 
-- **Coordinator** (main session): picks, sizes, plans, routes, briefs, reads receipts, runs
-  merge gates, merges, closes issues and owns owner questions. It does not implement,
-  except a decided edit of at most 5 lines (for example a CI or config fix inside a
-  fix-push-watch loop). Log each inline edit.
-- **Workers** implement, commit and push their own ticket branch. They never push `main`,
-  the integration branch or anyone else's branch, never use `--no-verify`, and stop and
-  report when a hook refuses. The coordinator reviews the pushed diff before any PR or merge.
-- **Workers stop when they push.** They never wait on CI, inside the run or in a background
-  command. The coordinator starts any lane run and waits for its notification; a red result
-  starts a new fix round, and a green one goes to review.
-- **Reviews never write. Gates never change product code or tests.**
-- Set `model` explicitly on every agent call. Never use Opus or Fable as an implementer.
-- No fixed cap on parallel editing agents. Limits: disjoint files (serialize tickets that
-  touch the same code), one agent per worktree (stop the previous one before a fix round),
-  and coordinator attention.
+- The **coordinator** is the Claude Code main session. It picks and sizes tickets,
+  writes briefs and launches Codex. It commits Codex's work and pushes an explicit
+  SHA to the ticket branch. Never push `main` or force-push. It opens PRs, waits for
+  CI through the shared poller, runs gates, merges, closes issues and owns owner
+  questions. It may make inline edits of at most 5 lines and logs each one.
+  It runs no Claude subagents for routine work.
+- The **implementer** runs Codex CLI (`codex exec`) in a workspace-write sandbox through
+  `codex-work.sh <worktree> <out.md> <sol|astra> <effort> <brief-file> [session-id]`.
+  The sandbox confines edits to the worktree and blocks network access. Git metadata
+  lives outside the worktree, so the implementer cannot commit. A PATH stub refuses
+  `cargo`, `rustc`, `go`, `npm`, `npx`, `pnpm`, `yarn`, `make` and `docker`.
+  `rustfmt` is allowed. The final report is at most 20 lines and covers files changed,
+  what was done, stop reasons and open questions.
+- Use `gpt-6.2-sol` at medium effort by default. Use `gpt-6.2-astra` at high effort
+  for L or risk-area plans, unknown causes, or escalation after sol hits the same CI
+  failure twice or stops on capability. See also the M planning rule below.
+- Fix rounds resume the same Codex session. Pass its session ID and point the brief
+  to a file with the failing log excerpt or review findings. The coordinator reads
+  CI logs only to pick the excerpt.
+- Fable is the standing second opinion for risk areas. Use Opus only on owner
+  request or when Codex and Fable disagree. Haiku and Sonnet are not used for
+  implementation.
+- Reviews never write. Gates never change product code or tests. Run one Codex
+  session per worktree at a time. Run tickets that touch the same files serially.
 
 ## Sizing
 
-Record the size on the ticket. Ask: is the change decided, what is the blast radius
-(grep the symbol), how long is the loop, is it a risk area?
+Record the size on the ticket. Check the approach, callers, loop time and risk area.
 
 **Risk areas:** auth/tokens, tenant isolation/ACL, crypto/keys/signing, user-data delete or
 move, migrations, data egress, production. Auth or a migration means size M or larger.
 
 | Size | Signals | Route |
 |---|---|---|
-| XS | decided, 1-2 files, one fast check | Haiku with the exact edit |
-| S | up to ~4 files in one module, short loop, small design call | Haiku first with the decided approach; on a capability stop (wrong fix, stuck, same CI failure twice) Sonnet takes over from Haiku's `PROGRESS.md`. Tasks capped at ~30 min (slice larger ones) |
-| M/L | several modules, long loop or real design | Opus planner (read-only) produces an exact plan, Haiku executes; gaps go back to the planner, never to Sonnet |
-| ? | cause or approach unknown | investigate (Sonnet, Opus if hard), then size the resulting plan |
+| XS | Decided, 1-2 files | sol, low effort, with the exact edit |
+| S | Up to ~4 files in one module | sol, medium effort, with the decided approach |
+| M | Several modules | sol, medium effort, after a short coordinator plan in the brief. astra plans first if the approach is undecided |
+| L or risk area | Large change or any risk area | astra writes a read-only plan (`-s read-only`). Fable reviews risk-area plans before code. sol implements the plan |
+| ? | Cause unknown | astra investigates read-only. Size the result again |
 
-Haiku stops and reports instead of guessing: a Haiku brief names its stop conditions, and a
-stop is an escalation, not a failure. Investigations skip Haiku, because a wrong diagnosis costs
-more downstream (CI loops, review rounds) than the Sonnet run.
+Cap runs at ~30 min, including investigations. At the cap, write `PROGRESS.md` and
+stop. The coordinator decides whether to continue, split the ticket or re-plan.
+A stop is an escalation, not a failure.
 
 If the diff exceeds the prediction, upgrade the review and re-record the size.
 
-The ~30 min cap covers investigations too. At the cap the worker writes `PROGRESS.md` and
-stops; the coordinator decides whether to continue, re-slice or re-plan. An investigation
-ends with a decided fix, which is sized again: at most 5 lines is an inline coordinator edit,
-XS goes to Haiku with the exact edit. Never resume the investigator to apply a decided fix.
-
 ## Briefs
 
-- One shared common brief plus a short per-ticket brief: paths, exact steps, verify
-  commands, stop conditions, report format.
-- Plan format: root cause or goal with evidence (file:line, output); exact change per
-  file (find, replace, base commit); the first failing test.
-- Risk-area planners list threats, failure cases (full quota, old or large data, restart
-  midway, concurrency), abusable inputs and the upgrade path. The plan gets a Fable review
-  before any code; its cases become required tests.
-- A case a worker calls "bounded" or "unlikely" is a finding: fix it or file a follow-up.
+- Use a shared common brief and a short per-ticket brief. Name the files, symbols,
+  approach, exact steps, verification commands, stop conditions and report format.
+  Codex stays within that scope except to follow a named caller or callee.
+- Give the root cause or goal with evidence (file and line, or output). Give the
+  exact change per file (find, replace, base commit) and the first failing test.
+- Risk-area planners list threats, failure cases (full quota, old or large data,
+  restart midway, concurrency), abusable inputs and the upgrade path. Fable reviews
+  the plan before code. Its cases become required tests.
+- A case the implementer calls "bounded" or "unlikely" is a finding. Fix it or file a follow-up.
 - Before a "delete X" ticket the coordinator checks X's callers itself.
-- Workers keep a `PROGRESS.md` so a cut-off run resumes (SendMessage to the same agent).
+- Keep `PROGRESS.md` so work can continue after a cut-off run.
 - Any export, copy or squash step must verify that its output file list equals
   `git ls-tree -r` of the source commit.
+- Include the coordinator's recurring-findings list in every implementer brief.
+  Check the diff for cleanup leaks, stale docs, pinned counts, weakened assertions,
+  Go-only checks skipped by a native route, transaction error paths, wrong-scope
+  code and merge-resolution loss before reporting.
+- Before a Rust commit, the coordinator runs `bash scripts/fmt-added.sh`.
 
 ## Builds and tests
 
 - CI-first: builds and tests run on GitHub-hosted runners (the PR pre-check per pull-request
   update, the `server-rust lane` per merge-queue entry). Local Rust work is limited to `rustfmt`
   on files you add.
-- Do not compile Rust locally. Workers push and stop; the coordinator reads the PR's required
+- Do not compile Rust locally. The implementer never builds. The coordinator commits and
+  pushes, then reads the PR's required
   `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards,
   plus the selected integration tests on the lane Postgres; ~10-25 min) through the shared poller.
   With no PR yet, the coordinator dispatches the light part only:
@@ -77,22 +88,23 @@ XS goes to Haiku with the exact edit. Never resume the investigator to apply a d
 
 ## Review
 
-- Codex merge gate: `codex exec -m gpt-6.2-astra` (codex-cli >= 0.169), reasoning `high`, read-only. At most 3
-  rounds per ticket; a 4th means re-plan. Usage is input-bound (files read, not reasoning):
-  - The prompt names the diff range, the files and callers to read, and pastes greps the
-    coordinator already ran; Codex does not explore the repo beyond that or run builds.
-  - Before round 1 a Haiku pre-check reads the diff against the coordinator's recurring
-    Codex findings list. Fix rounds get a delta review of the fix commits only.
+- Run the Codex merge gate in a fresh read-only session (`codex exec -s read-only`).
+  Use sol at high effort for normal PRs and astra at high effort for risk areas.
+  At most 3 rounds per ticket. A 4th means re-plan.
+  - Name the diff range, files and callers to read. Paste greps the coordinator
+    already ran. Codex stays within that scope and runs no builds.
+  - Fix rounds get a delta review of the fix commits only.
   - Small PRs that queue together may share one call, with one verdict per PR.
   - No Codex for PRs that change no code and weaken no check: docs only, deleting
     unreferenced files (coordinator greps for references), Dependabot version bumps
     (CI is the gate). Changes to CI, guards, `deny.toml` or other checks keep Codex.
-- Fable reviews risk areas (plan review before code, code review after Codex is clean).
-  Opus reviews other M/L work. No Claude review for XS or for S outside risk areas.
-- Never review with the planner or the implementer.
-- Verify each finding in the code before requiring a fix. One fix round carries all open
-  findings. Non-blocking findings become follow-up issues; do not widen the ticket.
-- Gate the integration tip itself after several merges.
+- Fable reviews risk-area plans before code and reviews the code after Codex is
+  clean. No standing Claude review elsewhere.
+- The coordinator reads Codex's final report and the diffstat. It reads the full
+  diff when it is under ~150 changed lines or when the ticket touches a risk area.
+- Verify each finding in the code before requiring a fix. One fix round carries
+  all open findings. File follow-up issues for non-blocking findings.
+- Gate the integration tip after several merges.
 - Reviewers apply docs/standards/AI_ASSISTED_TESTING.md (time windows, normalisation) to every test diff.
 
 ## GitHub API usage
@@ -124,7 +136,7 @@ Re-run a failing test alone. Passes alone: flake, file it, re-gate once. Fails t
 
 ## Cost log
 
-After every hand-back, the coordinator logs one line per run (token and minute figures from the
-agent cost tool): ticket, size, model, tokens, minutes, review rounds, outcome. After
-the merge compare prediction with actual and adjust the size borders. Token counts are a
-mis-size alarm, not a cap. Review cost per merged ticket periodically.
+Log one row per Codex or Claude run. Record the ticket, size, model, effort,
+input/cached/output tokens, minutes, review rounds and outcome. The wrapper prints
+the token counts. After the merge, compare prediction with actual and adjust the
+size borders and the sol/astra split.
