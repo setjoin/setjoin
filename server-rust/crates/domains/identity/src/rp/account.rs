@@ -114,6 +114,8 @@ pub struct Missing<'a> {
 pub struct Resolution {
     pub(super) user: crate::totp::CompletionUser,
     pub(super) fence: Option<Value>,
+    /// The feature flag at resolution time, including when the source does not serve normalized reads.
+    feature: bool,
 }
 impl Resolution {
     pub fn user(&self) -> &crate::totp::CompletionUser {
@@ -135,14 +137,14 @@ impl Assertion {
         exec: &ScopedExecutor,
         worker: &ScopedExecutor,
     ) -> Result<Lookup<'_>, StatementFailure> {
-        let normalized = crate::login::enabled(exec, "feature.identity_model_v2")
+        let feature = crate::login::enabled(exec, "feature.identity_model_v2")
             .await
-            .unwrap_or(false);
+            .map_err(|_| failed("normalized identity resolution unavailable"))?;
         let mut evidence = Value::Null;
         let mut serve = false;
         let mut user = None;
         let mut fence = None;
-        if normalized {
+        if feature {
             let rows = worker
                 .read(
                     "SELECT identity_auth_resolve($3,$1,$2)::text",
@@ -219,8 +221,7 @@ impl Assertion {
                     )
                     .await;
             }
-            if address_hit {
-                let id = user.unwrap();
+            if let Some(id) = user.filter(|_| address_hit) {
                 let guest = exec
                     .read("SELECT is_guest_account($1)", &[(&id, Type::INT8)])
                     .await
@@ -239,7 +240,7 @@ impl Assertion {
             return Ok(Lookup::Missing(Missing {
                 assertion: self,
                 normalized: serve,
-                feature: normalized,
+                feature,
             }));
         };
         let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await?;
@@ -263,6 +264,7 @@ impl Assertion {
                 admin: r.try_get(1).map_err(|_| failed("normalized identity resolution unavailable"))?,
             },
             fence,
+            feature,
         }))
     }
 }
@@ -283,9 +285,7 @@ impl Assertion {
         resolution: &Resolution,
         allow_super: bool,
     ) -> Result<crate::totp::CompletionUser, StatementFailure> {
-        let normalized = crate::login::enabled(exec, "feature.identity_model_v2")
-            .await
-            .unwrap_or(false);
+        let normalized = resolution.feature;
         let key = provider.key();
         let bind = worker
             .protocol_statement(
@@ -486,6 +486,7 @@ impl Missing<'_> {
                 admin: r.try_get(1).map_err(|_| failed("user creation failed"))?,
             },
             fence,
+            feature: self.feature,
         })
     }
 }

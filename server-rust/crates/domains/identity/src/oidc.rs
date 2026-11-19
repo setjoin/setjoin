@@ -69,20 +69,21 @@ pub async fn client(exec: &ScopedExecutor, id: &str) -> Result<Client, String> {
     let r = rows
         .first()
         .ok_or_else(|| format!("client not found: {id}"))?;
-    if !r.get::<_, bool>(5) {
+    let invalid = |_| "invalid client row".to_owned();
+    if !r.try_get::<_, bool>(5).map_err(invalid)? {
         return Err(format!("client disabled: {id}"));
     }
-    let mut grants: Vec<String> = r.get(3);
+    let mut grants: Vec<String> = r.try_get(3).map_err(invalid)?;
     grants.retain(|g| matches!(g.as_str(), "authorization_code" | "refresh_token"));
     if grants.is_empty() {
         grants.push("authorization_code".into());
     }
     Ok(Client {
-        id: r.get(0),
-        redirects: r.get(1),
-        scopes: r.get(2),
+        id: r.try_get(0).map_err(invalid)?,
+        redirects: r.try_get(1).map_err(invalid)?,
+        scopes: r.try_get(2).map_err(invalid)?,
         grants,
-        public: r.get::<_, String>(4) == "public",
+        public: r.try_get::<_, String>(4).map_err(invalid)? == "public",
     })
 }
 pub async fn create_request(
