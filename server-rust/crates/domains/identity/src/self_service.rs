@@ -467,7 +467,7 @@ pub async fn advisory_enabled(exec: &ScopedExecutor, key: &str) -> bool {
     )
     .await
     .ok()
-    .map(|rows| rows.first().map_or(true, |row| row.get(0)))
+    .map(|rows| rows.first().map_or(true, |row| row.try_get(0).unwrap_or(false)))
     .unwrap_or(false)
 }
 
@@ -611,7 +611,7 @@ pub async fn mailtips(
                 )
                 .await
                 .ok()
-                .and_then(|rows| rows.first().map(|r| r.get::<_, bool>(0)))
+                .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
                 .unwrap_or(false);
         if external {
             // Go ranges a map: ordering between distinct domains is unspecified.
@@ -676,7 +676,7 @@ pub async fn mailtips(
         // Delegate-side rows belong to another mailbox; the authenticated user
         // is the delegate predicate, on the dedicated BYPASSRLS credential.
         let allowed=worker.read("SELECT EXISTS(SELECT 1 FROM mailbox_delegates md JOIN mailboxes mb ON mb.id=md.mailbox_id WHERE md.user_id=$1 AND mb.email=$2 AND md.permission IN ('send_as','full_access'))",
-            &[(&user,Type::INT8),(&from,Type::TEXT)]).await.ok().and_then(|rows|rows.first().map(|r|r.get::<_,bool>(0))).unwrap_or(false);
+            &[(&user,Type::INT8),(&from,Type::TEXT)]).await.ok().and_then(|rows|rows.first().and_then(|r|r.try_get::<_,bool>(0).ok())).unwrap_or(false);
         if !allowed && from != actor.email() {
             warnings.push(json!({"type":"no_send_as","message":format!("You don't have permission to send as {from}"),"from":from}));
         }

@@ -16,8 +16,9 @@ TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437)
 `rows.first()` + `try_get`. A missing row returns that function's existing error or absence result,
 and an unreadable value never panics.
 
-The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password including the
-history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret) use the
+The #436 converted reads (push, TOTP, WebAuthn including `management_options`, possession, recovery,
+password including the history depth, session, push delivery, identity links, OIDC grant,
+RP account/link/secret, self_service, impersonation) use the
 same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
 closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
 default. Query errors fail closed too (#454, security divergences from frozen Go's fail-open):
@@ -40,10 +41,13 @@ cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit module
   with the error text only. Encrypt and send failures are not logged here.
 - Recovery `Principal::resolve` decode failures get the same non-enumerating reply as a refusal,
   and are logged to stderr.
+- The self-service advisory compose switch `advisory_enabled` (e.g. `feature.dlp`) answers OFF on
+  a read or decode fault. The send reducer enforces DLP independently (`send.sql` step 5a).
+- The self-service `external_sender_warning` preference read in `mailtips` answers false
+  on a read or decode fault.
 
-Not converted: WebAuthn `management_options` (`.expect` on the snapshot; the function returns a
-plain String, so it has no error path), and `.get`/index reads on rows in oidc.rs,
-oidc/consumers.rs, login.rs, issuance.rs, impersonation.rs, self_service.rs and rp.rs.
+Not converted: `.get`/index reads on rows in oidc.rs, oidc/consumers.rs, login.rs, issuance.rs
+and rp.rs.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

@@ -1364,14 +1364,20 @@ pub fn decode_credential_id(text: &str) -> Option<Vec<u8>> {
 
 impl RelyingParty {
     pub(crate) fn management_challenge(&self)->Result<String,&'static str>{random_challenge()}
-    pub(crate) fn management_options(&self,snapshot:&serde_json::Value,challenge:&str)->String{
-        let ids=snapshot["keys"].as_array().expect("owned keys").iter().map(|key|{
-            let raw=key["id"].as_str().expect("credential hex");
-            let bytes=data_encoding::HEXLOWER.decode(raw.as_bytes()).expect("database hex");
-            format!("{{\"type\":\"public-key\",\"id\":{}}}",serde_json::json!(URL_SAFE_NO_PAD.encode(bytes)))
-        }).collect::<Vec<_>>().join(",");
-        let allowed=if ids.is_empty(){String::new()}else{format!(",\"allowCredentials\":[{ids}]")};
-        format!("{{\"publicKey\":{{\"challenge\":{},\"timeout\":300000,\"rpId\":{}{allowed},\"userVerification\":\"required\"}}}}",serde_json::json!(challenge),serde_json::json!(self.rp_id))
+    pub(crate) fn management_options(
+        &self,
+        snapshot: &serde_json::Value,
+        challenge: &str,
+    ) -> Result<String, StatementFailure> {
+        let keys = snapshot["keys"].as_array().ok_or_else(bad_result)?;
+        let ids = keys.iter().map(|key| {
+            let raw = key["id"].as_str().ok_or_else(bad_result)?;
+            let bytes = data_encoding::HEXLOWER.decode(raw.as_bytes()).map_err(|_| bad_result())?;
+            Ok(format!("{{\"type\":\"public-key\",\"id\":{}}}", serde_json::json!(URL_SAFE_NO_PAD.encode(bytes))))
+        }).collect::<Result<Vec<_>, StatementFailure>>()?.join(",");
+        let allowed = if ids.is_empty() { String::new() } else { format!(",\"allowCredentials\":[{ids}]") };
+        Ok(format!("{{\"publicKey\":{{\"challenge\":{},\"timeout\":300000,\"rpId\":{}{allowed},\"userVerification\":\"required\"}}}}",
+            serde_json::json!(challenge), serde_json::json!(self.rp_id)))
     }
 }
 
@@ -1399,6 +1405,30 @@ impl RelyingParty {
         let mut message=parsed.auth.clone();message.extend_from_slice(&Sha256::digest(&parsed.client));
         if !verify_stored_signature(&public,&message,&parsed.signature){return ManagementResult::Rejected;}
         ManagementResult::Accepted(parsed.id)
+    }
+}
+
+#[cfg(test)]
+mod fail_closed_management_options {
+    use super::RelyingParty;
+    use serde_json::json;
+
+    #[test]
+    fn rejects_malformed_snapshot() {
+        let rp = RelyingParty::new(&[0; 32], "example.com", "Example", "https://example.com").unwrap();
+        for snapshot in [
+            json!({}),
+            json!({"keys": {}}),
+            json!({"keys": [{}]}),
+            json!({"keys": [{"id": 42}]}),
+            json!({"keys": [{"id": "01"}, {"id": "not hex"}]}),
+        ] {
+            let error = rp.management_options(&snapshot, "challenge").unwrap_err();
+            assert_eq!(error.message, "invalid WebAuthn reducer result");
+        }
+        let empty = rp.management_options(&json!({"keys": []}), "challenge").unwrap();
+        let options: serde_json::Value = serde_json::from_str(&empty).unwrap();
+        assert!(options["publicKey"].get("allowCredentials").is_none());
     }
 }
 
