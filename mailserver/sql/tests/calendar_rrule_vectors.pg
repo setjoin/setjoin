@@ -1,7 +1,7 @@
 -- pgTAP: RRULE occurrence vectors translated from python-dateutil.
 -- Source: https://github.com/dateutil/dateutil, commit 261e29139618, tests/test_rrule.py.
 -- License: Apache-2.0 AND BSD-3-Clause (dateutil dual terms).
--- Copyright 2017- Paul Ganssle and dateutil contributors
+-- Copyright 2017- Paul Ganssle and dateutil contributors; see THIRD_PARTY-calendar_rrule_vectors.md for all copyright holders.
 
 BEGIN;
 SET LOCAL TIME ZONE 'UTC';
@@ -189,6 +189,7 @@ SELECT is(
     'testWeeklyByWeekDay'
 );
 
+-- Ordinal BYDAY with FREQ=WEEKLY is outside RFC 5545; this pins dateutil's lenient behaviour.
 -- testWeeklyByNWeekDay
 SELECT is(
     (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(

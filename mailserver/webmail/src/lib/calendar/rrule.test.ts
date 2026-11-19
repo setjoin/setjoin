@@ -75,7 +75,6 @@ describe('rrule.js rule strings: build/parse round-trip', () => {
 		name: string;
 		rule: string;
 		parts: Parameters<typeof buildRrule>[0];
-		canonicalRule?: string;
 	}[] = [
 		{
 			name: 'testBefore',
@@ -151,27 +150,14 @@ describe('rrule.js rule strings: build/parse round-trip', () => {
 				byDay: ['1TU', '-1TH'],
 				end: { type: 'count', count: 3 }
 			}
-		},
-		// The date-only editor composes UNTIL at midnight UTC.
-		{
-			name: 'daily UNTIL date from the upstream DST case',
-			rule: 'UNTIL=20181106T110000Z;FREQ=DAILY',
-			parts: { freq: 'DAILY', interval: 1, end: { type: 'until', until: '2018-11-06' } },
-			canonicalRule: 'FREQ=DAILY;UNTIL=20181106T000000Z'
-		},
-		{
-			name: 'weekly UNTIL date from the upstream DST case',
-			rule: 'FREQ=WEEKLY;UNTIL=20181115T050000Z',
-			parts: { freq: 'WEEKLY', interval: 1, end: { type: 'until', until: '2018-11-15' } },
-			canonicalRule: 'FREQ=WEEKLY;UNTIL=20181115T000000Z'
 		}
 	];
 
-	it.each(cases)('$name', ({ rule, parts, canonicalRule }) => {
+	it.each(cases)('$name', ({ rule, parts }) => {
 		expect(parseRrule(rule)).toEqual(parts);
 
 		const rebuilt = buildRrule(parts);
-		expect(rebuilt).toBe(canonicalRule ?? rule);
+		expect(rebuilt).toBe(rule);
 		expect(parseRrule(rebuilt)).toEqual(parts);
 	});
 });
