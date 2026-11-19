@@ -17,21 +17,26 @@ TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437)
 and an unreadable value never panics.
 
 The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password including the
-history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret) use the
-same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
-closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
-default. Query errors fail closed too (#454, security divergences from frozen Go's fail-open):
+history depth, session, push delivery, identity links, OIDC grant, RP account/link/secret, login,
+issuance) use the same form, and `rows[0]` is gone from those files. Their row and column decode
+failures fail closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a
+permissive default. Query errors fail closed too
+(#454, security divergences from frozen Go's fail-open):
 WebAuthn `factors()` (a missing row included), every `risk()` with its `feature.user_risk`
 lookup (also when the flag is off), and the change-password common-password check refuse before
 any token is signed or stored. MFA completions read the risk from the pending token before the
 second factor is consumed, so a failed read spends no factor; push status does this on every
 poll, so a fault answers 500 rather than `{"approved":false}`. Refresh reads it once before
-rotating. `user_risk.score` is smallint and is read as `score::int4`. Verification inputs are
-never defaulted (#455): a `ready` TOTP row without a string `secret` is a statement failure (Go's
-failed Scan), `counter_proof` refuses an empty decoded key (Go accepts it), and push approval
+rotating. SCIM session revocation returns 500 on an external-ID lookup query error (Go returns
+200 with `revoked:false`). `user_risk.score` is smallint and is read as `score::int4`.
+Verification inputs are never defaulted (#455): a `ready` TOTP row without a string `secret`
+is a statement failure (Go's failed Scan), `counter_proof` refuses an empty decoded key (Go
+accepts it), and push approval
 treats a missing or mistyped `failures`, `key`, `code`, `session` or `expires` as Go's uniform
 invalid, never as zero failures. Tests: `bins/auth/tests/fail_closed.rs`, the `failclosed_454_*`
 cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit modules. Exceptions, all deliberate:
+- Issuance: an unreadable client-version row answers `up_to_date` and an unreadable introspection row
+  answers `{"active":false}`; neither grants access.
 - WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a
   distinct reply cannot reveal that an account exists.
 - `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops
@@ -43,7 +48,7 @@ cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit module
 
 Not converted: WebAuthn `management_options` (`.expect` on the snapshot; the function returns a
 plain String, so it has no error path), and `.get`/index reads on rows in oidc.rs,
-oidc/consumers.rs, login.rs, issuance.rs, impersonation.rs, self_service.rs and rp.rs.
+oidc/consumers.rs, impersonation.rs, self_service.rs and rp.rs.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

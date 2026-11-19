@@ -179,14 +179,35 @@ async fn set_flag(c: &Client, key: &str, on: bool) -> Result<(), Err> {
     c.execute("INSERT INTO feature_toggles(key,enabled) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled", &[&key, &on]).await?;
     Ok(())
 }
-async fn server(e: &Env) -> Result<AuthServer, Err> {
+const RATE_FLAG: &str = "feature.rate_limit";
+async fn save_rate(c: &Client) -> Result<Option<bool>, Err> {
+    Ok(c.query_opt(
+        "SELECT enabled FROM feature_toggles WHERE key=$1",
+        &[&RATE_FLAG],
+    )
+    .await?
+    .map(|row| row.get(0)))
+}
+async fn restore_rate(c: &Client, saved: Option<bool>) -> Result<(), Err> {
+    if let Some(enabled) = saved {
+        set_flag(c, RATE_FLAG, enabled).await?;
+    } else {
+        c.execute("DELETE FROM feature_toggles WHERE key=$1", &[&RATE_FLAG])
+            .await?;
+    }
+    Ok(())
+}
+fn config(e: &Env) -> Config {
     let mut cfg = Config::for_secret(e.secret.clone());
     cfg.worker_dsn = None;
     // Forwarded addresses are honoured only from the trusted proxy (fixture IPs per test).
     cfg.client_proxy = "127.0.0.1".into();
     cfg.dsn = e.db.dsn.clone();
     cfg.db_encryption_key = ENC.into();
-    Ok(AuthServer::load(e.exec.clone(), cfg)
+    cfg
+}
+async fn server(e: &Env) -> Result<AuthServer, Err> {
+    Ok(AuthServer::load(e.exec.clone(), config(e))
         .await?
         .with_threat_gate(&e.db.dsn)
         .await?)
@@ -347,6 +368,173 @@ struct LoginSeen {
     wrong_faulted: Reply,
     before: (i64, i64),
     after: (i64, i64),
+}
+
+#[tokio::test]
+async fn unreadable_login_hash_matches_absent() {
+    use setjoin_config_secret::CryptoProfile::Standard;
+    use std::time::{Duration, Instant};
+
+    let Some(e) = env("failclosed-unreadable-login-hash").await else {
+        return;
+    };
+    let saved = save_rate(&e.c).await.unwrap();
+    let absent = absent();
+    let ip = fixture_ip();
+    let (a, email) = account(&e, "failclosed-unreadable-login-hash")
+        .await
+        .unwrap();
+    let observed = async {
+        set_flag(&e.c, RATE_FLAG, false).await?;
+        let s = server(&e).await?;
+        let password = "Wrong-Password1!";
+        let login = |who: &str| {
+            anonymous_from(&ip, "/auth/login", json!({"email":who,"password":password}))
+        };
+        let exec = &e.exec;
+        let address = email.as_str();
+        let time_verify = |unreadable: bool| async move {
+            // Use the fastest of three reads to limit the effect of DB and scheduler stalls.
+            let mut fastest = Duration::MAX;
+            for _ in 0..3 {
+                let start = Instant::now();
+                let result =
+                    setjoin_identity::login::verify(exec, address, password, Standard).await;
+                fastest = fastest.min(start.elapsed());
+                match (unreadable, result) {
+                    (false, Ok(None)) | (true, Err(_)) => {}
+                    _ => return Err("unexpected password verification result".into()),
+                }
+            }
+            Ok::<_, Err>(fastest)
+        };
+        // Calibrate with the same bcrypt cost and domain query as the dummy path.
+        e.c.execute(
+            "UPDATE users SET password_hash=$1 WHERE id=$2",
+            &[&setjoin_identity::login::dummy_hash(Standard), &a.user],
+        )
+        .await?;
+        let known_cost = time_verify(false).await?;
+        e.c.execute(
+            "UPDATE users SET password_hash=NULL WHERE id=$1",
+            &[&a.user],
+        )
+        .await?;
+        let unreadable_cost = time_verify(true).await?;
+        let absent_reply = send(&s, login(&absent)?).await?;
+        let unreadable_reply = send(&s, login(&email)?).await?;
+        Ok::<_, Err>((absent_reply, unreadable_reply, known_cost, unreadable_cost))
+    }
+    .await;
+    let residue = login_residue(&e, a.user, &[email, absent]).await;
+    let cleaned = settle(
+        settle(restore_rate(&e.c, saved).await, residue),
+        cleanup(&e, &a).await,
+    );
+    let (absent_reply, unreadable_reply, known_cost, unreadable_cost) =
+        settle(observed, cleaned).unwrap();
+    assert_eq!(absent_reply.status, 401);
+    assert!(absent_reply.body.contains("invalid credentials"));
+    assert_eq!(
+        (
+            unreadable_reply.status,
+            unreadable_reply.body,
+            unreadable_reply.cookies
+        ),
+        (absent_reply.status, absent_reply.body, absent_reply.cookies),
+    );
+    assert!(
+        known_cost > Duration::from_millis(10),
+        "bcrypt cost must be measurable: {known_cost:?}"
+    );
+    assert!(
+        unreadable_cost * 2 >= known_cost,
+        "unreadable hash skipped dummy verification: {unreadable_cost:?} vs {known_cost:?}"
+    );
+}
+
+#[tokio::test]
+async fn rate_fault_forwards() {
+    use std::time::Duration;
+
+    let Some(e) = env("failclosed-device-rate").await else {
+        return;
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut cfg = config(&e);
+    cfg.go_upstream = Some(format!("http://{}", listener.local_addr().unwrap()));
+    let s = AuthServer::load(e.exec.clone(), cfg).await.unwrap();
+    let saved = save_rate(&e.c).await.unwrap();
+    let observed = async {
+        set_flag(&e.c, RATE_FLAG, false).await?;
+        let request = || anonymous("/auth/device/register", json!({}));
+        let local = tokio::time::timeout(Duration::from_secs(10), send(&s, request()?)).await??;
+        let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "feature_toggles").await?;
+        let upstream = async {
+            let (stream, _) = listener.accept().await?;
+            let service =
+                hyper::service::service_fn(|r: Request<hyper::body::Incoming>| async move {
+                    r.into_body().collect().await?;
+                    hyper::Response::builder()
+                        .status(418)
+                        .header("connection", "close")
+                        .body(body("upstream rate response\n"))
+                        .map_err(Err::from)
+                });
+            hyper::server::conn::http1::Builder::new()
+                .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                .await?;
+            Ok::<_, Err>(())
+        };
+        let forwarded = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::try_join!(send(&s, request()?), upstream).map(|(reply, ())| reply)
+        })
+        .await
+        .map_err(Err::from)
+        .and_then(|reply| reply);
+        let restored = guard.restore(&e.c).await;
+        Ok::<_, Err>((local, settle(forwarded, restored)?))
+    }
+    .await;
+    let (local, forwarded) = settle(observed, restore_rate(&e.c, saved).await).unwrap();
+    assert_eq!(local.status, 401);
+    assert!(local.body.contains("Unauthorized"));
+    assert_eq!(forwarded.status, 418);
+    assert_eq!(forwarded.body, "upstream rate response\n");
+}
+
+#[tokio::test]
+async fn scim_revoke_query_error_is_500() {
+    let Some(e) = env("failclosed-scim-revoke").await else {
+        return;
+    };
+    let mut cfg = config(&e);
+    let key = uuid::Uuid::new_v4().to_string();
+    cfg.internal_api_key = key.clone();
+    let s = AuthServer::load(e.exec.clone(), cfg).await.unwrap();
+    let external = uuid::Uuid::new_v4().to_string();
+    let request = || {
+        bearer(
+            "POST",
+            "/auth/scim/disable",
+            &key,
+            json!({"external_id":external}),
+        )
+    };
+    let absent = send(&s, request().unwrap()).await.unwrap();
+    let guard = revoke::table(&e.db.dsn, &e.c, &e.exec, "users")
+        .await
+        .unwrap();
+    let faulted = async { send(&s, request()?).await }.await;
+    let faulted = settle(faulted, guard.restore(&e.c).await).unwrap();
+    assert_eq!(absent.status, 200);
+    assert_eq!(
+        absent.body,
+        "{\"reason\":\"user not found\",\"revoked\":false}\n"
+    );
+    assert_eq!(faulted.status, 500);
+    let problem: Value = serde_json::from_str(&faulted.body).unwrap();
+    assert_eq!(problem["detail"], "session revocation failed");
 }
 
 /// HTTP: password login with a failing risk read issues no token and stores no anchor. Under
