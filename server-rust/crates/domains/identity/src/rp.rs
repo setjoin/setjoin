@@ -330,7 +330,7 @@ impl Registry {
                 continue;
             };
             let Ok(raw) = row.try_get::<_, String>(1) else {
-                errors.push("invalid provider configuration row".into());
+                errors.push(format!("{key}: invalid provider configuration row"));
                 continue;
             };
             let load = async {

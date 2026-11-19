@@ -27,12 +27,14 @@ lookup (also when the flag is off), and the change-password common-password chec
 any token is signed or stored. MFA completions read the risk from the pending token before the
 second factor is consumed, so a failed read spends no factor; push status does this on every
 poll, so a fault answers 500 rather than `{"approved":false}`. Refresh reads it once before
-rotating. `user_risk.score` is smallint and is read as `score::int4`. Verification inputs are
+rotating. RP `resolve` refuses with 503 on a `feature.identity_model_v2` read error before any lookup or
+JIT write (Go treats it as off) and carries the value into `settle`. `user_risk.score` is smallint and is read as `score::int4`. Verification inputs are
 never defaulted (#455): a `ready` TOTP row without a string `secret` is a statement failure (Go's
 failed Scan), `counter_proof` refuses an empty decoded key (Go accepts it), and push approval
 treats a missing or mistyped `failures`, `key`, `code`, `session` or `expires` as Go's uniform
 invalid, never as zero failures. Tests: `bins/auth/tests/fail_closed.rs`, the `failclosed_454_*`
-cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit modules. Exceptions, all deliberate:
+cases in `guest_scope.rs` and `rp_faults.rs`, the `identity_model_*` cases in `rp_faults.rs`, `oidc_faults.rs`,
+and the `fail_closed*` unit modules. Exceptions, all deliberate:
 - WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a
   distinct reply cannot reveal that an account exists.
 - `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops
