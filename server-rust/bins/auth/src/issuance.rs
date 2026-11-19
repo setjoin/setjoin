@@ -661,7 +661,11 @@ impl AuthServer {
             return self.forward(req).await;
         }
         let rate=self.exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'),true)",&[]).await;
-        if !matches!(rate,Ok(ref r) if !r[0].get::<_,bool>(0)) {
+        if rate
+            .ok()
+            .and_then(|rows| rows.first()?.try_get::<_, bool>(0).ok())
+            != Some(false)
+        {
             return self.forward(req).await;
         }
         for control in [

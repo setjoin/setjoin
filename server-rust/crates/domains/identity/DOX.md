@@ -16,23 +16,32 @@ TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437)
 `rows.first()` + `try_get`. A missing row returns that function's existing error or absence result,
 and an unreadable value never panics.
 
-The #436 converted reads (push, TOTP, WebAuthn including `management_options`, possession, recovery,
-password including the history depth, session, push delivery, identity links, OIDC grant,
-RP account/link/secret, self_service, impersonation) use the
-same form, and `rows[0]` is gone from those files. Their row and column decode failures fail
-closed: an error reply or refusal, never no-MFA, no-risk, not-common, not-found or a permissive
-default. Query errors fail closed too (#454, security divergences from frozen Go's fail-open):
+The #436 converted reads (push, TOTP, WebAuthn including `management_options`, possession,
+recovery, password including the history depth, session, push delivery, identity links, OIDC
+client/grant/token consumers, RP provider configuration/account/link/secret, login, issuance,
+self_service, impersonation) use the same form, and `rows[0]` is gone from those files. Their row
+and column decode failures fail closed: an error reply or refusal, never no-MFA, no-risk,
+not-common, not-found or a permissive default. Query errors fail closed too (#454, security
+divergences from frozen Go's fail-open):
 WebAuthn `factors()` (a missing row included), every `risk()` with its `feature.user_risk`
 lookup (also when the flag is off), and the change-password common-password check refuse before
 any token is signed or stored. MFA completions read the risk from the pending token before the
 second factor is consumed, so a failed read spends no factor; push status does this on every
 poll, so a fault answers 500 rather than `{"approved":false}`. Refresh reads it once before
-rotating. `user_risk.score` is smallint and is read as `score::int4`. Verification inputs are
-never defaulted (#455): a `ready` TOTP row without a string `secret` is a statement failure (Go's
-failed Scan), `counter_proof` refuses an empty decoded key (Go accepts it), and push approval
+rotating. SCIM session revocation returns 500 on an external-ID lookup query error (Go returns
+200 with `revoked:false`). RP `resolve` refuses with 503 on a `feature.identity_model_v2` read
+error before any lookup or JIT write (Go treats it as off) and carries the value into `settle`.
+`user_risk.score` is smallint and is read as `score::int4`.
+Verification inputs are never defaulted (#455): a `ready` TOTP row without a string `secret`
+is a statement failure (Go's failed Scan), `counter_proof` refuses an empty decoded key (Go
+accepts it), and push approval
 treats a missing or mistyped `failures`, `key`, `code`, `session` or `expires` as Go's uniform
 invalid, never as zero failures. Tests: `bins/auth/tests/fail_closed.rs`, the `failclosed_454_*`
-cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit modules. Exceptions, all deliberate:
+cases in `guest_scope.rs` and `rp_faults.rs`, the `identity_model_*` cases in `rp_faults.rs`,
+`oidc_faults.rs`, and the `fail_closed*` unit modules. Exceptions, all deliberate:
+- Login failure audit: a found row whose user id cannot be decoded is recorded as unresolved (`user_not_found`, NULL user); the reply is the same 401 as any failed login.
+- Issuance: an unreadable client-version row answers `up_to_date` and an unreadable introspection row
+  answers `{"active":false}`; neither grants access.
 - WebAuthn login-begin sends every account-lookup failure to the decoy response (anti-enumeration), so a
   distinct reply cannot reveal that an account exists.
 - `webauthn::list` skips an unreadable credential row in the display list only (frozen Go drops
@@ -41,13 +50,12 @@ cases in `guest_scope.rs` and `rp_faults.rs`, and the `fail_closed*` unit module
   with the error text only. Encrypt and send failures are not logged here.
 - Recovery `Principal::resolve` decode failures get the same non-enumerating reply as a refusal,
   and are logged to stderr.
+- OIDC introspection reports an unreadable live-token lookup as inactive, the same reply as for
+  an inactive token.
 - The self-service advisory compose switch `advisory_enabled` (e.g. `feature.dlp`) answers OFF on
   a read or decode fault. The send reducer enforces DLP independently (`send.sql` step 5a).
 - The self-service `external_sender_warning` preference read in `mailtips` answers false
   on a read or decode fault.
-
-Not converted: `.get`/index reads on rows in oidc.rs, oidc/consumers.rs, login.rs, issuance.rs
-and rp.rs.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

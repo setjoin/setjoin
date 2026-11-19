@@ -1,4 +1,4 @@
-//! Real PostgreSQL COMMIT cuts at the RP publishing commands; fresh proof lookup.
+//! Real PostgreSQL COMMIT cuts, fresh proof lookup and failed reads during RP completion.
 mod common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
@@ -30,7 +30,7 @@ async fn assertion(
     env: &flows::Env,
     subject: &str,
     email: &str,
-) -> Result<setjoin_identity::rp::Assertion, Err> {
+) -> Result<(setjoin_identity::rp::Assertion, Arc<setjoin_identity::rp::Provider>), Err> {
     let exec = setjoin_pg::ScopedExecutor::from_dsn(&std::env::var("DB_APP_DSN")?, 4).unwrap();
     let registry = setjoin_identity::rp::Registry::load(
         exec,
@@ -47,10 +47,11 @@ async fn assertion(
         &flow.nonce,
         json!({"sub":subject,"email":email,"email_verified":true}),
     );
-    Ok(provider
+    let verified = provider
         .exchange(&code, &flow.verifier)
         .await?
-        .assertion(Some(&flow.nonce), &provider)?)
+        .assertion(Some(&flow.nonce), &provider)?;
+    Ok((verified, provider))
 }
 async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
@@ -97,7 +98,7 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
         let operation=setjoin_contracts::ids::OperationId(*uuid::Uuid::parse_str(response.1["x-operation-id"].as_str().ok_or("missing operation ID")?)?.as_bytes());
         let clean=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),4).map_err(|e|e.0)?;let worker=setjoin_pg::ScopedExecutor::from_dsn(&db.dsn,4).map_err(|e|e.0)?;
         let kind=if kind=="settle"{setjoin_identity::rp::Operation::Settle}else{setjoin_identity::rp::Operation::Mint};
-        let fresh=assertion(&env,"actor-subject",&email).await?;let foreign=assertion(&env,"foreign-subject",&other).await?;
+        let (fresh,_)=assertion(&env,"actor-subject",&email).await?;let (foreign,_)=assertion(&env,"foreign-subject",&other).await?;
         let committed=cut==wire::CommitCut::AfterCommit;
         if setjoin_identity::rp::lookup_assertion(&clean,&worker,&fresh,operation,kind).await.map_err(|e|e.message)?!=committed{return Err("fresh assertion lookup disagrees with COMMIT".into());}
         if setjoin_identity::rp::lookup_assertion(&clean,&worker,&foreign,operation,kind).await.unwrap_or(false){return Err("foreign assertion observed receipt".into());}
@@ -509,4 +510,99 @@ async fn failclosed_sso_risk() -> Result<(), Err> {
 #[tokio::test]
 async fn failclosed_454_sso_risk_fault_issues_no_token() {
     failclosed_sso_risk().await.unwrap();
+}
+
+#[tokio::test]
+async fn identity_model_flag_fault_refuses_jit_before_any_account_write() -> Result<(), Err> {
+    use setjoin_identity::rp::Lookup;
+
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDFED2-flag-fault").ok_or("assigned DB required")?;
+    let app = setjoin_pg::ScopedExecutor::from_dsn(
+        db.app.as_deref().ok_or("DB_APP_DSN required")?,
+        2,
+    )
+    .map_err(|e| e.0)?;
+    let worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).map_err(|e| e.0)?;
+    let env = flows::Env::start(false).await?;
+    let mut account = None;
+    let mut jit_identity = None;
+    let result: Result<(), Err> = async {
+        let a = account.insert(fixture::account(&env.c, "rp-flag-fault").await?);
+        let email: String = env.c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .try_get(0)?;
+        let (_, domain) = email.split_once('@').ok_or("fixture email has no domain")?;
+        let subject = uuid::Uuid::new_v4().to_string();
+        env.c.execute(
+            "UPDATE users SET oidc_subject=$2,oidc_issuer=$3 WHERE id=$1",
+            &[&a.user, &subject, &idp::ISSUER],
+        ).await?;
+        let (existing, provider) = assertion(&env, &subject, &email).await?;
+        let Lookup::Existing(resolution) =
+            existing.resolve(&app, &worker).await.map_err(|e| e.message)?
+        else {
+            return Err("control account did not resolve".into());
+        };
+
+        let jit_email = format!("jit@{domain}");
+        let jit_subject = uuid::Uuid::new_v4().to_string();
+        let (jit, _) = assertion(&env, &jit_subject, &jit_email).await?;
+        jit_identity = Some((jit_email, jit_subject));
+        env.c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.identity_model_v2'",
+            &[],
+        ).await?;
+        // This legacy account has no normalized link, so re-reading the enabled flag would
+        // send it into normalized reconciliation and refuse settlement.
+        let after_toggle = existing.settle(&app, &worker, &*provider, &resolution, false).await;
+        let guard = revoke::table(&db.dsn, &env.c, &app, "feature_toggles").await?;
+        // Settlement of an admitted account uses the flag captured before the revoke.
+        let settled = existing.settle(&app, &worker, &*provider, &resolution, false).await;
+        let outcome: Result<(), Err> = match jit.resolve(&app, &worker).await {
+            Err(e) if e.message == "normalized identity resolution unavailable" => Ok(()),
+            Err(e) => Err(format!("unexpected resolution failure: {}", e.message).into()),
+            Ok(Lookup::Missing(miss)) => {
+                // Follow the callback's JIT path if resolution incorrectly allows it.
+                if let Ok(created) = miss.create(&app, &worker).await {
+                    let _ = jit.settle(&app, &worker, &*provider, &created, false).await;
+                }
+                Err("flag fault allowed legacy JIT resolution".into())
+            }
+            Ok(Lookup::Existing(_)) => Err("flag fault admitted an account".into()),
+        };
+        guard.restore(&env.c).await?;
+        after_toggle.map_err(|e| e.message)?;
+        let completion = settled.map_err(|e| e.message)?;
+        if completion.user() != a.user {
+            return Err("settlement changed the resolved account".into());
+        }
+        outcome
+    }
+    .await;
+
+    let mut cleanup = Ok(());
+    if let (Some(a), Some((email, subject))) = (&account, &jit_identity) {
+        let jit_cleanup: Result<(), Err> = async {
+            if let Some(row) = env.c.query_opt(
+                "SELECT u.id,COALESCE(m.id,0) FROM users u LEFT JOIN mailboxes m ON m.user_id=u.id AND m.is_primary WHERE u.domain_id=$1 AND u.email=$2 AND u.oidc_subject=$3 AND u.oidc_issuer=$4",
+                &[&a.domain, email, subject, &idp::ISSUER],
+            ).await? {
+                let mut created = a.clone();
+                created.user = row.try_get(0)?;
+                created.mailbox = row.try_get(1)?;
+                created.domain = 0;
+                fixture::remove(&env.c, &created).await?;
+                return Err("flag fault created a JIT account".into());
+            }
+            Ok(())
+        }.await;
+        cleanup = settle(cleanup, jit_cleanup);
+    }
+    if let Some(a) = &account {
+        cleanup = settle(cleanup, fixture::remove(&env.c, a).await);
+    }
+    cleanup = settle(cleanup, env.close().await);
+    settle(result, cleanup)
 }
