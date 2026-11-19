@@ -16,12 +16,13 @@ TOTP-admission, bootstrap, readiness and password-policy single-row reads (#437)
 `rows.first()` + `try_get`. A missing row returns that function's existing error or absence result,
 and an unreadable value never panics.
 
-The #436 converted reads (push, TOTP, WebAuthn, possession, recovery, password including the
-history depth, session, push delivery, identity links, OIDC client/grant/token consumers, RP
-provider configuration/account/link/secret, login, issuance) use the same form, and `rows[0]` is
-gone from those files. Their row and column decode failures fail closed: an error reply or
-refusal, never no-MFA, no-risk, not-common, not-found or a permissive default. Query errors fail
-closed too (#454, security divergences from frozen Go's fail-open):
+The #436 converted reads (push, TOTP, WebAuthn including `management_options`, possession,
+recovery, password including the history depth, session, push delivery, identity links, OIDC
+client/grant/token consumers, RP provider configuration/account/link/secret, login, issuance,
+self_service, impersonation) use the same form, and `rows[0]` is gone from those files. Their row
+and column decode failures fail closed: an error reply or refusal, never no-MFA, no-risk,
+not-common, not-found or a permissive default. Query errors fail closed too (#454, security
+divergences from frozen Go's fail-open):
 WebAuthn `factors()` (a missing row included), every `risk()` with its `feature.user_risk`
 lookup (also when the flag is off), and the change-password common-password check refuse before
 any token is signed or stored. MFA completions read the risk from the pending token before the
@@ -51,10 +52,10 @@ cases in `guest_scope.rs` and `rp_faults.rs`, the `identity_model_*` cases in `r
   and are logged to stderr.
 - OIDC introspection reports an unreadable live-token lookup as inactive, the same reply as for
   an inactive token.
-
-Not converted: WebAuthn `management_options` (`.expect` on the snapshot; the function returns a
-plain String, so it has no error path), and `.get`/index reads on rows in impersonation.rs and
-self_service.rs.
+- The self-service advisory compose switch `advisory_enabled` (e.g. `feature.dlp`) answers OFF on
+  a read or decode fault. The send reducer enforces DLP independently (`send.sql` step 5a).
+- The self-service `external_sender_warning` preference read in `mailtips` answers false
+  on a read or decode fault.
 
 `rust_identity_login_mint` calls Go's local identity-person fence and inserts
 one refresh anchor only under that same enabled user and password hash. This is

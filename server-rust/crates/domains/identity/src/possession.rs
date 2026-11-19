@@ -49,7 +49,8 @@ pub async fn begin(
         |rows| {
             let mut value: Value = json_row(rows, "ceremony JSON row")?;
             if value["status"] == "created" {
-                value["options"] = serde_json::json!(rp.management_options(&value, &challenge));
+                let options = rp.management_options(&value, &challenge)?;
+                value["options"] = serde_json::json!(options);
             }
             Ok(value)
         },
