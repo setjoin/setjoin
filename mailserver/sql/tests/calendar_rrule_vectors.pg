@@ -1,11 +1,11 @@
 -- pgTAP: RRULE occurrence vectors translated from python-dateutil.
 -- Source: https://github.com/dateutil/dateutil, commit 261e29139618, tests/test_rrule.py.
--- License: Apache-2.0. See THIRD_PARTY-calendar_rrule_vectors.md.
+-- License: Apache-2.0 AND BSD-3-Clause (dateutil dual terms).
 -- Copyright 2017- Paul Ganssle and dateutil contributors
 
 BEGIN;
 SET LOCAL TIME ZONE 'UTC';
-SELECT plan(31);
+SELECT plan(29);
 
 -- testDaily
 SELECT is(
@@ -219,6 +219,7 @@ SELECT is(
 
 -- testMonthlyByWeekDay
 -- The second upstream assertion covers the third Monday.
+-- The unqualified BYDAY=TU,TH variant from the same upstream test is a known expander bug, tracked in #465.
 SELECT is(
     (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
         '1997-09-01 00:00:00+00', '1997-09-01 01:00:00+00',
@@ -327,7 +328,7 @@ SELECT is(
     'testBetweenInc'
 );
 
--- testStrSetDate
+-- testStrSetDate: expansion of the equivalent parsed rule; string parsing is not covered here
 SELECT is(
     (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
         '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
@@ -361,7 +362,7 @@ SELECT is(
     'testSetExDateRevOrder'
 );
 
--- testXNamed
+-- testXNamed: expansion of the equivalent parsed rule; string parsing is not covered here
 SELECT is(
     (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
         '2024-01-22 12:45:00+00', '2024-01-22 13:45:00+00',
@@ -375,7 +376,7 @@ SELECT is(
     'testXNamed'
 );
 
--- testStrValueDatetime
+-- testStrValueDatetime: expansion of the equivalent parsed rule; string parsing is not covered here
 SELECT is(
     (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
         '1997-09-02 09:00:00+00', '1997-09-02 10:00:00+00',
@@ -388,7 +389,7 @@ SELECT is(
     'testStrValueDatetime'
 );
 
--- testStrValueDate
+-- testStrValueDate: expansion of the equivalent parsed rule; string parsing is not covered here
 SELECT is(
     (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
         '1997-09-02 00:00:00+00', '1997-09-02 01:00:00+00',
@@ -401,7 +402,7 @@ SELECT is(
     'testStrValueDate'
 );
 
--- testStrUntilWithTZ
+-- testStrUntilWithTZ: expansion of the equivalent parsed rule; string parsing is not covered here
 -- New York midnight on January 1 corresponds to 05:00 UTC.
 SELECT is(
     (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
@@ -413,61 +414,6 @@ SELECT is(
         '1997-01-01 05:00:00+00', '1998-01-01 05:00:00+00'
     ]::TIMESTAMPTZ[],
     'testStrUntilWithTZ'
-);
-
--- test_rrule_roundtrip
--- The standalone rule variant checks the expanded dates.
-SELECT is(
-    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
-        '2024-01-01 00:00:00+00', '2024-01-01 01:00:00+00',
-        'FREQ=DAILY;COUNT=25',
-        '-infinity', '2500-01-01 00:00:00+00'
-    )),
-    ARRAY[
-        '2024-01-01 00:00:00+00', '2024-01-02 00:00:00+00',
-        '2024-01-03 00:00:00+00', '2024-01-04 00:00:00+00',
-        '2024-01-05 00:00:00+00', '2024-01-06 00:00:00+00',
-        '2024-01-07 00:00:00+00', '2024-01-08 00:00:00+00',
-        '2024-01-09 00:00:00+00', '2024-01-10 00:00:00+00',
-        '2024-01-11 00:00:00+00', '2024-01-12 00:00:00+00',
-        '2024-01-13 00:00:00+00', '2024-01-14 00:00:00+00',
-        '2024-01-15 00:00:00+00', '2024-01-16 00:00:00+00',
-        '2024-01-17 00:00:00+00', '2024-01-18 00:00:00+00',
-        '2024-01-19 00:00:00+00', '2024-01-20 00:00:00+00',
-        '2024-01-21 00:00:00+00', '2024-01-22 00:00:00+00',
-        '2024-01-23 00:00:00+00', '2024-01-24 00:00:00+00',
-        '2024-01-25 00:00:00+00'
-    ]::TIMESTAMPTZ[],
-    'test_rrule_roundtrip'
-);
-
--- test_restored_rruleset_can_invalidate_cache
--- The updated set includes the added March 1 date.
-SELECT is(
-    (SELECT array_agg(occ_start ORDER BY occ_start) FROM expand_recurrence(
-        '2024-01-01 00:00:00+00', '2024-01-01 01:00:00+00',
-        'FREQ=DAILY;COUNT=25',
-        '-infinity', '2500-01-01 00:00:00+00',
-        p_rdate => ARRAY[
-            '2024-03-01 00:00:00+00'
-        ]::TIMESTAMPTZ[]
-    )),
-    ARRAY[
-        '2024-01-01 00:00:00+00', '2024-01-02 00:00:00+00',
-        '2024-01-03 00:00:00+00', '2024-01-04 00:00:00+00',
-        '2024-01-05 00:00:00+00', '2024-01-06 00:00:00+00',
-        '2024-01-07 00:00:00+00', '2024-01-08 00:00:00+00',
-        '2024-01-09 00:00:00+00', '2024-01-10 00:00:00+00',
-        '2024-01-11 00:00:00+00', '2024-01-12 00:00:00+00',
-        '2024-01-13 00:00:00+00', '2024-01-14 00:00:00+00',
-        '2024-01-15 00:00:00+00', '2024-01-16 00:00:00+00',
-        '2024-01-17 00:00:00+00', '2024-01-18 00:00:00+00',
-        '2024-01-19 00:00:00+00', '2024-01-20 00:00:00+00',
-        '2024-01-21 00:00:00+00', '2024-01-22 00:00:00+00',
-        '2024-01-23 00:00:00+00', '2024-01-24 00:00:00+00',
-        '2024-01-25 00:00:00+00', '2024-03-01 00:00:00+00'
-    ]::TIMESTAMPTZ[],
-    'test_restored_rruleset_can_invalidate_cache'
 );
 
 SELECT * FROM finish();

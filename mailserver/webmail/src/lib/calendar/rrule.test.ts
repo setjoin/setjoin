@@ -69,7 +69,8 @@ describe('parseRrule', () => {
 // Adapted from https://github.com/jkbrzt/rrule, commit 9f2061febeeb, test/rrule.test.ts.
 // BSD-3-style license. See mailserver/sql/tests/THIRD_PARTY-calendar_rrule_vectors.md.
 // Copyright 2010, Jakub Roztocil <jakub@roztocil.name> and Lars Schöning
-describe('rrule.js vectors', () => {
+// rrule.ts only builds and parses RRULE strings; occurrence semantics are covered by mailserver/sql/tests/calendar_rrule_vectors.pg.
+describe('rrule.js rule strings: build/parse round-trip', () => {
 	const cases: {
 		name: string;
 		rule: string;
