@@ -309,7 +309,7 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
     }
     fn check<'a>(&'a self, r: &'a mut Request<Body>, c: &'a RequestContext) -> Check<'a> {
         Box::pin(async move {
-            if !protected(r) || !setjoin_authz::csrf::allows(r.headers(), c.identity.proto) {
+            if !protected(r) {
                 return None;
             }
             let token = setjoin_authz::token::presented(r.headers());
