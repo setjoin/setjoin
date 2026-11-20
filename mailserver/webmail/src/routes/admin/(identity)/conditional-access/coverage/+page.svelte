@@ -14,8 +14,8 @@
 	import ImpactCard from '$lib/components/ca/ImpactCard.svelte';
 
 	interface Gap {
-		kind: 'protocol' | 'scope';
-		value: string;              // protocol name or scope name
+		kind: 'client_type' | 'scope';
+		detail: string;             // client type or scope name
 		severity: 'danger' | 'warning';
 	}
 
@@ -56,7 +56,7 @@
 				announce = t('admin.conditional_access.coverage.announce_clear');
 			} else {
 				// Check for the "no policies yet" case (server returns a sentinel gap)
-				const firstPoliciesEmpty = report.gaps.length === 1 && report.gaps[0].kind === 'scope' && report.gaps[0].value === '__no_policies__';
+				const firstPoliciesEmpty = report.gaps.length === 1 && report.gaps[0].kind === 'scope' && report.gaps[0].detail === '__no_policies__';
 				phase = firstPoliciesEmpty ? 'empty_policies' : 'has_issues';
 				if (phase === 'has_issues') {
 					announce = t('admin.conditional_access.coverage.announce', {
@@ -128,7 +128,7 @@
 			<section class="cov-section" aria-labelledby="cov-gaps-heading" data-testid="gaps-section">
 				<h2 id="cov-gaps-heading" class="cov-section-heading">{t('admin.conditional_access.coverage.gaps_heading')}</h2>
 				<div class="cov-gap-list">
-					{#each report.gaps as gap (gap.kind + ':' + gap.value)}
+					{#each report.gaps as gap (gap.kind + ':' + gap.detail)}
 						<div class="cov-gap-card" data-testid="gap-card" data-severity={gap.severity}>
 							<Card>
 								{#snippet children()}
@@ -141,14 +141,14 @@
 											: t('admin.conditional_access.coverage.severity_warning')}
 									/>
 									<p class="cov-gap-detail">
-										{gap.kind === 'protocol'
-											? t('admin.conditional_access.coverage.gap_protocol', { protocol: gap.value })
-											: t('admin.conditional_access.coverage.gap_scope', { scope: gap.value })}
+										{gap.kind === 'client_type'
+											? t('admin.conditional_access.coverage.gap_protocol', { protocol: gap.detail })
+											: t('admin.conditional_access.coverage.gap_scope', { scope: gap.detail })}
 									</p>
 									<div class="cov-gap-actions">
 										<a
 											class="sj-btn sj-btn--primary sj-btn--sm"
-											href={`/admin/conditional-access?new=1&gap_kind=${gap.kind}&gap_value=${encodeURIComponent(gap.value)}`}
+											href={`/admin/conditional-access?new=1&gap_kind=${gap.kind}&gap_value=${encodeURIComponent(gap.detail)}`}
 										>
 											{t('admin.conditional_access.coverage.gap_fix_create')}
 										</a>
@@ -172,7 +172,7 @@
 			<section class="cov-section" aria-labelledby="cov-shadow-heading" data-testid="shadowed-section">
 				<h2 id="cov-shadow-heading" class="cov-section-heading">{t('admin.conditional_access.coverage.shadowed_heading')}</h2>
 				<div class="cov-shadow-list">
-					{#each report.shadowed as s (s.policy_id)}
+					{#each report.shadowed as s (s.policy_id + ':' + s.shadowed_by_id)}
 						<div class="cov-shadow-card" data-testid="shadow-card">
 							<Card>
 								{#snippet children()}

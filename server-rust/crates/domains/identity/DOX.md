@@ -31,6 +31,8 @@ poll, so a fault answers 500 rather than `{"approved":false}`. Refresh reads it 
 rotating. SCIM session revocation returns 500 on an external-ID lookup query error (Go returns
 200 with `revoked:false`). RP `resolve` refuses with 503 on a `feature.identity_model_v2` read
 error before any lookup or JIT write (Go treats it as off) and carries the value into `settle`.
+RP `resolve` also refuses with 503 before JIT on legacy exact-link or OIDC address lookup errors
+(Go's legacy callback can proceed to JIT on either error).
 `user_risk.score` is smallint and is read as `score::int4`.
 Verification inputs are never defaulted (#455): a `ready` TOTP row without a string `secret`
 is a statement failure (Go's failed Scan), `counter_proof` refuses an empty decoded key (Go

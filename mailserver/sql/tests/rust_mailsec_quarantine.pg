@@ -1,8 +1,8 @@
 -- pgTAP: rust_mailsec_quarantine.sql (#320) — frozen Go's quarantine release/reject as one
--- transaction. Proves the owner predicate rides in the UPDATE's WHERE (R3), the admin flag
--- lifts it, and release restores the original location tag.
+-- transaction. The UPDATE's WHERE enforces ownership or security.write reach (R3), and
+-- release restores the original location tag.
 BEGIN;
-SELECT plan(10);
+SELECT plan(13);
 SELECT mk_account('mqown') AS mb \gset
 SELECT mk_account('mqoth') AS omb \gset
 SELECT user_id AS u FROM mailboxes WHERE id = :mb \gset
@@ -25,7 +25,16 @@ SELECT is(rust_mailsec_quarantine_release(:u, :q1, FALSE), false, 'a second rele
 SELECT is(rust_mailsec_quarantine_reject(:ou, :q2, FALSE), false, 'a foreign user cannot reject');
 SELECT is(rust_mailsec_quarantine_reject(:u, :q2, FALSE), true, 'the owner rejects (soft delete)');
 SELECT is((SELECT is_deleted FROM messages WHERE id = 8952), true, 'user reject soft-deletes the message');
-SELECT is(rust_mailsec_quarantine_reject(:ou, :q2, TRUE), true, 'admin reject lifts the owner predicate and may repeat');
+SELECT is(rust_mailsec_quarantine_reject(:ou, :q2, TRUE), false, 'a non-admin cannot reject with the admin flag');
+INSERT INTO domains (name, is_local) VALUES ('mq-away.test', TRUE) RETURNING id AS away_domain \gset
+INSERT INTO admin_role_groups (name, permissions) VALUES ('mq-security', ARRAY['security.write']) RETURNING id AS security_role \gset
+INSERT INTO admin_role_assignments (user_id, role_group_id, domain_override, granted_by)
+  VALUES (:ou, :security_role, :away_domain, :ou);
+SELECT is(rust_mailsec_quarantine_reject(:ou, :q2, TRUE), false, 'security.write scoped to another domain cannot reject');
+SELECT ok(EXISTS(SELECT 1 FROM messages WHERE id = 8952), 'out-of-scope reject leaves the message in place');
+UPDATE admin_role_assignments SET domain_override = (SELECT domain_id FROM users WHERE id = :u)
+  WHERE user_id = :ou AND role_group_id = :security_role;
+SELECT is(rust_mailsec_quarantine_reject(:ou, :q2, TRUE), true, 'security.write scoped to the owner domain can reject again');
 SELECT is((SELECT count(*)::int FROM messages WHERE id = 8952), 0, 'admin reject hard-deletes the message');
 SELECT * FROM finish();
 ROLLBACK;
