@@ -367,6 +367,7 @@ struct Ctx {
     receipts: Vec<String>,
     toggles: Vec<(String, Option<bool>)>,
     config: Vec<(String, Option<String>)>,
+    invited_users: tokio::sync::Mutex<Vec<i64>>,
 }
 
 impl Ctx {
@@ -413,10 +414,20 @@ impl Ctx {
             receipts,
             toggles,
             config,
+            invited_users: tokio::sync::Mutex::new(Vec::new()),
         }))
     }
 
     async fn close(self) -> Result<(), Err> {
+        // Audit-protected user fixtures may outlive the case. Remove their history by ID.
+        let invited_users = self.invited_users.into_inner();
+        let history_removed = self
+            .c
+            .execute(
+                "DELETE FROM password_history WHERE user_id = ANY($1::bigint[])",
+                &[&invited_users],
+            )
+            .await;
         for (key, prior) in &self.toggles {
             set_toggle(&self.c, key, *prior).await?;
         }
@@ -439,6 +450,7 @@ impl Ctx {
         }
         self.c.batch_execute(FIXTURE_RESET).await?;
         common::restore_receipts(&self.c, &self.receipts).await;
+        history_removed?;
         Ok(())
     }
 
@@ -484,12 +496,13 @@ struct Fx {
 }
 
 async fn invited(
-    c: &Client,
+    ctx: &Ctx,
     email: &str,
     host: &str,
     token: &str,
     state: &str,
 ) -> Result<(i64, i64), Err> {
+    let c = &ctx.c;
     let user: i64 = c
         .query_one(
             "INSERT INTO users(username,domain_id,email,display_name,enabled) SELECT $1,id,$1,'GUESTACCEPT Guest',FALSE FROM domains WHERE name='guest.invalid' RETURNING id",
@@ -497,6 +510,7 @@ async fn invited(
         )
         .await?
         .get(0);
+    ctx.invited_users.lock().await.push(user);
     let lifecycle = state == "lifecycle-expired";
     c.execute(
         "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status,expires_at) SELECT $1,$2,'inviter@guestaccept-host.test',id,'invited',CASE WHEN $4 THEN now()-interval '1 minute' END FROM domains WHERE name=$3",
@@ -514,7 +528,8 @@ async fn invited(
 }
 
 /// Users with audit rows are append-only-protected, so every seed is uniquely named.
-async fn seed(c: &Client, state: &str) -> Result<Fx, Err> {
+async fn seed(ctx: &Ctx, state: &str) -> Result<Fx, Err> {
+    let c = &ctx.c;
     let unique: String = c
         .query_one("SELECT replace(gen_random_uuid()::text,'-','')", &[])
         .await?
@@ -525,9 +540,9 @@ async fn seed(c: &Client, state: &str) -> Result<Fx, Err> {
     .await?;
     let guest_email = format!("guest-{unique}@guestaccept-partner.test");
     let token = format!("guest-invite-token-{unique}");
-    let (guest, invite) = invited(c, &guest_email, "guestaccept-host.test", &token, state).await?;
+    let (guest, invite) = invited(ctx, &guest_email, "guestaccept-host.test", &token, state).await?;
     let (foreign, foreign_invite) = invited(
-        c,
+        ctx,
         &format!("foreign-{unique}@guestaccept-partner.test"),
         "guestaccept-foreign.test",
         &format!("guest-invite-foreign-{unique}"),
@@ -922,7 +937,7 @@ async fn run_in(
         .ok_or("case missing from CASES")?;
     let from = Ipv4Addr::new(127, 0, 0, 10 + idx as u8);
     let c = &ctx.c;
-    let fx = seed(c, state(method, kind)).await?;
+    let fx = seed(ctx, state(method, kind)).await?;
     match kind {
         "fault-users-update" => {
             c.batch_execute(FAULT_FN).await?;
@@ -1299,10 +1314,9 @@ async fn exercise(
         }
     }
     if mutant {
-        assert!(
-            golden::compare(&expected, &actual).is_err(),
-            "mutant survived"
-        );
+        if golden::compare(&expected, &actual).is_ok() {
+            return Err("mutant survived".into());
+        }
         return Ok(());
     }
     golden::compare(&expected, &actual)?;
@@ -1612,7 +1626,7 @@ async fn native_server_with_tarpit_window(ctx: &Ctx, minutes: i32) -> Result<Ser
 
 async fn failed_captcha_flood(ctx: &Ctx) -> Result<(), Err> {
     purge_guest_source(&ctx.c, "127.0.0.143").await?;
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let server = native_server_with_tarpit_window(ctx, 1440).await?;
     let (target, payload) = shape("POST", "success", &fx.token);
     let since: String = ctx
@@ -1687,7 +1701,7 @@ async fn credential_policy(ctx: &Ctx) -> Result<(), Err> {
     let token = format!("guest-invite-token-{unique}");
     let mut inserted_common = false;
     let observed = async {
-        let (guest, _) = invited(c, &email, "guest.invalid", &token, "valid").await?;
+        let (guest, _) = invited(ctx, &email, "guest.invalid", &token, "valid").await?;
         inserted_common = c
             .execute(
                 "INSERT INTO common_passwords(password_hash) VALUES($1) ON CONFLICT DO NOTHING",
@@ -1837,7 +1851,7 @@ async fn delay_bounded(ctx: &Ctx) -> Result<(), Err> {
     ];
     let mut result = Ok(());
     for (i, (method, kind)) in cases.into_iter().enumerate() {
-        let fx = seed(&ctx.c, state(method, kind)).await?;
+        let fx = seed(ctx, state(method, kind)).await?;
         let token = match kind {
             "unknown" => "guest-invite-token-unknown-absent".to_owned(),
             "missing" => String::new(),
@@ -1875,7 +1889,7 @@ async fn delay_bounded(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn locks_released(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "used").await?;
+    let fx = seed(ctx, "used").await?;
     let server = native_server(ctx).await?;
     let probe_a = ctx.db.connect().await?;
     let probe_b = ctx.db.connect().await?;
@@ -1926,7 +1940,7 @@ async fn locks_released(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn post_wins(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let server = native_server(ctx).await?;
     let probe = ctx.db.connect().await?;
     probe.batch_execute("BEGIN").await?;
@@ -1977,7 +1991,7 @@ async fn post_wins(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn deadline(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let worker =
         setjoin_pg::ScopedExecutor::from_dsn_with(&ctx.db.dsn, 2, setjoin_pg::Timeouts::default())
             .unwrap();
@@ -2042,7 +2056,7 @@ async fn deadline(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let since = now_text(&ctx.c).await?;
     let mut result: Result<(), Err> = Ok(());
     for (i, key) in TOGGLES.into_iter().enumerate() {
@@ -2118,7 +2132,7 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn captcha_header(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let server = native_server(ctx).await?;
     let (target, payload) = shape("POST", "success", &fx.token);
     let reply = request(
@@ -2167,7 +2181,7 @@ async fn captcha_header(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let server = native_server(ctx).await?;
     let since = now_text(&ctx.c).await?;
     let lockouts = "SELECT count(*) FROM auth_lockouts WHERE lockout_key LIKE '%probe@x.test%' OR lockout_key LIKE '%victim@x.test%' OR lockout_key LIKE '%jwt@x.test%'";
@@ -2222,7 +2236,7 @@ async fn username_keys(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn reducers_absent(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let server = native_server(ctx).await?;
     let probe = setjoin_pg::ScopedExecutor::from_dsn(&ctx.db.dsn, 1).unwrap();
     ctx.c.batch_execute(HIDE_REDUCERS).await?;
@@ -2273,7 +2287,7 @@ async fn without_bypassrls(ctx: &Ctx) -> Result<(), Err> {
         eprintln!("CONFORMANCE-SKIP guest_upgrade_worker_without_bypassrls: DB_APP_DSN unset");
         return Ok(());
     };
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let worker = setjoin_pg::ScopedExecutor::from_dsn(&app, 2).unwrap();
     let ready = setjoin_identity::guest_invite::readiness(&worker).await;
     let server = auth_server(
@@ -2316,7 +2330,7 @@ async fn without_bypassrls(ctx: &Ctx) -> Result<(), Err> {
 /// invite's expiry. With time sampled before the read the old reducer stamped and
 /// disclosed; Go (time.Now after the read) rejects.
 async fn expiry_after_read(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(&ctx.c, "valid").await?;
+    let fx = seed(ctx, "valid").await?;
     let server = native_server(ctx).await?;
     let probe = ctx.db.connect().await?;
     ctx.c
