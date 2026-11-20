@@ -16,11 +16,11 @@ Binding rules for delegating work to subagents. The latest owner instruction win
   lives outside the worktree, so the implementer cannot commit. A PATH stub refuses
   `cargo`, `rustc`, `go`, `npm`, `npx`, `pnpm`, `yarn`, `make` and `docker`.
   `rustfmt` is allowed. The final report is at most 20 lines and covers files changed,
-  what was done, stop reasons and open questions.
+  what was done, guard results, stop reasons and open questions.
 - `gpt-6.2-sol` is the main model for implementation, plans and reviews (medium effort by
   default, high for plans and gates). `gpt-6.2-astra` (high effort) is the fallback only:
   unknown causes, escalation after sol hits the same CI failure twice or stops on
-  capability, and tie-breaks when the coordinator disputes a sol finding.
+  capability, and gate tie-breaks.
 - Fix rounds resume the same Codex session. Pass its session ID and point the brief
   to a file with the failing log excerpt or review findings. The coordinator reads
   CI logs only to pick the excerpt.
@@ -77,11 +77,22 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
   on files you add.
 - Do not compile Rust locally. The implementer never builds. The coordinator commits and
   pushes, then reads the PR's required
-  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards,
+  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests,
   plus the selected integration tests on the lane Postgres; ~10-25 min) through the shared poller.
   With no PR yet, the coordinator dispatches the light part only:
   `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push;
   no integration tests: open a draft PR for those).
+- Before hand-back, the implementer runs and reports the standalone guards relevant
+  to the change. They need no cargo or DB. Examples:
+  - Reducers or their callers: `bash scripts/check-audit-coverage.sh` and
+    `bash scripts/check-app-notify.sh`.
+  - Route flips: `python3 scripts/test-check-gofree-rehearsal.py`.
+  - New SQL functions: `bash scripts/check-xinchuang-matrix.sh`.
+  - Conformance READMEs: `bash scripts/check-recorder-docs.sh`.
+  - Oracle or catalog changes: `python3 scripts/check-gofree-oracle-adequacy.py --preflight-only`.
+  - AGENTS/DOX edits: `bash scripts/check-agent-context-budget.sh`.
+  The merge-queue lane runs the guards job and the PR pre-check omits it. A queue
+  ejection costs ~1 h of lane time plus rebuilds of the entries behind it.
 - Before fixing a failing test, search open issues and other branches for its name.
 - Before committing Rust changes: `git add`, run `bash scripts/fmt-added.sh` (formats added files through stdin, the same set the pre-check checks), then `git add` the reformatted files and commit.
 
@@ -89,7 +100,9 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 
 - Run the Codex merge gate in a fresh read-only session (`codex exec -s read-only`).
   Use sol at high effort for every PR; astra only as the tie-break fallback.
-  At most 3 rounds per ticket. A 4th means re-plan.
+  Normal PRs get at most 3 rounds per ticket. A 4th means re-plan. Risk-area PRs
+  get one full round and one delta round. If the delta still fails, go to an astra
+  tie-break instead of a third sol round.
   - Name the diff range, files and callers to read. Paste greps the coordinator
     already ran. Codex stays within that scope and runs no builds.
   - Fix rounds get a delta review of the fix commits only.
@@ -99,10 +112,23 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
     (CI is the gate). Changes to CI, guards, `deny.toml` or other checks keep Codex.
 - The coordinator reads Codex's final report and the diffstat, and opens diff hunks only
   to verify a finding or a report it doubts.
-- Verify each finding in the code before requiring a fix. One fix round carries
-  all open findings. File follow-up issues for non-blocking findings.
+- Verify each finding in the code before requiring a fix. Label each finding
+  INTRODUCED or PRE-EXISTING and IN-SCOPE or OUT-OF-SCOPE. Only INTRODUCED or
+  IN-SCOPE defects can FAIL a gate. File follow-up issues for non-blocking
+  findings, including PRE-EXISTING and OUT-OF-SCOPE defects. One fix round carries
+  all open blocking findings.
+- Auto-mode protection requires the owner's approval to record an astra overrule
+  in the gate ledger. The coordinator asks for approval or the owner queues the PR.
 - Gate the integration tip after several merges.
 - Reviewers apply docs/standards/AI_ASSISTED_TESTING.md (time windows, normalisation) to every test diff.
+
+## Merge queue
+
+- Before queuing, the coordinator's enqueue tool merges `origin/main` into each
+  ticket branch with a merge commit. Never force-push. If the merge conflicts,
+  resume the ticket's Codex session to resolve it, then rerun CI on the updated branch.
+- Queue green PRs as a group. The enqueue tool waits for all PRs in the group to
+  turn green, then enqueues them together so the queue builds them in parallel.
 
 ## GitHub API usage
 
