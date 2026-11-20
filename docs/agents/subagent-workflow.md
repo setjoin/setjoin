@@ -39,9 +39,22 @@ move, migrations, data egress, production. Auth or a migration means size M or l
 |---|---|---|
 | XS | Decided, 1-2 files | sol, low effort, with the exact edit |
 | S | Up to ~4 files in one module | sol, medium effort, with the decided approach |
-| M | Several modules | sol, medium effort, after a short coordinator plan in the brief. astra plans first if the approach is undecided |
-| L or risk area | Large change or any risk area | sol (high effort) writes a read-only plan (`-s read-only`). A fresh read-only sol session reviews risk-area plans before code. sol implements the plan |
+| M | Several modules | sol, medium effort |
+| L | Large change | sol, high effort |
 | ? | Cause unknown | astra investigates read-only. Size the result again |
+
+For XS/S/M or a decided design, one Codex sol session implements end to end
+without a separate plan unless the work touches a risk area or involves
+concurrency/protocol design. In those cases, the
+implementer uses sol at high effort, writes a short `PLAN.md` in the worktree,
+and stops before coding. Keep `PLAN.md` out of the commit. Cover threats, the
+invariant, failure cases and tests. A fresh read-only sol session reviews only
+the plan. Then resume the same implementer session to write the code. The
+reviewer's cases become required tests.
+
+Resuming preserves the implementer's context from files it already read, saving
+~0.5–0.9M input tokens per ticket compared with a separate planner. The review
+gives risky designs an independent check before code.
 
 Cap runs at ~30 min, including investigations. At the cap, write `PROGRESS.md` and
 stop. The coordinator decides whether to continue, split the ticket or re-plan.
@@ -56,9 +69,8 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
   Codex stays within that scope except to follow a named caller or callee.
 - Give the root cause or goal with evidence (file and line, or output). Give the
   exact change per file (find, replace, base commit) and the first failing test.
-- Risk-area planners list threats, failure cases (full quota, old or large data,
-  restart midway, concurrency), abusable inputs and the upgrade path. The plan
-  reviewer's cases become required tests.
+- For tickets that require `PLAN.md`, include relevant failure cases (full quota,
+  old or large data, restart midway, concurrency), abusable inputs and the upgrade path.
 - A case the implementer calls "bounded" or "unlikely" is a finding. Fix it or file a follow-up.
 - Before a "delete X" ticket the coordinator checks X's callers itself.
 - Keep `PROGRESS.md` so work can continue after a cut-off run.
