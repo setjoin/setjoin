@@ -22,7 +22,7 @@ impl Registry {
             .ok();
         if initial.is_none() {
             self.entries.write().unwrap().clear();
-        } else if let Err(e) = self.reload().await {
+        } else if let Err(e) = self.reload_snapshot(false).await {
             eprintln!("saml_sp initial reconcile: {e}");
             initial = None;
         }
@@ -35,7 +35,7 @@ impl Registry {
                     Some(l) => l,
                     None => match DirectListener::connect(&dsn, "config_changed").await {
                         Ok(l) => {
-                            if let Err(e) = registry.reload().await {
+                            if let Err(e) = registry.reload_snapshot(false).await {
                                 eprintln!("saml_sp reconnect reconcile: {e}");
                                 drop(l);
                                 tokio::time::sleep(Duration::from_secs(5)).await;
@@ -51,17 +51,22 @@ impl Registry {
                         }
                     },
                 };
-                while let Some(n) = listener.recv().await {
+                loop {
+                    let Some(n) = listener.recv().await else {
+                        // Refuse cached trust before reconnecting or fetching IdP metadata.
+                        registry.entries.write().unwrap().clear();
+                        break;
+                    };
                     if config_change(n.payload())
                         .map(|key| relevant(&key))
                         .unwrap_or(false)
                     {
-                        if let Err(e) = registry.reload().await {
+                        if let Err(e) = registry.reload_snapshot(false).await {
                             eprintln!("saml_sp reconcile: {e}");
+                            break;
                         }
                     }
                 }
-                registry.entries.write().unwrap().clear();
                 drop(listener);
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }

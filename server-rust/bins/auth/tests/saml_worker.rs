@@ -111,40 +111,25 @@ async fn saml_login_refuses_a_deleted_idp_with_workers_off() {
             return Err(format!("configured SAML IdP returned {seed}, expected 302").into());
         }
 
-        // The replacement identifies the snapshot that includes the deletion.
-        let replaced = env.c.execute(
-            "WITH removed AS (
-                 DELETE FROM saml_sp_registrations WHERE id=34101
-                 RETURNING idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings
-             )
-             INSERT INTO saml_sp_registrations(id,idp_entity_id,idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings)
-             SELECT 34102,'idfed3-after-delete',idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings
-             FROM removed",
-            &[],
-        ).await?;
-        if replaced != 1 {
+        // The DELETE trigger is the only configuration change before the refusal.
+        let removed = env.c.execute("DELETE FROM saml_sp_registrations WHERE id=34101", &[]).await?;
+        if removed != 1 {
             return Err("SAML fixture registration was not deleted".into());
         }
         tokio::time::timeout(std::time::Duration::from_secs(12), async {
             loop {
-                let response = request(
-                    addr,
-                    "GET",
-                    "/auth/saml/idfed3-after-delete/login",
-                    String::new(),
-                    &[],
-                )
-                .await?;
-                if response.0 == 302 {
-                    return Ok::<(), Err>(());
+                let refused = request(addr, "GET", path, String::new(), &[]).await?;
+                if refused.0 == 404 {
+                    return Ok::<_, Err>((refused.0, refused.1.get("location").is_none()));
+                }
+                if refused.0 != 302 {
+                    return Err(format!("unexpected SAML response after deletion: {}", refused.0).into());
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
         })
         .await
-        .map_err(|_| "auth did not reload SAML after deletion")??;
-        let refused = request(addr, "GET", path, String::new(), &[]).await?;
-        Ok::<_, Err>((refused.0, refused.1.get("location").is_none()))
+        .map_err(|_| "auth did not reload SAML after deletion")?
     }
     .await;
     env.close().await.unwrap();

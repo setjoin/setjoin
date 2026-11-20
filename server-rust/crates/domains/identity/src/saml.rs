@@ -153,11 +153,20 @@ impl Registry {
         self.entries.read().unwrap().get(name).cloned()
     }
     pub async fn reload(&self) -> Result<(), String> {
+        self.reload_snapshot(true).await
+    }
+
+    // Listener reconciliation publishes only a fully successful snapshot.
+    async fn reload_snapshot(&self, allow_partial: bool) -> Result<(), String> {
         let _lock = self.reload.lock().await;
         let result = self.load_entries().await;
         match result {
             Ok((entries, errors)) => {
-                *self.entries.write().unwrap() = entries;
+                *self.entries.write().unwrap() = if allow_partial || errors.is_empty() {
+                    entries
+                } else {
+                    BTreeMap::new()
+                };
                 if errors.is_empty() {
                     Ok(())
                 } else {

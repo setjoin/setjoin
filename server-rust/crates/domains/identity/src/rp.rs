@@ -318,6 +318,11 @@ impl Registry {
     }
     /// Atomically replace the complete authoritative healthy subset, even on error.
     pub async fn reload(&self) -> Result<(), String> {
+        self.reload_snapshot(true).await
+    }
+
+    // Listener reconciliation publishes only a fully successful snapshot.
+    async fn reload_snapshot(&self, allow_partial: bool) -> Result<(), String> {
         let _guard = self.reload.lock().await;
         let rows=match self.exec.read("SELECT key,value::text,encrypted FROM system_config WHERE key LIKE 'oidc_provider_%_config' ORDER BY key",&[]).await{
             Ok(rows)=>rows,Err(e)=>{self.providers.write().unwrap().clear();return Err(e.message);}
@@ -413,7 +418,11 @@ impl Registry {
                 Err(error) => errors.push(format!("{key}: {error}")),
             }
         }
-        *self.providers.write().unwrap() = providers;
+        *self.providers.write().unwrap() = if allow_partial || errors.is_empty() {
+            providers
+        } else {
+            BTreeMap::new()
+        };
         if errors.is_empty() {
             Ok(())
         } else {

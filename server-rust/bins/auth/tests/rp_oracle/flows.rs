@@ -7,7 +7,7 @@ pub(super) struct Env {
     listener: Option<setjoin_identity::rp::Listener>,
     auth: Server,
     pub idp: idp::Idp,
-    old: Option<(String, bool)>,
+    old: Option<String>,
     old_rate: Option<bool>,
     old_identity: Option<bool>,
     old_sentinel: Option<(String, bool)>,
@@ -60,11 +60,11 @@ impl Env {
         let idp = idp::Idp::start().await?;
         let old = c
             .query_opt(
-                "SELECT value::text,encrypted FROM system_config WHERE key=$1",
+                "SELECT to_jsonb(cfg)::text FROM system_config cfg WHERE key=$1",
                 &[&CONFIG],
             )
             .await?
-            .map(|r| (r.get(0), r.get(1)));
+            .map(|r| r.get(0));
         let mut doc = json!({"name":"idfed2","provider_url":issuer,"client_id":idp::CLIENT,"client_secret":"","redirect_url":idp::REDIRECT,"enabled":true,"jit_enabled":false,"group_claim":"groups","group_mappings":[]});
         if let Some(extra) = extra.as_object() {
             for (k, v) in extra {
@@ -193,11 +193,13 @@ impl Env {
         self.auth.close().await;
         self.idp.close().await;
         match self.old {
-            Some((value, encrypted)) => {
+            Some(row) => {
                 self.c
                     .execute(
-                        "INSERT INTO system_config(key,value,encrypted) VALUES($1,$2::text::jsonb,$3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=excluded.encrypted",
-                        &[&CONFIG, &value, &encrypted],
+                        "INSERT INTO system_config SELECT * FROM jsonb_populate_record(NULL::system_config,$1::text::jsonb)
+                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=excluded.encrypted,
+                           description=excluded.description,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
+                        &[&row],
                     )
                     .await?;
             }
