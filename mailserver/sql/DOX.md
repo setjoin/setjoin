@@ -2102,6 +2102,7 @@ the only reader is admin_updates.go's update list, follow-up #345). Atomic
 where Go committed per event (fault-only). `tests/rust_device_checkin.pg`
 covers invoker rights, layering, ordering, R1–R3, cap, wipe, abort and the
 accepted revoked-mid-flight residual.
+
 ### Rust identity refresh (#332)
 
 `rust_identity_refresh` reproduces frozen RefreshTokens' person/anchor locks,

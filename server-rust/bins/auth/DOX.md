@@ -126,7 +126,7 @@ and checks them against the returned secret before masking random ciphertext.
 `rust-auth` upstream and take no JWT. Frozen `RequireDeviceHMAC` order: device_id
 (query `%d` scan, or one JSON value in a 64KiB body prefix) else 400; proof
 headers, then a body that is
-read and, when empty, provably empty, then `setjoin_authz::device::verify_request`
+read and, when empty, provably empty, then `DeviceResolver::verify_request`
 (HMAC over id:ts:method:URI:body-SHA256:nonce, ±5 min, revoked rows excluded,
 JWT-secret EK01 codec, nonce committed in its own statement) else 401 with
 one `device proof refused route= device_id= reason=` warn line (never proof
@@ -138,6 +138,8 @@ lost COMMIT → 500 + `x-operation-id`). ETag is Go's FNV policy version; equal
 If-None-Match → bare 304 after effects; 200s `private, max-age=300`, errors
 `no-store`. Tests: `device_oracle`, `device_faults`
 ([corpus](../../tests/conformance/identity-device/README.md)).
+Owner-approved security fix (#341): Rust refuses empty plaintext and decrypted
+device secrets before re-sealing or verifying the HMAC, while Go uses them as keys.
 
 WebPush-only `POST /auth/device/register` (#333) keeps outer 64KiB buffering,
 full session/CSRF, provider/subscription bounds and shared Go URL admission.

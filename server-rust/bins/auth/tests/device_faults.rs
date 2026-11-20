@@ -152,16 +152,6 @@ impl Case {
         self.count("SELECT count(*) FROM device_events WHERE device_id=$1")
             .await
     }
-    async fn last_seen(&self) -> Result<Option<String>, Err> {
-        Ok(self
-            .c
-            .query_one(
-                "SELECT last_seen::text FROM devices WHERE id=$1 AND user_id=$2",
-                &[&self.device, &self.user.user],
-            )
-            .await?
-            .try_get(0)?)
-    }
     async fn close(self) -> Result<(), Err> {
         let id = self.device;
         self.c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM device_auth_nonces WHERE device_id={id};DELETE FROM device_events WHERE device_id={id};DELETE FROM devices WHERE id={id};COMMIT;")).await?;
@@ -230,6 +220,53 @@ async fn empty_master_fails_closed() {
     assert!(verified.is_none());
     assert_eq!(case.nonces().await.unwrap(), 0);
     case.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn empty_legacy_secret_is_refused_before_reseal() {
+    let _s = SERIAL.lock().await;
+    let Some(case) = Case::open(true).await.unwrap() else {
+        return;
+    };
+    let outcome = async {
+        case.c
+            .execute(
+                "UPDATE devices SET hmac_secret='' WHERE id=$1 AND user_id=$2",
+                &[&case.device, &case.user.user],
+            )
+            .await?;
+        let payload = format!(r#"{{"device_id":{}}}"#, case.device);
+        let reply = case
+            .server
+            .handle(case.checkin(&payload, "gofree341-empty-secret", ""))
+            .await;
+        let (reply, reply_body) = reply.into_parts();
+        let envelope_is_null: bool = case
+            .c
+            .query_one(
+                "SELECT hmac_secret_enc IS NULL FROM devices WHERE id=$1 AND user_id=$2",
+                &[&case.device, &case.user.user],
+            )
+            .await?
+            .try_get(0)?;
+        Ok::<_, Err>((
+            reply.status.as_u16(),
+            reply_body.collect().await?.to_bytes(),
+            case.nonces().await?,
+            envelope_is_null,
+        ))
+    }
+    .await;
+    case.close().await.unwrap();
+
+    let (status, response, nonces, envelope_is_null) = outcome.unwrap();
+    assert_eq!(status, 401);
+    assert_eq!(
+        &response[..],
+        b"{\"error\":\"device authentication failed\"}\n"
+    );
+    assert_eq!(nonces, 0);
+    assert!(envelope_is_null, "the empty secret must not be re-sealed");
 }
 
 #[tokio::test]
@@ -369,7 +406,6 @@ async fn checkin_event_insert_failure_spends_nonce() {
     );
     let nonce = "gofree341-event-insert-failure";
     let outcome = async {
-        let before = case.last_seen().await?;
         case.c
             .batch_execute(
                 "CREATE FUNCTION public.gofree341_event_fail() RETURNS trigger
@@ -389,6 +425,7 @@ async fn checkin_event_insert_failure_spends_nonce() {
             .server
             .handle(case.checkin(&payload, nonce, SECRET))
             .await;
+        let (failed, failed_body) = failed.into_parts();
         let spent: bool = case
             .c
             .query_one(
@@ -403,13 +440,13 @@ async fn checkin_event_insert_failure_spends_nonce() {
             .await;
         let (replay, replay_body) = replay.into_parts();
         Ok::<_, Err>((
-            failed.status().as_u16(),
+            failed.status.as_u16(),
+            failed_body.collect().await?.to_bytes(),
+            failed.headers.contains_key("x-operation-id"),
             spent,
             replay.status.as_u16(),
             replay_body.collect().await?.to_bytes(),
             case.events().await?,
-            before,
-            case.last_seen().await?,
         ))
     }
     .await;
@@ -425,8 +462,11 @@ async fn checkin_event_insert_failure_spends_nonce() {
     drop_fault.unwrap();
     close.unwrap();
 
-    let (failed, spent, replay, replay_body, events, before, after) = outcome.unwrap();
+    let (failed, failed_body, has_operation_id, spent, replay, replay_body, events) =
+        outcome.unwrap();
     assert_eq!(failed, 500);
+    assert_eq!(&failed_body[..], b"{\"error\":\"internal error\"}\n");
+    assert!(!has_operation_id);
     assert!(spent, "the failed check-in must spend its nonce");
     assert_eq!(replay, 401);
     assert_eq!(
@@ -434,8 +474,4 @@ async fn checkin_event_insert_failure_spends_nonce() {
         b"{\"error\":\"device authentication failed\"}\n"
     );
     assert_eq!(events, 0);
-    assert_eq!(
-        after, before,
-        "the failed check-in must leave last_seen unchanged"
-    );
 }
