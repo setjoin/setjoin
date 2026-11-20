@@ -122,9 +122,10 @@ owned device upsert and event together; unknown COMMIT returns 503/operation ID.
 Only first creation returns the secret. The oracle opens complete row envelopes
 and checks them against the returned secret before masking random ciphertext.
 
-`GET /device/policy` and `POST /device/checkin` (#341) are native and take no
-JWT. Frozen `RequireDeviceHMAC` order: device_id (query `%d` scan, or one JSON
-value in a 64KiB body prefix) else 400; proof headers, then a body that is
+`GET /device/policy` and `POST /device/checkin` (#341) are ON through the
+`rust-auth` upstream and take no JWT. Frozen `RequireDeviceHMAC` order: device_id
+(query `%d` scan, or one JSON value in a 64KiB body prefix) else 400; proof
+headers, then a body that is
 read and, when empty, provably empty, then `setjoin_authz::device::verify_request`
 (HMAC over id:ts:method:URI:body-SHA256:nonce, ±5 min, revoked rows excluded,
 JWT-secret EK01 codec, nonce committed in its own statement) else 401 with

@@ -1,7 +1,8 @@
 //! #341 Rust-only device trust faults that frozen Go cannot record
 //! deterministically: concurrent replay, an empty codec master, legacy re-seal
-//! ordering/idempotence, oversize and unobservable policy bodies, and the
-//! event cap's pre-proof order. Contract: identity-device/README.md.
+//! ordering/idempotence, oversize and unobservable policy bodies, the
+//! event cap's pre-proof order, and check-in event insert failure.
+//! Contract: identity-device/README.md.
 #[allow(dead_code)]
 mod common;
 use http_body_util::BodyExt;
@@ -150,6 +151,16 @@ impl Case {
     async fn events(&self) -> Result<i64, Err> {
         self.count("SELECT count(*) FROM device_events WHERE device_id=$1")
             .await
+    }
+    async fn last_seen(&self) -> Result<Option<String>, Err> {
+        Ok(self
+            .c
+            .query_one(
+                "SELECT last_seen::text FROM devices WHERE id=$1 AND user_id=$2",
+                &[&self.device, &self.user.user],
+            )
+            .await?
+            .try_get(0)?)
     }
     async fn close(self) -> Result<(), Err> {
         let id = self.device;
@@ -344,4 +355,87 @@ async fn checkin_cap_is_checked_before_the_proof() {
     assert_eq!(case.nonces().await.unwrap(), 0);
     assert_eq!(case.events().await.unwrap(), 0);
     case.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn checkin_event_insert_failure_spends_nonce() {
+    let _s = SERIAL.lock().await;
+    let Some(case) = Case::open(false).await.unwrap() else {
+        return;
+    };
+    let payload = format!(
+        r#"{{"device_id":{},"events":[{{"type":"gofree341-fail"}}]}}"#,
+        case.device
+    );
+    let nonce = "gofree341-event-insert-failure";
+    let outcome = async {
+        let before = case.last_seen().await?;
+        case.c
+            .batch_execute(
+                "CREATE FUNCTION public.gofree341_event_fail() RETURNS trigger
+                 LANGUAGE plpgsql AS $$
+                 BEGIN
+                     IF NEW.event_type = 'gofree341-fail' THEN
+                         RAISE EXCEPTION 'gofree341 injected event failure';
+                     END IF;
+                     RETURN NEW;
+                 END;
+                 $$;
+                 CREATE TRIGGER gofree341_event_fail BEFORE INSERT ON device_events
+                 FOR EACH ROW EXECUTE FUNCTION public.gofree341_event_fail();",
+            )
+            .await?;
+        let failed = case
+            .server
+            .handle(case.checkin(&payload, nonce, SECRET))
+            .await;
+        let spent: bool = case
+            .c
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM device_auth_nonces WHERE device_id=$1 AND nonce=$2)",
+                &[&case.device, &nonce],
+            )
+            .await?
+            .try_get(0)?;
+        let replay = case
+            .server
+            .handle(case.checkin(&payload, nonce, SECRET))
+            .await;
+        let (replay, replay_body) = replay.into_parts();
+        Ok::<_, Err>((
+            failed.status().as_u16(),
+            spent,
+            replay.status.as_u16(),
+            replay_body.collect().await?.to_bytes(),
+            case.events().await?,
+            before,
+            case.last_seen().await?,
+        ))
+    }
+    .await;
+    // Remove the shared trigger and fixture before checking the outcome.
+    let drop_fault = case
+        .c
+        .batch_execute(
+            "DROP TRIGGER IF EXISTS gofree341_event_fail ON device_events;
+             DROP FUNCTION IF EXISTS public.gofree341_event_fail();",
+        )
+        .await;
+    let close = case.close().await;
+    drop_fault.unwrap();
+    close.unwrap();
+
+    let (failed, spent, replay, replay_body, events, before, after) = outcome.unwrap();
+    assert_eq!(failed, 500);
+    assert!(spent, "the failed check-in must spend its nonce");
+    assert_eq!(replay, 401);
+    assert_eq!(
+        &replay_body[..],
+        b"{\"error\":\"device authentication failed\"}\n"
+    );
+    assert_eq!(events, 0);
+    assert_eq!(
+        after, before,
+        "the failed check-in must leave last_seen unchanged"
+    );
 }

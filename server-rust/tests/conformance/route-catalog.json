@@ -118510,6 +118510,661 @@
         "server-rust/bins/gateway/src/identity_migration.rs"
       ]
     },
-    {"listener":"gateway","method":"GET","path":"/setup/status","family":"F08","handler_sources":["server-rust/bins/gateway/src/platform_terms.rs"],"cases":[{"kind":"success","golden":"server-rust/tests/conformance/platform/goldens/setup-status-empty-db.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_empty_db"}},{"kind":"cross-tenant","golden":"server-rust/tests/conformance/platform/goldens/setup-status-initialized.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_initialized"}},{"kind":"invalid-input","golden":"server-rust/tests/conformance/platform/goldens/setup-status-ignored-query.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_ignored_query"}},{"kind":"count-fails","golden":"server-rust/tests/conformance/platform/goldens/setup-status-count-fails.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_count_fails"}},{"kind":"second-count-user","golden":"server-rust/tests/conformance/platform/goldens/setup-status-second-count-user.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_second_count_user"}},{"kind":"second-count-fails","golden":"server-rust/tests/conformance/platform/goldens/setup-status-second-count-fails.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_second_count_fails"}},{"kind":"api-alias","golden":"server-rust/tests/conformance/platform/goldens/setup-status-api-alias.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_api_alias"}},{"kind":"api-alias-empty-db","golden":"server-rust/tests/conformance/platform/goldens/setup-status-api-alias-empty-db.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_api_alias_empty_db"}},{"kind":"escaped","golden":"server-rust/tests/conformance/platform/goldens/setup-status-escaped.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_escaped"}},{"kind":"escaped-empty-db","golden":"server-rust/tests/conformance/platform/goldens/setup-status-escaped-empty-db.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_escaped_empty_db"}},{"kind":"escaped-api-empty-db","golden":"server-rust/tests/conformance/platform/goldens/setup-status-escaped-api-empty-db.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_escaped_api_empty_db"}},{"kind":"with-session","golden":"server-rust/tests/conformance/platform/goldens/setup-status-with-session.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_with_session"}},{"kind":"trailing-slash","golden":"server-rust/tests/conformance/platform/goldens/setup-status-trailing-slash.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_trailing_slash"}},{"kind":"rate-limit","golden":"server-rust/tests/conformance/platform/goldens/setup-status-rate-limit.json","replay":{"package":"setjoin-gateway","target":"platform_setup","test":"status_rate_limit"}}],"mutant":{"name":"changed-status","package":"setjoin-gateway","target":"platform_setup","test":"status_initialized_status_mutant"}}
+    {
+      "listener": "gateway",
+      "method": "GET",
+      "path": "/setup/status",
+      "family": "F08",
+      "handler_sources": [
+        "server-rust/bins/gateway/src/platform_terms.rs"
+      ],
+      "cases": [
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-empty-db.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_empty_db"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-initialized.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_initialized"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-ignored-query.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_ignored_query"
+          }
+        },
+        {
+          "kind": "count-fails",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-count-fails.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_count_fails"
+          }
+        },
+        {
+          "kind": "second-count-user",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-second-count-user.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_second_count_user"
+          }
+        },
+        {
+          "kind": "second-count-fails",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-second-count-fails.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_second_count_fails"
+          }
+        },
+        {
+          "kind": "api-alias",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-api-alias.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_api_alias"
+          }
+        },
+        {
+          "kind": "api-alias-empty-db",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-api-alias-empty-db.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_api_alias_empty_db"
+          }
+        },
+        {
+          "kind": "escaped",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-escaped.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_escaped"
+          }
+        },
+        {
+          "kind": "escaped-empty-db",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-escaped-empty-db.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_escaped_empty_db"
+          }
+        },
+        {
+          "kind": "escaped-api-empty-db",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-escaped-api-empty-db.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_escaped_api_empty_db"
+          }
+        },
+        {
+          "kind": "with-session",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-with-session.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_with_session"
+          }
+        },
+        {
+          "kind": "trailing-slash",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-trailing-slash.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_trailing_slash"
+          }
+        },
+        {
+          "kind": "rate-limit",
+          "golden": "server-rust/tests/conformance/platform/goldens/setup-status-rate-limit.json",
+          "replay": {
+            "package": "setjoin-gateway",
+            "target": "platform_setup",
+            "test": "status_rate_limit"
+          }
+        }
+      ],
+      "mutant": {
+        "name": "changed-status",
+        "package": "setjoin-gateway",
+        "target": "platform_setup",
+        "test": "status_initialized_status_mutant"
+      }
+    },
+    {
+      "listener": "auth",
+      "method": "GET",
+      "path": "/device/policy",
+      "family": "F21",
+      "command": "",
+      "mutator": false,
+      "cases": [
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-bad-hmac.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_bad_hmac"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-body-digest.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_body_digest"
+          }
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_cross_tenant"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_expired"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-group.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_group"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-head.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_head"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_invalid_input"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-malformed-id.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_malformed_id"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-missing-proof.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_missing_proof"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-not-modified.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_not_modified"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-prefix-id.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_prefix_id"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-repeat.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_repeat"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_revoked"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-stale-etag.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_stale_etag"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_success"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-wipe-etag.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_wipe_etag"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/policy-wipe.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_policy_wipe"
+          }
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "device_oracle",
+        "test": "status_mutant_policy_route",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/device.rs",
+        "server-rust/crates/domains/identity/src/device_trust.rs"
+      ]
+    },
+    {
+      "listener": "auth",
+      "method": "POST",
+      "path": "/device/checkin",
+      "family": "F21",
+      "command": "",
+      "mutator": true,
+      "cases": [
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-bad-hmac.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_bad_hmac"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-bad-hmac-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-body-digest.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_body_digest"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-body-digest-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-corrupt-envelope.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_corrupt_envelope"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-corrupt-envelope-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-cross-endpoint-nonce.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_cross_endpoint_nonce"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-cross-endpoint-nonce-rows.json"
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_cross_tenant"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-cross-tenant-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-current-version.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_current_version"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-current-version-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-duplicate-id.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_duplicate_id"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-duplicate-id-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-event-cap.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_event_cap"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-event-cap-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-event-flood.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_event_flood"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-event-flood-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_expired"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-expired-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-folded-keys.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_folded_keys"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-folded-keys-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-future-skew.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_future_skew"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-future-skew-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-group.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_group"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-group-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-invalid-events.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_invalid_events"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-invalid-events-rows.json"
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_invalid_input"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-invalid-input-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-legacy-secret.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_legacy_secret"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-legacy-secret-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-malformed-id.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_malformed_id"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-malformed-id-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-malformed-json.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_malformed_json"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-malformed-json-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-missing-proof.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_missing_proof"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-missing-proof-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-no-secret.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_no_secret"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-no-secret-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-nonce-max.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_nonce_max"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-nonce-max-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-nonce-purge.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_nonce_purge"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-nonce-purge-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-nonce-too-long.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_nonce_too_long"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-nonce-too-long-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-not-modified.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_not_modified"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-not-modified-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-null-event.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_null_event"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-null-event-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-oversize.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_oversize"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-oversize-rows.json"
+        },
+        {
+          "kind": "repeat",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-repeat.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_repeat"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-repeat-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_revoked"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-revoked-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-skew-inside.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_skew_inside"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-skew-inside-rows.json"
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_success"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-success-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-unknown-key.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_unknown_key"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-unknown-key-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-device/goldens/checkin-wipe.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "device_oracle",
+            "test": "device_checkin_wipe"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-device/goldens/checkin-wipe-rows.json"
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "device_oracle",
+        "test": "status_mutant_checkin_route",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/device.rs",
+        "server-rust/crates/domains/identity/src/device_trust.rs"
+      ]
+    }
   ]
 }

@@ -1,12 +1,13 @@
 # Device trust accept side (#341)
 
 `setjoin-auth --test device_oracle` records frozen authserverd's
-`GET /device/policy` (17 cases) and `POST /device/checkin` (33 cases, each with
+`GET /device/policy` (17 cases) and `POST /device/checkin` (32 cases, each with
 before/after `-rows.json`) through the real front door (auth-only inventory,
 no outer gateway CSRF) and replays with both Go upstreams unset; every replay
 checks the zero Go-hop counter. `--test device_faults` holds the Rust-only
 faults (concurrent replay, empty codec master, legacy re-seal order and
-idempotence, oversize and unobservable policy bodies, pre-proof event cap).
+idempotence, oversize and unobservable policy bodies, pre-proof event cap, and
+event insert failure).
 
 Recording uses `.github/workflows/gofree-record.yml` (#339): package
 `setjoin-auth`, test `device_oracle`, case_filter `device_` (the
@@ -22,10 +23,11 @@ replay compares it with `GO_SOURCE`. Goldens are created exclusively.
 Fixture: two users with one device each (EK01 `v1` unless the case seeds a
 legacy, unknown-key, corrupt or missing secret), `last_seen` seeded
 2026-01-02T03:04:05Z, and device-level policy rows for both; the foreign rows
-must never appear. The fixture refuses a database holding any org-wide
-`device_policy` row. Effects snapshot both devices (last_seen classified
-seeded/fresh/other, secret state), their events and claimed nonces (660 s
-window). F21 receipts added by the check-in transaction are removed.
+must never appear. The fixture includes baseline org-wide policy rows and
+refuses leftover `gofree341_` org-wide rows. Effects snapshot both devices
+(`last_seen` classified seeded/fresh/other, secret state), their events and
+claimed nonces (660 s window). F21 receipts added by the check-in transaction
+are removed.
 
 Security divergences (`divergences.json`, owner-reviewed under the Go-free
 security bug policy, hash-pinned, applied only on replay):
@@ -48,14 +50,20 @@ admin view; follow-up #345. The proof URI is the one authserverd receives
 Transaction: the check-in reducer and its receipt commit in one acknowledged
 transaction; COMMIT is sent only after success inside the statement deadline,
 so a client timeout never commits late. A lost COMMIT acknowledgement returns
-Go's 500 body with `x-operation-id`. Go committed each event separately; a
-mid-list failure therefore keeps no event in Rust (fault-only; `checkin-fault`
-records the single-event case, which is identical).
+Go's 500 body with `x-operation-id`. Go committed each event separately. A
+mid-list failure rolls back every event in Rust. The Rust-only test
+`checkin_event_insert_failure_spends_nonce` covers HTTP 500, nonce retention
+and replay refusal, zero event rows, and unchanged `last_seen`.
 
 Accepted residuals (same as Go): a revocation landing between the proof and
 the effect does not stop that check-in (pgTAP "revoked mid-flight"); refusal
 timing differs by one SELECT between a missing row and an HMAC mismatch (the
 MAC comparison is constant-time). Not mirrored: JSON nesting beyond serde's
 128 levels, and slice-capacity reuse across three duplicate `events` keys.
+
+The [gofree-record run](https://github.com/setjoin/setjoin/actions/runs/44706831577)
+recorded commit `d54ae127ffeb07f2524b01b730ce4dc8af7862d4` with 17 policy and
+32 check-in observations (+32 row-effect files). `catalog.py` registered both
+inventory rows as ON with the `rust-auth` upstream at qualification closeout.
 
 Reducer pgTAP: `mailserver/sql/tests/rust_device_checkin.pg`.

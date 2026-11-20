@@ -17,7 +17,7 @@ use tokio_postgres::Client;
 type Err = Box<dyn std::error::Error + Send + Sync>;
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// Frozen-Go commit of the recorded corpus (phase 2 pins the artifact's value).
-const GO_SOURCE: &str = "0000000000000000000000000000000000000000";
+const GO_SOURCE: &str = "d54ae127ffeb07f2524b01b730ce4dc8af7862d4";
 const REVIEW: &str = "owner-approved security policy (Go-free security bug policy)";
 const SECRET_A: &str = "a341a341a341a341a341a341a341a341a341a341a341a341a341a341a341a341";
 const SECRET_B: &str = "b341b341b341b341b341b341b341b341b341b341b341b341b341b341b341b341";
@@ -334,7 +334,6 @@ fn step(route: &str, kind: &str, s: &Seed, etag: Option<&str>, nonce: &str) -> S
             "duplicate-id" => format!(r#"{{"device_id":{b},"device_id":{a},"policy_version":0}}"#),
             "event-cap" => format!(r#"{{"device_id":{a},"events":[{}]}}"#, burst(100)),
             "event-flood" => format!(r#"{{"device_id":{a},"events":[{}]}}"#, burst(101)),
-            "fault" => format!(r#"{{"device_id":{a},"events":[{{"type":"gofree341-fail"}}]}}"#),
             "oversize" => format!(r#"{{"device_id":{a},"pad":"{}"}}"#, "x".repeat(70_000)),
             _ => format!(
                 r#"{{"device_id":{a},"policy_version":0,"events":[{{"type":"os_update","timestamp":"2026-01-02T03:04:05Z","data":"17.1"}},{{"type":"jailbreak_detected","data":"<frida>&"}}]}}"#
@@ -505,9 +504,6 @@ impl Seed {
                 )
                 .await?;
             }
-            "fault" => {
-                c.batch_execute("CREATE FUNCTION public.gofree341_event_fail() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.event_type='gofree341-fail' THEN RAISE EXCEPTION 'gofree341 injected event failure'; END IF; RETURN NEW; END;$$;CREATE TRIGGER gofree341_event_fail BEFORE INSERT ON device_events FOR EACH ROW EXECUTE FUNCTION public.gofree341_event_fail();").await?;
-            }
             "group" => {
                 let dept: i64 = c
                     .query_one("INSERT INTO departments(name,path,ldap_ou) VALUES('gofree341-dept','/gofree341-dept','ou=gofree341') RETURNING id", &[])
@@ -583,7 +579,6 @@ impl Seed {
     }
     async fn cleanup(&self, c: &Client) -> Result<(), Err> {
         let ids = format!("{},{}", self.dev_a, self.dev_b);
-        c.batch_execute("DROP TRIGGER IF EXISTS gofree341_event_fail ON device_events;DROP FUNCTION IF EXISTS public.gofree341_event_fail()").await?;
         c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM device_auth_nonces WHERE device_id IN ({ids});DELETE FROM device_events WHERE device_id IN ({ids});DELETE FROM device_policy WHERE device_id IN ({ids}) OR (device_id IS NULL AND policy_key LIKE 'gofree341\\_%');DELETE FROM device_policy_groups WHERE policy_key LIKE 'gofree341\\_%';DELETE FROM devices WHERE id IN ({ids});COMMIT;")).await?;
         if let Some(dept) = self.dept {
             c.execute(
@@ -833,7 +828,6 @@ cases!("checkin" =>
     device_checkin_duplicate_id: "duplicate-id",
     device_checkin_event_cap: "event-cap",
     device_checkin_event_flood: "event-flood",
-    device_checkin_fault: "fault",
     device_checkin_oversize: "oversize",
     device_checkin_unknown_key: "unknown-key",
     device_checkin_corrupt_envelope: "corrupt-envelope",

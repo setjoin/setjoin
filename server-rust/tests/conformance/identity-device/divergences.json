@@ -1,7 +1,7 @@
 [
   {
     "baseline": "goldens/checkin-event-flood.json",
-    "sha256": "PHASE-2-SHA256",
+    "sha256": "ebda59b97961dbe5d582ab2d36f1c6fc2af8994364da3fbd3c2c820b7cfcfe37",
     "reviewed": true,
     "review": "owner-approved security policy (Go-free security bug policy)",
     "issue": "#341",
@@ -13,7 +13,7 @@
   },
   {
     "baseline": "goldens/checkin-event-flood-rows.json",
-    "sha256": "PHASE-2-SHA256",
+    "sha256": "15c6c0cce90fec0ab1cf0fa71f3d5853e35aba65c935b732679669c0ae74dfd9",
     "reviewed": true,
     "review": "owner-approved security policy (Go-free security bug policy)",
     "issue": "#341",
@@ -26,7 +26,7 @@
   },
   {
     "baseline": "goldens/checkin-legacy-secret.json",
-    "sha256": "PHASE-2-SHA256",
+    "sha256": "631c9e0b66557a5eeb30883ea9b5e43aa456f53f5cf58269e024328c62efbbc9",
     "reviewed": true,
     "review": "owner-approved security policy (Go-free security bug policy)",
     "issue": "#513 item 1 (inherited)",
@@ -39,7 +39,7 @@
   },
   {
     "baseline": "goldens/checkin-legacy-secret-rows.json",
-    "sha256": "PHASE-2-SHA256",
+    "sha256": "9c23d14629bf00e14658fe4af48fa26f34ac1b765a453edde09ee3d56ac0f575",
     "reviewed": true,
     "review": "owner-approved security policy (Go-free security bug policy)",
     "issue": "#513 item 1 (inherited)",
