@@ -3236,7 +3236,7 @@ const zh: Record<string, string> = {
     "一切正常——所有协议和范围均已覆盖，且无策略被遮蔽。",
   "admin.conditional_access.coverage.load_error": "无法加载覆盖报告。重试。",
   "admin.conditional_access.coverage.gap_protocol":
-    "没有策略覆盖 {protocol} 登录——高影响范围缺口。",
+    "没有策略覆盖 {protocol}登录。",
   "admin.conditional_access.coverage.gap_scope": "没有策略针对 {scope} 范围。",
   "admin.conditional_access.coverage.severity_danger": "高风险",
   "admin.conditional_access.coverage.severity_warning": "提示",
