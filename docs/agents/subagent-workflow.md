@@ -8,8 +8,8 @@ Binding rules for delegating work to subagents. The latest owner instruction win
   writes briefs and launches Codex. It commits Codex's work and pushes an explicit
   SHA to the ticket branch. Never push `main` or force-push. It opens PRs, waits for
   CI through the shared poller, runs gates, merges, closes issues and owns owner
-  questions. It may make inline edits of at most 5 lines and logs each one.
-  It runs no Claude subagents for routine work.
+  questions. It only orchestrates (owner, 2026-11-20): it edits no files itself, including
+  merge-conflict resolution, and runs no Claude subagents. Every change goes through Codex.
 - The **implementer** runs Codex CLI (`codex exec`) in a workspace-write sandbox through
   `codex-work.sh <worktree> <out.md> <sol|astra> <effort> <brief-file> [session-id]`.
   The sandbox confines edits to the worktree and blocks network access. Git metadata
@@ -17,15 +17,14 @@ Binding rules for delegating work to subagents. The latest owner instruction win
   `cargo`, `rustc`, `go`, `npm`, `npx`, `pnpm`, `yarn`, `make` and `docker`.
   `rustfmt` is allowed. The final report is at most 20 lines and covers files changed,
   what was done, stop reasons and open questions.
-- Use `gpt-6.2-sol` at medium effort by default. Use `gpt-6.2-astra` at high effort
-  for L or risk-area plans, unknown causes, or escalation after sol hits the same CI
-  failure twice or stops on capability. See also the M planning rule below.
+- `gpt-6.2-sol` is the main model for implementation, plans and reviews (medium effort by
+  default, high for plans and gates). `gpt-6.2-astra` (high effort) is the fallback only:
+  unknown causes, escalation after sol hits the same CI failure twice or stops on
+  capability, and tie-breaks when the coordinator disputes a sol finding.
 - Fix rounds resume the same Codex session. Pass its session ID and point the brief
   to a file with the failing log excerpt or review findings. The coordinator reads
   CI logs only to pick the excerpt.
-- Fable is the standing second opinion for risk areas. Use Opus only on owner
-  request or when Codex and Fable disagree. Haiku and Sonnet are not used for
-  implementation.
+- No Claude model implements or reviews. A dispute astra cannot settle goes to the owner.
 - Reviews never write. Gates never change product code or tests. Run one Codex
   session per worktree at a time. Run tickets that touch the same files serially.
 
@@ -41,7 +40,7 @@ move, migrations, data egress, production. Auth or a migration means size M or l
 | XS | Decided, 1-2 files | sol, low effort, with the exact edit |
 | S | Up to ~4 files in one module | sol, medium effort, with the decided approach |
 | M | Several modules | sol, medium effort, after a short coordinator plan in the brief. astra plans first if the approach is undecided |
-| L or risk area | Large change or any risk area | astra writes a read-only plan (`-s read-only`). Fable reviews risk-area plans before code. sol implements the plan |
+| L or risk area | Large change or any risk area | sol (high effort) writes a read-only plan (`-s read-only`). A fresh read-only sol session reviews risk-area plans before code. sol implements the plan |
 | ? | Cause unknown | astra investigates read-only. Size the result again |
 
 Cap runs at ~30 min, including investigations. At the cap, write `PROGRESS.md` and
@@ -58,8 +57,8 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 - Give the root cause or goal with evidence (file and line, or output). Give the
   exact change per file (find, replace, base commit) and the first failing test.
 - Risk-area planners list threats, failure cases (full quota, old or large data,
-  restart midway, concurrency), abusable inputs and the upgrade path. Fable reviews
-  the plan before code. Its cases become required tests.
+  restart midway, concurrency), abusable inputs and the upgrade path. The plan
+  reviewer's cases become required tests.
 - A case the implementer calls "bounded" or "unlikely" is a finding. Fix it or file a follow-up.
 - Before a "delete X" ticket the coordinator checks X's callers itself.
 - Keep `PROGRESS.md` so work can continue after a cut-off run.
@@ -89,7 +88,7 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 ## Review
 
 - Run the Codex merge gate in a fresh read-only session (`codex exec -s read-only`).
-  Use sol at high effort for normal PRs and astra at high effort for risk areas.
+  Use sol at high effort for every PR; astra only as the tie-break fallback.
   At most 3 rounds per ticket. A 4th means re-plan.
   - Name the diff range, files and callers to read. Paste greps the coordinator
     already ran. Codex stays within that scope and runs no builds.
@@ -98,10 +97,8 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
   - No Codex for PRs that change no code and weaken no check: docs only, deleting
     unreferenced files (coordinator greps for references), Dependabot version bumps
     (CI is the gate). Changes to CI, guards, `deny.toml` or other checks keep Codex.
-- Fable reviews risk-area plans before code and reviews the code after Codex is
-  clean. No standing Claude review elsewhere.
-- The coordinator reads Codex's final report and the diffstat. It reads the full
-  diff when it is under ~150 changed lines or when the ticket touches a risk area.
+- The coordinator reads Codex's final report and the diffstat, and opens diff hunks only
+  to verify a finding or a report it doubts.
 - Verify each finding in the code before requiring a fix. One fix round carries
   all open findings. File follow-up issues for non-blocking findings.
 - Gate the integration tip after several merges.

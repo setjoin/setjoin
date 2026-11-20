@@ -3527,7 +3527,7 @@ const de: Record<string, string> = {
   "admin.conditional_access.coverage.load_error":
     "Abdeckungsbericht konnte nicht geladen werden. Erneut versuchen.",
   "admin.conditional_access.coverage.gap_protocol":
-    "Keine Richtlinie deckt {protocol}-Anmeldungen ab — eine Lücke mit hoher Auswirkung.",
+    "Keine Richtlinie deckt {protocol}-Anmeldungen ab.",
   "admin.conditional_access.coverage.gap_scope":
     "Keine Richtlinie zielt auf den Bereich {scope} ab.",
   "admin.conditional_access.coverage.severity_danger": "Hohes Risiko",

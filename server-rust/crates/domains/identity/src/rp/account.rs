@@ -177,13 +177,31 @@ impl Assertion {
             } else {
                 "SELECT id FROM users WHERE oidc_subject=$1 AND oidc_issuer=$2 AND enabled"
             };
-            if let Ok(rows) = exec
+            let rows = exec
                 .read(
                     exact,
                     &[(&self.subject, Type::TEXT), (&self.issuer, Type::TEXT)],
                 )
                 .await
-            {
+                .map_err(|_| failed("normalized identity resolution unavailable"))?;
+            user = match rows.first() {
+                Some(r) => Some(
+                    r.try_get(0)
+                        .map_err(|_| failed("normalized identity resolution unavailable"))?,
+                ),
+                None => None,
+            };
+            let mut address_hit = false;
+            // SAML: the link is (registration, NameID), never an address (#546).
+            if user.is_none() && (self.kind == "oidc" || crate::mutants::on("saml-link-by-email")) {
+                let address = setjoin_authz::address::canonical(&self.email);
+                let rows = exec
+                    .read(
+                        "SELECT u.id FROM users u WHERE u.enabled AND (lower(u.email)=lower($1) OR lower(u.ad_upn)=lower($1) OR EXISTS(SELECT 1 FROM aliases a JOIN mailboxes mb ON mb.id=a.mailbox_id WHERE mb.user_id=u.id AND lower(a.email)=lower($1))) AND identity_address_claim_count(lower($1))=1 AND NOT identity_address_quarantined(lower($1)) LIMIT 1",
+                        &[(&address.as_str(), Type::TEXT)],
+                    )
+                    .await
+                    .map_err(|_| failed("normalized identity resolution unavailable"))?;
                 user = match rows.first() {
                     Some(r) => Some(
                         r.try_get(0)
@@ -191,12 +209,7 @@ impl Assertion {
                     ),
                     None => None,
                 };
-            }
-            let mut address_hit = false;
-            // SAML: the link is (registration, NameID), never an address (#546).
-            if user.is_none() && (self.kind == "oidc" || crate::mutants::on("saml-link-by-email")) {
-                let address = setjoin_authz::address::canonical(&self.email);
-                if let Ok(rows)=exec.read("SELECT u.id FROM users u WHERE u.enabled AND (lower(u.email)=lower($1) OR lower(u.ad_upn)=lower($1) OR EXISTS(SELECT 1 FROM aliases a JOIN mailboxes mb ON mb.id=a.mailbox_id WHERE mb.user_id=u.id AND lower(a.email)=lower($1))) AND identity_address_claim_count(lower($1))=1 AND NOT identity_address_quarantined(lower($1)) LIMIT 1",&[(&address.as_str(),Type::TEXT)]).await {user=match rows.first(){Some(r)=>Some(r.try_get(0).map_err(|_|failed("normalized identity resolution unavailable"))?),None=>None};address_hit=user.is_some();}
+                address_hit = user.is_some();
             }
             if evidence["sourceId"].is_string() {
                 let source = number(&evidence, "sourceId")?;
