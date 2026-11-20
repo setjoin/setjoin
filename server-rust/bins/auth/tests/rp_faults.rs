@@ -609,6 +609,8 @@ async fn identity_model_flag_fault_refuses_jit_before_any_account_write() -> Res
 
 #[tokio::test]
 async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
+    use setjoin_identity::rp::Lookup;
+
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("IDFED2-legacy-lookup-fault").ok_or("assigned DB required")?;
     let app = setjoin_pg::ScopedExecutor::from_dsn(
@@ -616,8 +618,11 @@ async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
         2,
     )
     .map_err(|e| e.0)?;
+    let worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).map_err(|e| e.0)?;
     let env = flows::Env::configured(false, idp::ISSUER, json!({"jit_enabled":true})).await?;
     let mut account = None;
+    let mut jit_control_user = None;
+    let mut receipts = None;
     let responses = async {
         let a = account.insert(fixture::account(&env.c, "rp-legacy-lookup-fault").await?);
         let email: String = env.c
@@ -646,16 +651,62 @@ async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
         guard.restore(&env.c).await?;
         drop(guard);
 
-        // The unlinked subject misses the exact lookup and reaches the address lookup.
+        // With permissions restored, the unlinked subject can discover the existing address.
         let address_control = sso_once(&env, &email, &unlinked).await?;
-        let guard = revoke::table(&db.dsn, &env.c, &app, "aliases").await?;
-        let address = sso_once(&env, &email, &unlinked).await;
+        let (_, domain) = email.split_once('@').ok_or("fixture email has no domain")?;
+        let jit_email = format!("jit-{unlinked}@{domain}");
+        let (jit, _) = assertion(&env, &unlinked, &jit_email).await?;
+        let Lookup::Missing(jit_control) = jit.resolve(&app, &worker).await.map_err(|e| e.message)?
+        else {
+            return Err("JIT control identity must be unclaimed".into());
+        };
+        receipts = Some(
+            env.c.query(
+                "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21' AND command IN ('rp-settle','rp-mint')",
+                &[],
+            ).await?
+            .iter()
+            .map(|r| r.try_get::<_, String>(0))
+            .collect::<Result<Vec<_>, _>>()?,
+        );
+
+        // Address lookup needs this predicate. JIT's insert triggers use the claim lookup,
+        // so leave their function and table permissions intact.
+        let guard = revoke::function(
+            &db.dsn,
+            &env.c,
+            &app,
+            "public.identity_address_quarantined(text)",
+            "SELECT public.identity_address_quarantined('rp-fault@example.test')",
+        )
+        .await?;
+        let address = async {
+            let response = sso_once(&env, &jit_email, &unlinked).await?;
+            let wrote: bool = env.c
+                .query_one(
+                    "SELECT EXISTS(SELECT 1 FROM users WHERE domain_id=$1 AND id<>$2)",
+                    &[&a.domain, &a.user],
+                )
+                .await?
+                .try_get(0)?;
+            if !wrote {
+                // Prove the same assertion can create an account while the fault is active.
+                let created = jit_control
+                    .create(&app, &worker)
+                    .await
+                    .map_err(|_| "JIT control could not create an account under the address lookup fault")?;
+                jit_control_user = Some(created.user().user());
+            }
+            Ok::<_, Err>(response)
+        }
+        .await;
         guard.restore(&env.c).await?;
         Ok::<_, Err>((exact?, address_control, address?))
     }
     .await;
 
     let mut cleanup = Ok(());
+    let mut unexpected_jit = false;
     if let Some(a) = &account {
         let jit_cleanup: Result<(), Err> = async {
             let rows = env.c.query(
@@ -668,17 +719,37 @@ async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
                 created.user = row.try_get(0)?;
                 created.mailbox = row.try_get(1)?;
                 created.domain = 0;
+                if Some(created.user) != jit_control_user {
+                    unexpected_jit = true;
+                    let events = env.c
+                        .execute("DELETE FROM login_events WHERE user_id=$1", &[&created.user])
+                        .await
+                        .map(|_| ())
+                        .map_err(Into::into);
+                    removed = settle(removed, events);
+                }
                 removed = settle(removed, fixture::remove(&env.c, &created).await);
             }
-            if rows.is_empty() {
-                Ok(())
-            } else {
+            if unexpected_jit {
                 settle(Err("legacy lookup fault created a JIT account".into()), removed)
+            } else {
+                removed
             }
         }
         .await;
         cleanup = settle(cleanup, jit_cleanup);
         cleanup = settle(cleanup, fixture::remove(&env.c, a).await);
+    }
+    // Env's RP advisory lock keeps these receipt commands serialized through cleanup.
+    if let Some(receipts) = receipts.filter(|_| unexpected_jit) {
+        let restored = env.c.execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F21' AND command IN ('rp-settle','rp-mint') AND operation_id::text<>ALL($1::text[])",
+            &[&receipts],
+        )
+        .await
+        .map(|_| ())
+        .map_err(Into::into);
+        cleanup = settle(cleanup, restored);
     }
     cleanup = settle(cleanup, env.close().await);
 
