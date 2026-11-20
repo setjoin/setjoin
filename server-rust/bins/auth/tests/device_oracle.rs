@@ -401,14 +401,14 @@ impl Seed {
     async fn create(c: &Client, master: &str, kind: &str) -> Result<Self, Err> {
         let residue: i64 = c
             .query_one(
-                "SELECT count(*) FROM device_policy WHERE device_id IS NULL",
+                "SELECT count(*) FROM device_policy WHERE device_id IS NULL AND policy_key LIKE 'gofree341\\_%'",
                 &[],
             )
             .await?
             .get(0);
         if residue != 0 {
             return Err(
-                "org-wide device_policy rows exist; the effective-policy corpus requires none"
+                "gofree341 org-wide device_policy residue; baseline V001 org-wide rows are part of the corpus"
                     .into(),
             );
         }
