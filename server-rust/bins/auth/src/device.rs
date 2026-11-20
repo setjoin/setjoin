@@ -65,7 +65,10 @@ impl AuthServer {
         if raw.is_empty() && !provably_empty {
             return refused(ROUTE, id, "body-unobservable", head);
         }
-        let Some(device) = self.prove(id, &parts.headers, parts.method.as_str(), &uri, &raw).await else {
+        let Some(device) = self
+            .prove(id, &parts.headers, parts.method.as_str(), &uri, &raw)
+            .await
+        else {
             return refused(ROUTE, id, "proof-rejected", head);
         };
         // The guard has already claimed the nonce; Go's handler then refuses HEAD.
@@ -103,7 +106,10 @@ impl AuthServer {
         // Owner-approved security fix (#341): bound the effect before any proof
         // work, nonce claim or write. A malformed body keeps Go's order below.
         let decoded = decode_checkin(&raw);
-        if decoded.as_ref().is_ok_and(|c| c.events.len() > device_trust::EVENT_CAP) {
+        if decoded
+            .as_ref()
+            .is_ok_and(|c| c.events.len() > device_trust::EVENT_CAP)
+        {
             return failure(400, "too many events", false);
         }
         let Some(device) = self.prove(id, &parts.headers, "POST", &uri, &raw).await else {
@@ -120,7 +126,10 @@ impl AuthServer {
                 let mut r = failure(500, "internal error", false);
                 r.headers_mut().insert(
                     "x-operation-id",
-                    uuid::Uuid::from_bytes(operation.0).to_string().parse().unwrap(),
+                    uuid::Uuid::from_bytes(operation.0)
+                        .to_string()
+                        .parse()
+                        .unwrap(),
                 );
                 return r;
             }
@@ -135,21 +144,47 @@ impl AuthServer {
             ("policy_version", json!(version)),
             (
                 "policy",
-                if checkin.policy_version == version { Value::Null } else { json!(policy.policies) },
+                if checkin.policy_version == version {
+                    Value::Null
+                } else {
+                    json!(policy.policies)
+                },
             ),
             ("wipe_requested", json!(policy.wipe_requested)),
         ];
         if policy.wipe_requested {
             fields.push(("wipe_reason", json!(WIPE_REASON)));
         }
-        cached(format!("{}\n", setjoin_identity::issuance::object(&fields)), version)
+        cached(
+            format!("{}\n", setjoin_identity::issuance::object(&fields)),
+            version,
+        )
     }
 
-    async fn prove(&self, id: i64, headers: &HeaderMap, method: &str, uri: &str, raw: &[u8]) -> Option<VerifiedDevice> {
+    async fn prove(
+        &self,
+        id: i64,
+        headers: &HeaderMap,
+        method: &str,
+        uri: &str,
+        raw: &[u8],
+    ) -> Option<VerifiedDevice> {
         // Go: shareddevice.NewSecretCodec([]byte(cfg.JWTSecret), cfg.CryptoProfile).
-        DeviceResolver::new(self.exec.clone(), self.config.secret.as_bytes().to_vec(), self.config.profile)
-            .verify_request(id, DeviceRequest { headers, method, uri, body: raw })
-            .await
+        DeviceResolver::new(
+            self.exec.clone(),
+            self.config.secret.as_bytes().to_vec(),
+            self.config.profile,
+        )
+        .verify_request(
+            id,
+            DeviceRequest {
+                headers,
+                method,
+                uri,
+                body: raw,
+            },
+        )
+        .await
     }
 }
 
@@ -169,18 +204,25 @@ fn proof_headers_present(headers: &HeaderMap) -> bool {
         && !nonce.is_empty()
         && nonce.len() <= 128
         && hash.len() == 64
-        && hash.iter().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
+        && hash
+            .iter()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(b))
 }
 
 /// requestURIOf: path and query exactly as this listener received them.
 fn request_uri(req: &Request<Body>) -> String {
-    req.uri().path_and_query().map_or("/", |p| p.as_str()).to_owned()
+    req.uri()
+        .path_and_query()
+        .map_or("/", |p| p.as_str())
+        .to_owned()
 }
 
 async fn read_prefix(mut incoming: Body, cap: usize) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     while out.len() < cap {
-        let Some(frame) = incoming.frame().await else { break };
+        let Some(frame) = incoming.frame().await else {
+            break;
+        };
         if let Ok(data) = frame.ok()?.into_data() {
             out.extend_from_slice(&data);
         }
@@ -282,7 +324,9 @@ impl<'de> DeserializeSeed<'de> for Events {
             }
             fn visit_seq<S: SeqAccess<'de>>(self, mut s: S) -> Result<Vec<Event>, S::Error> {
                 let mut out = Vec::new();
-                while let Some(e) = s.next_element_seed(One(self.0.get(out.len()).cloned().unwrap_or_default()))? {
+                while let Some(e) =
+                    s.next_element_seed(One(self.0.get(out.len()).cloned().unwrap_or_default()))?
+                {
                     out.push(e);
                 }
                 Ok(out)
@@ -313,7 +357,9 @@ impl<'de> DeserializeSeed<'de> for One {
                         m.next_value::<de::IgnoredAny>()?;
                         continue;
                     }
-                    let Some(value) = m.next_value::<Option<String>>()? else { continue };
+                    let Some(value) = m.next_value::<Option<String>>()? else {
+                        continue;
+                    };
                     match field.as_str() {
                         "type" => event.kind = value,
                         "data" => event.data = value,
@@ -345,7 +391,9 @@ fn failure(status: u16, message: &str, head: bool) -> Response<Body> {
     if head {
         reply = reply.header("content-length", text.len());
     }
-    reply.body(body(if head { String::new() } else { text })).unwrap()
+    reply
+        .body(body(if head { String::new() } else { text }))
+        .unwrap()
 }
 
 fn cached(text: String, version: i64) -> Response<Body> {
@@ -382,8 +430,14 @@ mod tests {
     #[test]
     fn guard_reads_device_id_like_json_unmarshal() {
         assert_eq!(guard_device_id(br#"{"device_id":5}"#), Some(5));
-        assert_eq!(guard_device_id(br#"{"DEVICE_ID":5,"device_id":null}"#), Some(5));
-        assert_eq!(guard_device_id(br#"{"device_id":7,"device_id":5}"#), Some(5));
+        assert_eq!(
+            guard_device_id(br#"{"DEVICE_ID":5,"device_id":null}"#),
+            Some(5)
+        );
+        assert_eq!(
+            guard_device_id(br#"{"device_id":7,"device_id":5}"#),
+            Some(5)
+        );
         assert_eq!(guard_device_id(b"null"), Some(0));
         assert_eq!(guard_device_id(br#"{"device_id":"5"}"#), None);
         assert_eq!(guard_device_id(br#"{"device_id":5} {}"#), None);
@@ -395,12 +449,26 @@ mod tests {
     fn checkin_decode_follows_encoding_json() {
         let c = decode_checkin(br#"{"device_id":1,"Events":[null,{"TYPE":"crash","data":null,"Data":"x"}],"policy_version":7,"POLICY_VERSION":null}"#).unwrap();
         assert_eq!(c.policy_version, 7);
-        assert_eq!(c.events, vec![Event::default(), Event { kind: "crash".into(), data: "x".into() }]);
+        assert_eq!(
+            c.events,
+            vec![
+                Event::default(),
+                Event {
+                    kind: "crash".into(),
+                    data: "x".into()
+                }
+            ]
+        );
         assert!(decode_checkin(br#"{"events":"x"}"#).is_err());
         assert!(decode_checkin(br#"{"events":[1]}"#).is_err());
         assert!(decode_checkin(br#"{"events":[{"timestamp":5}]}"#).is_err());
         assert!(decode_checkin(br#"{"policy_version":"1"}"#).is_err());
-        assert!(decode_checkin(br#"{"events":[{"type":"a"}],"events":null}"#).unwrap().events.is_empty());
+        assert!(
+            decode_checkin(br#"{"events":[{"type":"a"}],"events":null}"#)
+                .unwrap()
+                .events
+                .is_empty()
+        );
     }
     #[test]
     fn proof_header_precheck_matches_verify_order() {

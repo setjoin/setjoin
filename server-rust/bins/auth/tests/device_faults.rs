@@ -48,19 +48,34 @@ struct Case {
 }
 impl Case {
     async fn open(legacy: bool) -> Result<Option<Self>, Err> {
-        let Some(db) = Db::for_case("DEVICE341-faults") else { return Ok(None) };
+        let Some(db) = Db::for_case("DEVICE341-faults") else {
+            return Ok(None);
+        };
         let app = db.app.clone().ok_or("DB_APP_DSN is required")?;
         let c = db.connect().await?;
-        c.query_one("SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))", &[]).await?;
+        c.query_one(
+            "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+            &[],
+        )
+        .await?;
         common::signing_key(&c).await;
         let receipts = common::receipt_ids(&c).await;
-        let keys: Value = serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
-        let master = keys["secret"].as_str().ok_or("keys.json secret")?.to_owned();
+        let keys: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-login/keys.json"
+        ))?;
+        let master = keys["secret"]
+            .as_str()
+            .ok_or("keys.json secret")?
+            .to_owned();
         let user = fixture::account(&c, "device341-fault").await?;
         let enc = if legacy {
             None
         } else {
-            Some(setjoin_config_secret::seal_column(SECRET.as_bytes(), master.as_bytes(), setjoin_config_secret::CryptoProfile::Standard)?)
+            Some(setjoin_config_secret::seal_column(
+                SECRET.as_bytes(),
+                master.as_bytes(),
+                setjoin_config_secret::CryptoProfile::Standard,
+            )?)
         };
         let plain = legacy.then_some(SECRET);
         let key = (!legacy).then_some("v1");
@@ -72,14 +87,39 @@ impl Case {
             .await?
             .get(0);
         let exec = setjoin_pg::ScopedExecutor::from_dsn(&app, 4).map_err(|e| e.0)?;
-        let server = Arc::new(AuthServer::load(exec.clone(), Config::for_secret(master.clone())).await?);
-        Ok(Some(Self { c, server, exec, master, user, device, receipts }))
+        let server =
+            Arc::new(AuthServer::load(exec.clone(), Config::for_secret(master.clone())).await?);
+        Ok(Some(Self {
+            c,
+            server,
+            exec,
+            master,
+            user,
+            device,
+            receipts,
+        }))
     }
-    fn signed(&self, method: &str, uri: &str, payload: &str, nonce: &str, secret: &str, body: setjoin_auth::Body) -> Request<setjoin_auth::Body> {
-        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_string();
+    fn signed(
+        &self,
+        method: &str,
+        uri: &str,
+        payload: &str,
+        nonce: &str,
+        secret: &str,
+        body: setjoin_auth::Body,
+    ) -> Request<setjoin_auth::Body> {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
         let hash = sha(payload.as_bytes());
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
-        let mac = hex(ring::hmac::sign(&key, format!("{}:{ts}:{method}:{uri}:{hash}:{nonce}", self.device).as_bytes()).as_ref());
+        let mac = hex(ring::hmac::sign(
+            &key,
+            format!("{}:{ts}:{method}:{uri}:{hash}:{nonce}", self.device).as_bytes(),
+        )
+        .as_ref());
         Request::builder()
             .method(method)
             .uri(uri)
@@ -91,23 +131,37 @@ impl Case {
             .unwrap()
     }
     fn checkin(&self, payload: &str, nonce: &str, secret: &str) -> Request<setjoin_auth::Body> {
-        self.signed("POST", "/device/checkin", payload, nonce, secret, body(payload.to_owned()))
+        self.signed(
+            "POST",
+            "/device/checkin",
+            payload,
+            nonce,
+            secret,
+            body(payload.to_owned()),
+        )
     }
     async fn count(&self, sql: &str) -> Result<i64, Err> {
         Ok(self.c.query_one(sql, &[&self.device]).await?.get(0))
     }
     async fn nonces(&self) -> Result<i64, Err> {
-        self.count("SELECT count(*) FROM device_auth_nonces WHERE device_id=$1").await
+        self.count("SELECT count(*) FROM device_auth_nonces WHERE device_id=$1")
+            .await
     }
     async fn events(&self) -> Result<i64, Err> {
-        self.count("SELECT count(*) FROM device_events WHERE device_id=$1").await
+        self.count("SELECT count(*) FROM device_events WHERE device_id=$1")
+            .await
     }
     async fn close(self) -> Result<(), Err> {
         let id = self.device;
         self.c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM device_auth_nonces WHERE device_id={id};DELETE FROM device_events WHERE device_id={id};DELETE FROM devices WHERE id={id};COMMIT;")).await?;
         fixture::remove(&self.c, &self.user).await?;
         common::restore_receipts(&self.c, &self.receipts).await;
-        self.c.query_one("SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))", &[]).await?;
+        self.c
+            .query_one(
+                "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
+                &[],
+            )
+            .await?;
         Ok(())
     }
 }
@@ -115,11 +169,18 @@ impl Case {
 #[tokio::test]
 async fn concurrent_replay_spends_one_nonce() {
     let _s = SERIAL.lock().await;
-    let Some(case) = Case::open(false).await.unwrap() else { return };
-    let payload = format!(r#"{{"device_id":{},"events":[{{"type":"race"}}]}}"#, case.device);
+    let Some(case) = Case::open(false).await.unwrap() else {
+        return;
+    };
+    let payload = format!(
+        r#"{{"device_id":{},"events":[{{"type":"race"}}]}}"#,
+        case.device
+    );
     let (one, two) = tokio::join!(
-        case.server.handle(case.checkin(&payload, "gofree341-race", SECRET)),
-        case.server.handle(case.checkin(&payload, "gofree341-race", SECRET))
+        case.server
+            .handle(case.checkin(&payload, "gofree341-race", SECRET)),
+        case.server
+            .handle(case.checkin(&payload, "gofree341-race", SECRET))
     );
     let mut statuses = [one.status().as_u16(), two.status().as_u16()];
     statuses.sort_unstable();
@@ -132,12 +193,28 @@ async fn concurrent_replay_spends_one_nonce() {
 #[tokio::test]
 async fn empty_master_fails_closed() {
     let _s = SERIAL.lock().await;
-    let Some(case) = Case::open(false).await.unwrap() else { return };
+    let Some(case) = Case::open(false).await.unwrap() else {
+        return;
+    };
     let payload = format!(r#"{{"device_id":{}}}"#, case.device);
-    let (parts, _) = case.checkin(&payload, "gofree341-empty-master", SECRET).into_parts();
-    let resolver = setjoin_authz::device::DeviceResolver::new(case.exec.clone(), Vec::new(), setjoin_config_secret::CryptoProfile::Standard);
+    let (parts, _) = case
+        .checkin(&payload, "gofree341-empty-master", SECRET)
+        .into_parts();
+    let resolver = setjoin_authz::device::DeviceResolver::new(
+        case.exec.clone(),
+        Vec::new(),
+        setjoin_config_secret::CryptoProfile::Standard,
+    );
     let verified = resolver
-        .verify_request(case.device, setjoin_authz::device::DeviceRequest { headers: &parts.headers, method: "POST", uri: "/device/checkin", body: payload.as_bytes() })
+        .verify_request(
+            case.device,
+            setjoin_authz::device::DeviceRequest {
+                headers: &parts.headers,
+                method: "POST",
+                uri: "/device/checkin",
+                body: payload.as_bytes(),
+            },
+        )
         .await;
     assert!(verified.is_none());
     assert_eq!(case.nonces().await.unwrap(), 0);
@@ -147,31 +224,68 @@ async fn empty_master_fails_closed() {
 #[tokio::test]
 async fn legacy_reseal_precedes_hmac_and_is_idempotent() {
     let _s = SERIAL.lock().await;
-    let Some(case) = Case::open(true).await.unwrap() else { return };
+    let Some(case) = Case::open(true).await.unwrap() else {
+        return;
+    };
     let payload = format!(r#"{{"device_id":{}}}"#, case.device);
     // Inherited #513: the re-seal runs before HMAC verification (Go's migration order).
-    let refused = case.server.handle(case.checkin(&payload, "gofree341-legacy-1", WRONG)).await;
+    let refused = case
+        .server
+        .handle(case.checkin(&payload, "gofree341-legacy-1", WRONG))
+        .await;
     assert_eq!(refused.status().as_u16(), 401);
     let row = case.c.query_one("SELECT hmac_secret IS NULL, hmac_secret_key_id, hmac_secret_enc FROM devices WHERE id=$1", &[&case.device]).await.unwrap();
-    assert!(row.get::<_, bool>(0), "plaintext must be gone after the re-seal");
+    assert!(
+        row.get::<_, bool>(0),
+        "plaintext must be gone after the re-seal"
+    );
     assert_eq!(row.get::<_, Option<String>>(1).as_deref(), Some("v1"));
     let sealed: Vec<u8> = row.get(2);
-    assert_eq!(setjoin_config_secret::open_column(&sealed, case.master.as_bytes()).unwrap(), SECRET.as_bytes());
+    assert_eq!(
+        setjoin_config_secret::open_column(&sealed, case.master.as_bytes()).unwrap(),
+        SECRET.as_bytes()
+    );
     assert_eq!(case.nonces().await.unwrap(), 0);
-    let ok = case.server.handle(case.checkin(&payload, "gofree341-legacy-2", SECRET)).await;
+    let ok = case
+        .server
+        .handle(case.checkin(&payload, "gofree341-legacy-2", SECRET))
+        .await;
     assert_eq!(ok.status().as_u16(), 200);
-    let after: Vec<u8> = case.c.query_one("SELECT hmac_secret_enc FROM devices WHERE id=$1", &[&case.device]).await.unwrap().get(0);
-    assert_eq!(after, sealed, "a sealed row is never re-sealed (idempotent)");
+    let after: Vec<u8> = case
+        .c
+        .query_one(
+            "SELECT hmac_secret_enc FROM devices WHERE id=$1",
+            &[&case.device],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        after, sealed,
+        "a sealed row is never re-sealed (idempotent)"
+    );
     case.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn oversize_policy_body_is_refused() {
     let _s = SERIAL.lock().await;
-    let Some(case) = Case::open(false).await.unwrap() else { return };
+    let Some(case) = Case::open(false).await.unwrap() else {
+        return;
+    };
     let uri = format!("/device/policy?device_id={}", case.device);
     let big = "x".repeat((1 << 20) + 1);
-    let reply = case.server.handle(case.signed("GET", &uri, &big, "gofree341-oversize", SECRET, body(big.clone()))).await;
+    let reply = case
+        .server
+        .handle(case.signed(
+            "GET",
+            &uri,
+            &big,
+            "gofree341-oversize",
+            SECRET,
+            body(big.clone()),
+        ))
+        .await;
     assert_eq!(reply.status().as_u16(), 401);
     assert_eq!(case.nonces().await.unwrap(), 0);
     case.close().await.unwrap();
@@ -180,9 +294,18 @@ async fn oversize_policy_body_is_refused() {
 #[tokio::test]
 async fn unobservable_empty_get_body_fails_closed() {
     let _s = SERIAL.lock().await;
-    let Some(case) = Case::open(false).await.unwrap() else { return };
+    let Some(case) = Case::open(false).await.unwrap() else {
+        return;
+    };
     let uri = format!("/device/policy?device_id={}", case.device);
-    let unsized_req = case.signed("GET", &uri, "", "gofree341-unsized", SECRET, Unsized.boxed());
+    let unsized_req = case.signed(
+        "GET",
+        &uri,
+        "",
+        "gofree341-unsized",
+        SECRET,
+        Unsized.boxed(),
+    );
     assert_eq!(case.server.handle(unsized_req).await.status().as_u16(), 401);
     assert_eq!(case.nonces().await.unwrap(), 0);
     let empty = case.signed("GET", &uri, "", "gofree341-empty", SECRET, body(""));
@@ -194,12 +317,29 @@ async fn unobservable_empty_get_body_fails_closed() {
 #[tokio::test]
 async fn checkin_cap_is_checked_before_the_proof() {
     let _s = SERIAL.lock().await;
-    let Some(case) = Case::open(false).await.unwrap() else { return };
-    let events = (0..101).map(|_| r#"{"type":"burst"}"#).collect::<Vec<_>>().join(",");
+    let Some(case) = Case::open(false).await.unwrap() else {
+        return;
+    };
+    let events = (0..101)
+        .map(|_| r#"{"type":"burst"}"#)
+        .collect::<Vec<_>>()
+        .join(",");
     let payload = format!(r#"{{"device_id":{},"events":[{events}]}}"#, case.device);
-    let reply = case.server.handle(case.checkin(&payload, "gofree341-cap", WRONG)).await;
+    let reply = case
+        .server
+        .handle(case.checkin(&payload, "gofree341-cap", WRONG))
+        .await;
     assert_eq!(reply.status().as_u16(), 400);
-    let text = String::from_utf8(reply.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+    let text = String::from_utf8(
+        reply
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
     assert_eq!(text, "{\"error\":\"too many events\"}\n");
     assert_eq!(case.nonces().await.unwrap(), 0);
     assert_eq!(case.events().await.unwrap(), 0);

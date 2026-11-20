@@ -84,8 +84,8 @@ jobs:
           if [ "$GOFREE_REC_UPSTREAM" = authserverd ]; then
             # per-target Go config is only established for these auth oracles (oidc, rp, saml, push need their own presets)
             case "$GOFREE_REC_PACKAGE/$GOFREE_REC_TEST" in
-              setjoin-auth/oracle|setjoin-auth/token_oracle|setjoin-auth/mfa_oracle|setjoin-auth/webauthn_oracle|setjoin-auth/guest_invite_oracle|setjoin-auth/threat_oracle|setjoin-auth/device_proof_oracle|setjoin-auth/ca_issuance_oracle) ;;
-              *) echo "::error::go_upstream=authserverd supports only setjoin-auth tests oracle, token_oracle, mfa_oracle, webauthn_oracle, guest_invite_oracle, threat_oracle, device_proof_oracle, ca_issuance_oracle"; exit 1 ;;
+              setjoin-auth/oracle|setjoin-auth/token_oracle|setjoin-auth/mfa_oracle|setjoin-auth/webauthn_oracle|setjoin-auth/guest_invite_oracle|setjoin-auth/threat_oracle|setjoin-auth/device_proof_oracle|setjoin-auth/ca_issuance_oracle|setjoin-auth/device_oracle) ;;
+              *) echo "::error::go_upstream=authserverd supports only setjoin-auth tests oracle, token_oracle, mfa_oracle, webauthn_oracle, guest_invite_oracle, threat_oracle, device_proof_oracle, ca_issuance_oracle, device_oracle"; exit 1 ;;
             esac
           fi
           echo "GOFREE_GO_SOURCE=$head" >> "$GITHUB_ENV"

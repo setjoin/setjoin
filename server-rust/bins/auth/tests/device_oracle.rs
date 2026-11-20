@@ -77,14 +77,25 @@ async fn auth_server(server: Arc<AuthServer>, mutant: bool) -> Server {
         connections.abort_all();
         while connections.join_next().await.is_some() {}
     });
-    Server { stop: Some(tx), task, addr }
+    Server {
+        stop: Some(tx),
+        task,
+        addr,
+    }
 }
 async fn gateway(auth: std::net::SocketAddr, record: Option<String>) -> Server {
     let mut inventory: Value = serde_json::from_str(setjoin_gateway::inventory::BUNDLED).unwrap();
-    inventory["routes"].as_array_mut().unwrap().retain(|r| r["listener"] == "auth");
+    inventory["routes"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|r| r["listener"] == "auth");
     for r in inventory["routes"].as_array_mut().unwrap() {
         r["state"] = json!(if record.is_some() { "OFF" } else { "ON" });
-        r["upstream"] = json!(if record.is_some() { "go-auth" } else { "rust-auth" });
+        r["upstream"] = json!(if record.is_some() {
+            "go-auth"
+        } else {
+            "rust-auth"
+        });
     }
     let gw = Gateway::new(
         setjoin_gateway::Config {
@@ -103,7 +114,8 @@ async fn gateway(auth: std::net::SocketAddr, record: Option<String>) -> Server {
     let gw = if let Some(url) = record {
         gw.with_auth_upstream(url.parse().unwrap()).unwrap()
     } else {
-        gw.with_rust_auth_upstream(format!("http://{auth}").parse().unwrap()).unwrap()
+        gw.with_rust_auth_upstream(format!("http://{auth}").parse().unwrap())
+            .unwrap()
     };
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -111,7 +123,11 @@ async fn gateway(auth: std::net::SocketAddr, record: Option<String>) -> Server {
     let task = tokio::spawn(gw.serve_until(listener, async {
         let _ = rx.await;
     }));
-    Server { stop: Some(tx), task, addr }
+    Server {
+        stop: Some(tx),
+        task,
+        addr,
+    }
 }
 async fn request(
     addr: std::net::SocketAddr,
@@ -121,7 +137,8 @@ async fn request(
     headers: &[(String, String)],
 ) -> Result<(u16, Value, String), Err> {
     let client: hyper_util::client::legacy::Client<_, setjoin_auth::Body> =
-        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new()).build_http();
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build_http();
     let mut req = Request::builder()
         .method(method)
         .uri(format!("http://{addr}{uri}"))
@@ -136,7 +153,13 @@ async fn request(
     let resp = client.request(req.body(body(payload.to_owned()))?).await?;
     let status = resp.status().as_u16();
     let mut hs = serde_json::Map::new();
-    for name in ["content-type", "cache-control", "etag", "allow", "x-content-type-options"] {
+    for name in [
+        "content-type",
+        "cache-control",
+        "etag",
+        "allow",
+        "x-content-type-options",
+    ] {
         if let Some(v) = resp.headers().get(name) {
             hs.insert(name.into(), json!(v.to_str()?));
         }
@@ -150,10 +173,14 @@ async fn request(
     Ok((status, Value::Object(hs), raw))
 }
 fn corpus() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance/identity-device/goldens")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/conformance/identity-device/goldens")
 }
 fn now() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -178,7 +205,11 @@ fn go_source(record: bool) -> Result<String, Err> {
         .trim()
         .to_owned(),
     };
-    if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if sha.len() != 40
+        || !sha
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return Err(format!("frozen Go source is not a commit: {sha}").into());
     }
     Ok(sha)
@@ -191,8 +222,15 @@ fn expected(file: &std::path::Path, record: bool) -> Result<Value, Err> {
     if record {
         return Ok(baseline);
     }
-    let entries: Value = serde_json::from_str(&std::fs::read_to_string(corpus().with_file_name("divergences.json"))?)?;
-    let name = format!("goldens/{}", file.file_name().and_then(|n| n.to_str()).ok_or("golden name")?);
+    let entries: Value = serde_json::from_str(&std::fs::read_to_string(
+        corpus().with_file_name("divergences.json"),
+    )?)?;
+    let name = format!(
+        "goldens/{}",
+        file.file_name()
+            .and_then(|n| n.to_str())
+            .ok_or("golden name")?
+    );
     let Some(entry) = entries
         .as_array()
         .ok_or("divergences.json must be an array")?
@@ -210,7 +248,8 @@ fn expected(file: &std::path::Path, record: bool) -> Result<Value, Err> {
     let mut doc = baseline;
     for r in entry["replace"].as_array().ok_or("replace list")? {
         let pointer = r["pointer"].as_str().ok_or("pointer")?;
-        *doc.pointer_mut(pointer).ok_or_else(|| format!("{name}: stale pointer {pointer}"))? = r["value"].clone();
+        *doc.pointer_mut(pointer)
+            .ok_or_else(|| format!("{name}: stale pointer {pointer}"))? = r["value"].clone();
     }
     Ok(doc)
 }
@@ -230,7 +269,10 @@ impl Sign<'_> {
     fn headers(self) -> Vec<(String, String)> {
         let hash = self.hash.unwrap_or_else(|| sha(self.payload.as_bytes()));
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, self.secret.as_bytes());
-        let challenge = format!("{}:{}:{}:{}:{hash}:{}", self.id, self.ts, self.method, self.uri, self.nonce);
+        let challenge = format!(
+            "{}:{}:{}:{}:{hash}:{}",
+            self.id, self.ts, self.method, self.uri, self.nonce
+        );
         let mac = hex(ring::hmac::sign(&key, challenge.as_bytes()).as_ref());
         vec![
             ("x-device-timestamp".into(), self.ts),
@@ -247,7 +289,10 @@ struct Step {
     headers: Vec<(String, String)>,
 }
 fn burst(n: usize) -> String {
-    (0..n).map(|i| format!(r#"{{"type":"burst","data":"{i}"}}"#)).collect::<Vec<_>>().join(",")
+    (0..n)
+        .map(|i| format!(r#"{{"type":"burst","data":"{i}"}}"#))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 fn main_nonce(route: &str, kind: &str) -> String {
     match kind {
@@ -266,7 +311,11 @@ fn step(route: &str, kind: &str, s: &Seed, etag: Option<&str>, nonce: &str) -> S
             "prefix-id" => format!("/device/policy?device_id={a}x"),
             _ => format!("/device/policy?device_id={a}"),
         };
-        (if kind == "head" { "HEAD" } else { "GET" }, uri, String::new())
+        (
+            if kind == "head" { "HEAD" } else { "GET" },
+            uri,
+            String::new(),
+        )
     } else {
         let payload = match kind {
             "prelude" => format!(r#"{{"device_id":{a}}}"#),
@@ -275,14 +324,21 @@ fn step(route: &str, kind: &str, s: &Seed, etag: Option<&str>, nonce: &str) -> S
             "malformed-json" => "{bad".to_owned(),
             "invalid-events" => format!(r#"{{"device_id":{a},"events":"os_update"}}"#),
             "null-event" => format!(r#"{{"device_id":{a},"events":[null,{{"type":"crash"}}]}}"#),
-            "folded-keys" => format!(r#"{{"DEVICE_ID":{a},"Events":[{{"TYPE":"os_update","Data":"folded"}}],"Policy_Version":0}}"#),
-            "current-version" => format!(r#"{{"device_id":{a},"policy_version":{}}}"#, etag.unwrap_or("0")),
+            "folded-keys" => format!(
+                r#"{{"DEVICE_ID":{a},"Events":[{{"TYPE":"os_update","Data":"folded"}}],"Policy_Version":0}}"#
+            ),
+            "current-version" => format!(
+                r#"{{"device_id":{a},"policy_version":{}}}"#,
+                etag.unwrap_or("0")
+            ),
             "duplicate-id" => format!(r#"{{"device_id":{b},"device_id":{a},"policy_version":0}}"#),
             "event-cap" => format!(r#"{{"device_id":{a},"events":[{}]}}"#, burst(100)),
             "event-flood" => format!(r#"{{"device_id":{a},"events":[{}]}}"#, burst(101)),
             "fault" => format!(r#"{{"device_id":{a},"events":[{{"type":"gofree341-fail"}}]}}"#),
             "oversize" => format!(r#"{{"device_id":{a},"pad":"{}"}}"#, "x".repeat(70_000)),
-            _ => format!(r#"{{"device_id":{a},"policy_version":0,"events":[{{"type":"os_update","timestamp":"2026-01-02T03:04:05Z","data":"17.1"}},{{"type":"jailbreak_detected","data":"<frida>&"}}]}}"#),
+            _ => format!(
+                r#"{{"device_id":{a},"policy_version":0,"events":[{{"type":"os_update","timestamp":"2026-01-02T03:04:05Z","data":"17.1"}},{{"type":"jailbreak_detected","data":"<frida>&"}}]}}"#
+            ),
         };
         ("POST", "/device/checkin".to_owned(), payload)
     };
@@ -300,7 +356,10 @@ fn step(route: &str, kind: &str, s: &Seed, etag: Option<&str>, nonce: &str) -> S
             .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         _ => now().to_string(),
     };
-    let unsigned = matches!(kind, "missing-proof" | "invalid-input" | "malformed-id" | "malformed-json" | "oversize");
+    let unsigned = matches!(
+        kind,
+        "missing-proof" | "invalid-input" | "malformed-id" | "malformed-json" | "oversize"
+    );
     let mut headers = if unsigned {
         Vec::new()
     } else {
@@ -317,11 +376,18 @@ fn step(route: &str, kind: &str, s: &Seed, etag: Option<&str>, nonce: &str) -> S
         .headers()
     };
     match (kind, etag) {
-        ("not-modified" | "wipe-etag", Some(tag)) => headers.push(("if-none-match".into(), tag.into())),
+        ("not-modified" | "wipe-etag", Some(tag)) => {
+            headers.push(("if-none-match".into(), tag.into()))
+        }
         ("stale-etag", _) => headers.push(("if-none-match".into(), "1".into())),
         _ => {}
     }
-    Step { method, uri, payload, headers }
+    Step {
+        method,
+        uri,
+        payload,
+        headers,
+    }
 }
 
 struct Seed {
@@ -334,15 +400,27 @@ struct Seed {
 impl Seed {
     async fn create(c: &Client, master: &str, kind: &str) -> Result<Self, Err> {
         let residue: i64 = c
-            .query_one("SELECT count(*) FROM device_policy WHERE device_id IS NULL", &[])
+            .query_one(
+                "SELECT count(*) FROM device_policy WHERE device_id IS NULL",
+                &[],
+            )
             .await?
             .get(0);
         if residue != 0 {
-            return Err("org-wide device_policy rows exist; the effective-policy corpus requires none".into());
+            return Err(
+                "org-wide device_policy rows exist; the effective-policy corpus requires none"
+                    .into(),
+            );
         }
         let a = fixture::account(c, "device341-actor").await?;
         let b = fixture::account(c, "device341-foreign").await?;
-        let mut seed = Seed { a, b, dev_a: 0, dev_b: 0, dept: None };
+        let mut seed = Seed {
+            a,
+            b,
+            dev_a: 0,
+            dev_b: 0,
+            dept: None,
+        };
         if let Err(error) = seed.populate(c, master, kind).await {
             seed.cleanup(c).await?;
             return Err(error);
@@ -360,18 +438,44 @@ impl Seed {
         let (plain_a, enc_a, key_a): (Option<&str>, Option<Vec<u8>>, Option<&str>) = match kind {
             "legacy-secret" => (Some(SECRET_A), None, None),
             "unknown-key" => (None, Some(seal(SECRET_A)?), Some("v2")),
-            "corrupt-envelope" => (None, Some(b"gofree341-not-an-envelope".to_vec()), Some("v1")),
+            "corrupt-envelope" => (
+                None,
+                Some(b"gofree341-not-an-envelope".to_vec()),
+                Some("v1"),
+            ),
             "no-secret" => (None, None, None),
             _ => (None, Some(seal(SECRET_A)?), Some("v1")),
         };
         let enc_b = Some(seal(SECRET_B)?);
         let insert = "INSERT INTO devices(user_id,device_name,platform,os_version,app_version,fingerprint,hmac_secret,hmac_secret_enc,hmac_secret_key_id,last_seen) VALUES($1,$2,'ios','17.0','1.0.0',$3,$4,$5,$6,$7::text::timestamptz) RETURNING id";
         self.dev_a = c
-            .query_one(insert, &[&self.a.user, &"Oracle device A", &"gofree341-fingerprint-a-0123456789abcdef", &plain_a, &enc_a, &key_a, &SEEDED_SEEN])
+            .query_one(
+                insert,
+                &[
+                    &self.a.user,
+                    &"Oracle device A",
+                    &"gofree341-fingerprint-a-0123456789abcdef",
+                    &plain_a,
+                    &enc_a,
+                    &key_a,
+                    &SEEDED_SEEN,
+                ],
+            )
             .await?
             .get(0);
         self.dev_b = c
-            .query_one(insert, &[&self.b.user, &"Oracle device B", &"gofree341-fingerprint-b-0123456789abcdef", &None::<&str>, &enc_b, &Some("v1"), &SEEDED_SEEN])
+            .query_one(
+                insert,
+                &[
+                    &self.b.user,
+                    &"Oracle device B",
+                    &"gofree341-fingerprint-b-0123456789abcdef",
+                    &None::<&str>,
+                    &enc_b,
+                    &Some("v1"),
+                    &SEEDED_SEEN,
+                ],
+            )
             .await?
             .get(0);
         c.execute(
@@ -381,10 +485,18 @@ impl Seed {
         .await?;
         match kind {
             "revoked" => {
-                c.execute("UPDATE devices SET enroll_state='revoked',revoked_at=now() WHERE id=$1", &[&self.dev_a]).await?;
+                c.execute(
+                    "UPDATE devices SET enroll_state='revoked',revoked_at=now() WHERE id=$1",
+                    &[&self.dev_a],
+                )
+                .await?;
             }
             "wipe" => {
-                c.execute("UPDATE devices SET wipe_requested=true WHERE id=$1", &[&self.dev_a]).await?;
+                c.execute(
+                    "UPDATE devices SET wipe_requested=true WHERE id=$1",
+                    &[&self.dev_a],
+                )
+                .await?;
             }
             "nonce-purge" => {
                 c.execute(
@@ -402,7 +514,11 @@ impl Seed {
                     .await?
                     .get(0);
                 self.dept = Some(dept);
-                c.execute("UPDATE users SET department_id=$1 WHERE id=$2", &[&dept, &self.a.user]).await?;
+                c.execute(
+                    "UPDATE users SET department_id=$1 WHERE id=$2",
+                    &[&dept, &self.a.user],
+                )
+                .await?;
                 c.execute(
                     "INSERT INTO device_policy_groups(group_type,group_id,policy_key,policy_value) VALUES('department',$1,'gofree341_layer','group'),('department',$1,'gofree341_group_only','d')",
                     &[&dept],
@@ -421,10 +537,16 @@ impl Seed {
     fn mask(&self, text: &str) -> String {
         let mut out = text.to_owned();
         for (id, label) in [(self.dev_a, "device-a"), (self.dev_b, "device-b")] {
-            out = out.replace(&format!("\"device_id\":\"{id}\""), &format!("\"device_id\":\"<{label}-text>\""));
+            out = out.replace(
+                &format!("\"device_id\":\"{id}\""),
+                &format!("\"device_id\":\"<{label}-text>\""),
+            );
             for key in ["device_id", "DEVICE_ID"] {
                 for end in [",", "}"] {
-                    out = out.replace(&format!("\"{key}\":{id}{end}"), &format!("\"{key}\":\"<{label}>\"{end}"));
+                    out = out.replace(
+                        &format!("\"{key}\":{id}{end}"),
+                        &format!("\"{key}\":\"<{label}>\"{end}"),
+                    );
                 }
             }
         }
@@ -464,8 +586,13 @@ impl Seed {
         c.batch_execute("DROP TRIGGER IF EXISTS gofree341_event_fail ON device_events;DROP FUNCTION IF EXISTS public.gofree341_event_fail()").await?;
         c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM device_auth_nonces WHERE device_id IN ({ids});DELETE FROM device_events WHERE device_id IN ({ids});DELETE FROM device_policy WHERE device_id IN ({ids}) OR (device_id IS NULL AND policy_key LIKE 'gofree341\\_%');DELETE FROM device_policy_groups WHERE policy_key LIKE 'gofree341\\_%';DELETE FROM devices WHERE id IN ({ids});COMMIT;")).await?;
         if let Some(dept) = self.dept {
-            c.execute("UPDATE users SET department_id=NULL WHERE id=$1", &[&self.a.user]).await?;
-            c.execute("DELETE FROM departments WHERE id=$1", &[&dept]).await?;
+            c.execute(
+                "UPDATE users SET department_id=NULL WHERE id=$1",
+                &[&self.a.user],
+            )
+            .await?;
+            c.execute("DELETE FROM departments WHERE id=$1", &[&dept])
+                .await?;
         }
         fixture::remove(c, &self.a).await?;
         fixture::remove(c, &self.b).await?;
@@ -475,28 +602,53 @@ impl Seed {
 
 async fn run(route: &'static str, kind: &'static str, mutant: bool) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
-    let Some(db) = Db::for_case("DEVICE341-http") else { return Ok(()) };
+    let Some(db) = Db::for_case("DEVICE341-http") else {
+        return Ok(());
+    };
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
     assert!(!mutant || record.is_none(), "mutants cannot record");
-    let app = db
-        .app
-        .clone()
-        .ok_or("DB_APP_DSN is required: Go's heartbeat UPDATE is recorded under the runtime credential")?;
+    let app = db.app.clone().ok_or(
+        "DB_APP_DSN is required: Go's heartbeat UPDATE is recorded under the runtime credential",
+    )?;
     let c = db.connect().await?;
-    c.query_one("SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))", &[]).await?;
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await?;
     let result = exercise(&c, &app, route, kind, mutant, record).await;
-    c.query_one("SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))", &[]).await?;
+    c.query_one(
+        "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await?;
     result
 }
-async fn exercise(c: &Client, app: &str, route: &'static str, kind: &'static str, mutant: bool, record: Option<String>) -> Result<(), Err> {
+async fn exercise(
+    c: &Client,
+    app: &str,
+    route: &'static str,
+    kind: &'static str,
+    mutant: bool,
+    record: Option<String>,
+) -> Result<(), Err> {
     common::signing_key(c).await;
     let receipts = common::receipt_ids(c).await;
-    let keys: Value = serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
-    let master = keys["secret"].as_str().ok_or("keys.json secret")?.to_owned();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))?;
+    let master = keys["secret"]
+        .as_str()
+        .ok_or("keys.json secret")?
+        .to_owned();
     let seed = Seed::create(c, &master, kind).await?;
     let outcome = async {
         let exec = setjoin_pg::ScopedExecutor::from_dsn(app, 4).map_err(|e| e.0)?;
-        let auth = auth_server(Arc::new(AuthServer::load(exec, Config::for_secret(master.clone())).await?), mutant).await;
+        let auth = auth_server(
+            Arc::new(AuthServer::load(exec, Config::for_secret(master.clone())).await?),
+            mutant,
+        )
+        .await;
         let gw = gateway(auth.addr, record.clone()).await;
         let observed = observe(c, &seed, gw.addr, route, kind, mutant, record.as_deref()).await;
         gw.close().await;
@@ -508,8 +660,20 @@ async fn exercise(c: &Client, app: &str, route: &'static str, kind: &'static str
     common::restore_receipts(c, &receipts).await;
     outcome.and(cleaned)
 }
-async fn observe(c: &Client, s: &Seed, addr: std::net::SocketAddr, route: &'static str, kind: &'static str, mutant: bool, record: Option<&str>) -> Result<(), Err> {
-    let (method, path) = if route == "policy" { ("GET", "/device/policy") } else { ("POST", "/device/checkin") };
+async fn observe(
+    c: &Client,
+    s: &Seed,
+    addr: std::net::SocketAddr,
+    route: &'static str,
+    kind: &'static str,
+    mutant: bool,
+    record: Option<&str>,
+) -> Result<(), Err> {
+    let (method, path) = if route == "policy" {
+        ("GET", "/device/policy")
+    } else {
+        ("POST", "/device/checkin")
+    };
     let route_name = format!("{method} {path}");
     let go_source = go_source(record.is_some())?;
     let nonce = main_nonce(route, kind);
@@ -522,9 +686,14 @@ async fn observe(c: &Client, s: &Seed, addr: std::net::SocketAddr, route: &'stat
     let mut prelude = None;
     let mut etag = None;
     if let Some(prelude_route) = prelude_route {
-        let prelude_nonce = if kind == "cross-endpoint-nonce" { nonce.clone() } else { format!("{nonce}-prelude") };
+        let prelude_nonce = if kind == "cross-endpoint-nonce" {
+            nonce.clone()
+        } else {
+            format!("{nonce}-prelude")
+        };
         let p = step(prelude_route, "prelude", s, None, &prelude_nonce);
-        let (status, headers, raw) = request(addr, p.method, &p.uri, &p.payload, &p.headers).await?;
+        let (status, headers, raw) =
+            request(addr, p.method, &p.uri, &p.payload, &p.headers).await?;
         let tag = headers
             .get("etag")
             .and_then(Value::as_str)
@@ -534,13 +703,18 @@ async fn observe(c: &Client, s: &Seed, addr: std::net::SocketAddr, route: &'stat
         prelude = Some(json!({"status":status,"headers":headers,"body":s.response(&raw)?}));
         etag = Some(tag);
         if kind == "wipe-etag" {
-            c.execute("UPDATE devices SET wipe_requested=true WHERE id=$1", &[&s.dev_a]).await?;
+            c.execute(
+                "UPDATE devices SET wipe_requested=true WHERE id=$1",
+                &[&s.dev_a],
+            )
+            .await?;
         }
     }
     let p = step(route, kind, s, etag.as_deref(), &nonce);
     let (status, headers, raw) = request(addr, p.method, &p.uri, &p.payload, &p.headers).await?;
     let repeat = if kind == "repeat" {
-        let (status, headers, raw) = request(addr, p.method, &p.uri, &p.payload, &p.headers).await?;
+        let (status, headers, raw) =
+            request(addr, p.method, &p.uri, &p.payload, &p.headers).await?;
         Some(json!({"status":status,"headers":headers,"body":s.response(&raw)?}))
     } else {
         None
@@ -549,7 +723,9 @@ async fn observe(c: &Client, s: &Seed, addr: std::net::SocketAddr, route: &'stat
     let (request_path, query) = p
         .uri
         .split_once('?')
-        .map_or((p.uri.as_str(), None), |(path, query)| (path, Some(s.mask_query(query))));
+        .map_or((p.uri.as_str(), None), |(path, query)| {
+            (path, Some(s.mask_query(query)))
+        });
     let mut actual = json!({"format":1,"go_source":go_source,"route":route_name,"case":format!("{route}-{kind}"),
         "observation":{"request":{"method":method,"path":request_path,"query":query,"body":s.mask(&p.payload)},
         "response":{"status":status,"headers":headers,"body":s.response(&raw)?},"effects":after,"audit":[],"notify":[]}});
@@ -580,7 +756,9 @@ async fn observe(c: &Client, s: &Seed, addr: std::net::SocketAddr, route: &'stat
     }
     let expected = expected(&file, record.is_some())?;
     if mutant {
-        let error = golden::compare(&expected, &actual).err().ok_or("planted mutant survived its oracle")?;
+        let error = golden::compare(&expected, &actual)
+            .err()
+            .ok_or("planted mutant survived its oracle")?;
         if !error.contains("/observation/response/status") {
             return Err(format!("wrong mutant rejection: {error}").into());
         }

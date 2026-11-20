@@ -50,7 +50,10 @@ impl Effective {
             Some(Value::Bool(b)) => *b,
             Some(_) => return None,
         };
-        Some(Self { policies, wipe_requested })
+        Some(Self {
+            policies,
+            wipe_requested,
+        })
     }
 
     /// Frozen `policyVersion`: FNV-1a 64 over sorted keys, each key and value
@@ -78,7 +81,10 @@ impl Effective {
 pub async fn effective_policy(exec: &ScopedExecutor, device: &VerifiedDevice) -> Option<Effective> {
     let id = device.id();
     let rows = exec
-        .read("SELECT mdm_effective_policy($1)::text", &[(&id, Type::INT8)])
+        .read(
+            "SELECT mdm_effective_policy($1)::text",
+            &[(&id, Type::INT8)],
+        )
         .await
         .ok()?;
     Effective::decode(&rows.first()?.get::<_, Option<String>>(0)?)
@@ -87,7 +93,11 @@ pub async fn effective_policy(exec: &ScopedExecutor, device: &VerifiedDevice) ->
 /// POST /device/checkin effects in one acknowledged transaction: the reducer
 /// and its receipt commit together, COMMIT is sent only after both succeed
 /// inside the statement deadline, so a client timeout can never commit late.
-pub async fn checkin(exec: &ScopedExecutor, device: &VerifiedDevice, events: &[Event]) -> Result<Effective, CheckinError> {
+pub async fn checkin(
+    exec: &ScopedExecutor,
+    device: &VerifiedDevice,
+    events: &[Event],
+) -> Result<Effective, CheckinError> {
     let id = device.id();
     let events = Value::Array(
         events
@@ -100,14 +110,19 @@ pub async fn checkin(exec: &ScopedExecutor, device: &VerifiedDevice, events: &[E
         .run_protocol_command(
             &format!("device:{id}"),
             OperationId(*uuid::Uuid::new_v4().as_bytes()),
-            setjoin_pg::ReceiptCommand { family: "F21", command: "device-checkin" },
+            setjoin_pg::ReceiptCommand {
+                family: "F21",
+                command: "device-checkin",
+            },
             "SELECT rust_device_checkin($1,$2::text::jsonb)::text",
             &[(&id, Type::INT8), (&events, Type::TEXT)],
             |rows| Ok(rows.first().and_then(|r| r.get::<_, Option<String>>(0))),
         )
         .await;
     match outcome {
-        CommandOutcome::Committed(Some(text)) => Effective::decode(&text).ok_or(CheckinError::Failed),
+        CommandOutcome::Committed(Some(text)) => {
+            Effective::decode(&text).ok_or(CheckinError::Failed)
+        }
         CommandOutcome::Unknown { operation } => Err(CheckinError::Unknown(operation)),
         _ => Err(CheckinError::Failed),
     }
@@ -134,7 +149,10 @@ mod tests {
     use super::*;
     fn effective(pairs: &[(&str, &str)], wipe: bool) -> Effective {
         Effective {
-            policies: pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+            policies: pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
             wipe_requested: wipe,
         }
     }
@@ -142,12 +160,35 @@ mod tests {
     fn policy_version_is_go_fnv_content_hash() {
         assert_eq!(effective(&[], false).version(), -5808590958014384161);
         assert_eq!(effective(&[], true).version(), -5808592057526012372);
-        let base = effective(&[("lock_timeout", "300"), ("wipe_on_jailbreak", "true")], false);
+        let base = effective(
+            &[("lock_timeout", "300"), ("wipe_on_jailbreak", "true")],
+            false,
+        );
         assert_eq!(base.version(), -6696073713852873232);
-        assert_ne!(effective(&[("lock_timeout", "300"), ("wipe_on_jailbreak", "fals")], false).version(), base.version());
-        assert_ne!(effective(&[("lock_timeout", "300")], false).version(), base.version());
-        assert_ne!(effective(&[("ab", "c")], false).version(), effective(&[("a", "bc")], false).version());
-        assert_ne!(effective(&[("lock_timeout", "300"), ("wipe_on_jailbreak", "true")], true).version(), base.version());
+        assert_ne!(
+            effective(
+                &[("lock_timeout", "300"), ("wipe_on_jailbreak", "fals")],
+                false
+            )
+            .version(),
+            base.version()
+        );
+        assert_ne!(
+            effective(&[("lock_timeout", "300")], false).version(),
+            base.version()
+        );
+        assert_ne!(
+            effective(&[("ab", "c")], false).version(),
+            effective(&[("a", "bc")], false).version()
+        );
+        assert_ne!(
+            effective(
+                &[("lock_timeout", "300"), ("wipe_on_jailbreak", "true")],
+                true
+            )
+            .version(),
+            base.version()
+        );
     }
     #[test]
     fn evaluator_payload_decodes_like_go() {
@@ -155,7 +196,10 @@ mod tests {
             Effective::decode(r#"{"policies":{"b":"2","a":"1"},"wipe_requested":true}"#),
             Some(effective(&[("a", "1"), ("b", "2")], true))
         );
-        assert_eq!(Effective::decode(r#"{"policies":null}"#), Some(effective(&[], false)));
+        assert_eq!(
+            Effective::decode(r#"{"policies":null}"#),
+            Some(effective(&[], false))
+        );
         assert_eq!(Effective::decode(r#"{"policies":{"a":1}}"#), None);
     }
     #[test]
@@ -163,7 +207,10 @@ mod tests {
         let t = go_now();
         let body = t.strip_suffix('Z').expect("UTC");
         if let Some((_, frac)) = body.split_once('.') {
-            assert!(!frac.is_empty() && !frac.ends_with('0') && frac.len() <= 9, "{t}");
+            assert!(
+                !frac.is_empty() && !frac.ends_with('0') && frac.len() <= 9,
+                "{t}"
+            );
         }
     }
 }
