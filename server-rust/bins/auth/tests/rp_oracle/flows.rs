@@ -194,9 +194,12 @@ impl Env {
         self.idp.close().await;
         match self.old {
             Some(row) => {
+                // Extract value as JSONB so a JSON null survives row restoration.
                 self.c
                     .execute(
-                        "INSERT INTO system_config SELECT * FROM jsonb_populate_record(NULL::system_config,$1::text::jsonb)
+                        "INSERT INTO system_config(key,value,encrypted,description,updated_at,updated_by)
+                         SELECT saved.key,$1::text::jsonb -> 'value',saved.encrypted,saved.description,saved.updated_at,saved.updated_by
+                         FROM jsonb_populate_record(NULL::system_config,$1::text::jsonb) AS saved
                          ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=excluded.encrypted,
                            description=excluded.description,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
                         &[&row],

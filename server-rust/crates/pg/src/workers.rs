@@ -289,8 +289,29 @@ pub struct DirectListener {
     driver: Option<tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>>,
 }
 
+// Run the callback on task cancellation as well as normal driver exit.
+struct NotifyDisconnect<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> Drop for NotifyDisconnect<F> {
+    fn drop(&mut self) {
+        if let Some(notify) = self.0.take() {
+            notify();
+        }
+    }
+}
+
 impl DirectListener {
     pub async fn connect(direct_dsn: &str, channel: &str) -> Result<Self, Error> {
+        Self::connect_with_disconnect(direct_dsn, channel, || {}).await
+    }
+
+    /// Invoke the callback when the driver exits or is dropped, independently of
+    /// when the receiver drains queued notifications.
+    pub async fn connect_with_disconnect(
+        direct_dsn: &str,
+        channel: &str,
+        on_disconnect: impl FnOnce() + Send + 'static,
+    ) -> Result<Self, Error> {
         if channel.is_empty()
             || !channel
                 .bytes()
@@ -304,25 +325,29 @@ impl DirectListener {
         }
         let (client, mut connection) = tokio_postgres::connect(direct_dsn, NoTls).await?;
         let (send, notifications) = mpsc::unbounded_channel();
+        let disconnect = NotifyDisconnect(Some(on_disconnect));
         let driver = tokio::spawn(async move {
-            while let Some(message) = poll_fn(|cx| connection.poll_message(cx)).await {
-                match message? {
-                    AsyncMessage::Notification(notification) => {
+            let disconnect = disconnect;
+            let result = loop {
+                match poll_fn(|cx| connection.poll_message(cx)).await {
+                    Some(Ok(AsyncMessage::Notification(notification))) => {
                         let _ = send.send(notification);
                     }
-                    _ => {}
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => break Err(error),
+                    None => break Ok(()),
                 }
-            }
-            Ok(())
+            };
+            drop(disconnect);
+            result
         });
-        client
-            .batch_execute(&format!("LISTEN \"{channel}\""))
-            .await?;
-        Ok(Self {
+        let listener = Self {
             client: Some(client),
             notifications,
             driver: Some(driver),
-        })
+        };
+        listener.listen(channel).await?;
+        Ok(listener)
     }
 
     /// Add a trusted dispatcher channel on this same direct connection.

@@ -454,8 +454,9 @@ SSO revocation (#394, following #359): auth starts the SAML and OIDC RP
 independent of `RUST_WORKERS_ON` and `GO_WORKERS_OFF`. These process-local caches
 subscribe over DB_DIRECT_DSN, reload on change and reconcile after reconnect.
 A failed subscription, detected disconnect, or reload error clears cached trust
-until a fully successful reload. Library embeddings with their own HTTP serving
-loop start and retain the corresponding listener.
+until a fully successful reload. The connection driver evicts trust on exit, and
+only the current live connection epoch can publish a reload. Library embeddings
+with their own HTTP serving loop start and retain the corresponding listener.
 `saml_worker` deletes an IdP while the real binary runs with empty worker flags.
 `rp_oracle` checks live provider deletion through the gateway.
 

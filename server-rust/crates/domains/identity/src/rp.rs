@@ -19,13 +19,14 @@ use openidconnect::{
     PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
 };
 use serde::Deserialize;
+use crate::sso_cache::Cache;
 use setjoin_pg::ScopedExecutor;
 use std::{
     collections::BTreeMap,
     future::Future,
     io,
     pin::Pin,
-    sync::{Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -297,7 +298,7 @@ pub struct Registry {
     master: Vec<u8>,
     transport: Transport,
     reload: tokio::sync::Mutex<()>,
-    providers: RwLock<BTreeMap<String, Arc<Provider>>>,
+    providers: Arc<Cache<Provider>>,
 }
 impl Registry {
     pub async fn load(exec: ScopedExecutor, master: &[u8], http: Arc<dyn Http>) -> Arc<Self> {
@@ -306,7 +307,7 @@ impl Registry {
             master: master.to_vec(),
             transport: Transport(http),
             reload: tokio::sync::Mutex::new(()),
-            providers: RwLock::new(BTreeMap::new()),
+            providers: Arc::new(Cache::default()),
         });
         if let Err(error) = registry.reload().await {
             eprintln!("OIDC reload failed: {error}");
@@ -314,18 +315,23 @@ impl Registry {
         registry
     }
     pub fn provider(&self, name: &str) -> Option<Arc<Provider>> {
-        self.providers.read().unwrap().get(name).cloned()
+        self.providers.get(name)
     }
-    /// Atomically replace the complete authoritative healthy subset, even on error.
+    /// Reload the registry. A watched registry requires a complete, live snapshot.
     pub async fn reload(&self) -> Result<(), String> {
-        self.reload_snapshot(true).await
+        self.reload_snapshot(None).await
     }
 
     // Listener reconciliation publishes only a fully successful snapshot.
-    async fn reload_snapshot(&self, allow_partial: bool) -> Result<(), String> {
+    async fn reload_snapshot(&self, epoch: Option<u64>) -> Result<(), String> {
         let _guard = self.reload.lock().await;
+        let reload = self.providers.start_reload(epoch)?;
         let rows=match self.exec.read("SELECT key,value::text,encrypted FROM system_config WHERE key LIKE 'oidc_provider_%_config' ORDER BY key",&[]).await{
-            Ok(rows)=>rows,Err(e)=>{self.providers.write().unwrap().clear();return Err(e.message);}
+            Ok(rows) => rows,
+            Err(error) => {
+                self.providers.publish(reload, BTreeMap::new())?;
+                return Err(error.message);
+            }
         };
         let mut providers = BTreeMap::new();
         let mut errors = Vec::new();
@@ -418,11 +424,12 @@ impl Registry {
                 Err(error) => errors.push(format!("{key}: {error}")),
             }
         }
-        *self.providers.write().unwrap() = if allow_partial || errors.is_empty() {
+        let providers = if reload.allow_partial || errors.is_empty() {
             providers
         } else {
             BTreeMap::new()
         };
+        self.providers.publish(reload, providers)?;
         if errors.is_empty() {
             Ok(())
         } else {

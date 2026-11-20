@@ -1,6 +1,5 @@
 //! OIDC RP cache invalidation over direct LISTEN credentials.
 use super::*;
-use setjoin_pg::workers::DirectListener;
 pub struct Listener(tokio::task::JoinHandle<()>);
 impl Drop for Listener {
     fn drop(&mut self) {
@@ -20,52 +19,50 @@ fn relevant(key: &str) -> bool {
 impl Registry {
     pub async fn listen(self: &Arc<Self>, direct_dsn: &str) -> Listener {
         // Subscribe before the authoritative read, closing the load→LISTEN gap.
-        let mut initial = DirectListener::connect(direct_dsn, "config_changed")
-            .await
-            .ok();
-        if initial.is_none() {
-            self.providers.write().unwrap().clear();
-        } else if let Err(e) = self.reload_snapshot(false).await {
-            eprintln!("oidc_rp initial reconcile: {e}");
-            initial = None;
-        }
+        let initial = match self.providers.connect(direct_dsn).await {
+            Ok((listener, epoch)) => match self.reload_snapshot(Some(epoch)).await {
+                Ok(()) => Some((listener, epoch)),
+                Err(error) => {
+                    eprintln!("oidc_rp initial reconcile: {error}");
+                    None
+                }
+            },
+            Err(error) => {
+                eprintln!("oidc_rp LISTEN: {error}");
+                None
+            }
+        };
         let registry = self.clone();
         let dsn = direct_dsn.to_owned();
         Listener(tokio::spawn(async move {
             let mut current = initial;
             loop {
-                let mut listener = match current.take() {
+                let (mut listener, epoch) = match current.take() {
                     Some(l) => l,
-                    None => match DirectListener::connect(&dsn, "config_changed").await {
-                        Ok(l) => {
-                            if let Err(e) = registry.reload_snapshot(false).await {
+                    None => match registry.providers.connect(&dsn).await {
+                        Ok((listener, epoch)) => {
+                            if let Err(e) = registry.reload_snapshot(Some(epoch)).await {
                                 eprintln!("oidc_rp reconnect reconcile: {e}");
-                                drop(l);
+                                drop(listener);
                                 tokio::time::sleep(Duration::from_secs(5)).await;
                                 continue;
                             }
-                            l
+                            (listener, epoch)
                         }
                         Err(e) => {
-                            registry.providers.write().unwrap().clear();
                             eprintln!("oidc_rp LISTEN: {e}");
                             tokio::time::sleep(Duration::from_secs(5)).await;
                             continue;
                         }
                     },
                 };
-                loop {
-                    let Some(n) = listener.recv().await else {
-                        // Refuse cached trust before reconnecting or fetching IdP metadata.
-                        registry.providers.write().unwrap().clear();
-                        break;
-                    };
+                while let Some(n) = listener.recv().await {
                     if serde_json::from_str::<serde_json::Value>(n.payload())
                         .ok()
                         .and_then(|v| v["key"].as_str().map(relevant))
                         .unwrap_or(false)
                     {
-                        if let Err(e) = registry.reload_snapshot(false).await {
+                        if let Err(e) = registry.reload_snapshot(Some(epoch)).await {
                             eprintln!("oidc_rp reconcile: {e}");
                             break;
                         }

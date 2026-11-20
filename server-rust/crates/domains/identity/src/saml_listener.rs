@@ -1,6 +1,5 @@
 //! SAML SP cache invalidation over direct LISTEN credentials.
 use super::*;
-use setjoin_pg::workers::DirectListener;
 use std::time::Duration;
 pub struct Listener(tokio::task::JoinHandle<()>);
 impl Drop for Listener {
@@ -17,51 +16,49 @@ fn relevant(key: &str) -> bool {
 impl Registry {
     pub async fn listen(self: &Arc<Self>, direct_dsn: &str) -> Listener {
         // Subscribe before the authoritative read, closing the load→LISTEN gap.
-        let mut initial = DirectListener::connect(direct_dsn, "config_changed")
-            .await
-            .ok();
-        if initial.is_none() {
-            self.entries.write().unwrap().clear();
-        } else if let Err(e) = self.reload_snapshot(false).await {
-            eprintln!("saml_sp initial reconcile: {e}");
-            initial = None;
-        }
+        let initial = match self.entries.connect(direct_dsn).await {
+            Ok((listener, epoch)) => match self.reload_snapshot(Some(epoch)).await {
+                Ok(()) => Some((listener, epoch)),
+                Err(error) => {
+                    eprintln!("saml_sp initial reconcile: {error}");
+                    None
+                }
+            },
+            Err(error) => {
+                eprintln!("saml_sp LISTEN: {error}");
+                None
+            }
+        };
         let registry = self.clone();
         let dsn = direct_dsn.to_owned();
         Listener(tokio::spawn(async move {
             let mut current = initial;
             loop {
-                let mut listener = match current.take() {
+                let (mut listener, epoch) = match current.take() {
                     Some(l) => l,
-                    None => match DirectListener::connect(&dsn, "config_changed").await {
-                        Ok(l) => {
-                            if let Err(e) = registry.reload_snapshot(false).await {
+                    None => match registry.entries.connect(&dsn).await {
+                        Ok((listener, epoch)) => {
+                            if let Err(e) = registry.reload_snapshot(Some(epoch)).await {
                                 eprintln!("saml_sp reconnect reconcile: {e}");
-                                drop(l);
+                                drop(listener);
                                 tokio::time::sleep(Duration::from_secs(5)).await;
                                 continue;
                             }
-                            l
+                            (listener, epoch)
                         }
                         Err(e) => {
-                            registry.entries.write().unwrap().clear();
                             eprintln!("saml_sp LISTEN: {e}");
                             tokio::time::sleep(Duration::from_secs(5)).await;
                             continue;
                         }
                     },
                 };
-                loop {
-                    let Some(n) = listener.recv().await else {
-                        // Refuse cached trust before reconnecting or fetching IdP metadata.
-                        registry.entries.write().unwrap().clear();
-                        break;
-                    };
+                while let Some(n) = listener.recv().await {
                     if config_change(n.payload())
                         .map(|key| relevant(&key))
                         .unwrap_or(false)
                     {
-                        if let Err(e) = registry.reload_snapshot(false).await {
+                        if let Err(e) = registry.reload_snapshot(Some(epoch)).await {
                             eprintln!("saml_sp reconcile: {e}");
                             break;
                         }

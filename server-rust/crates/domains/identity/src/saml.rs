@@ -6,11 +6,12 @@ use base64::{
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{json, Value};
+use crate::sso_cache::Cache;
 use setjoin_pg::ScopedExecutor;
 use std::{
     collections::BTreeMap,
     io::Write,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 pub const REDIRECT: &str = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect";
 pub const POST: &str = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST";
@@ -120,7 +121,7 @@ pub struct Registry {
     encryption_key: String,
     key: Arc<Key>,
     http: Arc<dyn crate::rp::Http>,
-    entries: RwLock<BTreeMap<String, Arc<Registration>>>,
+    entries: Arc<Cache<Registration>>,
     reload: tokio::sync::Mutex<()>,
 }
 impl Registry {
@@ -141,7 +142,7 @@ impl Registry {
             encryption_key: encryption_key.to_owned(),
             key: Arc::new(key),
             http,
-            entries: RwLock::new(BTreeMap::new()),
+            entries: Arc::new(Cache::default()),
             reload: tokio::sync::Mutex::new(()),
         });
         if let Err(error) = registry.reload().await {
@@ -150,23 +151,25 @@ impl Registry {
         Ok(registry)
     }
     pub fn registration(&self, name: &str) -> Option<Arc<Registration>> {
-        self.entries.read().unwrap().get(name).cloned()
+        self.entries.get(name)
     }
     pub async fn reload(&self) -> Result<(), String> {
-        self.reload_snapshot(true).await
+        self.reload_snapshot(None).await
     }
 
     // Listener reconciliation publishes only a fully successful snapshot.
-    async fn reload_snapshot(&self, allow_partial: bool) -> Result<(), String> {
+    async fn reload_snapshot(&self, epoch: Option<u64>) -> Result<(), String> {
         let _lock = self.reload.lock().await;
+        let reload = self.entries.start_reload(epoch)?;
         let result = self.load_entries().await;
         match result {
             Ok((entries, errors)) => {
-                *self.entries.write().unwrap() = if allow_partial || errors.is_empty() {
+                let entries = if reload.allow_partial || errors.is_empty() {
                     entries
                 } else {
                     BTreeMap::new()
                 };
+                self.entries.publish(reload, entries)?;
                 if errors.is_empty() {
                     Ok(())
                 } else {
@@ -174,7 +177,7 @@ impl Registry {
                 }
             }
             Err(e) => {
-                self.entries.write().unwrap().clear();
+                self.entries.publish(reload, BTreeMap::new())?;
                 Err(e)
             }
         }

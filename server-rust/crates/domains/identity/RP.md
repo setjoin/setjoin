@@ -42,9 +42,10 @@ Independent auth-event/sign-in/session tails retain Go's ordering and pwd method
 `Registry::listen` owns one abort-on-drop task and direct LISTEN connection. It
 subscribes before every authoritative reconciliation, filters Go's config keys,
 and reconciles after reconnect. A failed subscription, detected disconnect, or
-reload error clears cached providers until a fully successful reload. Auth
-starts the listener whenever the RP registry is loaded, independently of worker
-transfer flags (#394). Library embeddings with their own HTTP serving loop start
+reload error clears cached providers until a fully successful reload. The
+connection driver evicts trust on exit, and reload publication requires the
+same live connection epoch. Auth starts the listener whenever the RP registry
+is loaded, independently of worker transfer flags (#394). Library embeddings with their own HTTP serving loop start
 and retain it explicitly. `rp_oracle` checks that deleting a provider produces
 the expected refusal while auth is running.
 
