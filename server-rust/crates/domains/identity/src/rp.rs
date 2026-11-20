@@ -297,8 +297,7 @@ pub struct Registry {
     exec: ScopedExecutor,
     master: Vec<u8>,
     transport: Transport,
-    reload: tokio::sync::Mutex<()>,
-    providers: Arc<Cache<Provider>>,
+    providers: Cache<Provider>,
 }
 impl Registry {
     pub async fn load(exec: ScopedExecutor, master: &[u8], http: Arc<dyn Http>) -> Arc<Self> {
@@ -306,8 +305,7 @@ impl Registry {
             exec,
             master: master.to_vec(),
             transport: Transport(http),
-            reload: tokio::sync::Mutex::new(()),
-            providers: Arc::new(Cache::default()),
+            providers: Cache::default(),
         });
         if let Err(error) = registry.reload().await {
             eprintln!("OIDC reload failed: {error}");
@@ -318,21 +316,17 @@ impl Registry {
         self.providers.get(name)
     }
     /// Reload the registry. A watched registry requires a complete, live snapshot.
-    pub async fn reload(&self) -> Result<(), String> {
-        self.reload_snapshot(None).await
+    pub fn reload(&self) -> impl Future<Output = Result<(), String>> + '_ {
+        self.providers.reload(self.load_providers())
     }
 
-    // Listener reconciliation publishes only a fully successful snapshot.
-    async fn reload_snapshot(&self, epoch: Option<u64>) -> Result<(), String> {
-        let _guard = self.reload.lock().await;
-        let reload = self.providers.start_reload(epoch)?;
-        let rows=match self.exec.read("SELECT key,value::text,encrypted FROM system_config WHERE key LIKE 'oidc_provider_%_config' ORDER BY key",&[]).await{
-            Ok(rows) => rows,
-            Err(error) => {
-                self.providers.publish(reload, BTreeMap::new())?;
-                return Err(error.message);
-            }
-        };
+    async fn load_providers(
+        &self,
+    ) -> Result<(BTreeMap<String, Arc<Provider>>, Vec<String>), String> {
+        let rows = self.exec.read(
+            "SELECT key,value::text,encrypted FROM system_config WHERE key LIKE 'oidc_provider_%_config' ORDER BY key",
+            &[],
+        ).await.map_err(|error| error.message)?;
         let mut providers = BTreeMap::new();
         let mut errors = Vec::new();
         for row in rows {
@@ -424,17 +418,7 @@ impl Registry {
                 Err(error) => errors.push(format!("{key}: {error}")),
             }
         }
-        let providers = if reload.allow_partial || errors.is_empty() {
-            providers
-        } else {
-            BTreeMap::new()
-        };
-        self.providers.publish(reload, providers)?;
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors.join("; "))
-        }
+        Ok((providers, errors))
     }
 }
 fn open_secret(raw: &str, master: &[u8]) -> Result<String, String> {

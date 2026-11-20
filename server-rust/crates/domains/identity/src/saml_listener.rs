@@ -14,10 +14,16 @@ fn relevant(key: &str) -> bool {
     false
 }
 impl Registry {
+    async fn reconcile(&self, epoch: u64) -> Result<(), String> {
+        self.entries
+            .reload_snapshot(epoch, self.load_entries())
+            .await
+    }
+
     pub async fn listen(self: &Arc<Self>, direct_dsn: &str) -> Listener {
         // Subscribe before the authoritative read, closing the load→LISTEN gap.
         let initial = match self.entries.connect(direct_dsn).await {
-            Ok((listener, epoch)) => match self.reload_snapshot(Some(epoch)).await {
+            Ok((listener, epoch)) => match self.reconcile(epoch).await {
                 Ok(()) => Some((listener, epoch)),
                 Err(error) => {
                     eprintln!("saml_sp initial reconcile: {error}");
@@ -38,7 +44,7 @@ impl Registry {
                     Some(l) => l,
                     None => match registry.entries.connect(&dsn).await {
                         Ok((listener, epoch)) => {
-                            if let Err(e) = registry.reload_snapshot(Some(epoch)).await {
+                            if let Err(e) = registry.reconcile(epoch).await {
                                 eprintln!("saml_sp reconnect reconcile: {e}");
                                 drop(listener);
                                 tokio::time::sleep(Duration::from_secs(5)).await;
@@ -58,7 +64,7 @@ impl Registry {
                         .map(|key| relevant(&key))
                         .unwrap_or(false)
                     {
-                        if let Err(e) = registry.reload_snapshot(Some(epoch)).await {
+                        if let Err(e) = registry.reconcile(epoch).await {
                             eprintln!("saml_sp reconcile: {e}");
                             break;
                         }

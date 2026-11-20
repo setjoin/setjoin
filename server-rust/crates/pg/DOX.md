@@ -3,8 +3,9 @@
 `workers::DirectListener::listen`/`unlisten` (#318) add/remove validated channels
 on one direct-DSN connection for the shared push dispatcher. Drop aborts its
 owned driver, including when a socket/hub is cancelled; `close` joins it.
-`connect_with_disconnect` lets SSO evict cached trust when the driver exits or
-is cancelled, independently of queued notifications.
+`connect_guarded` polls the connection under the SSO cache's write lock.
+On EOF or error it evicts trust before releasing that lock. Cancelling the
+driver also evicts trust, independently of queued notifications.
 
 `ScopedExecutor::read_user_scoped` (#318) serves mailbox-less user domains:
 `BEGIN READ ONLY`, transaction-local `app.current_user_id` from a verified

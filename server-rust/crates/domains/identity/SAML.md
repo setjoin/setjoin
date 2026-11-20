@@ -103,11 +103,13 @@ their own HTTP serving loop start and retain it explicitly. The task subscribes
 through DB_DIRECT_DSN before authoritative reload, handles `saml_sp`/`auth_methods`,
 reconciles missed notifications after reconnect, and aborts on handle drop. A
 failed subscription, detected disconnect, or reload error clears cached
-registrations until a fully successful reload. The connection driver evicts
-trust on exit, and reload publication requires the same live connection epoch.
-The frozen-Go seed/tick corpus verifies removal of a disabled registration. The auth process regression deletes
-a registration with empty worker flags and checks that login is refused after
-reload. Private-literal and private-DNS metadata tests observe zero TCP
+registrations until a fully successful reload. The driver observes connection
+loss and clears registrations under the same lock used to publish them. A reload
+captures its generation when requested, before queuing. After loss, only a reload
+requested after the next confirmed LISTEN can publish. The frozen-Go seed/tick
+corpus verifies removal of a disabled registration. The auth process regression
+deletes a registration with empty worker flags and checks that login is refused
+after reload. Private-literal and private-DNS metadata tests observe zero TCP
 connections and verify that a healthy sibling becomes available after the failing
 entry is removed.
 

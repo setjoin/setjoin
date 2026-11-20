@@ -43,10 +43,12 @@ Independent auth-event/sign-in/session tails retain Go's ordering and pwd method
 subscribes before every authoritative reconciliation, filters Go's config keys,
 and reconciles after reconnect. A failed subscription, detected disconnect, or
 reload error clears cached providers until a fully successful reload. The
-connection driver evicts trust on exit, and reload publication requires the
-same live connection epoch. Auth starts the listener whenever the RP registry
-is loaded, independently of worker transfer flags (#394). Library embeddings with their own HTTP serving loop start
-and retain it explicitly. `rp_oracle` checks that deleting a provider produces
+driver observes connection loss and clears providers under the same lock used
+to publish them. A reload captures its generation when requested, before queuing.
+After loss, only a reload requested after the next confirmed LISTEN can publish.
+Auth starts the listener whenever the RP registry is loaded, independently of
+worker transfer flags (#394). Library embeddings with their own HTTP serving
+loop start and retain it explicitly. `rp_oracle` checks that deleting a provider produces
 the expected refusal while auth is running.
 
 Explicit linking retains the fresh AAL2, exact live cookie/JTI/hash and one-use

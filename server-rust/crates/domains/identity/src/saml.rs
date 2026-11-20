@@ -10,6 +10,7 @@ use crate::sso_cache::Cache;
 use setjoin_pg::ScopedExecutor;
 use std::{
     collections::BTreeMap,
+    future::Future,
     io::Write,
     sync::Arc,
 };
@@ -121,8 +122,7 @@ pub struct Registry {
     encryption_key: String,
     key: Arc<Key>,
     http: Arc<dyn crate::rp::Http>,
-    entries: Arc<Cache<Registration>>,
-    reload: tokio::sync::Mutex<()>,
+    entries: Cache<Registration>,
 }
 impl Registry {
     pub async fn load(
@@ -142,8 +142,7 @@ impl Registry {
             encryption_key: encryption_key.to_owned(),
             key: Arc::new(key),
             http,
-            entries: Arc::new(Cache::default()),
-            reload: tokio::sync::Mutex::new(()),
+            entries: Cache::default(),
         });
         if let Err(error) = registry.reload().await {
             eprintln!("SAML registrations failed closed: {error}");
@@ -153,35 +152,10 @@ impl Registry {
     pub fn registration(&self, name: &str) -> Option<Arc<Registration>> {
         self.entries.get(name)
     }
-    pub async fn reload(&self) -> Result<(), String> {
-        self.reload_snapshot(None).await
+    pub fn reload(&self) -> impl Future<Output = Result<(), String>> + '_ {
+        self.entries.reload(self.load_entries())
     }
 
-    // Listener reconciliation publishes only a fully successful snapshot.
-    async fn reload_snapshot(&self, epoch: Option<u64>) -> Result<(), String> {
-        let _lock = self.reload.lock().await;
-        let reload = self.entries.start_reload(epoch)?;
-        let result = self.load_entries().await;
-        match result {
-            Ok((entries, errors)) => {
-                let entries = if reload.allow_partial || errors.is_empty() {
-                    entries
-                } else {
-                    BTreeMap::new()
-                };
-                self.entries.publish(reload, entries)?;
-                if errors.is_empty() {
-                    Ok(())
-                } else {
-                    Err(errors.join("; "))
-                }
-            }
-            Err(e) => {
-                self.entries.publish(reload, BTreeMap::new())?;
-                Err(e)
-            }
-        }
-    }
     async fn load_entries(
         &self,
     ) -> Result<(BTreeMap<String, Arc<Registration>>, Vec<String>), String> {
