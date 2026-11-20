@@ -6,6 +6,11 @@ The route middleware inventory defines coverage; public SPA and auth routes stay
 Adapters still own credential/resource authorization. Terminal authentication and guest admission are installed alongside this chain by
 #406; unported Basic/protocol strategies retain #420 ownership.
 
+The gateway HTTP boundary handles CSRF before runtime admission. GET, HEAD and OPTIONS
+are exempt from CSRF and still run the runtime gates on protected routes, including
+when fetch metadata identifies a cross-site request (#413). `runtime_access_failures`
+covers cross-site GET refusals for lockdown and device trust.
+
 Order matches Go: signed device compliance, device revocation, conditional-access lockdown,
 positive session revocation (even CAE OFF), then CAE cold-cache refusal, DPoP, sign-in frequency
 and policy re-evaluation. Break-glass bypasses policy and lockdown only in Go's respective
