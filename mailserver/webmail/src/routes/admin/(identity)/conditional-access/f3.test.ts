@@ -5,7 +5,7 @@
  * Tests use real data-testid assertions per the brief's "real assertions" mandate.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import en from '$lib/i18n/en';
 import zh from '$lib/i18n/zh';
 import de from '$lib/i18n/de';
@@ -460,51 +460,58 @@ describe('Coverage page', () => {
 			ok: true,
 			json: async () => ({
 				gaps: [
-					{ kind: 'protocol', value: 'IMAP', severity: 'danger' },
-					{ kind: 'scope', value: 'user', severity: 'warning' },
+					{ kind: 'client_type', detail: 'imap', severity: 'danger' },
+					{ kind: 'client_type', detail: 'smtp', severity: 'danger' },
+					{ kind: 'scope', detail: 'role', severity: 'warning' },
 				],
 				shadowed: [],
 			}),
 		});
-		const { container } = render(CoveragePage, {});
-		await new Promise((r) => setTimeout(r, 10));
+		render(CoveragePage, {});
 
-		const gapCards = container.querySelectorAll('[data-testid="gap-card"]');
-		expect(gapCards.length).toBe(2);
+		const gapCards = await screen.findAllByTestId('gap-card');
+		expect(gapCards).toHaveLength(3);
+		expect(gapCards[0]).toHaveTextContent('No policy covers imap sign-ins');
+		expect(gapCards[1]).toHaveTextContent('No policy covers smtp sign-ins');
+		expect(gapCards[2]).toHaveTextContent('No policy targets the role scope.');
 		// First card is danger
 		expect(gapCards[0].getAttribute('data-severity')).toBe('danger');
 		// Fix-link buttons
 		const firstCard = gapCards[0];
+		expect(within(firstCard).getByRole('link', {
+			name: en['admin.conditional_access.coverage.gap_fix_create'],
+		})).toHaveAttribute('href', '/admin/conditional-access?new=1&gap_kind=client_type&gap_value=imap');
 		expect(firstCard.textContent).toContain(en['admin.conditional_access.coverage.gap_fix_create']);
 		expect(firstCard.textContent).toContain(en['admin.conditional_access.coverage.gap_fix_template']);
 	});
 
-	it('SHADOWED: names both policies + fix-links', async () => {
+	it('SHADOWED: renders a distinct row for each shadowing policy', async () => {
+		const shadowedPolicy = {
+			policy_id: 5,
+			policy_name: 'PolicyA',
+			priority: 10,
+			reason: 'conditions are a superset of the higher-priority policy',
+		};
 		mockFetch.mockResolvedValue({
 			ok: true,
 			json: async () => ({
 				gaps: [],
-				shadowed: [{
-					policy_id: 5,
-					policy_name: 'PolicyA',
-					priority: 10,
-					shadowed_by_id: 3,
-					shadowed_by_name: 'PolicyB',
-					shadowed_by_priority: 5,
-				}],
+				shadowed: [
+					{ ...shadowedPolicy, shadowed_by_id: 3, shadowed_by_name: 'PolicyB', shadowed_by_priority: 5 },
+					{ ...shadowedPolicy, shadowed_by_id: 4, shadowed_by_name: 'PolicyC', shadowed_by_priority: 7 },
+				],
 			}),
 		});
-		const { container } = render(CoveragePage, {});
-		await new Promise((r) => setTimeout(r, 10));
+		render(CoveragePage, {});
 
-		const shadowCard = container.querySelector('[data-testid="shadow-card"]');
-		expect(shadowCard).not.toBeNull();
-		// Both policy names present
-		expect(shadowCard!.textContent).toContain('PolicyA');
-		expect(shadowCard!.textContent).toContain('PolicyB');
-		// Shadowed-explain key text
-		expect(shadowCard!.textContent).toContain('10');
-		expect(shadowCard!.textContent).toContain('5');
+		const shadowCards = await screen.findAllByTestId('shadow-card');
+		expect(shadowCards).toHaveLength(2);
+		expect(shadowCards[0]).toHaveTextContent('Policy PolicyA (priority 10) can never fire — PolicyB (priority 5, higher)');
+		expect(shadowCards[1]).toHaveTextContent('Policy PolicyA (priority 10) can never fire — PolicyC (priority 7, higher)');
+		expect(within(shadowCards[0]).getByRole('link', { name: 'Edit PolicyB' }))
+			.toHaveAttribute('href', '/admin/conditional-access?edit=3');
+		expect(within(shadowCards[1]).getByRole('link', { name: 'Edit PolicyC' }))
+			.toHaveAttribute('href', '/admin/conditional-access?edit=4');
 	});
 
 	it('(w) aria-live announces all-clear on success', async () => {
@@ -524,7 +531,7 @@ describe('Coverage page', () => {
 		mockFetch.mockResolvedValue({
 			ok: true,
 			json: async () => ({
-				gaps: [{ kind: 'protocol', value: 'IMAP', severity: 'danger' }],
+				gaps: [{ kind: 'client_type', detail: 'imap', severity: 'danger' }],
 				shadowed: [],
 			}),
 		});
