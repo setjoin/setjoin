@@ -5,11 +5,10 @@
 //! mailbox the caller may send as), exact addr-specs, Go's closed seven-header
 //! head with an exact `From:` address, and size bounds. Family code reaches it
 //! only through `family::seam::send_imip`, which gates the method, bounds the
-//! messages per method call (per `Cx`) and passes the verified caller. Every drop is logged
-//! with the method, the uid and the reason. One non-ASCII or quoted address
-//! among the recipients drops the whole invite (follow-up #398); an
-//! organizer-only invite (no recipients) is logged as a drop and still counts
-//! toward the per-method-call bound.
+//! messages per method call (per `Cx`) and passes the verified caller. Every
+//! rejected envelope recipient is logged as `invalid recipient address` with
+//! the method and uid. Invites with no valid recipients are dropped and still
+//! count toward the per-method-call bound.
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -66,7 +65,7 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-/// Log one dropped message by method and uid (`{:?}` escapes control characters).
+/// Log a dropped message or recipient by method and uid (`{:?}` escapes controls).
 pub(crate) fn dropped(method: &str, uid: &str, reason: &'static str) {
     #[cfg(test)]
     LAST_DROP.with(|last| last.set(Some(reason)));
@@ -106,7 +105,7 @@ pub(crate) fn addr_spec(value: &str) -> bool {
     local_ok && domain_ok
 }
 
-/// Checks that need no database; `Err` names the refused part.
+/// Message-level checks that need no database; `Err` names the refused part.
 pub(crate) fn well_formed(mail: &Imip) -> Result<(), &'static str> {
     if mail.message_id.is_empty()
         || mail.message_id.len() > 255
@@ -119,9 +118,6 @@ pub(crate) fn well_formed(mail: &Imip) -> Result<(), &'static str> {
     }
     if mail.recipients.is_empty() || mail.recipients.len() > MAX_RECIPIENTS {
         return Err("recipient count");
-    }
-    if !mail.recipients.iter().all(|recipient| addr_spec(recipient)) {
-        return Err("recipient");
     }
     if mail.mime.len() > MAX_MIME_BYTES {
         return Err("size");
@@ -168,17 +164,29 @@ pub(crate) async fn sender_allowed(
     Ok(rows.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 
-/// The checks, then a content-addressed `imip/<sha256>.eml` object, then one
+/// Check the message and filter envelope recipients before storing a
+/// content-addressed `imip/<sha256>.eml` object and inserting one
 /// `outbound_queue` row on the request credential (Go's plain-pool `Exec`).
-/// Nothing is stored or queued unless every check passed.
 pub(crate) async fn deliver(
     exec: &ScopedExecutor,
     store: &dyn ObjectStore,
     actor: ActorId,
     user: i64,
+    method: &str,
     mail: &Imip,
 ) -> Result<(), &'static str> {
     well_formed(mail)?;
+    let mut recipients = Vec::with_capacity(mail.recipients.len());
+    for recipient in &mail.recipients {
+        if addr_spec(recipient) {
+            recipients.push(recipient.clone());
+        } else {
+            dropped(method, &mail.message_id, "invalid recipient address");
+        }
+    }
+    if recipients.is_empty() {
+        return Err("no valid recipients");
+    }
     match sender_allowed(exec, actor, user, &mail.from).await {
         Ok(true) => {}
         Ok(false) => return Err("sender not allowed"),
@@ -201,7 +209,7 @@ pub(crate) async fn deliver(
             &[
                 (&mail.message_id, Type::TEXT),
                 (&mail.from, Type::TEXT),
-                (&mail.recipients, Type::TEXT_ARRAY),
+                (&recipients, Type::TEXT_ARRAY),
                 (&key, Type::TEXT),
             ],
         )
@@ -228,7 +236,7 @@ pub(crate) fn spawn(
     tokio::spawn(async move {
         let outcome = tokio::time::timeout(
             Duration::from_secs(300),
-            deliver(&exec, store.as_ref(), actor, user, &mail),
+            deliver(&exec, store.as_ref(), actor, user, method, &mail),
         )
         .await;
         match outcome {
@@ -294,9 +302,11 @@ mod tests {
         for bad in [
             "a b@x.test",
             "<a@x.test>",
+            "b@y.test>",
             "a@x.test,b@y.test",
             "a;b@x.test",
             "\"a\"@x.test",
+            "josé@y.test",
             "a@x..test",
             "a@-x.test",
             "a\u{7}@x.test",
@@ -315,9 +325,6 @@ mod tests {
         assert!(addr_spec(&format!("{}@x.test", "a".repeat(64))));
         assert!(!addr_spec(&format!("{}@x.test", "a".repeat(65))));
         assert!(!addr_spec(&format!("a@{}.test", "x".repeat(320))));
-        let mut recipient = mail("a@x.test", head("A", "a@x.test"));
-        recipient.recipients = vec!["b@y.test>".into()];
-        assert_eq!(well_formed(&recipient), Err("recipient"));
         let mut id = mail("a@x.test", head("A", "a@x.test"));
         id.message_id = "u\nBcc: e@z.test".into();
         assert_eq!(well_formed(&id), Err("message id"));
@@ -344,6 +351,8 @@ mod db {
     use setjoin_conformance::harness::Db;
 
     use super::*;
+
+    const METHOD: &str = "CalendarEvent/sendUpdate";
 
     /// An in-memory object store: every `put` is recorded.
     #[derive(Default)]
@@ -499,7 +508,7 @@ mod db {
                 recipients: vec!["b@y.test".into()],
                 mime: head("A", &own),
             };
-            deliver(&exec, &memory, actor, a.user, &good)
+            deliver(&exec, &memory, actor, a.user, METHOD, &good)
                 .await
                 .expect("an allowed send");
             let key = format!("imip/{}.eml", crate::booking_mail::sha256_hex(&good.mime));
@@ -538,18 +547,30 @@ mod db {
             };
             for mail in [&spoofed, &malformed, &oversize] {
                 assert!(
-                    deliver(&exec, &memory, actor, a.user, mail).await.is_err(),
+                    deliver(&exec, &memory, actor, a.user, METHOD, mail)
+                        .await
+                        .is_err(),
                     "{}",
                     mail.message_id
                 );
             }
+            let invalid_recipient = Imip {
+                message_id: format!("{prefix}invalid-recipient"),
+                from: own.clone(),
+                recipients: vec!["b@y.test>".into()],
+                mime: head("A", &own),
+            };
+            assert_eq!(
+                deliver(&exec, &memory, actor, a.user, METHOD, &invalid_recipient).await,
+                Err("no valid recipients")
+            );
             grant(&owner, f.mailbox, a.user, f.user, "manage_calendar").await;
             let calendar_only = Imip {
                 message_id: format!("{prefix}manage-calendar"),
                 ..spoofed
             };
             assert_eq!(
-                deliver(&exec, &memory, actor, a.user, &calendar_only).await,
+                deliver(&exec, &memory, actor, a.user, METHOD, &calendar_only).await,
                 Err("sender not allowed"),
                 "manage_calendar does not allow sending as the mailbox"
             );
@@ -559,7 +580,13 @@ mod db {
                 1,
                 "no new object"
             );
-            for id in ["foreign", "malformed", "oversize", "manage-calendar"] {
+            for id in [
+                "foreign",
+                "malformed",
+                "oversize",
+                "invalid-recipient",
+                "manage-calendar",
+            ] {
                 assert!(
                     rows(format!("{prefix}{id}")).await.is_empty(),
                     "{id}: no row"
@@ -592,5 +619,55 @@ mod db {
         if let Err(panic) = outcome {
             std::panic::resume_unwind(panic);
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn egress_drops_only_the_invalid_recipient() {
+        let Some(db) = Db::for_case("egress_drops_only_the_invalid_recipient") else {
+            return;
+        };
+        let owner = db.connect().await.expect("owner connection");
+        let exec =
+            ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).expect("executor");
+        let account = fixture::account(&owner, "famimip-mixed").await.expect("own");
+        let actor = ActorId::new(account.user).expect("actor");
+        let from = email(&owner, account.mailbox).await;
+        let mail = Imip {
+            message_id: format!("seam-imip-mixed-{}", account.mailbox),
+            mime: head("A", &from).replacen("B <b@y.test>", "B <b@y.test>, J <josé@y.test>", 1),
+            from,
+            recipients: vec!["b@y.test".into(), "josé@y.test".into()],
+        };
+        let memory = Memory::default();
+        let previous_drop = LAST_DROP.with(|last| last.replace(None));
+        let outcome = deliver(&exec, &memory, actor, account.user, METHOD, &mail).await;
+        let drop_reason = LAST_DROP.with(|last| last.replace(previous_drop));
+        let queued = owner
+            .query(
+                "DELETE FROM outbound_queue WHERE message_id = $1 RETURNING rcpt_addrs",
+                &[&mail.message_id],
+            )
+            .await;
+        let removed_hot = owner
+            .execute(
+                "DELETE FROM outbound_queue_hot WHERE message_id = $1",
+                &[&mail.message_id],
+            )
+            .await;
+        let removed_account = fixture::remove(&owner, &account).await;
+
+        removed_hot.expect("remove hot queue fixture");
+        removed_account.expect("remove account fixture");
+        assert_eq!(outcome, Ok(()));
+        assert_eq!(drop_reason, Some("invalid recipient address"));
+        let queued = queued.expect("remove queue fixture and return recipients");
+        assert_eq!(queued.len(), 1);
+        assert_eq!(
+            queued[0].get::<_, Vec<String>>(0),
+            vec!["b@y.test".to_owned()]
+        );
+        let stored = memory.0.lock().expect("memory store");
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].1, mail.mime.as_bytes());
     }
 }
