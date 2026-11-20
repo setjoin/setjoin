@@ -6,6 +6,7 @@ use base64::Engine as _;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use setjoin_auth::{body, AuthServer, Config};
 use setjoin_conformance::{fixture, golden, harness::Db};
 use setjoin_gateway::{Gateway, RouteTable, TrustedProxies};
@@ -103,8 +104,8 @@ BEGIN
     ALTER FUNCTION rust_guest_invite_disclosure_absent_342(bigint, text)
       RENAME TO rust_guest_invite_disclosure;
   END IF;
-  IF to_regprocedure('rust_guest_invite_accept_read_absent_342(bigint,text,text,boolean,boolean)') IS NOT NULL THEN
-    ALTER FUNCTION rust_guest_invite_accept_read_absent_342(bigint, text, text, boolean, boolean)
+  IF to_regprocedure('rust_guest_invite_accept_read_absent_342(bigint,text,text,boolean,boolean,bytea)') IS NOT NULL THEN
+    ALTER FUNCTION rust_guest_invite_accept_read_absent_342(bigint, text, text, boolean, boolean, bytea)
       RENAME TO rust_guest_invite_accept_read;
   END IF;
   IF to_regprocedure('rust_guest_invite_accept_finish_absent_342(bigint,bigint,text,text,inet)') IS NOT NULL THEN
@@ -115,7 +116,7 @@ END $$;";
 const HIDE_REDUCERS: &str = "
 ALTER FUNCTION rust_guest_invite_disclosure(bigint, text)
   RENAME TO rust_guest_invite_disclosure_absent_342;
-ALTER FUNCTION rust_guest_invite_accept_read(bigint, text, text, boolean, boolean)
+ALTER FUNCTION rust_guest_invite_accept_read(bigint, text, text, boolean, boolean, bytea)
   RENAME TO rust_guest_invite_accept_read_absent_342;
 ALTER FUNCTION rust_guest_invite_accept_finish(bigint, bigint, text, text, inet)
   RENAME TO rust_guest_invite_accept_finish_absent_342;";
@@ -1228,7 +1229,16 @@ async fn exercise(
                 .map_or(0, |a| a.iter().filter(|x| x["outcome"] == outcome).count())
         };
         let total = |v: &Value| v["attempts"].as_array().map_or(0, Vec::len);
-        let rolled_back = before["guests"] == after["guests"] && before["audit"] == after["audit"];
+        let has_history: bool = c
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM password_history WHERE user_id=$1)",
+                &[&fx.guest],
+            )
+            .await?
+            .get(0);
+        let rolled_back = before["guests"] == after["guests"]
+            && before["audit"] == after["audit"]
+            && !has_history;
         let one_failure = total(&after) == total(&before) + 1
             && attempts(&after, "failure") == attempts(&before, "failure") + 1;
         if !rolled_back || !receipts_unchanged || !one_failure {
@@ -1546,6 +1556,7 @@ native!(
 native!(guest_get_post_wins_race, post_wins);
 native!(guest_get_expiry_sampled_after_read, expiry_after_read);
 native!(guest_post_deadline_rolls_back, deadline);
+native!(guest_post_checks_and_records_credentials, credential_policy);
 native!(
     guest_post_ca_and_threat_toggles_follow_login,
     toggles_follow_login
@@ -1649,6 +1660,141 @@ native!(guest_other_methods_are_405, other_methods);
 
 async fn native_server(ctx: &Ctx) -> Result<Server, Err> {
     Ok(auth_server(Arc::new(load(ctx, false, false).await?), false).await)
+}
+
+async fn credential_state(c: &Client, guest: i64) -> Result<String, Err> {
+    let row = c
+        .query_one(
+            "SELECT jsonb_build_array(to_jsonb(u),to_jsonb(ga),to_jsonb(gi),
+                 (SELECT jsonb_agg(to_jsonb(h) ORDER BY h.id) FROM password_history h WHERE h.user_id=u.id),
+                 (SELECT count(*) FROM admin_audit_log a WHERE a.target_type='guest_invite' AND a.target_id=gi.id))::text
+             FROM users u JOIN guest_accounts ga ON ga.user_id=u.id
+             JOIN guest_invites gi ON gi.guest_user_id=u.id WHERE u.id=$1",
+            &[&guest],
+        )
+        .await?;
+    Ok(row.get(0))
+}
+
+async fn credential_policy(ctx: &Ctx) -> Result<(), Err> {
+    const COMMON: &str = "  ListedGuestPass1!  ";
+    const REUSED: &str = "OldGuestPass2!";
+    let digest = Sha256::digest(b"listedguestpass1!").to_vec();
+    let from = Ipv4Addr::new(127, 0, 0, 191);
+    let c = &ctx.c;
+    let unique = uuid::Uuid::new_v4();
+    let email = format!("guest-{unique}@guestaccept-partner.test");
+    let token = format!("guest-invite-token-{unique}");
+    let mut inserted_common = false;
+    let observed = async {
+        let (guest, _) = invited(c, &email, "guest.invalid", &token, "valid").await?;
+        inserted_common = c
+            .execute(
+                "INSERT INTO common_passwords(password_hash) VALUES($1) ON CONFLICT DO NOTHING",
+                &[&digest],
+            )
+            .await? == 1;
+        let server = native_server(ctx).await?;
+        let post = |password| {
+            request(
+                server.addr,
+                from,
+                "POST",
+                PATH,
+                json!({ "token": token, "disclosure_accepted": true, "new_password": password })
+                    .to_string()
+                    .into_bytes(),
+                &[],
+            )
+        };
+
+        let before = credential_state(c, guest).await?;
+        let common = post(COMMON).await?;
+        let common_unchanged = credential_state(c, guest).await? == before;
+        let old_hash = bcrypt::hash(REUSED, 4)?;
+        c.execute(
+            "INSERT INTO password_history(user_id,password_hash) VALUES($1,$2)",
+            &[&guest, &old_hash],
+        )
+        .await?;
+        let before = credential_state(c, guest).await?;
+        let reused = post(REUSED).await?;
+        let reused_unchanged = credential_state(c, guest).await? == before;
+        c.execute(
+            "DELETE FROM password_history WHERE user_id=$1 AND password_hash=$2",
+            &[&guest, &old_hash],
+        )
+        .await?;
+        let accepted = post(PASSWORD).await?;
+        server.close().await;
+
+        let history = c
+            .query(
+                "SELECT h.password_hash, h.password_hash = u.password_hash
+                 FROM password_history h JOIN users u ON u.id=h.user_id WHERE h.user_id=$1",
+                &[&guest],
+            )
+            .await?;
+        let recorded = history.len() == 1
+            && history[0].get::<_, bool>(1)
+            && setjoin_authz::password::verify(history[0].get(0), PASSWORD);
+        Ok::<_, Err>((
+            common,
+            common_unchanged,
+            reused,
+            reused_unchanged,
+            accepted.status,
+            recorded,
+        ))
+    }
+    .await;
+
+    let cleaned = async {
+        if inserted_common {
+            c.execute("DELETE FROM common_passwords WHERE password_hash=$1", &[&digest])
+                .await?;
+        }
+        c.batch_execute("BEGIN").await?;
+        let removed = async {
+            c.batch_execute("SET LOCAL session_replication_role=replica").await?;
+            c.execute(
+                "DELETE FROM admin_audit_log WHERE target_type='guest_invite'
+                 AND user_id=(SELECT id FROM users WHERE email=$1)",
+                &[&email],
+            )
+            .await?;
+            c.batch_execute("SET LOCAL session_replication_role=origin").await?;
+            c.execute("DELETE FROM users WHERE email=$1", &[&email]).await?;
+            Ok::<_, Err>(())
+        }
+        .await;
+        if let Err(error) = removed {
+            c.batch_execute("ROLLBACK").await?;
+            return Err(error);
+        }
+        c.batch_execute("COMMIT").await?;
+        Ok::<_, Err>(())
+    }
+    .await;
+    let purged = purge_guest_source(c, &from.to_string()).await;
+    cleaned?;
+    purged?;
+    let (common, common_unchanged, reused, reused_unchanged, accepted_status, recorded) = observed?;
+    assert_eq!(common.status, 400);
+    assert_eq!(
+        common.body,
+        "{\"error\":\"This password is too common and easily guessed. Please choose a stronger password.\"}\n"
+    );
+    assert!(common_unchanged, "common password changed guest state");
+    assert_eq!(reused.status, 400);
+    assert_eq!(
+        reused.body,
+        "{\"error\":\"This password was used recently. Please choose a new one.\"}\n"
+    );
+    assert!(reused_unchanged, "reused password changed guest state");
+    assert_eq!(accepted_status, 200);
+    assert!(recorded, "accepted password must be the first history entry");
+    Ok(())
 }
 
 async fn wait_for_lock(c: &Client, fragment: &str) -> Result<(), Err> {

@@ -3,6 +3,23 @@ use crate::session::Session;
 use serde_json::{json, Value};
 use setjoin_config_secret::CryptoProfile;
 use setjoin_pg::{CommandOutcome, ScopedExecutor, Type};
+use sha2::{Digest, Sha256};
+
+pub(crate) const COMMON_PASSWORD_ERROR: &str =
+    "This password is too common and easily guessed. Please choose a stronger password.";
+pub(crate) const REUSED_PASSWORD_ERROR: &str =
+    "This password was used recently. Please choose a new one.";
+
+pub(crate) fn common_password_digest(password: &str) -> Vec<u8> {
+    Sha256::digest(setjoin_authz::address::lower(password.trim()).as_bytes()).to_vec()
+}
+
+pub(crate) fn password_was_used(hashes: &[String], candidate: &str) -> bool {
+    hashes
+        .iter()
+        .any(|hash| setjoin_authz::password::verify(hash, candidate))
+}
+
 #[derive(Debug)]
 pub enum Failure {
     Reply(u16, String),
@@ -102,8 +119,7 @@ pub async fn change(
             .unwrap_or(false),
     )
     .await?;
-    use sha2::{Digest, Sha256};
-    let hash = Sha256::digest(setjoin_authz::address::lower(new.trim()).as_bytes()).to_vec();
+    let hash = common_password_digest(new);
     // #454: a query error, an unreadable or a missing flag fails closed as an internal
     // fault, never as "not common" (frozen Go proceeds on a failed lookup).
     let common = match exec
@@ -120,10 +136,7 @@ pub async fn change(
         Err(_) => return Err(reply(500, "internal error")),
     };
     if common {
-        return Err(reply(
-            400,
-            "This password is too common and easily guessed. Please choose a stronger password.",
-        ));
+        return Err(reply(400, COMMON_PASSWORD_ERROR));
     }
     let raw_email = setjoin_authz::address::lower(proof.text("email"));
     let lower = setjoin_authz::address::lower(new);
@@ -193,18 +206,13 @@ pub async fn change(
         let history = json!(hashes);
         let candidate = new.to_owned();
         let (reused, new_hash) = tokio::task::spawn_blocking(move || {
-            let reused = hashes
-                .iter()
-                .any(|h| setjoin_authz::password::verify(h, &candidate));
+            let reused = password_was_used(&hashes, &candidate);
             (reused, setjoin_authz::password::hash(&candidate, profile))
         })
         .await
         .map_err(|_| reply(500, "internal error"))?;
         if reused {
-            return Err(reply(
-                400,
-                "This password was used recently. Please choose a new one.",
-            ));
+            return Err(reply(400, REUSED_PASSWORD_ERROR));
         }
         let new_hash = new_hash.map_err(|_| reply(500, "internal error"))?;
         match write(
