@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Source for the Go-free Rust server rewrite (spec #251). ARCH-029 (decision
+Source for the Go-free Rust server rewrite (spec #25). ARCH-029 (decision
 on #231, superseding ARCH-026/027's rollout defaults) makes the front door ON
 by default and transfers routes after parity. Reducers remain business
 authority; each request has one writer. JMAP ignores its retired pilot flags;
