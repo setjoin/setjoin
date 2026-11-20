@@ -462,6 +462,7 @@ describe('Coverage page', () => {
 				gaps: [
 					{ kind: 'client_type', detail: 'imap', severity: 'danger' },
 					{ kind: 'client_type', detail: 'smtp', severity: 'danger' },
+					{ kind: 'client_type', detail: 'mobile', severity: 'warning' },
 					{ kind: 'scope', detail: 'role', severity: 'warning' },
 				],
 				shadowed: [],
@@ -470,10 +471,12 @@ describe('Coverage page', () => {
 		render(CoveragePage, {});
 
 		const gapCards = await screen.findAllByTestId('gap-card');
-		expect(gapCards).toHaveLength(3);
+		expect(gapCards).toHaveLength(4);
 		expect(gapCards[0]).toHaveTextContent('No policy covers imap sign-ins');
 		expect(gapCards[1]).toHaveTextContent('No policy covers smtp sign-ins');
-		expect(gapCards[2]).toHaveTextContent('No policy targets the role scope.');
+		expect(within(gapCards[2]).getByText('No policy covers mobile sign-ins.')).toBeInTheDocument();
+		expect(gapCards[2]).toHaveAttribute('data-severity', 'warning');
+		expect(gapCards[3]).toHaveTextContent('No policy targets the role scope.');
 		// First card is danger
 		expect(gapCards[0].getAttribute('data-severity')).toBe('danger');
 		// Fix-link buttons
