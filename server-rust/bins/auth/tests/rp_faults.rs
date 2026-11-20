@@ -606,3 +606,106 @@ async fn identity_model_flag_fault_refuses_jit_before_any_account_write() -> Res
     cleanup = settle(cleanup, env.close().await);
     settle(result, cleanup)
 }
+
+#[tokio::test]
+async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDFED2-legacy-lookup-fault").ok_or("assigned DB required")?;
+    let app = setjoin_pg::ScopedExecutor::from_dsn(
+        db.app.as_deref().ok_or("DB_APP_DSN required")?,
+        2,
+    )
+    .map_err(|e| e.0)?;
+    let env = flows::Env::configured(false, idp::ISSUER, json!({"jit_enabled":true})).await?;
+    let mut account = None;
+    let responses = async {
+        let a = account.insert(fixture::account(&env.c, "rp-legacy-lookup-fault").await?);
+        let email: String = env.c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .try_get(0)?;
+        let linked = uuid::Uuid::new_v4().to_string();
+        let unlinked = uuid::Uuid::new_v4().to_string();
+        env.c.execute(
+            "UPDATE users SET oidc_subject=$2,oidc_issuer=$3 WHERE id=$1",
+            &[&a.user, &linked, &idp::ISSUER],
+        ).await?;
+
+        // Keep the address lookup readable. Otherwise its failure could hide a regression
+        // in the exact-link lookup, which would fall through to address matching.
+        let guard = revoke::revoke(
+            &db.dsn,
+            &env.c,
+            &app,
+            "users",
+            "REVOKE SELECT ON users FROM setjoin_app; GRANT SELECT (id, enabled, email, ad_upn) ON users TO setjoin_app",
+            "REVOKE SELECT (id, enabled, email, ad_upn) ON users FROM setjoin_app; GRANT SELECT ON users TO setjoin_app",
+            "SELECT oidc_subject FROM users LIMIT 1",
+        ).await?;
+        let exact = sso_once(&env, &email, &linked).await;
+        guard.restore(&env.c).await?;
+        drop(guard);
+
+        // The unlinked subject misses the exact lookup and reaches the address lookup.
+        let address_control = sso_once(&env, &email, &unlinked).await?;
+        let guard = revoke::table(&db.dsn, &env.c, &app, "aliases").await?;
+        let address = sso_once(&env, &email, &unlinked).await;
+        guard.restore(&env.c).await?;
+        Ok::<_, Err>((exact?, address_control, address?))
+    }
+    .await;
+
+    let mut cleanup = Ok(());
+    if let Some(a) = &account {
+        let jit_cleanup: Result<(), Err> = async {
+            let rows = env.c.query(
+                "SELECT u.id,COALESCE(m.id,0) FROM users u LEFT JOIN mailboxes m ON m.user_id=u.id AND m.is_primary WHERE u.domain_id=$1 AND u.id<>$2",
+                &[&a.domain, &a.user],
+            ).await?;
+            let mut removed = Ok(());
+            for row in &rows {
+                let mut created = a.clone();
+                created.user = row.try_get(0)?;
+                created.mailbox = row.try_get(1)?;
+                created.domain = 0;
+                removed = settle(removed, fixture::remove(&env.c, &created).await);
+            }
+            if rows.is_empty() {
+                Ok(())
+            } else {
+                settle(Err("legacy lookup fault created a JIT account".into()), removed)
+            }
+        }
+        .await;
+        cleanup = settle(cleanup, jit_cleanup);
+        cleanup = settle(cleanup, fixture::remove(&env.c, a).await);
+    }
+    cleanup = settle(cleanup, env.close().await);
+
+    let result = responses.and_then(|(exact, address_control, address)| {
+        if address_control.0 != 409
+            || !address_control.2.contains("explicit account linking is required")
+        {
+            return Err(format!("address control expected 409, got {}", address_control.0).into());
+        }
+        for (lookup, (status, headers, raw)) in [("exact-link", exact), ("address", address)] {
+            if status != 503 || !raw.contains("normalized identity resolution unavailable") {
+                return Err(
+                    format!("{lookup} lookup fault expected resolution 503, got {status}").into(),
+                );
+            }
+            let cookies = flows::cookies(&headers);
+            if headers.get("location").is_some()
+                || raw.contains("access_token")
+                || raw.contains("refresh_token")
+                || ["access_token", "refresh_token"]
+                    .iter()
+                    .any(|name| cookies.get(*name).is_some_and(|v| !v.is_empty()))
+            {
+                return Err(format!("{lookup} lookup fault published credentials or a redirect").into());
+            }
+        }
+        Ok(())
+    });
+    settle(result, cleanup)
+}
