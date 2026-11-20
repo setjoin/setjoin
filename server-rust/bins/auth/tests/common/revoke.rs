@@ -90,6 +90,17 @@ pub async fn revoke(
     if columns {
         return Err(format!("STOP: setjoin_app already holds column-level grants on {table}; the fault could not be undone exactly").into());
     }
+    apply_fault(owner_dsn, c, app, fault, undo, probe).await
+}
+
+async fn apply_fault(
+    owner_dsn: &str,
+    c: &tokio_postgres::Client,
+    app: &setjoin_pg::ScopedExecutor,
+    fault: &str,
+    undo: &str,
+    probe: &str,
+) -> Result<Revoked, Err> {
     if let Err(f) = app.read(probe, &[]).await {
         return Err(format!("precondition: `{probe}` fails before the fault: {f:?}").into());
     }
@@ -103,6 +114,38 @@ pub async fn revoke(
         Err(f) => Err(format!("precondition: `{probe}` failed after `{fault}` with {f:?}, not insufficient_privilege (42501)").into()),
         Ok(_) => Err(format!("precondition: `{probe}` still succeeds for setjoin_app after `{fault}`").into()),
     }
+}
+
+/// Revoke a direct, non-grantable EXECUTE granted by the function's owner.
+pub async fn function(
+    owner_dsn: &str,
+    c: &tokio_postgres::Client,
+    app: &setjoin_pg::ScopedExecutor,
+    signature: &str,
+    probe: &str,
+) -> Result<Revoked, Err> {
+    let direct: bool = c
+        .query_one(
+            "SELECT count(*)=1 AND bool_and(NOT a.is_grantable AND a.grantor=p.proowner) \
+             FROM pg_proc p CROSS JOIN LATERAL aclexplode(p.proacl) a \
+             WHERE p.oid=to_regprocedure($1) AND a.grantee=to_regrole('setjoin_app') \
+             AND a.privilege_type='EXECUTE'",
+            &[&signature],
+        )
+        .await?
+        .try_get(0)?;
+    if !direct {
+        return Err(format!("cannot restore setjoin_app EXECUTE grant exactly on {signature}").into());
+    }
+    apply_fault(
+        owner_dsn,
+        c,
+        app,
+        &format!("REVOKE EXECUTE ON FUNCTION {signature} FROM setjoin_app"),
+        &format!("GRANT EXECUTE ON FUNCTION {signature} TO setjoin_app"),
+        probe,
+    )
+    .await
 }
 
 /// Revoke SELECT on one table from the request role; the undo re-grants exactly that SELECT.
