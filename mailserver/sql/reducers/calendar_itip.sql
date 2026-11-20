@@ -1,6 +1,6 @@
 -- iTIP/iMIP: RSVP and invite sending reducers.
--- Canonical lock order for RSVP and incoming iTIP REPLY: lock the
--- calendar_events row before writing any of its event_attendees rows.
+-- Canonical lock order: calendar -> event -> attendee (cascade order).
+-- Take calendar and event row locks in separate statements to enforce it.
 
 -- jmap_calendar_event_rsvp: update attendee participation status.
 --
@@ -17,19 +17,25 @@ CREATE OR REPLACE FUNCTION jmap_calendar_event_rsvp(
   p_on_behalf_of   BIGINT DEFAULT NULL
 ) RETURNS JSONB AS $$
 DECLARE
-  v_event     RECORD;
-  v_new_state BIGINT;
+  v_calendar_id BIGINT;
+  v_new_state   BIGINT;
 BEGIN
   IF p_status NOT IN ('accepted', 'tentative', 'declined') THEN
     RETURN jsonb_build_object('type', 'invalidArguments',
       'description', 'status must be accepted, tentative, or declined');
   END IF;
 
-  SELECT ce.*, c.mailbox_id INTO v_event
-  FROM calendar_events ce
-  JOIN calendars c ON c.id = ce.calendar_id
+  SELECT c.id INTO v_calendar_id
+  FROM calendars c
+  JOIN calendar_events ce ON ce.calendar_id = c.id
   WHERE ce.id = p_event_id AND c.mailbox_id = p_mailbox_id
-  FOR NO KEY UPDATE OF ce FOR SHARE OF c;
+  FOR SHARE OF c;
+
+  IF FOUND THEN
+    PERFORM 1 FROM calendar_events
+    WHERE id = p_event_id AND calendar_id = v_calendar_id
+    FOR NO KEY UPDATE;
+  END IF;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('type', 'notFound',
@@ -40,7 +46,7 @@ BEGIN
   -- owner mailbox before flipping the owner's attendee row on their behalf.
   IF p_on_behalf_of IS NOT NULL THEN
     PERFORM 1 FROM mailbox_delegates
-    WHERE mailbox_id = v_event.mailbox_id
+    WHERE mailbox_id = p_mailbox_id
       AND user_id = p_on_behalf_of
       AND permission IN ('full_access', 'manage_calendar')
     FOR SHARE;
@@ -66,7 +72,7 @@ BEGIN
   WHERE id = p_event_id;
 
   PERFORM app_notify(
-    'calendar:' || v_event.mailbox_id,
+    'calendar:' || p_mailbox_id,
     json_build_object(
       'event', 'rsvp',
       'event_id', p_event_id,
@@ -176,8 +182,9 @@ CREATE OR REPLACE FUNCTION calendar_process_itip_reply(
   p_mailbox_id      BIGINT DEFAULT NULL
 ) RETURNS JSONB AS $$
 DECLARE
-  v_event_id BIGINT;
-  v_account_id BIGINT;
+  v_event_id    BIGINT;
+  v_calendar_id BIGINT;
+  v_account_id  BIGINT;
 BEGIN
   IF p_mailbox_id IS NOT NULL THEN
     -- p_mailbox_id (when a JMAP caller ever supplies it) is a mailbox id, so scope by
@@ -191,14 +198,20 @@ BEGIN
     END IF;
   END IF;
 
-  SELECT ce.id, c.mailbox_id INTO v_event_id, v_account_id
-  FROM calendar_events ce
-  JOIN calendars c ON c.id = ce.calendar_id
+  SELECT ce.id, c.id, c.mailbox_id INTO v_event_id, v_calendar_id, v_account_id
+  FROM calendars c
+  JOIN calendar_events ce ON ce.calendar_id = c.id
   WHERE ce.uid = p_uid
     AND ce.is_meeting = TRUE
     AND (p_mailbox_id IS NULL OR c.mailbox_id = p_mailbox_id)
   LIMIT 1
-  FOR NO KEY UPDATE OF ce FOR SHARE OF c;
+  FOR SHARE OF c;
+
+  IF FOUND THEN
+    PERFORM 1 FROM calendar_events
+    WHERE id = v_event_id AND calendar_id = v_calendar_id AND uid = p_uid AND is_meeting
+    FOR NO KEY UPDATE;
+  END IF;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('type', 'notFound', 'description', 'No matching event for UID');
@@ -380,13 +393,22 @@ CREATE OR REPLACE FUNCTION jmap_calendar_event_send_update(
   p_event_id   BIGINT
 ) RETURNS JSONB AS $$
 DECLARE
-  v_event   RECORD;
-  v_payload JSONB;
+  v_calendar_id BIGINT;
+  v_event       RECORD;
+  v_payload     JSONB;
 BEGIN
-  SELECT ce.*, c.mailbox_id AS cal_mailbox_id INTO v_event
-  FROM calendar_events ce
-  JOIN calendars c ON c.id = ce.calendar_id
-  WHERE ce.id = p_event_id AND c.mailbox_id = p_mailbox_id;
+  -- notify_calendar_state writes the calendar, so acquire its write lock first.
+  SELECT c.id INTO v_calendar_id
+  FROM calendars c
+  JOIN calendar_events ce ON ce.calendar_id = c.id
+  WHERE ce.id = p_event_id AND c.mailbox_id = p_mailbox_id
+  FOR NO KEY UPDATE OF c;
+
+  IF FOUND THEN
+    SELECT * INTO v_event FROM calendar_events
+    WHERE id = p_event_id AND calendar_id = v_calendar_id
+    FOR NO KEY UPDATE;
+  END IF;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Event not found in this account'
@@ -406,12 +428,8 @@ BEGIN
     etag       = generate_etag()
   WHERE id = p_event_id AND calendar_id = v_event.calendar_id;
 
-  -- Bump calendars.jmap_state + push through the calendar seam. The owner mailbox
-  -- is v_event.cal_mailbox_id (the calendar's mailbox), NOT p_mailbox_id — here
-  -- they coincide, but on the iMIP SMTP path p_mailbox_id can be NULL, so the
-  -- owner local is always the correct argument.
-  PERFORM notify_calendar_state(v_event.cal_mailbox_id, p_event_id,
-                                v_event.calendar_id, 'event_updated');
+  -- The locked calendar belongs to p_mailbox_id.
+  PERFORM notify_calendar_state(p_mailbox_id, p_event_id, v_calendar_id, 'event_updated');
 
   -- calendar_send_invite builds the iTIP REQUEST payload (with the now-bumped sequence,
   -- attendees, organizer). It returns notMeeting / noRecipients shapes too; pass through.
