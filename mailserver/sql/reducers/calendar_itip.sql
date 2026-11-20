@@ -1,4 +1,6 @@
 -- iTIP/iMIP: RSVP and invite sending reducers.
+-- Canonical lock order for RSVP and incoming iTIP REPLY: lock the
+-- calendar_events row before writing any of its event_attendees rows.
 
 -- jmap_calendar_event_rsvp: update attendee participation status.
 --
@@ -195,7 +197,8 @@ BEGIN
   WHERE ce.uid = p_uid
     AND ce.is_meeting = TRUE
     AND (p_mailbox_id IS NULL OR c.mailbox_id = p_mailbox_id)
-  LIMIT 1;
+  LIMIT 1
+  FOR NO KEY UPDATE OF ce FOR SHARE OF c;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('type', 'notFound', 'description', 'No matching event for UID');
