@@ -463,11 +463,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/lane-setup
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: lane-archive
           path: ${{ runner.temp }}/archive
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: lane-list
           path: ${{ runner.temp }}/list
@@ -555,11 +555,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/lane-setup
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: lane-coverage-archive
           path: ${{ runner.temp }}/archive
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: lane-coverage-list
           path: ${{ runner.temp }}/list
@@ -614,12 +614,12 @@ jobs:
             echo "### server-rust lane: queue entry left the queue; nothing ran" >> "$GITHUB_STEP_SUMMARY"
             echo "This merge-queue entry was waiting behind a later entry, and its queue branch was removed (merged with that batch, ejected or rebuilt) before its lane was due. Nothing ran: this is **not** a test pass. The red result is expected and cosmetic: the commit it sits on is no longer in the queue." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
         with:
           pattern: lane-result-*
           path: results
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full' && needs.build.result == 'success'
         with:
           name: lane-list
