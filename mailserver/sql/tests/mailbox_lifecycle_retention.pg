@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(54);
+SELECT plan(56);
 SET LOCAL app.capture_notify='on';
 
 SELECT mk_account('ml-actor') AS actor_mb \gset
@@ -87,15 +87,12 @@ SELECT throws_ok(format($q$SELECT mailbox_lifecycle_transition(%s,%s,%L,'suspend
   :actor,:target_mb,gen_random_uuid(),repeat('1',64),'stale command'),'BZ304',NULL,
   'stale lifecycle generation is rejected');
 
--- Held retained mailbox: scheduling is allowed, execution is independently
--- approved but still fails closed on a fresh blocker evaluation.
-UPDATE mailboxes SET litigation_hold=true,hold_since=statement_timestamp() WHERE id=:target_mb;
+-- Schedule and approve a purge before placing the mailbox on legal hold.
 SELECT (mailbox_lifecycle_read(:target_mb)->>'generation')::bigint AS detach_gen2 \gset
-SELECT mailbox_lifecycle_transition(:actor,:target_mb,gen_random_uuid(),'detach_retain',:detach_gen2,repeat('2',64),'retained under legal hold');
-SELECT (mailbox_lifecycle_preview(:actor,:target_mb)->>'previewDigest') AS held_preview \gset
-SELECT ok(jsonb_array_length(mailbox_purge_blockers(:target_mb))>0,'legal hold appears in the central blocker projection');
+SELECT mailbox_lifecycle_transition(:actor,:target_mb,gen_random_uuid(),'detach_retain',:detach_gen2,repeat('2',64),'retained after departure');
+SELECT (mailbox_lifecycle_preview(:actor,:target_mb)->>'previewDigest') AS purge_preview \gset
 SELECT throws_ok(format($q$SELECT mailbox_purge_schedule(%s,%s,%L,%s,%L,%L,%L,%s)$q$,
-  :actor,:target_mb,gen_random_uuid(),:detach_gen2+1,:'held_preview',repeat('3',64),'same-person approval',:actor),
+  :actor,:target_mb,gen_random_uuid(),:detach_gen2+1,:'purge_preview',repeat('3',64),'same-person approval',:actor),
   'BZ308','independent purge approval is required','purge scheduling requires an independent approver');
 SELECT throws_ok(format($q$SELECT mailbox_purge_schedule(%s,%s,%L,%s,%L,%L,%L,%s)$q$,
   :actor,:target_mb,gen_random_uuid(),:detach_gen2+1,repeat('0',64),repeat('3',64),'stale preview',:approver),
@@ -104,8 +101,10 @@ SELECT throws_ok(format($q$SELECT mailbox_purge_cancel(%s,%L,%L,%L,%L)$q$,
   :actor,gen_random_uuid(),gen_random_uuid(),repeat('8',64),'unknown purge'),
   'BZ310','purge request not found','purge cancellation hides an unknown request');
 SELECT gen_random_uuid() AS purge_schedule_op \gset
-SELECT mailbox_purge_schedule(:actor,:target_mb,:'purge_schedule_op',:detach_gen2+1,:'held_preview',repeat('3',64),
-  'requested destruction',:approver) AS held_schedule \gset
+SELECT mailbox_purge_schedule(:actor,:target_mb,:'purge_schedule_op',:detach_gen2+1,:'purge_preview',repeat('3',64),
+  'requested destruction',:approver) AS purge_schedule \gset
+SELECT is((SELECT blocker_snapshot FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),'[]'::jsonb,
+  'purge is scheduled without blockers');
 SELECT approval_request_id AS held_approval FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op' \gset
 SELECT throws_ok(format($q$SELECT mailbox_purge_cancel(%s,%L,%L,%L,%L)$q$,:executor,
   (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('b',64),'foreign cancel'),
@@ -116,6 +115,9 @@ SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:actor,
   'BZ311','purge is not independently approved and eligible','purge execution rejects an unapproved request');
 SELECT is((mailbox_purge_approval_apply(:held_approval,:approver,'approve','independent review')->>'state'),'approved',
   'a distinct assigned approver can approve purge');
+UPDATE mailboxes SET litigation_hold=true,hold_since=statement_timestamp() WHERE id=:target_mb;
+SELECT ok(mailbox_purge_blockers(:target_mb) @> '[{"kind":"legal_hold"}]'::jsonb,
+  'legal hold appears in the central blocker projection after approval');
 SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:actor,
   (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('4',64)),
   'BZ312',NULL,'fresh legal-hold evaluation blocks an approved purge');
@@ -152,6 +154,13 @@ UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 
 SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,
   :executor,:'clean_request',gen_random_uuid(),repeat('7',64)),
   'BZ311','purge is not independently approved and eligible','unrelated actor cannot execute an eligible approved purge');
+INSERT INTO domains(name,is_local) VALUES('ml-away.test',true) RETURNING id AS away_domain \gset
+INSERT INTO admin_role_groups(name,permissions) VALUES('ml-delete',ARRAY['users.delete']) RETURNING id AS delete_role \gset
+INSERT INTO admin_role_assignments(user_id,role_group_id,domain_override,granted_by)
+  VALUES(:executor,:delete_role,:away_domain,:actor);
+SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,
+  :executor,:'clean_request',gen_random_uuid(),repeat('7',64)),
+  'BZ311','purge is not independently approved and eligible','users.delete scoped to another domain cannot execute the purge');
 SELECT is((mailbox_purge_execute(:actor,:'clean_request',gen_random_uuid(),repeat('7',64))->>'state'),'completed',
   'eligible independently approved unblocked purge completes');
 SELECT ok(NOT EXISTS(SELECT 1 FROM mailboxes WHERE id=:purge_mb),'completed purge removes the logical mailbox');
