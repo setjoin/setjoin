@@ -6,6 +6,7 @@ use common::BoxError;
 use setjoin_conformance::harness::Db;
 use setjoin_gateway::workers::{go_cron_task_is_off, Action, CronScheduler};
 use setjoin_pg::workers::WorkerDatabase;
+use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -271,13 +272,18 @@ async fn executable_holds_only_the_per_task_locks_once_go_is_off() -> Result<(),
         "cron:chat-chain-anchor,cron:chat-purge-expired",
         Some("cron:chat-chain-anchor,cron:chat-purge-expired"),
     )?;
+    // Drain stderr during startup so a full pipe cannot stall the gateway.
+    let mut stderr_pipe = child.stderr.take().expect("gateway stderr is piped");
+    let stderr = tokio::task::spawn_blocking(move || {
+        let mut bytes = Vec::new();
+        stderr_pipe.read_to_end(&mut bytes)?;
+        Ok::<_, std::io::Error>(bytes)
+    });
     // The gateway takes the per-task locks one after the other, so wait for both.
     let mut held = false;
     let mut anchor_held = false;
-    let mut exited = None;
     for _ in 0..600 {
-        if let Some(status) = child.try_wait()? {
-            exited = Some(status);
+        if child.try_wait()?.is_some() {
             break;
         }
         for (task, flag) in [
@@ -297,21 +303,22 @@ async fn executable_holds_only_the_per_task_locks_once_go_is_off() -> Result<(),
         .query_one(probe, &[&"cron:scheduler-single-flight"])
         .await?
         .get::<_, bool>(0);
-    let mut stderr = String::new();
-    if exited.is_some() {
-        if let Some(mut pipe) = child.stderr.take() {
-            let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
-        }
-    } else {
+    let exited_before_shutdown = child.try_wait()?.is_some();
+    if !exited_before_shutdown {
         unsafe {
             libc::kill(child.id() as i32, libc::SIGTERM);
         }
     }
-    let _ = tokio::task::spawn_blocking(move || child.wait()).await?;
+    let status = tokio::task::spawn_blocking(move || child.wait()).await??;
+    let stderr = stderr.await??;
+    let stderr = String::from_utf8_lossy(&stderr);
     assert!(
         held && anchor_held,
-        "both per-task locks held by Rust (purge={held}, anchor={anchor_held}, gateway exit={exited:?}, stderr={stderr:?})"
+        "both per-task locks held by Rust (purge={held}, anchor={anchor_held}, gateway {status}, exited before shutdown={exited_before_shutdown})\ngateway stderr:\n{stderr}"
     );
-    assert!(go_lock_free, "Rust never takes Go's scheduler lock");
+    assert!(
+        go_lock_free,
+        "Rust never takes Go's scheduler lock (gateway {status}, exited before shutdown={exited_before_shutdown})\ngateway stderr:\n{stderr}"
+    );
     Ok(())
 }
