@@ -2,7 +2,7 @@
 -- task_activity membership arm + personal-view split (jmap_task.sql).
 -- Plan: 2026-07-08-shared-team-task-lists.md, Task 4.
 BEGIN;
-SELECT plan(21);
+SELECT plan(24);
 
 -- A = owner/creator, B = member, C = stranger.
 SELECT mk_account('lttA') AS mba \gset
@@ -117,6 +117,63 @@ SELECT throws_ok(
 SELECT throws_ok(
   format($$ SELECT task_comment_create(%s, %s, 'hijack') $$, :mbc, :ftid),
   'BZ041', NULL, 'stranger task_comment_create → BZ041');
+
+-- Interleave a revocation and an edit with the membership check. The edit
+-- belongs to a later snapshot and must not appear in the authorized response.
+SAVEPOINT read_revocation;
+CREATE OR REPLACE FUNCTION task_list_role(p_list_id BIGINT, p_user_id BIGINT)
+RETURNS TEXT AS $$
+DECLARE
+  v_role TEXT;
+BEGIN
+  DELETE FROM task_list_members WHERE list_id = p_list_id AND user_id = p_user_id
+  RETURNING role INTO v_role;
+  UPDATE tasks SET title = 'After revocation' WHERE list_id = p_list_id;
+  RETURN v_role;
+END;
+$$ LANGUAGE plpgsql VOLATILE;
+SELECT task_list_tasks(:ub, :lid)->'list'->0->>'title' AS snapshot_title \gset
+ROLLBACK TO SAVEPOINT read_revocation;
+RELEASE SAVEPOINT read_revocation;
+SELECT is(:'snapshot_title', 'Feed test', 'task read authorizes and projects the same snapshot');
+
+-- Revoke after a valid create, before the update and destroy phases. A temp
+-- sequence records any later write even if the reducer rolls back the batch.
+SAVEPOINT write_revocation;
+CREATE TEMP SEQUENCE revoked_task_writes;
+CREATE FUNCTION pg_temp.revoke_during_task_set() RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    DELETE FROM task_list_members
+    WHERE list_id = NEW.list_id
+      AND user_id = (SELECT user_id FROM mailboxes WHERE id = NEW.mailbox_id);
+  ELSE
+    PERFORM nextval('pg_temp.revoked_task_writes');
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER revoke_during_task_set AFTER INSERT OR UPDATE OR DELETE ON tasks
+FOR EACH ROW EXECUTE FUNCTION pg_temp.revoke_during_task_set();
+
+CREATE FUNCTION pg_temp.task_set_revocation_result(p_user_id BIGINT, p_list_id BIGINT, p_task_id BIGINT)
+RETURNS TEXT AS $$
+BEGIN
+  PERFORM task_list_task_set(p_user_id, p_list_id,
+    '{"c3":{"title":"Revoke after create"}}'::JSONB,
+    jsonb_build_object(p_task_id::TEXT, jsonb_build_object('title', 'Unauthorized edit')),
+    jsonb_build_array(p_task_id::TEXT));
+  RETURN 'allowed';
+EXCEPTION WHEN SQLSTATE 'BZ132' THEN
+  RETURN SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+SELECT pg_temp.task_set_revocation_result(:ub, :lid, :ftid) AS set_result \gset
+SELECT is_called AS later_write FROM pg_temp.revoked_task_writes \gset
+ROLLBACK TO SAVEPOINT write_revocation;
+RELEASE SAVEPOINT write_revocation;
+SELECT is(:'set_result', 'BZ132', 'mid-batch revocation rejects the task set');
+SELECT is(:'later_write'::BOOLEAN, FALSE, 'mid-batch revocation prevents later task writes');
 
 SELECT * FROM finish();
 ROLLBACK;

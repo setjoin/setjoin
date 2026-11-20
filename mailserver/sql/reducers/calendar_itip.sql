@@ -5,8 +5,8 @@
 -- p_on_behalf_of (optional): the users.id of a delegate responding on the calendar
 -- owner's behalf. When set, the delegate must hold a mailbox_delegates grant
 -- (full_access or manage_calendar) on the owner's primary mailbox, else the call is
--- forbidden and no attendee row is flipped. When NULL the existing self-RSVP path runs
--- unchanged (ownership is the caller's own account).
+-- forbidden and no attendee row is flipped. Lock the event, its calendar and any
+-- authorizing grant through both writes. NULL uses the caller's own account.
 CREATE OR REPLACE FUNCTION jmap_calendar_event_rsvp(
   p_mailbox_id     BIGINT,
   p_event_id       BIGINT,
@@ -26,7 +26,8 @@ BEGIN
   SELECT ce.*, c.mailbox_id INTO v_event
   FROM calendar_events ce
   JOIN calendars c ON c.id = ce.calendar_id
-  WHERE ce.id = p_event_id AND c.mailbox_id = p_mailbox_id;
+  WHERE ce.id = p_event_id AND c.mailbox_id = p_mailbox_id
+  FOR NO KEY UPDATE OF ce FOR SHARE OF c;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('type', 'notFound',
@@ -36,20 +37,17 @@ BEGIN
   -- Delegate respond: verify the actor holds a calendar-respond delegation on the
   -- owner mailbox before flipping the owner's attendee row on their behalf.
   IF p_on_behalf_of IS NOT NULL THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM mailbox_delegates
-      WHERE mailbox_id = v_event.mailbox_id
-        AND user_id = p_on_behalf_of
-        AND permission IN ('full_access', 'manage_calendar')
-    ) THEN
+    PERFORM 1 FROM mailbox_delegates
+    WHERE mailbox_id = v_event.mailbox_id
+      AND user_id = p_on_behalf_of
+      AND permission IN ('full_access', 'manage_calendar')
+    FOR SHARE;
+    IF NOT FOUND THEN
       RETURN jsonb_build_object('type', 'forbidden',
         'description', 'Not authorized to respond on behalf of this mailbox');
     END IF;
   END IF;
 
-  -- Ownership is already established: v_event was SELECTed above under
-  -- c.mailbox_id = p_mailbox_id (NOT FOUND → notFound). These UPDATEs gate on the
-  -- already-validated p_event_id; the prior re-proving EXISTS subqueries were dead weight.
   UPDATE event_attendees SET status = p_status
   WHERE event_id = p_event_id AND email = p_attendee_email;
 
