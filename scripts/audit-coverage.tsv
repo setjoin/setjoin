@@ -886,6 +886,9 @@ rule_config_template_create.sql	rule_config_template_create	MUST	core	lifecycle/
 rule_config_update.sql	rule_config_update	MUST	core	lifecycle/authority transition (WP3 core class)
 rules_apply_retroactive.sql	rules_apply_retroactive	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 scheduled_actions_dispatch.sql	run_scheduled_action	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_smtp_imip.sql	rust_smtp_imip_cancel_occurrence	EXEMPT	-	inbound calendar-content mutation; matches the recipient mailbox and organizer before marking one recurrence excluded
+rust_smtp_imip.sql	rust_smtp_imip_request_apply	EXEMPT	-	inbound calendar-content mutation; rechecks the recipient context before creating an event or updating an occurrence
+rust_smtp_imip.sql	rust_smtp_imip_request_gate	EXEMPT	-	inbound transport rate limiting; matches the attendee to the envelope recipient's mailbox owner and charges the recipient rate counter
 saved_searches.sql	saved_search_delete	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 saved_searches.sql	saved_search_list	READ_ONLY	-	pure read path (guard re-derives no DML)
 saved_searches.sql	saved_search_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
