@@ -45,10 +45,7 @@ pub async fn run() {
         let listener = if env.recording {
             None
         } else {
-            env.native
-                .start_saml_listener("saml_sp", "saml_sp")
-                .await
-                .unwrap()
+            env.native.start_saml_listener().await
         };
         let result=async{
             env.c.execute("UPDATE saml_sp_registrations SET idp_metadata_url=$1 WHERE id=34101",&[&format!("https://{host}:{port}/metadata")]).await?;

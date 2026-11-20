@@ -6,7 +6,7 @@ pub use secret::reseal;
 mod link;
 pub use link::LinkFlow;
 mod listener;
-pub use listener::{admit_worker, Listener};
+pub use listener::Listener;
 mod account;
 pub use account::{Assertion, Federated, Lookup, Resolution};
 use base64::{

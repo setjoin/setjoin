@@ -561,7 +561,7 @@ mod flow;
 pub use flow::{audit, relay_target, valid_relay, Consumed, Tracking};
 #[path = "saml_listener.rs"]
 mod listener;
-pub use listener::{admit_worker, Listener};
+pub use listener::Listener;
 
 // These configuration structs use Go encoding/json's folded names and null
 // no-op behavior; unknown fields are skipped without numeric conversion.

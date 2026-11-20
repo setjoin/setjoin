@@ -22,6 +22,17 @@ impl Env {
         Self::configured(mutant, issuer, json!({})).await
     }
     pub async fn configured(mutant: bool, issuer: &str, extra: Value) -> Result<Self, Err> {
+        Self::start_with_serving(mutant, issuer, extra, false).await
+    }
+    pub async fn worker_test() -> Result<Self, Err> {
+        Self::start_with_serving(false, idp::ISSUER, json!({}), true).await
+    }
+    async fn start_with_serving(
+        mutant: bool,
+        issuer: &str,
+        extra: Value,
+        use_native_serving: bool,
+    ) -> Result<Self, Err> {
         let db = Db::for_case("IDFED2-rp").expect("assigned DB required");
         let c = db.connect().await?;
         c.query_one(
@@ -78,7 +89,7 @@ impl Env {
         let mut cfg = Config::for_secret(fixture()["secret"].as_str().unwrap().into());
         cfg.signing_alg = "ES256".into();
         cfg.dsn = db.dsn.clone();
-        cfg.direct_dsn = db.dsn.clone();
+        cfg.direct_dsn = db.direct.clone();
         cfg.oidc_rp_enabled = true;
         let native = Arc::new(
             AuthServer::load_with_rp_http(
@@ -92,13 +103,28 @@ impl Env {
         let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
         let recording = record.is_some();
         assert!(!mutant || !recording);
-        let listener = if recording {
-            None
-        } else {
-            native.start_rp_listener("oidc_rp", "oidc_rp").await?
-        };
         let mutation = Arc::new(std::sync::atomic::AtomicBool::new(mutant));
-        let auth = auth_server_armed(native, mutation.clone()).await;
+        let (auth, listener) = if use_native_serving {
+            let tcp = TcpListener::bind("127.0.0.1:0").await?;
+            let addr = tcp.local_addr()?;
+            let (stop, rx) = oneshot::channel();
+            let task = tokio::spawn(setjoin_auth::serve_until(native, tcp, None, async {
+                let _ = rx.await;
+            }));
+            let auth = Server {
+                stop: Some(stop),
+                task,
+                addr,
+            };
+            (auth, None)
+        } else {
+            let listener = if recording {
+                None
+            } else {
+                native.start_rp_listener().await
+            };
+            (auth_server_armed(native, mutation.clone()).await, listener)
+        };
         let gw = gateway_mode(auth.addr, record, true).await;
         if recording {
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -161,7 +187,7 @@ impl Env {
         }
     }
     pub async fn close(self) -> Result<(), Err> {
-        let metrics = request(self.gw.addr, "GET", "/_gateway/metrics", String::new(), &[]).await?;
+        let metrics = request(self.gw.addr, "GET", "/_gateway/metrics", String::new(), &[]).await;
         drop(self.listener);
         self.gw.close().await;
         self.auth.close().await;
@@ -170,7 +196,7 @@ impl Env {
             Some((value, encrypted)) => {
                 self.c
                     .execute(
-                        "UPDATE system_config SET value=$2::text::jsonb,encrypted=$3 WHERE key=$1",
+                        "INSERT INTO system_config(key,value,encrypted) VALUES($1,$2::text::jsonb,$3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=excluded.encrypted",
                         &[&CONFIG, &value, &encrypted],
                     )
                     .await?;
@@ -225,6 +251,7 @@ impl Env {
                 )
                 .await?;
         }
+        let metrics = metrics?;
         if !self.recording && !metrics.2.contains("setjoin_gateway_proxied_to_go_total 0") {
             return Err("native RP contacted Go".into());
         }

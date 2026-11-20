@@ -1,4 +1,4 @@
-//! Explicitly transferred RP cache task, with direct LISTEN credentials only.
+//! OIDC RP cache invalidation over direct LISTEN credentials.
 use super::*;
 use setjoin_pg::workers::DirectListener;
 pub struct Listener(tokio::task::JoinHandle<()>);
@@ -6,17 +6,6 @@ impl Drop for Listener {
     fn drop(&mut self) {
         self.0.abort();
     }
-}
-/// Startup guard: the Rust task never competes with the Go task by accident.
-pub fn admit_worker(rust_on: &str, go_off: &str) -> Result<bool, String> {
-    let contains = |raw: &str| raw.split(',').any(|v| v.trim() == "oidc_rp");
-    if !contains(rust_on) {
-        return Ok(false);
-    }
-    if !contains(go_off) {
-        return Err("oidc_rp requires GO_WORKERS_OFF=oidc_rp".into());
-    }
-    Ok(true)
 }
 fn relevant(key: &str) -> bool {
     if matches!(key, "auth_methods" | "oidc_rp") {
@@ -34,11 +23,11 @@ impl Registry {
         let mut initial = DirectListener::connect(direct_dsn, "config_changed")
             .await
             .ok();
-        if initial.is_some() {
-            if let Err(e) = self.reload().await {
-                eprintln!("oidc_rp initial reconcile: {e}");
-                initial = None;
-            }
+        if initial.is_none() {
+            self.providers.write().unwrap().clear();
+        } else if let Err(e) = self.reload().await {
+            eprintln!("oidc_rp initial reconcile: {e}");
+            initial = None;
         }
         let registry = self.clone();
         let dsn = direct_dsn.to_owned();
@@ -58,6 +47,7 @@ impl Registry {
                             l
                         }
                         Err(e) => {
+                            registry.providers.write().unwrap().clear();
                             eprintln!("oidc_rp LISTEN: {e}");
                             tokio::time::sleep(Duration::from_secs(5)).await;
                             continue;
@@ -75,6 +65,7 @@ impl Registry {
                         }
                     }
                 }
+                registry.providers.write().unwrap().clear();
                 drop(listener);
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }

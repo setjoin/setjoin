@@ -1,4 +1,4 @@
-//! Explicitly transferred SAML SP cache task, with direct LISTEN credentials only.
+//! SAML SP cache invalidation over direct LISTEN credentials.
 use super::*;
 use setjoin_pg::workers::DirectListener;
 use std::time::Duration;
@@ -7,17 +7,6 @@ impl Drop for Listener {
     fn drop(&mut self) {
         self.0.abort();
     }
-}
-/// Startup guard: the Rust task never competes with the Go task by accident.
-pub fn admit_worker(rust_on: &str, go_off: &str) -> Result<bool, String> {
-    let contains = |raw: &str| raw.split(',').any(|v| v.trim() == "saml_sp");
-    if !contains(rust_on) {
-        return Ok(false);
-    }
-    if !contains(go_off) {
-        return Err("saml_sp requires GO_WORKERS_OFF=saml_sp".into());
-    }
-    Ok(true)
 }
 fn relevant(key: &str) -> bool {
     if matches!(key, "auth_methods" | "saml_sp") {
@@ -31,11 +20,11 @@ impl Registry {
         let mut initial = DirectListener::connect(direct_dsn, "config_changed")
             .await
             .ok();
-        if initial.is_some() {
-            if let Err(e) = self.reload().await {
-                eprintln!("saml_sp initial reconcile: {e}");
-                initial = None;
-            }
+        if initial.is_none() {
+            self.entries.write().unwrap().clear();
+        } else if let Err(e) = self.reload().await {
+            eprintln!("saml_sp initial reconcile: {e}");
+            initial = None;
         }
         let registry = self.clone();
         let dsn = direct_dsn.to_owned();
@@ -55,6 +44,7 @@ impl Registry {
                             l
                         }
                         Err(e) => {
+                            registry.entries.write().unwrap().clear();
                             eprintln!("saml_sp LISTEN: {e}");
                             tokio::time::sleep(Duration::from_secs(5)).await;
                             continue;
@@ -71,6 +61,7 @@ impl Registry {
                         }
                     }
                 }
+                registry.entries.write().unwrap().clear();
                 drop(listener);
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }

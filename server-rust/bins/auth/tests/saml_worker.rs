@@ -38,10 +38,7 @@ async fn saml_sp_seed_and_tick() {
     let listener = if env.recording {
         None
     } else {
-        env.native
-            .start_saml_listener("saml_sp", "saml_sp")
-            .await
-            .unwrap()
+        env.native.start_saml_listener().await
     };
     let result=async{
         let seed=observe(&env,"/auth/saml/idfed3/login").await?;
@@ -54,45 +51,104 @@ async fn saml_sp_seed_and_tick() {
     env.close().await.unwrap();
     result.unwrap();
 }
-#[test]
-fn saml_sp_requires_go_retirement() {
-    use std::os::unix::process::CommandExt;
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
-        .arg0("gofree-idfed3-worker-guard")
-        .env("RUST_WORKERS_ON", "saml_sp")
-        .env_remove("GO_WORKERS_OFF")
-        .env_remove("SETJOIN_CONFIG")
-        .env("JWT_SECRET", flows::fixture()["secret"].as_str().unwrap())
-        .env("DB_DSN", "invalid")
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    assert!(
-        String::from_utf8_lossy(&out.stderr).contains("GO_WORKERS_OFF=saml_sp"),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 #[tokio::test]
-async fn library_worker_transfer_guard() {
+async fn saml_login_refuses_a_deleted_idp_with_workers_off() {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Child, Command};
+
+    struct Owned(Child);
+    impl Drop for Owned {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
     let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDFED3-saml").expect("assigned DB required");
     let env = flows::Env::start(false).await.unwrap();
-    assert!(env
-        .native
-        .start_saml_listener("saml_sp-other", "saml_sp")
+    let result = async {
+        let reservation = setjoin_conformance::ports::std_listener();
+        let addr = reservation.local_addr()?;
+        drop(reservation);
+        let mut auth = Owned(
+            Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
+                .arg0("gofree-idfed3-saml-revocation")
+                .env_remove("SETJOIN_CONFIG")
+                .env("RUST_WORKERS_ON", "")
+                .env("GO_WORKERS_OFF", "")
+                .env("DB_DSN", &db.dsn)
+                .env("DB_DIRECT_DSN", &db.direct)
+                .env("DB_WORKER_DSN", &db.dsn)
+                .env("DB_ENCRYPTION_KEY", flows::ENC)
+                .env("LISTEN_ADDR", addr.to_string())
+                .env_remove("TLS_CERT")
+                .env_remove("TLS_KEY")
+                .env("JWT_SECRET", flows::fixture()["secret"].as_str().unwrap())
+                .env("JWT_SIGNING_ALG", "ES256")
+                .env("CRYPTO_ALGORITHM_PROFILE", "standard")
+                .env("OIDC_ENABLED", "false")
+                .env("OIDC_PROVIDER_ENABLED", "false")
+                .env("SAML_ENABLED", "true")
+                .env("SAML_CERT_FILE", corpus().join("sp-cert.pem"))
+                .env("SAML_KEY_FILE", corpus().join("sp-key.pem"))
+                .spawn()?,
+        );
+        let path = "/auth/saml/idfed3/login";
+        let seed = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                if auth.0.try_wait()?.is_some() {
+                    return Err("auth exited before serving SAML".into());
+                }
+                if let Ok(response) = request(addr, "GET", path, String::new(), &[]).await {
+                    return Ok::<_, Err>(response.0);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await??;
+        if seed != 302 {
+            return Err(format!("configured SAML IdP returned {seed}, expected 302").into());
+        }
+
+        // The replacement identifies the snapshot that includes the deletion.
+        let replaced = env.c.execute(
+            "WITH removed AS (
+                 DELETE FROM saml_sp_registrations WHERE id=34101
+                 RETURNING idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings
+             )
+             INSERT INTO saml_sp_registrations(id,idp_entity_id,idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings)
+             SELECT 34102,'idfed3-after-delete',idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings
+             FROM removed",
+            &[],
+        ).await?;
+        if replaced != 1 {
+            return Err("SAML fixture registration was not deleted".into());
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(12), async {
+            loop {
+                let response = request(
+                    addr,
+                    "GET",
+                    "/auth/saml/idfed3-after-delete/login",
+                    String::new(),
+                    &[],
+                )
+                .await?;
+                if response.0 == 302 {
+                    return Ok::<(), Err>(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
         .await
-        .unwrap()
-        .is_none());
-    assert!(env.native.start_saml_listener("saml_sp", "").await.is_err());
-    let task = env
-        .native
-        .start_saml_listener(" oidc_rp, saml_sp ", "other, saml_sp")
-        .await
-        .unwrap();
-    assert!(task.is_some());
-    drop(task);
+        .map_err(|_| "auth did not reload SAML after deletion")??;
+        let refused = request(addr, "GET", path, String::new(), &[]).await?;
+        Ok::<_, Err>((refused.0, refused.1.get("location").is_none()))
+    }
+    .await;
     env.close().await.unwrap();
+    assert_eq!(result.unwrap(), (404, true));
 }
 
 #[tokio::test]
@@ -102,10 +158,7 @@ async fn saml_sp_go_json_field_folding() {
     let listener = if env.recording {
         None
     } else {
-        env.native
-            .start_saml_listener("saml_sp", "saml_sp")
-            .await
-            .unwrap()
+        env.native.start_saml_listener().await
     };
     let result=async{
         env.c.batch_execute("BEGIN;SET LOCAL session_replication_role=replica;UPDATE saml_sp_registrations SET enabled=false WHERE id=34101;COMMIT").await?;

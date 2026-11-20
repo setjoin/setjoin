@@ -97,15 +97,16 @@ a freshly verified live session. Foreign, revoked and disabled authority cannot
 inspect an outcome. Unlink requires a newly established session after its own
 revocation boundary. Notifications and reducer effects share the receipt fence.
 
-`saml_sp` is a retained Rust task, admitted only by matching comma-delimited
-`RUST_WORKERS_ON` and `GO_WORKERS_OFF` names. Startup rejects a missing Go
-retirement before database/config loading; library embeddings enforce the same
-rule. The task subscribes through DB_DIRECT_DSN before authoritative reload,
-handles `saml_sp`/`auth_methods`, reconciles missed notifications after reconnect,
-and aborts on handle drop. Other Go process-local caches continue running.
-The frozen-Go seed/tick corpus verifies removal of a disabled registration;
-private-literal and private-DNS metadata tests observe zero TCP connections and
-verify healthy-sibling publication after the failing entry.
+Auth startup retains the `saml_sp` cache listener whenever the SAML registry is
+loaded, independently of worker transfer flags (#394). Library embeddings with
+their own HTTP serving loop start and retain it explicitly. The task subscribes through DB_DIRECT_DSN before
+authoritative reload, handles `saml_sp`/`auth_methods`, reconciles missed
+notifications after reconnect, and aborts on handle drop. A failed subscription
+or detected disconnect clears cached registrations. The frozen-Go seed/tick
+corpus verifies removal of a disabled registration. The auth process regression
+deletes a registration with empty worker flags and checks that login is refused
+after reload. Private-literal and private-DNS metadata tests observe zero TCP
+connections and verify healthy-sibling publication after the failing entry.
 
 SAML configuration JSON retains Go field folding (including Unicode folds into
 ASCII), exact known-field types, unknown-field skipping and duplicate-null
