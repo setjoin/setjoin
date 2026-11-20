@@ -1,0 +1,17 @@
+# Guards red on the public tree since the Go removal and the public export, tracked by issue #348
+# ("Xinchuang CI: 12 guards red on the public tree"). run-guards.sh --known-red still RUNS each one
+# (self-test first) and prints a warning; only these names may fail without failing the lane.
+# Fix or re-scope the guard, then delete its line. Never add a guard here without an issue reference.
+check-app-notify                  # #348
+check-audit-coverage              # #348 (175 Rust reducers unclassified in scripts/audit-coverage.tsv)
+check-deploy-doc-currency         # #348 (self-test)
+check-guest-doors                 # #348
+check-installer-migration-order   # #348
+check-mailbox-lifecycle-contracts # #348
+check-rls-allow                   # #348
+check-rls-denial                  # #348
+check-schema-determinism          # #348
+check-server-release-build        # #348
+check-shfmt-ratchet             # #348 (29 Rust-era shell scripts missing from config/shfmt.baseline)
+check-sql-injection              # #348 (Go test files worker_switch_db_test.go, worker_switch_test.go build pg_notify SQL with Sprintf)
+check-xinchuang-matrix           # #348 (self-test: 175 reducers absent from the xinchuang matrix and README block stale)

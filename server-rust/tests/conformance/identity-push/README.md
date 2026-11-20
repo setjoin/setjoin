@@ -1,5 +1,7 @@
 # Push and possession HTTP oracle (#336)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-auth --test push_oracle` records the actual front door against covered
 frozen Go at `GOFREE_RECORD_UPSTREAM`, then replays with both Go upstreams unset
 and verifies zero Go proxy hops. Use the assigned disposable database,

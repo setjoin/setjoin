@@ -16,7 +16,7 @@ pub async fn reseal(dsn: &str, master: &[u8], profile: CryptoProfile) -> Result<
             let mut candidates=Vec::new();
             // Validate every existing envelope/type before sealing/writing any row.
             for row in rows{
-                let raw:String=row.get(1);let value:Value=serde_json::from_str(&raw).map_err(|_|"invalid OIDC configuration JSON")?;
+                let raw:String=row.try_get(1).map_err(|_|"invalid OIDC configuration row")?;let value:Value=serde_json::from_str(&raw).map_err(|_|"invalid OIDC configuration JSON")?;
                 if !value.is_object()&&!value.is_null(){return Err("OIDC configuration is not an object".to_owned());}
                 let secret=match value.get("client_secret"){
                     None|Some(Value::Null)=>"",
@@ -26,7 +26,7 @@ pub async fn reseal(dsn: &str, master: &[u8], profile: CryptoProfile) -> Result<
                 if secret.is_empty(){continue;}
                 if decode_secret(secret).is_some_and(|b|b.starts_with(b"EK01")){
                     open_secret(secret,master)?;
-                }else{candidates.push((row.get::<_,String>(0),value.clone(),row.get::<_,bool>(2),secret.to_owned()));}
+                }else{candidates.push((row.try_get::<_,String>(0).map_err(|_|"invalid OIDC configuration row")?,value.clone(),row.try_get::<_,bool>(2).map_err(|_|"invalid OIDC configuration row")?,secret.to_owned()));}
             }
             let mut changes=Vec::new();
             for (key,before,encrypted,plain) in candidates{
@@ -34,7 +34,7 @@ pub async fn reseal(dsn: &str, master: &[u8], profile: CryptoProfile) -> Result<
                 changes.push(json!({"key":key,"before":before,"encrypted":encrypted,"sealed":URL_SAFE_NO_PAD.encode(sealed)}));
             }
             let rows=connection.query("SELECT rust_identity_rp_reseal($1::text::jsonb)",&[(&json!(changes).to_string(),Type::TEXT)]).await?;
-            Ok::<i32,String>(rows[0].get(0))
+            rows.first().and_then(|r|r.try_get::<_,i32>(0).ok()).ok_or_else(||"OIDC reseal result".to_owned())
         }.await;
         match result{Ok(count)=>{connection.batch("COMMIT").await?;Ok(count)},Err(error)=>{let _=connection.batch("ROLLBACK").await;Err(error)}}
     }).await.map_err(|_|"OIDC startup reseal timed out".to_owned())?

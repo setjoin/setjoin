@@ -1,5 +1,7 @@
 # SAML SP oracle (#341)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Agreed seams (spec #251 / ticket #341): SAML and identity-link HTTP routes
 through the real front door, signed outbound AuthnRequests, committed owned
 link/elevation/revocation/audit/notification effects, and a `saml_sp`

@@ -43,6 +43,7 @@ Follow the known source path and relevant owner sections; search for unknown ent
 - Verification command catalog: `guides/VERIFICATION_COMMANDS.md`
 - Execution/cleanup: `guides/TASK_EXECUTION_AND_CLEANUP.md`
 - Planning stage contracts: `agents/planning-review-pipeline.md`
+- Subagent workflow rules: `agents/subagent-workflow.md`
 
 Protocol work must read the matching `ref/protocols/*.md` and raw RFC before code changes. Do not rely on model memory for normative protocol behavior.
 

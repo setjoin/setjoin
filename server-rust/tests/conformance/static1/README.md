@@ -1,5 +1,7 @@
 # F22 / F20 / translate recordings (#271)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `goldens/<case>.json` are frozen-Go observations (response status, headers,
 exact body SHA-256 and length, the small body text, provider exchange, chat audit
 rows, notifications). Translate cases also have `<case>-row-effects.json`

@@ -1,5 +1,7 @@
 # Catch-all HTTP oracle (#416)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 The public seam is HTTP through the actual front door: unknown paths, method
 mismatches, ServeMux redirects, bare mutation aliases and the webmail static
 responder. Frozen Go is the expected result, including middleware headers and

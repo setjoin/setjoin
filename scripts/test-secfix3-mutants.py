@@ -41,6 +41,7 @@ PASSWORD_SQL = (
 # (mutant id, (package, test target), test filter, optional sql revert)
 MUTANTS = [
     ("login-no-dummy-hash", AUTH, "unknown_email_login_costs_a_password_hash_under_every_profile", None),
+    ("login-no-dummy-hash", ("setjoin-auth", "fail_closed"), "unreadable_login_hash_matches_absent", None),
     ("revocations-fail-open", AUTH, "revocations_fail_closed_until_the_first_load", None),
     ("unbounded-request-bodies", AUTH, "oversized_password_and_internal_key_bodies_are_refused", None),
     ("password-keyed-on-email", AUTH, "password_change_is_keyed_on_the_signed_uid_not_the_signed_email", PASSWORD_SQL),

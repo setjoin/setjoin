@@ -468,10 +468,64 @@ updater are #357–#359.
 ## Parallel full lane (#550)
 
 `.github/workflows/server-rust-lane.yml` runs the lane on GitHub-hosted runners (no self-hosted
-label) for every pull request and every push to `main`: always the FULL lane including oracle
-coverage. `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
+label) on the merge queue's `merge_group` commit (one run per queue entry) and `workflow_dispatch`: always the
+FULL lane including oracle coverage, except a queue entry that left the queue while waiting (`mode=gone`, see below).
+Merge-queue batching (`queue` job, `scripts/lane-job-gate.py queue-role`; default OFF, enabled by repo variable
+`LANE_QUEUE_BATCHING=1` on a ruleset with `grouping_strategy` HEADGREEN): the batch head runs the full lane on its commit,
+which contains every earlier entry; an entry with a later queued entry (a queue branch whose commit descends from its
+own, found by `git for-each-ref --contains` over a `--depth 6 --filter=tree:0` fetch) waits and runs no lane, polling `ls-remote`
+every 60 s after a 120 s settle. A waiter's run stays in progress and its `aggregate` pending. When its branch is gone
+it ends `mode=gone`: no job runs, `aggregate` is red with "nothing ran; not a test pass" (cosmetic, the commit is no
+longer queued). Exceptions that run the full lane: a late arrival (queued after the head had already decided) runs its own
+lane, and a waiter that reaches the CAP (5400 s) runs it too; errors keep the waiter waiting until then. The clock is read
+after every git call, and the deadline is checked before EACH git subprocess of the ancestry check, so no subprocess
+starts at or after CAP and a waiter returns by CAP + 255 s of worst-case I/O (ls-remote 60 s, init 15 s, cat-file 15 s,
+fetch 60 s, for-each-ref 30 s, and up to five run lookups of 15 s each, `QUEUE_POLL_WORST_IO_S`). The fetch depth is `--depth 6`, which is QUEUE_FETCH_DEPTH: the ruleset's
+`max_entries_to_build` 5 plus one, so a later entry is at most 5 commits above ours. Shallow history can only HIDE a
+descendant, and a hidden one means `head`, which runs our own full lane: a miss is safe. A reported descendant is always
+real, because a ref is listed only when our commit is an ancestor of its tip in the fetched graph. A failed command, a
+missing own commit (`cat-file -e`) or a passed deadline returns unknown (None), never an empty set. Worst case per entry is SETTLE + CAP + the lane; the queue job
+times out at 110 min (6600 s), above CAP + 255 s + 300 s of checkout and setup (5955 s), and `scripts/test-lane-job-gate.py` asserts that. The 255 s is ENFORCED, not assumed: every git call and every API lookup is a child process run by `subprocess.run` with a timeout (`QUEUE_*_TIMEOUT_S`), and the child is killed at that timeout. A per-socket timeout would not do: `urlopen(timeout=)` bounds each blocking socket operation, not the whole response, so a trickling body could outlive the job. A `check_response_timeout`
+overrun (360 min) ejects a PR, which fails closed and never merges it. Tests: `python3 scripts/test-lane-job-gate.py`
+(git, clock, sleep and the Actions API injected; no network).
+
+Commits on main before a batch's last commit are not tested individually;
+the tip is, and the nightly full lane is the backstop. Known: a `gone` run and a rebuilt entry leave red marks on discarded commits.
+
+Why the failed-later check exists (GitHub HEADGREEN behaviour, live pilot 2026-11-17): the queue held #441, #446 and #447.
+#447's lane run concluded `failure` at 10:09, but under HEADGREEN GitHub did NOT remove #447 or delete its
+`gh-readonly-queue` branch while the earlier entries' checks were pending. #441 and #446 kept seeing #447 as a later
+descendant and waited until the CAP (90 min); dequeuing #447 by hand freed them at once. So a later ref whose
+server-rust lane run for its merge_group commit is COMPLETED with a conclusion other than `success` no longer counts as
+later. `failed_later_from_api` runs one `curl` child per later head sha (`--fail --max-time 12`, under `subprocess.run` with a 15 s hard timeout; headers, token included, on stdin via `-H @-`, never in argv), `GET /repos/{REPO}/actions/workflows/server-rust-lane.yml/runs?event=merge_group&head_sha={sha}&per_page=5`,
+and the newest run (max id) decides; the function returns the failed shas with their conclusions. A run that is queued, in
+progress or missing keeps the ref later, and `success` does too (GitHub then merges us with it). It is asked on every poll
+that has later refs (run states change while the sha set stays the same); the descendant sha-set cache is unchanged. Any
+non-zero exit, timeout, JSON or shape error, or a CAP reached before a request, returns unknown, which keeps every later
+ref, so the entry waits until CAP and runs its own full lane: fail-safe. Each poll logs one line (`excluded_failed=[ref sha=... conclusion=...]`);
+the token is never logged.
+Permission: only the `queue` job gets `permissions: { contents: read, actions: read }` at job level (the workflow-level
+permissions are unchanged; no other job gains one). `GH_TOKEN: ${{ github.token }}` is passed to the queue step, and it is
+used only when `LANE_QUEUE_BATCHING=1` on a `merge_group` event; otherwise the head-at-once path makes no network call.
+`scripts/check-test-gate-wiring.sh` pins `actions: read` and the token env in the queue job.
+Rollout and rollback (coordinator, not this PR): the ruleset (`rulesets/27288657`, merge_queue `grouping_strategy` and
+`max_entries_to_build` 5) and `vars.LANE_QUEUE_BATCHING` change together, back up the ruleset first. Rollback: delete the
+variable (`gh variable delete LANE_QUEUE_BATCHING -R setjoin/setjoin`), restore the saved ruleset (`gh api -X PUT
+repos/setjoin/setjoin/rulesets/27288657 --input restore.json`), confirm `ALLGREEN`, build 1, merge 5, min 1, wait 10,
+timeout 360 on that ruleset, then cancel the in-progress merge_group runs whose `queue` job is still waiting
+(`gh run list -w server-rust-lane.yml -e merge_group -s in_progress`, then `gh run cancel <id>`) before requeueing.
+A push to `main` runs CACHE REFRESH ONLY
+(`plan` output `mode=cache`: `build`, `coverage-build` and `gomod-cache` save the cargo and Go module caches; no test,
+coverage, replay or guard job; step summary "cache refresh only, no tests"; not a test pass, the queue already tested it).
+A nightly `schedule` (`30 2 * * *`, main) runs the full lane plus coverage as the backstop (`mode=full`) and skips
+cleanly (`mode=skip`) when main has no commit in the last 26 hours. The rules live in `scripts/lane-job-gate.py` (tests: `python3 scripts/test-lane-job-gate.py`, run by `aggregate` and `pre-ci.sh`). `aggregate` accepts `cache` only on push and
+`full`/`skip` only on schedule, and is red on `merge_group`/`workflow_dispatch` unless `mode=full`. Pull
+requests run only `pr-precheck.yml` (gate job `aggregate` over `light`: `scripts/quick-check.sh`, changed-package
+clippy/`--lib` tests and cheap guards, and `integration`: the `tests/*.rs` targets `scripts/precheck-integration.py`
+selects, run by `server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT`,
+30-minute cap, see `.github/CI-RUNNERS.md`); the ruleset requires `aggregate` on both, so the full lane gates every merge. The concurrency group falls back to `github.ref` (unique per queue entry). `workflow_dispatch` takes `shards` (default 8), `coverage_shards` (6), `jobs` (4) and the
 debug inputs `filter`/`adequacy_only`/`adequacy_entries`, which run one `debug` job and are never a
-lane result. Jobs: `plan` (shard lists, debug or full); `build` (one `cargo nextest archive` of every
+lane result. Jobs: `queue` (merge-queue batching decision, head or gone; prints head on every run unless batching is on); `plan` (mode, shard lists; debug or full); `build` (one `cargo nextest archive` of every
 workspace test binary plus the expected test list `nextest list`); `roots` (static guards,
 cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read: `SERVER_RUST_STAGES=static,roots`);
 `shard 1..N` (nextest `--partition hash:k/N` of the archive plus every N-th replay and mutant);
@@ -501,7 +555,8 @@ The summary and `--keep-going` failures are in manifest order, named
 Images: `.github/workflows/ci-images.yml` (only workflow with `packages: write`, job-scoped; runs on
 same-repo pull requests, pushes to `main` and dispatch for `.github/ci/**` changes, never on fork pull
 requests; `images.lock` is excluded from its path filter to avoid a digest loop; the lane's `plan`
-job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images and mirrors tag-referenced third-party images to
+job fails fast while `images.lock` has `PLACEHOLDER`) builds the lane images, the protocol interop client images
+(`scripts/build-interop-images.sh`: `setjoin-interop-imap`, `-smtp`, `-ldap`; tests never build images) and mirrors tag-referenced third-party images to
 `ghcr.io/setjoin`, printing `.github/ci/images.lock`; `.github/actions/lane-setup` pulls exactly
 those digests (and refuses `PLACEHOLDER` lines). The GHCR packages must be public. Fork pull
 requests get a read-only token and no secrets (the lane needs none); caches are saved only from
@@ -541,6 +596,63 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
   directory under `$RUNNER_TEMP` with `fsync=off`, `synchronous_commit=off`, `full_page_writes=off`,
   loopback publish and a per-job SCRAM secret (CI only, masked). Tools are pinned by
   `scripts/server-rust-lane-tools.sh` (nextest, cargo-deny, pebble) inside the lane image.
+
+## Go-deletion rehearsal (#141)
+
+`scripts/check-gofree-rehearsal.py` (self-test `scripts/test-check-gofree-rehearsal.py`) makes the hosted
+lane the rehearsal for deleting Go. `static` (`roots` and `aggregate`): every route-inventory entry ON
+except the six `fedharness` test-tool entries (owner decision 2026-11-02) and the shrink-only `PENDING`
+list; no ON entry with a `go-*` upstream; `FORWARD_SITES` pins the exact count of forward-to-Go call
+sites in `server-rust/bins/*/src` (auth `.forward(`, gateway `.forward(`, `forward_body(`,
+`forward_unported(`, raw WebSocket `client_async(`); `GO_PEER_REFERENCES` pins every source reference
+to a frozen Go peer binary (each runs it only inside its labelled container, at container paths
+`/src/...` or `/output/...` that do not exist in the lane container); reviewed divergences; the 51
+`worker_semantics.json` workers owned by Rust; every seam present. #141 criteria 1 and 4 stay open until
+`PENDING` is empty and `FORWARD_SITES` is 0. `env` (every lane job): any Go upstream or recording
+variable present (even empty) is red; with `LANE_GO_MASKED=1` a reachable `go` is red.
+`scripts/lane-container.sh` masks `/usr/local/go` in the lane container. `lane_go_watch` wraps the
+nextest run and the adequacy gate: ready only after a probe's event came back through `docker events`
+(container and image events, no event filter); the ready line holds the image id of every
+`.github/ci/images.lock` entry (a tag that does not resolve to its pinned digest is red), a snapshot of
+every existing container, and a scan of the whole lane-container filesystem for executable Go-built ELFs
+(`.go.buildinfo`); stop drains up to a second probe and scans again. Red: a container create, start or
+exec whose image is not pinned in `images.lock`; one from a Go-capable image (`setjoin-ci-linux-tc`,
+`setjoin-server-rust-lane`) without a `GO_TASKS` label (`gofree-fed2` fedharness and `gofree-tlsfront`
+frozen TLS peer run Go and are counterparties DELETE must replace; `gofree-rel3` runs the Rust updater)
+other than the lane container itself; an image tag/untag/delete/load/import or a pull by tag during the
+lane; any Go ELF other than the docker CLI, pebble, the TLS peer and the fedharness build output; an
+incomplete window. Every docker call is bounded (60 s) and probes are removed and checked. Residuals,
+not claimed: `exec()` is not traced, so a Go ELF created and deleted within one window and run in the
+lane tree would be missed (only allowlisted sibling tasks can produce one; the toolchain is masked);
+running an allowlisted Go ELF from the lane tree is excluded by the source pin, not by tracing;
+`gofree-rel3` runs no Go by script review. The proxied-to-Go counter is not summed lane-wide (tests
+drive in-process fake upstreams by design); zero comes from the inventory and `FORWARD_SITES`. The
+webmail Playwright e2e is outside the rehearsal (needs a deployed stack via `E2E_SERVER`, no hosted
+workflow); the front-door goldens cover its HTTP surface.
+
+## Frozen Go recording workflow
+
+`.github/workflows/gofree-record.yml` (#339) is `workflow_dispatch` only (`contents: read`,
+`packages: read`, never pull_request or push) and is deleted with Go (#142). Inputs: `package`,
+`test`, optional `case_filter`, `go_source` (empty or the dispatched ref's own commit: dispatch on the frozen ref, since recorders such as drain run `go test` on the checkout) and `extra_env`
+(allowlisted `GOFREE_RECORD_*|ORACLE_*|VERIFY_*` lines, e.g. `GOFREE_RECORD_DRAIN=all`). It builds
+`go build -cover ./mailserver/cmd/mailserverd` in `setjoin-ci-linux-tc`, exports
+`GOFREE_RECORD_GO_BINARY` and `GOFREE_GO_SOURCE`, and `scripts/gofree-record.sh` (in the lane
+container) loads one disposable DB, sets `REQUIRE_DB=1`, `TEST_DB_DSN`/`DB_DSN`/`DB_DIRECT_DSN`/
+`DB_APP_DSN`, `GOFREE_RESOURCE_PREFIX`, a created `GOFREE_RESOURCE_LEDGER` and runs
+`cargo test -p <package> --test <test> -- --test-threads=1 --skip mutant --skip fault`. Goldens are
+exclusive-create, so existing ones are only compared; new files, `git status --porcelain` and the
+diff upload as artifact `gofree-record` and are never committed; any modified or deleted tracked file (drain's recorder deletes before it records) fails the run after the upload. After recording, every new file must be JSON whose `go_source` fields equal the checked-out commit, so new oracles (#341, #342 and later) must stamp `GOFREE_GO_SOURCE` (older auth oracles hardcode a historical constant and fail this check for new cases). `*_LEARN` variables are rejected, a run needs at least one `GOLDEN-` line or new file, and all job-started containers are removed and verified. `go_upstream=authserverd` accepts only setjoin-auth `oracle`, `token_oracle`, `mfa_oracle`, `webauthn_oracle`, `guest_invite_oracle`, `threat_oracle`, `device_proof_oracle` and `ca_issuance_oracle` (targets may not exist yet). Input `go_upstream=authserverd` also
+builds `authserverd`, installs the synthetic `identity-login/keys.json` signing row, starts it on
+`127.0.0.1:47335` (host network, fixture DB only, ledgered, stopped always) and exports
+`GOFREE_RECORD_UPSTREAM` for auth-listener `*_oracle` targets.
+
+`extra_env` `GOFREE_RECORD_AUTH_PRESET` (strict `off|threat|tarpit|geo|ca`, default `off`, authserverd mode only) sets Go's threat env in its 0600 env file, each variable once:
+`off` and `ca` = the five `*_ENABLED=false` (`ca`: the oracle seeds CA DB toggles); `threat` = all five true, fixture `CAPTCHA_SECRET`,
+`GEO_BLOCK_COUNTRIES=US`, no GeoIP (country ""), `TRUSTED_PROXY_IP=127.0.0.1`, `THREAT_RATE_LIMIT_PER_MIN=3`, `THREAT_CAPTCHA_THRESHOLD=3`,
+`THREAT_SPRAY_MAX_USERS=3`; `geo` = `threat` plus `GEOIP_DB_PATH=server-rust/tests/conformance/authzgates/us.mmdb` (a one-node tree:
+every address is US, so every source is geo-blocked); `tarpit` = `geo` with `GEO_BLOCK_ENABLED=false`, `CAPTCHA_ENABLED=false`,
+`THREAT_TARPIT_THRESHOLD=2` (every source is a high-risk country).
 
 ## Rust guard self-test
 

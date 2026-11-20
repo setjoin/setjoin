@@ -1,5 +1,7 @@
 # JMAP recorded parity cases
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `bins/gateway/tests/jmap_recorded.rs` runs the real front door and sends one
 signed request per case. It creates and removes a fresh isolated mailbox in the
 provided disposable database. The Rust replay installs the native JMAP route,

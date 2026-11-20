@@ -1,0 +1,37 @@
+{
+  "case": "off-reset-body-truncated",
+  "format": 1,
+  "go_source": "e6ae171d0a7af058ed357e66c398f2910b25b029",
+  "observation": {
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"new_password\":\"NewPassword2!\",\"reset_token\":\"not-a-reset-token\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/forgot-password/reset",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"request body could not be read\",\"error\":\"invalid_body\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "invalid_body"
+          },
+          "status": 400
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/forgot-password/reset"
+}

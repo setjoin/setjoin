@@ -1,0 +1,54 @@
+{
+  "case": "off-login-lockout",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "lockout",
+          "protocol": "http",
+          "source_ip": "127.0.0.50",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [],
+      "devices": [],
+      "lockouts": [
+        {
+          "failed_count": 1,
+          "key": "ip:127.0.0.50",
+          "level": 1,
+          "locked": true
+        }
+      ],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Password1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"lockout\",\"retry_after\":15}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-delay": "15s",
+            "x-threat-reason": "lockout"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/login"
+}

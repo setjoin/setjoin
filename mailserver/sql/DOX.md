@@ -1826,6 +1826,15 @@ transaction boundaries. Raw credentials never enter SQL. Rust validates the
 returned sender and public URL before committing; delivery follows commit and
 cannot roll back a pending invitation. Canonical reducers retain scope checks.
 
+`rust_guest_invite_disclosure` and `rust_guest_invite_accept_{read,finish}` (#342)
+mirror frozen Go's pre-auth acceptance on the worker credential (FORCE-RLS
+deny-all table). Token possession is the authority: every predicate binds the
+SHA-256 hash and its pinned guest. Terminal verdicts roll back before the caller's
+delay; an elapsed link commits only its `expired` settlement. Passwords over 72
+bytes or containing NUL are never bound (flags). Rust hashes under the read reducer's locks; finish
+consumes, activates and audits in one commit, no notify. Tests:
+`tests/rust_guest_invite_accept.pg`.
+
 ### Rust mail security transactions (#320)
 
 `rust_mailsec_quarantine_release|reject` mirror frozen Go's user and admin quarantine

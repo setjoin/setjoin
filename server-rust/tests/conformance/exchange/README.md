@@ -1,5 +1,7 @@
 # F05 Exchange replacement oracle (#294)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `bins/gateway/tests/exchange.rs` drives the actual front door. Each case owns two
 accounts with distinct user/mailbox IDs, domain scopes, projects/runs and explicit
 child records. It removes its own rows, restores toggles/reason policy and deletes

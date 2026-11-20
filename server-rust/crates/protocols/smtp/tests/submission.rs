@@ -67,7 +67,7 @@ async fn gate(
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
     setjoin_threat::Gate::load(
         exec,
-        setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap(),
+        setjoin_threat::WorkerPools::from_dsn(&db.dsn).unwrap(),
         config,
         None,
     )

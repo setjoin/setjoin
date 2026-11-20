@@ -1,5 +1,7 @@
 # Shared format parity vectors
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 The JSON files in `goldens/` are observations of the frozen Go packages, not
 Rust implementations. Each file has a `contract` and named `cases` with
 `input` and `output` JSON values. Strings carrying signed, encoded, canonical,

@@ -54,7 +54,7 @@ async fn live(exec: &ScopedExecutor, access: &Access) -> Option<Live> {
         .read(owner_sql, &[(&access.id, Type::TEXT)])
         .await
         .ok()?;
-    let user = found.first()?.get::<_, i64>(0);
+    let user = found.first()?.try_get::<_, i64>(0).ok()?;
     let bound = !crate::mutants::on("oidc-token-unbound");
     if bound && access.subject != user.to_string() {
         return None;
@@ -73,9 +73,10 @@ async fn live(exec: &ScopedExecutor, access: &Access) -> Option<Live> {
         )
         .await
         .ok()?;
-    rows.first().map(|r| Live {
-        scopes: r.get(0),
-        client: r.get(1),
+    let row = rows.first()?;
+    Some(Live {
+        scopes: row.try_get(0).ok()?,
+        client: row.try_get(1).ok()?,
     })
 }
 async fn scopes(exec: &ScopedExecutor, access: &Access) -> Option<Vec<String>> {
@@ -99,10 +100,10 @@ pub async fn userinfo(exec: &ScopedExecutor, access: &Access) -> Option<String> 
             .ok()?;
         let row = rows.first()?;
         if profile {
-            f.push(("name", json!(row.get::<_, String>(1))));
+            f.push(("name", json!(row.try_get::<_, String>(1).ok()?)));
         }
         if email {
-            f.push(("email", json!(row.get::<_, String>(0))));
+            f.push(("email", json!(row.try_get::<_, String>(0).ok()?)));
             f.push(("email_verified", json!(true)));
         }
     }
@@ -179,7 +180,9 @@ pub async fn revoke(
     };
     let rows=exec.read(target_sql,&[(&hash,Type::TEXT),(&token_id,Type::TEXT),(&id,Type::TEXT)]).await.map_err(|_|OAuthError::new("server_error","token revocation failed"))?;
     let result = if let Some(row) = rows.first() {
-        let user: i64 = row.get(0);
+        let user: i64 = row
+            .try_get(0)
+            .map_err(|_| OAuthError::new("server_error", "token revocation failed"))?;
         write(exec,user,"oidc-revoke","UPDATE oidc_tokens SET revoked_at=now() WHERE (refresh_token_hash=$1 OR id=$2) AND client_id=$3 AND user_id=$4 AND revoked_at IS NULL",&[(&hash,Type::TEXT),(&token_id,Type::TEXT),(&id,Type::TEXT),(&user,Type::INT8)],|_|Ok(()),"token revocation failed").await
     } else {
         let operation = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());

@@ -1,5 +1,7 @@
 # Shared runtime authorization (#405)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Frozen Go is the oracle. `evaluation-cases.json` supplies explicit snapshots to
 `evaluation_test.go.txt`, a recording-only overlay in `shared/threat`. The immutable
 `evaluation-golden.json` holds Go decisions, reasons, remediation, capability flags

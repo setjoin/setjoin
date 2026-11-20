@@ -1,5 +1,7 @@
 # Identity token issuance (#333)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-auth --test token_oracle` records frozen Go through an actual front
 door, then replays with both Go upstreams unset. Use REQUIRE_DB=1, assigned
 TEST_DB_DSN/DB_DSN/DB_DIRECT_DSN/DB_APP_DSN and `--test-threads=1`. The full

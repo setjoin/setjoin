@@ -20,7 +20,7 @@
 #                     workspace (no other check, skipped tests allowed); never a lane result
 #   LANE_COVERAGE     0 = the replays and mutants run but oracle coverage does not (hosted test
 #                     shards); unset = coverage runs, as on a dev host. The hosted workflow also
-#                     sets SERVER_RUST_STAGES, SERVER_RUST_NEXTEST_ARCHIVE/_EXTRACT_TO/_PARTITION,
+#                     sets SERVER_RUST_STAGES, SERVER_RUST_NEXTEST_ARCHIVE/_EXTRACT_TO/_PARTITION/_SELECT,
 #                     LANE_ADEQUACY_SHARD/_BINARIES/_COVERAGE_ONLY (see check-server-rust.sh)
 #   LANE_ADEQUACY_JOBS replays and mutants run side by side (default LANE_JOBS)
 #   LANE_SKIP_SCHEMA  1 = reuse an existing ${prefix}tpl (dev host iteration)

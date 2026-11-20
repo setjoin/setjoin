@@ -14,7 +14,9 @@ pub struct ChatBRoute<K: KeySource + 'static> {
     pub store: Option<Arc<crate::recovery_worker::S3Store>>,
 }
 impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         if matches!(*r.method(), Method::GET | Method::HEAD)
             && crate::inventory::path_score("/api/chat/unfurl/image/{sha256}", r.uri().path())
@@ -115,16 +117,11 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
             let decoded = crate::chat::go_utf8(&crate::inventory::unescape(r.uri().path()));
             let instance = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
 
-            let Some(auth) = setjoin_authz::authorize_user_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::User).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let feature=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.chat'),false)",&[]).await;
             match feature {

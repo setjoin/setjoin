@@ -206,7 +206,7 @@ async fn queue(
 }
 
 /// MinIO's retry cadence on transient storage errors, as the guest delivery keeps.
-async fn put(store: &dyn ObjectStore, key: &str, mime: &str) -> Result<(), String> {
+pub(crate) async fn put(store: &dyn ObjectStore, key: &str, mime: &str) -> Result<(), String> {
     let mut last = String::new();
     for attempt in 0..10 {
         match store.put(key, mime.as_bytes(), "message/rfc822").await {

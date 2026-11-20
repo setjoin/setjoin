@@ -1,5 +1,7 @@
 # Static leftovers HTTP oracle (#417)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 The owning contract is [Static DOX](../../../crates/domains/static/DOX.md).
 The discovery recorder uses fake DNS and a TLS peer with a trusted fixture CA.
 `record-discovery.py` builds frozen Go with a transport-only overlay: the

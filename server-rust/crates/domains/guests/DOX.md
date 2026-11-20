@@ -71,8 +71,8 @@ atomic prepare helper, with approval authority rechecked by the canonical
 reducer. Denial mints nothing. Postcommit delivery failure is best effort for
 approval decisions (200/applied), whereas direct/reinvite callers receive 503.
 Go's email-button switch excludes this consumer and stays unchanged. Invite
-acceptance/identity remains F21 Go, pending #331–#333; no F11 credential is
-accepted by this crate.
+acceptance is native F21 (#342, `setjoin-identity::guest_invite`); no F11
+credential is accepted by this crate.
 
 `guest_worker` invokes canonical expiry at startup/hourly and drains exact
 durable SFU intents at startup/every five seconds, regardless of admission

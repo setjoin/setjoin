@@ -1,0 +1,100 @@
+{
+  "case": "guest-post-gateway-spoofed-xff",
+  "format": 1,
+  "go_source": "779311f509b1ab3557a3390e9a2e9612ecfb0043",
+  "observation": {
+    "audit": [
+      {
+        "action": "guest.invite_accept",
+        "after": {
+          "guestUserId": "<actor>",
+          "status": "active"
+        },
+        "ip": "127.0.0.59",
+        "notes": "guest invite accepted",
+        "target": "<invite>",
+        "target_type": "guest_invite",
+        "user": "<actor>"
+      }
+    ],
+    "effects": {
+      "attempts": [
+        {
+          "device_fingerprint": "GUESTACCEPT oracle|127.0.0.0",
+          "geo_country": "",
+          "ip": "127.0.0.59",
+          "outcome": "success",
+          "protocol": "http",
+          "target_username": ""
+        }
+      ],
+      "audit": [
+        {
+          "action": "guest.invite_accept",
+          "after": {
+            "guestUserId": "<actor>",
+            "status": "active"
+          },
+          "ip": "127.0.0.59",
+          "notes": "guest invite accepted",
+          "target": "<invite>",
+          "target_type": "guest_invite",
+          "user": "<actor>"
+        }
+      ],
+      "guests": [
+        {
+          "enabled": true,
+          "invite": {
+            "disclosure_accepted": true,
+            "disclosure_version": "v1",
+            "live": true,
+            "terminal_reason": "accepted",
+            "used": true,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "actor",
+          "password": "verifies",
+          "status": "active"
+        },
+        {
+          "enabled": false,
+          "invite": {
+            "disclosure_accepted": false,
+            "disclosure_version": null,
+            "live": true,
+            "terminal_reason": null,
+            "used": false,
+            "used_at_is_expiry": false
+          },
+          "lifecycle_expiry": false,
+          "must_change_password": false,
+          "owner": "foreign",
+          "password": "absent",
+          "status": "invited"
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"disclosure_accepted\":true,\"new_password\":\"ValidGuestPass1!\",\"token\":\"<token>\"}",
+      "headers": {
+        "x-forwarded-for": "203.0.113.9"
+      },
+      "method": "POST",
+      "path": "/auth/guest-invite/accept",
+      "query": ""
+    },
+    "response": {
+      "body": "{\"invited_email\":\"guest@guestaccept-partner.test\",\"message\":\"Account activated. You may now sign in.\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /auth/guest-invite/accept"
+}

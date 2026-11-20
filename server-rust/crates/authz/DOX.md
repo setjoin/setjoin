@@ -153,6 +153,24 @@ uses the Go parser plus this policy; DNS/dial-time enforcement stays with the
 sender. Go's cheap ValidateURL accepts both http and https and treats nonstandard
 numeric hosts as hostnames; registration must preserve that behavior.
 
+## Go NumericDate and scoped-path admission (#354)
+
+`numeric_date` reproduces jwt/v5 v5.3.1 `NumericDate` on Go 1.26 linux/amd64
+bit for bit: the raw JSON text (a number, or a string holding a valid JSON
+number) is parsed like `strconv.ParseFloat`, split with `math.Modf`, converted
+with amd64 `int64()` semantics (out of range is `i64::MIN`), normalised by
+`time.Unix` and truncated to seconds; `expired`/`not_yet_valid` compare the
+wrapped internal seconds as the validator does. Claim keys fold case like
+encoding/json (`EXP` fills `exp`; every match decodes in order, last wins).
+`normalize_token_claims` is the one public entry for every first-party verifier
+(push switches after #356a).
+`go_url::mailserver_handler_path(method, raw)` derives the `r.URL.Path` a
+mailserverd handler sees for chain.go:434 `pathWithinScope`, following Go 1.26
+ServeMux and buildRootDispatch: `None` for a 400 escape, an unclean path or bare
+`/api` (redirect), `/api%2F…` and unpinned bare paths (SPA/308); `/api` stripped
+except the GET/HEAD literal `/api` routes. `admit` takes method and raw path;
+`None` refuses a scoped token and is off the Drive surface.
+
 ## Drive-scoped credentials (#333)
 
 `push::authenticate_drive` accepts unscoped or drive-scoped first-party access
@@ -335,3 +353,21 @@ upload and connection tests require user authority only. A suspended/detached or
 non-primary owned mailbox cannot use this case. Other authorization APIs are
 unchanged.
 The F21 route's no-mailbox oracle and native revoked/no-mailbox denial protect it.
+
+## Refusal classes for native admission (#354)
+
+`admit` (with `Scope` Member, User, Drive or DriveUser) returns `Authorized` or a
+`Refusal`, one frozen-Go outcome class each. `credential` picks the bearer Go's
+`jwtAuthMethod` reads: the first Authorization value, case-sensitively, where a
+non-empty `Bearer ` value is final (no cookie fallback, even when it is not UTF-8);
+otherwise the first valid `access_token` cookie (`token::presented_cookie`).
+Evaluation order follows Go: credential, then token validation (`verify_detailed`,
+one signature check for Member/Drive; User and DriveUser verify twice, a follow-up;
+the refusal class named by the first rule tripped), then live
+reads. Only `InvalidToken` is remapped to `AlternativeCredential`, and only when the
+first Authorization value is `Basic ` or `Negotiate `. `AlternativeCredential`,
+`Impersonation`, `Guest`, `NoPrimaryMailbox` and `MailboxBlocked` are never native
+denials; the gateway forwards them from one site (`bins/gateway/src/deny.rs`). A
+verify timeout is `Unavailable` (503); an unknown kid, including inside the JWKS
+refresh cooldown, is `InvalidToken` (401). The flagged `authorize_*` helpers are
+unchanged for the callers that still use them.

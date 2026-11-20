@@ -112,16 +112,12 @@ impl<K: KeySource + 'static> Admission for SessionAdmission<K> {
                         "SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
                         &[(&user,setjoin_pg::Type::INT8),(&iat,setjoin_pg::Type::FLOAT8),(&jti,setjoin_pg::Type::TEXT),(&family,setjoin_pg::Type::TEXT)]
                     )).await;
-                    if cached
-                        || revoked
-                            .as_ref()
-                            .is_ok_and(|r| r.as_ref().is_ok_and(|r| r[0].get::<_, bool>(0)))
-                    {
-                        return Some(revoked_problem(
-                            &headers,
-                            &identity,
-                            "Session has been revoked. Sign in again.",
-                        ));
+                    let revoked = match revoked {
+                        Ok(Ok(rows)) => Some(rows[0].get::<_, bool>(0)),
+                        _ => None,
+                    };
+                    if cached || revoked == Some(true) {
+                        return Some(revoked_problem(&headers, &identity, "Session has been revoked. Sign in again."));
                     }
                     let cae=tokio::time::timeout(setjoin_authz::precheck_timeout(),guest.read(
                         "SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.cae_runtime'),false)",&[])).await;
@@ -135,6 +131,11 @@ impl<K: KeySource + 'static> Admission for SessionAdmission<K> {
                             &identity,
                             "Session verification unavailable — re-authenticate.",
                         ));
+                    }
+                    // #354: unreadable durable revocation state fails closed, after Go's
+                    // cold-cache answer so denylist-cold.json keeps its bytes.
+                    if revoked.is_none() {
+                        return Some(problem(&headers, &identity, 503, "service unavailable"));
                     }
                 }
                 return None;
@@ -230,7 +231,7 @@ fn guest_allowed(method: &Method, path: &str) -> bool {
     })
 }
 
-fn revoked_problem(headers: &HeaderMap, identity: &ClientIdentity, detail: &str) -> Response<Body> {
+pub(crate) fn revoked_problem(headers: &HeaderMap, identity: &ClientIdentity, detail: &str) -> Response<Body> {
     let mut response = problem(headers, identity, 401, detail);
     crate::problem::set_body(
         &mut response,

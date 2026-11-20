@@ -1,5 +1,7 @@
 # Mailserver-only F21 oracle (#494)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-gateway --test identity_self_service` records actual covered frozen
 mailserver handlers through the front door, then replays the same requests with
 Go upstreams unset and asserts zero F21 Go hops. The domain/transaction map is

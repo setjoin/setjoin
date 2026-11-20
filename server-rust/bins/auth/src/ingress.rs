@@ -187,6 +187,7 @@ pub enum Field {
     Text,
     Integer,
     Object,
+    Bool,
 }
 pub fn typed_fields(
     raw: &[u8],
@@ -228,6 +229,7 @@ fn typed_fields_impl(raw:&[u8],known:&[(&str,Field)],closed:bool)->Result<serde_
                             Field::Text => v.is_string(),
                             Field::Integer => v.as_i64().is_some(),
                             Field::Object => v.is_object(),
+                            Field::Bool => v.is_boolean(),
                         };
                         if !ok {
                             return Err(de::Error::custom("field type"));

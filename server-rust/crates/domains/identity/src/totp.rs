@@ -114,7 +114,15 @@ pub async fn remove(
             (&hash, Type::TEXT),
             (&ip, Type::TEXT),
         ],
-        |rows| Ok(rows[0].get(0)),
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "TOTP row".into(),
+                })
+        },
     )
     .await
 }
@@ -185,6 +193,9 @@ pub fn validate(presented: &str, secret: &str, unix: i64) -> bool {
 /// retains the fixed three-window verification work.
 pub(crate) fn counter_proof(presented:&str,secret:&str,unix:i64)->Option<(i64,Vec<u8>)>{
     use subtle::{ConstantTimeEq,ConditionallySelectable};
+    // #455: an empty decoded key (missing, blank or all-padding secret) proves nothing.
+    // Frozen Go's generator accepts it (totp-secret-vectors.json: "" -> 812658); Rust refuses.
+    if secret_key(secret)?.is_empty(){return None;}
     let mut found=subtle::Choice::from(0);let mut counter=0u64;
     for offset in [-30,0,30]{
         if let Some(expected)=code(secret,unix+offset){
@@ -195,6 +206,16 @@ pub(crate) fn counter_proof(presented:&str,secret:&str,unix:i64)->Option<(i64,Ve
     }
     if !bool::from(found){return None;}
     Some((counter as i64,Sha256::digest(secret_key(secret)?).to_vec()))
+}
+
+/// The `secret` of a `ready` TOTP reducer row (#455). A missing, NULL or non-string value is
+/// frozen Go's failed Scan (a bookkeeping error: rollback, no counter), never an empty key.
+pub(crate) fn ready_secret(value: &serde_json::Value) -> Result<&str, StatementFailure> {
+    value["secret"].as_str().ok_or_else(|| StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "TOTP secret".into(),
+    })
 }
 
 
@@ -222,13 +243,18 @@ pub(crate) async fn cycle_for(
         "SELECT * FROM rust_identity_totp_cycle_read($1)",
         &[(&user, Type::INT8)],
         |rows| {
-            let outcome: String = rows[0].get(0);
+            let bad = || StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "TOTP cycle row".into(),
+            };
+            let outcome: String = rows.first().ok_or_else(bad)?.try_get(0).map_err(|_| bad())?;
             if outcome != "evaluate" {
                 return Ok(
                     setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(outcome, Type::TEXT)
                 );
             }
-            let secret: Option<String> = rows[0].get(1);
+            let secret: Option<String> = rows.first().ok_or_else(bad)?.try_get(1).map_err(|_| bad())?;
             let Some(secret) = secret else {
                 return Ok(setjoin_pg::ProvenStatement::new(
                     "SELECT 'bookkeeping'::text",
@@ -247,7 +273,15 @@ pub(crate) async fn cycle_for(
                     .bind(valid, Type::BOOL).bind(counter,Type::INT8).bind(factor,Type::BYTEA),
             )
         },
-        |rows| Ok(rows[0].get(0)),
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "TOTP row".into(),
+                })
+        },
     )
     .await
 }
@@ -292,14 +326,14 @@ pub async fn begin(
     let user = session.user();
     let rows=exec.read("SELECT COALESCE(totp_enabled,false),COALESCE(totp_backup_codes_enc,'{}') FROM users WHERE id=$1",&[(&user,Type::INT8)]).await.map_err(|_|internal())?;
     let row = rows.first().ok_or_else(internal)?;
-    if !row.get::<_, bool>(0) {
+    if !row.try_get::<_, bool>(0).map_err(|_| internal())? {
         return Err(Failure::Reply(
             409,
             "TOTP is not enabled",
             Some("totp not enabled"),
         ));
     }
-    let backups: Vec<String> = row.get(1);
+    let backups: Vec<String> = row.try_get(1).map_err(|_| internal())?;
     let hashes = exec
         .read(
             "SELECT password_hash FROM users WHERE id=$1",
@@ -307,7 +341,7 @@ pub async fn begin(
         )
         .await
         .map_err(|_| internal())?;
-    let hash: String = hashes.first().ok_or_else(internal)?.get(0);
+    let hash: String = hashes.first().ok_or_else(internal)?.try_get(0).map_err(|_| internal())?;
     let password = password.to_owned();
     if !tokio::task::spawn_blocking(move || setjoin_authz::password::verify(&hash, &password))
         .await
@@ -343,7 +377,7 @@ pub async fn begin(
                     )
                     .await
                     .map_err(|_| internal())?;
-                let hashes: Option<Vec<String>> = rows.first().ok_or_else(internal)?.get(0);
+                let hashes: Option<Vec<String>> = rows.first().ok_or_else(internal)?.try_get(0).map_err(|_| internal())?;
                 let code = presented.to_owned();
                 accepted = tokio::task::spawn_blocking(move || {
                     hashes
@@ -435,11 +469,14 @@ async fn stage(
             (&secret, Type::TEXT),
         ],
         |rows| {
-            serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| StatementFailure {
-                sqlstate: None,
-                hint: None,
-                message: "TOTP setup result".into(),
-            })
+            rows.first()
+                .and_then(|r| r.try_get::<_, String>(0).ok())
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .ok_or_else(|| StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "TOTP setup result".into(),
+                })
         },
     )
     .await
@@ -468,11 +505,14 @@ pub fn provisioning_uri(secret: &str, email: &str, issuer: &str) -> String {
 }
 
 fn json_row(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, StatementFailure> {
-    serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| StatementFailure {
-        sqlstate: None,
-        hint: None,
-        message: "TOTP result".into(),
-    })
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "TOTP result".into(),
+        })
 }
 pub async fn confirm(
     exec: &ScopedExecutor,
@@ -510,7 +550,7 @@ pub async fn confirm(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let Some((counter,factor))=counter_proof(presented,result["secret"].as_str().unwrap_or(""),now) else {
+            let Some((counter,factor))=counter_proof(presented,ready_secret(&result)?,now) else {
                 return Ok(setjoin_pg::ProvenStatement::new(
                     "SELECT '{\"status\":\"invalid_code\"}'::text",
                 ));
@@ -546,10 +586,18 @@ impl CompletionUser {
     ) -> Result<Option<Self>, StatementFailure> {
         let user = pending.user();
         let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await?;
-        Ok(rows.first().map(|r| Self {
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "completion user row".into(),
+        };
+        Ok(Some(Self {
             user,
-            email: r.get(0),
-            admin: r.get(1),
+            email: r.try_get(0).map_err(|_| bad())?,
+            admin: r.try_get(1).map_err(|_| bad())?,
         }))
     }
     pub async fn scope(&self, exec: &ScopedExecutor) -> Result<Option<i64>, StatementFailure> {
@@ -557,7 +605,12 @@ impl CompletionUser {
             return Ok(None);
         }
         let rows=exec.read("SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&self.user,Type::INT8)]).await?;
-        Ok(rows[0].get(0))
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "admin scope row".into(),
+        };
+        rows.first().ok_or_else(bad)?.try_get(0).map_err(|_| bad())
     }
     pub async fn admission(
         &self,
@@ -570,14 +623,24 @@ impl CompletionUser {
             )
             .await
             .map_err(crate::login::AdmissionFailure::Transition)?;
-        if !rows[0].get::<_, bool>(0) {
+        let allowed = rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .ok_or_else(crate::login::invalid)
+            .map_err(crate::login::AdmissionFailure::Transition)?;
+        if !allowed {
             return Ok((false, false));
         }
         let rows = exec
             .read("SELECT is_guest_account($1)", &[(&self.user, Type::INT8)])
             .await
             .map_err(crate::login::AdmissionFailure::AccountType)?;
-        Ok((true, rows[0].get(0)))
+        let guest = rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .ok_or_else(crate::login::invalid)
+            .map_err(crate::login::AdmissionFailure::AccountType)?;
+        Ok((true, guest))
     }
     pub fn claims(
         &self,
@@ -614,31 +677,40 @@ impl CompletionUser {
         }
         out
     }
-    pub async fn risk(&self, exec: &ScopedExecutor) -> Option<serde_json::Value> {
+    /// #454: a feature-flag or risk query error (also with the flag off), an invalid actor
+    /// and an unreadable or unparsable stored value fail closed; only a missing row or level
+    /// none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
+    pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<serde_json::Value>, StatementFailure> {
         use serde_json::{json, Value};
-        if !crate::login::enabled(exec, "feature.user_risk")
-            .await
-            .unwrap_or(false)
-        {
-            return None;
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "user risk row".into(),
+        };
+        if !crate::login::enabled(exec, "feature.user_risk").await? {
+            return Ok(None);
         }
+        let actor = ActorId::new(self.user).map_err(|_| bad())?;
         let rows = exec
             .read_user_scoped(
-                ActorId::new(self.user).ok()?,
-                "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
+                actor,
+                "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
                 &[(&self.user, Type::INT8)],
             )
-            .await
-            .ok()?;
-        let row = rows.first()?;
-        let level: String = row.get(1);
+            .await?;
+        let Some(row) = rows.first() else {
+            return Ok(None);
+        };
+        let level: String = row.try_get(1).map_err(|_| bad())?;
         if level.is_empty() || level == "none" {
-            return None;
+            return Ok(None);
         }
-        let signals: Value = serde_json::from_str(&row.get::<_, String>(2)).ok()?;
-        Some(
-            json!({"user_score":row.get::<_,i32>(0),"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
-        )
+        let score: i32 = row.try_get(0).map_err(|_| bad())?;
+        let raw: String = row.try_get(2).map_err(|_| bad())?;
+        let signals: Vec<String> = serde_json::from_str(&raw).map_err(|_| bad())?;
+        Ok(Some(
+            json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
+        ))
     }
     pub async fn record(
         &self,
@@ -756,7 +828,7 @@ where
             let result=read?;
             if result["status"]!="ready"{return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(result.to_string(),Type::TEXT));}
             let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-            let Some((counter,factor))=counter_proof(presented,result["secret"].as_str().unwrap_or(""),now)else{return Ok(setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_bootstrap_fail($1)::text").bind(user,Type::INT8));};
+            let Some((counter,factor))=counter_proof(presented,ready_secret(&result)?,now)else{return Ok(setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_bootstrap_fail($1)::text").bind(user,Type::INT8));};
             if result["user_enabled"]!=true{return Ok(setjoin_pg::ProvenStatement::new("SELECT '{\"status\":\"state_changed\"}'::text"));}
             let anchor=match prepare(family.clone()).await{Ok(a)=>a,Err(v)=>return Ok(setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(v.to_string(),Type::TEXT))};
             let refresh_hash=Sha256::digest(anchor.refresh.as_bytes()).to_vec();
@@ -764,4 +836,48 @@ where
                 .bind(user,Type::INT8).bind(final_claims.to_string(),Type::TEXT).bind(final_hash.to_string(),Type::TEXT).bind(enrollment.to_owned(),Type::TEXT).bind(ip.to_owned(),Type::TEXT)
                 .bind(refresh_hash,Type::BYTEA).bind(anchor.lifetime,Type::INT8).bind(family,Type::TEXT).bind(counter,Type::INT8).bind(factor,Type::BYTEA))
         }},json_row,tail).await
+}
+
+#[cfg(test)]
+mod fail_closed {
+    //! #455: an empty TOTP key proves nothing, and a ready row without a string secret is a
+    //! statement failure. #454: completion risk lookup errors fail closed.
+    use super::{code, counter_proof, ready_secret, CompletionUser};
+    const SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+    #[test]
+    fn empty_key_proves_nothing() {
+        let now = 1_793_843_342;
+        // Frozen Go's generator yields a code for the empty key (totp-secret-vectors.json).
+        assert_eq!(code("", 59).as_deref(), Some("812658"));
+        for secret in ["", "   ", "\r\n"] {
+            let presented = code(secret, now).expect("Go-compatible empty-key code");
+            assert!(counter_proof(&presented, secret, now).is_none(), "{secret:?}");
+        }
+        let presented = code(SECRET, now).unwrap();
+        assert!(counter_proof(&presented, SECRET, now).is_some(), "control: an enrolled key still proves");
+    }
+
+    #[test]
+    fn ready_row_without_a_string_secret_is_a_statement_failure() {
+        use serde_json::json;
+        for row in [
+            json!({"status":"ready"}),
+            json!({"status":"ready","secret":null}),
+            json!({"status":"ready","secret":42}),
+        ] {
+            assert!(ready_secret(&row).is_err(), "{row}");
+        }
+        assert_eq!(ready_secret(&json!({"status":"ready","secret":SECRET})).unwrap(), SECRET);
+    }
+
+    #[test]
+    fn completion_risk_lookup_error_is_an_error() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
+            let user = CompletionUser { user: 7, email: String::new(), admin: false };
+            assert!(user.risk(&exec).await.is_err());
+        });
+    }
 }
