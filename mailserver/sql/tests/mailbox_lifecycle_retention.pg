@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(53);
+SELECT plan(54);
 SET LOCAL app.capture_notify='on';
 
 SELECT mk_account('ml-actor') AS actor_mb \gset
@@ -110,13 +110,13 @@ SELECT approval_request_id AS held_approval FROM mailbox_purge_requests WHERE op
 SELECT throws_ok(format($q$SELECT mailbox_purge_cancel(%s,%L,%L,%L,%L)$q$,:executor,
   (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('b',64),'foreign cancel'),
   'BZ310','purge request not found','unrelated actor cannot cancel another purge request');
-SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:executor,
+UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 second' WHERE operation_id=:'purge_schedule_op';
+SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:actor,
   (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('4',64)),
   'BZ311','purge is not independently approved and eligible','purge execution rejects an unapproved request');
 SELECT is((mailbox_purge_approval_apply(:held_approval,:approver,'approve','independent review')->>'state'),'approved',
   'a distinct assigned approver can approve purge');
-UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 second' WHERE operation_id=:'purge_schedule_op';
-SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:executor,
+SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,:actor,
   (SELECT id FROM mailbox_purge_requests WHERE operation_id=:'purge_schedule_op'),gen_random_uuid(),repeat('4',64)),
   'BZ312',NULL,'fresh legal-hold evaluation blocks an approved purge');
 SELECT ok(EXISTS(SELECT 1 FROM mailboxes WHERE id=:target_mb),'blocked purge preserves the mailbox');
@@ -149,7 +149,10 @@ SELECT mailbox_purge_schedule(:actor,:purge_mb,:'clean_schedule_op',:purge_gen+1
 SELECT approval_request_id AS clean_approval,id AS clean_request FROM mailbox_purge_requests WHERE operation_id=:'clean_schedule_op' \gset
 SELECT mailbox_purge_approval_apply(:clean_approval,:approver,'approve','second-person approval');
 UPDATE mailbox_purge_requests SET eligible_at=statement_timestamp()-interval '1 second' WHERE id=:'clean_request';
-SELECT is((mailbox_purge_execute(:executor,:'clean_request',gen_random_uuid(),repeat('7',64))->>'state'),'completed',
+SELECT throws_ok(format($q$SELECT mailbox_purge_execute(%s,%L,%L,%L)$q$,
+  :executor,:'clean_request',gen_random_uuid(),repeat('7',64)),
+  'BZ311','purge is not independently approved and eligible','unrelated actor cannot execute an eligible approved purge');
+SELECT is((mailbox_purge_execute(:actor,:'clean_request',gen_random_uuid(),repeat('7',64))->>'state'),'completed',
   'eligible independently approved unblocked purge completes');
 SELECT ok(NOT EXISTS(SELECT 1 FROM mailboxes WHERE id=:purge_mb),'completed purge removes the logical mailbox');
 SELECT ok(EXISTS(SELECT 1 FROM mailbox_tombstones WHERE mailbox_id=:purge_mb AND evidence_digest~'^[0-9a-f]{64}$'),
