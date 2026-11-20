@@ -62,6 +62,8 @@ for route in inv["routes"]:
             golden=path.relative_to(root).as_posix(),
             replay=replay("device_" + case.replace("-", "_")),
         )
+        if case == "policy-head":
+            row["request_method"] = "HEAD"
         if mutator:
             row["row_golden"] = path.with_name(f"{path.stem}-rows.json").relative_to(root).as_posix()
         suite["cases"].append(row)

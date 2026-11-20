@@ -52,8 +52,9 @@ transaction; COMMIT is sent only after success inside the statement deadline,
 so a client timeout never commits late. A lost COMMIT acknowledgement returns
 Go's 500 body with `x-operation-id`. Go committed each event separately. A
 mid-list failure rolls back every event in Rust. The Rust-only test
-`checkin_event_insert_failure_spends_nonce` covers HTTP 500, nonce retention
-and replay refusal, zero event rows, and unchanged `last_seen`.
+`checkin_event_insert_failure_spends_nonce` covers HTTP 500 with the internal
+error body and no operation ID, nonce retention and replay refusal, and zero
+event rows.
 
 Accepted residuals (same as Go): a revocation landing between the proof and
 the effect does not stop that check-in (pgTAP "revoked mid-flight"); refusal
@@ -65,5 +66,7 @@ The [gofree-record run](https://github.com/setjoin/setjoin/actions/runs/44706831
 recorded commit `d54ae127ffeb07f2524b01b730ce4dc8af7862d4` with 17 policy and
 32 check-in observations (+32 row-effect files). `catalog.py` registered both
 inventory rows as ON with the `rust-auth` upstream at qualification closeout.
+The policy HEAD edge case records `HEAD` as its request method under the GET
+registration.
 
 Reducer pgTAP: `mailserver/sql/tests/rust_device_checkin.pg`.

@@ -118713,7 +118713,8 @@
             "package": "setjoin-auth",
             "target": "device_oracle",
             "test": "device_policy_head"
-          }
+          },
+          "request_method": "HEAD"
         },
         {
           "kind": "invalid-input",

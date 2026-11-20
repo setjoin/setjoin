@@ -53,7 +53,7 @@ UPDATE devices SET wipe_requested=true WHERE id=:dev_a;
 SET LOCAL ROLE setjoin_app;
 SELECT rust_device_checkin(:dev_a,'[]'::jsonb)->>'wipe_requested' AS wiped \gset
 RESET ROLE;
-SELECT is(:'wiped','true','an armed wipe is reported to the proved device');
+SELECT is(:'wiped'::text,'true'::text,'an armed wipe is reported to the proved device');
 
 CREATE FUNCTION public.device341_event_fail() RETURNS trigger LANGUAGE plpgsql AS
 $$BEGIN IF NEW.event_type='device341-fail' THEN RAISE EXCEPTION 'device341 injected event failure'; END IF; RETURN NEW; END;$$;

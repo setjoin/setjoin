@@ -866,6 +866,12 @@ def check_suite(root, route, suite, on):
                     raise ValueError(f"{key}: divergence recorded on denial case {document['case']}")
         request = observation.get("request", {})
         response = observation.get("response", {})
+        request_method = case.get("request_method", route["method"])
+        # A HEAD edge case may exercise the GET registration without changing its identity.
+        if request_method != route["method"] and not (
+                route["method"] == "GET" and request_method == "HEAD" and case["kind"] == "edge"
+                and suite.get("mutator") is not True):
+            raise ValueError(f"{key}: invalid request method override: {request_method!r}")
         expected_route = f"{route['method']} {route['path']}"
         if suite.get("command"):
             expected_route += f" {suite['command']}"
@@ -875,7 +881,7 @@ def check_suite(root, route, suite, on):
                 or recorded_route != expected_route
                 or not isinstance(document.get("case"), str) or not document["case"]
                 or not re.fullmatch(r"[0-9a-f]{40}", document.get("go_source", ""))
-                or request.get("method") != route["method"] or request.get("path") != route["path"]
+                or request.get("method") != request_method or request.get("path") != route["path"]
                 or not isinstance(response.get("status"), int)
                 or not 100 <= response["status"] <= 599
                 or not all(field in observation for field in ("effects", "audit", "notify"))):

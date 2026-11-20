@@ -49,22 +49,22 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 648 · declarations: 999 · unique names: 997
+- Reducer files: 649 · declarations: 1000 · unique names: 998
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
-- Canonical complement (no CSV row): 891 → `unattested_functions.csv`
+- Canonical complement (no CSV row): 892 → `unattested_functions.csv`
 
-Per-engine attestation against the full 997-name universe (a name is attested-for-engine iff its cell is non-`untested`):
+Per-engine attestation against the full 998-name universe (a name is attested-for-engine iff its cell is non-`untested`):
 
 | Engine | Attested | Not attested |
 |---|---|---|
-| polardb | 0 | 997 |
-| opengauss | 0 | 997 |
-| gaussdb | 0 | 997 |
-| kingbase | 0 | 997 |
-| dameng | 0 | 997 |
-| oceanbase_pg | 0 | 997 |
-| oceanbase_oracle | 0 | 997 |
+| polardb | 0 | 998 |
+| opengauss | 0 | 998 |
+| gaussdb | 0 | 998 |
+| kingbase | 0 | 998 |
+| dameng | 0 | 998 |
+| oceanbase_pg | 0 | 998 |
+| oceanbase_oracle | 0 | 998 |
 
 `uses_digest` is SOURCE-DERIVED USAGE — a non-comment `digest(` call exists in the defining file (68 files / 136 call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via `pgcrypto_digest_parity` above. Covered rows with `uses_digest`: 17 of 106.
 
@@ -176,6 +176,7 @@ The reducers below are the certification critical path for the primary combinati
 | revoke | 1 |
 | rule | 4 |
 | rules | 1 |
+| rust | 1 |
 | saved | 3 |
 | scheduled | 13 |
 | scim | 5 |
@@ -195,7 +196,7 @@ The reducers below are the certification critical path for the primary combinati
 | utils | 2 |
 | vip | 2 |
 | webhook | 10 |
-| Total | 891 across 97 families |
+| Total | 892 across 98 families |
 
 <!-- END GENERATED -->
 

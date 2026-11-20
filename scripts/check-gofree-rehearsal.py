@@ -47,8 +47,6 @@ EXCLUDED_LISTENERS = {"fedharness"}
 PENDING = {
     ("auth", "GET", "/auth/guest-invite/accept"): "#342",
     ("auth", "POST", "/auth/guest-invite/accept"): "#342",
-    ("auth", "GET", "/device/policy"): "#341",
-    ("auth", "POST", "/device/checkin"): "#341",
     ("gateway", "*", "/auth/admin/"): "#340",
     ("gateway", "GET", "/auth/guest-invite/accept"): "#342",
     ("gateway", "POST", "/auth/guest-invite/accept"): "#342",

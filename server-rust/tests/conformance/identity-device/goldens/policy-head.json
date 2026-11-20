@@ -37,7 +37,7 @@
     "notify": [],
     "request": {
       "body": "",
-      "method": "GET",
+      "method": "HEAD",
       "path": "/device/policy",
       "query": "device_id=<device-a>"
     },

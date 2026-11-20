@@ -722,7 +722,7 @@ async fn observe(
             (path, Some(s.mask_query(query)))
         });
     let mut actual = json!({"format":1,"go_source":go_source,"route":route_name,"case":format!("{route}-{kind}"),
-        "observation":{"request":{"method":method,"path":request_path,"query":query,"body":s.mask(&p.payload)},
+        "observation":{"request":{"method":p.method,"path":request_path,"query":query,"body":s.mask(&p.payload)},
         "response":{"status":status,"headers":headers,"body":s.response(&raw)?},"effects":after,"audit":[],"notify":[]}});
     if let Some(p) = prelude {
         actual["observation"]["prelude_response"] = p;
