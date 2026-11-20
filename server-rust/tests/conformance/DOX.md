@@ -68,6 +68,7 @@ interchange. Worker recording uses a test overlay; shipped Go stays frozen.
 
 F21 established-session/refresh HTTP and revocation effects (#332): [oracle](identity-login/README.md#sessions-and-refresh-332).
 F21 directory connector slice A (#337): [census and replay](identity-login/README.md#directory-connector-slice-a-337).
+F21 device trust accept side (#341): [identity-device](identity-device/README.md) (`setjoin-auth --test device_oracle`, `--test device_faults`).
 
 TLS/ALPN session recordings, Go-compatible tickets and reviewed ACME P-256 divergence (#413): [tlsfront](tlsfront/README.md).
 Shared runtime gates, evaluator, device/DPoP/GeoIP and simulator corpus (#405): [AUTHZGATES](authzgates/README.md).

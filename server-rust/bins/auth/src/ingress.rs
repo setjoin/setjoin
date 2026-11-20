@@ -135,7 +135,7 @@ pub fn go_decode_bytes(raw: &[u8]) -> Vec<u8> {
 
 // Go encoding/json uses Unicode simple folding. These are the two non-ASCII
 // fold classes that can match the ASCII names in this request struct.
-fn fold_name(name: &str) -> String {
+pub(crate) fn fold_name(name: &str) -> String {
     name.chars()
         .map(|c| match c {
             'ſ' => 's',

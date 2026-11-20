@@ -2081,6 +2081,18 @@ preserve the stored encrypted secret; only first creation returns created=true.
 No schema/seed changes. `tests/rust_identity_device_register.pg` checks ownership,
 repeat behavior and event-failure rollback; Rust HTTP recordings verify complete
 rows and decrypt the envelope against the secret returned to its proven owner.
+
+### Rust device check-in (#341)
+
+`reducers/rust_device_checkin.sql` is the accept side of device trust after the
+Rust proof seam: `mdm_effective_policy` before any write, at most 100
+request-ordered `mdm_checkin_event_append` calls (NULL aborts; the cap is an
+owner-approved security fix) and Go's error-ignored `last_seen` UPDATE under
+the caller's credential (no row for `setjoin_app` without a GUC, as in Go;
+the only reader is admin_updates.go's update list, follow-up #345). Atomic
+where Go committed per event (fault-only). `tests/rust_device_checkin.pg`
+covers invoker rights, layering, ordering, R1–R3, cap, wipe, abort and the
+accepted revoked-mid-flight residual.
 ### Rust identity refresh (#332)
 
 `rust_identity_refresh` reproduces frozen RefreshTokens' person/anchor locks,

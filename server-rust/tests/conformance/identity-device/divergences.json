@@ -1,0 +1,53 @@
+[
+  {
+    "baseline": "goldens/checkin-event-flood.json",
+    "sha256": "PHASE-2-SHA256",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#341",
+    "reason": "Go accepts any number of check-in events in its 64 KiB body (~21.8k) in one statement under the 2 s deadline: 500s, possible late commits, duplicate events on retry and unbounded device_events. Rust caps a check-in at 100 events (real clients send 0; Go tests at most 1) and answers 400 before the proof, nonce claim or any effect.",
+    "replace": [
+      {"pointer": "/observation/response", "value": {"status": 400, "headers": {"cache-control": "no-store", "content-type": "application/json"}, "body": "{\"error\":\"too many events\"}\n"}},
+      {"pointer": "/observation/effects", "value": {"devices": [{"device": "<device-a>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}, {"device": "<device-b>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}], "device_events": [], "device_auth_nonces": []}}
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-event-flood-rows.json",
+    "sha256": "PHASE-2-SHA256",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#341",
+    "reason": "Row effects of the event cap: the over-cap check-in changes no row.",
+    "replace": [
+      {"pointer": "/effects/0/after", "value": [{"device": "<device-a>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}, {"device": "<device-b>", "last_seen": "seeded", "wipe_requested": false, "enroll_state": "unenrolled", "revoked": false, "secret_key": "v1", "plaintext_secret": false}]},
+      {"pointer": "/effects/1/after", "value": []},
+      {"pointer": "/effects/2/after", "value": []}
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-legacy-secret.json",
+    "sha256": "PHASE-2-SHA256",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#513 item 1 (inherited)",
+    "source": "server-rust/crates/authz/src/device.rs:126-140",
+    "reason": "Go's lazy re-seal UPDATE ran without a user GUC and matched no row under devices_self, so the plaintext HMAC secret outlived every proof. Rust re-seals through rust_device_secret_reseal. It runs before HMAC verification (Go's migration position) and is idempotent: keyed on id, the exact plaintext and a NULL envelope.",
+    "replace": [
+      {"pointer": "/observation/effects/devices/0/plaintext_secret", "value": false},
+      {"pointer": "/observation/effects/devices/0/secret_key", "value": "v1"}
+    ]
+  },
+  {
+    "baseline": "goldens/checkin-legacy-secret-rows.json",
+    "sha256": "PHASE-2-SHA256",
+    "reviewed": true,
+    "review": "owner-approved security policy (Go-free security bug policy)",
+    "issue": "#513 item 1 (inherited)",
+    "source": "server-rust/crates/authz/src/device.rs:126-140",
+    "reason": "Row effects of the inherited re-seal: the legacy row ends sealed (v1, no plaintext).",
+    "replace": [
+      {"pointer": "/effects/0/after/0/plaintext_secret", "value": false},
+      {"pointer": "/effects/0/after/0/secret_key", "value": "v1"}
+    ]
+  }
+]

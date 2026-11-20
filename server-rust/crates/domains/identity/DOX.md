@@ -406,3 +406,11 @@ its routes must not be mistaken for authserver aliases. Recorded qualification
 controls ON state, per registration, in the route inventory and catalog.
 [Transaction map and parity details](SELF_SERVICE.md);
 [HTTP/effect recording and replay](../../../tests/conformance/identity-self-service/README.md).
+
+## Device trust accept side (#341)
+
+`device_trust` takes only a `VerifiedDevice`: `effective_policy` reads the
+`mdm_effective_policy` evaluator; `checkin` runs `rust_device_checkin` through
+`run_protocol_command` (scope `device:<id>`, receipt F21/device-checkin, empty
+user GUC as in Go); `EVENT_CAP` is the owner-approved 100-event bound;
+`Effective::version` is frozen Go's FNV-1a content hash (the ETag).
