@@ -1064,3 +1064,14 @@ gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
+
+`MailDraft/{get,open,lease,save,replace}` and `MailComment/{get,set}` (#372,
+`src/jmap/family/mail_draft.rs`): gate `feature.shared_mail_drafts` /
+`feature.shared_mail_comments` before argument/account checks (`serverUnavailable`
+when off), distinguish Go `*string` null vs empty via `Args::opt_str`, hash the
+Go-ordered request structs (`go_compact` + SHA-256) for `mail_work_operations`
+idempotency (`p_operation_id` as `$4`/`$5`, distinct from the seam's `$3` receipt
+operation), and invoke the existing `mail_draft_*` / `mail_comment_*` reducers
+through `family::seam` (`Gate::Read` for `/get`, `Gate::Collaborate` for
+mutations). Oracle: `tests/jmap_family_372.rs` and fragment
+`tests/conformance/route-catalog.d/jmap-372.json`.

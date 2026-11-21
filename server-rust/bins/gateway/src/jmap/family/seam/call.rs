@@ -1697,6 +1697,25 @@ mod db {
              collaboration-capable delegate of the bound mailbox (:87)",
         ),
         (
+            "mail_draft_lease_action",
+            "p_target_user_id",
+            "mail_draft_lease_action.sql:52-55: handoff requires the bound actor as lease holder \
+             (:53) and mail_work_can_collaborate(p_mailbox_id, p_target_user_id) (:54)",
+        ),
+        (
+            "mail_comment_set",
+            "p_mention_user_ids",
+            "mail_comment_set.sql:99-105: each mentioned user must satisfy \
+             mail_work_can_read(p_mailbox_id, v_mention) (:100); capability comes from \
+             mail_work_can_collaborate (:103)",
+        ),
+        (
+            "mail_comment_set",
+            "p_handoff_user_id",
+            "mail_comment_set.sql:88-90: requires full_access for the bound actor and \
+             mail_work_can_collaborate(p_mailbox_id, p_handoff_user_id) (:89)",
+        ),
+        (
             "task_list_add_member",
             "p_member_email",
             "task_lists.sql:123: worker call; p_user_id (the verified user, $1) is the actor \
@@ -1773,6 +1792,186 @@ mod db {
         ("mail_work_set", "p_due_at", "mail_work_set.sql:111-114: payload; requires the bound actor as assignee or full access"),
         ("mail_work_set", "p_reason", "mail_work_set.sql:28: length-validated audit text"),
         ("mail_work_set", "p_request_digest", "mail_work_set.sql:26,51: validated hex digest compared on replay"),
+        (
+            "mail_draft_get",
+            "p_ids",
+            "mail_draft_get.sql:23-24,26-28: every read filters by d.mailbox_id=p_mailbox_id; access gate mail_work_can_read at :12",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_operation_id",
+            "mail_draft_session_open.sql:41-48: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303; inserted at :83-84",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_message_id",
+            "mail_draft_session_open.sql:30-31,51,55: draft message checked, read and locked WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_received_at",
+            "mail_draft_session_open.sql:31,51,55: composite message timestamp key checked WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_final_sender_address",
+            "mail_draft_session_open.sql:34-40: validated against the bound mailbox, its aliases, and the bound actor's user/aliases",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_request_digest",
+            "mail_draft_session_open.sql:19,44: validated hex digest compared on replay",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_operation_id",
+            "mail_draft_lease_action.sql:29-35,73-74: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_draft_session_id",
+            "mail_draft_lease_action.sql:36-37: session locked WHERE draft_session_id=p_draft_session_id AND mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_action",
+            "mail_draft_lease_action.sql:19: closed set renew/release/handoff/takeover validated before any write",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_expected_epoch",
+            "mail_draft_lease_action.sql:20,39: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_reason",
+            "mail_draft_lease_action.sql:20: length-validated reason text",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_request_digest",
+            "mail_draft_lease_action.sql:21,33: validated hex digest compared on replay",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_operation_id",
+            "mail_draft_revision_accept.sql:18-25,50-51: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_draft_session_id",
+            "mail_draft_revision_accept.sql:26-28: session locked WHERE draft_session_id=p_draft_session_id AND mailbox_id=p_mailbox_id with lease_holder_user_id=p_actor_user_id",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_expected_epoch",
+            "mail_draft_revision_accept.sql:13,29: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_base_revision",
+            "mail_draft_revision_accept.sql:13,30: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_message_id",
+            "mail_draft_revision_accept.sql:30,34-35: matched against locked draft row and messages WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_received_at",
+            "mail_draft_revision_accept.sql:31,35: matched against locked draft row and messages WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_content_digest",
+            "mail_draft_revision_accept.sql:14,40: validated SHA-256 hex digest payload",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_attachment_digest",
+            "mail_draft_revision_accept.sql:15,40: validated SHA-256 hex digest payload",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_request_digest",
+            "mail_draft_revision_accept.sql:15,21: validated hex digest compared on replay",
+        ),
+        (
+            "mail_draft_replace",
+            "p_operation_id",
+            "mail_draft_replace.sql:21-28,83-84: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_draft_replace",
+            "p_draft_session_id",
+            "mail_draft_replace.sql:30-32: session locked WHERE draft_session_id=p_draft_session_id AND mailbox_id=p_mailbox_id with lease_holder_user_id=p_actor_user_id",
+        ),
+        (
+            "mail_draft_replace",
+            "p_expected_epoch",
+            "mail_draft_replace.sql:16,33: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_replace",
+            "p_base_revision",
+            "mail_draft_replace.sql:17,34: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_replace",
+            "p_draft",
+            "mail_draft_replace.sql:17-18,42-50,57: JSON object payload whose from[0].email is checked against final_sender_address and passed to jmap_email_set_create(p_mailbox_id, ...)",
+        ),
+        (
+            "mail_draft_replace",
+            "p_request_digest",
+            "mail_draft_replace.sql:18,24: validated hex digest compared on replay",
+        ),
+        (
+            "mail_comment_get",
+            "p_thread_id",
+            "mail_comment_get.sql:34,43: filtered by mailbox_id=p_mailbox_id; access gate mail_work_can_read at :19",
+        ),
+        (
+            "mail_comment_get",
+            "p_before",
+            "mail_comment_get.sql:35,44: time bound cursor",
+        ),
+        (
+            "mail_comment_get",
+            "p_limit",
+            "mail_comment_get.sql:15,45: bounded 1..100 page size",
+        ),
+        (
+            "mail_comment_set",
+            "p_thread_id",
+            "mail_comment_set.sql:45-47,60,80,114: thread checked, locked and updated WHERE mailbox_id=p_mailbox_id; collaboration gate at :40",
+        ),
+        (
+            "mail_comment_set",
+            "p_operation_id",
+            "mail_comment_set.sql:50-58,126-129: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_comment_set",
+            "p_expected_generation",
+            "mail_comment_set.sql:26,62,73: compared with the work row of the bound mailbox/thread",
+        ),
+        (
+            "mail_comment_set",
+            "p_body",
+            "mail_comment_set.sql:28,98: length- and NUL-validated comment body payload",
+        ),
+        (
+            "mail_comment_set",
+            "p_replaces_comment_id",
+            "mail_comment_set.sql:78-86: original comment locked and tombstoned WHERE id=p_replaces_comment_id AND mailbox_id=p_mailbox_id AND thread_id=p_thread_id",
+        ),
+        (
+            "mail_comment_set",
+            "p_request_digest",
+            "mail_comment_set.sql:26,54: validated hex digest compared on replay",
+        ),
         ("seam_probe_expr", "p_x", "probe payload"),
         ("seam_probe_unbound", "p_x", "probe payload"),
         ("seam_probe_scope", "p_x", "probe payload"),
