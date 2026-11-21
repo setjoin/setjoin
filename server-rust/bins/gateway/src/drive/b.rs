@@ -27,7 +27,8 @@ pub(super) async fn handle<K: KeySource + 'static>(
         Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
     };
     let Some(random) = crate::jmap::random() else {
-        return c.upstream.forward(r, &c.identity).await;
+        let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+        return problem(503, "service unavailable", None, &c, id);
     };
     let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), random);
     let path = String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path()))
@@ -35,7 +36,7 @@ pub(super) async fn handle<K: KeySource + 'static>(
         .unwrap_or("")
         .to_owned();
     match exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false)",&[]).await {
-        Ok(rows) if rows[0].get::<_,bool>(0)=>{},Ok(_)=>return problem(404,"not found",None,&c,id),Err(_)=>return c.upstream.forward(r,&c.identity).await
+        Ok(rows) if rows[0].get::<_,bool>(0)=>{},Ok(_)|Err(_)=>return problem(404,"not found",None,&c,id)
     }
     if super::content::matches(&r) {
         return super::content::serve(r, &path, exec, auth.context().clone(), store, random, c, id)
@@ -537,7 +538,7 @@ async fn simple(
         _ => None,
     };
     if let Some((key, alternate)) = gate {
-        match exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key=$1),false) OR coalesce((SELECT enabled FROM feature_toggles WHERE key=$2),false)",&[(&key,setjoin_pg::Type::TEXT),(&alternate,setjoin_pg::Type::TEXT)]).await{Ok(rows)if rows[0].get::<_,bool>(0)=>{},Ok(_)=>return problem(404,"not found",None,c,id),Err(_)=>return c.upstream.forward(r,&c.identity).await}
+        match exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key=$1),false) OR coalesce((SELECT enabled FROM feature_toggles WHERE key=$2),false)",&[(&key,setjoin_pg::Type::TEXT),(&alternate,setjoin_pg::Type::TEXT)]).await{Ok(rows)if rows[0].get::<_,bool>(0)=>{},Ok(_)|Err(_)=>return problem(404,"not found",None,c,id)}
     }
     let target = if spec.detail.is_empty() {
         0

@@ -2,8 +2,8 @@
 //! (`/contacts/import/*`, `/contacts/export/*`, mounted at `/api`).
 //!
 //! Frozen Go dispatches on the path suffix, so `/api/contacts/import/x/import/csv`
-//! is the CSV import. Authentication and the `contacts` entitlement stay with Go
-//! (a refusal and its audit are forwarded); everything after them is served here.
+//! is the CSV import. Entitlement refusals emit Go's 403 and best-effort
+//! `app_blocked` audit directly.
 //! Every write is one statement in its own receipted transaction, as Go runs each
 //! statement on its own pool call, with the gate-verified mailbox in its WHERE.
 use crate::contacts_csv::{self as csv, Mapping};
@@ -733,10 +733,40 @@ impl<K: KeySource + 'static> Intercept for ContactsRoute<K> {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
-            // Go's RequireApp("contacts"): a refusal and its audit stay with Go.
-            match setjoin_calendar::entitled_app(&this.exec, auth.context(), "contacts").await {
-                Ok(true) => {}
-                _ => return c.upstream.forward(r, &c.identity).await,
+            let entitled = tokio::time::timeout(
+                setjoin_authz::precheck_timeout(),
+                setjoin_calendar::entitled_app(&this.exec, auth.context(), "contacts"),
+            )
+            .await;
+            if !matches!(entitled, Ok(Ok(true))) {
+                let id = crate::jmap::reply::request_id(
+                    r.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                let actor = setjoin_contracts::ids::ActorId::new(auth.context().user_id())
+                    .expect("verified actor");
+                let ip = c.identity.client_ip.to_string();
+                let _ = tokio::time::timeout(
+                    setjoin_authz::precheck_timeout(),
+                    this.exec.audit_app_blocked(actor, "contacts", &ip),
+                )
+                .await;
+                let path = external(r.uri().path());
+                let detail = "Access to this application is not permitted for your account.";
+                let body = Problem::new(403, detail)
+                    .kind("https://setjoin.com/errors/forbidden")
+                    .instance(&path)
+                    .body();
+                let mut response = crate::jmap::reply::response(body, c.identity.proto, id);
+                *response.status_mut() = hyper::StatusCode::FORBIDDEN;
+                response.headers_mut().insert(
+                    "content-type",
+                    hyper::header::HeaderValue::from_static("application/problem+json"),
+                );
+                if let Ok(language) = crate::chat_channels::problem_language(r.headers()).parse() {
+                    response.headers_mut().insert("content-language", language);
+                }
+                return response;
             }
             let Some(operation) = crate::jmap::random() else {
                 let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);

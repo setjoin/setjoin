@@ -67,7 +67,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 53,  # lowered from 54 when threat admission (#349a) went native (ratchet)
-    ("gateway", "forward"): 167,  # lowered from 198 as routes went native (ratchet)
+    ("gateway", "forward"): 122,  # lowered from 167 as Chat/Meet/Calendar/Contacts/Drive routes closed forward fallbacks (#354/#200/#192)
     ("gateway", "forward_body"): 3,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,
