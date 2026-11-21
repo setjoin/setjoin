@@ -121,6 +121,9 @@ async fn native_device_completes_login_only_after_signed_approval() {
     let server = AuthServer::load(exec.clone(), cfg)
         .await
         .unwrap()
+        .with_threat_gate(&db.dsn)
+        .await
+        .unwrap()
         .with_native_push(Device(tx));
     let result=async{
   let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs() as i64;

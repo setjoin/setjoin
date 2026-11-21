@@ -1,6 +1,7 @@
 //! Frozen-Go push/possession HTTP and committed-effect oracle.
+#[path = "common/webauthn_commit.rs"]
+mod commit;
 mod common;
-#[path="common/webauthn_commit.rs"] mod commit;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};
@@ -185,7 +186,11 @@ async fn run(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
     ))?;
     let mut cfg = Config::for_secret(keys["secret"].as_str().unwrap().into());
     // Public key derivation uses the exact frozen-Go startup key.
-    cfg.vapid_private_key = if kind=="absent-key"{String::new()}else{VAPID.into()};
+    cfg.vapid_private_key = if kind == "absent-key" {
+        String::new()
+    } else {
+        VAPID.into()
+    };
     cfg.signing_alg = "ES256".into();
     cfg.dsn = db.dsn.clone();
     let server = auth_server(
@@ -195,6 +200,8 @@ async fn run(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
                     .unwrap(),
                 cfg,
             )
+            .await?
+            .with_threat_gate(&db.dsn)
             .await?,
         ),
         mutant,
@@ -205,12 +212,34 @@ async fn run(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
     let gw = gateway(server.addr, record.clone()).await;
     let path = match route {
         "vapid" => "/auth/push/vapid-key",
-        "push-subtree"=>if kind=="invalid-input"{"/auth/push/vapid-key"}else{"/auth/push/unknown"},
-        "backup-subtree"=>if kind=="invalid-input"{"/auth/backup-codes/verify"}else{"/auth/backup-codes/unknown"},
+        "push-subtree" => {
+            if kind == "invalid-input" {
+                "/auth/push/vapid-key"
+            } else {
+                "/auth/push/unknown"
+            }
+        }
+        "backup-subtree" => {
+            if kind == "invalid-input" {
+                "/auth/backup-codes/verify"
+            } else {
+                "/auth/backup-codes/unknown"
+            }
+        }
         _ => unreachable!(),
     };
-    let method = if kind=="head"{"HEAD"}else if route.ends_with("-subtree")&&kind=="invalid-input"{"DELETE"}else{"GET"};
-    let registration=match route{"push-subtree"=>"* /auth/push/".to_owned(),"backup-subtree"=>"* /auth/backup-codes/".to_owned(),_=>format!("GET {path}")};
+    let method = if kind == "head" {
+        "HEAD"
+    } else if route.ends_with("-subtree") && kind == "invalid-input" {
+        "DELETE"
+    } else {
+        "GET"
+    };
+    let registration = match route {
+        "push-subtree" => "* /auth/push/".to_owned(),
+        "backup-subtree" => "* /auth/backup-codes/".to_owned(),
+        _ => format!("GET {path}"),
+    };
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
@@ -225,8 +254,12 @@ async fn run(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
     let actual = json!({"format":1,"go_source":SOURCE,"route":registration,"case":format!("{route}-{kind}"),"observation":{"request":{"method":method,"path":path,"body":payload},"response":{"status":response.0,"headers":response.1,"body":response.2},"audit":[],"notify":[],"effects":[]}});
     assert_go_recording(gw.addr, record.is_some()).await?;
     let file = corpus().join(format!("{route}-{kind}.json"));
-    let canonical=route.ends_with("-subtree")||method=="HEAD";
-    let qualified=corpus().parent().unwrap().join("qualified").join(format!("{route}-{kind}.json"));
+    let canonical = route.ends_with("-subtree") || method == "HEAD";
+    let qualified = corpus()
+        .parent()
+        .unwrap()
+        .join("qualified")
+        .join(format!("{route}-{kind}.json"));
     let result = (|| -> Result<(), Err> {
         if record.is_some() && !file.exists() {
             std::fs::create_dir_all(corpus())?;
@@ -242,12 +275,20 @@ async fn run(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
             golden::compare(&expected, &actual)?;
         }
         if canonical {
-            let normalized=registration_observation(&actual);
-            if record.is_some()&&!qualified.exists(){golden::record(&qualified,&normalized)?;}
-            let expected:Value=serde_json::from_str(&std::fs::read_to_string(&qualified)?)?;
-            if mutant{assert!(golden::compare(&expected,&normalized).unwrap_err().contains("/observation/response/status"));}else{golden::compare(&expected,&normalized)?;}
+            let normalized = registration_observation(&actual);
+            if record.is_some() && !qualified.exists() {
+                golden::record(&qualified, &normalized)?;
+            }
+            let expected: Value = serde_json::from_str(&std::fs::read_to_string(&qualified)?)?;
+            if mutant {
+                assert!(golden::compare(&expected, &normalized)
+                    .unwrap_err()
+                    .contains("/observation/response/status"));
+            } else {
+                golden::compare(&expected, &normalized)?;
+            }
         }
-        oracle_receipt(&actual,mutant);
+        oracle_receipt(&actual, mutant);
         Ok(())
     })();
     if record.is_none() {
@@ -337,16 +378,15 @@ async fn run_grant(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let operation=setjoin_identity::totp::Operation::PasswordGrant;
-    let command="mfa-password-grant";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::PasswordGrant;
+    let command = "mfa-password-grant";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -504,16 +544,15 @@ async fn run_totp_grant(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let operation=setjoin_identity::totp::Operation::TotpGrant;
-    let command="mfa-totp-grant";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::TotpGrant;
+    let command = "mfa-totp-grant";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -695,16 +734,15 @@ async fn run_generate(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let operation=setjoin_identity::totp::Operation::BackupGenerate;
-    let command="mfa-backup-generate";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::BackupGenerate;
+    let command = "mfa-backup-generate";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -939,12 +977,16 @@ async fn token_stores(
         let records = if table == "auth_event_log" {
             c.query("SELECT to_jsonb(t)::text FROM auth_event_log t WHERE user_id=ANY($1::bigint[]) OR email=ANY($2::text[]) ORDER BY user_id,id",&[&vec![a.user,b.user],&vec![email.clone(),foreign.clone()]]).await?
         } else {
-            c.query(&sql,&[&vec![a.user,b.user]]).await?
+            c.query(&sql, &[&vec![a.user, b.user]]).await?
         };
         for (idx, row) in records.iter().enumerate() {
             let mut v: Value = serde_json::from_str(&row.get::<_, String>(0))?;
-            if !v["user_id"].is_null(){
-                v["user_id"] = json!(if v["user_id"] == a.user { "actor" } else { "foreign" });
+            if !v["user_id"].is_null() {
+                v["user_id"] = json!(if v["user_id"] == a.user {
+                    "actor"
+                } else {
+                    "foreign"
+                });
             }
             if let Some(e) = v.get_mut("email").filter(|v| v.is_string()) {
                 let text = e.as_str().unwrap();
@@ -1073,16 +1115,15 @@ async fn run_backup_verify(kind: &str, mutant: bool) -> Result<(), Err> {
         setjoin_config_secret::CryptoProfile::Standard,
     )
     .await?;
-    let operation=setjoin_identity::totp::Operation::BackupConsume;
-    let command="mfa-backup-consume";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::BackupConsume;
+    let command = "mfa-backup-consume";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -1254,16 +1295,15 @@ async fn run_native_register(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let operation=setjoin_identity::totp::Operation::NativeRegister;
-    let command="mfa-native-register";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::NativeRegister;
+    let command = "mfa-native-register";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -1452,6 +1492,8 @@ async fn run_push_verify(kind: &str, mutant: bool) -> Result<(), Err> {
                     .unwrap(),
                 cfg,
             )
+            .await?
+            .with_threat_gate(&db.dsn)
             .await?,
         ),
         mutant,
@@ -1616,16 +1658,15 @@ async fn run_push_status(kind: &str, mutant: bool) -> Result<(), Err> {
         setjoin_config_secret::CryptoProfile::Standard,
     )
     .await?;
-    let operation=setjoin_identity::totp::Operation::PushHarvest;
-    let command="mfa-push-harvest";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::PushHarvest;
+    let command = "mfa-push-harvest";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -1807,16 +1848,15 @@ async fn run_push_approve(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let operation=setjoin_identity::totp::Operation::PushApprove;
-    let command="mfa-push-approve";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::PushApprove;
+    let command = "mfa-push-approve";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -1967,16 +2007,53 @@ async fn push_approve_status_mutant() {
     run_push_approve("success", true).await.unwrap();
 }
 
-async fn normalize_send(c:&tokio_postgres::Client,user:i64,token:&str,raw:&mut String)->Result<(),Err>{
- let Ok(mut v)=serde_json::from_str::<Value>(raw)else{return Ok(());};let Some(nonce)=v["nonce"].as_str().map(str::to_owned)else{return Ok(());};
- assert_eq!(nonce.len(),64);assert!(nonce.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)));assert_eq!(v["challenge_id"],user.to_string());
- assert!(v.get("code").is_none()&&v.get("answer").is_none(),"correct number-match answer must stay out of band");
- let row=c.query_one("SELECT challenge_code,session_id,expires_at>now()+interval '115 seconds' AND expires_at<now()+interval '121 seconds' FROM push_mfa_challenges WHERE user_id=$1 AND nonce=decode($2,'hex')",&[&user,&nonce]).await?;
- let code:String=row.get(0);assert_eq!(code.len(),2);assert!(code.bytes().all(|b|b.is_ascii_digit()));assert_eq!(row.get::<_,String>(1),token);assert!(row.get::<_,bool>(2));
- v["nonce"]=json!("<nonce>");v["challenge_id"]=json!("<signed-owner>");*raw=v.to_string()+"\n";Ok(())
+async fn normalize_send(
+    c: &tokio_postgres::Client,
+    user: i64,
+    token: &str,
+    raw: &mut String,
+) -> Result<(), Err> {
+    let Ok(mut v) = serde_json::from_str::<Value>(raw) else {
+        return Ok(());
+    };
+    let Some(nonce) = v["nonce"].as_str().map(str::to_owned) else {
+        return Ok(());
+    };
+    assert_eq!(nonce.len(), 64);
+    assert!(nonce
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    assert_eq!(v["challenge_id"], user.to_string());
+    assert!(
+        v.get("code").is_none() && v.get("answer").is_none(),
+        "correct number-match answer must stay out of band"
+    );
+    let row=c.query_one("SELECT challenge_code,session_id,expires_at>now()+interval '115 seconds' AND expires_at<now()+interval '121 seconds' FROM push_mfa_challenges WHERE user_id=$1 AND nonce=decode($2,'hex')",&[&user,&nonce]).await?;
+    let code: String = row.get(0);
+    assert_eq!(code.len(), 2);
+    assert!(code.bytes().all(|b| b.is_ascii_digit()));
+    assert_eq!(row.get::<_, String>(1), token);
+    assert!(row.get::<_, bool>(2));
+    v["nonce"] = json!("<nonce>");
+    v["challenge_id"] = json!("<signed-owner>");
+    *raw = v.to_string() + "\n";
+    Ok(())
 }
-async fn sent_rows(c:&tokio_postgres::Client,a:&fixture::Account,b:&fixture::Account)->Result<Value,Err>{
- let mut v=push_rows(c,a,b).await?;for row in v["challenges"].as_array_mut().unwrap(){let code=row["code"].as_str().unwrap();assert_eq!(code.len(),2);assert!(code.bytes().all(|b|b.is_ascii_digit()));assert_eq!(row["nonce"].as_str().unwrap().len(),64);row["code"]=json!("<out-of-band-code>");row["nonce"]=json!("<nonce>");}Ok(v)
+async fn sent_rows(
+    c: &tokio_postgres::Client,
+    a: &fixture::Account,
+    b: &fixture::Account,
+) -> Result<Value, Err> {
+    let mut v = push_rows(c, a, b).await?;
+    for row in v["challenges"].as_array_mut().unwrap() {
+        let code = row["code"].as_str().unwrap();
+        assert_eq!(code.len(), 2);
+        assert!(code.bytes().all(|b| b.is_ascii_digit()));
+        assert_eq!(row["nonce"].as_str().unwrap().len(), 64);
+        row["code"] = json!("<out-of-band-code>");
+        row["nonce"] = json!("<nonce>");
+    }
+    Ok(v)
 }
 async fn run_push_send(kind: &str, mutant: bool) -> Result<(), Err> {
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
@@ -2032,16 +2109,15 @@ async fn run_push_send(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let operation=setjoin_identity::totp::Operation::PushSend;
-    let command="mfa-push-send";
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = setjoin_identity::totp::Operation::PushSend;
+    let command = "mfa-push-send";
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -2126,14 +2202,35 @@ async fn run_push_send(kind: &str, mutant: bool) -> Result<(), Err> {
     result
 }
 
-#[tokio::test]async fn push_send_success(){run_push_send("success",false).await.unwrap();}
-#[tokio::test]async fn push_send_cross_tenant(){run_push_send("cross-tenant",false).await.unwrap();}
-#[tokio::test]async fn push_send_invalid_input(){run_push_send("invalid-input",false).await.unwrap();}
-#[tokio::test]async fn push_send_repeat(){run_push_send("repeat",false).await.unwrap();}
-#[tokio::test]async fn push_send_user_limit(){run_push_send("user-limit",false).await.unwrap();}
-#[tokio::test]async fn push_send_status_mutant(){run_push_send("success",true).await.unwrap();}
+#[tokio::test]
+async fn push_send_success() {
+    run_push_send("success", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_send_cross_tenant() {
+    run_push_send("cross-tenant", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_send_invalid_input() {
+    run_push_send("invalid-input", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_send_repeat() {
+    run_push_send("repeat", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_send_user_limit() {
+    run_push_send("user-limit", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_send_status_mutant() {
+    run_push_send("success", true).await.unwrap();
+}
 
-#[tokio::test]async fn push_send_ip_limit(){run_push_send("ip-limit",false).await.unwrap();}
+#[tokio::test]
+async fn push_send_ip_limit() {
+    run_push_send("ip-limit", false).await.unwrap();
+}
 
 async fn run_push_login(kind: &str, mutant: bool) -> Result<(), Err> {
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
@@ -2181,9 +2278,19 @@ async fn run_push_login(kind: &str, mutant: bool) -> Result<(), Err> {
         )
         .await?;
     }
-    c.execute("UPDATE users SET push_mfa_enabled=true,totp_enabled=$2 WHERE id=$1",&[&a.user,&(!kind.starts_with("push-only"))]).await?;
-    let actor_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&a.user]).await?.get(0);
-    let foreign_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&b.user]).await?.get(0);
+    c.execute(
+        "UPDATE users SET push_mfa_enabled=true,totp_enabled=$2 WHERE id=$1",
+        &[&a.user, &(!kind.starts_with("push-only"))],
+    )
+    .await?;
+    let actor_email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+        .await?
+        .get(0);
+    let foreign_email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&b.user])
+        .await?
+        .get(0);
     let keys: Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/identity-login/keys.json"
     ))?;
@@ -2192,8 +2299,14 @@ async fn run_push_login(kind: &str, mutant: bool) -> Result<(), Err> {
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let signature_exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),4).unwrap();
-    let signature_keys=setjoin_authz::signing_keys::KeySet::load(&signature_exec,keys["secret"].as_str().unwrap().as_bytes(),setjoin_config_secret::CryptoProfile::Standard).await?;
+    let signature_exec =
+        setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap();
+    let signature_keys = setjoin_authz::signing_keys::KeySet::load(
+        &signature_exec,
+        keys["secret"].as_str().unwrap().as_bytes(),
+        setjoin_config_secret::CryptoProfile::Standard,
+    )
+    .await?;
     let server = auth_server(
         Arc::new(
             AuthServer::load(
@@ -2254,7 +2367,11 @@ async fn run_push_login(kind: &str, mutant: bool) -> Result<(), Err> {
         &[&vec![a.user, b.user]],
     )
     .await?;
-    c.execute("DELETE FROM auth_event_log WHERE email=ANY($1::text[])",&[&vec![actor_email,foreign_email]]).await?;
+    c.execute(
+        "DELETE FROM auth_event_log WHERE email=ANY($1::text[])",
+        &[&vec![actor_email, foreign_email]],
+    )
+    .await?;
     common::restore_receipts(&c, &receipts).await;
     fixture::remove(&c, &a).await?;
     fixture::remove(&c, &b).await?;
@@ -2274,7 +2391,10 @@ async fn run_push_login(kind: &str, mutant: bool) -> Result<(), Err> {
     result
 }
 
-#[tokio::test]async fn push_login_success(){run_push_login("success",false).await.unwrap();}
+#[tokio::test]
+async fn push_login_success() {
+    run_push_login("success", false).await.unwrap();
+}
 
 async fn login_challenge(
     c: &tokio_postgres::Client,
@@ -2312,10 +2432,12 @@ async fn login_challenge(
     let iat = claims["iat"].as_i64().unwrap();
     assert_eq!(claims["exp"].as_i64().unwrap() - iat, 300);
     assert_eq!(claims["nbf"], iat);
-    if let Some(nonce)=v["nonce"].as_str(){
-        assert_eq!(nonce.len(),64);assert!(v.get("code").is_none()&&v.get("answer").is_none());
-        let good:bool=c.query_one("SELECT EXISTS(SELECT 1 FROM push_mfa_challenges WHERE user_id=$1 AND nonce=decode($2,'hex') AND session_id=$3 AND length(challenge_code)=2 AND expires_at>now()+interval '115 seconds' AND expires_at<now()+interval '121 seconds')",&[&a.user,&nonce,&token]).await?.get(0);assert!(good,"push nonce must bind the exact issued pending token");
-        *raw=raw.replace(nonce,"<nonce>");
+    if let Some(nonce) = v["nonce"].as_str() {
+        assert_eq!(nonce.len(), 64);
+        assert!(v.get("code").is_none() && v.get("answer").is_none());
+        let good:bool=c.query_one("SELECT EXISTS(SELECT 1 FROM push_mfa_challenges WHERE user_id=$1 AND nonce=decode($2,'hex') AND session_id=$3 AND length(challenge_code)=2 AND expires_at>now()+interval '115 seconds' AND expires_at<now()+interval '121 seconds')",&[&a.user,&nonce,&token]).await?.get(0);
+        assert!(good, "push nonce must bind the exact issued pending token");
+        *raw = raw.replace(nonce, "<nonce>");
     }
     for k in ["iat", "nbf"] {
         claims[k] = json!(0);
@@ -2329,28 +2451,58 @@ async fn login_challenge(
     *raw = raw.replace(token, "<mfa_token>");
     Ok(claims)
 }
-#[tokio::test]async fn push_login_push_only(){run_push_login("push-only",false).await.unwrap();}
+#[tokio::test]
+async fn push_login_push_only() {
+    run_push_login("push-only", false).await.unwrap();
+}
 
-#[tokio::test]async fn push_login_fallback_user_limit(){run_push_login("fallback-user-limit",false).await.unwrap();}
+#[tokio::test]
+async fn push_login_fallback_user_limit() {
+    run_push_login("fallback-user-limit", false).await.unwrap();
+}
 
-#[tokio::test]async fn push_login_cross_tenant(){run_push_login("cross-tenant",false).await.unwrap();}
+#[tokio::test]
+async fn push_login_cross_tenant() {
+    run_push_login("cross-tenant", false).await.unwrap();
+}
 
-#[tokio::test]async fn push_login_invalid_input(){run_push_login("invalid-input",false).await.unwrap();}
+#[tokio::test]
+async fn push_login_invalid_input() {
+    run_push_login("invalid-input", false).await.unwrap();
+}
 
-#[tokio::test]async fn push_login_status_mutant(){run_push_login("success",true).await.unwrap();}
+#[tokio::test]
+async fn push_login_status_mutant() {
+    run_push_login("success", true).await.unwrap();
+}
 
-#[tokio::test]async fn push_login_push_only_user_limit(){run_push_login("push-only-user-limit",false).await.unwrap();}
+#[tokio::test]
+async fn push_login_push_only_user_limit() {
+    run_push_login("push-only-user-limit", false).await.unwrap();
+}
 
-async fn recovery_rows(c:&tokio_postgres::Client,a:&fixture::Account,b:&fixture::Account)->Result<Value,Err>{
- let mut v=sent_rows(c,a,b).await?;let mut budgets=vec![];
- for (user,label) in [(a.user,"actor"),(b.user,"foreign")]{
-  for prefix in ["recovery_user:","push_user:"]{let key=format!("{prefix}{user}");
-   if let Some(row)=c.query_opt("SELECT failed_count,locked_until>now(),locked_until>now()+interval '890 seconds' AND locked_until<now()+interval '901 seconds',updated_at>now()-interval '10 seconds' FROM auth_lockouts WHERE lockout_key=$1",&[&key]).await?{budgets.push(json!({"owner":label,"kind":prefix,"count":row.get::<_,i32>(0),"active":row.get::<_,bool>(1),"fifteen_minutes":row.get::<_,bool>(2),"updated":row.get::<_,bool>(3)}));}
-  }
- }v["budgets"]=json!(budgets);Ok(v)
+async fn recovery_rows(
+    c: &tokio_postgres::Client,
+    a: &fixture::Account,
+    b: &fixture::Account,
+) -> Result<Value, Err> {
+    let mut v = sent_rows(c, a, b).await?;
+    let mut budgets = vec![];
+    for (user, label) in [(a.user, "actor"), (b.user, "foreign")] {
+        for prefix in ["recovery_user:", "push_user:"] {
+            let key = format!("{prefix}{user}");
+            if let Some(row)=c.query_opt("SELECT failed_count,locked_until>now(),locked_until>now()+interval '890 seconds' AND locked_until<now()+interval '901 seconds',updated_at>now()-interval '10 seconds' FROM auth_lockouts WHERE lockout_key=$1",&[&key]).await?{budgets.push(json!({"owner":label,"kind":prefix,"count":row.get::<_,i32>(0),"active":row.get::<_,bool>(1),"fifteen_minutes":row.get::<_,bool>(2),"updated":row.get::<_,bool>(3)}));}
+        }
+    }
+    v["budgets"] = json!(budgets);
+    Ok(v)
 }
 async fn run_recovery(kind: &str, verify: bool, mutant: bool) -> Result<(), Err> {
-    let prefix=if verify{"recovery-verify"}else{"recovery-begin"};
+    let prefix = if verify {
+        "recovery-verify"
+    } else {
+        "recovery-begin"
+    };
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
     assert!(!mutant || record.is_none(), "mutants cannot record");
     let _serial = SERIAL.lock().await;
@@ -2364,7 +2516,11 @@ async fn run_recovery(kind: &str, verify: bool, mutant: bool) -> Result<(), Err>
     common::signing_key(&c).await;
     // Only this disposable fixture's loopback IP key; shared threat policy is
     // a separate #420 seam and must not obscure a recovery-specific refusal.
-    c.execute("DELETE FROM auth_lockouts WHERE lockout_key='ip:127.0.0.1'",&[]).await?;
+    c.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key='ip:127.0.0.1'",
+        &[],
+    )
+    .await?;
     // #420 owns shared threat policy; this corpus qualifies recovery's own
     // enumeration/account budgets with the outer policy controls disabled.
     let threat_flags=c.query("SELECT key,enabled FROM feature_toggles WHERE key IN ('feature.threat_feed','feature.geo_block','feature.spray_detect','feature.captcha','feature.tarpit')",&[]).await?;
@@ -2403,53 +2559,108 @@ async fn run_recovery(kind: &str, verify: bool, mutant: bool) -> Result<(), Err>
         )
         .await?;
     }
-    c.execute("UPDATE users SET push_mfa_enabled=true,totp_enabled=$2 WHERE id=$1",&[&a.user,&(!kind.starts_with("push-only"))]).await?;
-    let actor_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&a.user]).await?.get(0);
-    let foreign_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&b.user]).await?.get(0);
+    c.execute(
+        "UPDATE users SET push_mfa_enabled=true,totp_enabled=$2 WHERE id=$1",
+        &[&a.user, &(!kind.starts_with("push-only"))],
+    )
+    .await?;
+    let actor_email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+        .await?
+        .get(0);
+    let foreign_email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&b.user])
+        .await?
+        .get(0);
     if verify {
         c.execute("UPDATE users SET totp_secret_enc=pgp_sym_encrypt('JBSWY3DPEHPK3PXP',$2),totp_enabled=true WHERE id=$1",&[&a.user,&"2".repeat(64)]).await?;
     }
     match kind {
-      "disabled"=>{c.execute("UPDATE users SET enabled=false WHERE id=$1",&[&a.user]).await?;},
-      "no-factor"=>{c.execute("UPDATE users SET totp_enabled=false,push_mfa_enabled=false WHERE id=$1",&[&a.user]).await?;},
-      "totp-corrupt"=>{c.execute("UPDATE users SET totp_secret_enc=decode('deadbeef','hex') WHERE id=$1",&[&a.user]).await?;},
-      "totp-locked"=>{c.execute("UPDATE users SET totp_failed_attempts=5,totp_locked_until=now()+interval '15 minutes' WHERE id=$1",&[&a.user]).await?;},
-      _=>{}
+        "disabled" => {
+            c.execute("UPDATE users SET enabled=false WHERE id=$1", &[&a.user])
+                .await?;
+        }
+        "no-factor" => {
+            c.execute(
+                "UPDATE users SET totp_enabled=false,push_mfa_enabled=false WHERE id=$1",
+                &[&a.user],
+            )
+            .await?;
+        }
+        "totp-corrupt" => {
+            c.execute(
+                "UPDATE users SET totp_secret_enc=decode('deadbeef','hex') WHERE id=$1",
+                &[&a.user],
+            )
+            .await?;
+        }
+        "totp-locked" => {
+            c.execute("UPDATE users SET totp_failed_attempts=5,totp_locked_until=now()+interval '15 minutes' WHERE id=$1",&[&a.user]).await?;
+        }
+        _ => {}
     }
-    let fixed_horizon=if kind.starts_with("budget-") {
-      let count=if kind=="budget-expired"{50}else{30};let interval=if kind=="budget-expired"{"-1 second"}else{"15 minutes"};
-      c.batch_execute(&format!("BEGIN;SELECT recovery_budget_acquire({});SELECT recovery_budget_record({},{count},now()+interval '{interval}');COMMIT",a.user,a.user)).await?;
-      Some(c.query_one("SELECT locked_until::text FROM auth_lockouts WHERE lockout_key=$1",&[&format!("recovery_user:{}",a.user)]).await?.get::<_,String>(0))
-    }else{None};
-    if kind=="fault-budget" {c.batch_execute(&format!("CREATE FUNCTION gofree_idmfa3_budget_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.lockout_key='recovery_user:{}' THEN RAISE EXCEPTION 'gofree-idmfa3 budget fault';END IF;RETURN NEW;END$$;CREATE TRIGGER gofree_idmfa3_budget_fault BEFORE INSERT OR UPDATE ON auth_lockouts FOR EACH ROW EXECUTE FUNCTION gofree_idmfa3_budget_fault()",a.user)).await?;}
+    let fixed_horizon = if kind.starts_with("budget-") {
+        let count = if kind == "budget-expired" { 50 } else { 30 };
+        let interval = if kind == "budget-expired" {
+            "-1 second"
+        } else {
+            "15 minutes"
+        };
+        c.batch_execute(&format!("BEGIN;SELECT recovery_budget_acquire({});SELECT recovery_budget_record({},{count},now()+interval '{interval}');COMMIT",a.user,a.user)).await?;
+        Some(
+            c.query_one(
+                "SELECT locked_until::text FROM auth_lockouts WHERE lockout_key=$1",
+                &[&format!("recovery_user:{}", a.user)],
+            )
+            .await?
+            .get::<_, String>(0),
+        )
+    } else {
+        None
+    };
+    if kind == "fault-budget" {
+        c.batch_execute(&format!("CREATE FUNCTION gofree_idmfa3_budget_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.lockout_key='recovery_user:{}' THEN RAISE EXCEPTION 'gofree-idmfa3 budget fault';END IF;RETURN NEW;END$$;CREATE TRIGGER gofree_idmfa3_budget_fault BEFORE INSERT OR UPDATE ON auth_lockouts FOR EACH ROW EXECUTE FUNCTION gofree_idmfa3_budget_fault()",a.user)).await?;
+    }
     let keys: Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/identity-login/keys.json"
     ))?;
     let mut cfg = Config::for_secret(keys["secret"].as_str().unwrap().into());
     cfg.dsn = db.dsn.clone();
-    cfg.worker_dsn=Some(db.dsn.clone());
+    cfg.worker_dsn = Some(db.dsn.clone());
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let cut_kind=kind.strip_prefix("push-").unwrap_or(kind);
-    let worker_cut=kind.starts_with("push-commit-");
-    let operation=if worker_cut{setjoin_identity::totp::Operation::RecoveryPush}else{setjoin_identity::totp::Operation::Cycle};
-    let (executor,mut wire)=if worker_cut{
-      assert!(record.is_none());
-      let cut=if cut_kind=="commit-before"{commit::CommitCut::BeforeCommit}else{commit::CommitCut::AfterCommit};
-      let(dsn,task)=commit::multiplex_commit_cut_proxy(&db.dsn,cut,"mfa-recovery-push").await;
-      cfg.worker_dsn=Some(dsn);
-      (setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),4).map_err(|e|e.0)?,Some(FaultWire(task)))
-    }else{fault_executor(&db,cut_kind,"mfa-cycle").await?};
+    let cut_kind = kind.strip_prefix("push-").unwrap_or(kind);
+    let worker_cut = kind.starts_with("push-commit-");
+    let operation = if worker_cut {
+        setjoin_identity::totp::Operation::RecoveryPush
+    } else {
+        setjoin_identity::totp::Operation::Cycle
+    };
+    let (executor, mut wire) = if worker_cut {
+        assert!(record.is_none());
+        let cut = if cut_kind == "commit-before" {
+            commit::CommitCut::BeforeCommit
+        } else {
+            commit::CommitCut::AfterCommit
+        };
+        let (dsn, task) =
+            commit::multiplex_commit_cut_proxy(&db.dsn, cut, "mfa-recovery-push").await;
+        cfg.worker_dsn = Some(dsn);
+        (
+            setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+                .map_err(|e| e.0)?,
+            Some(FaultWire(task)),
+        )
+    } else {
+        fault_executor(&db, cut_kind, "mfa-cycle").await?
+    };
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?
-            .with_threat_gate(&db.dsn)
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -2538,7 +2749,9 @@ async fn run_recovery(kind: &str, verify: bool, mutant: bool) -> Result<(), Err>
   oracle_receipt(&actual,mutant);
   Ok::<(),Err>(())
  }.await;
-    if kind=="fault-budget"{c.batch_execute("DROP TRIGGER IF EXISTS gofree_idmfa3_budget_fault ON auth_lockouts;DROP FUNCTION IF EXISTS gofree_idmfa3_budget_fault()").await?;}
+    if kind == "fault-budget" {
+        c.batch_execute("DROP TRIGGER IF EXISTS gofree_idmfa3_budget_fault ON auth_lockouts;DROP FUNCTION IF EXISTS gofree_idmfa3_budget_fault()").await?;
+    }
     gw.close().await;
     server.close().await;
     for uid in [a.user, b.user] {
@@ -2557,8 +2770,21 @@ async fn run_recovery(kind: &str, verify: bool, mutant: bool) -> Result<(), Err>
         &[&vec![a.user, b.user]],
     )
     .await?;
-    c.execute("DELETE FROM auth_event_log WHERE email=ANY($1::text[])",&[&vec![actor_email,foreign_email]]).await?;
-    c.execute("DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",&[&vec![format!("recovery_user:{}",a.user),format!("recovery_user:{}",b.user),format!("push_user:{}",a.user),format!("push_user:{}",b.user)]]).await?;
+    c.execute(
+        "DELETE FROM auth_event_log WHERE email=ANY($1::text[])",
+        &[&vec![actor_email, foreign_email]],
+    )
+    .await?;
+    c.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
+        &[&vec![
+            format!("recovery_user:{}", a.user),
+            format!("recovery_user:{}", b.user),
+            format!("push_user:{}", a.user),
+            format!("push_user:{}", b.user),
+        ]],
+    )
+    .await?;
     common::restore_receipts(&c, &receipts).await;
     fixture::remove(&c, &a).await?;
     fixture::remove(&c, &b).await?;
@@ -2575,34 +2801,91 @@ async fn run_recovery(kind: &str, verify: bool, mutant: bool) -> Result<(), Err>
         )
         .await?;
     }
-    c.execute("DELETE FROM auth_lockouts WHERE lockout_key='ip:127.0.0.1'",&[]).await?;
-    for row in threat_flags{let key:String=row.get(0);let enabled:bool=row.get(1);c.execute("UPDATE feature_toggles SET enabled=$2 WHERE key=$1",&[&key,&enabled]).await?;}
+    c.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key='ip:127.0.0.1'",
+        &[],
+    )
+    .await?;
+    for row in threat_flags {
+        let key: String = row.get(0);
+        let enabled: bool = row.get(1);
+        c.execute(
+            "UPDATE feature_toggles SET enabled=$2 WHERE key=$1",
+            &[&key, &enabled],
+        )
+        .await?;
+    }
     result
 }
 
-#[tokio::test]async fn recovery_begin_success(){run_recovery_begin("success",false).await.unwrap();}
-#[tokio::test]async fn recovery_begin_cross_tenant(){run_recovery_begin("cross-tenant",false).await.unwrap();}
-#[tokio::test]async fn recovery_begin_invalid_input(){run_recovery_begin("invalid-input",false).await.unwrap();}
-#[tokio::test]async fn recovery_begin_status_mutant(){run_recovery_begin("success",true).await.unwrap();}
+#[tokio::test]
+async fn recovery_begin_success() {
+    run_recovery_begin("success", false).await.unwrap();
+}
+#[tokio::test]
+async fn recovery_begin_cross_tenant() {
+    run_recovery_begin("cross-tenant", false).await.unwrap();
+}
+#[tokio::test]
+async fn recovery_begin_invalid_input() {
+    run_recovery_begin("invalid-input", false).await.unwrap();
+}
+#[tokio::test]
+async fn recovery_begin_status_mutant() {
+    run_recovery_begin("success", true).await.unwrap();
+}
 
-async fn run_recovery_begin(kind:&str,mutant:bool)->Result<(),Err>{run_recovery(kind,false,mutant).await}
+async fn run_recovery_begin(kind: &str, mutant: bool) -> Result<(), Err> {
+    run_recovery(kind, false, mutant).await
+}
 
-#[tokio::test]async fn recovery_begin_repeat(){run_recovery_begin("repeat",false).await.unwrap();}
-#[tokio::test]async fn recovery_verify_success(){run_recovery("success",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_begin_repeat() {
+    run_recovery_begin("repeat", false).await.unwrap();
+}
+#[tokio::test]
+async fn recovery_verify_success() {
+    run_recovery("success", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_verify_cross_tenant(){run_recovery("cross-tenant",true,false).await.unwrap();}
-#[tokio::test]async fn recovery_verify_invalid_input(){run_recovery("invalid-input",true,false).await.unwrap();}
-#[tokio::test]async fn recovery_verify_repeat(){run_recovery("repeat",true,false).await.unwrap();}
-#[tokio::test]async fn recovery_verify_status_mutant(){run_recovery("success",true,true).await.unwrap();}
+#[tokio::test]
+async fn recovery_verify_cross_tenant() {
+    run_recovery("cross-tenant", true, false).await.unwrap();
+}
+#[tokio::test]
+async fn recovery_verify_invalid_input() {
+    run_recovery("invalid-input", true, false).await.unwrap();
+}
+#[tokio::test]
+async fn recovery_verify_repeat() {
+    run_recovery("repeat", true, false).await.unwrap();
+}
+#[tokio::test]
+async fn recovery_verify_status_mutant() {
+    run_recovery("success", true, true).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_verify_push_success(){run_recovery("push-success",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_verify_push_success() {
+    run_recovery("push-success", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_verify_push_wrong(){run_recovery("push-wrong",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_verify_push_wrong() {
+    run_recovery("push-wrong", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_verify_push_lockout(){run_recovery("push-lockout",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_verify_push_lockout() {
+    run_recovery("push-lockout", true, false).await.unwrap();
+}
 
-async fn run_webauthn_possession(kind: &str, finish:bool, mutant: bool) -> Result<(), Err> {
-    let prefix=if finish{"possession-webauthn-finish"}else{"possession-webauthn-begin"};
+async fn run_webauthn_possession(kind: &str, finish: bool, mutant: bool) -> Result<(), Err> {
+    let prefix = if finish {
+        "possession-webauthn-finish"
+    } else {
+        "possession-webauthn-begin"
+    };
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
     assert!(!mutant || record.is_none(), "mutants cannot record");
     let _serial = SERIAL.lock().await;
@@ -2648,55 +2931,131 @@ async fn run_webauthn_possession(kind: &str, finish:bool, mutant: bool) -> Resul
         )
         .await?;
     }
-    c.execute("UPDATE users SET push_mfa_enabled=true,totp_enabled=$2 WHERE id=$1",&[&a.user,&(!kind.starts_with("push-only"))]).await?;
-    let actor_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&a.user]).await?.get(0);
-    let foreign_email:String=c.query_one("SELECT email FROM users WHERE id=$1",&[&b.user]).await?.get(0);
+    c.execute(
+        "UPDATE users SET push_mfa_enabled=true,totp_enabled=$2 WHERE id=$1",
+        &[&a.user, &(!kind.starts_with("push-only"))],
+    )
+    .await?;
+    let actor_email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+        .await?
+        .get(0);
+    let foreign_email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&b.user])
+        .await?
+        .get(0);
     use base64::Engine;
-    let vectors:Value=serde_json::from_str(include_str!("../../../tests/conformance/identity-webauthn/vectors.json"))?;
-    let vector=&vectors["cases"][0];
-    let id=base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(vector["id"].as_str().unwrap())?;
-    let handle=base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(vector["handle"].as_str().unwrap())?;
-    let hex=vector["key"].as_str().unwrap();let key:Vec<u8>=(0..hex.len()).step_by(2).map(|i|u8::from_str_radix(&hex[i..i+2],16).unwrap()).collect();
-    c.execute("UPDATE users SET webauthn_user_handle=$2 WHERE id=$1",&[&a.user,&handle]).await?;
-    for (uid,id)in [(a.user,id.clone()),(b.user,b"foreign-uv-key".to_vec())]{
+    let vectors: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-webauthn/vectors.json"
+    ))?;
+    let vector = &vectors["cases"][0];
+    let id =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(vector["id"].as_str().unwrap())?;
+    let handle = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(vector["handle"].as_str().unwrap())?;
+    let hex = vector["key"].as_str().unwrap();
+    let key: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    c.execute(
+        "UPDATE users SET webauthn_user_handle=$2 WHERE id=$1",
+        &[&a.user, &handle],
+    )
+    .await?;
+    for (uid, id) in [(a.user, id.clone()), (b.user, b"foreign-uv-key".to_vec())] {
         c.execute("INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count,uv_capable) VALUES($1,$2,$3,'none',7,true)",&[&id,&uid,&key]).await?;
     }
     if finish {
-      use sha2::{Digest,Sha256};let hash=format!("{:x}",Sha256::digest(vector["challenge"].as_str().unwrap().as_bytes()));
-      c.execute("INSERT INTO webauthn_ceremonies(challenge_hash,user_id,kind,operation,session_jti,token_scope,expires_at) VALUES($1,$2,'management_assertion','recovery.regenerate','idmfa3-actor','session',now()+interval '5 minutes')",&[&hash,&a.user]).await?;
+        use sha2::{Digest, Sha256};
+        let hash = format!(
+            "{:x}",
+            Sha256::digest(vector["challenge"].as_str().unwrap().as_bytes())
+        );
+        c.execute("INSERT INTO webauthn_ceremonies(challenge_hash,user_id,kind,operation,session_jti,token_scope,expires_at) VALUES($1,$2,'management_assertion','recovery.regenerate','idmfa3-actor','session',now()+interval '5 minutes')",&[&hash,&a.user]).await?;
     }
-    if kind=="pending" {c.execute("UPDATE webauthn_ceremonies SET operation='bootstrap.totp.enroll',token_scope='mfa_pending' WHERE user_id=$1",&[&a.user]).await?;}
+    if kind == "pending" {
+        c.execute("UPDATE webauthn_ceremonies SET operation='bootstrap.totp.enroll',token_scope='mfa_pending' WHERE user_id=$1",&[&a.user]).await?;
+    }
     match kind {
-      "locked"=>{c.execute("UPDATE users SET possession_webauthn_failed_attempts=5,possession_webauthn_locked_until=now()+interval '15 minutes' WHERE id=$1",&[&a.user]).await?;},
-      "near-lock"=>{c.execute("UPDATE users SET possession_webauthn_failed_attempts=4 WHERE id=$1",&[&a.user]).await?;},
-      "non-uv"=>{c.execute("UPDATE passkey_credentials SET uv_capable=false WHERE user_id=$1",&[&a.user]).await?;},
-      "expired-ceremony"=>{c.execute("UPDATE webauthn_ceremonies SET expires_at=now()-interval '1 second' WHERE user_id=$1",&[&a.user]).await?;},
-      "wrong-jti"=>{c.execute("UPDATE webauthn_ceremonies SET session_jti='another-session' WHERE user_id=$1",&[&a.user]).await?;},
-      "wrong-scope"=>{c.execute("UPDATE webauthn_ceremonies SET token_scope='mfa_pending' WHERE user_id=$1",&[&a.user]).await?;},
-      "target-revoked"=>{c.execute("UPDATE webauthn_ceremonies SET operation='webauthn.revoke',target_ref=$2 WHERE user_id=$1",&[&a.user,&vector["id"].as_str().unwrap()]).await?;c.execute("UPDATE passkey_credentials SET revoked_at=now() WHERE user_id=$1",&[&a.user]).await?;},
-      _=>{}
+        "locked" => {
+            c.execute("UPDATE users SET possession_webauthn_failed_attempts=5,possession_webauthn_locked_until=now()+interval '15 minutes' WHERE id=$1",&[&a.user]).await?;
+        }
+        "near-lock" => {
+            c.execute(
+                "UPDATE users SET possession_webauthn_failed_attempts=4 WHERE id=$1",
+                &[&a.user],
+            )
+            .await?;
+        }
+        "non-uv" => {
+            c.execute(
+                "UPDATE passkey_credentials SET uv_capable=false WHERE user_id=$1",
+                &[&a.user],
+            )
+            .await?;
+        }
+        "expired-ceremony" => {
+            c.execute("UPDATE webauthn_ceremonies SET expires_at=now()-interval '1 second' WHERE user_id=$1",&[&a.user]).await?;
+        }
+        "wrong-jti" => {
+            c.execute(
+                "UPDATE webauthn_ceremonies SET session_jti='another-session' WHERE user_id=$1",
+                &[&a.user],
+            )
+            .await?;
+        }
+        "wrong-scope" => {
+            c.execute(
+                "UPDATE webauthn_ceremonies SET token_scope='mfa_pending' WHERE user_id=$1",
+                &[&a.user],
+            )
+            .await?;
+        }
+        "target-revoked" => {
+            c.execute("UPDATE webauthn_ceremonies SET operation='webauthn.revoke',target_ref=$2 WHERE user_id=$1",&[&a.user,&vector["id"].as_str().unwrap()]).await?;
+            c.execute(
+                "UPDATE passkey_credentials SET revoked_at=now() WHERE user_id=$1",
+                &[&a.user],
+            )
+            .await?;
+        }
+        _ => {}
     }
-    let fault_table=match kind{"fault-grant"=>Some("mfa_reauth_step_ups"),"fault-ceremony"=>Some("webauthn_ceremonies"),_=>None};
-    if let Some(table)=fault_table{c.batch_execute(&format!("CREATE FUNCTION gofree_idmfa3_possession_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.user_id={} THEN RAISE EXCEPTION 'gofree-idmfa3 possession fault';END IF;RETURN NEW;END$$;CREATE TRIGGER gofree_idmfa3_possession_fault BEFORE INSERT ON {table} FOR EACH ROW EXECUTE FUNCTION gofree_idmfa3_possession_fault()",a.user)).await?;}
+    let fault_table = match kind {
+        "fault-grant" => Some("mfa_reauth_step_ups"),
+        "fault-ceremony" => Some("webauthn_ceremonies"),
+        _ => None,
+    };
+    if let Some(table) = fault_table {
+        c.batch_execute(&format!("CREATE FUNCTION gofree_idmfa3_possession_fault() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN IF NEW.user_id={} THEN RAISE EXCEPTION 'gofree-idmfa3 possession fault';END IF;RETURN NEW;END$$;CREATE TRIGGER gofree_idmfa3_possession_fault BEFORE INSERT ON {table} FOR EACH ROW EXECUTE FUNCTION gofree_idmfa3_possession_fault()",a.user)).await?;
+    }
     let keys: Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/identity-login/keys.json"
     ))?;
     let mut cfg = Config::for_secret(keys["secret"].as_str().unwrap().into());
     cfg.dsn = db.dsn.clone();
-    cfg.worker_dsn=Some(db.dsn.clone());
+    cfg.worker_dsn = Some(db.dsn.clone());
     cfg.signing_alg = "ES256".into();
     cfg.db_encryption_key = "2".repeat(64);
     cfg.vapid_private_key = VAPID.into();
-    let operation=if finish{setjoin_identity::totp::Operation::WebauthnPossessionFinish}else{setjoin_identity::totp::Operation::WebauthnPossessionBegin};
-    let command=if finish{"mfa-webauthn-possession-finish"}else{"mfa-webauthn-possession-begin"};
-    let (executor,mut wire)=fault_executor(&db,kind,command).await?;
+    let operation = if finish {
+        setjoin_identity::totp::Operation::WebauthnPossessionFinish
+    } else {
+        setjoin_identity::totp::Operation::WebauthnPossessionBegin
+    };
+    let command = if finish {
+        "mfa-webauthn-possession-finish"
+    } else {
+        "mfa-webauthn-possession-begin"
+    };
+    let (executor, mut wire) = fault_executor(&db, kind, command).await?;
     let server = auth_server(
         Arc::new(
-            AuthServer::load(
-                executor,
-                cfg,
-            )
-            .await?,
+            AuthServer::load(executor, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
         ),
         mutant,
     )
@@ -2769,7 +3128,9 @@ async fn run_webauthn_possession(kind: &str, finish:bool, mutant: bool) -> Resul
       oracle_receipt(&actual,mutant);
   Ok::<(),Err>(())
     }.await;
-    if let Some(table)=fault_table{c.batch_execute(&format!("DROP TRIGGER IF EXISTS gofree_idmfa3_possession_fault ON {table};DROP FUNCTION IF EXISTS gofree_idmfa3_possession_fault()")).await?;}
+    if let Some(table) = fault_table {
+        c.batch_execute(&format!("DROP TRIGGER IF EXISTS gofree_idmfa3_possession_fault ON {table};DROP FUNCTION IF EXISTS gofree_idmfa3_possession_fault()")).await?;
+    }
     gw.close().await;
     server.close().await;
     for uid in [a.user, b.user] {
@@ -2788,9 +3149,28 @@ async fn run_webauthn_possession(kind: &str, finish:bool, mutant: bool) -> Resul
         &[&vec![a.user, b.user]],
     )
     .await?;
-    c.execute("DELETE FROM auth_event_log WHERE email=ANY($1::text[])",&[&vec![actor_email,foreign_email]]).await?;
-    c.execute("DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",&[&vec![format!("recovery_user:{}",a.user),format!("recovery_user:{}",b.user),format!("push_user:{}",a.user),format!("push_user:{}",b.user)]]).await?;
-    for table in ["webauthn_ceremonies","passkey_credentials"]{c.execute(&format!("DELETE FROM {table} WHERE user_id=ANY($1::bigint[])"),&[&vec![a.user,b.user]]).await?;}
+    c.execute(
+        "DELETE FROM auth_event_log WHERE email=ANY($1::text[])",
+        &[&vec![actor_email, foreign_email]],
+    )
+    .await?;
+    c.execute(
+        "DELETE FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
+        &[&vec![
+            format!("recovery_user:{}", a.user),
+            format!("recovery_user:{}", b.user),
+            format!("push_user:{}", a.user),
+            format!("push_user:{}", b.user),
+        ]],
+    )
+    .await?;
+    for table in ["webauthn_ceremonies", "passkey_credentials"] {
+        c.execute(
+            &format!("DELETE FROM {table} WHERE user_id=ANY($1::bigint[])"),
+            &[&vec![a.user, b.user]],
+        )
+        .await?;
+    }
     common::restore_receipts(&c, &receipts).await;
     fixture::remove(&c, &a).await?;
     fixture::remove(&c, &b).await?;
@@ -2810,208 +3190,667 @@ async fn run_webauthn_possession(kind: &str, finish:bool, mutant: bool) -> Resul
     result
 }
 
-async fn webauthn_possession_rows(c:&tokio_postgres::Client,a:&fixture::Account,b:&fixture::Account)->Result<Value,Err>{
- let mut v=grant_rows(c,a,b).await?;let mut ceremonies=vec![];let mut credentials=vec![];let mut budgets=vec![];
- for (user,label)in [(a.user,"actor"),(b.user,"foreign")]{
-  for row in c.query("SELECT challenge_hash,kind,operation,target_ref,session_jti,token_scope,refresh_family_id,expires_at>now() FROM webauthn_ceremonies WHERE user_id=$1 ORDER BY created_at",&[&user]).await?{
+async fn webauthn_possession_rows(
+    c: &tokio_postgres::Client,
+    a: &fixture::Account,
+    b: &fixture::Account,
+) -> Result<Value, Err> {
+    let mut v = grant_rows(c, a, b).await?;
+    let mut ceremonies = vec![];
+    let mut credentials = vec![];
+    let mut budgets = vec![];
+    for (user, label) in [(a.user, "actor"), (b.user, "foreign")] {
+        for row in c.query("SELECT challenge_hash,kind,operation,target_ref,session_jti,token_scope,refresh_family_id,expires_at>now() FROM webauthn_ceremonies WHERE user_id=$1 ORDER BY created_at",&[&user]).await?{
    let hash:String=row.get(0);assert_eq!(hash.len(),64);
    ceremonies.push(json!({"owner":label,"hash":"<challenge-hash>","kind":row.get::<_,String>(1),"operation":row.get::<_,String>(2),"target":row.get::<_,Option<String>>(3),"jti":row.get::<_,String>(4),"scope":row.get::<_,String>(5),"family":row.get::<_,Option<String>>(6),"live":row.get::<_,bool>(7)}));
   }
-  for row in c.query("SELECT encode(id,'hex'),encode(public_key,'hex'),attestation_type,sign_count,uv_capable,revoked_at IS NOT NULL,last_used_at IS NOT NULL FROM passkey_credentials WHERE user_id=$1 ORDER BY id",&[&user]).await?{
+        for row in c.query("SELECT encode(id,'hex'),encode(public_key,'hex'),attestation_type,sign_count,uv_capable,revoked_at IS NOT NULL,last_used_at IS NOT NULL FROM passkey_credentials WHERE user_id=$1 ORDER BY id",&[&user]).await?{
    credentials.push(json!({"owner":label,"id":row.get::<_,String>(0),"key":row.get::<_,String>(1),"attestation":row.get::<_,String>(2),"count":row.get::<_,i32>(3),"uv":row.get::<_,bool>(4),"revoked":row.get::<_,bool>(5),"used":row.get::<_,bool>(6)}));
   }
-  let row=c.query_one("SELECT possession_webauthn_failed_attempts,COALESCE(possession_webauthn_locked_until>now(),false) FROM users WHERE id=$1",&[&user]).await?;
-  budgets.push(json!({"owner":label,"count":row.get::<_,i32>(0),"locked":row.get::<_,bool>(1)}));
- }
- v["ceremonies"]=json!(ceremonies);v["credentials"]=json!(credentials);v["webauthn_budgets"]=json!(budgets);Ok(v)
+        let row=c.query_one("SELECT possession_webauthn_failed_attempts,COALESCE(possession_webauthn_locked_until>now(),false) FROM users WHERE id=$1",&[&user]).await?;
+        budgets
+            .push(json!({"owner":label,"count":row.get::<_,i32>(0),"locked":row.get::<_,bool>(1)}));
+    }
+    v["ceremonies"] = json!(ceremonies);
+    v["credentials"] = json!(credentials);
+    v["webauthn_budgets"] = json!(budgets);
+    Ok(v)
 }
-async fn normalize_management_begin(c:&tokio_postgres::Client,user:i64,id:&[u8],raw:&mut String,pending:bool)->Result<(),Err>{
- use base64::Engine;use sha2::{Digest,Sha256};
- let value:Value=serde_json::from_str(raw)?;let options=&value["publicKey"];let challenge=options["challenge"].as_str().ok_or("missing challenge")?;
- assert_eq!(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(challenge)?.len(),32);assert_eq!(options["userVerification"],"required");assert_eq!(options["rpId"],"localhost");
- assert_eq!(options["allowCredentials"],json!([{"type":"public-key","id":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(id)}]));
- let hash=format!("{:x}",Sha256::digest(challenge.as_bytes()));
- let valid:bool=c.query_one("SELECT EXISTS(SELECT 1 FROM webauthn_ceremonies WHERE user_id=$1 AND challenge_hash=$2 AND kind='management_assertion' AND operation=$3 AND session_jti='idmfa3-actor' AND token_scope=$4 AND refresh_family_id IS NULL AND expires_at>now()+interval '290 seconds' AND expires_at<now()+interval '301 seconds')",&[&user,&hash,&if pending{"bootstrap.totp.enroll"}else{"recovery.regenerate"},&if pending{"mfa_pending"}else{"session"}]).await?.get(0);
- assert!(valid,"challenge must bind the owned complete ceremony tuple before masking");*raw=raw.replace(challenge,"<challenge>");Ok(())
+async fn normalize_management_begin(
+    c: &tokio_postgres::Client,
+    user: i64,
+    id: &[u8],
+    raw: &mut String,
+    pending: bool,
+) -> Result<(), Err> {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let value: Value = serde_json::from_str(raw)?;
+    let options = &value["publicKey"];
+    let challenge = options["challenge"].as_str().ok_or("missing challenge")?;
+    assert_eq!(
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(challenge)?
+            .len(),
+        32
+    );
+    assert_eq!(options["userVerification"], "required");
+    assert_eq!(options["rpId"], "localhost");
+    assert_eq!(
+        options["allowCredentials"],
+        json!([{"type":"public-key","id":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(id)}])
+    );
+    let hash = format!("{:x}", Sha256::digest(challenge.as_bytes()));
+    let valid:bool=c.query_one("SELECT EXISTS(SELECT 1 FROM webauthn_ceremonies WHERE user_id=$1 AND challenge_hash=$2 AND kind='management_assertion' AND operation=$3 AND session_jti='idmfa3-actor' AND token_scope=$4 AND refresh_family_id IS NULL AND expires_at>now()+interval '290 seconds' AND expires_at<now()+interval '301 seconds')",&[&user,&hash,&if pending{"bootstrap.totp.enroll"}else{"recovery.regenerate"},&if pending{"mfa_pending"}else{"session"}]).await?.get(0);
+    assert!(
+        valid,
+        "challenge must bind the owned complete ceremony tuple before masking"
+    );
+    *raw = raw.replace(challenge, "<challenge>");
+    Ok(())
 }
-#[tokio::test]async fn possession_webauthn_begin_success(){run_webauthn_possession_begin("success",false).await.unwrap();}
-
-#[tokio::test]async fn possession_webauthn_begin_cross_tenant(){run_webauthn_possession_begin("cross-tenant",false).await.unwrap();}
-#[tokio::test]async fn possession_webauthn_begin_invalid_input(){run_webauthn_possession_begin("invalid-input",false).await.unwrap();}
-#[tokio::test]async fn possession_webauthn_begin_repeat(){run_webauthn_possession_begin("repeat",false).await.unwrap();}
-#[tokio::test]async fn possession_webauthn_begin_status_mutant(){run_webauthn_possession_begin("success",true).await.unwrap();}
-
-async fn run_webauthn_possession_begin(kind:&str,mutant:bool)->Result<(),Err>{run_webauthn_possession(kind,false,mutant).await}
-async fn normalize_management_grant(c:&tokio_postgres::Client,user:i64,id:&[u8],raw:&mut String)->Result<(),Err>{
- use sha2::{Digest,Sha256};
- let Ok(value)=serde_json::from_str::<Value>(raw)else{return Ok(());};let Some(token)=value["reauth_token"].as_str()else{return Ok(());};
- assert_eq!(token.len(),64);assert!(token.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)));assert_eq!(value["expires_in"],300);
- let hash=format!("{:x}",Sha256::digest(token.as_bytes()));
- let valid:bool=c.query_one("SELECT EXISTS(SELECT 1 FROM mfa_reauth_step_ups WHERE user_id=$1 AND token_hash=$2 AND session_jti='idmfa3-actor' AND operation='recovery.regenerate' AND target_ref IS NULL AND proof_method='webauthn_uv' AND proving_factor_id=$3 AND bound_factor_generation=2 AND token_scope='session' AND refresh_family_id IS NULL AND expires_at>now()+interval '290 seconds' AND expires_at<now()+interval '301 seconds')",&[&user,&hash,&id]).await?.get(0);
- assert!(valid,"UV proof must bind the complete stored grant before masking");*raw=raw.replace(token,"<reauth>");Ok(())
+#[tokio::test]
+async fn possession_webauthn_begin_success() {
+    run_webauthn_possession_begin("success", false)
+        .await
+        .unwrap();
 }
-#[tokio::test]async fn possession_webauthn_finish_success(){run_webauthn_possession("success",true,false).await.unwrap();}
 
-#[tokio::test]async fn possession_webauthn_finish_cross_tenant(){run_webauthn_possession("cross-tenant",true,false).await.unwrap();}
-#[tokio::test]async fn possession_webauthn_finish_invalid_input(){run_webauthn_possession("invalid-input",true,false).await.unwrap();}
-#[tokio::test]async fn possession_webauthn_finish_repeat(){run_webauthn_possession("repeat",true,false).await.unwrap();}
-#[tokio::test]async fn possession_webauthn_finish_status_mutant(){run_webauthn_possession("success",true,true).await.unwrap();}
-
-#[tokio::test]async fn push_subtree_success(){run("push-subtree","success",false).await.unwrap();}
-#[tokio::test]async fn push_subtree_invalid_input(){run("push-subtree","invalid-input",false).await.unwrap();}
-#[tokio::test]async fn push_subtree_cross_tenant(){run("push-subtree","cross-tenant",false).await.unwrap();}
-#[tokio::test]async fn push_subtree_head(){run("push-subtree","head",false).await.unwrap();}
-#[tokio::test]async fn push_subtree_status_mutant(){run("push-subtree","success",true).await.unwrap();}
-#[tokio::test]async fn backup_subtree_success(){run("backup-subtree","success",false).await.unwrap();}
-#[tokio::test]async fn backup_subtree_cross_tenant(){run("backup-subtree","cross-tenant",false).await.unwrap();}
-#[tokio::test]async fn backup_subtree_invalid_input(){run("backup-subtree","invalid-input",false).await.unwrap();}
-#[tokio::test]async fn backup_subtree_head(){run("backup-subtree","head",false).await.unwrap();}
-#[tokio::test]async fn backup_subtree_status_mutant(){run("backup-subtree","success",true).await.unwrap();}
-#[tokio::test]async fn vapid_head(){run("vapid","head",false).await.unwrap();}
-
-#[tokio::test]async fn vapid_absent_key(){run("vapid","absent-key",false).await.unwrap();}
-
-fn oracle_receipt(actual:&Value,mutant:bool){
- println!("{}: {} :: {}",if mutant{"MUTANT-REJECTED"}else{"GOLDEN-REPLAY"},actual["route"].as_str().unwrap(),if mutant{"status"}else{actual["case"].as_str().unwrap()});
+#[tokio::test]
+async fn possession_webauthn_begin_cross_tenant() {
+    run_webauthn_possession_begin("cross-tenant", false)
+        .await
+        .unwrap();
 }
-fn registration_observation(actual:&Value)->Value{
- let mut normalized=actual.clone();let route=normalized["route"].as_str().unwrap().to_owned();let (method,path)=route.split_once(' ').unwrap();
- let request=&mut normalized["observation"]["request"];request["actual_method"]=request["method"].clone();request["actual_path"]=request["path"].clone();request["method"]=json!(method);request["path"]=json!(path);normalized
+#[tokio::test]
+async fn possession_webauthn_begin_invalid_input() {
+    run_webauthn_possession_begin("invalid-input", false)
+        .await
+        .unwrap();
+}
+#[tokio::test]
+async fn possession_webauthn_begin_repeat() {
+    run_webauthn_possession_begin("repeat", false)
+        .await
+        .unwrap();
+}
+#[tokio::test]
+async fn possession_webauthn_begin_status_mutant() {
+    run_webauthn_possession_begin("success", true)
+        .await
+        .unwrap();
+}
+
+async fn run_webauthn_possession_begin(kind: &str, mutant: bool) -> Result<(), Err> {
+    run_webauthn_possession(kind, false, mutant).await
+}
+async fn normalize_management_grant(
+    c: &tokio_postgres::Client,
+    user: i64,
+    id: &[u8],
+    raw: &mut String,
+) -> Result<(), Err> {
+    use sha2::{Digest, Sha256};
+    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+        return Ok(());
+    };
+    let Some(token) = value["reauth_token"].as_str() else {
+        return Ok(());
+    };
+    assert_eq!(token.len(), 64);
+    assert!(token
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    assert_eq!(value["expires_in"], 300);
+    let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
+    let valid:bool=c.query_one("SELECT EXISTS(SELECT 1 FROM mfa_reauth_step_ups WHERE user_id=$1 AND token_hash=$2 AND session_jti='idmfa3-actor' AND operation='recovery.regenerate' AND target_ref IS NULL AND proof_method='webauthn_uv' AND proving_factor_id=$3 AND bound_factor_generation=2 AND token_scope='session' AND refresh_family_id IS NULL AND expires_at>now()+interval '290 seconds' AND expires_at<now()+interval '301 seconds')",&[&user,&hash,&id]).await?.get(0);
+    assert!(
+        valid,
+        "UV proof must bind the complete stored grant before masking"
+    );
+    *raw = raw.replace(token, "<reauth>");
+    Ok(())
+}
+#[tokio::test]
+async fn possession_webauthn_finish_success() {
+    run_webauthn_possession("success", true, false)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn possession_webauthn_finish_cross_tenant() {
+    run_webauthn_possession("cross-tenant", true, false)
+        .await
+        .unwrap();
+}
+#[tokio::test]
+async fn possession_webauthn_finish_invalid_input() {
+    run_webauthn_possession("invalid-input", true, false)
+        .await
+        .unwrap();
+}
+#[tokio::test]
+async fn possession_webauthn_finish_repeat() {
+    run_webauthn_possession("repeat", true, false)
+        .await
+        .unwrap();
+}
+#[tokio::test]
+async fn possession_webauthn_finish_status_mutant() {
+    run_webauthn_possession("success", true, true)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn push_subtree_success() {
+    run("push-subtree", "success", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_subtree_invalid_input() {
+    run("push-subtree", "invalid-input", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_subtree_cross_tenant() {
+    run("push-subtree", "cross-tenant", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_subtree_head() {
+    run("push-subtree", "head", false).await.unwrap();
+}
+#[tokio::test]
+async fn push_subtree_status_mutant() {
+    run("push-subtree", "success", true).await.unwrap();
+}
+#[tokio::test]
+async fn backup_subtree_success() {
+    run("backup-subtree", "success", false).await.unwrap();
+}
+#[tokio::test]
+async fn backup_subtree_cross_tenant() {
+    run("backup-subtree", "cross-tenant", false).await.unwrap();
+}
+#[tokio::test]
+async fn backup_subtree_invalid_input() {
+    run("backup-subtree", "invalid-input", false).await.unwrap();
+}
+#[tokio::test]
+async fn backup_subtree_head() {
+    run("backup-subtree", "head", false).await.unwrap();
+}
+#[tokio::test]
+async fn backup_subtree_status_mutant() {
+    run("backup-subtree", "success", true).await.unwrap();
+}
+#[tokio::test]
+async fn vapid_head() {
+    run("vapid", "head", false).await.unwrap();
+}
+
+#[tokio::test]
+async fn vapid_absent_key() {
+    run("vapid", "absent-key", false).await.unwrap();
+}
+
+fn oracle_receipt(actual: &Value, mutant: bool) {
+    println!(
+        "{}: {} :: {}",
+        if mutant {
+            "MUTANT-REJECTED"
+        } else {
+            "GOLDEN-REPLAY"
+        },
+        actual["route"].as_str().unwrap(),
+        if mutant {
+            "status"
+        } else {
+            actual["case"].as_str().unwrap()
+        }
+    );
+}
+fn registration_observation(actual: &Value) -> Value {
+    let mut normalized = actual.clone();
+    let route = normalized["route"].as_str().unwrap().to_owned();
+    let (method, path) = route.split_once(' ').unwrap();
+    let request = &mut normalized["observation"]["request"];
+    request["actual_method"] = request["method"].clone();
+    request["actual_path"] = request["path"].clone();
+    request["method"] = json!(method);
+    request["path"] = json!(path);
+    normalized
 }
 
 struct FaultWire(tokio::task::JoinHandle<std::io::Result<commit::CommitCut>>);
-impl Drop for FaultWire{fn drop(&mut self){self.0.abort();}}
-async fn fault_executor(db:&Db,kind:&str,command:&'static str)->Result<(setjoin_pg::ScopedExecutor,Option<FaultWire>),Err>{
-    let base=db.app.as_deref().unwrap_or(&db.dsn);
-    if !kind.starts_with("commit-"){return Ok((setjoin_pg::ScopedExecutor::from_dsn(base,4).map_err(|e|e.0)?,None));}
-    assert!(std::env::var("GOFREE_RECORD_UPSTREAM").is_err(),"faults cannot record");
-    let cut=if kind=="commit-before"{commit::CommitCut::BeforeCommit}else{commit::CommitCut::AfterCommit};
-    let (dsn,task)=commit::commit_cut_proxy(base,cut,command).await;
-    Ok((setjoin_pg::ScopedExecutor::from_dsn(&dsn,1).map_err(|e|e.0)?,Some(FaultWire(task))))
+impl Drop for FaultWire {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+async fn fault_executor(
+    db: &Db,
+    kind: &str,
+    command: &'static str,
+) -> Result<(setjoin_pg::ScopedExecutor, Option<FaultWire>), Err> {
+    let base = db.app.as_deref().unwrap_or(&db.dsn);
+    if !kind.starts_with("commit-") {
+        return Ok((
+            setjoin_pg::ScopedExecutor::from_dsn(base, 4).map_err(|e| e.0)?,
+            None,
+        ));
+    }
+    assert!(
+        std::env::var("GOFREE_RECORD_UPSTREAM").is_err(),
+        "faults cannot record"
+    );
+    let cut = if kind == "commit-before" {
+        commit::CommitCut::BeforeCommit
+    } else {
+        commit::CommitCut::AfterCommit
+    };
+    let (dsn, task) = commit::commit_cut_proxy(base, cut, command).await;
+    Ok((
+        setjoin_pg::ScopedExecutor::from_dsn(&dsn, 1).map_err(|e| e.0)?,
+        Some(FaultWire(task)),
+    ))
 }
 #[allow(clippy::too_many_arguments)]
-async fn fault_probe(db:&Db,c:&tokio_postgres::Client,a:&fixture::Account,b:&fixture::Account,keys:&Value,kind:&str,operation:setjoin_identity::totp::Operation,wire:&mut Option<FaultWire>,status:u16,headers:&Value,raw:&str)->Result<(),Err>{
-    use setjoin_identity::{session::Session,totp};
-    assert_eq!(status,503,"{kind}: {raw}");assert!(headers.get("set-cookie").is_none());
-    let response:Value=serde_json::from_str(raw)?;
-    for field in ["access_token","refresh_token","reset_token","reauth_token","codes","nonce","publicKey"]{assert!(response.get(field).is_none(),"Unknown leaked {field}");}
-    let id=headers["x-operation-id"].as_str().ok_or("missing operation ID")?;
-    let op=setjoin_contracts::ids::OperationId(*uuid::Uuid::parse_str(id)?.as_bytes());
-    let mut wire=wire.take().expect("owned wire cut");
-    let cut=tokio::time::timeout(std::time::Duration::from_secs(10),&mut wire.0).await???;
-    assert_eq!(cut,if kind=="commit-before"{commit::CommitCut::BeforeCommit}else{commit::CommitCut::AfterCommit});
-    let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),2).map_err(|e|e.0)?;
-    let legacy=setjoin_authz::legacy_jwt::LegacyKeys::new(keys["secret"].as_str().unwrap().as_bytes(),&["authserver-hmac-1"],None)?;
-    let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-    let proof=|uid|{let claims=json!({"uid":uid,"typ":"access","jti":"idmfa3-fresh-lookup","iat":now,"exp":now+3600,"iss":"mailserver","aud":["mailserver-gateway"]});let token=setjoin_authz::legacy_jwt::sign_hs256(keys["secret"].as_str().unwrap().as_bytes(),&claims.to_string());Session::verify(&token,None,&legacy,"mailserver").unwrap()};
-    let actor=proof(a.user);let foreign=proof(b.user);
-    assert_eq!(totp::lookup_operation(&exec,&actor,op,operation).await.map_err(|e|e.message)?,kind=="commit-after");
-    assert!(!totp::lookup_operation(&exec,&foreign,op,operation).await.map_err(|e|e.message)?);
-    c.execute("UPDATE users SET enabled=false WHERE id=$1",&[&a.user]).await?;
-    let disabled=totp::lookup_operation(&exec,&actor,op,operation).await;
-    c.execute("UPDATE users SET enabled=true WHERE id=$1",&[&a.user]).await?;assert!(disabled.is_err());
+async fn fault_probe(
+    db: &Db,
+    c: &tokio_postgres::Client,
+    a: &fixture::Account,
+    b: &fixture::Account,
+    keys: &Value,
+    kind: &str,
+    operation: setjoin_identity::totp::Operation,
+    wire: &mut Option<FaultWire>,
+    status: u16,
+    headers: &Value,
+    raw: &str,
+) -> Result<(), Err> {
+    use setjoin_identity::{session::Session, totp};
+    assert_eq!(status, 503, "{kind}: {raw}");
+    assert!(headers.get("set-cookie").is_none());
+    let response: Value = serde_json::from_str(raw)?;
+    for field in [
+        "access_token",
+        "refresh_token",
+        "reset_token",
+        "reauth_token",
+        "codes",
+        "nonce",
+        "publicKey",
+    ] {
+        assert!(response.get(field).is_none(), "Unknown leaked {field}");
+    }
+    let id = headers["x-operation-id"]
+        .as_str()
+        .ok_or("missing operation ID")?;
+    let op = setjoin_contracts::ids::OperationId(*uuid::Uuid::parse_str(id)?.as_bytes());
+    let mut wire = wire.take().expect("owned wire cut");
+    let cut = tokio::time::timeout(std::time::Duration::from_secs(10), &mut wire.0).await???;
+    assert_eq!(
+        cut,
+        if kind == "commit-before" {
+            commit::CommitCut::BeforeCommit
+        } else {
+            commit::CommitCut::AfterCommit
+        }
+    );
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
+        .map_err(|e| e.0)?;
+    let legacy = setjoin_authz::legacy_jwt::LegacyKeys::new(
+        keys["secret"].as_str().unwrap().as_bytes(),
+        &["authserver-hmac-1"],
+        None,
+    )?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let proof = |uid| {
+        let claims = json!({"uid":uid,"typ":"access","jti":"idmfa3-fresh-lookup","iat":now,"exp":now+3600,"iss":"mailserver","aud":["mailserver-gateway"]});
+        let token = setjoin_authz::legacy_jwt::sign_hs256(
+            keys["secret"].as_str().unwrap().as_bytes(),
+            &claims.to_string(),
+        );
+        Session::verify(&token, None, &legacy, "mailserver").unwrap()
+    };
+    let actor = proof(a.user);
+    let foreign = proof(b.user);
+    assert_eq!(
+        totp::lookup_operation(&exec, &actor, op, operation)
+            .await
+            .map_err(|e| e.message)?,
+        kind == "commit-after"
+    );
+    assert!(!totp::lookup_operation(&exec, &foreign, op, operation)
+        .await
+        .map_err(|e| e.message)?);
+    c.execute("UPDATE users SET enabled=false WHERE id=$1", &[&a.user])
+        .await?;
+    let disabled = totp::lookup_operation(&exec, &actor, op, operation).await;
+    c.execute("UPDATE users SET enabled=true WHERE id=$1", &[&a.user])
+        .await?;
+    assert!(disabled.is_err());
     c.execute("INSERT INTO session_revocations(user_id,scope,jti,reason,expires_at) VALUES($1,'jti','idmfa3-fresh-lookup','fixture',now()+interval '1 hour')",&[&a.user]).await?;
-    let revoked=totp::lookup_operation(&exec,&actor,op,operation).await;
-    c.execute("DELETE FROM session_revocations WHERE user_id=$1 AND jti='idmfa3-fresh-lookup'",&[&a.user]).await?;assert!(revoked.is_err());
+    let revoked = totp::lookup_operation(&exec, &actor, op, operation).await;
+    c.execute(
+        "DELETE FROM session_revocations WHERE user_id=$1 AND jti='idmfa3-fresh-lookup'",
+        &[&a.user],
+    )
+    .await?;
+    assert!(revoked.is_err());
     println!("COMMIT-CUT: {kind}; fresh actor lookup, foreign/disabled/revoked refusal; no credential or success output");
     Ok(())
 }
 
-#[tokio::test]async fn commit_grant(){for kind in ["commit-before","commit-after"]{run_grant(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_grant() {
+    for kind in ["commit-before", "commit-after"] {
+        run_grant(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_totp_grant(){for kind in ["commit-before","commit-after"]{run_totp_grant(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_totp_grant() {
+    for kind in ["commit-before", "commit-after"] {
+        run_totp_grant(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_generate(){for kind in ["commit-before","commit-after"]{run_generate(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_generate() {
+    for kind in ["commit-before", "commit-after"] {
+        run_generate(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_backup_verify(){for kind in ["commit-before","commit-after"]{run_backup_verify(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_backup_verify() {
+    for kind in ["commit-before", "commit-after"] {
+        run_backup_verify(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_native_register(){for kind in ["commit-before","commit-after"]{run_native_register(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_native_register() {
+    for kind in ["commit-before", "commit-after"] {
+        run_native_register(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_push_status(){for kind in ["commit-before","commit-after"]{run_push_status(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_push_status() {
+    for kind in ["commit-before", "commit-after"] {
+        run_push_status(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_push_approve(){for kind in ["commit-before","commit-after"]{run_push_approve(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_push_approve() {
+    for kind in ["commit-before", "commit-after"] {
+        run_push_approve(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_push_send(){for kind in ["commit-before","commit-after"]{run_push_send(kind,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_push_send() {
+    for kind in ["commit-before", "commit-after"] {
+        run_push_send(kind, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_webauthn_possession_begin(){for kind in ["commit-before","commit-after"]{run_webauthn_possession(kind,false,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_webauthn_possession_begin() {
+    for kind in ["commit-before", "commit-after"] {
+        run_webauthn_possession(kind, false, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn commit_webauthn_possession_finish(){for kind in ["commit-before","commit-after"]{run_webauthn_possession(kind,true,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_webauthn_possession_finish() {
+    for kind in ["commit-before", "commit-after"] {
+        run_webauthn_possession(kind, true, false).await.unwrap();
+    }
+}
 
-#[tokio::test]async fn recovery_edge_begin_unknown(){run_recovery("unknown",false,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_begin_unknown() {
+    run_recovery("unknown", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_begin_disabled(){run_recovery("disabled",false,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_begin_disabled() {
+    run_recovery("disabled", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_begin_no_factor(){run_recovery("no-factor",false,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_begin_no_factor() {
+    run_recovery("no-factor", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_begin_push_only(){run_recovery("push-only",false,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_begin_push_only() {
+    run_recovery("push-only", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_begin_budget_refused(){run_recovery("budget-refused",false,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_begin_budget_refused() {
+    run_recovery("budget-refused", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_begin_budget_expired(){run_recovery("budget-expired",false,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_begin_budget_expired() {
+    run_recovery("budget-expired", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_begin_fault_budget(){run_recovery("fault-budget",false,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_begin_fault_budget() {
+    run_recovery("fault-budget", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_totp_wrong(){run_recovery("totp-wrong",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_totp_wrong() {
+    run_recovery("totp-wrong", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_totp_locked(){run_recovery("totp-locked",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_totp_locked() {
+    run_recovery("totp-locked", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_totp_corrupt(){run_recovery("totp-corrupt",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_totp_corrupt() {
+    run_recovery("totp-corrupt", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_budget_refused(){run_recovery("budget-refused",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_budget_refused() {
+    run_recovery("budget-refused", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_budget_expired(){run_recovery("budget-expired",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_budget_expired() {
+    run_recovery("budget-expired", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_push_replay(){run_recovery("push-replay",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_push_replay() {
+    run_recovery("push-replay", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_push_foreign(){run_recovery("push-foreign",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_push_foreign() {
+    run_recovery("push-foreign", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_push_purpose(){run_recovery("push-purpose",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_push_purpose() {
+    run_recovery("push-purpose", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_push_expired(){run_recovery("push-expired",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_push_expired() {
+    run_recovery("push-expired", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_push_burn(){run_recovery("push-burn",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_push_burn() {
+    run_recovery("push-burn", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn recovery_edge_verify_push_spent(){run_recovery("push-spent",true,false).await.unwrap();}
+#[tokio::test]
+async fn recovery_edge_verify_push_spent() {
+    run_recovery("push-spent", true, false).await.unwrap();
+}
 
-#[tokio::test]async fn possession_edge_begin_pending(){run_webauthn_possession("pending",false,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_begin_pending() {
+    run_webauthn_possession("pending", false, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_begin_access_wins(){run_webauthn_possession("access-wins",false,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_begin_access_wins() {
+    run_webauthn_possession("access-wins", false, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_begin_cookie(){run_webauthn_possession("cookie",false,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_begin_cookie() {
+    run_webauthn_possession("cookie", false, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_begin_csrf(){run_webauthn_possession("csrf",false,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_begin_csrf() {
+    run_webauthn_possession("csrf", false, false).await.unwrap();
+}
 
-#[tokio::test]async fn possession_edge_begin_media(){run_webauthn_possession("media",false,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_begin_media() {
+    run_webauthn_possession("media", false, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_begin_locked(){run_webauthn_possession("locked",false,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_begin_locked() {
+    run_webauthn_possession("locked", false, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_begin_fault_ceremony(){run_webauthn_possession("fault-ceremony",false,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_begin_fault_ceremony() {
+    run_webauthn_possession("fault-ceremony", false, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_pending(){run_webauthn_possession("pending",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_pending() {
+    run_webauthn_possession("pending", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_access_wins(){run_webauthn_possession("access-wins",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_access_wins() {
+    run_webauthn_possession("access-wins", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_cookie(){run_webauthn_possession("cookie",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_cookie() {
+    run_webauthn_possession("cookie", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_operation(){run_webauthn_possession("operation",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_operation() {
+    run_webauthn_possession("operation", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_locked(){run_webauthn_possession("locked",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_locked() {
+    run_webauthn_possession("locked", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_near_lock(){run_webauthn_possession("near-lock",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_near_lock() {
+    run_webauthn_possession("near-lock", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_non_uv(){run_webauthn_possession("non-uv",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_non_uv() {
+    run_webauthn_possession("non-uv", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_malformed_assertion(){run_webauthn_possession("malformed-assertion",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_malformed_assertion() {
+    run_webauthn_possession("malformed-assertion", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_expired_ceremony(){run_webauthn_possession("expired-ceremony",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_expired_ceremony() {
+    run_webauthn_possession("expired-ceremony", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_wrong_jti(){run_webauthn_possession("wrong-jti",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_wrong_jti() {
+    run_webauthn_possession("wrong-jti", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_wrong_scope(){run_webauthn_possession("wrong-scope",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_wrong_scope() {
+    run_webauthn_possession("wrong-scope", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_target_revoked(){run_webauthn_possession("target-revoked",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_target_revoked() {
+    run_webauthn_possession("target-revoked", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn possession_edge_finish_fault_grant(){run_webauthn_possession("fault-grant",true,false).await.unwrap();}
+#[tokio::test]
+async fn possession_edge_finish_fault_grant() {
+    run_webauthn_possession("fault-grant", true, false)
+        .await
+        .unwrap();
+}
 
-#[tokio::test]async fn commit_recovery_totp(){for kind in ["commit-before","commit-after"]{run_recovery(kind,true,false).await.unwrap();}}
-#[tokio::test]async fn commit_recovery_push(){for kind in ["push-commit-before","push-commit-after"]{run_recovery(kind,true,false).await.unwrap();}}
+#[tokio::test]
+async fn commit_recovery_totp() {
+    for kind in ["commit-before", "commit-after"] {
+        run_recovery(kind, true, false).await.unwrap();
+    }
+}
+#[tokio::test]
+async fn commit_recovery_push() {
+    for kind in ["push-commit-before", "push-commit-after"] {
+        run_recovery(kind, true, false).await.unwrap();
+    }
+}

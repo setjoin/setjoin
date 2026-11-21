@@ -119166,6 +119166,978 @@
         "server-rust/bins/auth/src/device.rs",
         "server-rust/crates/domains/identity/src/device_trust.rs"
       ]
+    },
+    {
+      "listener": "auth",
+      "method": "GET",
+      "path": "/auth/guest-invite/accept",
+      "family": "F21",
+      "command": "",
+      "mutator": false,
+      "cases": [
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_expired"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-federated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_federated"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-gateway-guest-bearer.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_gateway_guest_bearer"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_invalid_input"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-ip-rule-ignored.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_ip_rule_ignored"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-lifecycle-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_lifecycle_expired"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-localized.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_localized"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-rate-limited.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_rate_limited"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-repeat.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_repeat"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_revoked"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_success"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-unknown.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_unknown"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_used"
+          }
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "guest_invite_oracle",
+        "test": "guest_get_status_mutant",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/guest_invite.rs",
+        "server-rust/crates/domains/identity/src/guest_invite.rs"
+      ]
+    },
+    {
+      "listener": "auth",
+      "method": "POST",
+      "path": "/auth/guest-invite/accept",
+      "family": "F21",
+      "command": "",
+      "mutator": true,
+      "cases": [
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-concurrent.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_concurrent"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-concurrent-rows.json"
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_cross_tenant"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-cross-tenant-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-disclosure-false.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_disclosure_false"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-disclosure-false-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_expired"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-expired-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-federated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_federated"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-federated-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-gateway-guest-bearer.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_gateway_guest_bearer"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-gateway-guest-bearer-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-gateway-spoofed-xff.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_gateway_spoofed_xff"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-gateway-spoofed-xff-rows.json"
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_invalid_input"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-invalid-input-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-ip-blocked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_ip_blocked"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-ip-blocked-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-lifecycle-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_lifecycle_expired"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-lifecycle-expired-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-missing-token.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_missing_token"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-missing-token-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-oversize.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_oversize"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-oversize-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-1mib.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_1mib"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-1mib-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-72.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_72"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-72-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-empty.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_empty"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-empty-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-multibyte.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_multibyte"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-multibyte-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_expired"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-expired-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-federated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_federated"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-federated-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_revoked"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-revoked-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_used"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-used-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-policy.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_policy"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-policy-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-too-long.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_too_long"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-too-long-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-too-long-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_too_long_used"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-too-long-used-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-rate-limited.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_rate_limited"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-rate-limited-rows.json"
+        },
+        {
+          "kind": "repeat",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-repeat.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_repeat"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-repeat-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_revoked"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-revoked-rows.json"
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_success"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-success-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-trailing-data.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_trailing_data"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-trailing-data-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-unknown.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_unknown"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-unknown-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-unknown-field.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_unknown_field"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-unknown-field-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_used"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-used-rows.json"
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "guest_invite_oracle",
+        "test": "guest_post_status_mutant",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/guest_invite.rs",
+        "server-rust/crates/domains/identity/src/guest_invite.rs"
+      ]
+    },
+    {
+      "listener": "gateway",
+      "method": "GET",
+      "path": "/auth/guest-invite/accept",
+      "family": "F21",
+      "command": "",
+      "mutator": false,
+      "cases": [
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_cross_tenant"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_expired"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-federated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_federated"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-gateway-guest-bearer.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_gateway_guest_bearer"
+          }
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_invalid_input"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-ip-rule-ignored.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_ip_rule_ignored"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-lifecycle-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_lifecycle_expired"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-localized.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_localized"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-rate-limited.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_rate_limited"
+          }
+        },
+        {
+          "kind": "repeat",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-repeat.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_repeat"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_revoked"
+          }
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_success"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-unknown.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_unknown"
+          }
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-get-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_get_used"
+          }
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "guest_invite_oracle",
+        "test": "guest_get_status_mutant",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/guest_invite.rs",
+        "server-rust/crates/domains/identity/src/guest_invite.rs"
+      ]
+    },
+    {
+      "listener": "gateway",
+      "method": "POST",
+      "path": "/auth/guest-invite/accept",
+      "family": "F21",
+      "command": "",
+      "mutator": true,
+      "cases": [
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-concurrent.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_concurrent"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-concurrent-rows.json"
+        },
+        {
+          "kind": "cross-tenant",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-cross-tenant.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_cross_tenant"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-cross-tenant-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-disclosure-false.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_disclosure_false"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-disclosure-false-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_expired"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-expired-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-federated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_federated"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-federated-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-gateway-guest-bearer.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_gateway_guest_bearer"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-gateway-guest-bearer-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-gateway-spoofed-xff.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_gateway_spoofed_xff"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-gateway-spoofed-xff-rows.json"
+        },
+        {
+          "kind": "invalid-input",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-invalid-input.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_invalid_input"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-invalid-input-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-ip-blocked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_ip_blocked"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-ip-blocked-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-lifecycle-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_lifecycle_expired"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-lifecycle-expired-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-missing-token.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_missing_token"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-missing-token-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-oversize.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_oversize"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-oversize-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-1mib.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_1mib"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-1mib-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-72.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_72"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-72-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-empty.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_empty"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-empty-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-multibyte.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_multibyte"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-multibyte-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-expired.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_expired"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-expired-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-federated.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_federated"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-federated-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_revoked"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-revoked-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-nul-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_nul_used"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-nul-used-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-policy.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_policy"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-policy-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-too-long.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_too_long"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-too-long-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-password-too-long-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_password_too_long_used"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-password-too-long-used-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-rate-limited.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_rate_limited"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-rate-limited-rows.json"
+        },
+        {
+          "kind": "repeat",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-repeat.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_repeat"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-repeat-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-revoked.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_revoked"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-revoked-rows.json"
+        },
+        {
+          "kind": "success",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-success.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_success"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-success-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-trailing-data.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_trailing_data"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-trailing-data-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-unknown.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_unknown"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-unknown-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-unknown-field.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_unknown_field"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-unknown-field-rows.json"
+        },
+        {
+          "kind": "edge",
+          "golden": "server-rust/tests/conformance/identity-guest-invite/goldens/guest-post-used.json",
+          "replay": {
+            "package": "setjoin-auth",
+            "target": "guest_invite_oracle",
+            "test": "guest_post_used"
+          },
+          "row_golden": "server-rust/tests/conformance/identity-guest-invite/qualified/guest-post-used-rows.json"
+        }
+      ],
+      "mutant": {
+        "package": "setjoin-auth",
+        "target": "guest_invite_oracle",
+        "test": "guest_post_status_mutant",
+        "name": "status"
+      },
+      "handler_sources": [
+        "server-rust/bins/auth/src/guest_invite.rs",
+        "server-rust/crates/domains/identity/src/guest_invite.rs"
+      ]
     }
   ]
 }
