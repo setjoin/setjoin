@@ -3834,7 +3834,7 @@ async fn native_349b_with_user_id_and_unwrapped_rate_limit_parity() {
             server.addr,
             ip(151),
             "/auth/totp/enroll/confirm",
-            json!({"mfa_token":confirm_tok,"code":setjoin_identity::totp::code(staged_secret, now as i64)?,"enrollment_id":enrollment_id})
+            json!({"mfa_token":confirm_tok,"code":setjoin_identity::totp::code(staged_secret, now as i64).ok_or("totp code")?,"enrollment_id":enrollment_id})
                 .to_string()
                 .into_bytes(),
             &origin(),
@@ -3879,7 +3879,7 @@ async fn native_349b_with_user_id_and_unwrapped_rate_limit_parity() {
             server.addr,
             ip(150),
             "/auth/totp/verify",
-            json!({"mfa_token":pending("349b-verify"),"code":setjoin_identity::totp::code(totp_secret, now as i64)?})
+            json!({"mfa_token":pending("349b-verify"),"code":setjoin_identity::totp::code(totp_secret, now as i64).ok_or("totp code")?})
                 .to_string()
                 .into_bytes(),
             &origin(),
