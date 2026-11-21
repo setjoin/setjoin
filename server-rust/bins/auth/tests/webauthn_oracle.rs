@@ -1682,6 +1682,8 @@ async fn dpop_webauthn_bound_management_and_login_finish_issuance() {
         );
         let assertion_base = vector["assertions"]["success"]["request"].clone();
         let reseed_cred = || async {
+            c.execute("DELETE FROM webauthn_login_replays WHERE user_id=$1", &[&a.user])
+                .await?;
             c.execute("DELETE FROM passkey_credentials WHERE user_id=$1", &[&a.user])
                 .await?;
             c.execute(
@@ -1811,6 +1813,7 @@ async fn dpop_webauthn_bound_management_and_login_finish_issuance() {
     .await;
 
     for tbl in [
+        "webauthn_login_replays",
         "webauthn_ceremonies",
         "mfa_reauth_step_ups",
         "passkey_credentials",

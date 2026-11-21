@@ -62,8 +62,23 @@ pub fn proof(
 }
 
 pub fn bound_access_jwt(secret: &str, uid: i64, email: &str, jti: &str, jkt: &str) -> String {
+    bound_access_jwt_inner(secret, uid, email, jti, jkt, false)
+}
+
+pub fn bound_admin_access_jwt(secret: &str, uid: i64, email: &str, jti: &str, jkt: &str) -> String {
+    bound_access_jwt_inner(secret, uid, email, jti, jkt, true)
+}
+
+fn bound_access_jwt_inner(
+    secret: &str,
+    uid: i64,
+    email: &str,
+    jti: &str,
+    jkt: &str,
+    admin: bool,
+) -> String {
     let n = now();
-    let claims = json!({
+    let mut claims = json!({
         "uid": uid,
         "email": email,
         "typ": "access",
@@ -75,6 +90,9 @@ pub fn bound_access_jwt(secret: &str, uid: i64, email: &str, jti: &str, jkt: &st
         "nbf": n - 5,
         "exp": n + 600,
     });
+    if admin {
+        claims["admin"] = json!(true);
+    }
     setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &claims.to_string())
 }
 

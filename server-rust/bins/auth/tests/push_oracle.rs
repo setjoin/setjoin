@@ -3897,32 +3897,8 @@ async fn dpop_push_bound_routes_and_possession_fallthrough() {
     let result: Result<(), Err> = async {
         let actor_secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
         c.execute(
-            "UPDATE users SET password_hash=$2,factor_generation=2,totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($3,$4) WHERE id=$1",
-            &[&a.user, &bcrypt::hash("Password1!", 4)?, &actor_secret, &"2".repeat(64)],
-        )
-        .await?;
-
-        let vectors: Value = serde_json::from_str(include_str!(
-            "../../../tests/conformance/identity-webauthn/vectors.json"
-        ))?;
-        let vector = &vectors["cases"][0];
-        let cred_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(vector["id"].as_str().unwrap())?;
-        let handle = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(vector["handle"].as_str().unwrap())?;
-        let hex = vector["key"].as_str().unwrap();
-        let cred_key: Vec<u8> = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect();
-        c.execute(
-            "UPDATE users SET webauthn_user_handle=$2 WHERE id=$1",
-            &[&a.user, &handle],
-        )
-        .await?;
-        c.execute(
-            "INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count,uv_capable) VALUES($1,$2,$3,'none',7,true)",
-            &[&cred_id, &a.user, &cred_key],
+            "UPDATE users SET password_hash=$2,factor_generation=2,totp_enabled=false,push_mfa_enabled=false WHERE id=$1",
+            &[&a.user, &bcrypt::hash("Password1!", 4)?],
         )
         .await?;
 
@@ -3988,6 +3964,36 @@ async fn dpop_push_bound_routes_and_possession_fallthrough() {
         )
         .await?;
         assert_eq!(st, 200, "mfa/reauth with DPoP: {raw}");
+
+        // Enable TOTP + passkey now that password-only /auth/mfa/reauth ran cleanly.
+        c.execute(
+            "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3) WHERE id=$1",
+            &[&a.user, &actor_secret, &"2".repeat(64)],
+        )
+        .await?;
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-webauthn/vectors.json"
+        ))?;
+        let vector = &vectors["cases"][0];
+        let cred_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(vector["id"].as_str().unwrap())?;
+        let handle = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(vector["handle"].as_str().unwrap())?;
+        let hex = vector["key"].as_str().unwrap();
+        let cred_key: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        c.execute(
+            "UPDATE users SET webauthn_user_handle=$2 WHERE id=$1",
+            &[&a.user, &handle],
+        )
+        .await?;
+        c.execute(
+            "INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count,uv_capable) VALUES($1,$2,$3,'none',7,true)",
+            &[&cred_id, &a.user, &cred_key],
+        )
+        .await?;
 
         let totp_code = setjoin_identity::totp::code(actor_secret, common::dpop::now()).unwrap();
         let poss_totp_body = json!({"code": totp_code, "operation": "recovery.regenerate"}).to_string();

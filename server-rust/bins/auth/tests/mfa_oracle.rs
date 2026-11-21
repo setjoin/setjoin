@@ -2297,7 +2297,7 @@ async fn dpop_totp_bootstrap_confirm_issuance() {
         let (jwk, jkt) = common::dpop::jwk_and_jkt(&dkey);
 
         let reseed = || async {
-            c.execute("UPDATE users SET totp_enabled=false,totp_secret_enc=NULL,totp_enabled_at=NULL,mfa_exempt=false,push_mfa_enabled=false,last_totp_used_at=NULL WHERE id=$1", &[&a.user]).await?;
+            c.execute("UPDATE users SET totp_enabled=false,totp_secret_enc=NULL,totp_enabled_at=NULL,mfa_exempt=false,push_mfa_enabled=false,last_totp_used_at=NULL,factor_generation=2 WHERE id=$1", &[&a.user]).await?;
             c.execute("DELETE FROM totp_counter_claims WHERE user_id=$1", &[&a.user]).await?;
             c.execute("DELETE FROM mfa_reauth_step_ups WHERE user_id=$1", &[&a.user]).await?;
             c.execute("DELETE FROM totp_pending_enrollments WHERE user_id=$1", &[&a.user]).await?;

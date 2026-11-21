@@ -1789,7 +1789,7 @@ async fn dpop_issuance_bound_routes_and_uri_edge_cases() {
         let key_a = common::dpop::key(11);
         let (_, jkt_a) = common::dpop::jwk_and_jkt(&key_a);
         let wrong_key = common::dpop::key(22);
-        let token = common::dpop::bound_access_jwt(
+        let token = common::dpop::bound_admin_access_jwt(
             secret,
             seed.a.user,
             &seed.email,
