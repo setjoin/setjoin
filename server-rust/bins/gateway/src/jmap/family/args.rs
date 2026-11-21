@@ -63,6 +63,14 @@ impl Args {
         }
     }
 
+    /// `None` when absent or null (Go `*string` nil).
+    pub(crate) fn opt_str(&self, name: &str) -> Option<&str> {
+        match self.get(name) {
+            Some(Field::Str(value)) => Some(value),
+            _ => None,
+        }
+    }
+
     /// Go's int value; `0` when absent or null.
     pub(crate) fn int(&self, name: &str) -> i64 {
         match self.get(name) {
@@ -143,7 +151,7 @@ pub(crate) fn decode(
         let (name, kind) = fields[index];
         match field(value.get(), kind) {
             Ok(Some(decoded)) => values[index] = Some(decoded),
-            Ok(None) => {}
+            Ok(None) => values[index] = None,
             Err((what, ty)) => {
                 if first_error.is_none() {
                     first_error = Some(format!(
@@ -331,9 +339,14 @@ mod tests {
         let args =
             decode(r#"{"a":null,"d":null,"e":null,"f":[1,null]}"#, "", ALL).expect("decoded");
         assert_eq!(args.str("a"), "");
+        assert_eq!(args.opt_str("a"), None);
         assert!(args.strings("d").is_none());
         assert_eq!(args.raw("e"), Some("null"));
         assert_eq!(args.ints("f"), Some(&[1, 0][..]));
+        let args = decode(r#"{"a":"","b":1,"a":null}"#, "", ALL).expect("dup null");
+        assert_eq!(args.opt_str("a"), None);
+        let args = decode(r#"{"a":""}"#, "", ALL).expect("empty string");
+        assert_eq!(args.opt_str("a"), Some(""));
     }
 
     #[test]
