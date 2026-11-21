@@ -159,7 +159,7 @@ impl AuthServer {
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
         };
-        match self.totp_completion_route(&req).await {
+        match self.totp_completion_route().await {
             Ok(false) => {}
             Ok(true) => return self.forward(req).await,
             Err(()) => return Self::failure(500, "internal error", req.uri().path()),
@@ -183,7 +183,8 @@ impl AuthServer {
             .and_then(|h| h.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => return Self::failure(400, "invalid request body", &path),
         };
@@ -219,6 +220,15 @@ impl AuthServer {
         if let Err(reply) = self.completion_guest_scope(user.user(), &path).await {
             return reply;
         }
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
+        self.resolve_device(
+            user.user(),
+            parts.method.as_str(),
+            uri,
+            &parts.headers,
+            &raw,
+        )
+        .await;
         if totp || push {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

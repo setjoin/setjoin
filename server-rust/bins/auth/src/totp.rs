@@ -601,31 +601,11 @@ pub(super) enum GuestMint {
     Refuse,
 }
 impl AuthServer {
-    /// Completion routing (#405/#420). Ok(true) forwards whole to frozen Go, Ok(false) stays
+    /// Completion routing (#405/#351). Ok(true) forwards whole to frozen Go, Ok(false) stays
     /// native, and a flag-lookup error refuses (#454 Codex r1): Go's risk read fails open, so an
-    /// unreadable routing flag must never hand a completion to it.
-    pub(super) async fn totp_completion_route(&self, req: &Request<Body>) -> Result<bool, ()> {
-        if [
-            "x-device-id",
-            "x-device-hmac",
-            "x-device-timestamp",
-            "x-device-nonce",
-            "x-device-body-sha256",
-        ]
-        .iter()
-        .any(|h| req.headers().contains_key(*h))
-        {
-            return Ok(true);
-        } // #420.
-        for key in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if login::enabled(&self.exec, key).await.map_err(|_| ())? {
-                return Ok(true);
-            } // #405/#420.
-        }
-        Ok(false)
+    /// unreadable routing flag must never hand a completion to it. Device proof (#350) is native.
+    pub(super) async fn totp_completion_route(&self) -> Result<bool, ()> {
+        self.login_ca_route().await
     }
     /// Go evaluateCompletionConditionalAccess → populateGuestCAScope (auth.go:2603,
     /// 2499-2517): every factor completion resolves guest scope before domain
@@ -674,6 +654,7 @@ impl AuthServer {
             || meta.is_some_and(|m| m.tls)
             || ((self.config.trust_proxy || trusted) && scheme == "https")
     }
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn mfa_tokens(
         &self,
         user: &totp::CompletionUser,
@@ -683,8 +664,17 @@ impl AuthServer {
         factors: Option<Vec<String>>,
         risk: Option<Value>,
         dpop_jkt: Option<String>,
+        device: setjoin_authz::device::DeviceRequest<'_>,
     ) -> Result<MfaTokens, Response<Body>> {
         self.completion_guest_scope(user.user(), path).await?;
+        self.resolve_device(
+            user.user(),
+            device.method,
+            device.uri,
+            device.headers,
+            device.body,
+        )
+        .await;
         self.completion_tokens(
             user,
             path,
@@ -825,7 +815,7 @@ impl AuthServer {
         r
     }
     pub(super) async fn totp_verify(&self, req: Request<Body>) -> Response<Body> {
-        let route = self.totp_completion_route(&req).await;
+        let route = self.totp_completion_route().await;
         if route.is_err() {
             return Self::failure(500, "internal error", req.uri().path());
         }
@@ -853,7 +843,8 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -918,8 +909,23 @@ impl AuthServer {
             Ok(None) => return Self::failure(401, "user not found", &path),
             Err(_) => return Self::failure(500, "internal error", &path),
         };
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
         let tokens = match self
-            .mfa_tokens(&user, &pending, &path, None, None, risk, dpop_jkt)
+            .mfa_tokens(
+                &user,
+                &pending,
+                &path,
+                None,
+                None,
+                risk,
+                dpop_jkt,
+                setjoin_authz::device::DeviceRequest {
+                    headers: &parts.headers,
+                    method: parts.method.as_str(),
+                    uri,
+                    body: &raw,
+                },
+            )
             .await
         {
             Ok(t) => t,
@@ -992,7 +998,7 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn totp_bootstrap_confirm(&self, req: Request<Body>) -> Response<Body> {
-        let route = self.totp_completion_route(&req).await;
+        let route = self.totp_completion_route().await;
         if route.is_err() {
             return Self::failure(500, "internal error", req.uri().path());
         }
@@ -1020,7 +1026,8 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -1088,6 +1095,10 @@ impl AuthServer {
         let path_ref = &path;
         let risk_ref = &risk;
         let dpop_jkt_ref = &dpop_jkt;
+        let uri_ref = parts.uri.path_and_query().map_or("/", |p| p.as_str());
+        let headers_ref = &parts.headers;
+        let method_ref = parts.method.as_str();
+        let raw_ref = &raw;
         let result = totp::bootstrap_confirm(
             &self.exec,
             &pending,
@@ -1121,6 +1132,12 @@ impl AuthServer {
                         None,
                         risk_ref.clone(),
                         dpop_jkt_ref.clone(),
+                        setjoin_authz::device::DeviceRequest {
+                            headers: headers_ref,
+                            method: method_ref,
+                            uri: uri_ref,
+                            body: raw_ref,
+                        },
                     )
                     .await
                 {
@@ -1270,7 +1287,7 @@ impl AuthServer {
     pub(super) async fn backup_verify(&self, req: Request<Body>) -> Response<Body> {
         // #454 Codex r2: a flag error refuses locally, and the body bound runs before any
         // handoff, so an oversized request answers 413 here and never reaches the upstream.
-        let route = self.totp_completion_route(&req).await;
+        let route = self.totp_completion_route().await;
         if route.is_err() {
             return Self::failure(500, "internal error", req.uri().path());
         }
@@ -1298,7 +1315,8 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -1352,6 +1370,7 @@ impl AuthServer {
             }
             _ => return Self::failure(500, "verification failed", &path),
         }
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
         self.mfa_finish(
             pending,
             path,
@@ -1361,6 +1380,12 @@ impl AuthServer {
             None,
             (401, "user not found"),
             dpop_jkt,
+            setjoin_authz::device::DeviceRequest {
+                headers: &parts.headers,
+                method: parts.method.as_str(),
+                uri,
+                body: &raw,
+            },
             risk,
             true,
         )
@@ -1377,6 +1402,7 @@ impl AuthServer {
         factors: Option<Vec<String>>,
         missing: (u16, &str),
         dpop_jkt: Option<String>,
+        device: setjoin_authz::device::DeviceRequest<'_>,
         risk: Option<Value>,
         stamp_user: bool,
     ) -> Response<Body> {
@@ -1386,7 +1412,7 @@ impl AuthServer {
             _ => return Self::failure(missing.0, missing.1, &path),
         };
         let tokens = match self
-            .mfa_tokens(&user, &pending, &path, None, factors, risk, dpop_jkt)
+            .mfa_tokens(&user, &pending, &path, None, factors, risk, dpop_jkt, device)
             .await
         {
             Ok(t) => t,

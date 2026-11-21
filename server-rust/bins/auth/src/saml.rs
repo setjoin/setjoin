@@ -499,7 +499,7 @@ impl AuthServer {
             return reply;
         }
         let assertion = reg.assertion(&claims, groups);
-        let req = Request::from_parts(parts, body(raw));
+        let req = Request::from_parts(parts, body(raw.clone()));
         let linking = unbound && link_flow.is_some();
         let (mut reply, actor) = if let (true, Some(flow)) = (linking, link_flow) {
             let (mut reply, actor) = self.saml_link_callback(&req, Some(&assertion), None, &reg, &flow).await;
@@ -514,7 +514,7 @@ impl AuthServer {
             );
             (reply, actor)
         } else {
-            self.saml_login(&req, &assertion, &reg, &claims, &target).await
+            self.saml_login(&req, &raw, &assertion, &reg, &claims, &target).await
         };
         if reply.status().is_redirection() {
             setjoin_identity::saml::audit(
@@ -551,14 +551,15 @@ impl AuthServer {
     async fn saml_login(
         &self,
         req: &Request<Body>,
+        raw_body: &[u8],
         assertion: &setjoin_identity::rp::Assertion,
         reg: &Arc<setjoin_identity::saml::Registration>,
         claims: &setjoin_identity::saml_acs::Claims,
         target: &str,
     ) -> (Response<Body>, Option<i64>) {
         let path = req.uri().path();
-        // Completion that Rust cannot yet finish natively stays with its owners.
-        match self.rp_completion_route(req).await {
+        // Completion that Rust cannot yet finish natively stays with its owners (#351 CA).
+        match self.rp_completion_route().await {
             Ok(false) => {}
             Ok(true) => return (Self::failure(503, "SAML authentication unavailable", path), None),
             // F2 (#454 Codex r1): SAML keeps its 503 on a flag-lookup error; only OIDC changes.
@@ -613,7 +614,9 @@ impl AuthServer {
             }
         };
         let actor = resolution.user().user();
-        let reply = self.rp_complete(req, assertion, &**reg, &resolution, worker).await;
+        let reply = self
+            .rp_complete(req, Some(raw_body), assertion, &**reg, &resolution, worker)
+            .await;
         if reply.status() != 200 {
             return (reply, None);
         }

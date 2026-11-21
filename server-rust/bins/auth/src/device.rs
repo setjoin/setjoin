@@ -7,7 +7,7 @@ use hyper::body::Body as _;
 use hyper::{HeaderMap, Method, Request, Response};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value};
-use setjoin_authz::device::{DeviceRequest, DeviceResolver, VerifiedDevice};
+use setjoin_authz::device::{DeviceRequest, VerifiedDevice};
 use setjoin_identity::device_trust::{self, CheckinError, Event};
 
 /// deviceIDFromBody reads at most this prefix and restores only the prefix.
@@ -170,21 +170,17 @@ impl AuthServer {
         raw: &[u8],
     ) -> Option<VerifiedDevice> {
         // Go: shareddevice.NewSecretCodec([]byte(cfg.JWTSecret), cfg.CryptoProfile).
-        DeviceResolver::new(
-            self.exec.clone(),
-            self.config.secret.as_bytes().to_vec(),
-            self.config.profile,
-        )
-        .verify_request(
-            id,
-            DeviceRequest {
-                headers,
-                method,
-                uri,
-                body: raw,
-            },
-        )
-        .await
+        self.device_resolver
+            .verify_request(
+                id,
+                DeviceRequest {
+                    headers,
+                    method,
+                    uri,
+                    body: raw,
+                },
+            )
+            .await
     }
 }
 
