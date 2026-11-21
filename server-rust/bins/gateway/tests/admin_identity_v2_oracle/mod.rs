@@ -20,7 +20,7 @@ use setjoin_gateway::{
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
 
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Probe {
     inner: AdminIdentityV2Route<setjoin_gateway::jmap::jwks::Jwks>,
@@ -1058,7 +1058,9 @@ fn record(path: &std::path::Path, value: &Value) -> Result<(), BoxError> {
 fn mask_schema_version(mut observation: Value) -> Value {
     let pattern = regex::Regex::new(r#""schemaVersion"\s*:\s*[0-9]+"#).unwrap();
     if let Some(body) = observation["response"]["body"].as_str() {
-        let masked = pattern.replace(body, "\"schemaVersion\": <schema-version>").into_owned();
+        let masked = pattern
+            .replace(body, "\"schemaVersion\": <schema-version>")
+            .into_owned();
         observation["response"]["body"] = json!(masked);
     }
     observation

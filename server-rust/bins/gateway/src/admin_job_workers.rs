@@ -110,7 +110,7 @@ impl BulkRoleJobs {
         }
     }
 
-    async fn process_once(&self, c: &WorkerConnection) -> Result<bool, Error> {
+    pub async fn process_once(&self, c: &WorkerConnection) -> Result<bool, Error> {
         begin(c).await?;
         let claimed = self.claim_and_apply(c).await;
         let (id, applied) = match claimed {
@@ -140,11 +140,23 @@ impl BulkRoleJobs {
                 commit(c).await?;
                 Ok(true)
             }
-            Err(error) => {
+            Err(failure) => {
                 // The failed statement left the transaction aborted: roll back (the
-                // job returns to queued) and mark the failure terminal outside it.
+                // job returns to queued).
                 rollback(c).await;
-                let text = format!("bulk_role_job_apply: {error}");
+                let detail = match failure.sqlstate.as_deref() {
+                    Some(code) => format!("ERROR: {} (SQLSTATE {code})", failure.message),
+                    None => failure.message.clone(),
+                };
+                let text = format!("bulk_role_job_apply: {detail}");
+                if failure.sqlstate.as_deref() == Some("57014") {
+                    // PostgreSQL query_canceled (statement timeout or cancellation):
+                    // keep the job queued for retry, matching Go's applyFailureIsCancellation.
+                    eprintln!(
+                        "bulkroles: job apply cancelled — left queued for retry id={id}: {detail}"
+                    );
+                    return Err(text);
+                }
                 if let Err(mark) = c
                     .query(
                         "UPDATE bulk_role_jobs SET status='error', updated_at=now(), error=$2 WHERE id=$1",
@@ -152,7 +164,9 @@ impl BulkRoleJobs {
                     )
                     .await
                 {
-                    eprintln!("bulkroles: failed to mark job error id={id}: {mark} (original {error})");
+                    eprintln!(
+                        "bulkroles: failed to mark job error id={id}: {mark} (original {detail})"
+                    );
                 }
                 Err(text)
             }
@@ -163,7 +177,7 @@ impl BulkRoleJobs {
     async fn claim_and_apply(
         &self,
         c: &WorkerConnection,
-    ) -> Result<Option<(i64, Result<(), Error>)>, Error> {
+    ) -> Result<Option<(i64, Result<(), setjoin_pg::StatementFailure>)>, Error> {
         let rows = c
             .query(
                 "SELECT id FROM bulk_role_jobs WHERE status='queued' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
@@ -180,7 +194,7 @@ impl BulkRoleJobs {
         )
         .await?;
         let applied = c
-            .query("SELECT bulk_role_job_apply($1)", &[(&id, Type::INT8)])
+            .query_detailed("SELECT bulk_role_job_apply($1)", &[(&id, Type::INT8)])
             .await
             .map(|_| ());
         Ok(Some((id, applied)))
@@ -282,7 +296,9 @@ impl EapJobs {
     }
 
     async fn process_one(&self, c: &WorkerConnection) -> Result<bool, Error> {
-        begin(c).await.map_err(|e| format!("eapjobs: begin tx: {e}"))?;
+        begin(c)
+            .await
+            .map_err(|e| format!("eapjobs: begin tx: {e}"))?;
         let excluded = self.excluded(Instant::now());
         let claim = c
             .query(
