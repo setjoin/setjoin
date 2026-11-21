@@ -7,6 +7,7 @@ pub struct Issuer {
     key: hmac::Key,
     issuer: String,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
     DeviceBound,
     Expired,
@@ -94,11 +95,10 @@ mod tests {
         assert!(!claims.contains_key("jti"));
         assert!(!claims.contains_key("fam"));
         assert!(!claims.contains_key("acct"));
-        let expires_at = chrono::DateTime::parse_from_rfc3339(
-            parsed["expiresAt"].as_str().unwrap(),
-        )
-        .unwrap()
-        .timestamp();
+        let expires_at =
+            chrono::DateTime::parse_from_rfc3339(parsed["expiresAt"].as_str().unwrap())
+                .unwrap()
+                .timestamp();
         assert_eq!(expires_at, now + 43200);
     }
 }

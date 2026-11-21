@@ -29,7 +29,7 @@ impl Drop for Server {
 }
 struct StatusMutant<R>(R);
 impl<R: Intercept> Intercept for StatusMutant<R> {
-    fn requires_session(&self,r:&Request<Body>) -> bool {
+    fn requires_session(&self, r: &Request<Body>) -> bool {
         self.0.requires_session(r)
     }
     fn matches(&self, r: &Request<Body>) -> bool {
@@ -578,13 +578,21 @@ mod basic_tests {
     }
 
     impl ThreatGate for MockThreat {
-        fn intercept<'a>(&'a self, meta: &'a ConnectionMeta) -> BoxFuture<'a, (ThreatAction, std::time::Duration)> {
+        fn intercept<'a>(
+            &'a self,
+            meta: &'a ConnectionMeta,
+        ) -> futures_util::future::BoxFuture<'a, (ThreatAction, std::time::Duration)> {
             Box::pin(async move {
                 self.intercepts.lock().unwrap().push(meta.clone());
                 (self.action, self.delay)
             })
         }
-        fn record_result<'a>(&'a self, meta: &'a ConnectionMeta, success: bool, user_id: i64) -> BoxFuture<'a, ()> {
+        fn record_result<'a>(
+            &'a self,
+            meta: &'a ConnectionMeta,
+            success: bool,
+            user_id: i64,
+        ) -> futures_util::future::BoxFuture<'a, ()> {
             Box::pin(async move {
                 self.records
                     .lock()
@@ -592,7 +600,10 @@ mod basic_tests {
                     .push((meta.clone(), success, user_id));
             })
         }
-        fn evaluate_post_auth<'a>(&'a self, _meta: &'a mut ConnectionMeta) -> BoxFuture<'a, (ThreatAction, String)> {
+        fn evaluate_post_auth<'a>(
+            &'a self,
+            _meta: &'a mut ConnectionMeta,
+        ) -> futures_util::future::BoxFuture<'a, (ThreatAction, String)> {
             Box::pin(async move { (ThreatAction::Allow, String::new()) })
         }
     }
@@ -715,17 +726,26 @@ mod basic_tests {
         })
         .await;
         let keys = Arc::new(
-            setjoin_authz::jwks::Jwks::new(format!("http://{jwks}/.well-known/jwks.json").parse()?)?
-                .with_legacy_keys(setjoin_authz::legacy_jwt::LegacyKeys::new(
-                    secret.as_bytes(),
-                    &["authserver-hmac-1", "mailserver-drive-native-1"],
-                    None,
-                )?),
+            setjoin_authz::jwks::Jwks::new(
+                format!("http://{jwks}/.well-known/jwks.json").parse()?,
+            )?
+            .with_legacy_keys(setjoin_authz::legacy_jwt::LegacyKeys::new(
+                secret.as_bytes(),
+                &["authserver-hmac-1", "mailserver-drive-native-1"],
+                None,
+            )?),
         );
         let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?;
-        let res = std::panic::AssertUnwindSafe(f(c.clone(), exec, keys, secret, a.clone(), email.clone()))
-            .catch_unwind()
-            .await;
+        let res = std::panic::AssertUnwindSafe(f(
+            c.clone(),
+            exec,
+            keys,
+            secret,
+            a.clone(),
+            email.clone(),
+        ))
+        .catch_unwind()
+        .await;
         for (key, saved) in [
             ("feature.disable_basic_auth", saved_basic),
             ("feature.drive", saved_drive),

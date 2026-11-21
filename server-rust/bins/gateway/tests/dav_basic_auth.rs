@@ -55,7 +55,7 @@ impl ThreatGate for AllowThreat {
     fn intercept<'a>(
         &'a self,
         meta: &'a ConnectionMeta,
-    ) -> BoxFuture<'a, (ThreatAction, std::time::Duration)> {
+    ) -> futures_util::future::BoxFuture<'a, (ThreatAction, std::time::Duration)> {
         Box::pin(async move {
             self.intercepts.lock().unwrap().push(meta.clone());
             (ThreatAction::Allow, std::time::Duration::ZERO)
@@ -67,7 +67,7 @@ impl ThreatGate for AllowThreat {
         meta: &'a ConnectionMeta,
         success: bool,
         user_id: i64,
-    ) -> BoxFuture<'a, ()> {
+    ) -> futures_util::future::BoxFuture<'a, ()> {
         Box::pin(async move {
             self.records
                 .lock()
@@ -79,7 +79,7 @@ impl ThreatGate for AllowThreat {
     fn evaluate_post_auth<'a>(
         &'a self,
         _meta: &'a mut ConnectionMeta,
-    ) -> BoxFuture<'a, (ThreatAction, String)> {
+    ) -> futures_util::future::BoxFuture<'a, (ThreatAction, String)> {
         Box::pin(async move { (ThreatAction::Allow, String::new()) })
     }
 }

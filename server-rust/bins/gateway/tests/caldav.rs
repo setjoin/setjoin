@@ -492,13 +492,21 @@ mod basic_tests {
     }
 
     impl ThreatGate for MockThreat {
-        fn intercept<'a>(&'a self, meta: &'a ConnectionMeta) -> BoxFuture<'a, (ThreatAction, std::time::Duration)> {
+        fn intercept<'a>(
+            &'a self,
+            meta: &'a ConnectionMeta,
+        ) -> futures_util::future::BoxFuture<'a, (ThreatAction, std::time::Duration)> {
             Box::pin(async move {
                 self.intercepts.lock().unwrap().push(meta.clone());
                 (self.action, self.delay)
             })
         }
-        fn record_result<'a>(&'a self, meta: &'a ConnectionMeta, success: bool, user_id: i64) -> BoxFuture<'a, ()> {
+        fn record_result<'a>(
+            &'a self,
+            meta: &'a ConnectionMeta,
+            success: bool,
+            user_id: i64,
+        ) -> futures_util::future::BoxFuture<'a, ()> {
             Box::pin(async move {
                 self.records
                     .lock()
@@ -506,7 +514,10 @@ mod basic_tests {
                     .push((meta.clone(), success, user_id));
             })
         }
-        fn evaluate_post_auth<'a>(&'a self, _meta: &'a mut ConnectionMeta) -> BoxFuture<'a, (ThreatAction, String)> {
+        fn evaluate_post_auth<'a>(
+            &'a self,
+            _meta: &'a mut ConnectionMeta,
+        ) -> futures_util::future::BoxFuture<'a, (ThreatAction, String)> {
             Box::pin(async move { (ThreatAction::Allow, String::new()) })
         }
     }
@@ -558,15 +569,10 @@ mod basic_tests {
             .await?;
         let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?;
         let keys = Arc::new(common::recovery_keys());
-        let res = std::panic::AssertUnwindSafe(f(
-            owner.clone(),
-            exec,
-            keys,
-            a.clone(),
-            email.clone(),
-        ))
-        .catch_unwind()
-        .await;
+        let res =
+            std::panic::AssertUnwindSafe(f(owner.clone(), exec, keys, a.clone(), email.clone()))
+                .catch_unwind()
+                .await;
         if let Some(on) = saved_basic {
             owner
                 .execute(
@@ -595,7 +601,10 @@ mod basic_tests {
             .execute("DELETE FROM app_passwords WHERE user_id=$1", &[&a.user])
             .await?;
         owner
-            .execute("DELETE FROM session_revocations WHERE user_id=$1", &[&a.user])
+            .execute(
+                "DELETE FROM session_revocations WHERE user_id=$1",
+                &[&a.user],
+            )
             .await?;
         fixture::remove(&owner, &a).await?;
         match res {
@@ -613,7 +622,9 @@ mod basic_tests {
             .with_catchall(setjoin_gateway::catchall::CatchallRoute::new());
         let gateway = Gateway::new(
             Config {
-                upstream: upstream.map(|a| format!("http://{a}").parse()).transpose()?,
+                upstream: upstream
+                    .map(|a| format!("http://{a}").parse())
+                    .transpose()?,
                 trusted_proxies: TrustedProxies::parse("")?,
                 upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
                 edge_limit: None,
