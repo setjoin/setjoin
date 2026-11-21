@@ -148,12 +148,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             };
             match setjoin_chat::channels::enabled(&exec).await {
                 Ok(true) => {}
-                Ok(false) => {
+                Ok(false) | Err(_) => {
                     let mut reply = problem(404, "not found", "", &c, id, &language);
                     reply.headers_mut().remove("content-language");
                     return reply;
                 }
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
             }
             let conversation =
                 crate::inventory::path_score("/api/chat/conversations", r.uri().path()).is_some();
@@ -649,12 +648,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             {
                 match setjoin_chat::channels::federation_enabled(&exec).await {
                     Ok(true) => {}
-                    Ok(false) => {
+                    Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
                         reply.headers_mut().remove("content-language");
                         return reply;
                     }
-                    Err(_) => return c.upstream.forward(r, &c.identity).await,
                 }
                 let channel = match r.uri().path().split('/').nth(4).and_then(|s| {
                     String::from_utf8_lossy(&crate::inventory::unescape(s))
@@ -689,12 +687,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             {
                 match setjoin_chat::channels::federation_enabled(&exec).await {
                     Ok(true) => {}
-                    Ok(false) => {
+                    Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
                         reply.headers_mut().remove("content-language");
                         return reply;
                     }
-                    Err(_) => return c.upstream.forward(r, &c.identity).await,
                 }
                 let channel = match r.uri().path().split('/').nth(4).and_then(|s| {
                     String::from_utf8_lossy(&crate::inventory::unescape(s))
@@ -743,12 +740,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             {
                 match setjoin_chat::channels::federation_enabled(&exec).await {
                     Ok(true) => {}
-                    Ok(false) => {
+                    Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
                         reply.headers_mut().remove("content-language");
                         return reply;
                     }
-                    Err(_) => return c.upstream.forward(r, &c.identity).await,
                 }
                 let channel = match r.uri().path().split('/').nth(4).and_then(|s| {
                     String::from_utf8_lossy(&crate::inventory::unescape(s))
@@ -801,12 +797,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             {
                 match setjoin_chat::channels::federation_enabled(&exec).await {
                     Ok(true) if !local_domain.is_empty() => {}
-                    Ok(_) => {
+                    Ok(_) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
                         reply.headers_mut().remove("content-language");
                         return reply;
                     }
-                    Err(_) => return c.upstream.forward(r, &c.identity).await,
                 }
                 let channel = match r.uri().path().split('/').nth(4).and_then(|s| {
                     String::from_utf8_lossy(&crate::inventory::unescape(s))
@@ -840,12 +835,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             {
                 match setjoin_chat::channels::federation_enabled(&exec).await {
                     Ok(true) => {}
-                    Ok(false) => {
+                    Ok(false) | Err(_) => {
                         let mut reply = problem(404, "not found", "", &c, id, &language);
                         reply.headers_mut().remove("content-language");
                         return reply;
                     }
-                    Err(_) => return c.upstream.forward(r, &c.identity).await,
                 }
                 let bytes = match read_body(&mut r).await {
                     Ok(v) => v,
@@ -910,12 +904,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             {
                 match setjoin_chat::channels::drive_enabled(&exec).await {
                     Ok(true) => {}
-                    Ok(false) => {
+                    Ok(false) | Err(_) => {
                         let mut response = problem(404, "not found", "", &c, id, &language);
                         response.headers_mut().remove("content-language");
                         return response;
                     }
-                    Err(_) => return c.upstream.forward(r, &c.identity).await,
                 }
                 let channel = match r.uri().path().split('/').nth(4).and_then(|s| {
                     String::from_utf8_lossy(&crate::inventory::unescape(s))
@@ -1075,10 +1068,9 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 0
             };
             let drive = if conversation {
-                match setjoin_chat::channels::drive_enabled(&exec).await {
-                    Ok(v) => v,
-                    Err(_) => return c.upstream.forward(r, &c.identity).await,
-                }
+                setjoin_chat::channels::drive_enabled(&exec)
+                    .await
+                    .unwrap_or(false)
             } else {
                 false
             };
