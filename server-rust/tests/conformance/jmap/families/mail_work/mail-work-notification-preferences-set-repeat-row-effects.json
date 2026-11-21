@@ -1,0 +1,18 @@
+{
+  "case": "mail-work-notification-preferences-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"user_id\": <a.user>, \"category\": \"due\", \"delivery\": \"digest\", \"timezone\": \"Asia/Shanghai\", \"generation\": 1, \"digest_hour\": 9}]",
+      "before": "[]",
+      "name": "prefs"
+    },
+    {
+      "after": "[{\"op\": \"<uuid>\", \"kind\": \"outbox_action\", \"actor\": <a.user>, \"digest\": \"6b66baf55a53a301bcfb8b11bccedcbda87c769ce41df88bccf5dfe3aa0ec575\"}]",
+      "before": "[]",
+      "name": "ops"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailWorkNotificationPreferences/set"
+}

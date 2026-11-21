@@ -1,0 +1,33 @@
+{
+  "case": "mail-draft-replace-delegate-allowed-row-effects",
+  "effects": [
+    {
+      "after": "<uuid>:<new_message>:2:1:active:2",
+      "before": "<uuid>:<seed.1>:1:1:active:1",
+      "name": "mail_drafts"
+    },
+    {
+      "after": "1",
+      "before": "0",
+      "name": "mail_draft_revisions"
+    },
+    {
+      "after": "1:After replace",
+      "before": "1:Shared draft",
+      "name": "draft_messages"
+    },
+    {
+      "after": "1:1",
+      "before": "0:0",
+      "name": "mailwork_state"
+    },
+    {
+      "after": "1",
+      "before": "0",
+      "name": "mail_work_operations"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailDraft/replace"
+}

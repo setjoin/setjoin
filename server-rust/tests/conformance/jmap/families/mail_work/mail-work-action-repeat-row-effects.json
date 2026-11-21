@@ -1,0 +1,38 @@
+{
+  "case": "mail-work-action-repeat-row-effects",
+  "effects": [
+    {
+      "after": "1",
+      "before": "0",
+      "name": "state"
+    },
+    {
+      "after": "[{\"due_at\": null, \"status\": \"owned\", \"thread_id\": \"mw-action-1\", \"generation\": 2, \"sla_minutes\": null, \"completed_at\": null, \"last_event_id\": \"<uuid>\", \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {}}]",
+      "before": "[{\"due_at\": null, \"status\": \"owned\", \"thread_id\": \"mw-action-1\", \"generation\": 1, \"sla_minutes\": null, \"completed_at\": null, \"last_event_id\": null, \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {}}]",
+      "name": "work"
+    },
+    {
+      "after": "[{\"reason\": \"Approved internal action requested\", \"threadId\": \"mw-action-1\", \"eventType\": \"action_requested\", \"generation\": 2, \"actorUserId\": <a.user>}]",
+      "before": "[]",
+      "name": "events"
+    },
+    {
+      "after": "[{\"op\": \"updated\", \"object_id\": \"mw-action-1\", \"state_seq\": 1, \"object_kind\": \"work\"}]",
+      "before": "[]",
+      "name": "changes"
+    },
+    {
+      "after": "[{\"op\": \"<uuid>\", \"kind\": \"outbox_action\", \"actor\": <a.user>, \"digest\": \"64f31bece4744303d8b29e046004a52cd650080f1c2a0295a479cd32178d55cd\"}]",
+      "before": "[]",
+      "name": "ops"
+    },
+    {
+      "after": "[{\"id\": \"<outboxId>\", \"kind\": \"task\", \"state\": \"pending\", \"payload\": {\"version\": 1, \"targetId\": null, \"threadId\": \"mw-action-1\", \"mailboxId\": \"<seed.0>\", \"actionKind\": \"task\", \"actorUserId\": \"<a.user>\"}}]",
+      "before": "[]",
+      "name": "outbox"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailWork/action"
+}

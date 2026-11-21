@@ -1,0 +1,38 @@
+{
+  "case": "mail-work-set-invalid-input-row-effects",
+  "effects": [
+    {
+      "after": "0",
+      "before": "0",
+      "name": "state"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "work"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "events"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "changes"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "ops"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailWork/set"
+}

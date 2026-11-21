@@ -1,0 +1,18 @@
+{
+  "case": "task-list-member-set-self-leave-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Leave List\", \"color\": null, \"state_seq\": 1, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Leave List\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]",
+      "name": "task_lists"
+    },
+    {
+      "after": "[{\"role\": \"owner\", \"list_id\": <seed.0>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}]",
+      "before": "[{\"role\": \"member\", \"list_id\": <seed.0>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}, {\"role\": \"owner\", \"list_id\": <seed.0>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}]",
+      "name": "task_list_members"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap TaskListMember/set"
+}

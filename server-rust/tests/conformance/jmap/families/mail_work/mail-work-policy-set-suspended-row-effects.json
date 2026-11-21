@@ -1,0 +1,33 @@
+{
+  "case": "mail-work-policy-set-suspended-row-effects",
+  "effects": [
+    {
+      "after": "0",
+      "before": "0",
+      "name": "state"
+    },
+    {
+      "after": "none",
+      "before": "none",
+      "name": "policy"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "changes"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "ops"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailWorkPolicy/set"
+}

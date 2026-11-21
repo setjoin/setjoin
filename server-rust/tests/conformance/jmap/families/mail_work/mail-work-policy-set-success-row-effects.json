@@ -1,0 +1,33 @@
+{
+  "case": "mail-work-policy-set-success-row-effects",
+  "effects": [
+    {
+      "after": "1",
+      "before": "0",
+      "name": "state"
+    },
+    {
+      "after": "{\"holidays\": [\"2026-10-01\"], \"timezone\": \"Asia/Shanghai\", \"generation\": 1, \"updated_by\": <a.user>, \"sla_minutes\": 240, \"workday_end\": \"18:00:00\", \"weekday_mask\": 62, \"workday_start\": \"09:00:00\"}",
+      "before": "none",
+      "name": "policy"
+    },
+    {
+      "after": "[{\"op\": \"updated\", \"object_id\": \"sla\", \"state_seq\": 1, \"object_kind\": \"policy\"}]",
+      "before": "[]",
+      "name": "changes"
+    },
+    {
+      "after": "[{\"op\": \"<uuid>\", \"kind\": \"sla_policy_set\", \"actor\": <a.user>, \"digest\": \"f146d30e647c23e8432829b90dbb20eaeb2a7949b46a15db5765d4fec67e0d2c\"}]",
+      "before": "[]",
+      "name": "ops"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailWorkPolicy/set"
+}

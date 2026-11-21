@@ -1,0 +1,18 @@
+{
+  "case": "continuity-present-delegate-allowed-row-effects",
+  "effects": [
+    {
+      "after": "true|<uuid>",
+      "before": "true|<uuid>",
+      "name": "control"
+    },
+    {
+      "after": "<f.mailbox>:1:0:none",
+      "before": "",
+      "name": "witnesses"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap Continuity/present"
+}
