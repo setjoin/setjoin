@@ -1,17 +1,15 @@
 -- task_lists.sql — shared/team task list containers + explicit membership
 -- (plan 2026-07-08-shared-team-task-lists.md, Phase 1). Every reducer here
 -- takes p_user_id (the authenticated viewer, never trusted from req.* beyond
--- the JWT claim) and uses it in every statement (R1/R3) — the app-level
--- membership-predicate posture ARCH-006 prescribes for this cross-mailbox
--- surface (identical shape to sharing_default_set's p_actor_user_id family).
+-- the JWT claim). List access uses actor predicates or holds locks on the
+-- authorizing rows through the operation (R1/R3, ARCH-006).
 --
 -- Error codes: BZ130 = not owner / not a member (404-indistinguishable, no
 -- membership oracle — the BZ118/BZ123 pattern); BZ131 = invalid arguments
 -- (empty name, unresolvable member email, roster cap, cannot remove owner).
 
--- task_list_role: owner-or-member probe. STABLE; the R1 predicate every
--- list-scoped statement embeds. NULL = no relationship (callers raise BZ130 —
--- 404-indistinguishable from nonexistence, no membership oracle).
+-- task_list_role: STABLE owner-or-member predicate. NULL means the caller
+-- has no relationship to the list.
 CREATE OR REPLACE FUNCTION task_list_role(p_list_id BIGINT, p_user_id BIGINT)
 RETURNS TEXT AS $$
   SELECT CASE
@@ -128,7 +126,11 @@ CREATE OR REPLACE FUNCTION task_list_add_member(
 DECLARE
   v_member_id BIGINT;
 BEGIN
-  IF task_list_role(p_list_id, p_user_id) IS DISTINCT FROM 'owner' THEN
+  -- The state bump also writes this row. Take its write lock before counting
+  -- members, so concurrent roster writers cannot both pass the cap check.
+  PERFORM 1 FROM task_lists WHERE id = p_list_id AND owner_user_id = p_user_id
+  FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'task list not found'
       USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
   END IF;
@@ -167,19 +169,34 @@ DECLARE
   v_target_role TEXT;
   v_roster    JSONB;
 BEGIN
-  v_role := task_list_role(p_list_id, p_user_id);
+  -- Lock the list before membership rows, including on self-leave, since the
+  -- notification bumps the list state before the membership is deleted.
+  SELECT CASE WHEN owner_user_id = p_user_id THEN 'owner' ELSE 'member' END
+  INTO v_role FROM task_lists
+  WHERE id = p_list_id AND task_list_role(p_list_id, p_user_id) IS NOT NULL
+  FOR NO KEY UPDATE;
+
+  IF v_role = 'member' THEN
+    PERFORM 1 FROM task_list_members
+    WHERE list_id = p_list_id AND user_id = p_user_id
+    FOR NO KEY UPDATE;
+    IF NOT FOUND THEN
+      v_role := NULL;
+    END IF;
+  END IF;
   IF v_role IS NULL THEN
     RAISE EXCEPTION 'task list not found'
       USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
   END IF;
 
-  IF v_role != 'owner' AND p_user_id != p_member_user_id THEN
+  IF v_role != 'owner' AND p_user_id IS DISTINCT FROM p_member_user_id THEN
     RAISE EXCEPTION 'only the owner may remove another member'
       USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
   END IF;
 
   SELECT role INTO v_target_role FROM task_list_members
-  WHERE list_id = p_list_id AND user_id = p_member_user_id;
+  WHERE list_id = p_list_id AND user_id = p_member_user_id
+  FOR NO KEY UPDATE;
   IF v_target_role = 'owner' THEN
     RAISE EXCEPTION 'cannot remove the list owner'
       USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"cannot remove the owner"}';
