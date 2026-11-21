@@ -1773,6 +1773,66 @@ mod db {
         ("mail_work_set", "p_due_at", "mail_work_set.sql:111-114: payload; requires the bound actor as assignee or full access"),
         ("mail_work_set", "p_reason", "mail_work_set.sql:28: length-validated audit text"),
         ("mail_work_set", "p_request_digest", "mail_work_set.sql:26,51: validated hex digest compared on replay"),
+        (
+            "saved_search_set",
+            "p_name",
+            "saved_searches.sql:22-39: payload name validated non-empty and inserted for p_mailbox_id",
+        ),
+        (
+            "saved_search_set",
+            "p_query",
+            "saved_searches.sql:26-39: payload query validated non-empty and stored verbatim for p_mailbox_id",
+        ),
+        (
+            "saved_search_delete",
+            "p_id",
+            "saved_searches.sql:48: row id deleted WHERE id = p_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "quick_step_set",
+            "p_id",
+            "quick_steps.sql:55-68: optional row id updated WHERE id = p_id AND mailbox_id = p_mailbox_id (NULL inserts)",
+        ),
+        (
+            "quick_step_set",
+            "p_name",
+            "quick_steps.sql:35-62: payload name validated non-empty for p_mailbox_id",
+        ),
+        (
+            "quick_step_set",
+            "p_icon",
+            "quick_steps.sql:57,61: payload icon text for p_mailbox_id",
+        ),
+        (
+            "quick_step_set",
+            "p_actions",
+            "quick_steps.sql:39-53: JSONB action array checked against quick_step_action_allowed",
+        ),
+        (
+            "quick_step_delete",
+            "p_id",
+            "quick_steps.sql:75: row id deleted WHERE id = p_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "email_template_set",
+            "p_name",
+            "email_templates.sql:25-38: payload name validated non-empty and upserted on (mailbox_id, name)",
+        ),
+        (
+            "email_template_set",
+            "p_subject",
+            "email_templates.sql:34-37: payload subject text stored for p_mailbox_id",
+        ),
+        (
+            "email_template_set",
+            "p_body_html",
+            "email_templates.sql:34-37: payload HTML body stored verbatim for p_mailbox_id",
+        ),
+        (
+            "email_template_delete",
+            "p_id",
+            "email_templates.sql:50: row id deleted WHERE id = p_id AND mailbox_id = p_mailbox_id",
+        ),
         ("seam_probe_expr", "p_x", "probe payload"),
         ("seam_probe_unbound", "p_x", "probe payload"),
         ("seam_probe_scope", "p_x", "probe payload"),

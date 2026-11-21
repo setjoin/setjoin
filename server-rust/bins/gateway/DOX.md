@@ -1064,3 +1064,14 @@ gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
+
+Vendor mail methods (#376, `src/jmap/family/vendor_mail.rs`): `SavedSearch/{list,set,delete}`,
+`QuickStep/{get,set,apply}`, and `EmailTemplate/{list,set,delete}` run natively on both HTTP
+and WebSocket under `urn:setjoin:params:jmap:mail` with `Gate::Personal` and no app gate.
+`SavedSearch/*` and `EmailTemplate/*` use scoped reads/writes (`saved_search_*`,
+`email_template_*`), preserving JSONB inner key order and Go HTML escaping (`raw_map`).
+`QuickStep/get` calls `quick_step_list`; `QuickStep/set` dispatches `quick_step_delete`
+(`destroy: true`) or `quick_step_set`; `QuickStep/apply` runs `ScopedQuery::QuickStepApply`
+and maps a missing/foreign message (`null`) to `notFound` (`message not found`). Oracle
+cases and mutants live in `tests/jmap_family_376.rs` and fragment
+`tests/conformance/route-catalog.d/jmap-376.json` (`no-tenant-filter` on `quick_step_list`).
