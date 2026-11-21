@@ -999,13 +999,6 @@ impl AuthServer {
             }
             return response;
         }
-        if req.uri().path().starts_with("/.well-known/") {
-            return if self.config.oidc_enabled {
-                self.oidc_cors(&req, Self::not_found())
-            } else {
-                Self::not_found()
-            };
-        }
         self.mux_fallback(req)
     }
     fn not_found() -> Response<Body> {
