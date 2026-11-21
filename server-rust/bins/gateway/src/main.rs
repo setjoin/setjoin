@@ -1688,8 +1688,7 @@ async fn routes(
         .with(drive_native)
         .with(drive_core)
         .with(drive)
-        .with(meet)
-        .with(rtc);
+        .with(meet);
     if let Some(caldav) = caldav {
         table = table.with(caldav);
     }
@@ -1700,6 +1699,7 @@ async fn routes(
     );
     catchall.meet_configured = setjoin_gateway::meet_livekit::LiveKit::from_env().configured();
     catchall.website = website;
+    table = table.with(rtc.with_fallback(Arc::new(catchall.clone())));
     table = match carddav {
         Some(route) => table.with(route),
         None => table.with(setjoin_gateway::carddav::Unregistered {

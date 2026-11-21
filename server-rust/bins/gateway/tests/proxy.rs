@@ -548,7 +548,7 @@ async fn the_edge_budget_is_one_budget_with_go_s_429() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all(),
-        common::edge(2, common::Flags::On),
+        common::edge(2),
     )
     .await;
     for path in ["/jmap", "/api/settings"] {
@@ -582,7 +582,7 @@ async fn rust_served_and_go_served_requests_share_the_budget() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all().with(TakeWhenAsked),
-        common::edge(2, common::Flags::On),
+        common::edge(2),
     )
     .await;
     let post = |take: bool| {
@@ -644,7 +644,7 @@ async fn booking_write_budget_is_shared_across_rust_and_go_routes() {
             upstream: Some(format!("http://{mail}").parse().unwrap()),
             trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-            edge_limit: Some(common::edge(600, common::Flags::On)),
+            edge_limit: Some(common::edge(600)),
         },
         RouteTable::proxy_all().with(Booking),
     )
@@ -687,7 +687,7 @@ async fn admin_routes_share_go_s_sixty_per_minute_budget() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all(),
-        common::edge(600, common::Flags::On),
+        common::edge(600),
     )
     .await;
     for i in 0..60 {
@@ -728,7 +728,7 @@ async fn auth_budget_is_shared_between_mail_and_direct_auth_upstreams() {
             upstream: Some(format!("http://{mail}").parse().unwrap()),
             trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-            edge_limit: Some(common::edge(600, common::Flags::On)),
+            edge_limit: Some(common::edge(600)),
         },
         RouteTable::proxy_all(),
     )
@@ -769,7 +769,7 @@ async fn meet_guest_write_budget_is_per_ip_and_meeting_slug() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all(),
-        common::edge(600, common::Flags::On),
+        common::edge(600),
     )
     .await;
     for _ in 0..20 {
@@ -821,7 +821,7 @@ async fn csrf_rejection_precedes_route_limit_after_core_admission() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all(),
-        common::edge(600, common::Flags::On),
+        common::edge(600),
     )
     .await;
     for _ in 0..5 {
@@ -854,7 +854,7 @@ async fn route_limit_response_has_go_s_security_headers() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all(),
-        common::edge(600, common::Flags::On),
+        common::edge(600),
     )
     .await;
     for _ in 0..5 {
@@ -916,7 +916,7 @@ async fn guest_gate_precedes_route_budget_without_exposing_a_429() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all(),
-        common::edge(600, common::Flags::On),
+        common::edge(600),
     )
     .await;
     for _ in 0..60 {
@@ -1077,7 +1077,7 @@ async fn resolved_disabled_scim_is_not_registered_and_never_proxies() {
             upstream: Some(format!("http://{mail}").parse().unwrap()),
             trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-            edge_limit: Some(common::edge(600, common::Flags::On)),
+            edge_limit: Some(common::edge(600)),
         },
         RouteTable::proxy_all().with(Scim),
     )
@@ -1095,59 +1095,20 @@ async fn resolved_disabled_scim_is_not_registered_and_never_proxies() {
     assert!(metrics.lines().any(|line| line == "setjoin_gateway_proxied_to_go_total 0"));
 }
 
-/// Root review of item 3: with every Rust flag OFF the gateway must behave
-/// as Go alone — a spent budget is not answered by the gateway; the request
-/// reaches Go untouched and Go's own limiter decides.
+/// #357: Go's coreLimit answers every over-budget request; with the budget spent
+/// the gateway answers Go's own 429 bytes itself and Go is never reached.
 #[tokio::test]
-async fn flags_off_and_budget_spent_forwards_to_go() {
+async fn budget_spent_is_go_s_429_without_reaching_go() {
     let upstream = fake_upstream(|_req| async move { Response::new(full("go")) }).await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(0, common::Flags::Off),
-    )
-    .await;
-    let resp = send(gw, Request::get("/api/settings").body(full("")).unwrap()).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-    assert_eq!(body_bytes(resp).await, "go");
-}
-
-/// A Rust flag ON and the budget spent: Go's own 429 bytes, Go not reached.
-#[tokio::test]
-async fn a_flag_on_and_budget_spent_is_go_s_429() {
-    let upstream = fake_upstream(|_req| async move { Response::new(full("go")) }).await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(0, common::Flags::On),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(0)).await;
+    let t = std::time::Instant::now();
     let resp = send(gw, Request::get("/api/settings").body(full("")).unwrap()).await;
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         &body_bytes(resp).await[..],
         include_bytes!("golden/go-rate-limited.json")
     );
-}
-
-/// The flag read stalls (or fails): counted as OFF, and the over-budget
-/// request is forwarded to Go within the pre-check bound.
-#[tokio::test]
-async fn a_stalled_flag_read_with_budget_spent_forwards_within_the_bound() {
-    let upstream = fake_upstream(|_req| async move { Response::new(full("go")) }).await;
-    for flags in [common::Flags::Stalled, common::Flags::Failed] {
-        let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(0, flags))
-            .await;
-        let t = std::time::Instant::now();
-        let resp = send(gw, Request::get("/api/settings").body(full("")).unwrap()).await;
-        assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(body_bytes(resp).await, "go");
-        assert!(
-            t.elapsed() < std::time::Duration::from_secs(3),
-            "{:?}",
-            t.elapsed()
-        );
-    }
+    assert!(t.elapsed() < std::time::Duration::from_secs(3), "{:?}", t.elapsed());
 }
 
 #[tokio::test]
@@ -1276,7 +1237,6 @@ async fn kill_switch_forwards_every_request_to_go_without_interception() {
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
             edge_limit: Some(setjoin_gateway::jmap::limit::EdgeLimit::new(
                 setjoin_gateway::jmap::limit::Limiter::new(0, 60),
-                Arc::new(|| Box::pin(async { true })),
             )),
         },
         RouteTable::proxy_all().with(TakeWhenAsked),
@@ -1427,7 +1387,7 @@ async fn auth_csrf_is_scoped_to_the_listener() {
                         upstream: None,
                         trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
                         upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-                        edge_limit: limited.then(|| common::edge(600, common::Flags::On)),
+                        edge_limit: limited.then(|| common::edge(600)),
                     },
                     RouteTable::proxy_all(),
                 )
@@ -1536,7 +1496,7 @@ async fn escaped_pinned_paths_share_the_same_route_budget() {
     let gw = common::gateway_limited(
         upstream,
         RouteTable::proxy_all(),
-        common::edge(600, common::Flags::On),
+        common::edge(600),
     )
     .await;
     for _ in 0..60 {

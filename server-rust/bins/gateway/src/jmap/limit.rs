@@ -25,17 +25,12 @@ use http_body_util::{BodyExt, Full};
 use hyper::header::HeaderValue;
 use hyper::{Response, StatusCode};
 
-use crate::routes::BoxFuture;
 use crate::Body;
 
-/// An availability predicate for custom embeddings. The executable always
-/// owns the enabled front door budget, independently of command flags.
-pub type RustServing = std::sync::Arc<dyn Fn() -> BoxFuture<bool> + Send + Sync>;
-
-/// The front-door core budget plus an injected availability predicate.
+/// The front-door core budget and Go's per-route budgets. Every over-budget
+/// request is answered here with Go's own 429; nothing defers to Go (#357).
 pub struct EdgeLimit {
     pub limiter: Limiter,
-    pub rust_serving: RustServing,
     booking_write: Limiter,
     admin: Limiter,
     auth: Limiter,
@@ -51,10 +46,9 @@ pub struct EdgeLimit {
 }
 
 impl EdgeLimit {
-    pub fn new(limiter: Limiter, rust_serving: RustServing) -> Self {
+    pub fn new(limiter: Limiter) -> Self {
         Self {
             limiter,
-            rust_serving,
             booking_write: Limiter::new(5, 15 * 60),
             admin: Limiter::new(60, 60),
             auth: Limiter::new(20, 15 * 60),
@@ -73,7 +67,7 @@ impl EdgeLimit {
     /// The enabled front door accounts for every request, even without a
     /// configured local adapter: direct auth traffic also bypasses Go's core limiter.
     pub fn for_front_door(limiter: Limiter) -> Self {
-        Self::new(limiter, std::sync::Arc::new(|| Box::pin(async { true }))).with_environment()
+        Self::new(limiter).with_environment()
     }
 
     fn with_environment(mut self) -> Self {
@@ -145,14 +139,6 @@ impl EdgeLimit {
 
     pub(crate) fn scim_disabled(&self, method: &hyper::Method, path: &str) -> bool {
         !self.scim_enabled && scim_route(method, path)
-    }
-
-    /// Whether the gateway answers this over-budget request itself:
-    /// bounded by [`setjoin_authz::precheck_timeout`] (1 s unless the env override widens it); slow or failed = forward.
-    pub async fn answer_over_budget(&self) -> bool {
-        tokio::time::timeout(setjoin_authz::precheck_timeout(), (self.rust_serving)())
-            .await
-            .unwrap_or(false)
     }
 }
 
