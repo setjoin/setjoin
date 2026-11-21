@@ -230,10 +230,7 @@ impl<K: KeySource> JmapCommands<K> {
     ) -> Response<Body> {
         let (parts, body) = req.into_parts();
         let body = if route == Route::Focus {
-            match super::buffer(body).await {
-                super::Buffered::Whole(bytes) => Ok(bytes),
-                super::Buffered::Forward(rest) => Err(rest),
-            }
+            super::buffer_focus(body).await
         } else {
             Ok(Bytes::new())
         };

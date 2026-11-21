@@ -1,6 +1,5 @@
 //! Go's `parseAccountID` (handler.go:618) and the dispatch app gate (handler.go:1540).
-use setjoin_contracts::ids::MailboxId;
-use setjoin_pg::{MailboxAuthContext, Type};
+use setjoin_pg::Type;
 
 use super::{Cx, Scope};
 use crate::jmap::family::MethodError;
@@ -10,84 +9,13 @@ use crate::jmap::family::MethodError;
 /// admits, then the lifecycle gate. Every other case is `accountNotFound`
 /// without an existence oracle.
 pub(crate) async fn resolve(cx: &Cx<'_>, raw: &str) -> Result<Scope, MethodError> {
-    if raw.is_empty() {
-        return Err(MethodError::new("accountNotFound", "accountId is required"));
-    }
-    let Some(account) = raw.parse::<i64>().ok().filter(|id| *id > 0) else {
-        return Err(MethodError::new("accountNotFound", "invalid accountId"));
-    };
-    let mismatch = || {
-        MethodError::new(
-            "accountNotFound",
-            "accountId does not match authenticated user",
-        )
-    };
-    // Go `identity.ValidateAccountID`: the primary is re-resolved on every call
-    // (a WebSocket batch authorizes once). No primary falls through to the
-    // delegate arm; a lookup failure fails closed.
-    let rows = cx
-        .exec
-        .read(
-            "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
-            &[(&cx.user, Type::INT8)],
-        )
+    let resolved = crate::jmap::account::resolve_account(cx.exec, cx.user, raw, cx.method.gate)
         .await
-        .map_err(|_| mismatch())?;
-    let primary = match rows.first() {
-        None => None,
-        Some(row) => Some(row.try_get::<_, i64>(0).map_err(|_| mismatch())?),
-    };
-    let delegated = primary != Some(account);
-    if delegated {
-        // Go `delegateGrants`: user-scoped (FORCE RLS), per call, uncached.
-        let rows = cx
-            .exec
-            .read_user_scoped(
-                cx.primary.actor(),
-                "SELECT permission::text FROM mailbox_delegates WHERE mailbox_id=$1 AND user_id=$2",
-                &[(&account, Type::INT8), (&cx.user, Type::INT8)],
-            )
-            .await
-            .map_err(|_| mismatch())?;
-        let grants = rows
-            .iter()
-            .map(|row| row.try_get::<_, String>(0))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| mismatch())?;
-        if grants.is_empty() {
-            return Err(mismatch());
-        }
-        if !cx.method.gate.allows(&grants) {
-            return Err(MethodError::new(
-                "forbidden",
-                "insufficient delegate permission for this method",
-            ));
-        }
-    }
-    let allowed = cx
-        .exec
-        .read(
-            "SELECT mailbox_lifecycle_access_allowed($1)",
-            &[(&account, Type::INT8)],
-        )
-        .await
-        .ok()
-        .and_then(|rows| rows.first().and_then(|row| row.try_get::<_, bool>(0).ok()));
-    if allowed != Some(true) {
-        return Err(MethodError::new(
-            "forbidden",
-            "mailbox access is suspended or detached",
-        ));
-    }
-    let auth = MailboxAuthContext::from_authenticated_session(
-        cx.primary.actor(),
-        MailboxId::new(account).map_err(|_| mismatch())?,
-        crate::jmap::REQUEST_AUTHORITY_GENERATION,
-    );
+        .map_err(|e| MethodError::new(e.kind, e.detail))?;
     Ok(Scope {
-        mailbox: account,
-        auth,
-        delegated,
+        mailbox: resolved.mailbox,
+        auth: resolved.auth,
+        delegated: resolved.delegated,
     })
 }
 
