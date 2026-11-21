@@ -63,6 +63,10 @@ const SEED_OWN_EVENT: &str =
     "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, status) \
      VALUES ({seed.0}, 'uid-own-1', 'Own event', '2026-11-22T10:00:00Z'::timestamptz, '2026-11-22T11:00:00Z'::timestamptz, 'confirmed') RETURNING id";
 
+const SEED_FOREIGN_EVENT_ON_CAL0: &str =
+    "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, status) \
+     VALUES ({seed.0}, 'uid-foreign-0', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id";
+
 const SEED_FOREIGN_EVENT_ON_CAL1: &str =
     "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, status) \
      VALUES ({seed.1}, 'uid-foreign-1', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id";
@@ -274,7 +278,7 @@ const CALENDAR_EVENT_CHANGES_SUCCESS: Case = Case {
     seed: &[
         SEED_OWN_CALENDAR,
         SEED_FOREIGN_CALENDAR,
-        SEED_FOREIGN_EVENT_ON_CAL2,
+        SEED_FOREIGN_EVENT_ON_CAL1,
     ],
     setup: &[
         r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/set",{"accountId":"{a.mailbox}","create":{"d1":{"calendarId":"{seed.0}","uid":"uid-changes-delta","title":"Delta event","start":"2026-11-22T12:00:00Z","end":"2026-11-22T13:00:00Z"}}},"s0"]]}"#,
@@ -291,7 +295,7 @@ const CALENDAR_EVENT_CHANGES_SUCCESS: Case = Case {
     )
 };
 const CALENDAR_EVENT_CHANGES_CROSS_TENANT: Case = Case {
-    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL1],
+    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL0],
     absent: &["{seed.1}"],
     effects: &[EFFECT_EVENTS, EFFECT_ENTITY_STATE],
     ..Case::new(
@@ -433,7 +437,7 @@ const CALENDAR_EVENT_SET_DELEGATE_PERSONAL: Case = Case {
         "calendar-event-set-delegate-personal",
         "delegate-personal",
         "CalendarEvent/set",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/set",{"accountId":"{f.mailbox}","create":{"c1":{"calendarId":"{seed.1}","title":"Delegate nope","start":"2026-11-22T10:00:00Z","end":"2026-11-22T11:00:00Z"}}},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/set",{"accountId":"{f.mailbox}","create":{"c1":{"calendarId":"{seed.0}","title":"Delegate nope","start":"2026-11-22T10:00:00Z","end":"2026-11-22T11:00:00Z"}}},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_SET_ENTITLEMENT_DENIED: Case = Case {
@@ -506,7 +510,7 @@ const CALENDAR_EVENT_IMPORT_DELEGATE_PERSONAL: Case = Case {
         "calendar-event-import-delegate-personal",
         "delegate-personal",
         "CalendarEvent/import",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/import",{"accountId":"{f.mailbox}","calendarId":"{seed.1}","ics":"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261124T090000Z\r\nDTEND:20261124T100000Z\r\nSUMMARY:X\r\nEND:VEVENT\r\nEND:VCALENDAR"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/import",{"accountId":"{f.mailbox}","calendarId":"{seed.0}","ics":"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:x\r\nDTSTART:20261124T090000Z\r\nDTEND:20261124T100000Z\r\nSUMMARY:X\r\nEND:VEVENT\r\nEND:VCALENDAR"},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_IMPORT_ENTITLEMENT_DENIED: Case = Case {
@@ -683,7 +687,7 @@ const CALENDAR_EVENT_RSVP_DELEGATE: Case = Case {
     mutator: true,
     seed: &[
         SEED_FOREIGN_CALENDAR,
-        SEED_FOREIGN_EVENT_ON_CAL1,
+        SEED_FOREIGN_EVENT_ON_CAL0,
         SEED_FOREIGN_ATTENDEE,
         SEED_DELEGATE_CALENDAR,
         SEED_FOREIGN_EMAIL_PROBE,
@@ -702,7 +706,7 @@ const CALENDAR_EVENT_RSVP_DELEGATE: Case = Case {
 };
 const CALENDAR_EVENT_RSVP_CROSS_TENANT: Case = Case {
     mutator: true,
-    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL1],
+    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL0],
     absent: &["{seed.1}"],
     effects: &[EFFECT_ATTENDEES, EFFECT_EVENTS, EFFECT_ENTITY_STATE],
     ..Case::new(
@@ -731,7 +735,7 @@ const CALENDAR_EVENT_RSVP_DELEGATE_PERSONAL: Case = Case {
         SEED_DELEGATE_FULL,
         SEED_FOREIGN_CALENDAR,
         "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, status) \
-         VALUES ({seed.1}, 'uid-rsvp-dp', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id",
+         VALUES ({seed.0}, 'uid-rsvp-dp', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id",
     ],
     effects: &[EFFECT_ATTENDEES, EFFECT_EVENTS, EFFECT_ENTITY_STATE],
     ..Case::new(
@@ -739,7 +743,7 @@ const CALENDAR_EVENT_RSVP_DELEGATE_PERSONAL: Case = Case {
         "calendar-event-rsvp-delegate-personal",
         "delegate-personal",
         "CalendarEvent/rsvp",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/rsvp",{"accountId":"{f.mailbox}","eventId":"{seed.2}","status":"accepted"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/rsvp",{"accountId":"{f.mailbox}","eventId":"{seed.1}","status":"accepted"},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_RSVP_ENTITLEMENT_DENIED: Case = Case {
@@ -785,7 +789,7 @@ const CALENDAR_EVENT_COUNTER_SUCCESS: Case = Case {
     )
 };
 const CALENDAR_EVENT_COUNTER_CROSS_TENANT: Case = Case {
-    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL1],
+    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL0],
     absent: &["{seed.1}"],
     effects: &[EFFECT_EVENTS],
     ..Case::new(
@@ -812,7 +816,7 @@ const CALENDAR_EVENT_COUNTER_DELEGATE_PERSONAL: Case = Case {
         SEED_DELEGATE_FULL,
         SEED_FOREIGN_CALENDAR,
         "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, status) \
-         VALUES ({seed.1}, 'uid-counter-dp', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id",
+         VALUES ({seed.0}, 'uid-counter-dp', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id",
     ],
     effects: &[EFFECT_EVENTS],
     ..Case::new(
@@ -820,7 +824,7 @@ const CALENDAR_EVENT_COUNTER_DELEGATE_PERSONAL: Case = Case {
         "calendar-event-counter-delegate-personal",
         "delegate-personal",
         "CalendarEvent/counter",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/counter",{"accountId":"{f.mailbox}","eventId":"{seed.2}","start":"2026-11-23T14:00:00Z","end":"2026-11-23T15:00:00Z"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/counter",{"accountId":"{f.mailbox}","eventId":"{seed.1}","start":"2026-11-23T14:00:00Z","end":"2026-11-23T15:00:00Z"},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_COUNTER_ENTITLEMENT_DENIED: Case = Case {
@@ -983,7 +987,7 @@ const CALENDAR_EVENT_SET_OCCURRENCE_DELEGATE_PERSONAL: Case = Case {
         SEED_DELEGATE_FULL,
         SEED_FOREIGN_CALENDAR,
         "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, rrule, status) \
-         VALUES ({seed.1}, 'uid-rec-dp', 'Foreign recurring', '2026-11-22T10:00:00Z'::timestamptz, '2026-11-22T10:30:00Z'::timestamptz, 'FREQ=DAILY;COUNT=3', 'confirmed') RETURNING id",
+         VALUES ({seed.0}, 'uid-rec-dp', 'Foreign recurring', '2026-11-22T10:00:00Z'::timestamptz, '2026-11-22T10:30:00Z'::timestamptz, 'FREQ=DAILY;COUNT=3', 'confirmed') RETURNING id",
     ],
     effects: &[EFFECT_EVENTS, EFFECT_ENTITY_STATE],
     ..Case::new(
@@ -991,7 +995,7 @@ const CALENDAR_EVENT_SET_OCCURRENCE_DELEGATE_PERSONAL: Case = Case {
         "calendar-event-set-occurrence-delegate-personal",
         "delegate-personal",
         "CalendarEvent/setOccurrence",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/setOccurrence",{"accountId":"{f.mailbox}","masterId":"{seed.2}","recurrenceId":"2026-11-23T10:00:00Z","scope":"this","patch":{"title":"Nope"}},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/setOccurrence",{"accountId":"{f.mailbox}","masterId":"{seed.1}","recurrenceId":"2026-11-23T10:00:00Z","scope":"this","patch":{"title":"Nope"}},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_SET_OCCURRENCE_ENTITLEMENT_DENIED: Case = Case {
@@ -1114,7 +1118,7 @@ const CALENDAR_EVENT_SEND_UPDATE_REPEAT: Case = Case {
 };
 const CALENDAR_EVENT_SEND_UPDATE_CROSS_TENANT: Case = Case {
     mutator: true,
-    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL1],
+    seed: &[SEED_FOREIGN_CALENDAR, SEED_FOREIGN_EVENT_ON_CAL0],
     absent: &["{seed.1}"],
     effects: &[EFFECT_EVENTS, EFFECT_ENTITY_STATE],
     ..Case::new(
@@ -1142,7 +1146,7 @@ const CALENDAR_EVENT_SEND_UPDATE_DELEGATE_PERSONAL: Case = Case {
         SEED_DELEGATE_FULL,
         SEED_FOREIGN_CALENDAR,
         "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, status) \
-         VALUES ({seed.1}, 'uid-su-dp', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id",
+         VALUES ({seed.0}, 'uid-su-dp', 'Foreign event', '2026-11-22T18:00:00Z'::timestamptz, '2026-11-22T19:00:00Z'::timestamptz, 'confirmed') RETURNING id",
     ],
     effects: &[EFFECT_EVENTS, EFFECT_ENTITY_STATE],
     ..Case::new(
@@ -1150,7 +1154,7 @@ const CALENDAR_EVENT_SEND_UPDATE_DELEGATE_PERSONAL: Case = Case {
         "calendar-event-send-update-delegate-personal",
         "delegate-personal",
         "CalendarEvent/sendUpdate",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/sendUpdate",{"accountId":"{f.mailbox}","eventId":"{seed.2}"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/sendUpdate",{"accountId":"{f.mailbox}","eventId":"{seed.1}"},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_SEND_UPDATE_ENTITLEMENT_DENIED: Case = Case {
