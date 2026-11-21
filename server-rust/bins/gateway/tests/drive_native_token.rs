@@ -546,3 +546,509 @@ async fn drive_native_interchange() {
 async fn drive_native_basic_disabled() {
     run("basic-disabled", false).await.unwrap();
 }
+
+mod basic_tests {
+    use super::*;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use futures_util::FutureExt;
+    use setjoin_gateway::dav_auth::DavBasicAuth;
+    use setjoin_threat::{ConnectionMeta, ThreatAction, ThreatGate};
+    use sha2::{Digest, Sha256};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    };
+
+    struct MockThreat {
+        action: ThreatAction,
+        delay: std::time::Duration,
+        intercepts: Mutex<Vec<ConnectionMeta>>,
+        records: Mutex<Vec<(ConnectionMeta, bool, i64)>>,
+    }
+
+    impl MockThreat {
+        fn new(action: ThreatAction, delay: std::time::Duration) -> Arc<Self> {
+            Arc::new(Self {
+                action,
+                delay,
+                intercepts: Mutex::new(Vec::new()),
+                records: Mutex::new(Vec::new()),
+            })
+        }
+    }
+
+    impl ThreatGate for MockThreat {
+        fn intercept<'a>(&'a self, meta: &'a ConnectionMeta) -> BoxFuture<'a, (ThreatAction, std::time::Duration)> {
+            Box::pin(async move {
+                self.intercepts.lock().unwrap().push(meta.clone());
+                (self.action, self.delay)
+            })
+        }
+        fn record_result<'a>(&'a self, meta: &'a ConnectionMeta, success: bool, user_id: i64) -> BoxFuture<'a, ()> {
+            Box::pin(async move {
+                self.records
+                    .lock()
+                    .unwrap()
+                    .push((meta.clone(), success, user_id));
+            })
+        }
+        fn evaluate_post_auth<'a>(&'a self, _meta: &'a mut ConnectionMeta) -> BoxFuture<'a, (ThreatAction, String)> {
+            Box::pin(async move { (ThreatAction::Allow, String::new()) })
+        }
+    }
+
+    fn basic_header(email: &str, secret: &str) -> String {
+        format!("Basic {}", STANDARD.encode(format!("{email}:{secret}")))
+    }
+
+    fn token_hash(token: &str) -> String {
+        Sha256::digest(token.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    async fn start_native(upstream: Option<std::net::SocketAddr>, routes: RouteTable) -> Server {
+        let gateway = Gateway::new(
+            setjoin_gateway::Config {
+                upstream: upstream.map(|a| format!("http://{a}").parse().unwrap()),
+                trusted_proxies: TrustedProxies::parse("").unwrap(),
+                upstream_header_timeout: std::time::Duration::from_secs(30),
+                edge_limit: Some(setjoin_gateway::jmap::limit::EdgeLimit::for_front_door(
+                    setjoin_gateway::jmap::limit::Limiter::new(60000, 60),
+                )),
+            },
+            routes,
+        )
+        .unwrap()
+        .with_inventory(setjoin_gateway::inventory::BUNDLED)
+        .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(gateway.serve_until(listener, async {
+            let _ = rx.await;
+        }));
+        Server {
+            addr,
+            stop: Some(tx),
+            task,
+        }
+    }
+
+    async fn send_auth(
+        addr: std::net::SocketAddr,
+        auth: Option<&str>,
+    ) -> Result<(u16, Option<String>, String), BoxError> {
+        let mut req = Request::builder()
+            .method("POST")
+            .uri("/api/drive/native-token")
+            .header("host", "mail.idlogin3.test")
+            .header("origin", "http://mail.idlogin3.test")
+            .header("content-type", "application/json");
+        if let Some(auth) = auth {
+            req = req.header("authorization", auth);
+        }
+        let resp = common::send(addr, req.body(common::full("{}"))?).await;
+        let status = resp.status().as_u16();
+        let www = resp
+            .headers()
+            .get("www-authenticate")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        let body = String::from_utf8(resp.into_body().collect().await?.to_bytes().to_vec())?;
+        Ok((status, www, body))
+    }
+
+    async fn with_fixture<F, Fut>(f: F) -> Result<(), BoxError>
+    where
+        F: FnOnce(
+            std::sync::Arc<tokio_postgres::Client>,
+            setjoin_pg::ScopedExecutor,
+            Arc<setjoin_authz::jwks::Jwks>,
+            String,
+            fixture::Account,
+            String,
+        ) -> Fut,
+        Fut: std::future::Future<Output = Result<(), BoxError>>,
+    {
+        let _serial = SERIAL.lock().await;
+        let Some(db) = Db::for_case("IDLOGIN3-Drive-Basic") else {
+            return Ok(());
+        };
+        let c = Arc::new(db.connect().await?);
+        let a = fixture::account(&c, "idlogin3-drive-basic").await?;
+        let email: String = c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+        let saved_basic = c
+            .query_opt(
+                "SELECT enabled FROM feature_toggles WHERE key='feature.disable_basic_auth'",
+                &[],
+            )
+            .await?
+            .map(|r| r.get::<_, bool>(0));
+        let saved_drive = c
+            .query_opt(
+                "SELECT enabled FROM feature_toggles WHERE key='feature.drive'",
+                &[],
+            )
+            .await?
+            .map(|r| r.get::<_, bool>(0));
+        c.execute(
+            "INSERT INTO feature_toggles(key,enabled) VALUES('feature.disable_basic_auth',false),('feature.drive',true) ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled",
+            &[],
+        )
+        .await?;
+        let keys_json: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-login/keys.json"
+        ))?;
+        let secret = keys_json["secret"].as_str().unwrap().to_owned();
+        let jwks = common::fake_upstream(|_| async {
+            Response::builder()
+                .header("content-type", "application/json")
+                .body(common::full(
+                    include_bytes!("../../../tests/conformance/jmap/test-jwks.json").as_slice(),
+                ))
+                .unwrap()
+        })
+        .await;
+        let keys = Arc::new(
+            setjoin_authz::jwks::Jwks::new(format!("http://{jwks}/.well-known/jwks.json").parse()?)?
+                .with_legacy_keys(setjoin_authz::legacy_jwt::LegacyKeys::new(
+                    secret.as_bytes(),
+                    &["authserver-hmac-1", "mailserver-drive-native-1"],
+                    None,
+                )?),
+        );
+        let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?;
+        let res = std::panic::AssertUnwindSafe(f(c.clone(), exec, keys, secret, a.clone(), email.clone()))
+            .catch_unwind()
+            .await;
+        for (key, saved) in [
+            ("feature.disable_basic_auth", saved_basic),
+            ("feature.drive", saved_drive),
+        ] {
+            if let Some(on) = saved {
+                c.execute(
+                    "UPDATE feature_toggles SET enabled=$1 WHERE key=$2",
+                    &[&on, &key],
+                )
+                .await?;
+            } else {
+                c.execute("DELETE FROM feature_toggles WHERE key=$1", &[&key])
+                    .await?;
+            }
+        }
+        c.execute(
+            "DELETE FROM auth_event_log WHERE user_id=$1 OR lower(email)=lower($2)",
+            &[&a.user, &email],
+        )
+        .await?;
+        c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&a.user])
+            .await?;
+        c.execute("DELETE FROM app_passwords WHERE user_id=$1", &[&a.user])
+            .await?;
+        fixture::remove(&c, &a).await?;
+        match res {
+            Ok(inner) => inner,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+
+    #[tokio::test]
+    async fn drive_native_basic_app_password_mints_12h_token() -> Result<(), BoxError> {
+        with_fixture(|c, exec, keys, secret, a, email| async move {
+            let app_token = "drive-basic-app-pw-1";
+            c.execute(
+                "INSERT INTO app_passwords(user_id,name,label,token_hash) VALUES($1,'drive','drive',$2)",
+                &[&a.user, &token_hash(app_token)],
+            )
+            .await?;
+            let chain = Arc::new(setjoin_authz::auth_chain::Chain::default());
+            chain.reload(&exec).await.unwrap();
+            let threat = MockThreat::new(ThreatAction::Allow, std::time::Duration::ZERO);
+            let route = setjoin_gateway::drive_native::NativeTokenRoute::new(
+                exec.clone(),
+                keys.clone(),
+                "mailserver".into(),
+                Some(&secret),
+            )
+            .with_basic_auth(DavBasicAuth {
+                chain: Some(chain),
+                password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+                threat: Some(threat.clone()),
+                runtime: None,
+            });
+            let mut basic_headers = hyper::HeaderMap::new();
+            basic_headers.insert(
+                hyper::header::AUTHORIZATION,
+                basic_header(&email, app_token).parse()?,
+            );
+            assert!(
+                !route.admits_member(basic_headers, "http").await,
+                "admits_member stays JWT/cookie only"
+            );
+            assert!(threat.intercepts.lock().unwrap().is_empty());
+            assert!(threat.records.lock().unwrap().is_empty());
+
+            let server = start_native(None, RouteTable::proxy_all().with(route)).await;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs() as i64;
+            let (status, _, body) =
+                send_auth(server.addr, Some(&basic_header(&email, app_token))).await?;
+            assert_eq!(status, 200, "body: {body}");
+            let v: Value = serde_json::from_str(&body)?;
+            let minted = v["token"].as_str().ok_or("missing token")?;
+            let verifier = setjoin_authz::legacy_jwt::LegacyKeys::new(
+                secret.as_bytes(),
+                &["mailserver-drive-native-1"],
+                None,
+            )?;
+            let claims = verifier
+                .validate(minted, "mailserver", "mailserver-gateway", now as f64)
+                .ok_or("invalid minted token")?;
+            assert_eq!(claims["uid"], a.user);
+            assert_eq!(claims["email"], email);
+            assert_eq!(claims["scp"], "drive");
+            assert_eq!(claims["exp"].as_i64().unwrap() - claims["iat"].as_i64().unwrap(), 43200);
+            assert!(!claims.contains_key("act"));
+
+            let intercepts = threat.intercepts.lock().unwrap().clone();
+            assert_eq!(intercepts.len(), 1);
+            assert_eq!(intercepts[0].protocol, "http");
+            assert_eq!(intercepts[0].username, email);
+            let records = threat.records.lock().unwrap().clone();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].0.protocol, "http");
+            assert!(records[0].1);
+            assert_eq!(records[0].2, a.user);
+
+            let metrics = String::from_utf8(
+                common::body_bytes(
+                    common::send(server.addr, Request::get("/_gateway/metrics").body(common::full(""))?).await,
+                )
+                .await
+                .to_vec(),
+            )?;
+            assert!(metrics.lines().any(|l| l == "setjoin_gateway_proxied_to_go_total 0"));
+            server.close().await;
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn drive_native_basic_account_password_refused() -> Result<(), BoxError> {
+        with_fixture(|c, exec, keys, secret, a, email| async move {
+            let pw = "drive-Account-Password1";
+            let hash = bcrypt::hash_with_result(pw, 4)
+                .unwrap()
+                .format_for_version(bcrypt::Version::TwoA);
+            c.execute("UPDATE users SET password_hash=$1 WHERE id=$2", &[&hash, &a.user])
+                .await?;
+            let app_token = "drive-basic-app-pw-guest";
+            c.execute(
+                "INSERT INTO app_passwords(user_id,name,label,token_hash) VALUES($1,'drive','drive',$2)",
+                &[&a.user, &token_hash(app_token)],
+            )
+            .await?;
+
+            let chain = Arc::new(setjoin_authz::auth_chain::Chain::default());
+            chain.reload(&exec).await.unwrap();
+            let threat = MockThreat::new(ThreatAction::Allow, std::time::Duration::ZERO);
+            let route = setjoin_gateway::drive_native::NativeTokenRoute::new(
+                exec.clone(),
+                keys.clone(),
+                "mailserver".into(),
+                Some(&secret),
+            )
+            .with_basic_auth(DavBasicAuth {
+                chain: Some(chain.clone()),
+                password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+                threat: Some(threat.clone()),
+                runtime: None,
+            });
+            let server = start_native(None, RouteTable::proxy_all().with(route)).await;
+
+            // Account password refused
+            let (status, www, _) = send_auth(server.addr, Some(&basic_header(&email, pw))).await?;
+            assert_eq!(status, 401);
+            assert_eq!(www.as_deref(), Some("Negotiate, Bearer realm=\"mailserver\""));
+
+            // TOTP user's account password refused
+            c.execute("UPDATE users SET totp_enabled=true WHERE id=$1", &[&a.user])
+                .await?;
+            let (status, www, _) = send_auth(server.addr, Some(&basic_header(&email, pw))).await?;
+            assert_eq!(status, 401);
+            assert_eq!(www.as_deref(), Some("Negotiate, Bearer realm=\"mailserver\""));
+            c.execute("UPDATE users SET totp_enabled=false WHERE id=$1", &[&a.user])
+                .await?;
+
+            // Guest app password refused
+            c.execute(
+                "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) VALUES($1,'guest@test','inviter@test',$2,'active')",
+                &[&a.user, &a.domain],
+            )
+            .await?;
+            let (status, www, _) =
+                send_auth(server.addr, Some(&basic_header(&email, app_token))).await?;
+            assert_eq!(status, 401);
+            assert_eq!(www.as_deref(), Some("Negotiate, Bearer realm=\"mailserver\""));
+            c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&a.user])
+                .await?;
+
+            // Invalid / missing Basic header never calls ThreatGate or writes auth_event_log
+            let intercepts_before = threat.intercepts.lock().unwrap().len();
+            let events_before: i64 = c
+                .query_one(
+                    "SELECT count(*) FROM auth_event_log WHERE user_id=$1 OR lower(email)=lower($2)",
+                    &[&a.user, &email],
+                )
+                .await?
+                .get(0);
+            for bad in [None, Some("Basic !!!"), Some("Basic dXNlcg=="), Some("basic dXNlcjpwYXNz")] {
+                let (status, www, _) = send_auth(server.addr, bad).await?;
+                assert_eq!(status, 401, "header {bad:?}");
+                assert_eq!(www.as_deref(), Some("Negotiate, Bearer realm=\"mailserver\""));
+            }
+            assert_eq!(threat.intercepts.lock().unwrap().len(), intercepts_before);
+
+            // basic_allowed=false -> 401 without ThreatGate or auth_event_log
+            c.execute(
+                "UPDATE feature_toggles SET enabled=true WHERE key='feature.disable_basic_auth'",
+                &[],
+            )
+            .await?;
+            chain.reload(&exec).await.unwrap();
+            let (status, www, _) =
+                send_auth(server.addr, Some(&basic_header(&email, app_token))).await?;
+            assert_eq!(status, 401);
+            assert_eq!(www.as_deref(), Some("Negotiate, Bearer realm=\"mailserver\""));
+            assert_eq!(threat.intercepts.lock().unwrap().len(), intercepts_before);
+            let events_after: i64 = c
+                .query_one(
+                    "SELECT count(*) FROM auth_event_log WHERE user_id=$1 OR lower(email)=lower($2)",
+                    &[&a.user, &email],
+                )
+                .await?
+                .get(0);
+            assert_eq!(events_after, events_before);
+            server.close().await;
+
+            // Missing ThreatGate (None) -> fail closed 503 when basic_allowed=true
+            c.execute(
+                "UPDATE feature_toggles SET enabled=false WHERE key='feature.disable_basic_auth'",
+                &[],
+            )
+            .await?;
+            chain.reload(&exec).await.unwrap();
+            let no_threat = setjoin_gateway::drive_native::NativeTokenRoute::new(
+                exec,
+                keys,
+                "mailserver".into(),
+                Some(&secret),
+            )
+            .with_chain(Some(chain));
+            let server = start_native(None, RouteTable::proxy_all().with(no_threat)).await;
+            let (status, _, _) =
+                send_auth(server.addr, Some(&basic_header(&email, app_token))).await?;
+            assert_eq!(status, 503);
+            server.close().await;
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn drive_native_basic_threat_gate_and_negotiate() -> Result<(), BoxError> {
+        with_fixture(|c, exec, keys, secret, a, email| async move {
+            let app_token = "drive-basic-app-pw-threat";
+            c.execute(
+                "INSERT INTO app_passwords(user_id,name,label,token_hash) VALUES($1,'drive','drive',$2)",
+                &[&a.user, &token_hash(app_token)],
+            )
+            .await?;
+            let chain = Arc::new(setjoin_authz::auth_chain::Chain::default());
+            chain.reload(&exec).await.unwrap();
+
+            for (action, delay) in [
+                (ThreatAction::Reject, std::time::Duration::ZERO),
+                (ThreatAction::Tarpitted, std::time::Duration::from_millis(40)),
+                (ThreatAction::RateLimited, std::time::Duration::ZERO),
+            ] {
+                let threat = MockThreat::new(action, delay);
+                let route = setjoin_gateway::drive_native::NativeTokenRoute::new(
+                    exec.clone(),
+                    keys.clone(),
+                    "mailserver".into(),
+                    Some(&secret),
+                )
+                .with_basic_auth(DavBasicAuth {
+                    chain: Some(chain.clone()),
+                    password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+                    threat: Some(threat.clone()),
+                    runtime: None,
+                });
+                let server = start_native(None, RouteTable::proxy_all().with(route)).await;
+                let started = std::time::Instant::now();
+                let (status, www, _) =
+                    send_auth(server.addr, Some(&basic_header(&email, app_token))).await?;
+                assert_eq!(status, 401, "{action:?}");
+                assert_eq!(www.as_deref(), Some("Negotiate, Bearer realm=\"mailserver\""));
+                if !delay.is_zero() {
+                    assert!(started.elapsed() >= std::time::Duration::from_millis(30));
+                }
+                assert!(threat.records.lock().unwrap().is_empty(), "blocked request must not record_result");
+                let events: i64 = c
+                    .query_one(
+                        "SELECT count(*) FROM auth_event_log WHERE user_id=$1 OR lower(email)=lower($2)",
+                        &[&a.user, &email],
+                    )
+                    .await?
+                    .get(0);
+                assert_eq!(events, 0, "blocked request must not verify password");
+                server.close().await;
+            }
+
+            // Negotiate forwards to Go without calling ThreatGate
+            let go_hits = Arc::new(AtomicUsize::new(0));
+            let hits = go_hits.clone();
+            let go = common::fake_upstream(move |_| {
+                let hits = hits.clone();
+                async move {
+                    hits.fetch_add(1, Ordering::SeqCst);
+                    Response::builder()
+                        .status(218)
+                        .body(common::full("go-negotiate"))
+                        .unwrap()
+                }
+            })
+            .await;
+            let threat = MockThreat::new(ThreatAction::Allow, std::time::Duration::ZERO);
+            let route = setjoin_gateway::drive_native::NativeTokenRoute::new(
+                exec,
+                keys,
+                "mailserver".into(),
+                Some(&secret),
+            )
+            .with_basic_auth(DavBasicAuth {
+                chain: Some(chain),
+                password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+                threat: Some(threat.clone()),
+                runtime: None,
+            });
+            let server = start_native(Some(go), RouteTable::proxy_all().with(route)).await;
+            let (status, _, body) = send_auth(server.addr, Some("Negotiate YII=")).await?;
+            assert_eq!(status, 218);
+            assert_eq!(body, "go-negotiate");
+            assert_eq!(go_hits.load(Ordering::SeqCst), 1);
+            assert!(threat.intercepts.lock().unwrap().is_empty());
+            server.close().await;
+            Ok(())
+        })
+        .await
+    }
+}

@@ -256,21 +256,12 @@ pub async fn security(
     shared_security(settings, &["imap"]).await
 }
 
-/// The one process-wide threat gate for every activated password protocol
-/// (IMAP #345, SMTP submission #501): each activated protocol must already be
-/// listed in `GO_LISTENERS_OFF`.
-pub async fn shared_security(
+/// Load the shared process-wide threat gate and its direct-DSN policy/toggle
+/// watchers without checking `GO_LISTENERS_OFF` (#355a).
+pub async fn load_security(
     settings: &crate::configuration::Settings,
-    protocols: &[&str],
+    label: &str,
 ) -> Result<(Arc<setjoin_threat::Gate>, setjoin_threat::Watchers), String> {
-    let off = std::env::var("GO_LISTENERS_OFF").unwrap_or_default();
-    for protocol in protocols {
-        if !off.split(',').any(|v| v.trim() == *protocol) {
-            return Err(format!(
-                "{protocol} sockets require GO_LISTENERS_OFF={protocol} before Rust activation"
-            ));
-        }
-    }
     let request = settings.string("db.dsn");
     if request.is_empty() {
         return Err("DB_DSN is required for the protocol threat gate".into());
@@ -278,7 +269,8 @@ pub async fn shared_security(
     let direct = settings.string("db.direct_dsn");
     let worker = settings.string("db.worker_dsn");
     let exec = setjoin_pg::ScopedExecutor::from_dsn(&request, 8).map_err(|e| e.0)?;
-    let worker = setjoin_threat::WorkerPools::from_dsns(&request, Some(&worker)).map_err(|e| e.to_string())?;
+    let worker = setjoin_threat::WorkerPools::from_dsns(&request, Some(&worker))
+        .map_err(|e| e.to_string())?;
     let config = setjoin_threat::Config::from_lookup(&|_, path| {
         let value = settings.string(path);
         (!value.is_empty()).then_some(value)
@@ -295,11 +287,29 @@ pub async fn shared_security(
     let watchers = setjoin_threat::Watchers::start(
         gate.clone(),
         direct,
-        &format!("setjoin-{}-{}", protocols.join("-"), std::process::id()),
+        &format!("setjoin-{label}-{}", std::process::id()),
     )
     .await
     .map_err(|e| e.to_string())?;
     Ok((gate, watchers))
+}
+
+/// The one process-wide threat gate for every activated password protocol
+/// (IMAP #345, SMTP submission #501): each activated protocol must already be
+/// listed in `GO_LISTENERS_OFF`.
+pub async fn shared_security(
+    settings: &crate::configuration::Settings,
+    protocols: &[&str],
+) -> Result<(Arc<setjoin_threat::Gate>, setjoin_threat::Watchers), String> {
+    let off = std::env::var("GO_LISTENERS_OFF").unwrap_or_default();
+    for protocol in protocols {
+        if !off.split(',').any(|v| v.trim() == *protocol) {
+            return Err(format!(
+                "{protocol} sockets require GO_LISTENERS_OFF={protocol} before Rust activation"
+            ));
+        }
+    }
+    load_security(settings, &protocols.join("-")).await
 }
 
 impl setjoin_smtp::submission::AuthWebhooks for AuthEvents {

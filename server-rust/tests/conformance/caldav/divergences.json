@@ -10,5 +10,14 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/caldav.rs::propfind_timezone_foreign",
     "mutant": "caldav-tz-global-key"
+  },
+  {
+    "case": "app-password-only",
+    "reason": "owner ruling 2026-11-14 (#355a): CalDAV HTTP Basic accepts app passwords only and refuses account passwords (including TOTP users' account passwords) and guests; frozen Go accepted account passwords. Recorded goldens use Bearer tokens, so no golden changed.",
+    "issue": "#355a",
+    "reviewer": "owner 2026-11-14",
+    "reviewed": true,
+    "review": "owner ruling 2026-11-14 (#355a): DAV Basic accepts app passwords only",
+    "secure_test": "bins/gateway/tests/caldav.rs::basic_account_password_refused"
   }
 ]

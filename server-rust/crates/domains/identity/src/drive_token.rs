@@ -22,7 +22,9 @@ impl Issuer {
         if source.has_device_binding() {
             return Err(Refused::DeviceBound);
         }
-        let expiry = (now + 43200).min(source.expires_at());
+        let expiry = source
+            .expires_at()
+            .map_or(now + 43200, |exp| (now + 43200).min(exp));
         if expiry <= now {
             return Err(Refused::Expired);
         }
@@ -57,5 +59,46 @@ impl Issuer {
             "{}\n",
             crate::issuance::object(&[("token", json!(token)), ("expiresAt", json!(expires))])
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mints_12h_drive_token_from_basic_identity_without_panic() {
+        let secret = b"0123456789abcdef0123456789abcdef";
+        let issuer = Issuer::new(secret, "mailserver".into());
+        let source = PushIdentity::from_basic(42, "alice@example.test");
+        let now = 1_700_000_000_i64;
+        let body = issuer.issue(&source, now).expect("basic drive mint");
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let token = parsed["token"].as_str().unwrap();
+        let verifier = setjoin_authz::legacy_jwt::LegacyKeys::new(
+            secret,
+            &["mailserver-drive-native-1"],
+            None,
+        )
+        .unwrap();
+        let claims = verifier
+            .validate(token, "mailserver", "mailserver-gateway", now as f64)
+            .unwrap();
+        assert_eq!(claims["uid"], 42);
+        assert_eq!(claims["email"], "alice@example.test");
+        assert_eq!(claims["scp"], "drive");
+        assert_eq!(claims["typ"], "access");
+        assert_eq!(claims["iat"], now);
+        assert_eq!(claims["exp"], now + 43200);
+        assert!(!claims.contains_key("act"));
+        assert!(!claims.contains_key("jti"));
+        assert!(!claims.contains_key("fam"));
+        assert!(!claims.contains_key("acct"));
+        let expires_at = chrono::DateTime::parse_from_rfc3339(
+            parsed["expiresAt"].as_str().unwrap(),
+        )
+        .unwrap()
+        .timestamp();
+        assert_eq!(expires_at, now + 43200);
     }
 }

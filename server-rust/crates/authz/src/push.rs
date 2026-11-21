@@ -11,6 +11,17 @@ pub struct PushIdentity {
 }
 
 impl PushIdentity {
+    /// Synthetic member identity from HTTP Basic verification (#355a), with no
+    /// `exp`, `jti`, `fam`, `device`, `act`, or `acct`.
+    pub fn from_basic(user_id: i64, email: impl Into<String>) -> Self {
+        let mut claims = Map::new();
+        claims.insert("uid".into(), Value::from(user_id));
+        claims.insert("email".into(), Value::from(email.into()));
+        Self {
+            claims,
+            guest: false,
+        }
+    }
     /// Signed metadata retained by the narrow Drive mirror issuer (#333).
     pub fn email(&self)->&str{self.text("email")}
     pub fn has_device_binding(&self)->bool{self.claims.get("device").is_some_and(|v|!v.is_null())}
@@ -27,8 +38,8 @@ impl PushIdentity {
     pub fn issued_at(&self) -> i64 {
         self.claims.get("iat").and_then(Value::as_i64).unwrap_or(0)
     }
-    pub fn expires_at(&self) -> i64 {
-        self.claims["exp"].as_i64().expect("verified exp")
+    pub fn expires_at(&self) -> Option<i64> {
+        self.claims.get("exp").and_then(Value::as_i64)
     }
     pub fn token_id(&self) -> &str {
         self.text("jti")
@@ -288,5 +299,20 @@ mod accessor_tests {
             assert!(!identity(json!({"iat": iat.clone()})).has_issued_at(), "iat {iat}");
         }
         assert!(!identity(json!({})).has_issued_at());
+    }
+
+    #[test]
+    fn from_basic_has_no_expiry_and_no_guest_or_device() {
+        let id = PushIdentity::from_basic(42, "alice@example.test");
+        assert_eq!(id.user_id(), 42);
+        assert_eq!(id.email(), "alice@example.test");
+        assert_eq!(id.expires_at(), None);
+        assert!(!id.is_guest());
+        assert!(!id.has_device_binding());
+        assert_eq!(id.act(), None);
+        assert_eq!(id.token_id(), "");
+        assert_eq!(id.token_family(), "");
+        assert_eq!(id.account_type(), "");
+        assert_eq!(identity(json!({"exp": 1_700_000_000})).expires_at(), Some(1_700_000_000));
     }
 }

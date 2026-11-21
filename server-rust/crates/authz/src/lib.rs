@@ -345,6 +345,43 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
     Ok(authorized(session, mailbox, state, roles))
 }
 
+/// Authorize a Basic-authenticated member after credential verification (#355a).
+/// Checks guest exclusion, `session_revocations` (`scope='all'`), primary
+/// mailbox existence, `mailbox_lifecycle_access_allowed`, and loads pre-dispatch
+/// `SessionState`.
+pub async fn authorize_basic_member(
+    exec: &ScopedExecutor,
+    user_id: i64,
+    email: String,
+) -> Result<Authorized, Refusal> {
+    let session = token::Session {
+        user_id,
+        email,
+        issued_at: -62_135_596_800,
+        jti: String::new(),
+        family: String::new(),
+        domain_scope: None,
+        admin: false,
+        permissions: Vec::new(),
+        auth_time: None,
+        acr: String::new(),
+        amr: Vec::new(),
+        device_id: String::new(),
+    };
+    let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
+        .await
+        .unwrap_or(gates::Caller::Unavailable);
+    let (mailbox, state) = match caller {
+        gates::Caller::Member { mailbox, state } => (mailbox, state),
+        gates::Caller::Guest => return Err(Refusal::Guest),
+        gates::Caller::Revoked => return Err(Refusal::Revoked),
+        gates::Caller::NoMailbox => return Err(Refusal::NoPrimaryMailbox),
+        gates::Caller::Blocked => return Err(Refusal::MailboxBlocked),
+        gates::Caller::Unavailable => return Err(Refusal::Unavailable),
+    };
+    Ok(authorized(session, mailbox, state, Vec::new()))
+}
+
 fn authorized(session: token::Session, mailbox: i64, state: gates::SessionState, roles: Vec<i64>) -> Authorized {
     Authorized {
         context: AuthContext { guest: false, user_id: session.user_id, email: session.email, mailbox_id: mailbox,

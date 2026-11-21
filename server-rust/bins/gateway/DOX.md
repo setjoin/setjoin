@@ -579,8 +579,11 @@ upstream unset.
 The process-local auth-chain listener (#333) starts when the enabled gateway has
 DB_DSN and DB_DIRECT_DSN, reads configuration through the request credential and
 uses only the direct DSN for LISTEN. It refreshes on reconnect and joins on drain.
-Go keeps its own cache task. Native Drive uses its Basic-admission generation;
-only the unported Basic/Negotiate proof shapes forward to #420/#339 respectively.
+Go keeps its own cache task. Native Drive, CalDAV, and CardDAV authenticate HTTP
+Basic natively (#355a) via `dav_auth::DavBasicAuth` (app passwords only, shared
+`ThreatGate` with `protocol="http"`, and `RuntimeGate::enforce_basic`), with
+`PushIdentity::from_basic` minting 12 h Drive tokens; only `Negotiate` forwards
+to Go until #355b. (`dav_basic_auth` integration tests cover all runtime gates.)
 
 The link-protect oracle accepts GOFREE_LINKPROTECT_DNS_IP (loopback only;
 default 127.0.0.66), so independent workers can own different UDP53 fixtures.
@@ -904,8 +907,9 @@ F17 CardDAV HTTP transfer and family closure (#427): [Calendar contract](../../c
 
 SMTP listener swap (#501): `smtp_runtime.rs` serves inbound `smtp`/`smtps` and `submission`
 from named systemd FDs (`activation.rs`), refuses to start unless `GO_LISTENERS_OFF` lists
-`smtp` / `submission`, the webhook dispatcher and the shared gate (`imap_runtime::shared_security`, one
-gate/watchers for IMAP and SMTP) are wired. Flags are the gate's live `feature_toggles`
+`smtp` / `submission`, the webhook dispatcher and the shared gate (`imap_runtime::load_security`
+bootstrapped once in `main.rs` before routing so DAV/Drive Basic auth and IMAP/SMTP share one
+gate/watchers pair; `shared_security` still enforces `GO_LISTENERS_OFF` when IMAP starts directly) are wired. Flags are the gate's live `feature_toggles`
 snapshot; `smtp.env` carries the allow-listed settings (`SMTP_INBOUND_MAX_CONNS`,
 `SMTP_SUBMISSION_MAX_CONNS`, `SMTP_PER_USER_MAX_CONNS`, `SMTP_INBOUND_TLS_ENFORCE`,
 `SMTP_TLS_CERT_FILE`/`SMTP_TLS_KEY_FILE` or TLS_CERT/TLS_KEY, and the derived link-protect keys; no master secret, so HS256 auth/device/attachment secrets stay unset and the /link-protect click route and forward un-rewrite use the derived keys). Submission revocation reuses `SessionDenylist::attach_protocol`.

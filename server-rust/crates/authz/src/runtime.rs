@@ -5,6 +5,17 @@ use serde_json::Value;
 
 pub struct Proof(Value);
 impl Proof {
+    /// Verified HTTP Basic-auth member proof (#355a). Omits `device` so
+    /// `compliance_denial` returns `device_compliance_unverifiable`, and omits
+    /// `iat`/`jti`/`fam`/`cnf`/`sif` so `SessionDenylist` checks `scope='all'`
+    /// revocations while skipping token binding and sign-in frequency.
+    pub fn basic(user_id: i64) -> Self {
+        Self(serde_json::json!({
+            "uid": user_id,
+            "auth_method": "basic_auth",
+        }))
+    }
+
     /// Dedicated attachment credential, for the attachment HTTP surface only.
     /// This seals the same signed device/session claims as an ordinary proof;
     /// it grants no blob or mailbox authority.

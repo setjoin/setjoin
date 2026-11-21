@@ -72,6 +72,14 @@ pub struct Policy {
     pub totp_account_password: TotpAccountPassword,
 }
 
+/// Owner-ruled DAV / native-Drive Basic credential policy (#355a): app
+/// passwords only, never account passwords, and never guests.
+pub const DAV_POLICY: Policy = Policy {
+    accept: Accept::AppPassword,
+    guest_app_passwords: GuestAppPasswords::Refuse,
+    totp_account_password: TotpAccountPassword::Refuse,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Verified {
     pub user_id: i64,

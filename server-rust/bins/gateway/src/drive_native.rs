@@ -15,7 +15,7 @@ pub struct NativeTokenRoute<K: KeySource + 'static> {
     keys: Arc<K>,
     issuer: String,
     signer: Option<Arc<setjoin_identity::drive_token::Issuer>>,
-    chain: Option<Arc<setjoin_authz::auth_chain::Chain>>,
+    basic: crate::dav_auth::DavBasicAuth,
 }
 impl<K: KeySource + 'static> NativeTokenRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String, secret: Option<&str>) -> Self {
@@ -30,11 +30,15 @@ impl<K: KeySource + 'static> NativeTokenRoute<K> {
             keys,
             issuer,
             signer,
-            chain: None,
+            basic: crate::dav_auth::DavBasicAuth::default(),
         }
     }
     pub fn with_chain(mut self, chain: Option<Arc<setjoin_authz::auth_chain::Chain>>) -> Self {
-        self.chain = chain;
+        self.basic.chain = chain;
+        self
+    }
+    pub fn with_basic_auth(mut self, basic: crate::dav_auth::DavBasicAuth) -> Self {
+        self.basic = basic;
         self
     }
 }
@@ -80,13 +84,13 @@ impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
             matches!(push::authenticate_drive(&exec,&*keys,&issuer,&t).await,Ok(p) if !p.is_guest())
         })
     }
-    fn handle(&self, r: Request<Body>, context: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, signer, chain) = (
+    fn handle(&self, mut r: Request<Body>, context: RequestContext) -> BoxFuture<Response<Body>> {
+        let (exec, keys, issuer, signer, basic) = (
             self.exec.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.signer.clone(),
-            self.chain.clone(),
+            self.basic.clone(),
         );
         Box::pin(async move {
             if !push::http_admission_allowed(&exec).await {
@@ -106,21 +110,18 @@ impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
                     .ok(),
                 None => None,
             };
-            let Some(source) = source else {
-                let header = r
-                    .headers()
-                    .get("authorization")
-                    .and_then(|h| h.to_str().ok())
-                    .unwrap_or("");
-                if header.starts_with("Basic ") && chain.as_ref().is_none_or(|c| c.basic_allowed())
-                {
-                    return context.upstream.forward(r, &context.identity).await;
-                    // password/threat proof #420
+            let source = match source {
+                Some(source) => source,
+                None if crate::dav_auth::has_scheme(r.headers(), b"Basic ") => {
+                    match basic.authenticate(&exec, &mut r, &context).await {
+                        Ok(user) => push::PushIdentity::from_basic(user.user_id, user.email),
+                        Err(resp) => return resp,
+                    }
                 }
-                if header.starts_with("Negotiate ") {
-                    return context.upstream.forward(r, &context.identity).await;
-                } // Kerberos proof #339
-                return denied();
+                None if crate::dav_auth::has_scheme(r.headers(), b"Negotiate ") => {
+                    return context.upstream.forward(r, &context.identity).await; // Kerberos proof #355b
+                }
+                None => return denied(),
             };
             if source.is_guest() {
                 return context.upstream.forward(r, &context.identity).await;
