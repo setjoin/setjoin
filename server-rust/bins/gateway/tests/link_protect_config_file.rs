@@ -62,6 +62,8 @@ async fn yaml_jwt_secret_verifies_clicks_natively_and_is_never_logged() -> Resul
             format!("http://{jwks}/.well-known/jwks.json"),
         ),
         ("CORE_RATE_LIMIT", "100000".into()),
+        ("IMAP_ADDR", "127.0.0.1:0".into()),
+        ("SMTP_SUBMISSION_ADDR", "127.0.0.1:0".into()),
         ("SETJOIN_CONFIG", yaml.display().to_string()),
     ] {
         command.env(key, value);

@@ -321,7 +321,7 @@ fn mux_error(
 fn pinned(path: &str) -> bool {
     include_str!("../../../../scripts/api-pinned-prefixes.txt")
         .lines()
-        .map(str::trim)
+        .map(|l| l.split('#').next().unwrap_or("").trim())
         .filter(|p| p.starts_with('/'))
         .any(|p| path == p || path.strip_prefix(p).is_some_and(|s| s.starts_with('/')))
 }
@@ -452,4 +452,18 @@ fn plain(r: &Request<Body>, c: &RequestContext, status: u16, body: &str) -> Resp
         .headers_mut()
         .insert("content-type", "text/plain; charset=utf-8".parse().unwrap());
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pinned;
+
+    #[test]
+    fn pinned_strips_inline_comments() {
+        assert!(pinned("/rtc"));
+        assert!(pinned("/rtc/x"));
+        assert!(pinned("/auth/login"));
+        assert!(pinned("/link-protect"));
+        assert!(!pinned("/chat/rooms"));
+    }
 }
