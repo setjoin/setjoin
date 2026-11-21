@@ -135,7 +135,7 @@ pub fn go_decode_bytes(raw: &[u8]) -> Vec<u8> {
 
 // Go encoding/json uses Unicode simple folding. These are the two non-ASCII
 // fold classes that can match the ASCII names in this request struct.
-fn fold_name(name: &str) -> String {
+pub(crate) fn fold_name(name: &str) -> String {
     name.chars()
         .map(|c| match c {
             'ſ' => 's',
@@ -187,6 +187,7 @@ pub enum Field {
     Text,
     Integer,
     Object,
+    Bool,
 }
 pub fn typed_fields(
     raw: &[u8],
@@ -228,6 +229,7 @@ fn typed_fields_impl(raw:&[u8],known:&[(&str,Field)],closed:bool)->Result<serde_
                             Field::Text => v.is_string(),
                             Field::Integer => v.as_i64().is_some(),
                             Field::Object => v.is_object(),
+                            Field::Bool => v.is_boolean(),
                         };
                         if !ok {
                             return Err(de::Error::custom("field type"));

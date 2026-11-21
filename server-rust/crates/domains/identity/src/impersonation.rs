@@ -71,7 +71,9 @@ pub async fn authorize(
     // grant (no domain on any granting assignment) is unrestricted, otherwise the
     // target must live in one of the granting assignments' domains.
     let grant=exec.read("SELECT count(*), COALESCE(bool_or(COALESCE(ra.domain_override,rg.domain_scope) IS NULL),false), COALESCE(array_agg(DISTINCT COALESCE(ra.domain_override,rg.domain_scope)) FILTER (WHERE COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL),'{}'::bigint[]) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND 'users.impersonate'=ANY(rg.permissions) AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&actor.user(),Type::INT8)]).await.map_err(|_|gate("Forbidden"))?;
-    if grant[0].get::<_, i64>(0) == 0 {
+    let grant_error = || gate("Forbidden");
+    let grant = grant.first().ok_or_else(grant_error)?;
+    if grant.try_get::<_, i64>(0).map_err(|_| grant_error())? == 0 {
         // The direct mount's auditor records the path's target when parseable.
         audit(
             exec,
@@ -85,8 +87,8 @@ pub async fn authorize(
         .await;
         return Err(gate("Forbidden"));
     }
-    let global_grant = grant[0].get::<_, bool>(1);
-    let granted_domains: Vec<i64> = grant[0].get(2);
+    let global_grant: bool = grant.try_get(1).map_err(|_| grant_error())?;
+    let granted_domains: Vec<i64> = grant.try_get(2).map_err(|_| grant_error())?;
     let target = raw_target
         .parse::<i64>()
         .map_err(|_| denied(400, "invalid user ID"))?;
@@ -94,18 +96,20 @@ pub async fn authorize(
         return Err(denied(400, "cannot impersonate yourself"));
     }
     let rows=exec.read("SELECT enabled,EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND (ra.expires_at IS NULL OR ra.expires_at>now())),EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND ra.role_group_id=1 AND (ra.expires_at IS NULL OR ra.expires_at>now())) FROM users WHERE id=$1",&[(&actor.user(),Type::INT8)]).await.map_err(|_|denied(403,"admin access required"))?;
-    let row = rows
-        .first()
-        .ok_or_else(|| denied(403, "admin access required"))?;
-    if !row.get::<_, bool>(0) || !row.get::<_, bool>(1) {
-        return Err(denied(403, "admin access required"));
+    let actor_error = || denied(403, "admin access required");
+    let row = rows.first().ok_or_else(actor_error)?;
+    if !row.try_get::<_, bool>(0).map_err(|_| actor_error())?
+        || !row.try_get::<_, bool>(1).map_err(|_| actor_error())?
+    {
+        return Err(actor_error());
     }
-    let actor_rank = if row.get::<_, bool>(2) { 4 } else { 3 };
+    let actor_rank = if row.try_get::<_, bool>(2).map_err(|_| actor_error())? { 4 } else { 3 };
     // Owner-approved security fix 2026-11-05 (#495): a domain-scoped grant only
     // reaches targets in its own domains (frozen Go did not constrain the target).
     let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND (ra.expires_at IS NULL OR ra.expires_at>now())),EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND ra.role_group_id=1 AND (ra.expires_at IS NULL OR ra.expires_at>now())),domain_id FROM users WHERE id=$1",&[(&target,Type::INT8)]).await.map_err(|_|denied(404,"user not found"))?;
     let row = rows.first().ok_or_else(|| denied(404, "user not found"))?;
-    let target_domain: Option<i64> = row.get(3);
+    let target_error = || denied(500, "account type resolution failed");
+    let target_domain: Option<i64> = row.try_get(3).map_err(|_| target_error())?;
     if !global_grant
         && !target_domain.is_some_and(|d| granted_domains.contains(&d))
         && !setjoin_contracts::mutants::on("impersonate-foreign-domain")
@@ -125,9 +129,9 @@ pub async fn authorize(
             "cannot impersonate a user outside your domain scope",
         ));
     }
-    let rank = if row.get::<_, bool>(2) {
+    let rank = if row.try_get::<_, bool>(2).map_err(|_| target_error())? {
         4
-    } else if row.get::<_, bool>(1) {
+    } else if row.try_get::<_, bool>(1).map_err(|_| target_error())? {
         3
     } else {
         0
@@ -151,11 +155,13 @@ pub async fn authorize(
     let guest = exec
         .read("SELECT is_guest_account($1)", &[(&target, Type::INT8)])
         .await
-        .map_err(|_| denied(500, "account type resolution failed"))?[0]
-        .get(0);
+        .map_err(|_| target_error())?
+        .first()
+        .and_then(|row| row.try_get(0).ok())
+        .ok_or_else(target_error)?;
     Ok(Target {
         user: target,
-        email: row.get(0),
+        email: row.try_get(0).map_err(|_| target_error())?,
         guest,
     })
 }

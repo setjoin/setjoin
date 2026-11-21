@@ -124,6 +124,13 @@ pub async fn needs_go<K: super::token::KeySource>(
         if call.name == "Core/echo" || !registered(&call.name) {
             continue;
         }
+        // HTTP parity: a family claims `null` args (family::classify), so the
+        // socket must not hand them to Go either.
+        if family_claims_null(env, call, |body| {
+            super::family::classify(body, commands.services.as_deref()).is_some()
+        }) {
+            continue;
+        }
         let Ok(Value::Object(args)) = serde_json::from_str::<Value>(call.args.get()) else {
             if call.args.get() != "null" {
                 continue;
@@ -133,7 +140,10 @@ pub async fn needs_go<K: super::token::KeySource>(
         if args.keys().any(|k| k.starts_with('#')) {
             return true;
         }
-        let Some(claimed) = super::claim(single_body(env, call, call.args.get()).as_bytes()) else {
+        let Some(claimed) = super::claim(
+            single_body(env, call, call.args.get()).as_bytes(),
+            commands.services.as_deref(),
+        ) else {
             return true;
         };
         if auth.is_none() {
@@ -148,7 +158,7 @@ pub async fn needs_go<K: super::token::KeySource>(
             .and_then(Value::as_str)
             .and_then(|s| s.parse::<i64>().ok())
         {
-            if account!=mailbox && commands.exec.read(
+            if account!=mailbox && !matches!(claimed, super::Claimed::Family(_)) && commands.exec.read(
                 "SELECT EXISTS(SELECT 1 FROM mailbox_delegates WHERE mailbox_id=$1 AND user_id=$2)",
                 &[(&account,setjoin_pg::Type::INT8),(&identity.user_id(),setjoin_pg::Type::INT8)]
             ).await.is_ok_and(|r|r[0].get::<_,bool>(0)){return true}
@@ -211,6 +221,12 @@ fn single_body(env: &Envelope, call: &Call, args: &str) -> String {
         args,
         crate::problem::go_string(&call.id)
     )
+}
+
+/// A `null`-argument call the family classifier claims stays native, exactly
+/// as the same body is claimed over HTTP.
+fn family_claims_null(env: &Envelope, call: &Call, claims: impl Fn(&[u8]) -> bool) -> bool {
+    call.args.get() == "null" && claims(single_body(env, call, "null").as_bytes())
 }
 
 /// Use Go's WebSocket seam: forwarding this as HTTP POST would introduce
@@ -708,7 +724,7 @@ fn server_fail() -> String {
 }
 
 // Frozen Go registerMethods metadata; unknown names retain core.
-fn metadata(name: &str) -> Option<&'static str> {
+pub(super) fn metadata(name: &str) -> Option<&'static str> {
     Some(match name {
         "Core/echo" => "urn:ietf:params:jmap:core",
         "Continuity/get"
@@ -827,4 +843,31 @@ fn capability(name: &str) -> &'static str {
 }
 fn registered(name: &str) -> bool {
     metadata(name).is_some()
+}
+
+#[cfg(test)]
+mod family_tests {
+    use super::*;
+
+    #[test]
+    fn null_family_args_use_the_http_classification_body() {
+        let env = Envelope {
+            using: vec!["urn:test".into()],
+            ..Default::default()
+        };
+        let call = Call {
+            name: "Test/get".into(),
+            args: RawValue::from_string("null".into()).expect("null"),
+            id: "c".into(),
+        };
+        assert!(family_claims_null(&env, &call, |body| {
+            body == br#"{"using":["urn:test"],"methodCalls":[["Test/get",null,"c"]]}"#
+        }));
+        assert!(!family_claims_null(&env, &call, |_| false));
+        let object = Call {
+            args: RawValue::from_string("{}".into()).expect("object"),
+            ..call
+        };
+        assert!(!family_claims_null(&env, &object, |_| true));
+    }
 }

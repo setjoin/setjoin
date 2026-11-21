@@ -1,0 +1,68 @@
+{
+  "case": "off-login-success",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "success",
+          "protocol": "http",
+          "source_ip": "127.0.0.45",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [
+        {
+          "event": "device_new",
+          "metadata": {
+            "device_hash": "71744d6af7ffc1fd323d679cd12f93d19d149c151c1b0ace0348a79a13a10f69"
+          },
+          "source_ip": "127.0.0.45",
+          "user": true
+        }
+      ],
+      "devices": [
+        {
+          "agent": "GOFREE349A oracle",
+          "count": 1,
+          "country": "",
+          "hash": "71744d6af7ffc1fd323d679cd12f93d19d149c151c1b0ace0348a79a13a10f69",
+          "prefix": "127.0.0.0"
+        }
+      ],
+      "lockouts": [],
+      "rate": [
+        {
+          "count": 1,
+          "key": "auth:http:127.0.0.45"
+        }
+      ]
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Password1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"access_token\":\"<access_token>\",\"expires_in\":3600,\"refresh_token\":\"<refresh_token>\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "set-cookie": "access_token=<access_token>; Path=/; Max-Age=3600; HttpOnly; SameSite=Strict"
+          },
+          "status": 200
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/login"
+}

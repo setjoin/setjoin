@@ -1,0 +1,46 @@
+{
+  "case": "off-begin-lockout-divergence",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "success",
+          "protocol": "http",
+          "source_ip": "127.0.0.62",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/forgot-password/begin",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"message\":\"If an account with that email exists and has multi-factor authentication enabled, a verification challenge has been sent.\",\"method\":\"totp\"}\n",
+          "headers": {
+            "cache-control": "no-store",
+            "content-type": "application/json"
+          },
+          "status": 200
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/forgot-password/begin"
+}

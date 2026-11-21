@@ -1,5 +1,7 @@
 # JMAP live push oracle (#318)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 The seam is the real front door, including WebSocket handshakes and live frames.
 `bins/gateway/tests/jmap_push_recorded.rs` records immutable frozen-Go sessions;
 ordinary replay has no Go upstream. The test signer/JWKS are public fixtures.

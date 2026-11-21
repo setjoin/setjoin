@@ -41,6 +41,8 @@ configuration error is an evidence failure, not a clean result.
   consume its projections while retaining lane-specific artifact and CGO policy.
 - Three-stack deployment rehearsal: `RUN_PREFIX=<unique> bash scripts/unified-deployment-readiness.sh provision`; use `resume-provision` only for its guarded pre-install retry path.
 - Portable rewind after successful A/B provisioning and updater rehearsal: `RUN_PREFIX=<same> REWIND_ATTEMPT=<new> bash scripts/transactional-upgrade-rehearsal.sh rewind`.
+- Structural guards: `bash scripts/run-guards-selftest.sh && bash scripts/run-guards.sh --known-red scripts/guards-known-red.txt` (the lane's `guards` job; plain `run-guards.sh` treats every red guard as failure)
+- pgTAP suites: `bash scripts/run-pgtap-lane.sh scripts/pgtap-known-red.txt -h HOST -p PORT -U USER -d DB` (the lane's `pgtap` job; suites listed in `scripts/pgtap-known-red.txt` run and warn, and a listed suite that passes fails the ratchet)
 - Hot-context guard: `bash scripts/check-agent-context-budget.sh`
 - Rust server, front-door inventory and oracle adequacy: `bash scripts/check-server-rust.sh`
   (runs route completeness, golden floor, per-route replay/coverage and mutant
@@ -49,8 +51,8 @@ configuration error is an evidence failure, not a clean result.
   ports, tracked bytecode, context budget, hosted-lane shard merge; `--lane <filter|changed>` prints the quick-lane command).
 - Oracle adequacy: replays and mutants run `LANE_ADEQUACY_JOBS` (default `LANE_JOBS`) at a time on per-replay clones; timeouts: `LANE_REPLAY_TIMEOUT` (default 900 s, run time of one replay or mutant,
 - Rust server full lane in parallel (#550): the `server-rust lane` workflow on GitHub-hosted
-  runners (every pull request and push to `main`: full lane plus coverage, sharded; `aggregate` is the
-  required check), or locally `LANE_PG_PORT=<port> PGPASSWORD=<pw> bash scripts/server-rust-parallel-lane.sh`
+  runners (merge-queue entries: with batching on, only the batch head runs the lane; exceptions are a late arrival queued after the head had decided, which runs its own lane, and a waiter that reaches the 90-minute cap, which runs the full lane itself; manual dispatch: full lane plus coverage, sharded; `aggregate` is the
+  required check; pull requests run only `pr-precheck.yml`, whose `aggregate` gates its `light` quick check and its `integration` job (selected `tests/*.rs` targets on the lane Postgres; selection self-test `python3 scripts/precheck-integration.py selftest`); a push to `main` only refreshes caches, and a nightly 02:30 UTC run is the full-lane backstop), or locally `LANE_PG_PORT=<port> PGPASSWORD=<pw> bash scripts/server-rust-parallel-lane.sh`
   test with serial groups for docker/fixed-port/`/dev/shm` binaries; on a dev host `LANE_MODE=serial` is the
 - Upgrade contract guard: `bash scripts/check-upgrade-contracts.sh`
 - HTTP socket activation on a root/systemd host: `python3 scripts/test-gateway-systemd.py <built-setjoin-gateway>`

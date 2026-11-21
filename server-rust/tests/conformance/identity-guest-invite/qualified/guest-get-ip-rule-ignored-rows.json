@@ -1,0 +1,87 @@
+{
+  "case": "guest-get-ip-rule-ignored-row-effects",
+  "effects": [
+    {
+      "after": {
+        "attempts": [],
+        "audit": [],
+        "guests": [
+          {
+            "enabled": false,
+            "invite": {
+              "disclosure_accepted": false,
+              "disclosure_version": "v1",
+              "live": true,
+              "terminal_reason": null,
+              "used": false,
+              "used_at_is_expiry": false
+            },
+            "lifecycle_expiry": false,
+            "must_change_password": false,
+            "owner": "actor",
+            "password": "absent",
+            "status": "invited"
+          },
+          {
+            "enabled": false,
+            "invite": {
+              "disclosure_accepted": false,
+              "disclosure_version": null,
+              "live": true,
+              "terminal_reason": null,
+              "used": false,
+              "used_at_is_expiry": false
+            },
+            "lifecycle_expiry": false,
+            "must_change_password": false,
+            "owner": "foreign",
+            "password": "absent",
+            "status": "invited"
+          }
+        ]
+      },
+      "before": {
+        "attempts": [],
+        "audit": [],
+        "guests": [
+          {
+            "enabled": false,
+            "invite": {
+              "disclosure_accepted": false,
+              "disclosure_version": null,
+              "live": true,
+              "terminal_reason": null,
+              "used": false,
+              "used_at_is_expiry": false
+            },
+            "lifecycle_expiry": false,
+            "must_change_password": false,
+            "owner": "actor",
+            "password": "absent",
+            "status": "invited"
+          },
+          {
+            "enabled": false,
+            "invite": {
+              "disclosure_accepted": false,
+              "disclosure_version": null,
+              "live": true,
+              "terminal_reason": null,
+              "used": false,
+              "used_at_is_expiry": false
+            },
+            "lifecycle_expiry": false,
+            "must_change_password": false,
+            "owner": "foreign",
+            "password": "absent",
+            "status": "invited"
+          }
+        ]
+      },
+      "table": "guest_invite"
+    }
+  ],
+  "format": 1,
+  "go_source": "779311f509b1ab3557a3390e9a2e9612ecfb0043",
+  "route": "GET /auth/guest-invite/accept"
+}

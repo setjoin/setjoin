@@ -22,7 +22,31 @@ IMAP re-exports it for compatibility. Pipeline order is feed acquisition, IP rul
 country, lockout, spray, CAPTCHA/tarpit (HTTP only), rate, pre-auth CA, feed reject.
 IP allow continues through later steps as Go does. `record` preserves independent
 best-effort attempt/sign-in, lockout and scoped device writes; post-auth evaluates
-verified user/groups with the shared policy engine. Protocols skip CAPTCHA.
+verified user/groups with the shared policy engine. Protocols skip CAPTCHA. Lockout keys
+and attempt rows bound long names on every protocol (`bounded_name`: at most 255 bytes,
+distinct per name past that; divergences `lockout-key-name-bounded`, `attempt-username-bounded`).
+`Gate::refusal` writes a refused request's row under `refusal_budget` (per source and outcome, one
+INSERT...SELECT; divergence `http-refusal-rows-bounded`; rows affected come from the command tag via
+`protocol_statement_count`). `captcha_needed` also
+replenishes one row per window/(2S) seconds whenever the source has no `captcha_needed` row in that
+gap. Bound per source and instance, with S = max(tarpit threshold, 29)+1 and P = request-pool size:
+at most S + P rows from the budget branch plus at most P rows per replenishment gap, i.e.
+<= S + P*(2S+1) `captcha_needed` rows per tarpit window under fully concurrent bursts; sequential
+traffic stays <= 3S+1 rows per window.
+Clustered expiry cannot empty the tarpit window only after continuous traffic of at least
+threshold × gap (threshold = `tarpit_threshold`, gap = window/(2S)). Before that there is a named
+dip: after a short burst expires, the window can briefly hold fewer than threshold rows. The dip
+closes at request rate: once the window holds fewer than S rows, the budget branch writes one row
+per refused request.
+Suppressed-row summary (CWE-779): when a budget-bounded INSERT writes 0 rows, `Gate::refusal` and
+the HTTP `http_refusal` call `note_suppressed_refusal` (`src/suppressed.rs`). It counts the outcome in
+a process-wide `SuppressedRefusals` static (fixed outcome index, no allocation per call) and, at most
+once per 60 s per process, writes one stderr line "threat refusal rows suppressed by budget (since last
+report): ..." with the non-zero per-outcome counts only, in a fixed outcome order. The line carries no
+source IP, username or user agent. Database errors are not counted. The first suppression after start is
+reported at once, then at most one line per 60 s; counts left after a flood ends are reported with the
+next suppression at least 60 s after the previous report.
+`attempt` and `record` keep one row per call.
 
 `Watchers` owns independent direct LISTEN connections for `config_changed` (Go's
 feature_toggles listener) and `conditional_access`. Subscribe before reload,
@@ -64,8 +88,12 @@ Deployments must point DB_WORKER_DSN at setjoin_worker. Tests: `tests/gate_pool.
 reconciliation after a LISTEN gap; the auth-process cache keeps Go's independent
 30-second schedule and no notification subscription.
 
-HTTP adapters may reuse the exported `fingerprint`/`mask_ip` codecs (#339).
+HTTP adapters may reuse the exported `fingerprint`/`mask_ip` codecs (#339). Persisted rows use `stored_fingerprint` and `cap_agent` (512-byte user agent cap, divergence `stored-user-agent-capped`); `device_hash` keeps hashing the whole `fingerprint`.
 The OP oracle pins the same anonymous `agent|masked-IP` attempt metadata.
 
 `registry` (ProtocolSessionRegistry) and `tracker` (per-user ConnTracker) moved here from
 `setjoin-imap` (#501) so IMAP and SMTP submission share one implementation; IMAP re-exports them.
+
+`ip_rule_blocked` returns `Result<bool, ()>` for auth HTTP ingress: no match or allow is `Ok(false)`, block is `Ok(true)`, and timeout/query/decode failure is `Err(())`. HTTP rejects errors with 403 and `ip_rules_unavailable`, matching the protocol gate's approved fail-closed divergence (#367, #342, #346). See `oracle/divergences.json`.
+
+`decide_with(CaptchaStep)` serves HTTP (#349): `Full` without a captcha token, `Skip` for a verified and claimed token (Go), `TarpitOnly` for a token that fails; `decide(_, true)` stays `Skip` for protocol listeners. HTTP lockout checks the `ip:` key even without a username (#349 divergence).

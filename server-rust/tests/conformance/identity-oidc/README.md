@@ -1,5 +1,7 @@
 # OIDC Provider oracle (#339)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `op-private.pem` / `op-public.pem` are synthetic2048-bit RSA fixtures, never
 production material. Frozen Go loads the same PKCS#8 key used by native replay.
 Every golden is recorded through the real Rust front door using the covered

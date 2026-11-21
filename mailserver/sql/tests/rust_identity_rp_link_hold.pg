@@ -18,8 +18,7 @@ SELECT rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-00000
 SELECT rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000004',digest('token-4b','sha256'),'https://idp.pgtap547.test','subject-4b',NULL);
 SELECT is(rust_identity_rp_link_take('oidc:pgtap547','54700000-0000-4000-8000-000000000004',digest('token-4a','sha256'))->>'status','none','a newer assertion replaces the older one of the same flow');
 SELECT rust_identity_rp_link_hold('oidc:pgtap547','54700000-0000-4000-8000-000000000005',digest('token-5','sha256'),'https://idp.pgtap547.test','subject-5',NULL);
-SET LOCAL ROLE setjoin_app;
-SELECT is((SELECT count(*) FROM oidc_link_completions),0::bigint,'the request credential sees no held assertion (FORCE RLS, worker-only policy)');
-RESET ROLE;
+SELECT is(has_table_privilege('setjoin_app','public.oidc_link_completions','SELECT'),false,
+  'the request credential lacks SELECT on held assertions');
 SELECT * FROM finish();
 ROLLBACK;

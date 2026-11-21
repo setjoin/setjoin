@@ -1,5 +1,15 @@
 [
   {
+    "behavior": "SSO completion refuses a guest account at mint time",
+    "go_source": "mailserver/internal/auth/auth.go:1576-1589 (P17 refuses guests at resolution; the later mint lookup can derive acct: guest)",
+    "rust": "bins/auth/src/rp.rs GuestMint::Refuse, pinned by guest_scope N7",
+    "reason": "Go refuses guests when it resolves the SSO identity, but its later mint lookup is a separate read and can derive acct: guest for an account that became a guest in between. Rust refuses at mint time, so no guest token is minted on the SSO path. Behavior predates #382; recorded here as a divergence, with no Go golden to pin.",
+    "reviewed": true,
+    "reviewer": "owner policy 2026-11-05 (security Go bugs are fixed in Rust as approved divergences); Codex and Fable reviews of #382",
+    "review": "security Go bug fixed in Rust under the owner's divergence policy; Codex review of #382",
+    "review_reference": "owner policy 2026-11-05; PR #382 (guest scope, #353) Codex merge gate and Fable code review 2026-11-16"
+  },
+  {
     "baseline": "goldens/callback-address-collision.json",
     "expectation": "security/callback-address-collision.json",
     "reason": "owner-approved functional fix 2026-11-09 (#548): the callback's four flow-cookie clears (oidc_state, oidc_verifier, oidc_nonce, oidc_provider) are SameSite=Lax instead of Strict, because a browser ignores a Strict Set-Cookie on the cross-site navigation response and the single-use flow cookies would stay live.",
@@ -1206,5 +1216,16 @@
     "reviewed": true,
     "reviewer": "diff reviewed by the #548 implementer; owner decision 2026-11-09 (#548)",
     "sha256": "8a1e9f4a12c9aa096e15f4612b6d1e69cd056268b413d1c133852a0e5cf694d3"
+  },
+  {
+    "case": "failclosed-sso-risk-read-error",
+    "issue": "#454",
+    "reviewed": true,
+    "reviewer": "owner, 2026-11-18",
+    "review": "security Go bug fixed in Rust",
+    "review_reference": "owner security-bug policy; PR #457",
+    "reason": "Frozen Go's SSO completion issues through issueTokensWithFactors, whose risk read is fail-open. Rust reads the verified user's risk once, right after settlement and before any token is signed or stored, and answers 500 'token issue failed' on a failed read (flag lookup included). The IdP code or assertion and the settlement sync are already spent, as in Go; the user signs in again.",
+    "go_source": "authserver/internal/handlers/auth.go:2362; authserver/internal/handlers/auth.go:2005; authserver/internal/handlers/auth.go:2663-2683",
+    "secure_test": "bins/auth/tests/rp_faults.rs::failclosed_454_sso_risk_fault_issues_no_token"
   }
 ]

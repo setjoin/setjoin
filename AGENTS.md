@@ -23,9 +23,9 @@ preserve text verbatim.
 ## Architecture invariants
 
 - **Logic where the data is:** PL/pgSQL reducers in `mailserver/sql/reducers/` own
-  business logic; Go translates protocols today and Rust replaces it route by route
-  ([ARCH-028](docs/adr/ARCH-028-rust-replaces-go-reducers-stay.md),
-  [ARCH-026](docs/adr/ARCH-026-per-command-rust-authority-transfer.md)). Rust calls a
+  business logic. Go is frozen and serves only as the parity reference while Rust replaces
+  it route by route (Go-free spec #25,
+  [ARCH-028](docs/adr/ARCH-028-rust-replaces-go-reducers-stay.md)). Rust calls a
   reducer rather than reimplementing multi-statement logic. A mutator commits data, state
   bumps, audit and `pg_notify` in one transaction.
 - **Connections:** `DB_DSN` is the PgBouncer request pool; `DB_DIRECT_DSN` serves only
@@ -51,8 +51,10 @@ Read `docs/standards/DATABASE_SECURITY.md` before touching a user-data query.
 
 ## Conventions and verification
 
-- Go: [CODE_QUALITY.md](docs/standards/CODE_QUALITY.md); PL/pgSQL: `mailserver/sql/AGENTS.md`;
-  Svelte: `mailserver/webmail/AGENTS.md`.
+- Rust: `server-rust/AGENTS.md`; PL/pgSQL: `mailserver/sql/AGENTS.md`; Svelte:
+  `mailserver/webmail/AGENTS.md`; frozen Go: [CODE_QUALITY.md](docs/standards/CODE_QUALITY.md).
+- Frozen Go is not patched. A Go security bug is fixed in Rust as a recorded divergence; a
+  functional Go behaviour is mirrored.
 - Git: branch from `main`; commit and push only your own branch when asked or as the
   [subagent workflow](docs/agents/subagent-workflow.md) allows; never push `main`; deploy
   only when asked; preserve unrelated dirty-worktree changes.
@@ -60,6 +62,9 @@ Read `docs/standards/DATABASE_SECURITY.md` before touching a user-data query.
   or `bash scripts/verify-all.sh list`. Missing, skipped or flaky-after-retry cases are
   failures. Fix failures you caused; keep tests strict.
 - CI: GitHub-hosted runners only; workflows and lanes are listed in `.github/CI-RUNNERS.md`.
+  Only the merge-queue lane runs `scripts/run-guards.sh`, so run the standalone guards for
+  the area you touched before opening a PR. A known-red guard that starts passing blocks
+  until its entry is removed from `scripts/guards-known-red.txt`.
 
 ## Execution environment and task cleanup
 
@@ -71,8 +76,11 @@ Record temporary resources before launch and clean only what you own.
 
 - Status: [program directory](docs/agents/PROGRAM_STATUS.md); queue: GitHub issues. Read only
   the owning plan; behavior stays OFF until its rollout decision admits it.
-- Agent workflows: `docs/agents/` (planning pipeline, governance handoff,
-  [subagent workflow](docs/agents/subagent-workflow.md)); select by task.
+- Agent workflows: `docs/agents/`. Delegated work follows the
+  [subagent workflow](docs/agents/subagent-workflow.md): Claude Code coordinates; Codex
+  `gpt-6.2-sol` implements, plans and gates, with `gpt-6.2-astra` as the fallback and
+  tie-break; review gates decide merges. When Codex is unavailable, Claude Code does the
+  work itself under the same gates. Risk-area designs get a plan review before code.
 
 ## Agent skills
 
@@ -82,12 +90,12 @@ Record temporary resources before launch and clean only what you own.
 
 ## Child DOX Index
 
-- `mailserver/AGENTS.md` — gateway, SQL, webmail, protocols, worker transfer gates and session/TLS oracle recorders.
+- `mailserver/AGENTS.md` — frozen Go gateway, SQL reducers, webmail and oracle recorders.
 - `authserver/AGENTS.md` — identity, MFA, sync and threat policy.
 - `shared/AGENTS.md` — shared Go contracts and parity-vector recorder.
 - `mailctl/AGENTS.md` — frozen Go CLI parity reference; shipped CLI is in `server-rust/bins/mailctl/`.
 - `clients/AGENTS.md` — desktop, mobile and shared Rust.
-- `server-rust/AGENTS.md` — Rust rewrite: front door, shared authz/live roles, scoped commands, workers and TLS lifecycle, family isolation, licence policy, pilot and recorded parity/adequacy gate including shared-format vectors.
+- `server-rust/AGENTS.md` — Rust server: front door, authz, scoped commands, workers, licence policy and parity gates.
 - `asrbot/AGENTS.md` — Meet captions bot.
 - `docs/AGENTS.md` — documentation taxonomy and owners.
 

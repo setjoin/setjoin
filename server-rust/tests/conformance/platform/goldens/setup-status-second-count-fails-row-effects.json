@@ -1,0 +1,13 @@
+{
+  "case": "second-count-fails-row-effects",
+  "effects": [
+    {
+      "after": [],
+      "before": [],
+      "table": "none"
+    }
+  ],
+  "format": 1,
+  "go_source": "dd728b5b42d6a44fce0a46aad3a9657be08512b0",
+  "route": "GET /setup/status"
+}

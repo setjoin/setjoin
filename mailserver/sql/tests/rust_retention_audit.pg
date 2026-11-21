@@ -25,9 +25,11 @@ CREATE FUNCTION gofree_compl2_tap_audit_fault() RETURNS trigger LANGUAGE plpgsql
 CREATE TRIGGER gofree_compl2_tap_audit_fault BEFORE INSERT ON admin_audit_log FOR EACH ROW EXECUTE FUNCTION gofree_compl2_tap_audit_fault();
 SELECT throws_ok(format($q$SELECT rust_compliance_retention_create(%s,0,'{"name":"compl2 unaudited","description":"","action":"delete","isDefault":false}','127.0.0.1')$q$,(SELECT actor FROM compl2_ids)),'P0001','compl2 tap audit fault','mandatory policy audit failure propagates');
 SELECT is((SELECT count(*)::int FROM retention_policies WHERE name='compl2 unaudited'),0,'mandatory audit rolls data back');
-SELECT ok(rust_compliance_audit_policy_set((SELECT actor FROM compl2_ids),'full',ARRAY['audit'],'reason','127.0.0.1'),'audit-policy update preserves Go best-effort audit');
-SELECT is((SELECT level FROM audit_policy WHERE id=1),'full','audit-policy data survives audit failure');
-SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='audit_policy_change' AND user_id=(SELECT actor FROM compl2_ids)),0,'failed best-effort audit leaves no row');
+CREATE TEMP TABLE compl2_audit_before AS SELECT to_jsonb(p) value FROM audit_policy p WHERE id=1;
+SELECT throws_ok($q$SELECT rust_compliance_audit_policy_set((SELECT actor FROM compl2_ids),'full',ARRAY['audit'],'reason','127.0.0.1')$q$,
+ 'P0001','compl2 tap audit fault','audit-policy audit failure propagates');
+SELECT is((SELECT to_jsonb(p) FROM audit_policy p WHERE id=1),(SELECT value FROM compl2_audit_before),'audit failure rolls back the audit-policy update');
+SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE action='audit_policy_change' AND user_id=(SELECT actor FROM compl2_ids)),0,'failed audit-policy update leaves no audit row');
 CREATE TEMP TABLE compl2_config_before AS SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY key),'[]') value FROM system_config t WHERE key LIKE 'log_retention_%';
 SELECT rust_compliance_log_retention_set(0,ARRAY[7,8,9,10]::bigint[]);
 SELECT is((SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY key),'[]') FROM system_config t WHERE key LIKE 'log_retention_%'),(SELECT value FROM compl2_config_before),'absent actor cannot alter global settings');

@@ -193,6 +193,15 @@ obligation, or a governed exception. Duplicate ids, missing files/selectors,
 uncovered obligations, stale/expired exceptions, absolute/out-of-root paths,
 and unknown schema fields fail the guard.
 
+## Time windows and normalisation
+
+- A test that depends on a wall-clock window (second, minute, TTL, rate-limit bucket) pins or
+  aligns the window and asserts the stored window did not change. Elapsed-time assertions use
+  the real limit, never a guessed duration. Examples: push approval `issued_at` against the
+  120 s challenge; `chat_send_counters` per-minute window.
+- Normalisation and redaction validate a value before masking it. Relabelling (for example, a
+  concurrent winner) touches only the expected values and asserts they are present.
+
 ## Exceptions
 
 An exception contains all of:

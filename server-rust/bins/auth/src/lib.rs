@@ -11,6 +11,9 @@ mod webauthn;
 mod oidc;
 mod rp;
 mod saml;
+mod http_threat;
+mod captcha;
+mod guest_invite;
 use bytes::Bytes;
 pub use config::Config;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
@@ -60,8 +63,15 @@ pub struct AuthServer {
     forgot_password: bool,
     recovery_ip: setjoin_identity::push::IpBudget,
     recovery_worker: Option<setjoin_pg::ScopedExecutor>,
+    guest_worker: Option<setjoin_pg::ScopedExecutor>,
+    geo: Option<Arc<setjoin_authz::geoip::CountryDb>>,
     push_ip: setjoin_identity::push::IpBudget,
     native_push: setjoin_identity::push_delivery::Dispatch,
+    /// Shared threat gate (#349): watcher-fed in production; credential routes
+    /// answer 503 without one.
+    gate: Option<Arc<setjoin_threat::Gate>>,
+    /// Captcha tokens already accepted by this process (#349 single-use).
+    captcha_used: captcha::UsedSet,
 }
 impl AuthServer {
     fn oidc_cors(&self,req:&Request<Body>,mut reply:Response<Body>)->Response<Body> {
@@ -104,8 +114,12 @@ impl AuthServer {
             forgot_password: false,
             recovery_ip: Default::default(),
             recovery_worker: None,
+            guest_worker: None,
+            geo: None,
             push_ip: Default::default(),
             native_push: Default::default(),
+            gate: None,
+            captcha_used: Default::default(),
         }
     }
     pub async fn load(exec: setjoin_pg::ScopedExecutor, config: Config) -> Result<Self, String> {
@@ -156,6 +170,40 @@ impl AuthServer {
             setjoin_identity::push_delivery::Dispatch::from_env()
         };
         let recovery_worker = config.worker_dsn.as_deref().filter(|s|!s.is_empty()).or_else(||(!config.dsn.is_empty()).then_some(config.dsn.as_str())).map(|dsn|setjoin_pg::ScopedExecutor::from_dsn(dsn,4).map_err(|e|e.0)).transpose()?;
+        // #342: Go's guest-invite workerPool on its own two-connection pool.
+        let guest_worker = config
+            .worker_dsn
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
+            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0))
+            .transpose()?
+            .map(|w| {
+                if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
+                    w.with_audit_keys(
+                        config.db_encryption_key.clone(),
+                        config.audit_hmac_key.clone(),
+                    )
+                } else {
+                    w
+                }
+            });
+        match &guest_worker {
+            Some(w) => {
+                if let Err(e) = setjoin_identity::guest_invite::readiness(w).await {
+                    eprintln!("setjoin-auth: guest invite acceptance degraded: {e}");
+                }
+            }
+            None => eprintln!("setjoin-auth: guest invite acceptance degraded: no worker DSN"),
+        }
+        let geo = (!config.geoip_path.is_empty())
+            .then(|| {
+                std::fs::read(&config.geoip_path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|b| setjoin_authz::geoip::CountryDb::from_bytes(b, false, ""))
+            })
+            .and_then(Result::ok)
+            .map(Arc::new);
         let oidc_key = if config.oidc_enabled {
             let (private,public)=(config.oidc_private_key.clone(),config.oidc_public_key.clone());
             Some(tokio::task::spawn_blocking(move || setjoin_identity::oidc::SigningKey::load(&private,&public)).await.map_err(|_|"OIDC key task failed")??)
@@ -179,14 +227,59 @@ impl AuthServer {
             forgot_password,
             recovery_ip: Default::default(),
             recovery_worker,
+            guest_worker,
+            geo,
             push_ip: Default::default(),
             native_push,
+            gate: None,
+            captcha_used: Default::default(),
             client: client(),
             exec,
             keys: Some(Arc::new(keys)),
             legacy: Some(legacy),
             config,
         })
+    }
+    /// Embedding/test seam (#342): replace the guest-invite worker executor; the
+    /// configured audit keys are applied. Grants no identity authority.
+    pub fn with_guest_worker(mut self, worker: setjoin_pg::ScopedExecutor) -> Self {
+        self.guest_worker = Some(
+            if !self.config.db_encryption_key.is_empty() || !self.config.audit_hmac_key.is_empty() {
+                worker.with_audit_keys(
+                    self.config.db_encryption_key.clone(),
+                    self.config.audit_hmac_key.clone(),
+                )
+            } else {
+                worker
+            },
+        );
+        self
+    }
+    /// Attach the shared threat gate (#349). main.rs passes the gate that the
+    /// feature/CA watchers keep fresh.
+    pub fn with_gate(mut self, gate: Arc<setjoin_threat::Gate>) -> Self {
+        self.gate = Some(gate);
+        self
+    }
+    /// Embedding/test seam (#349): build and attach a gate from this server's
+    /// threat configuration, with its request and worker pools on `dsn` and GeoIP
+    /// from `geoip_path`. Grants no identity authority.
+    pub async fn with_threat_gate(self, dsn: &str) -> Result<Self, Error> {
+        self.with_threat_gate_dsns(dsn, dsn).await
+    }
+    /// [`Self::with_threat_gate`] with separate request and worker DSNs.
+    pub async fn with_threat_gate_dsns(self, request_dsn: &str, worker_dsn: &str) -> Result<Self, Error> {
+        let request = setjoin_pg::ScopedExecutor::from_dsn(request_dsn, 4).map_err(|e| e.0)?;
+        let worker = setjoin_threat::WorkerPools::from_dsn(worker_dsn)?;
+        let geo = if self.config.geoip_path.is_empty() {
+            None
+        } else {
+            let bytes = std::fs::read(&self.config.geoip_path)?;
+            Some(setjoin_authz::geoip::CountryDb::from_bytes(bytes, false, "")?)
+        };
+        let gate =
+            setjoin_threat::Gate::load(request, worker, self.config.threat.clone(), geo).await?;
+        Ok(self.with_gate(gate))
     }
     /// Embed a native provider transport without granting it identity authority.
     pub fn with_native_push(
@@ -234,7 +327,9 @@ impl AuthServer {
             .extensions()
             .get::<ConnectionMeta>()
             .map_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), |m| {
-                m.peer.ip()
+                // A dual-stack listener reports an IPv4 proxy as ::ffff:a.b.c.d; Go's
+                // RemoteAddr prints the IPv4 form, so match on the canonical address.
+                m.peer.ip().to_canonical()
             });
         let trusted = if self.config.client_proxy == peer.to_string() {
             setjoin_authz::clientip::TrustedProxies::parse(&peer.to_string()).unwrap_or_default()
@@ -411,8 +506,10 @@ impl AuthServer {
         }
         if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/auth/webauthn/credentials" { return self.webauthn_list(req).await; }
         if req.uri().path().starts_with("/auth/webauthn/") {return Self::webauthn_mux(req);}
+        // verify and enroll/confirm bound their own body after the completion route (totp.rs), so
+        // they are not in this list: a flag error refuses locally before any handoff (#454 Codex r2).
         let req = if (req.method()==Method::POST && matches!(req.uri().path(),
-            "/auth/totp/confirm"|"/auth/totp/verify"|"/auth/totp/enroll/setup"|"/auth/totp/enroll/confirm")) ||
+            "/auth/totp/confirm"|"/auth/totp/enroll/setup")) ||
             (matches!(req.method(),&Method::GET|&Method::HEAD) && req.uri().path()=="/auth/totp/setup") {
             match self.totp_ingress(req).await {Ok(req)=>req,Err(reply)=>return reply}
         } else {req};
@@ -444,6 +541,9 @@ impl AuthServer {
             if let Some(allow)=allow {reply=reply.header("allow",allow);}
             if req.method()==Method::HEAD {reply=reply.header("content-length",text.len());}
             return reply.body(body(if req.method()==Method::HEAD{""}else{text})).unwrap();
+        }
+        if req.uri().path() == "/auth/guest-invite/accept" {
+            return self.guest_invite(req).await;
         }
         let head = req.method() == Method::HEAD;
         let path = req.uri().path().to_owned();
@@ -578,17 +678,24 @@ impl AuthServer {
         r
     }
     async fn reset_password(&self, req: Request<Body>) -> Response<Body> {
+        // Go registers the route only when feature.forgot_password is on at boot:
+        // an unregistered pattern is the mux 404, outside the middleware.
         if !self.forgot_password {
             return Self::not_found();
         }
-        if self.config.threat_controls.iter().any(|v| *v)
-            || !matches!(
-                login::enabled(&self.exec, "feature.rate_limit").await,
-                Ok(false)
-            )
-        {
-            return self.forward(req).await;
-        } // #420 pre-auth interception.
+        let staged = match self.threat_stage(req, http_threat::Route::Reset).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.reset_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    /// Go threat.Middleware(CSRF(ForgotPasswordReset)), inner handler.
+    async fn reset_admitted(&self, req: Request<Body>) -> Response<Body> {
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {
             return Response::builder()
@@ -667,12 +774,22 @@ impl AuthServer {
         }
     }
     async fn refresh(&self, req: Request<Body>) -> Response<Body> {
+        let staged = match self.threat_stage(req, http_threat::Route::Refresh).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.refresh_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    /// Go CSRF(Refresh) inside the dynamic threat mount. No stamp: the tail keys
+    /// the verified token's identity (divergence refresh-username-verified-token).
+    async fn refresh_admitted(&self, req: Request<Body>) -> Response<Body> {
         use setjoin_pg::CommandOutcome;
         use sha2::{Digest, Sha256};
-        let rate = login::enabled(&self.exec, "feature.rate_limit").await;
-        if self.config.threat_controls.iter().any(|v| *v) || !matches!(rate, Ok(false)) {
-            return self.forward(req).await;
-        } // #420
         let path = req.uri().path().to_owned();
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {
@@ -718,6 +835,11 @@ impl AuthServer {
         let hash = Sha256::digest(token.as_bytes()).to_vec();
         let operation = uuid::Uuid::new_v4();
         let op = setjoin_contracts::ids::OperationId(*operation.as_bytes());
+        // #454 (owner Q1, Codex r1): the reducer's first call decides authority, revocation and
+        // reuse (its revoke side effect included) and rotates nothing. Only a request it would
+        // mint reads the risk claim, once across retries, before anything is signed or rotated.
+        // A failed read (flag lookup included) is retryable: 503 + Retry-After, never 401.
+        let mut risk: Option<Option<Value>> = None;
         for _ in 0..8 {
             let context = match session
                 .refresh(
@@ -740,6 +862,20 @@ impl AuthServer {
                 }
                 _ => return Self::failure(401, "invalid or revoked refresh token", &path),
             };
+            if risk.is_none() {
+                match session.risk(&self.exec).await {
+                    Ok(read) => risk = Some(read),
+                    Err(_) => {
+                        let mut r = Self::failure(
+                            503,
+                            "Token refresh temporarily unavailable. Please try again.",
+                            &path,
+                        );
+                        r.headers_mut().insert("retry-after", "5".parse().unwrap());
+                        return r;
+                    }
+                }
+            }
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -775,8 +911,8 @@ impl AuthServer {
             if context["guest"] == true {
                 claims["acct"] = json!("guest");
             }
-            if let Some(risk) = session.risk(&self.exec).await {
-                claims["risk"] = risk;
+            if let Some(Some(risk)) = &risk {
+                claims["risk"] = risk.clone();
             }
             let access = match self.sign(&claims) {
                 Ok(t) => t,
@@ -1055,8 +1191,9 @@ impl AuthServer {
         (headers, scheme)
     }
     async fn login(&self, req: Request<Body>) -> Response<Body> {
-        // Device proof consumes replay state in #420 even when CA permits the
-        // request. Preserve its original body for that owner's verification.
+        // #349 F7: every forward that headers or toggles decide runs first, on the
+        // raw request, so frozen Go never admits a request Rust already admitted.
+        // Device proof (#350) consumes replay state even when CA permits the request.
         if [
             "x-device-id",
             "x-device-hmac",
@@ -1069,21 +1206,34 @@ impl AuthServer {
         {
             return self.forward(req).await;
         }
-        let rate=self.exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'),true)",&[]).await;
-        if self.config.threat_controls.iter().any(|v| *v)
-            || rate.is_err()
-            || rate.as_ref().is_ok_and(|r| r[0].get::<_, bool>(0))
-        {
-            return self.forward(req).await;
+        match self.login_ca_route().await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
-        for control in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if !matches!(login::enabled(&self.exec, control).await, Ok(false)) {
-                return self.forward(req).await;
+        let staged = match self.threat_stage(req, http_threat::Route::Login).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        // A mounted request decides the dpop_jwk handoff (#352) from its buffered
+        // body before admission; an unmounted one keeps the late check below.
+        let dpop_decided = staged.raw().is_some();
+        if staged.raw().is_some_and(Self::login_dpop_requested) {
+            match self.token_binding_handoff("/auth/login").await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(staged.into_request()).await,
+                Err(reply) => return reply,
             }
         }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.login_admitted(req, dpop_decided).await;
+        self.threat_tail(admitted, reply).await
+    }
+    /// Go CSRF(Login): the handler behind the dynamic threat mount.
+    async fn login_admitted(&self, req: Request<Body>, dpop_decided: bool) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let (csrf_headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&csrf_headers, scheme) {
@@ -1139,10 +1289,11 @@ impl AuthServer {
         };
         // Go resolves guest CA context even when CA policies are disabled.
         // Lookup failure must precede force-password/MFA token minting.
-        match login::guest_scope(&self.exec, &proof).await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-            Err(_) => return Self::failure(503, "conditional access context unavailable", &path),
+        // Go populateGuestCAScope (auth.go:2499): the value only feeds CA, which
+        // forwards whole before any effect while on (#351). Guests continue
+        // natively (#353); a lookup failure is Go's 503 before any token.
+        if login::guest_scope(&self.exec, &proof).await.is_err() {
+            return Self::failure(503, "conditional access context unavailable", &path);
         }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1160,18 +1311,18 @@ impl AuthServer {
                 None,
             );
             return match self.sign(&claims) {
-                Ok(token) => Self::json(
+                Ok(token) => Self::threat_no_outcome(Self::json(
                     403,
                     json!({"status":"force_password_change","force_password_change":true,"force_token":token,"reason":"Administrator requires a password change before access is granted."}),
-                ),
+                )),
                 Err(_) => Self::failure(500, "token issue failed", &path),
             };
         }
         match login::mfa_policy(&self.exec,&proof).await {
             Ok(policy)=>{
-                if policy["status"]=="enrollment_required"{return self.totp_login_challenge(&proof,Some(&policy),&path).await;}
-                if proof.push{return self.push_login_challenge(&proof,&path).await;}
-                if proof.totp{return self.totp_login_challenge(&proof,None,&path).await;}
+                if policy["status"]=="enrollment_required"{return Self::threat_challenge(self.totp_login_challenge(&proof,Some(&policy),&path).await);}
+                if proof.push{return Self::threat_challenge(self.push_login_challenge(&proof,&path).await);}
+                if proof.totp{return Self::threat_challenge(self.totp_login_challenge(&proof,None,&path).await);}
             },
             Err(_)=>return Self::failure(503,"MFA policy verification unavailable. Please try again.",&path)
         }
@@ -1179,19 +1330,24 @@ impl AuthServer {
             Ok(d) => d,
             Err(_) => return Self::failure(500, "authorization scope resolution failed", &path),
         };
-        match login::admission(&self.exec,&proof).await{
-            Ok((true,false))=>{},Ok((false,_))=>return Response::builder().status(409).header("cache-control","no-store").header("content-type","application/problem+json").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
-            Ok((_,true))=>return self.forward(Request::from_parts(parts,body(raw))).await,
-            Err(login::AdmissionFailure::AccountType(_))=>return Self::failure(500,"account type resolution failed",&path),
-            _=>return Self::failure(500,"identity transition admission resolution failed",&path),
-        }
-        if input.dpop.as_object().is_some_and(|v| !v.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
+        let guest = match login::admission(&self.exec, &proof).await {
+            Ok((true, guest)) => guest,
+            Ok((false, _)) => return Response::builder().status(409).header("cache-control","no-store").header("content-type","application/problem+json").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
+            Err(login::AdmissionFailure::AccountType(_)) => {
+                return Self::failure(500, "account type resolution failed", &path)
+            }
+            Err(_) => {
+                return Self::failure(500, "identity transition admission resolution failed", &path)
+            }
+        };
+        if !dpop_decided
+            && input.dpop.as_object().is_some_and(|v| !v.is_empty())
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         }
         let family = uuid::Uuid::new_v4().to_string();
         let (jti, refresh_jti) = match (login::random_jti(), login::random_jti()) {
@@ -1208,8 +1364,14 @@ impl AuthServer {
             self.config.access_seconds,
             domain,
         );
-        if let Some(risk) = login::risk(&self.exec, &proof).await {
-            access_claims["risk"] = risk;
+        match login::risk(&self.exec, &proof).await {
+            Ok(Some(risk)) => access_claims["risk"] = risk,
+            Ok(None) => {}
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        }
+        // Go IssueInput.AccountType (auth.go:2005-2012): the access token only.
+        if guest {
+            access_claims["acct"] = Value::from("guest");
         }
         let refresh_claims = login::claims(
             &proof,
@@ -1311,7 +1473,7 @@ impl AuthServer {
             .parse()
             .unwrap(),
         );
-        response
+        Self::threat_user(response, proof.user())
     }
 }
 

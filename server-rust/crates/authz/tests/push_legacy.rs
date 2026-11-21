@@ -85,6 +85,11 @@ async fn claim_separation_for_hs256_and_sm2() {
             "valid mam",
             claims(json!({"mam":{"policy_version":3,"watermark":true}})),
         ),
+        ("string exp", claims(json!({"exp":(now + 600).to_string()}))),
+        (
+            "fractional string exp",
+            claims(json!({"exp":format!("{}.5", now + 600)})),
+        ),
     ] {
         assert!(
             admitted(&sign_hs256(SECRET, &c.to_string()), "mailserver").await,
@@ -132,7 +137,18 @@ async fn claim_separation_for_hs256_and_sm2() {
             "attachment account_id string",
             claims(json!({"attachment":{"account_id":"1"}})),
         ),
-        ("string exp", claims(json!({"exp":(now + 600).to_string()}))),
+        (
+            "non-numeric string exp",
+            claims(json!({"exp":"not-a-number"})),
+        ),
+        (
+            "whitespace string exp",
+            claims(json!({"exp":format!(" {}", now + 600)})),
+        ),
+        (
+            "leading-zero string exp",
+            claims(json!({"exp":format!("0{}", now + 600)})),
+        ),
     ];
     for (name, c) in refused {
         assert!(

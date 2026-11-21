@@ -27,8 +27,9 @@ Normalization: the fixture mailbox id in SSE state frames.
     cargo test --locked -p setjoin-gateway --test jmap_push_profiles_recorded -- --test-threads=1
 
 `claims.json` (test `legacy_claim_decoding_matches_frozen_go`, standard profile,
-HS256) records Go's claim decoding: fractional `exp`/`nbf`/`iat` are accepted
-and floored to whole seconds (jwt/v5 `NumericDate`), and a mistyped nested
-`mam`, `device`, `risk`, `identity_fence` or `attachment` field fails the whole
-token decode (401). Native admission mirrors both in `setjoin_authz::push` and
-`token::claims_shape_ok`.
+HS256) records Go's claim decoding: fractional and string-encoded JSON-number
+`exp`/`nbf`/`iat` values decode as jwt/v5 `NumericDate` (truncated to whole
+seconds), and a mistyped nested `mam`, `device`, `risk`, `identity_fence` or
+`attachment` field fails the whole token decode (401). Native admission mirrors
+both in `setjoin_authz::push` (via `token::decoded_claims` /
+`numeric_date`) and `token::claims_shape_ok`.

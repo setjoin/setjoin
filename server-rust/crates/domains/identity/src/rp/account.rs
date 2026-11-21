@@ -114,6 +114,8 @@ pub struct Missing<'a> {
 pub struct Resolution {
     pub(super) user: crate::totp::CompletionUser,
     pub(super) fence: Option<Value>,
+    /// The feature flag at resolution time, including when the source does not serve normalized reads.
+    feature: bool,
 }
 impl Resolution {
     pub fn user(&self) -> &crate::totp::CompletionUser {
@@ -135,14 +137,14 @@ impl Assertion {
         exec: &ScopedExecutor,
         worker: &ScopedExecutor,
     ) -> Result<Lookup<'_>, StatementFailure> {
-        let normalized = crate::login::enabled(exec, "feature.identity_model_v2")
+        let feature = crate::login::enabled(exec, "feature.identity_model_v2")
             .await
-            .unwrap_or(false);
+            .map_err(|_| failed("normalized identity resolution unavailable"))?;
         let mut evidence = Value::Null;
         let mut serve = false;
         let mut user = None;
         let mut fence = None;
-        if normalized {
+        if feature {
             let rows = worker
                 .read(
                     "SELECT identity_auth_resolve($3,$1,$2)::text",
@@ -150,8 +152,11 @@ impl Assertion {
                 )
                 .await
                 .map_err(|_| failed("normalized identity resolution unavailable"))?;
-            evidence = serde_json::from_str(&rows[0].get::<_, String>(0))
-                .map_err(|_| failed("normalized identity resolution unavailable"))?;
+            evidence = rows
+                .first()
+                .and_then(|r| r.try_get::<_, String>(0).ok())
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                .ok_or_else(|| failed("normalized identity resolution unavailable"))?;
             serve = evidence["serveNormalized"] == true;
             if serve && evidence["found"] == true {
                 user = Some(
@@ -172,20 +177,39 @@ impl Assertion {
             } else {
                 "SELECT id FROM users WHERE oidc_subject=$1 AND oidc_issuer=$2 AND enabled"
             };
-            if let Ok(rows) = exec
+            let rows = exec
                 .read(
                     exact,
                     &[(&self.subject, Type::TEXT), (&self.issuer, Type::TEXT)],
                 )
                 .await
-            {
-                user = rows.first().map(|r| r.get(0));
-            }
+                .map_err(|_| failed("normalized identity resolution unavailable"))?;
+            user = match rows.first() {
+                Some(r) => Some(
+                    r.try_get(0)
+                        .map_err(|_| failed("normalized identity resolution unavailable"))?,
+                ),
+                None => None,
+            };
             let mut address_hit = false;
             // SAML: the link is (registration, NameID), never an address (#546).
             if user.is_none() && (self.kind == "oidc" || crate::mutants::on("saml-link-by-email")) {
                 let address = setjoin_authz::address::canonical(&self.email);
-                if let Ok(rows)=exec.read("SELECT u.id FROM users u WHERE u.enabled AND (lower(u.email)=lower($1) OR lower(u.ad_upn)=lower($1) OR EXISTS(SELECT 1 FROM aliases a JOIN mailboxes mb ON mb.id=a.mailbox_id WHERE mb.user_id=u.id AND lower(a.email)=lower($1))) AND identity_address_claim_count(lower($1))=1 AND NOT identity_address_quarantined(lower($1)) LIMIT 1",&[(&address.as_str(),Type::TEXT)]).await {user=rows.first().map(|r|r.get(0));address_hit=user.is_some();}
+                let rows = exec
+                    .read(
+                        "SELECT u.id FROM users u WHERE u.enabled AND (lower(u.email)=lower($1) OR lower(u.ad_upn)=lower($1) OR EXISTS(SELECT 1 FROM aliases a JOIN mailboxes mb ON mb.id=a.mailbox_id WHERE mb.user_id=u.id AND lower(a.email)=lower($1))) AND identity_address_claim_count(lower($1))=1 AND NOT identity_address_quarantined(lower($1)) LIMIT 1",
+                        &[(&address.as_str(), Type::TEXT)],
+                    )
+                    .await
+                    .map_err(|_| failed("normalized identity resolution unavailable"))?;
+                user = match rows.first() {
+                    Some(r) => Some(
+                        r.try_get(0)
+                            .map_err(|_| failed("normalized identity resolution unavailable"))?,
+                    ),
+                    None => None,
+                };
+                address_hit = user.is_some();
             }
             if evidence["sourceId"].is_string() {
                 let source = number(&evidence, "sourceId")?;
@@ -210,13 +234,14 @@ impl Assertion {
                     )
                     .await;
             }
-            if address_hit {
-                let id = user.unwrap();
+            if let Some(id) = user.filter(|_| address_hit) {
                 let guest = exec
                     .read("SELECT is_guest_account($1)", &[(&id, Type::INT8)])
                     .await
-                    .map_err(|_| failed("account type resolution failed"))?[0]
-                    .get::<_, bool>(0);
+                    .map_err(|_| failed("account type resolution failed"))?
+                    .first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .ok_or_else(|| failed("account type resolution failed"))?;
                 return Err(failed(if guest {
                     "sso: identity resolves to a guest account"
                 } else {
@@ -228,7 +253,7 @@ impl Assertion {
             return Ok(Lookup::Missing(Missing {
                 assertion: self,
                 normalized: serve,
-                feature: normalized,
+                feature,
             }));
         };
         let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&user,Type::INT8)]).await?;
@@ -238,18 +263,21 @@ impl Assertion {
         let guest = exec
             .read("SELECT is_guest_account($1)", &[(&user, Type::INT8)])
             .await
-            .map_err(|_| failed("account type resolution failed"))?[0]
-            .get::<_, bool>(0);
+            .map_err(|_| failed("account type resolution failed"))?
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .ok_or_else(|| failed("account type resolution failed"))?;
         if guest {
             return Err(failed("sso: identity resolves to a guest account"));
         }
         Ok(Lookup::Existing(Resolution {
             user: crate::totp::CompletionUser {
                 user,
-                email: r.get(0),
-                admin: r.get(1),
+                email: r.try_get(0).map_err(|_| failed("normalized identity resolution unavailable"))?,
+                admin: r.try_get(1).map_err(|_| failed("normalized identity resolution unavailable"))?,
             },
             fence,
+            feature,
         }))
     }
 }
@@ -270,9 +298,7 @@ impl Assertion {
         resolution: &Resolution,
         allow_super: bool,
     ) -> Result<crate::totp::CompletionUser, StatementFailure> {
-        let normalized = crate::login::enabled(exec, "feature.identity_model_v2")
-            .await
-            .unwrap_or(false);
+        let normalized = resolution.feature;
         let key = provider.key();
         let bind = worker
             .protocol_statement(
@@ -322,19 +348,18 @@ impl Assertion {
             .ok_or_else(|| failed("SSO authorization state unavailable"))?;
         Ok(crate::totp::CompletionUser {
             user,
-            email: r.get(0),
-            admin: r.get(1),
+            email: r.try_get(0).map_err(|_| failed("SSO authorization state unavailable"))?,
+            admin: r.try_get(1).map_err(|_| failed("SSO authorization state unavailable"))?,
         })
     }
 }
 fn json_row(rows: &[setjoin_pg::Row]) -> Result<Value, StatementFailure> {
-    serde_json::from_str(
-        &rows
-            .first()
-            .ok_or_else(|| failed("empty SSO result"))?
-            .get::<_, String>(0),
-    )
-    .map_err(|_| failed("invalid SSO result"))
+    let raw: String = rows
+        .first()
+        .ok_or_else(|| failed("empty SSO result"))?
+        .try_get(0)
+        .map_err(|_| failed("invalid SSO result"))?;
+    serde_json::from_str(&raw).map_err(|_| failed("invalid SSO result"))
 }
 pub fn normalized_email(raw: &str) -> Option<String> {
     let s = setjoin_authz::address::canonical(raw).as_str().to_owned();
@@ -459,7 +484,8 @@ impl Missing<'_> {
             let user = rows
                 .first()
                 .ok_or_else(|| failed("user creation failed"))?
-                .get::<_, i64>(0);
+                .try_get::<_, i64>(0)
+                .map_err(|_| failed("user creation failed"))?;
             // Go's separate best-effort legacy mailbox statement.
             let _=exec.protocol_statement("INSERT INTO mailboxes(user_id,domain_id,email,display_name,type,is_primary) SELECT u.id,u.domain_id,u.email,u.display_name,'personal',true FROM users u WHERE u.id=$1 ON CONFLICT DO NOTHING",&[(&user,Type::INT8)]).await;
             (user, None)
@@ -469,10 +495,11 @@ impl Missing<'_> {
         Ok(Resolution {
             user: crate::totp::CompletionUser {
                 user,
-                email: r.get(0),
-                admin: r.get(1),
+                email: r.try_get(0).map_err(|_| failed("user creation failed"))?,
+                admin: r.try_get(1).map_err(|_| failed("user creation failed"))?,
             },
             fence,
+            feature: self.feature,
         })
     }
 }
@@ -521,7 +548,6 @@ impl Resolution {
                 "SELECT is_guest_account($1)",
                 &[(&self.user.user, Type::INT8)],
             )
-            .await?[0]
-            .get(0))
+            .await?.first().and_then(|r| r.try_get(0).ok()).ok_or_else(|| failed("guest scope unavailable"))?)
     }
 }

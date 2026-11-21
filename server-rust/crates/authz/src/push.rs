@@ -67,25 +67,6 @@ impl PushIdentity {
     }
 }
 
-/// jwt/v5 `NumericDate.UnmarshalJSON` + `Truncate(time.Second)`: any JSON number
-/// is accepted and floored to whole seconds; a non-number stays for the shape check.
-fn floor_numeric_dates(claims: &mut Map<String, Value>) -> Option<()> {
-    for key in ["exp", "nbf", "iat"] {
-        let Some(Value::Number(n)) = claims.get(key) else {
-            continue;
-        };
-        if n.is_i64() {
-            continue;
-        }
-        let f = n.as_f64()?.floor();
-        if !f.is_finite() || f.abs() >= 9.2e18 {
-            return None;
-        }
-        claims.insert(key.into(), Value::from(f as i64));
-    }
-    Some(())
-}
-
 async fn verified_claims(
     _exec: &ScopedExecutor,
     keys: &impl KeySource,
@@ -93,26 +74,28 @@ async fn verified_claims(
     token: &str,
     drive_scope: bool,
 ) -> Option<Map<String, Value>> {
-    let mut claims = token::signed_claims(token, keys).await?;
-    // Go's jwt NumericDate accepts fractional exp/nbf/iat and truncates to whole
-    // seconds (floor); mirror that before the shape check (#356a).
-    floor_numeric_dates(&mut claims)?;
+    // Signature + Go jwt/v5 NumericDate decoding (fractional, string numbers,
+    // case-folded keys, and amd64 wrap semantics, #354).
+    let claims = token::decoded_claims(token, keys).await?;
     token::claims_shape_ok(&claims)?;
     let text = |key: &str| claims.get(key).and_then(Value::as_str).unwrap_or("");
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
-        .as_secs() as i64;
+        .as_secs_f64();
     if issuer.is_empty()
         || text("iss") != issuer
         || text("typ") != "access"
         || (!text("scp").is_empty() && !(drive_scope && text("scp") == "drive"))
-        || (!drive_scope && claims.get("iat")?.as_i64().is_none())
-        || now >= claims.get("exp")?.as_i64()?
+        || (!drive_scope && claims.get("iat").and_then(Value::as_i64).is_none())
         || claims
-            .get("nbf")
-            .filter(|v| !v.is_null())
-            .is_some_and(|v| v.as_i64().is_none_or(|n| now < n))
+            .get("exp")
+            .and_then(Value::as_i64)
+            .is_none_or(|exp| crate::numeric_date::expired(now, exp))
+        || claims.get("nbf").filter(|v| !v.is_null()).is_some_and(|v| {
+            v.as_i64()
+                .is_none_or(|n| crate::numeric_date::not_yet_valid(now, n))
+        })
     {
         return None;
     }
@@ -132,6 +115,32 @@ pub enum PushAuthError {
     Invalid,
     GuestInactive,
     GuestUnavailable,
+}
+
+/// The guest-status half of `authenticate_for_scope` over claims `admit` already
+/// accepted with Go's rules (#354: scoped path, exact NumericDate).
+pub(crate) async fn identity_from_accepted(
+    exec: &ScopedExecutor,
+    claims: Map<String, Value>,
+) -> Result<PushIdentity, PushAuthError> {
+    let user = claims.get("uid").and_then(Value::as_i64).unwrap_or(0);
+    let claimed_guest = claims.get("acct").and_then(Value::as_str) == Some("guest");
+    let rows = exec
+        .read(
+            "SELECT status, expires_at IS NOT NULL AND expires_at < now() FROM guest_account_status($1)",
+            &[(&user, Type::INT8)],
+        )
+        .await
+        .map_err(|_| PushAuthError::GuestUnavailable)?;
+    let guest = match rows.first() {
+        Some(row) if row.get::<_, String>(0) != "active" || row.get::<_, bool>(1) => {
+            return Err(PushAuthError::GuestInactive)
+        }
+        Some(_) => true,
+        None if claimed_guest => return Err(PushAuthError::GuestInactive),
+        None => false,
+    };
+    Ok(PushIdentity { claims, guest })
 }
 
 pub async fn authenticate(
@@ -170,21 +179,7 @@ async fn authenticate_for_scope(
     let claims = verified_claims(exec, keys, issuer, token, drive_scope)
         .await
         .ok_or(PushAuthError::Invalid)?;
-    let user = claims.get("uid").and_then(Value::as_i64).unwrap_or(0);
-    let claimed_guest = claims.get("acct").and_then(Value::as_str) == Some("guest");
-    let rows=exec.read("SELECT status, expires_at IS NOT NULL AND expires_at < now() FROM guest_account_status($1)",&[(&user,Type::INT8)]).await.map_err(|_|PushAuthError::GuestUnavailable)?;
-    let guest = if let Some(row) = rows.first() {
-        if row.get::<_, String>(0) != "active" || row.get::<_, bool>(1) {
-            return Err(PushAuthError::GuestInactive);
-        }
-        true
-    } else {
-        if claimed_guest {
-            return Err(PushAuthError::GuestInactive);
-        }
-        false
-    };
-    Ok(PushIdentity { claims, guest })
+    identity_from_accepted(exec, claims).await
 }
 
 /// HTTP security shapes still owned by the shared interceptor (#420).

@@ -630,7 +630,7 @@ impl AuthServer {
         } else {
             "failure"
         };
-        let fp = setjoin_threat::fingerprint(agent, ip);
+        let fp = setjoin_threat::stored_fingerprint(agent, ip);
         // Independent Go threat tail. OP does not attach a verified user to
         // this context; no sign-in/device row is invented for the token subject.
         let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,'','http',$2,'',$3)",&[(&ip,Type::TEXT),(&outcome,Type::TEXT),(&fp,Type::TEXT)]).await;

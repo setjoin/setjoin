@@ -104,5 +104,16 @@
     "reason": "owner-approved security fix 2026-11-05 (#504): android-safetynet attestation is refused outright; the x5c leaf was never anchored (a self-signed leaf or a made-up CA passed) and Google shut SafetyNet down.",
     "secure_test": "crates/domains/identity/src/webauthn.rs::secfix3_safetynet::a_fresh_chained_response_is_refused",
     "mutant": "safetynet-accepted"
+  },
+  {
+    "case": "failclosed-login-finish-factor-or-risk-read-error",
+    "issue": "#454",
+    "reviewed": true,
+    "reviewer": "owner, 2026-11-18",
+    "review": "security Go bug fixed in Rust",
+    "review_reference": "owner security-bug policy; PR #457",
+    "reason": "After a verified passkey assertion, frozen Go degrades a failed MFA-enrollment lookup to 'no MFA enrolled' and issues tokens without the TOTP/push step, and drops the risk claim on a failed risk read. Rust answers 500 'internal error' for the factor read (also when the user row vanished after the completion read) and 500 'token issue failed' for the risk read, before any token is signed or stored. The passkey challenge and counter are claimed before the user is known, as in Go.",
+    "go_source": "authserver/internal/handlers/webauthn.go:429-436; authserver/internal/handlers/credentials.go:92-108; authserver/internal/handlers/auth.go:2005",
+    "secure_test": "bins/auth/tests/guest_scope.rs::failclosed_454_webauthn_factor_fault_issues_no_token, bins/auth/tests/guest_scope.rs::failclosed_454_risk_fault_spends_no_factor_and_issues_no_token, bins/auth/tests/fail_closed.rs::risk_lookup_errors_fail_closed_in_every_issuer, crates/domains/identity/src/webauthn.rs::fail_closed_454::factor_query_error_is_an_error, crates/domains/identity/src/webauthn.rs::fail_closed_454::absent_user_row_is_an_error"
   }
 ]

@@ -1,4 +1,4 @@
-//! Real PostgreSQL COMMIT cuts at the RP publishing commands; fresh proof lookup.
+//! Real PostgreSQL COMMIT cuts, fresh proof lookup and failed reads during RP completion.
 mod common;
 include!("rp_oracle/harness.rs");
 #[path = "rp_oracle/flows.rs"]
@@ -11,6 +11,8 @@ mod observation;
 mod settlement;
 #[path = "common/webauthn_commit.rs"]
 mod wire;
+#[path = "common/revoke.rs"]
+mod revoke;
 use setjoin_conformance::fixture;
 struct Proxy(tokio::task::JoinHandle<std::io::Result<wire::CommitCut>>);
 impl Drop for Proxy {
@@ -28,7 +30,7 @@ async fn assertion(
     env: &flows::Env,
     subject: &str,
     email: &str,
-) -> Result<setjoin_identity::rp::Assertion, Err> {
+) -> Result<(setjoin_identity::rp::Assertion, Arc<setjoin_identity::rp::Provider>), Err> {
     let exec = setjoin_pg::ScopedExecutor::from_dsn(&std::env::var("DB_APP_DSN")?, 4).unwrap();
     let registry = setjoin_identity::rp::Registry::load(
         exec,
@@ -45,10 +47,11 @@ async fn assertion(
         &flow.nonce,
         json!({"sub":subject,"email":email,"email_verified":true}),
     );
-    Ok(provider
+    let verified = provider
         .exchange(&code, &flow.verifier)
         .await?
-        .assertion(Some(&flow.nonce), &provider)?)
+        .assertion(Some(&flow.nonce), &provider)?;
+    Ok((verified, provider))
 }
 async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
@@ -95,7 +98,7 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
         let operation=setjoin_contracts::ids::OperationId(*uuid::Uuid::parse_str(response.1["x-operation-id"].as_str().ok_or("missing operation ID")?)?.as_bytes());
         let clean=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),4).map_err(|e|e.0)?;let worker=setjoin_pg::ScopedExecutor::from_dsn(&db.dsn,4).map_err(|e|e.0)?;
         let kind=if kind=="settle"{setjoin_identity::rp::Operation::Settle}else{setjoin_identity::rp::Operation::Mint};
-        let fresh=assertion(&env,"actor-subject",&email).await?;let foreign=assertion(&env,"foreign-subject",&other).await?;
+        let (fresh,_)=assertion(&env,"actor-subject",&email).await?;let (foreign,_)=assertion(&env,"foreign-subject",&other).await?;
         let committed=cut==wire::CommitCut::AfterCommit;
         if setjoin_identity::rp::lookup_assertion(&clean,&worker,&fresh,operation,kind).await.map_err(|e|e.message)?!=committed{return Err("fresh assertion lookup disagrees with COMMIT".into());}
         if setjoin_identity::rp::lookup_assertion(&clean,&worker,&foreign,operation,kind).await.unwrap_or(false){return Err("foreign assertion observed receipt".into());}
@@ -128,14 +131,8 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
     settlement::cleanup_identity(&env.c, a.user).await?;
     fixture::remove(&env.c, &a).await?;
     fixture::remove(&env.c, &b).await?;
-    // Any settled OIDC login creates the source, not only the normalized variants: remove it
-    // (once unlinked) so no later suite sees a leftover identity source.
-    env.c
-        .execute(
-            "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key IN ('oidc:idfed2') AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
-            &[],
-        )
-        .await?;
+    // #431: shared oidc:idfed2 source rows are left for the throwaway CI database; the sweep
+    // is provider-wide and would remove other cases' rows.
     env.close().await?;
     result
 }
@@ -243,4 +240,543 @@ async fn link_finish_after_commit() {
     lost_link("finish", wire::CommitCut::AfterCommit)
         .await
         .unwrap();
+}
+
+/// Fable 353-2: no N7 case may run against a replaced is_guest_account. Restore
+/// from the reducer source, or fail hard.
+async fn guest_function_pristine(c: &tokio_postgres::Client) -> Result<(), Err> {
+    async fn def(c: &tokio_postgres::Client) -> Result<String, tokio_postgres::Error> {
+        c.query_one(
+            "SELECT pg_get_functiondef('is_guest_account(bigint)'::regprocedure)",
+            &[],
+        )
+        .await
+        .map(|r| r.get::<_, String>(0))
+    }
+    let ok = |d: &str| {
+        d.contains("SECURITY DEFINER")
+            && d.contains("public.guest_accounts")
+            && !d.contains("gofree_")
+    };
+    if ok(&def(c).await?) {
+        return Ok(());
+    }
+    c.batch_execute(include_str!(
+        "../../../../mailserver/sql/reducers/guest_account.sql"
+    ))
+    .await?;
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_idmfa1_guest_calls; DROP SEQUENCE IF EXISTS gofree_guest353_calls").await?;
+    if ok(&def(c).await?) {
+        Ok(())
+    } else {
+        Err("is_guest_account is not pristine after restore; refusing to run".into())
+    }
+}
+/// Replaces is_guest_account with a counting function; `branch` runs after the
+/// call number is stored in `n` (1-based).
+async fn install_counting_guest(c: &tokio_postgres::Client, branch: &str) -> Result<(), Err> {
+    c.batch_execute("DROP SEQUENCE IF EXISTS gofree_guest353_calls;CREATE SEQUENCE gofree_guest353_calls;GRANT USAGE ON SEQUENCE gofree_guest353_calls TO setjoin_app").await?;
+    c.batch_execute(&format!("CREATE OR REPLACE FUNCTION is_guest_account(p_user_id bigint) RETURNS boolean LANGUAGE plpgsql AS $$DECLARE n bigint; BEGIN n := nextval('gofree_guest353_calls'); {branch} END$$")).await?;
+    Ok(())
+}
+fn jwt_claims(token: &str) -> Result<Value, Err> {
+    use base64::Engine;
+    let segment = token.split('.').nth(1).ok_or("jwt without payload")?;
+    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(segment)?;
+    Ok(serde_json::from_slice(&raw)?)
+}
+/// One OIDC SSO completion for an existing member; returns the callback response.
+async fn sso_once(
+    env: &flows::Env,
+    email: &str,
+    subject: &str,
+) -> Result<(u16, Value, String), Err> {
+    let response = request(
+        env.gw.addr,
+        "GET",
+        "/auth/oidc/login?provider=idfed2",
+        String::new(),
+        &[],
+    )
+    .await?;
+    let (_, flow) = flows::normalize_flow(response)?;
+    let cookie = flow
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let code = env.idp.state.code(
+        &flow["oidc_verifier"],
+        &flow["oidc_nonce"],
+        json!({"sub":subject,"email":email,"email_verified":true}),
+    );
+    let path = setjoin_identity::oidc::query_response(
+        "/auth/oidc/callback",
+        &[("state", &flow["oidc_state"]), ("code", &code)],
+        false,
+    );
+    request(env.gw.addr, "GET", &path, String::new(), &[("cookie", &cookie)]).await
+}
+async fn sso_effects(c: &tokio_postgres::Client, user: i64) -> Result<(i64, i64), Err> {
+    let r = c
+        .query_one(
+            "SELECT (SELECT count(*) FROM oauth_tokens WHERE user_id=$1),(SELECT count(*) FROM sessions WHERE user_id=$1)",
+            &[&user],
+        )
+        .await?;
+    Ok((r.get(0), r.get(1)))
+}
+/// Combines a case result with a cleanup result: the case error is kept (the
+/// cleanup error is appended); a cleanup error alone fails a passing case.
+fn settle(case: Result<(), Err>, cleanup: Result<(), Err>) -> Result<(), Err> {
+    match (case, cleanup) {
+        (Ok(()), c) => c,
+        (Err(e), Ok(())) => Err(e),
+        (Err(e), Err(c)) => Err(format!("{e}; cleanup also failed: {c}").into()),
+    }
+}
+/// N7 (#353): SSO completion for a member carries no `acct`; a guest row seen
+/// only at the mint-time admission lookup is refused with 503.
+async fn n7_sso_guest_scope() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let env = flows::Env::start(false).await?;
+    guest_function_pristine(&env.c).await?;
+    settlement::cleanup_leftovers(&env.c).await?;
+    // Receipts this case writes are all family F21 (rp-settle/rp-mint commands:
+    // crates/domains/identity/src/rp/account.rs:300,507); restore that family only.
+    let receipts = common::receipt_ids(&env.c).await;
+    let a = fixture::account(&env.c, "guest353-n7-member").await?;
+    let result = async {
+        let email: String = env
+            .c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+        env.c.execute("UPDATE users SET oidc_subject='guest353-n7-subject',oidc_issuer=$2 WHERE id=$1", &[&a.user, &idp::ISSUER]).await?;
+        // (i) member SSO, counting function that never says guest: learn k.
+        install_counting_guest(&env.c, "RETURN false;").await?;
+        let before = sso_effects(&env.c, a.user).await?;
+        let (status, headers, raw) = sso_once(&env, &email, "guest353-n7-subject").await?;
+        if status != 302 && status != 200 {
+            return Err(format!("member SSO status {status}: {raw}").into());
+        }
+        let jar = flows::cookies(&headers);
+        let access = jar.get("access_token").filter(|v| !v.is_empty()).ok_or("member SSO set no access cookie")?;
+        if jwt_claims(access)?.get("acct").is_some() {
+            return Err("member SSO access token must not carry acct".into());
+        }
+        let after = sso_effects(&env.c, a.user).await?;
+        if after.0 != before.0 + 1 {
+            return Err(format!("member SSO should add one oauth_tokens row: {before:?} -> {after:?}").into());
+        }
+        let k: i64 = env.c.query_one("SELECT last_value FROM gofree_guest353_calls", &[]).await?.get(0);
+        if k < 1 {
+            return Err("member SSO never called is_guest_account".into());
+        }
+        // (ii) race: false until the k-th (mint-time) lookup, which says guest.
+        install_counting_guest(&env.c, &format!("RETURN n = {k};")).await?;
+        let before = sso_effects(&env.c, a.user).await?;
+        let (status, headers, raw) = sso_once(&env, &email, "guest353-n7-subject").await?;
+        if status != 503 || !raw.contains("conditional access context unavailable") {
+            return Err(format!("race: want 503 conditional access context unavailable, got {status} {raw}").into());
+        }
+        if raw.contains("access_token") || raw.contains("refresh_token") || headers.get("location").is_some() || flows::cookies(&headers).get("access_token").is_some_and(|v| !v.is_empty()) {
+            return Err("race: refused SSO leaked credentials".into());
+        }
+        let after = sso_effects(&env.c, a.user).await?;
+        if after != before {
+            return Err(format!("race: refused SSO left rows: {before:?} -> {after:?}").into());
+        }
+        let calls: i64 = env.c.query_one("SELECT last_value FROM gofree_guest353_calls", &[]).await?.get(0);
+        if calls != k {
+            return Err(format!("race: expected {k} lookups, saw {calls}").into());
+        }
+        Ok::<(), Err>(())
+    }
+    .await;
+    let pristine = guest_function_pristine(&env.c).await;
+    let identity = settlement::cleanup_identity(&env.c, a.user).await;
+    let removed = fixture::remove(&env.c, &a).await;
+    // Non-panicking receipt restore (common::restore_receipts unwraps) so teardown always settles.
+    let receipts_restored = env
+        .c
+        .execute("DELETE FROM rust_operation_receipts WHERE family='F21' AND operation_id::text<>ALL($1::text[])", &[&receipts])
+        .await
+        .map(|_| ());
+    // #431: shared oidc:idfed2 source rows are left for the throwaway CI database; the sweep
+    // is provider-wide and would remove other cases' rows.
+    let closed = env.close().await;
+    let cleanup = pristine
+        .and(identity)
+        .and(removed.map_err(|e| -> Err { e.into() }))
+        .and(receipts_restored.map_err(|e| -> Err { e.into() }))
+        .and(closed);
+    settle(result, cleanup)
+}
+#[tokio::test]
+async fn n7_sso_refuses_guest_rows_at_mint() {
+    n7_sso_guest_scope().await.unwrap();
+}
+
+/// #454: SSO completion with a failing risk read answers 500 'token issue failed' before any
+/// token is signed or stored; the same login succeeds once the read works again. Cleanup runs
+/// on every path: each step is aggregated, and only rows this test created are removed.
+async fn failclosed_sso_risk() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let env = flows::Env::start(false).await?;
+    let mut saved: Option<String> = None;
+    let mut account: Option<fixture::Account> = None;
+    let result: Result<(), Err> = async {
+        settlement::cleanup_leftovers(&env.c).await?;
+        let db = Db::for_case("IDFED2-failclosed").ok_or("assigned DB required")?;
+        let app = setjoin_pg::ScopedExecutor::from_dsn(
+            db.app.as_deref().ok_or("DB_APP_DSN required")?,
+            2,
+        )
+        .map_err(|e| e.0)?;
+        saved = Some(
+            env.c
+                .query_one("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key='feature.user_risk'", &[])
+                .await?
+                .try_get(0)?,
+        );
+        let a = fixture::account(&env.c, "failclosed-rp-member").await?;
+        let user = a.user;
+        account = Some(a);
+        let email: String = env
+            .c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&user])
+            .await?
+            .try_get(0)?;
+        env.c
+            .execute(
+                "UPDATE users SET oidc_subject='failclosed-rp-subject',oidc_issuer=$2 WHERE id=$1",
+                &[&user, &idp::ISSUER],
+            )
+            .await?;
+        env.c
+            .execute(
+                "INSERT INTO feature_toggles(key,enabled) VALUES('feature.user_risk',true) ON CONFLICT(key) DO UPDATE SET enabled=true",
+                &[],
+            )
+            .await?;
+        let before = sso_effects(&env.c, user).await?;
+        let guard = revoke::table(&db.dsn, &env.c, &app, "user_risk").await?;
+        let (status, headers, raw) = sso_once(&env, &email, "failclosed-rp-subject").await?;
+        guard.restore(&env.c).await?;
+        let after = sso_effects(&env.c, user).await?;
+        if status != 500 || !raw.contains("token issue failed") {
+            return Err(format!("want 500 token issue failed, got {status}: {raw}").into());
+        }
+        if raw.contains("access_token") || raw.contains("refresh_token") || headers.get("location").is_some() || flows::cookies(&headers).get("access_token").is_some_and(|v| !v.is_empty()) {
+            return Err("refused SSO leaked credentials".into());
+        }
+        if after != before {
+            return Err(format!("refused SSO left token/session rows: {before:?} -> {after:?}").into());
+        }
+        let (status, headers, raw) = sso_once(&env, &email, "failclosed-rp-subject").await?;
+        if status != 302 && status != 200 {
+            return Err(format!("control SSO status {status}: {raw}").into());
+        }
+        flows::cookies(&headers).get("access_token").filter(|v| !v.is_empty()).ok_or("control SSO set no access cookie")?;
+        Ok(())
+    }
+    .await;
+
+    // Cleanup: every step runs, failures aggregate, and nothing is short-circuited.
+    let mut cleanup: Result<(), Err> = Ok(());
+    if let Some(saved) = &saved {
+        let flag: Result<(), Err> = async {
+            env.c.execute("DELETE FROM feature_toggles WHERE key='feature.user_risk'", &[]).await?;
+            env.c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)", &[saved]).await?;
+            Ok(())
+        }
+        .await;
+        cleanup = settle(cleanup, flag);
+    }
+    if let Some(a) = &account {
+        cleanup = settle(cleanup, settlement::cleanup_identity(&env.c, a.user).await);
+    }
+    if let Some(a) = &account {
+        let removed: Result<(), Err> = fixture::remove(&env.c, a).await.map(|_| ()).map_err(Into::into);
+        cleanup = settle(cleanup, removed);
+    }
+    // Residue rows (SSO receipts, identity sources and their evidence, login events) are left
+    // for the throwaway CI database (#431).
+    let closed = env.close().await;
+    cleanup = settle(cleanup, closed);
+    settle(result, cleanup)
+}
+#[tokio::test]
+async fn failclosed_454_sso_risk_fault_issues_no_token() {
+    failclosed_sso_risk().await.unwrap();
+}
+
+#[tokio::test]
+async fn identity_model_flag_fault_refuses_jit_before_any_account_write() -> Result<(), Err> {
+    use setjoin_identity::rp::Lookup;
+
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDFED2-flag-fault").ok_or("assigned DB required")?;
+    let app = setjoin_pg::ScopedExecutor::from_dsn(
+        db.app.as_deref().ok_or("DB_APP_DSN required")?,
+        2,
+    )
+    .map_err(|e| e.0)?;
+    let worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).map_err(|e| e.0)?;
+    let env = flows::Env::start(false).await?;
+    let mut account = None;
+    let mut jit_identity = None;
+    let result: Result<(), Err> = async {
+        let a = account.insert(fixture::account(&env.c, "rp-flag-fault").await?);
+        let email: String = env.c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .try_get(0)?;
+        let (_, domain) = email.split_once('@').ok_or("fixture email has no domain")?;
+        let subject = uuid::Uuid::new_v4().to_string();
+        env.c.execute(
+            "UPDATE users SET oidc_subject=$2,oidc_issuer=$3 WHERE id=$1",
+            &[&a.user, &subject, &idp::ISSUER],
+        ).await?;
+        let (existing, provider) = assertion(&env, &subject, &email).await?;
+        let Lookup::Existing(resolution) =
+            existing.resolve(&app, &worker).await.map_err(|e| e.message)?
+        else {
+            return Err("control account did not resolve".into());
+        };
+
+        let jit_email = format!("jit@{domain}");
+        let jit_subject = uuid::Uuid::new_v4().to_string();
+        let (jit, _) = assertion(&env, &jit_subject, &jit_email).await?;
+        jit_identity = Some((jit_email, jit_subject));
+        env.c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.identity_model_v2'",
+            &[],
+        ).await?;
+        // This legacy account has no normalized link, so re-reading the enabled flag would
+        // send it into normalized reconciliation and refuse settlement.
+        let after_toggle = existing.settle(&app, &worker, &*provider, &resolution, false).await;
+        let guard = revoke::table(&db.dsn, &env.c, &app, "feature_toggles").await?;
+        // Settlement of an admitted account uses the flag captured before the revoke.
+        let settled = existing.settle(&app, &worker, &*provider, &resolution, false).await;
+        let outcome: Result<(), Err> = match jit.resolve(&app, &worker).await {
+            Err(e) if e.message == "normalized identity resolution unavailable" => Ok(()),
+            Err(e) => Err(format!("unexpected resolution failure: {}", e.message).into()),
+            Ok(Lookup::Missing(miss)) => {
+                // Follow the callback's JIT path if resolution incorrectly allows it.
+                if let Ok(created) = miss.create(&app, &worker).await {
+                    let _ = jit.settle(&app, &worker, &*provider, &created, false).await;
+                }
+                Err("flag fault allowed legacy JIT resolution".into())
+            }
+            Ok(Lookup::Existing(_)) => Err("flag fault admitted an account".into()),
+        };
+        guard.restore(&env.c).await?;
+        after_toggle.map_err(|e| e.message)?;
+        let completion = settled.map_err(|e| e.message)?;
+        if completion.user() != a.user {
+            return Err("settlement changed the resolved account".into());
+        }
+        outcome
+    }
+    .await;
+
+    let mut cleanup = Ok(());
+    if let (Some(a), Some((email, subject))) = (&account, &jit_identity) {
+        let jit_cleanup: Result<(), Err> = async {
+            if let Some(row) = env.c.query_opt(
+                "SELECT u.id,COALESCE(m.id,0) FROM users u LEFT JOIN mailboxes m ON m.user_id=u.id AND m.is_primary WHERE u.domain_id=$1 AND u.email=$2 AND u.oidc_subject=$3 AND u.oidc_issuer=$4",
+                &[&a.domain, email, subject, &idp::ISSUER],
+            ).await? {
+                let mut created = a.clone();
+                created.user = row.try_get(0)?;
+                created.mailbox = row.try_get(1)?;
+                created.domain = 0;
+                fixture::remove(&env.c, &created).await?;
+                return Err("flag fault created a JIT account".into());
+            }
+            Ok(())
+        }.await;
+        cleanup = settle(cleanup, jit_cleanup);
+    }
+    if let Some(a) = &account {
+        cleanup = settle(cleanup, fixture::remove(&env.c, a).await);
+    }
+    cleanup = settle(cleanup, env.close().await);
+    settle(result, cleanup)
+}
+
+#[tokio::test]
+async fn failclosed_454_legacy_lookup_faults_refuse_jit() -> Result<(), Err> {
+    use setjoin_identity::rp::Lookup;
+
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDFED2-legacy-lookup-fault").ok_or("assigned DB required")?;
+    let app = setjoin_pg::ScopedExecutor::from_dsn(
+        db.app.as_deref().ok_or("DB_APP_DSN required")?,
+        2,
+    )
+    .map_err(|e| e.0)?;
+    let worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).map_err(|e| e.0)?;
+    let env = flows::Env::configured(false, idp::ISSUER, json!({"jit_enabled":true})).await?;
+    let mut account = None;
+    let mut jit_control_user = None;
+    let mut receipts = None;
+    let responses = async {
+        let a = account.insert(fixture::account(&env.c, "rp-legacy-lookup-fault").await?);
+        let email: String = env.c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .try_get(0)?;
+        let linked = uuid::Uuid::new_v4().to_string();
+        let unlinked = uuid::Uuid::new_v4().to_string();
+        env.c.execute(
+            "UPDATE users SET oidc_subject=$2,oidc_issuer=$3 WHERE id=$1",
+            &[&a.user, &linked, &idp::ISSUER],
+        ).await?;
+
+        // Keep the address lookup readable. Otherwise its failure could hide a regression
+        // in the exact-link lookup, which would fall through to address matching.
+        let guard = revoke::revoke(
+            &db.dsn,
+            &env.c,
+            &app,
+            "users",
+            "REVOKE SELECT ON users FROM setjoin_app; GRANT SELECT (id, enabled, email, ad_upn) ON users TO setjoin_app",
+            "REVOKE SELECT (id, enabled, email, ad_upn) ON users FROM setjoin_app; GRANT SELECT ON users TO setjoin_app",
+            "SELECT oidc_subject FROM users LIMIT 1",
+        ).await?;
+        let exact = sso_once(&env, &email, &linked).await;
+        guard.restore(&env.c).await?;
+        drop(guard);
+
+        // With permissions restored, the unlinked subject can discover the existing address.
+        let address_control = sso_once(&env, &email, &unlinked).await?;
+        let (_, domain) = email.split_once('@').ok_or("fixture email has no domain")?;
+        let jit_email = format!("jit-{unlinked}@{domain}");
+        let (jit, _) = assertion(&env, &unlinked, &jit_email).await?;
+        let Lookup::Missing(jit_control) = jit.resolve(&app, &worker).await.map_err(|e| e.message)?
+        else {
+            return Err("JIT control identity must be unclaimed".into());
+        };
+        receipts = Some(
+            env.c.query(
+                "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F21' AND command IN ('rp-settle','rp-mint')",
+                &[],
+            ).await?
+            .iter()
+            .map(|r| r.try_get::<_, String>(0))
+            .collect::<Result<Vec<_>, _>>()?,
+        );
+
+        // Address lookup needs this predicate. JIT's insert triggers use the claim lookup,
+        // so leave their function and table permissions intact.
+        let guard = revoke::function(
+            &db.dsn,
+            &env.c,
+            &app,
+            "public.identity_address_quarantined(text)",
+            "SELECT public.identity_address_quarantined('rp-fault@example.test')",
+        )
+        .await?;
+        let address = async {
+            let response = sso_once(&env, &jit_email, &unlinked).await?;
+            let wrote: bool = env.c
+                .query_one(
+                    "SELECT EXISTS(SELECT 1 FROM users WHERE domain_id=$1 AND id<>$2)",
+                    &[&a.domain, &a.user],
+                )
+                .await?
+                .try_get(0)?;
+            if !wrote {
+                // Prove the same assertion can create an account while the fault is active.
+                let created = jit_control
+                    .create(&app, &worker)
+                    .await
+                    .map_err(|_| "JIT control could not create an account under the address lookup fault")?;
+                jit_control_user = Some(created.user().user());
+            }
+            Ok::<_, Err>(response)
+        }
+        .await;
+        guard.restore(&env.c).await?;
+        Ok::<_, Err>((exact?, address_control, address?))
+    }
+    .await;
+
+    let mut cleanup = Ok(());
+    let mut unexpected_jit = false;
+    if let Some(a) = &account {
+        let jit_cleanup: Result<(), Err> = async {
+            let rows = env.c.query(
+                "SELECT u.id,COALESCE(m.id,0) FROM users u LEFT JOIN mailboxes m ON m.user_id=u.id AND m.is_primary WHERE u.domain_id=$1 AND u.id<>$2",
+                &[&a.domain, &a.user],
+            ).await?;
+            let mut removed = Ok(());
+            for row in &rows {
+                let mut created = a.clone();
+                created.user = row.try_get(0)?;
+                created.mailbox = row.try_get(1)?;
+                created.domain = 0;
+                if Some(created.user) != jit_control_user {
+                    unexpected_jit = true;
+                    let events = env.c
+                        .execute("DELETE FROM login_events WHERE user_id=$1", &[&created.user])
+                        .await
+                        .map(|_| ())
+                        .map_err(Into::into);
+                    removed = settle(removed, events);
+                }
+                removed = settle(removed, fixture::remove(&env.c, &created).await);
+            }
+            if unexpected_jit {
+                settle(Err("legacy lookup fault created a JIT account".into()), removed)
+            } else {
+                removed
+            }
+        }
+        .await;
+        cleanup = settle(cleanup, jit_cleanup);
+        cleanup = settle(cleanup, fixture::remove(&env.c, a).await);
+    }
+    // Env's RP advisory lock keeps these receipt commands serialized through cleanup.
+    if let Some(receipts) = receipts.filter(|_| unexpected_jit) {
+        let restored = env.c.execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F21' AND command IN ('rp-settle','rp-mint') AND operation_id::text<>ALL($1::text[])",
+            &[&receipts],
+        )
+        .await
+        .map(|_| ())
+        .map_err(Into::into);
+        cleanup = settle(cleanup, restored);
+    }
+    cleanup = settle(cleanup, env.close().await);
+
+    let result = responses.and_then(|(exact, address_control, address)| {
+        if address_control.0 != 409
+            || !address_control.2.contains("explicit account linking is required")
+        {
+            return Err(format!("address control expected 409, got {}", address_control.0).into());
+        }
+        for (lookup, (status, headers, raw)) in [("exact-link", exact), ("address", address)] {
+            if status != 503 || !raw.contains("normalized identity resolution unavailable") {
+                return Err(
+                    format!("{lookup} lookup fault expected resolution 503, got {status}").into(),
+                );
+            }
+            let cookies = flows::cookies(&headers);
+            if headers.get("location").is_some()
+                || raw.contains("access_token")
+                || raw.contains("refresh_token")
+                || ["access_token", "refresh_token"]
+                    .iter()
+                    .any(|name| cookies.get(*name).is_some_and(|v| !v.is_empty()))
+            {
+                return Err(format!("{lookup} lookup fault published credentials or a redirect").into());
+            }
+        }
+        Ok(())
+    });
+    settle(result, cleanup)
 }

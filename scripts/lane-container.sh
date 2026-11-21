@@ -2,7 +2,8 @@
 # lane-container.sh CMD...: run CMD as root in the lane image ($LANE_IMAGE) on the host network
 # with the Docker socket. Workspace, $HOME and /tmp sit at identical paths, so the bind mounts of
 # the sibling containers the oracles start resolve on the host. Lane, cargo, Go and server-rust
-# variables pass through; ownership goes back to the runner user on exit.
+# variables pass through; ownership goes back to the runner user on exit. The Go toolchain is masked
+# (empty /usr/local/go, LANE_GO_MASKED=1): Go runs only in reviewed sibling containers (#141).
 set -uo pipefail
 : "${LANE_IMAGE:?}" "${LANE_OWNER:?}" "${LANE_CACHE:?}"
 name="setjoin-lane-run-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-${LANE_JOB_TAG:-${GITHUB_JOB:-job}}"
@@ -11,11 +12,20 @@ env_args=()
 for var in $(compgen -e); do
   case "$var" in LANE_*|GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT|CARGO_*|SERVER_RUST_*|GOFREE_*|PGPASSWORD|PEBBLE_BIN|RUSTFLAGS|LLVM_PROFILE_FILE) env_args+=(-e "$var") ;; esac
 done
+# Pebble (Go) resolves the HTTP-01 hostnames of the ACME tests through the system resolver. Go does
+# not apply the RFC 6761 `*.localhost` rule, so on GitHub runners (Azure DNS) `alt.localhost` fails
+# with "no such host". Pin every `*.localhost` name the tests use in the container's /etc/hosts;
+# --add-host also works with --network host. Add a name here when a test starts using a new one.
+hosts=()
+for h in localhost alt.localhost managed.localhost foreign.localhost other.localhost autocert.localhost static.localhost wrong.localhost; do
+  hosts+=(--add-host "$h:127.0.0.1")
+done
 docker run --name "$name" --label "setjoin-lane-run=${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}" \
-  --network host --shm-size=2g --ulimit nofile=1048576:1048576 \
+  --network host "${hosts[@]}" --shm-size=2g --ulimit nofile=1048576:1048576 \
   -v /var/run/docker.sock:/var/run/docker.sock -v "$(command -v docker)":/usr/local/bin/docker:ro \
   -v "$HOME:$HOME" -v /tmp:/tmp -w "$PWD" "${env_args[@]}" -e TMPDIR="$LANE_CACHE/tmp" \
-  -e "PATH=/usr/local/bin:/root/.cargo/bin:/usr/local/go/bin:/usr/lib/postgresql/17/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  --mount type=tmpfs,destination=/usr/local/go,tmpfs-mode=0555 -e LANE_GO_MASKED=1 \
+  -e "PATH=/usr/local/bin:/root/.cargo/bin:/usr/lib/postgresql/17/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin" \
   "$LANE_IMAGE" bash -c '
     trap '\''chown -R "$LANE_OWNER" "$PWD" "$LANE_CACHE" "${LANE_BUILD:-$LANE_CACHE}" 2>/dev/null'\'' EXIT
     git config --global --add safe.directory "*"

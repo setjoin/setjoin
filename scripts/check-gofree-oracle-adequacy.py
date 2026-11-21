@@ -21,6 +21,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FLOOR = {"success", "cross-tenant", "invalid-input"}
 FAMILY_MUTANTS = {"no-audit", "no-notify", "no-tenant-filter", "double-bump"}
+FRAGMENT_NAME = re.compile(r"jmap-[0-9]+\.json")
+JMAP_ROUTE = ("gateway", "POST", "/jmap", "F18")
+DENIAL_KINDS = {"cross-tenant", "delegate-insufficient", "delegate-personal", "delegate-revoked",
+                "entitlement-denied", "suspended", "foreign-object"}
+DENIAL_ERROR = {"cross-tenant": {"accountNotFound"}, "delegate-revoked": {"accountNotFound"},
+                "delegate-insufficient": {"forbidden"}, "delegate-personal": {"forbidden"},
+                "entitlement-denied": {"forbidden"}, "suspended": {"forbidden"}}
+ERROR_TYPE = re.compile(r'"methodResponses":\[\["error",\{"type":"urn:ietf:params:jmap:error:([A-Za-z]+)"')
 # A family may carry one mutant of these kinds per route: each route's notification
 # (or the like) is a separate effect, so one route's mutant says nothing about another's.
 PER_ROUTE_FAMILY_MUTANTS = {"no-notify"}
@@ -116,9 +124,45 @@ def check_platform_listener_route(root, route, executable):
             executable.append(item)
 
 
+def merge_fragments(root, inventory, catalog):
+    """Per-family JMAP fragments (#369-#377). They may only extend the POST /jmap
+    command and mutator lists and add suites for exactly those commands."""
+    owners = [r for r in inventory["routes"] if route_key(r) == JMAP_ROUTE]
+    for path in sorted((Path(root) / "server-rust/tests/conformance/route-catalog.d").glob("*.json")):
+        if not FRAGMENT_NAME.fullmatch(path.name):
+            raise ValueError(f"{path}: fragment names are jmap-<issue>.json")
+        fragment = json.loads(path.read_text())
+        if set(fragment) != {"version", "inventory", "routes"} or fragment["version"] != 1:
+            raise ValueError(f"{path}: invalid catalog fragment")
+        extras = fragment["inventory"]
+        if (len(owners) != 1 or len(extras) != 1 or route_key(extras[0]) != JMAP_ROUTE
+                or set(extras[0]) != {"listener", "method", "path", "family", "oracle_commands", "oracle_mutators"}):
+            raise ValueError(f"{path}: fragments may only extend {JMAP_ROUTE}")
+        commands = extras[0]["oracle_commands"]
+        for suite in fragment["routes"]:
+            if (route_key(suite) != JMAP_ROUTE or suite.get("command") not in commands
+                    or suite.get("gate") not in {"personal", "read", "mutate", "submit", "collaborate"}
+                    or not isinstance(suite.get("app"), str) or not isinstance(suite.get("state"), bool)
+                    or not isinstance(suite.get("account"), bool)):
+                raise ValueError(f"{path}: invalid fragment suite {suite.get('command')}")
+            suite["fragment"] = path.name
+        for field in ("oracle_commands", "oracle_mutators"):
+            overlap = set(owners[0].get(field, [])) & set(extras[0][field])
+            if overlap:
+                raise ValueError(f"{path}: {field} already declared: {sorted(overlap)}")
+            owners[0][field] = owners[0].get(field, []) + extras[0][field]
+        catalog["routes"].extend(fragment["routes"])
+    for name in sorted({s["fragment"] for s in catalog["routes"] if s.get("fragment")}):
+        held = [m.get("name") for s in catalog["routes"] if s.get("fragment") == name
+                for m in s.get("family_mutants", [])]
+        if held != ["no-tenant-filter"]:
+            raise ValueError(f"{name}: needs exactly one no-tenant-filter family mutant")
+
+
 def check(root, inventory, catalog):
     if inventory.get("version") != 1 or catalog.get("version") != 1:
         raise ValueError("unsupported inventory or oracle catalog version")
+    merge_fragments(root, inventory, catalog)
     suites = {}
     for suite in catalog["routes"]:
         suites.setdefault(route_key(suite), []).append(suite)
@@ -130,6 +174,7 @@ def check(root, inventory, catalog):
     executable = []
     coverage_suites = []
     family_mutants = {}
+    fragment_tenant_filters = set()  # families whose no-tenant-filter comes from a JMAP fragment
     family_effects = {}
     for route in inventory["routes"]:
         if route["state"] not in ("ON", "OFF"):
@@ -192,6 +237,14 @@ def check(root, inventory, catalog):
                                    f"MUTANT-REJECTED: {route_name} :: {suite['mutant'].get('name', 'mutant')}"))
             coverage_suites.append((route_name, suite))
             for mutant in suite.get("family_mutants", []) if on else []:
+                if suite.get("fragment"):
+                    if (not isinstance(mutant, dict) or mutant.get("name") != "no-tenant-filter"
+                            or any(not re.fullmatch(r"[A-Za-z0-9_-]+", str(mutant.get(f, "")))
+                                   for f in ("package", "target", "test"))):
+                        raise ValueError(f"{key}: invalid fragment family mutant")
+                    executable.append((mutant, f"MUTANT-REJECTED: {route_name} :: no-tenant-filter"))
+                    fragment_tenant_filters.add(route["family"])
+                    continue
                 if (not isinstance(mutant, dict) or mutant.get("name") not in FAMILY_MUTANTS
                         or any(not isinstance(mutant.get(field), str)
                                or not re.fullmatch(r"[A-Za-z0-9_-]+", mutant[field])
@@ -224,7 +277,8 @@ def check(root, inventory, catalog):
             required.remove("double-bump")
             print(f"{family}: double-bump not-applicable (0 recorded state snapshots in "
                   f"{effects['goldens']} ON-route goldens)")
-        missing = sorted(required - mutants.keys())
+        held = set(mutants.keys()) | ({"no-tenant-filter"} if family in fragment_tenant_filters else set())
+        missing = sorted(required - held)
         if missing:
             raise ValueError(f"{family}: missing family mutants: {', '.join(missing)}")
         entries = [(name, mutant, route_name) for name, held in sorted(mutants.items())
@@ -766,6 +820,17 @@ def check_suite(root, route, suite, on):
         raise ValueError(f"{key}: invalid handler coverage sources: expected nonempty path strings")
     present = {case["kind"] for case in suite.get("cases", [])}
     required = (FLOOR | ({"repeat"} if suite.get("mutator") is True else set())) if on else set()
+    if on and suite.get("fragment"):
+        if not suite["account"]:
+            required = (required - {"cross-tenant"}) | {"foreign-object"}
+        elif suite["gate"] == "personal":
+            required |= {"delegate-personal"}
+        else:
+            required |= {"delegate-allowed", "delegate-insufficient", "delegate-revoked", "suspended"}
+        if suite["app"]:
+            required.add("entitlement-denied")
+        if suite["state"]:
+            required.add("state-mismatch")
     missing = sorted(required - present)
     if missing:
         raise ValueError(f"{key}: missing recorded cases: {', '.join(missing)}")
@@ -779,6 +844,26 @@ def check_suite(root, route, suite, on):
         recordings.add(recording)
         document = json.loads(recording.read_text())
         observation = document.get("observation", {})
+        if suite.get("fragment"):
+            if document.get("kind") != case["kind"]:
+                raise ValueError(f"{key}: golden kind {document.get('kind')} != catalog kind {case['kind']}")
+            if case["kind"] in DENIAL_KINDS:
+                effects = observation.get("effects")
+                if (not isinstance(effects, dict) or not effects
+                        or any(not isinstance(e, dict) or set(e) != {"before", "after"} or e["before"] != e["after"]
+                               for e in effects.values())
+                        or observation.get("notify") != []):
+                    raise ValueError(f"{key}: denial case {document['case']} changed or did not observe effects")
+                found = ERROR_TYPE.search(observation.get("response", {}).get("body", ""))
+                if case["kind"] in DENIAL_ERROR:
+                    if not found or found.group(1) not in DENIAL_ERROR[case["kind"]]:
+                        raise ValueError(f"{key}: denial case {document['case']} is not the expected method error")
+                elif not ((found and found.group(1) in {"notFound", "forbidden"}) or observation.get("absent")):
+                    raise ValueError(f"{key}: foreign-object case {document['case']} proves nothing")
+                divergences = recording.parent / "divergences.json"
+                if divergences.is_file() and any(r.get("case") == document["case"]
+                                                 for r in json.loads(divergences.read_text())):
+                    raise ValueError(f"{key}: divergence recorded on denial case {document['case']}")
         request = observation.get("request", {})
         response = observation.get("response", {})
         expected_route = f"{route['method']} {route['path']}"

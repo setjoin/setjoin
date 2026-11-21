@@ -1,0 +1,65 @@
+{
+  "case": "off-reset-csrf",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "failure",
+          "protocol": "http",
+          "source_ip": "127.0.0.56",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [],
+      "devices": [],
+      "lockouts": [
+        {
+          "failed_count": 1,
+          "key": "ip:127.0.0.56",
+          "level": 0,
+          "locked": false
+        },
+        {
+          "failed_count": 1,
+          "key": "ip_user:127.0.0.56:<actor>",
+          "level": 0,
+          "locked": false
+        },
+        {
+          "failed_count": 1,
+          "key": "user:<actor>",
+          "level": 0,
+          "locked": false
+        }
+      ],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"new_password\":\"NewPassword2!\",\"reset_token\":\"not-a-reset-token\"}",
+          "headers": {
+            "origin": "https://evil.example",
+            "sec-fetch-site": "cross-site"
+          },
+          "method": "POST",
+          "path": "/auth/forgot-password/reset",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"detail\":\"CSRF validation failed\",\"status\":403,\"title\":\"csrf_failed\",\"type\":\"about:blank\"}\n",
+          "headers": {
+            "content-type": "application/problem+json"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/forgot-password/reset"
+}

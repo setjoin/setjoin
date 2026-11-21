@@ -13,6 +13,10 @@ on:
       - '!.github/ci/images.lock'
       - '.github/workflows/ci-images.yml'
       - 'scripts/server-rust-lane-tools.sh'
+      - 'scripts/build-interop-images.sh'
+      - 'mailserver/deploy/docker/test-imap/**'
+      - 'mailserver/deploy/docker/test-smtp/**'
+      - 'mailserver/deploy/docker/test-ldap/**'
   push:
     branches: [main]
     paths: *paths
@@ -61,6 +65,11 @@ jobs:
           push setjoin-server-rust-lane setjoin-server-rust-lane >>"$lock"
           docker build -q --label "$label" -t setjoin-lane-pg:17 -f .github/ci/lane-pg.Dockerfile .github/ci
           push setjoin-lane-pg:17 setjoin-lane-pg >>"$lock"
+          # protocol interop client images (IMAP/SMTP/LDAP container interop tests, #141)
+          bash scripts/build-interop-images.sh "$label" >/dev/null
+          for image in setjoin-interop-imap setjoin-interop-smtp setjoin-interop-ldap; do
+            push "$image:local" "$image" >>"$lock"
+          done
           for image in alpine:3.24 postgres:17; do
             docker pull -q "$image" >/dev/null
             push "$image" "mirror-${image%%:*}" >>"$lock"
