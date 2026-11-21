@@ -463,8 +463,8 @@ mod basic_tests {
     use hyper::{Request, Response};
     use setjoin_conformance::{fixture, harness::Db};
     use setjoin_gateway::{
-        caldav::CalDavRoute, dav_auth::DavBasicAuth, BoxFuture, Config, Gateway, Intercept,
-        RouteTable, TrustedProxies,
+        caldav::CalDavRoute, dav_auth::DavBasicAuth, Config, Gateway, Intercept, RouteTable,
+        TrustedProxies,
     };
     use setjoin_threat::{ConnectionMeta, ThreatAction, ThreatGate};
     use sha2::{Digest, Sha256};

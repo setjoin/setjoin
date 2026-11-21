@@ -128,15 +128,14 @@ fn basic_header(email: &str, secret: &str) -> String {
     format!("Basic {}", STANDARD.encode(format!("{email}:{secret}")))
 }
 
-fn add_device_hmac_headers(
-    mut req: hyper::request::Builder,
+fn device_hmac_headers(
     device_id: i64,
     dev_secret: &[u8],
     method: &str,
     inner_uri: &str,
     body: &[u8],
     nonce: &str,
-) -> hyper::request::Builder {
+) -> [(&'static str, String); 5] {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -147,13 +146,13 @@ fn add_device_hmac_headers(
     let mut mac = Hmac::<Sha256>::new_from_slice(dev_secret).unwrap();
     mac.update(challenge.as_bytes());
     let signature = hex_lower(&mac.finalize().into_bytes());
-    req = req
-        .header("x-device-id", device_id.to_string())
-        .header("x-device-timestamp", ts)
-        .header("x-device-nonce", nonce)
-        .header("x-device-body-sha256", body_hash)
-        .header("x-device-hmac", signature);
-    req
+    [
+        ("x-device-id", device_id.to_string()),
+        ("x-device-timestamp", ts),
+        ("x-device-nonce", nonce.to_owned()),
+        ("x-device-body-sha256", body_hash),
+        ("x-device-hmac", signature),
+    ]
 }
 
 async fn set_runtime_flags(
@@ -257,7 +256,10 @@ async fn send_request(
     req = req.header("authorization", auth);
     if let Some((device_id, secret, nonce)) = device {
         let inner_uri = uri.strip_prefix("/api").unwrap_or(uri);
-        req = add_device_hmac_headers(req, device_id, secret, method, inner_uri, body, nonce);
+        for (name, value) in device_hmac_headers(device_id, secret, method, inner_uri, body, nonce)
+        {
+            req = req.header(name, value);
+        }
     }
     let resp = common::send(
         addr,
