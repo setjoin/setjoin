@@ -26,9 +26,6 @@ pub enum Validation {
     Valid(Document),
     /// Go's 400 detail.
     Refuse(String),
-    /// Only a document `encoding/json` accepts but this parser cannot read (a lone
-    /// surrogate escape, a number out of `f64` range): let Go answer.
-    Forward,
 }
 
 fn refuse(text: &str) -> Validation {
@@ -236,7 +233,7 @@ pub fn validate(raw: &str) -> Validation {
         "null" => {}
         "object" => {
             let Some(pairs) = members(raw) else {
-                return Validation::Forward;
+                return refuse("invalid identity source document: invalid JSON");
             };
             for (name, value) in pairs {
                 let text_of = |value: &RawValue, field: &str| {
@@ -272,7 +269,7 @@ pub fn validate(raw: &str) -> Validation {
                             );
                         }
                         let Some(pairs) = members(value.get()) else {
-                            return Validation::Forward;
+                            return refuse("invalid identity source document: invalid JSON");
                         };
                         for (name, value) in pairs {
                             let (slot, field) = match super::fold(&name).as_str() {
@@ -522,9 +519,6 @@ pub fn decode_runtime(
                 "validate identity source runtime document: {detail}"
             ))
         }
-        Validation::Forward => {
-            return Err("validate identity source runtime document: invalid document".into())
-        }
     };
     if document.key != source_key {
         return Err("identity source runtime key does not match catalog row".into());
@@ -581,4 +575,48 @@ pub fn decode_runtime(
         group_filter: text(&spec, "groupFilter")?,
         password,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate, Validation};
+
+    #[test]
+    fn lone_surrogate_is_refused_without_forward() {
+        for raw in [
+            r#"{"\uD800":1}"#,
+            r#"{"metadata":{"\uD800":1}}"#,
+            r#"{"apiVersion":"\uD800"}"#,
+        ] {
+            match validate(raw) {
+                Validation::Refuse(msg) => {
+                    assert!(
+                        msg.starts_with("invalid identity source document:"),
+                        "unexpected refusal for {raw}: {msg}"
+                    );
+                }
+                Validation::Valid(_) => panic!("expected refusal for {raw}"),
+            }
+        }
+    }
+
+    #[test]
+    fn out_of_f64_range_number_is_answered_without_forward() {
+        match validate(r#"{"apiVersion":1e999}"#) {
+            Validation::Refuse(msg) => assert!(
+                msg.contains("cannot unmarshal number into Go struct field identitySourceDocument.apiVersion of type string"),
+                "{msg}"
+            ),
+            Validation::Valid(_) => panic!("expected refusal for 1e999 apiVersion"),
+        }
+
+        let valid = r#"{"apiVersion":"setjoin.io/v1","kind":"IdentitySource","metadata":{"sourceKey":"s1","displayName":"S1"},"spec":{"type":"local","passwordPolicy":{"minLength":1e999}}}"#;
+        match validate(valid) {
+            Validation::Valid(doc) => {
+                assert_eq!(doc.key, "s1");
+                assert!(doc.canonical.contains("1e999"), "{}", doc.canonical);
+            }
+            Validation::Refuse(msg) => panic!("unexpected refusal: {msg}"),
+        }
+    }
 }
