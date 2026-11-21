@@ -13,6 +13,7 @@
 
 pub mod acme;
 mod admission;
+pub mod auth_admin;
 mod deny;
 mod guest_allowlist;
 pub mod activation;
@@ -586,13 +587,33 @@ async fn handle(
             }
         }
         inventory::Target::RustAuth => {
+            if route.is_some_and(|r| {
+                r.target == inventory::Target::RustAuth
+                    && inventory::Inventory::is_pinned_and_mounted(r)
+            }) {
+                strip_api_prefix(&mut req);
+            }
             return match &shared.rust_auth_upstream {
-                Some(upstream) => upstream.forward(req, &identity).await,
+                Some(upstream) => {
+                    let mut response = upstream.forward(req, &identity).await;
+                    if !auth_listener
+                        && route.is_some_and(inventory::Inventory::is_pinned_and_mounted)
+                    {
+                        jmap::reply::security_headers(response.headers_mut(), identity.proto);
+                        response
+                            .headers_mut()
+                            .entry(hyper::header::CACHE_CONTROL)
+                            .or_insert_with(|| {
+                                hyper::header::HeaderValue::from_static("no-store")
+                            });
+                    }
+                    response
+                }
                 None => proxy::status(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Rust auth upstream unavailable\n",
                 ),
-            }
+            };
         }
         inventory::Target::GoMail => return go_mail.forward(req, &identity).await,
         inventory::Target::LocalRust => {}
@@ -632,6 +653,20 @@ async fn handle(
             route.handle(req, ctx).await
         }
         None => go_mail.forward(req, &identity).await,
+    }
+}
+
+fn strip_api_prefix(req: &mut Request<Body>) {
+    if !req.uri().path().starts_with("/api/") {
+        return;
+    }
+    if let Some(stripped) = req
+        .uri()
+        .path_and_query()
+        .and_then(|pq| pq.as_str().strip_prefix("/api"))
+        .and_then(|rest| rest.parse::<Uri>().ok())
+    {
+        *req.uri_mut() = stripped;
     }
 }
 

@@ -47,11 +47,8 @@ EXCLUDED_LISTENERS = {"fedharness"}
 PENDING = {
     ("auth", "GET", "/auth/guest-invite/accept"): "#342",
     ("auth", "POST", "/auth/guest-invite/accept"): "#342",
-    ("gateway", "*", "/auth/admin/"): "#340",
     ("gateway", "GET", "/auth/guest-invite/accept"): "#342",
     ("gateway", "POST", "/auth/guest-invite/accept"): "#342",
-    ("gateway", "GET", "/terms/pending"): "#340",
-    ("gateway", "POST", "/terms/accept"): "#340",
 }
 # Call sites in server-rust/bins/*/src that forward a request to a Go upstream: the auth server's
 # `self.forward(` to Go auth, the gateway's `upstream.forward(` proxy, `forward_body(`, and the JMAP

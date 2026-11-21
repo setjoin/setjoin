@@ -18,7 +18,7 @@ Guard: `inventory_guard::platform_slice_ownership_is_exhaustive_and_disjoint`.
 | `updates-deploy` (#300; security fixes: [updates-security.DOX.md](updates-security.DOX.md)) | 35: `/admin/system/upgrade*`, `/admin/system/upgrades*`, `/admin/system/recovery/*`, auto-update, maintenance window, `/admin/updates/*`, `/updates/*`, `/admin/deploy/*` | ON: all 35 registrations (#300, #455) |
 | `jobs-storage` (#301) | 14: `/admin/jobs/*`, `/admin/storage/*` | 14 ON; storage execution (#459) is documented in [storage.DOX.md](storage.DOX.md) |
 | `webhooks` (#302) | 6: `/admin/webhooks*` | ON (`src/webhooks.rs`, `webhook_secret.rs`) |
-| `terms-remaining` (#303, `bins/gateway/src/platform_terms.rs`) | 29: terms, domains, branding, federation peers, DNS, alerts, apps, monitor, reports, `/setup/status`, `/terms/*` | 27 ON by group (below); 2 forwarded to Go |
+| `terms-remaining` (#303, `bins/gateway/src/platform_terms.rs`) | 29: terms, domains, branding, federation peers, DNS, alerts, apps, monitor, reports, `/setup/status`, `/terms/*` | 29 ON (27 platform + 2 `rust-auth` #363) |
 | `configuration` (#414, `bins/gateway/src/platform.rs`) | 1: `POST /admin/reload` | ON; [gateway configuration contract](../../../bins/gateway/DOX.md#gateway-configuration-414) |
 | `secevents` (#304) | none: worker-only slice | n/a |
 | `acme-control` (#305) | 9: the ACME :80 listener and the unix setup control socket (3 ON, see below); the 6 federation test-harness routes stay OFF | 3 ON |
@@ -82,10 +82,9 @@ stay at the root); `inventory.rs` mounts family 8's `/admin/` entries accordingl
 | `dns` (`src/dns.rs`) | `/admin/dns/records`, `/admin/dns/verify` (2) | ON |
 | `branding` (`src/branding.rs`) | `/admin/branding` get, post (2) | ON |
 | `setup` (#364, `platform_terms.rs`) | `GET /setup/status` (1) | ON |
-| forwarded to Go | `/terms/pending`, `/terms/accept` (2) | OFF (Go) |
+| `terms` aliases (#363, `bins/auth/src/issuance.rs`) | `GET /terms/pending`, `POST /terms/accept` (2) | ON (`rust-auth`) |
 
-Forwarded routes and their owners: `/terms/pending` and `/terms/accept` are Go's `authProxy`
-to the auth listener (setjoin-auth, the IDLOGIN ticket, owns them).
+Gateway `/terms/*` aliases (#363): `GET /terms/pending` and `POST /terms/accept` are ON via `rust-auth` (`setjoin-auth` owns the handlers; gateway `inventory.rs` `PINNED_AND_MOUNTED` mounts both root and `/api/terms/*` and strips `/api` before forwarding). Note `IDENTITY_WRITE` is also exported in `setjoin_platform` for `#365` (`bins/gateway/src/auth_admin.rs`).
 
 `GET /setup/status` (#364) is public (no session, no gate) under Go's `setupLimit` (60 per
 minute per IP, the front-door bucket). It counts `users` on the worker credential

@@ -374,7 +374,12 @@ fn html(s: &str) -> String {
         .replace('"', "&#34;")
         .replace('\'', "&#39;")
 }
-fn redirect(r: &Request<Body>, c: &RequestContext, status: u16, location: &str) -> Response<Body> {
+pub(crate) fn redirect(
+    r: &Request<Body>,
+    c: &RequestContext,
+    status: u16,
+    location: &str,
+) -> Response<Body> {
     let title = crate::problem::title(status);
     let mut reply = plain(r, c, status, "");
     reply.headers_mut().remove("content-type");

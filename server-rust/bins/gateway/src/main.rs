@@ -1353,6 +1353,11 @@ async fn routes(
         issuer: issuer.clone(),
         codec: webhook_codec(),
     };
+    let auth_admin = setjoin_gateway::auth_admin::AuthAdminRoute::new(
+        exec.clone(),
+        keys.clone(),
+        issuer.clone(),
+    );
     let platform_terms = setjoin_gateway::platform_terms::PlatformTermsRoute::new(
         exec.clone(),
         keys.clone(),
@@ -1669,6 +1674,7 @@ async fn routes(
         .with(admin_sod)
         .with(platform)
         .with(platform_terms)
+        .with(auth_admin)
         .with(platform_updates)
         .with(platform_webhooks)
         .with(platform_jobs)
