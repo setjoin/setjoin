@@ -132,10 +132,7 @@ async fn request(
         .method(method)
         .uri(format!("http://{addr}{path}"))
         .header("user-agent", "IDLOGIN3 oracle");
-    if !headers
-        .iter()
-        .any(|(k, _)| k.eq_ignore_ascii_case("host"))
-    {
+    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("host")) {
         req = req.header("host", "auth.idlogin3.test");
     }
     if !headers
@@ -309,7 +306,10 @@ async fn run_mode(route: &str, kind: &str, mutation: Option<&str>) -> Result<(),
     let mutant = mutation == Some("status");
     // Owner-approved security divergences 2026-11-05 (#495): these frozen-Go
     // observations are replaced by reviewed expectations (identity-token/divergences.json).
-    let protected = matches!((route, kind), ("bootstrap", "revoked") | ("bootstrap", "bound") | ("impersonate", "domain-scope"));
+    let protected = matches!(
+        (route, kind),
+        ("bootstrap", "revoked") | ("bootstrap", "bound") | ("impersonate", "domain-scope")
+    );
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("IDLOGIN3-http").expect("database required");
     let c = db.connect().await?;
@@ -434,7 +434,7 @@ async fn run_mode(route: &str, kind: &str, mutation: Option<&str>) -> Result<(),
     } else {
         None
     };
-    let operator_file = if route == "reload" && matches!(kind,"rotation"|"failed-config") {
+    let operator_file = if route == "reload" && matches!(kind, "rotation" | "failed-config") {
         let old = std::env::var_os("SETJOIN_CONFIG");
         let owned = std::env::var_os("GOFREE_RELOAD_CONFIG").is_none();
         let file = std::env::var_os("GOFREE_RELOAD_CONFIG")
@@ -725,7 +725,7 @@ async fn run_mode(route: &str, kind: &str, mutation: Option<&str>) -> Result<(),
         payload = match kind {
             "invalid-input" => "{}".into(),
             "malformed" => "{bad".into(),
-            "unicode-surrogate" => normal.replacen('{', r#"{"ignored":"\ud800","#,1),
+            "unicode-surrogate" => normal.replacen('{', r#"{"ignored":"\ud800","#, 1),
             "trailing" => normal + " {}",
             "null" => "null".into(),
             "short-fingerprint" => {
@@ -1388,7 +1388,9 @@ async fn reload_restoration_failure_does_not_poison_next_case() {
     // to create and use its fixtures without duplicate-client collisions.
     let error = run("reload", "rotation", true).await.unwrap_err();
     assert!(
-        error.to_string().contains("operator key restoration failed: 599"),
+        error
+            .to_string()
+            .contains("operator key restoration failed: 599"),
         "unexpected failure: {error}"
     );
     run("reload", "success", false).await.unwrap();
@@ -1657,10 +1659,19 @@ async fn webpush_unauthenticated() {
     run("webpush", "unauthenticated", false).await.unwrap();
 }
 
-#[tokio::test]async fn reload_failed_config(){run("reload","failed-config",false).await.unwrap();}
-#[tokio::test]async fn impersonate_repeat(){run("impersonate","repeat",false).await.unwrap();}
+#[tokio::test]
+async fn reload_failed_config() {
+    run("reload", "failed-config", false).await.unwrap();
+}
+#[tokio::test]
+async fn impersonate_repeat() {
+    run("impersonate", "repeat", false).await.unwrap();
+}
 
-#[tokio::test]async fn bootstrap_unicode_surrogate(){run("bootstrap","unicode-surrogate",false).await.unwrap();}
+#[tokio::test]
+async fn bootstrap_unicode_surrogate() {
+    run("bootstrap", "unicode-surrogate", false).await.unwrap();
+}
 
 async fn gateway_front_door(
     auth: std::net::SocketAddr,
@@ -1826,7 +1837,7 @@ async fn terms_gateway_pending_and_api_alias() -> Result<(), Err> {
             assert_eq!(headers["cache-control"], "no-store");
             assert_eq!(headers["x-content-type-options"], "nosniff");
             let parsed: Value = serde_json::from_str(&raw)?;
-            assert!(parsed["terms"]
+            assert!(parsed
                 .as_array()
                 .unwrap()
                 .iter()
