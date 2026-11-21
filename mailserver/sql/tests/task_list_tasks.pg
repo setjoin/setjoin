@@ -135,7 +135,7 @@ $$ LANGUAGE plpgsql VOLATILE;
 SELECT task_list_tasks(:ub, :lid)->'list'->0->>'title' AS snapshot_title \gset
 ROLLBACK TO SAVEPOINT read_revocation;
 RELEASE SAVEPOINT read_revocation;
-SELECT is(:'snapshot_title', 'Feed test', 'task read authorizes and projects the same snapshot');
+SELECT is(:'snapshot_title'::TEXT, 'Feed test'::TEXT, 'task read authorizes and projects the same snapshot');
 
 -- Revoke after a valid create, before the update and destroy phases. A temp
 -- sequence records any later write even if the reducer rolls back the batch.
@@ -172,7 +172,7 @@ SELECT pg_temp.task_set_revocation_result(:ub, :lid, :ftid) AS set_result \gset
 SELECT is_called AS later_write FROM pg_temp.revoked_task_writes \gset
 ROLLBACK TO SAVEPOINT write_revocation;
 RELEASE SAVEPOINT write_revocation;
-SELECT is(:'set_result', 'BZ132', 'mid-batch revocation rejects the task set');
+SELECT is(:'set_result'::TEXT, 'BZ132'::TEXT, 'mid-batch revocation rejects the task set');
 SELECT is(:'later_write'::BOOLEAN, FALSE, 'mid-batch revocation prevents later task writes');
 
 SELECT * FROM finish();

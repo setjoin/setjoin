@@ -58,8 +58,8 @@ SELECT status AS revoked_status FROM event_attendees
 WHERE event_id = 9101 AND email = 'm@deleg.test' \gset
 ROLLBACK TO SAVEPOINT revoked_grant;
 RELEASE SAVEPOINT revoked_grant;
-SELECT is(:'revoked_type', 'forbidden', 'a revoked delegate cannot respond');
-SELECT is(:'revoked_status', 'accepted', 'a revoked delegate leaves the attendee status intact');
+SELECT is(:'revoked_type'::TEXT, 'forbidden'::TEXT, 'a revoked delegate cannot respond');
+SELECT is(:'revoked_status'::TEXT, 'accepted'::TEXT, 'a revoked delegate leaves the attendee status intact');
 
 -- (2) Stranger S (no delegate grant) is forbidden — no flip.
 -- reset status first
