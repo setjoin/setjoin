@@ -1,6 +1,7 @@
-//! Whole-request handoff only to explicitly unported owners: device proof (#350),
-//! CA policy (#351) and DPoP (#352). Threat admission is native (#349).
+//! Whole-request handoff only to explicitly unported owners: device proof (#350)
+//! and CA policy (#351). Threat admission (#349) and DPoP (#352) are native.
 mod common;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
 use serde_json::{json, Value};
@@ -10,7 +11,6 @@ use tokio::{net::TcpListener, sync::mpsc};
 #[derive(Clone, Copy)]
 enum Mode {
     Device,
-    Dpop,
     Policy,
 }
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -46,20 +46,13 @@ async fn check(mode: Mode) -> Result<(), Error> {
         )
         .await?;
     }
-    if matches!(mode, Mode::Dpop) {
-        c.execute(
-            "UPDATE feature_toggles SET enabled=true WHERE key='feature.token_binding'",
-            &[],
-        )
-        .await?;
-    }
     let (listener_addr, mut seen, spy) = spy().await?;
     let result=async{
   let f:Value=serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
   let mut cfg=Config::for_secret(f["secret"].as_str().unwrap().into());cfg.go_upstream=Some(format!("http://{listener_addr}"));
   let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),2).map_err(|e|e.0)?;
   let server=AuthServer::load(exec,cfg).await?.with_threat_gate(&db.dsn).await?;
-  let raw=if matches!(mode,Mode::Dpop){format!(r#"{{"email":{},"password":"Password1!","dpop_jwk":{},"dpop_jwk":{{}}}}"#,serde_json::to_string(&email)?,f["jwks"]["keys"][0])}else if matches!(mode,Mode::Policy|Mode::Device){"{deliberately-not-decoded".to_owned()}else{json!({"email":email,"password":"Password1!","ignored":"\\ud800"}).to_string()+" {}"};
+  let raw=if matches!(mode,Mode::Policy|Mode::Device){"{deliberately-not-decoded".to_owned()}else{json!({"email":email,"password":"Password1!","ignored":"\\ud800"}).to_string()+" {}"};
   let path="/auth/login?next=%2F";
   let mut request=Request::post(path).header("host","auth.idlogin1.test");
   if matches!(mode,Mode::Device){request=request.header("x-device-hmac","unported-proof");}
@@ -153,8 +146,111 @@ async fn device_proof_owner_420_receives_the_original_undecoded_request() {
     check(Mode::Device).await.unwrap();
 }
 
+fn jwt_cnf_jkt(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let v: Value = serde_json::from_slice(&bytes).ok()?;
+    v["cnf"]["jkt"].as_str().map(str::to_owned)
+}
+
 #[tokio::test]
-async fn duplicate_dpop_map_stays_with_policy_owner_405() {
-    check(Mode::Dpop).await.unwrap();
+async fn duplicate_dpop_map_binds_natively_without_forwarding() {
+    let db = Db::for_case("IDLOGIN1-handoff-dpop").unwrap();
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let flags: String = c
+        .query_one(
+            "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.token_binding')",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.conditional_access',false),('feature.token_binding',true) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+        &[],
+    )
+    .await
+    .unwrap();
+    let a = fixture::account(&c, "idlogin1-handoff-dpop").await.unwrap();
+    c.execute(
+        "UPDATE users SET password_hash=$1,mfa_exempt=true,totp_enabled=false,push_mfa_enabled=false WHERE id=$2",
+        &[&bcrypt::hash("Password1!", 4).unwrap(), &a.user],
+    )
+    .await
+    .unwrap();
+    let email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+        .await
+        .unwrap()
+        .get(0);
+    let (listener_addr, mut seen, spy) = spy().await.unwrap();
+    let result: Result<(), Error> = async {
+        let f: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-login/keys.json"
+        ))?;
+        let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+        cfg.go_upstream = Some(format!("http://{listener_addr}"));
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
+            .map_err(|e| e.0)?;
+        let server = AuthServer::load(exec, cfg).await?.with_threat_gate(&db.dsn).await?;
+        let jwk = &f["jwks"]["keys"][0];
+        let expected_jkt = setjoin_authz::dpop::thumbprint(jwk).unwrap();
+        let raw = format!(
+            r#"{{"email":{},"password":"Password1!","dpop_jwk":{},"dpop_jwk":{{}}}}"#,
+            serde_json::to_string(&email)?,
+            jwk
+        );
+        let response = server
+            .handle(
+                Request::post("/auth/login?next=%2F")
+                    .header("host", "auth.idlogin1.test")
+                    .body(body(raw))?,
+            )
+            .await;
+        let status = response.status().as_u16();
+        let returned = response.into_body().collect().await?.to_bytes();
+        drop(server);
+        assert!(seen.try_recv().is_err(), "DPoP issuance must not forward");
+        assert_eq!(status, 200, "body={}", String::from_utf8_lossy(&returned));
+        let json: Value = serde_json::from_slice(&returned)?;
+        let access = json["access_token"].as_str().ok_or("missing access_token")?;
+        let refresh = json["refresh_token"].as_str().ok_or("missing refresh_token")?;
+        assert_eq!(jwt_cnf_jkt(access).as_deref(), Some(expected_jkt.as_str()));
+        assert_eq!(jwt_cnf_jkt(refresh).as_deref(), Some(expected_jkt.as_str()));
+        Ok(())
+    }
+    .await;
+    spy.abort();
+    let _ = spy.await;
+    let _ = c
+        .execute("DELETE FROM sessions WHERE user_id=$1", &[&a.user])
+        .await;
+    let _ = c
+        .execute("DELETE FROM auth_event_log WHERE email=$1", &[&email])
+        .await;
+    let _ = c
+        .execute("DELETE FROM login_events WHERE user_id=$1", &[&a.user])
+        .await;
+    let _ = fixture::remove(&c, &a).await;
+    c.execute(
+        "DELETE FROM feature_toggles WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.token_binding')",
+        &[],
+    )
+    .await
+    .unwrap();
+    c.execute(
+        "INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)",
+        &[&flags],
+    )
+    .await
+    .unwrap();
+    result.unwrap();
 }
 

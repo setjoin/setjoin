@@ -1,0 +1,38 @@
+{
+  "case": "mail-work-action-suspended-row-effects",
+  "effects": [
+    {
+      "after": "0",
+      "before": "0",
+      "name": "state"
+    },
+    {
+      "after": "[{\"due_at\": null, \"status\": \"owned\", \"thread_id\": \"mw-action-1\", \"generation\": 1, \"sla_minutes\": null, \"completed_at\": null, \"last_event_id\": null, \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {}}]",
+      "before": "[{\"due_at\": null, \"status\": \"owned\", \"thread_id\": \"mw-action-1\", \"generation\": 1, \"sla_minutes\": null, \"completed_at\": null, \"last_event_id\": null, \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {}}]",
+      "name": "work"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "events"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "changes"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "ops"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "outbox"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailWork/action"
+}

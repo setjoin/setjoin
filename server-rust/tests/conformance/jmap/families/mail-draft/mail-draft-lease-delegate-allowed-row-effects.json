@@ -1,0 +1,28 @@
+{
+  "case": "mail-draft-lease-delegate-allowed-row-effects",
+  "effects": [
+    {
+      "after": "<uuid>:1:1:<a.user>:active:2",
+      "before": "<uuid>:1:1:<a.user>:active:1",
+      "name": "mail_drafts"
+    },
+    {
+      "after": "0",
+      "before": "0",
+      "name": "mail_draft_revisions"
+    },
+    {
+      "after": "1",
+      "before": "0",
+      "name": "mailwork_state"
+    },
+    {
+      "after": "1",
+      "before": "0",
+      "name": "mail_work_operations"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailDraft/lease"
+}

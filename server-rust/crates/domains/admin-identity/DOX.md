@@ -31,9 +31,7 @@ claims, as Go's chain does. Reads need any of `users.read|identity.write|
 access.policy_read|access.policy_write`; the four writes need `users.create`;
 sessions use Go's `requireSignInPerm` (those four plus `audit.read`) and, because
 `audit.read` is a global-only scope, any domain-scoped principal is refused with
-Go's audited 403 (`console.denied`, detail with the domain). Denials write Go's
-audit row and answer Go's bare problem document. Unmirrored gates, a failed
-authority read or a missing token forward the untouched request to Go.
+Go's audited 403 (`console.denied`, detail with the domain). Denials write Go's audit row and answer Go's bare problem document. For `users`/`roles`, `idv2-sources`/`idv2-transitions` and `idv2-upgrade` (#194), a failed `authority` read fails closed (`Authority::lookup_failed`, 403 `Forbidden`, #484); unmirrored gates or a missing token in sibling F01 slices still forward to Go.
 Domain scope 0 is global; a scoped admin's predicate sits in the same statement.
 
 ## Writes (receipt family `F01`)
@@ -222,12 +220,11 @@ non-terminal job; bodies over 2 KiB are chunked (net/http's buffer). Source deta
 replaces `app_notify` with a no-op for one pause case (`family_oracle_rejects_no_notify`).
 
 Source documents (`idv2_source.rs`): `validate` is Go's `validateIdentitySourceDocument` and returns the canonical document
-(`Valid`), Go's 400 text (`Refuse`, including `encoding/json`'s `cannot unmarshal <kind> into Go ...` wording; the first decode error in document order wins) or
-`Forward`, now only for a document the parser cannot read but Go accepts (a lone surrogate escape, a number out of range). A dry-run of an AD/LDAP source with every secret configured is served here (#400):
+(`Valid`) or Go's 400 text (`Refuse`, including `encoding/json`'s `cannot unmarshal <kind> into Go ...` wording; the first decode error in document order wins; invalid JSON / lone surrogates refuse with 400 and out-of-`f64`-range numbers preserve raw tokens). A dry-run of an AD/LDAP source with every secret configured is served here (#400):
 `decode_runtime` is Go's `DecodeIdentitySourceRuntime` (also used by the directory-sync catalog runtime) and the gateway's `SourceProbe`
 (`SourceSecrets::with_probe`, implemented by `directory_sync::DirectoryProbe` over `setjoin_directory_sync::catalog::probe`) is Go's
 `sourceProbe`: `runtime_configuration_invalid` (transport `failed`), `credential_rejected` (bind code 49, transport `reachable`),
-`directory_probe_failed` (`failed`), or success (`reachable`, then the `validate` lifecycle). Without a probe wired the request is Go's.
+`directory_probe_failed` (`failed`), or success (`reachable`, then the `validate` lifecycle). Without a probe wired the request fails closed with 503.
 Cases `probe-*` (`write2.rs::start_probe_directory`, a fake directory on a random loopback port) are recorded against frozen Go.
 Apply and secret writes seal `{"document":<canonical>,"secrets":{..}}` with `setjoin-config-secret` (`encrypt`, key `identity_source.<key>`),
 read-modify-write guarded by `expectedGeneration` inside the reducer (`identity_source_config_apply`, `identity_source_secret_set`); the

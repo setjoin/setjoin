@@ -106,8 +106,7 @@ impl AuthServer {
     pub(super) async fn saml_links(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if !login::enabled(&self.exec, "feature.identity_model_v2")
             .await
@@ -128,8 +127,7 @@ impl AuthServer {
     async fn saml_link(&self, req: Request<Body>, idp: &str) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {
@@ -215,8 +213,7 @@ impl AuthServer {
     pub(super) async fn identity_unlink(&self, mut req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {
@@ -317,18 +314,11 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    /// Library embeddings must attest both halves of the named task transfer.
-    pub async fn start_saml_listener(
-        &self,
-        rust_on: &str,
-        go_off: &str,
-    ) -> Result<Option<setjoin_identity::saml::Listener>, String> {
-        if !setjoin_identity::saml::admit_worker(rust_on, go_off)? {
-            return Ok(None);
-        }
+    /// Start cache invalidation for the native routes when their registry is loaded.
+    pub async fn start_saml_listener(&self) -> Option<setjoin_identity::saml::Listener> {
         match &self.saml {
-            Some(registry) => Ok(Some(registry.listen(&self.config.direct_dsn).await)),
-            None => Ok(None),
+            Some(registry) => Some(registry.listen(&self.config.direct_dsn).await),
+            None => None,
         }
     }
 }

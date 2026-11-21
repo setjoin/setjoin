@@ -1,0 +1,51 @@
+{
+  "case": "saved-search-list-success",
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "kind": "success",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [
+      "<seed.1>",
+      "Foreign Search"
+    ],
+    "audit": [],
+    "effects": {
+      "saved_searches": {
+        "after": "[{\"id\": <seed.0>, \"name\": \"Own Search\", \"query\": \"is:unread\", \"position\": 0, \"mailbox_id\": <a.mailbox>}, {\"id\": <seed.1>, \"name\": \"Foreign Search\", \"query\": \"from:boss\", \"position\": 0, \"mailbox_id\": <f.mailbox>}]",
+        "before": "[{\"id\": <seed.0>, \"name\": \"Own Search\", \"query\": \"is:unread\", \"position\": 0, \"mailbox_id\": <a.mailbox>}, {\"id\": <seed.1>, \"name\": \"Foreign Search\", \"query\": \"from:boss\", \"position\": 0, \"mailbox_id\": <f.mailbox>}]"
+      }
+    },
+    "notify": [],
+    "repeat": null,
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:setjoin:params:jmap:mail\"],\"methodCalls\":[[\"SavedSearch/list\",{\"accountId\":\"<a.mailbox>\"},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"SavedSearch/list\",{\"accountId\":\"<a.mailbox>\",\"list\":[{\"id\":\"<seed.0>\",\"name\":\"Own Search\",\"query\":\"is:unread\",\"position\":0}]},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap SavedSearch/list"
+}

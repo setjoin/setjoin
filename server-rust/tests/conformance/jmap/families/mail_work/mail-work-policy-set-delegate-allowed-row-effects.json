@@ -1,0 +1,33 @@
+{
+  "case": "mail-work-policy-set-delegate-allowed-row-effects",
+  "effects": [
+    {
+      "after": "1",
+      "before": "0",
+      "name": "state"
+    },
+    {
+      "after": "{\"holidays\": [], \"timezone\": \"UTC\", \"generation\": 1, \"updated_by\": <a.user>, \"sla_minutes\": 480, \"workday_end\": \"17:00:00\", \"weekday_mask\": 62, \"workday_start\": \"09:00:00\"}",
+      "before": "none",
+      "name": "policy"
+    },
+    {
+      "after": "[{\"op\": \"updated\", \"object_id\": \"sla\", \"state_seq\": 1, \"object_kind\": \"policy\"}]",
+      "before": "[]",
+      "name": "changes"
+    },
+    {
+      "after": "[{\"op\": \"<uuid>\", \"kind\": \"sla_policy_set\", \"actor\": <a.user>, \"has_digest\": true}]",
+      "before": "[]",
+      "name": "ops"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "3b0bb9ffd013cf1391e0374515bb407dbbf97fe2",
+  "route": "POST /jmap MailWorkPolicy/set"
+}

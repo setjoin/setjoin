@@ -136,7 +136,9 @@ fn segment(path: &str, index: usize) -> String {
 }
 
 impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -152,7 +154,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         Box::pin(async move {
             let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
+                return bare(404, "not found", &c, "");
             };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
@@ -165,9 +167,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let Ok(authority) = setjoin_admin_identity::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let authority = setjoin_admin_identity::authority(&exec, actor)
+                .await
+                .unwrap_or_else(|_| setjoin_admin_identity::Authority::lookup_failed());
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let required: &[&str] = match what {
@@ -343,10 +345,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityRoute<K> {
                             )
                             .await
                             {
-                                return full(
-                                    403,
-                                    "alias address is outside the mailbox's domain",
-                                );
+                                return full(403, "alias address is outside the mailbox's domain");
                             }
                             match setjoin_admin_identity::add_alias(
                                 &exec, actor, scope, user, mailbox, &email, operation,

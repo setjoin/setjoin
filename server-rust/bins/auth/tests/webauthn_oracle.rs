@@ -1,5 +1,7 @@
 //! Frozen-Go WebAuthn HTTP and committed-effect oracle.
 mod common;
+#[path = "common/revoke.rs"]
+mod revoke;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};
@@ -172,7 +174,7 @@ fn corpus() -> std::path::PathBuf {
         .join("../../tests/conformance/identity-webauthn/goldens")
 }
 async fn run(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
-    run_security(route,kind,mutant,false).await
+    run_security(route, kind, mutant, false).await
 }
 async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
@@ -183,12 +185,16 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         &[],
     )
     .await?;
-    let secure_sql=include_str!("../../../../mailserver/sql/reducers/rust_identity_webauthn_login_claim.sql");
+    let secure_sql =
+        include_str!("../../../../mailserver/sql/reducers/rust_identity_webauthn_login_claim.sql");
     if bug {
         assert!(std::env::var("GOFREE_RECORD_UPSTREAM").is_err());
-        let start=secure_sql.find("    -- SECURITY-ASSERTION-BEGIN").unwrap();
-        let end=secure_sql.find("    -- SECURITY-ASSERTION-END").unwrap()+"    -- SECURITY-ASSERTION-END".len();
-        let mut restored=secure_sql.to_owned();restored.replace_range(start..end,"");c.batch_execute(&restored).await?;
+        let start = secure_sql.find("    -- SECURITY-ASSERTION-BEGIN").unwrap();
+        let end = secure_sql.find("    -- SECURITY-ASSERTION-END").unwrap()
+            + "    -- SECURITY-ASSERTION-END".len();
+        let mut restored = secure_sql.to_owned();
+        restored.replace_range(start..end, "");
+        c.batch_execute(&restored).await?;
     }
     common::signing_key(&c).await;
     let saved_rate = c
@@ -273,7 +279,9 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
     let mut cfg = Config::for_secret(keys["secret"].as_str().unwrap().into());
     if route == "login-finish" {
         cfg.signing_alg = "ES256".into();
-        if kind.starts_with("pending-push"){cfg.vapid_private_key="AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into();}
+        if kind.starts_with("pending-push") {
+            cfg.vapid_private_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into();
+        }
     }
     let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
         .map_err(|e| e.0)?;
@@ -283,7 +291,16 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         setjoin_config_secret::CryptoProfile::Standard,
     )
     .await?;
-    let auth = auth_server(Arc::new(AuthServer::load(exec, cfg).await?), mutant).await;
+    let auth = auth_server(
+        Arc::new(
+            AuthServer::load(exec, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
+        ),
+        mutant,
+    )
+    .await;
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
     assert!(!mutant || record.is_none());
     let gw = gateway(auth.addr, record.clone()).await;
@@ -520,13 +537,19 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         if record.is_none(){let (_,_,metrics)=request(gw.addr,"GET","/_gateway/metrics",String::new(),&[]).await?;assert!(metrics.contains("setjoin_gateway_proxied_to_go_total 0"));}
         Ok::<(),Err>(())
     }.await;
-    if bug {c.batch_execute(secure_sql).await?;}
+    if bug {
+        c.batch_execute(secure_sql).await?;
+    }
     if let Some((table, _, _)) = &fault {
         c.batch_execute(&format!("DROP TRIGGER IF EXISTS gofree_idmfa2_fault ON {table};DROP FUNCTION IF EXISTS gofree_idmfa2_fault()")).await?;
     }
     gw.close().await;
     auth.close().await;
-    c.execute("DELETE FROM push_mfa_challenges WHERE user_id=ANY($1::bigint[])",&[&vec![a.user,b.user]]).await?;
+    c.execute(
+        "DELETE FROM push_mfa_challenges WHERE user_id=ANY($1::bigint[])",
+        &[&vec![a.user, b.user]],
+    )
+    .await?;
     common::restore_receipts(&c, &receipts).await;
     if let Some(value) = saved_rate {
         c.execute(
@@ -1246,8 +1269,18 @@ fn issued_pending(
 ) -> Result<Value, Err> {
     let reply: Value = serde_json::from_str(raw)?;
     assert_eq!(reply["mfa_required"], true);
-    assert!(matches!(reply["mfa_method"].as_str(),Some("totp"|"push")));
-    assert_eq!(reply["fallback"], if reply["mfa_method"]=="push"{json!(["totp","backup_codes"])}else{json!(["backup_codes"])});
+    assert!(matches!(
+        reply["mfa_method"].as_str(),
+        Some("totp" | "push")
+    ));
+    assert_eq!(
+        reply["fallback"],
+        if reply["mfa_method"] == "push" {
+            json!(["totp", "backup_codes"])
+        } else {
+            json!(["backup_codes"])
+        }
+    );
     assert!(headers.get("set-cookie").is_none());
     let token = reply["mfa_token"].as_str().ok_or("pending token")?;
     let legacy = setjoin_authz::legacy_jwt::LegacyKeys::new(
@@ -1303,15 +1336,526 @@ register_finish_case!(
 );
 
 #[tokio::test]
-async fn mutant_login_counter_regression_restores_go_bug(){run_security("login-finish","counter-regression",false,true).await.unwrap();}
+async fn mutant_login_counter_regression_restores_go_bug() {
+    run_security("login-finish", "counter-regression", false, true)
+        .await
+        .unwrap();
+}
 #[tokio::test]
-async fn mutant_login_assertion_replay_restores_go_bug(){run_security("login-finish","repeat",false,true).await.unwrap();}
+async fn mutant_login_assertion_replay_restores_go_bug() {
+    run_security("login-finish", "repeat", false, true)
+        .await
+        .unwrap();
+}
 
-async fn push_rows(c:&tokio_postgres::Client,user:i64)->Result<Value,Err>{
+async fn push_rows(c: &tokio_postgres::Client, user: i64) -> Result<Value, Err> {
     let rows=c.query("SELECT session_id,verified_at IS NOT NULL,failed_attempts,expires_at>now() FROM push_mfa_challenges WHERE user_id=$1 ORDER BY id",&[&user]).await?;
     Ok(json!(rows.iter().map(|r|json!({"session":r.get::<_,String>(0),"verified":r.get::<_,bool>(1),"failures":r.get::<_,i32>(2),"live":r.get::<_,bool>(3)})).collect::<Vec<_>>()))
 }
-finish_case!(login_finish_pending_push,"pending-push");
-finish_case!(login_finish_pending_push_only,"pending-push-only");
-finish_case!(login_finish_pending_push_limit,"pending-push-limit");
-finish_case!(login_finish_pending_push_only_limit,"pending-push-only-limit");
+finish_case!(login_finish_pending_push, "pending-push");
+finish_case!(login_finish_pending_push_only, "pending-push-only");
+finish_case!(login_finish_pending_push_limit, "pending-push-limit");
+finish_case!(
+    login_finish_pending_push_only_limit,
+    "pending-push-only-limit"
+);
+
+#[tokio::test]
+async fn dpop_webauthn_bound_management_and_login_finish_issuance() {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDMFA2-dpop").expect("assigned DB required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let receipts = common::receipt_ids(&c).await;
+    let saved_rate = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    let saved_tb = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+        &[],
+    )
+    .await
+    .unwrap();
+    let null_floor: i64 = c
+        .query_one("SELECT COALESCE(max(id),0) FROM auth_event_log", &[])
+        .await
+        .unwrap()
+        .get(0);
+    NULL_AUDIT_FLOOR.store(null_floor, std::sync::atomic::Ordering::SeqCst);
+    let a = fixture::account(&c, "idmfa2-dpop-actor").await.unwrap();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-webauthn/vectors.json"
+        ))?;
+        let vector = &vectors["cases"][0];
+        let cred_id =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(vector["id"].as_str().unwrap())?;
+        let handle = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(vector["handle"].as_str().unwrap())?;
+
+        c.execute(
+            "UPDATE users SET webauthn_user_handle=$2 WHERE id=$1",
+            &[&a.user, &handle],
+        )
+        .await?;
+        c.execute(
+            "INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count,device_name,created_at,uv_capable) VALUES($1,$2,'\\xa0','none',7,'Initial Key','2026-10-01T02:03:04Z',true)",
+            &[&b"actor-credential".as_slice(), &a.user],
+        )
+        .await?;
+
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.signing_alg = "ES256".into();
+        cfg.go_upstream = None;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = auth_server(
+            Arc::new(
+                AuthServer::load(exec.clone(), cfg)
+                    .await?
+                    .with_threat_gate(&db.dsn)
+                    .await?,
+            ),
+            false,
+        )
+        .await;
+
+        let dkey = common::dpop::key(51);
+        let (jwk, jkt) = common::dpop::jwk_and_jkt(&dkey);
+        let email: String = c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+        let tok = common::dpop::bound_access_jwt(secret, a.user, &email, "idmfa2-dpop-actor", &jkt);
+        let auth = format!("Bearer {tok}");
+
+        // 1. Bound management routes: list, name (escaped path), register/begin, register/finish, revoke.
+        let (st, hs, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/webauthn/credentials",
+            String::new(),
+            &[("authorization", &auth)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "GET",
+            "http://auth.idmfa2.test/auth/webauthn/credentials",
+            Some(&tok),
+            "j-wa-list",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/webauthn/credentials",
+            String::new(),
+            &[("authorization", &auth), ("dpop", &p)],
+        )
+        .await?;
+        assert_eq!(st, 200, "webauthn/credentials with DPoP: {raw}");
+
+        // Escaped path %59WN0b3ItY3JlZGVudGlhbA must preserve percent-encoding in htu!
+        let escaped_path = "/auth/webauthn/credential/%59WN0b3ItY3JlZGVudGlhbA/name";
+        let name_body = r#"{"device_name":"DPoP Renamed"}"#.to_string();
+        let (unescaped_p, _) = common::dpop::proof(
+            &dkey,
+            "PUT",
+            "http://auth.idmfa2.test/auth/webauthn/credential/YWN0b3ItY3JlZGVudGlhbA/name",
+            Some(&tok),
+            "j-wa-name-bad-htu",
+        );
+        let (st, hs, raw) = request(
+            srv.addr,
+            "PUT",
+            escaped_path,
+            name_body.clone(),
+            &[("authorization", &auth), ("dpop", &unescaped_p)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (escaped_p, _) = common::dpop::proof(
+            &dkey,
+            "PUT",
+            &format!("http://auth.idmfa2.test{escaped_path}"),
+            Some(&tok),
+            "j-wa-name-ok",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "PUT",
+            escaped_path,
+            name_body,
+            &[("authorization", &auth), ("dpop", &escaped_p)],
+        )
+        .await?;
+        assert_eq!(st, 200, "webauthn credential rename with escaped htu: {raw}");
+
+        let reauth_hash = format!("{:x}", Sha256::digest(b"idmfa2-dpop-proof"));
+        c.execute(
+            "INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,proving_factor_id,bound_factor_generation,token_scope,expires_at) VALUES($1,$2,'idmfa2-dpop-actor','webauthn.register','webauthn_uv',$3,0,'session',now()+interval '5 minutes')",
+            &[&reauth_hash, &a.user, &b"actor-credential".as_slice()],
+        )
+        .await?;
+
+        let (st, hs, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/webauthn/register/begin",
+            String::new(),
+            &[("authorization", &auth), ("x-mfa-reauth", "idmfa2-dpop-proof")],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "GET",
+            "http://auth.idmfa2.test/auth/webauthn/register/begin",
+            Some(&tok),
+            "j-wa-reg-begin",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/webauthn/register/begin",
+            String::new(),
+            &[
+                ("authorization", &auth),
+                ("x-mfa-reauth", "idmfa2-dpop-proof"),
+                ("dpop", &p),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 200, "webauthn register/begin with DPoP: {raw}");
+
+        // Register finish using vector registration.
+        c.execute("DELETE FROM webauthn_ceremonies WHERE user_id=$1", &[&a.user])
+            .await?;
+        let reg_hash = format!(
+            "{:x}",
+            Sha256::digest(vector["challenge"].as_str().unwrap().as_bytes())
+        );
+        c.execute(
+            "UPDATE mfa_reauth_step_ups SET target_ref=$2 WHERE user_id=$1",
+            &[&a.user, &reg_hash],
+        )
+        .await?;
+        c.execute(
+            "INSERT INTO webauthn_ceremonies(challenge_hash,user_id,kind,operation,target_ref,session_jti,token_scope,expires_at) VALUES($1,$2,'registration','webauthn.register',$1,'idmfa2-dpop-actor','session',now()+interval '5 minutes')",
+            &[&reg_hash, &a.user],
+        )
+        .await?;
+        let cookie_codec = setjoin_identity::webauthn::CookieCipher::new(secret.as_bytes());
+        let cred_params: Vec<Value> = [-7, -35, -36, -257, -258, -259, -37, -38, -39, -8]
+            .iter()
+            .map(|alg| json!({"type": "public-key", "alg": alg}))
+            .collect();
+        let reg_sess = json!({
+            "challenge": vector["challenge"],
+            "rpId": "localhost",
+            "user_id": base64::engine::general_purpose::STANDARD.encode(&handle),
+            "credParams": cred_params,
+            "expires": "0001-01-01T00:00:00Z"
+        });
+        let reg_cookie = format!("wa_reg_sess={}", cookie_codec.seal(reg_sess.to_string().as_bytes())?);
+        let reg_body = vector["registration"].to_string();
+
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/webauthn/register/finish",
+            reg_body.clone(),
+            &[
+                ("authorization", &auth),
+                ("cookie", &reg_cookie),
+                ("x-mfa-reauth", "idmfa2-dpop-proof"),
+            ],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa2.test/auth/webauthn/register/finish",
+            Some(&tok),
+            "j-wa-reg-finish",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/webauthn/register/finish",
+            reg_body,
+            &[
+                ("authorization", &auth),
+                ("cookie", &reg_cookie),
+                ("x-mfa-reauth", "idmfa2-dpop-proof"),
+                ("dpop", &p),
+            ],
+        )
+        .await?;
+        assert!(matches!(st, 200 | 201), "webauthn register/finish with DPoP: {st} {raw}");
+
+        // Revoke credential.
+        c.execute("DELETE FROM mfa_reauth_step_ups WHERE user_id=$1", &[&a.user])
+            .await?;
+        c.execute(
+            "INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,proving_factor_id,bound_factor_generation,token_scope,target_ref,expires_at) VALUES($1,$2,'idmfa2-dpop-actor','webauthn.revoke','webauthn_uv',$3,1,'session','YWN0b3ItY3JlZGVudGlhbA',now()+interval '5 minutes')",
+            &[&reauth_hash, &a.user, &cred_id],
+        )
+        .await?;
+        let revoke_path = "/auth/webauthn/credential/YWN0b3ItY3JlZGVudGlhbA";
+        let (st, hs, raw) = request(
+            srv.addr,
+            "DELETE",
+            revoke_path,
+            String::new(),
+            &[("authorization", &auth), ("x-mfa-reauth", "idmfa2-dpop-proof")],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "DELETE",
+            &format!("http://auth.idmfa2.test{revoke_path}"),
+            Some(&tok),
+            "j-wa-revoke",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "DELETE",
+            revoke_path,
+            String::new(),
+            &[
+                ("authorization", &auth),
+                ("x-mfa-reauth", "idmfa2-dpop-proof"),
+                ("dpop", &p),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 204, "webauthn revoke with DPoP: {raw}");
+
+        // 2. POST /auth/webauthn/login/finish token binding: OFF / ON / duplicate-map / malformed / DB fault.
+        let login_sess = json!({
+            "challenge": vector["challenge"],
+            "rpId": "localhost",
+            "user_id": base64::engine::general_purpose::STANDARD.encode(&handle),
+            "allowed_credentials": [base64::engine::general_purpose::STANDARD.encode(&cred_id)],
+            "expires": "0001-01-01T00:00:00Z"
+        });
+        let login_cookies = format!(
+            "wa_login_sess={}; wa_login_uid={}",
+            cookie_codec.seal(login_sess.to_string().as_bytes())?,
+            cookie_codec.seal(a.user.to_string().as_bytes())?,
+        );
+        let assertion_base = vector["assertions"]["success"]["request"].clone();
+        let reseed_cred = || async {
+            c.execute("DELETE FROM webauthn_login_replays WHERE user_id=$1", &[&a.user])
+                .await?;
+            c.execute("DELETE FROM passkey_credentials WHERE user_id=$1", &[&a.user])
+                .await?;
+            c.execute(
+                "INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count,device_name,created_at,uv_capable) VALUES($1,$2,$3,'none',7,'Login Key','2026-10-01T02:03:04Z',true)",
+                &[&cred_id, &a.user, &unhex(vector["key"].as_str().unwrap())],
+            )
+            .await?;
+            Ok::<_, Err>(())
+        };
+
+        let mut with_jwk = assertion_base.clone();
+        with_jwk["dpop_jwk"] = jwk.clone();
+
+        // Toggle OFF -> unbound.
+        reseed_cred().await?;
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/webauthn/login/finish",
+            with_jwk.to_string(),
+            &[("cookie", &login_cookies)],
+        )
+        .await?;
+        assert_eq!(st, 200, "webauthn/login/finish toggle OFF: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        // Toggle ON -> bound access + refresh.
+        c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await?;
+        reseed_cred().await?;
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/webauthn/login/finish",
+            with_jwk.to_string(),
+            &[("cookie", &login_cookies)],
+        )
+        .await?;
+        assert_eq!(st, 200, "webauthn/login/finish toggle ON: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(
+            common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+        assert_eq!(
+            common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+
+        // Toggle ON + duplicate dpop_jwk map (empty later map does not erase valid earlier key).
+        reseed_cred().await?;
+        let dup_raw = assertion_base.to_string();
+        let dup_body = format!(
+            "{},\"dpop_jwk\":{},\"dpop_jwk\":{{}}}}",
+            dup_raw.strip_suffix('}').unwrap(),
+            jwk
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/webauthn/login/finish",
+            dup_body,
+            &[("cookie", &login_cookies)],
+        )
+        .await?;
+        assert_eq!(st, 200, "webauthn/login/finish duplicate dpop_jwk: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(
+            common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+        assert_eq!(
+            common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+
+        // Toggle ON + malformed dpop_jwk -> unbound.
+        reseed_cred().await?;
+        let mut bad_req = assertion_base.clone();
+        bad_req["dpop_jwk"] = json!({"kty": "RSA"});
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/webauthn/login/finish",
+            bad_req.to_string(),
+            &[("cookie", &login_cookies)],
+        )
+        .await?;
+        assert_eq!(st, 200, "webauthn/login/finish malformed dpop_jwk: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        // DB fault reading feature.token_binding returns 500 BEFORE rp.finish_login counter bump.
+        if db.app.is_some() {
+            reseed_cred().await?;
+            let guard = revoke::table(&db.dsn, &c, &exec, "feature_toggles").await?;
+            let call = request(
+                srv.addr,
+                "POST",
+                "/auth/webauthn/login/finish",
+                with_jwk.to_string(),
+                &[("cookie", &login_cookies)],
+            )
+            .await;
+            guard.restore(&c).await?;
+            let (st, _, raw) = call?;
+            assert_eq!(st, 500, "webauthn/login/finish token_binding DB fault: {raw}");
+            let cnt: i32 = c
+                .query_one(
+                    "SELECT sign_count FROM passkey_credentials WHERE user_id=$1",
+                    &[&a.user],
+                )
+                .await?
+                .get(0);
+            assert_eq!(cnt, 7, "DB fault must abort before WebAuthn sign_count bump");
+        }
+
+        srv.close().await;
+        Ok(())
+    }
+    .await;
+
+    for tbl in [
+        "webauthn_login_replays",
+        "webauthn_ceremonies",
+        "mfa_reauth_step_ups",
+        "passkey_credentials",
+        "session_revocations",
+        "login_events",
+        "sessions",
+        "oauth_tokens",
+    ] {
+        let _ = c
+            .execute(&format!("DELETE FROM {tbl} WHERE user_id=$1"), &[&a.user])
+            .await;
+    }
+    let _ = c
+        .execute(
+            "DELETE FROM auth_event_log WHERE user_id=$1 OR (id>$2 AND user_id IS NULL AND event='login_failed' AND provider='webauthn')",
+            &[&a.user, &null_floor],
+        )
+        .await;
+    common::restore_receipts(&c, &receipts).await;
+    let _ = fixture::remove(&c, &a).await;
+    for (key, saved) in [
+        ("feature.rate_limit", saved_rate),
+        ("feature.token_binding", saved_tb),
+    ] {
+        if let Some(prev) = saved {
+            let _ = c
+                .execute(
+                    "INSERT INTO feature_toggles(key,enabled) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+                    &[&key, &prev],
+                )
+                .await;
+        } else {
+            let _ = c
+                .execute("DELETE FROM feature_toggles WHERE key=$1", &[&key])
+                .await;
+        }
+    }
+    c.query_one(
+        "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    result.unwrap();
+}

@@ -6,11 +6,11 @@ impl AuthServer {
         &self,
         req: &Request<Body>,
         pending: &str,
-    ) -> Result<Session, totp::Admission> {
-        let mut cookies = req.headers().clone();
+    ) -> Result<Session, Response<Body>> {
+        let headers = req.headers();
+        let mut cookies = headers.clone();
         cookies.remove("authorization");
-        let header = req
-            .headers()
+        let header = headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.strip_prefix("Bearer "))
@@ -19,26 +19,19 @@ impl AuthServer {
             .into_iter()
             .flatten()
         {
-            if let Some(session) = self.legacy.as_ref().and_then(|legacy| {
-                Session::verify(&token, self.keys.as_deref(), legacy, &self.config.issuer)
-            }) {
-                if session.text("typ") == "access" && !self.revocations.contains(&session) {
-                    if session.bound() {
-                        return Err(totp::Admission::Forward);
-                    }
-                    return Ok(session);
-                }
+            if let Ok(session) = self.verify_presented_access(req, &token, true) {
+                return Ok(session);
             }
         }
         if let Some(session) = self.totp_pending(pending) {
             return Ok(session);
         }
-        Err(totp::Admission::Denied(Self::push_problem(
+        Err(Self::push_problem(
             401,
             "invalid MFA token",
             Some("dpop_admission"),
             req.uri().path(),
-        )))
+        ))
     }
     fn possession_media(req: &Request<Body>) -> Result<(), Response<Body>> {
         let (headers, scheme) = Self::csrf_context(req);
@@ -118,10 +111,18 @@ impl AuthServer {
         Self::possession_target(operation, target, path)
     }
     pub(super) async fn possession_webauthn_begin(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.possession_webauthn_begin_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn possession_webauthn_begin_admitted(&self, req: Request<Body>) -> Response<Body> {
         if let Err(reply) = Self::possession_media(&req) {
             return reply;
         }
@@ -142,8 +143,7 @@ impl AuthServer {
         let get = |key| fields.get(key).map_or("", String::as_str);
         let session = match self.possession_token(&req, get("mfa_token")) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(reply)) => return reply,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(reply) => return reply,
         };
         if session.claims().get("act").is_some_and(|v| !v.is_null()) {
             return Self::push_problem(
@@ -218,10 +218,18 @@ impl AuthServer {
         Response::builder().status(403).header("content-type","application/problem+json").header("cache-control","no-store").body(body(problem::Problem::new(403,"no live management-assertion ceremony for this session — begin one at POST /auth/mfa/possession/webauthn/begin").kind("https://setjoin.com/errors/reauth-required").title("Re-authentication required").code("reauth_required").remediation("reauth").instance(path).body())).unwrap()
     }
     pub(super) async fn possession_webauthn_finish(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.possession_webauthn_finish_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn possession_webauthn_finish_admitted(&self, req: Request<Body>) -> Response<Body> {
         if let Err(reply) = Self::possession_media(&req) {
             return reply;
         }
@@ -245,8 +253,7 @@ impl AuthServer {
         let get = |key| fields.get(key).map_or("", String::as_str);
         let session = match self.possession_token(&req, get("mfa_token")) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(reply)) => return reply,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(reply) => return reply,
         };
         let ceremony = match possession::peek(&self.exec, &session).await {
             Ok(Some(c)) => c,
