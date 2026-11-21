@@ -1064,3 +1064,15 @@ gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
+
+Reminder and Continuity (#377): `src/jmap/family/reminder.rs` serves
+`Reminder/{get,dismiss,snooze}` (`urn:setjoin:params:jmap:reminders`, personal
+gate) via `reminders_get`, `reminder_dismiss`, `reminder_dismiss_all` and
+`reminder_snooze`. `src/jmap/family/continuity.rs` serves
+`Continuity/{get,present}` (`urn:ietf:params:jmap:mail`, read delegate gate)
+when `ContinuitySigner` and `continuity_boot` are loaded and
+`feature.client_recovery_receipts` is enabled, calling `continuity_context_issue`
+(and `continuity_client_witness_record` after Ed25519/freshness/scope
+verification); `recoveryIntakeAllowed` stays `false`. Oracle cases and mutants:
+`tests/jmap_family_377.rs` and `tests/conformance/route-catalog.d/jmap-377.json`
+(goldens recorded via `gofree-record.yml`).
