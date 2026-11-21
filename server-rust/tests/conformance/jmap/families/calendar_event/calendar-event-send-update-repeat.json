@@ -1,0 +1,73 @@
+{
+  "case": "calendar-event-send-update-repeat",
+  "format": 1,
+  "go_source": "c62af657f6518e04727249c084b73a4d63e9c3a6",
+  "kind": "repeat",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [],
+    "effects": {
+      "calendar_events": {
+        "after": "[{\"id\": <seed.1>, \"uid\": \"uid-send-upd-1\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Updated Sync\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 2, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": true, \"jmap_state\": 2, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PUBLIC\", \"component_type\": \"VEVENT\", \"organizer_name\": \"Alice\", \"organizer_email\": \"fam-calendar_event@oracle.test\", \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}]",
+        "before": "[{\"id\": <seed.1>, \"uid\": \"uid-send-upd-1\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Updated Sync\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 0, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": true, \"jmap_state\": 0, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PUBLIC\", \"component_type\": \"VEVENT\", \"organizer_name\": \"Alice\", \"organizer_email\": \"fam-calendar_event@oracle.test\", \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}]"
+      },
+      "entity_state": {
+        "after": "[{\"seq\": 3, \"datatype\": \"Calendar\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 3, \"datatype\": \"CalendarEvent\", \"mailbox_id\": <a.mailbox>}]",
+        "before": "[{\"seq\": 1, \"datatype\": \"Calendar\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 1, \"datatype\": \"CalendarEvent\", \"mailbox_id\": <a.mailbox>}]"
+      },
+      "event_attendees": {
+        "after": "[{\"name\": \"Guest\", \"role\": \"required\", \"rsvp\": true, \"email\": \"guest@static.test\", \"status\": \"needs-action\", \"event_id\": <seed.1>}]",
+        "before": "[{\"name\": \"Guest\", \"role\": \"required\", \"rsvp\": true, \"email\": \"guest@static.test\", \"status\": \"needs-action\", \"event_id\": <seed.1>}]"
+      }
+    },
+    "notify": [
+      "calendar:<a.mailbox> {\"event\": \"event_updated\", \"event_id\": <seed.1>, \"calendar_id\": <seed.0>}",
+      "calendar:<a.mailbox> {\"event\": \"event_updated\", \"event_id\": <seed.1>, \"calendar_id\": <seed.0>}"
+    ],
+    "repeat": {
+      "body": "{\"sessionState\":\"0-0-0-0-1-0-0-<timestamp>\",\"methodResponses\":[[\"CalendarEvent/sendUpdate\",{\"end\":\"<timestamp>+00:00\",\"uid\":\"uid-send-upd-1\",\"rrule\":null,\"start\":\"<timestamp>+00:00\",\"title\":\"Updated Sync\",\"allDay\":false,\"status\":\"confirmed\",\"eventId\":\"<seed.1>\",\"location\":null,\"sequence\":2,\"timezone\":null,\"attendees\":[{\"name\":\"Guest\",\"role\":\"required\",\"email\":\"guest@static.test\",\"expectReply\":true,\"participationStatus\":\"needs-action\"}],\"meetingUrl\":null,\"description\":null,\"organizerName\":\"Alice\",\"organizerEmail\":\"<organizer-email>\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:ietf:params:jmap:calendars\"],\"methodCalls\":[[\"CalendarEvent/sendUpdate\",{\"accountId\":\"<a.mailbox>\",\"eventId\":\"<seed.1>\"},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"CalendarEvent/sendUpdate\",{\"end\":\"<timestamp>+00:00\",\"uid\":\"uid-send-upd-1\",\"rrule\":null,\"start\":\"<timestamp>+00:00\",\"title\":\"Updated Sync\",\"allDay\":false,\"status\":\"confirmed\",\"eventId\":\"<seed.1>\",\"location\":null,\"sequence\":1,\"timezone\":null,\"attendees\":[{\"name\":\"Guest\",\"role\":\"required\",\"email\":\"guest@static.test\",\"expectReply\":true,\"participationStatus\":\"needs-action\"}],\"meetingUrl\":null,\"description\":null,\"organizerName\":\"Alice\",\"organizerEmail\":\"<organizer-email>\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap CalendarEvent/sendUpdate"
+}

@@ -1,0 +1,33 @@
+{
+  "case": "contact-group-set-delegate-personal-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "addressbooks"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "contact_groups"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "contact_group_members"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "entity_state"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "63b6242b5518c2b050639897e2ecf995c69a4d34",
+  "route": "POST /jmap ContactGroup/set"
+}
