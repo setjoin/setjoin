@@ -101,6 +101,21 @@ only after verification; nonstandard profile selection belongs to production
 shared protocol admission. The LDAP corpus compares repeated login and committed
 upgrade effects. `tests/password_formats.rs` also replays frozen format vectors.
 
+## Shared protocol password check (#355-0)
+
+`basic::verify` ports `pwhash.CheckAppPassword` and `auth.CheckPassword` once
+for every protocol. Each caller passes an explicit `Policy`: accepted kinds
+(`Accept`), guest app passwords, and TOTP account passwords. IMAP uses
+app-then-account; DAV Basic (#355a) will use `AppPassword` only. By owner
+ruling (2026-11-14) both refuse a TOTP user's account password, a recorded
+divergence from frozen Go; the flag is read by the per-call account SELECT
+before the cache. The account lookup, the enabled filter and the fail-closed
+`is_guest_account` refusal run on every call. `PasswordCache` keeps Go's 60 s
+verification cache, bounded (4096), swept on insert, keyed by a random
+per-instance HMAC over user id, email, stored hash and secret; app passwords
+are never cached. `tests/basic_password.rs` covers each rule against the
+assigned DB.
+
 ## First-party key custody and legacy JWTs (#331)
 
 `legacy_jwt::LegacyKeys` verifies configured HS256 kids with ring and the fixed

@@ -10,6 +10,7 @@
 //! checks remain with each route family.
 
 pub mod address;
+pub mod basic;
 pub mod clientip;
 pub mod csrf;
 pub mod es256;

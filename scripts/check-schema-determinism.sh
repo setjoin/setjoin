@@ -59,12 +59,15 @@ trap 'rm -rf "$TMP"; psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres 
 # normalize: strip the non-structural noise that varies between/within dumps.
 # Note `\restrict`/`\unrestrict`: pg_dump 17.x emits a RANDOM per-dump session
 # token on these lines (a dump-hardening feature, not schema) — it differs on
-# every invocation and MUST be stripped, exactly like the banner. The DDL between
-# them is what we compare.
+# every invocation and MUST be stripped, exactly like the banner.
+# Note `pg_attver=<N>`: pg_dump 18.6+ emits per-build internal attribute-version
+# storage parameters (`ALTER TABLE ONLY ... ALTER COLUMN ... SET (pg_attver=<N>);`)
+# that vary across identical builds; strip those while keeping real DDL.
 normalize() {
   grep -vE '^(--|SET |SELECT pg_catalog\.set_config|COMMENT |\\restrict|\\unrestrict)' "$1" \
     | grep -vE '^[[:space:]]*$' \
-    | grep -vE 'OWNER TO '
+    | grep -vE 'OWNER TO ' \
+    | grep -vE '^ALTER TABLE ONLY [^[:space:]]+ ALTER COLUMN [^[:space:]]+ SET \(pg_attver=[0-9]+\);$'
 }
 
 build() { # <db>
