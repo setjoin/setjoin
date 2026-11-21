@@ -50,6 +50,7 @@ pub mod rp;
 
 pub mod saml;
 pub mod saml_acs;
+mod sso_cache;
 
 pub mod identity_links;
 
