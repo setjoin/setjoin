@@ -548,18 +548,19 @@ mod tests {
                 "{method} {path}"
             );
         }
-        // Literal /api mount only: escaped `/a%70i` must not match mounted auth/terms rows.
+        // Literal /api mount only: escaped `/a%70i` must not match mounted auth/terms rows;
+        // F22 `/api/` claims it so CatchallRoute returns 404.
         assert_eq!(
             inventory
                 .find(&Method::GET, "/a%70i/terms/pending")
                 .map(|r| r.path.as_str()),
-            Some("/")
+            Some("/api/")
         );
         assert_eq!(
             inventory
                 .find(&Method::GET, "/a%70i/auth/admin/unknown")
                 .map(|r| r.path.as_str()),
-            Some("/")
+            Some("/api/")
         );
         let mut rolled_back: Value = serde_json::from_str(BUNDLED).expect("bundled json");
         for r in rolled_back["routes"].as_array_mut().expect("routes") {
