@@ -520,7 +520,6 @@ impl AuthServer {
             | "/auth/session/token"
             | "/auth/identity-links"
             | "/terms/pending" => Some("GET, HEAD"),
-            "/auth/oidc/op/complete" if self.config.oidc_enabled => Some("GET, HEAD"),
             "/auth/login"
             | "/auth/refresh"
             | "/auth/logout"
@@ -542,9 +541,7 @@ impl AuthServer {
             {
                 Some("POST")
             }
-            "/auth/scim/disable" | "/admin/reload"
-                if !self.config.internal_api_key.is_empty() =>
-            {
+            "/auth/scim/disable" | "/admin/reload" if !self.config.internal_api_key.is_empty() => {
                 Some("POST")
             }
             "/auth/password" => Some("PUT"),
@@ -670,16 +667,18 @@ impl AuthServer {
             };
         }
         if req.uri().path().starts_with("/.well-known/")
-            && !(matches!(req.method(), &Method::GET | &Method::HEAD)
-                && matches!(
-                    req.uri().path(),
-                    "/.well-known/setjoin" | "/.well-known/jwks.json"
-                ))
+            && (!matches!(
+                req.uri().path(),
+                "/.well-known/setjoin"
+                    | "/.well-known/jwks.json"
+                    | "/.well-known/oauth-authorization-server"
+            ) || (self.config.oidc_enabled && req.method() == Method::OPTIONS))
         {
+            let reply = Self::mux_reply(&req, None);
             return if self.config.oidc_enabled {
-                self.oidc_cors(&req, Self::not_found())
+                self.oidc_cors(&req, reply)
             } else {
-                Self::not_found()
+                reply
             };
         }
         if req.method() == Method::POST
@@ -749,12 +748,7 @@ impl AuthServer {
         if self.config.internal_api_key.is_empty()
             && matches!(req.uri().path(), "/admin/reload" | "/auth/scim/disable")
         {
-            return Response::builder()
-                .status(404)
-                .header("content-type", "text/plain; charset=utf-8")
-                .header("x-content-type-options", "nosniff")
-                .body(body("404 page not found\n"))
-                .unwrap();
+            return Self::mux_reply(&req, None);
         }
         if req.uri().path().starts_with("/auth/push/")
             || req.uri().path().starts_with("/auth/backup-codes/")

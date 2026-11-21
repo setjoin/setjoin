@@ -125,6 +125,15 @@ async fn check_unmatched_handoff() -> Result<(), Error> {
                 None,
                 "404 page not found\n",
             ),
+            ("HEAD", "/admin/reload", 404, None, ""),
+            (
+                "POST",
+                "/.well-known/setjoin",
+                405,
+                Some("GET, HEAD"),
+                "Method Not Allowed\n",
+            ),
+            ("HEAD", "/.well-known/unknown", 404, None, ""),
         ] {
             let response = server
                 .handle(
