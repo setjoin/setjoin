@@ -114,6 +114,71 @@ class Forward(unittest.TestCase):
         source = self.SRC.replace("c.upstream.forward(req, &id)", "")
         self.assertIn("lower FORWARD_SITES", self.check(source, self.PIN)[0][0])
 
+    def test_zero_pin_is_red(self):
+        pinned = {**self.PIN, ("gateway", "go_target"): 0}
+        self.assertIn("delete the entry", self.check(self.SRC, pinned)[0][0])
+
+    def test_unpinned_kind_is_banned(self):
+        problems = self.check(self.SRC + "Target::GoMail => x,\n", self.PIN)[0]
+        self.assertTrue(any("DELETE gate (#358)" in p and "gateway/go_target" in p for p in problems), problems)
+
+    def test_absolute_ban_when_nothing_is_pinned(self):
+        problems = self.check(self.SRC, {})[0]
+        self.assertTrue(problems and all("banned" in p for p in problems), problems)
+
+    def test_plumbing_forms_are_counted(self):
+        src = self.SRC + "shared.upstream.clone().with_go_counter(c, f)\ncfg.go_upstream = None\nunported_push_target(x)\n"
+        pinned = {**self.PIN, ("gateway", "go_counter"): 1, ("gateway", "go_upstream"): 1,
+                  ("gateway", "unported_push_target"): 1}
+        self.assertEqual(self.check(src, pinned)[0], [])
+
+    ARM = ("            return match &shared.rust_auth_upstream {\n"
+           "                Some(upstream) => upstream.forward(req, &identity).await,\n")
+
+    def test_rust_auth_hop_is_not_a_go_forward(self):
+        self.assertEqual(self.check(self.SRC + self.ARM, self.PIN)[0], [])
+
+    def test_go_forward_beside_the_rust_auth_arm_is_counted(self):
+        src = self.SRC + self.ARM + "                None => go_mail.forward(req, &identity).await,\n"
+        self.assertIn("> pinned 1", self.check(src, self.PIN)[0][0])
+
+    def test_other_receiver_in_the_arm_is_counted(self):
+        src = self.SRC + ("            return match &shared.rust_auth_upstream {\n"
+                          "                Some(upstream) => go_mail.forward(req, &identity).await,\n")
+        self.assertIn("> pinned 1", self.check(src, self.PIN)[0][0])
+
+
+class Matrix(unittest.TestCase):
+    AUTH = ('const ALL: &[&str] = &["a", "b", "c"];\nconst ONE: &[&str] = &["a"];\n'
+            'const EXPECT: &[(&[&str], &str, Outcome)] = &[\n'
+            '    (ALL, "s1", Hop("#349")),\n    (ONE, "s2", Hop("#350")),\n    (&["b"], "s3", Hop("#351")),\n'
+            '    (ALL, "s4", Native(200)),\n];\nmatch want { Hop(_) => 1, Native(c) => c }\n')
+    GATEWAY = 'const ALL: &[&str] = &["x", "y"];\nconst EXPECT: X = &[\n    (ALL, "g", Hop("#355")),\n];\n'
+    PIN = {"server-rust/bins/auth/tests/delete_gate.rs": 5, "server-rust/bins/gateway/tests/delete_gate.rs": 2}
+
+    def check(self, auth, gateway, pinned=None):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(guard, "MATRIX_HOPS", pinned or self.PIN):
+            write(Path(tmp), "server-rust/bins/auth/tests/delete_gate.rs", auth)
+            write(Path(tmp), "server-rust/bins/gateway/tests/delete_gate.rs", gateway)
+            return guard.matrix_problems(Path(tmp))[0]
+
+    def test_cells_not_rows_are_pinned(self):
+        self.assertEqual(self.check(self.AUTH, self.GATEWAY), [])
+
+    def test_widening_a_group_is_red(self):
+        widened = self.AUTH.replace('const ONE: &[&str] = &["a"];', 'const ONE: &[&str] = &["a", "b"];')
+        self.assertIn("never fill it from CI output", self.check(widened, self.GATEWAY)[0])
+
+    def test_removed_hop_must_lower_the_pin(self):
+        narrowed = self.AUTH.replace('(&["b"], "s3", Hop("#351"))', '(&["b"], "s3", Native(200))')
+        self.assertIn("lower MATRIX_HOPS", self.check(narrowed, self.GATEWAY)[0])
+
+    def test_unparsable_or_unknown_group_is_red(self):
+        odd = self.AUTH + 'let x = Hop("#999");\n'
+        self.assertIn("not a parsable", self.check(odd, self.GATEWAY)[0])
+        unknown = self.AUTH.replace('(ONE, "s2"', '(TWO, "s2"')
+        self.assertIn("unknown cell group TWO", self.check(unknown, self.GATEWAY)[0])
+
 
 class Divergences(unittest.TestCase):
     def check(self, document):

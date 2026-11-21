@@ -371,6 +371,10 @@ check_tree() {
       run_root "$base/pilot" "pilot" auto || rc=1
       run_root "$base/tools/schema-simulation" "schema-simulation" offline || rc=1
       run_root "$base/tools/bench-mark-read" "bench-mark-read" offline || rc=1
+      if [[ "${REQUIRE_DB:-}" == 1 ]]; then
+        echo "== server-rust: SAML ACS mutant rejections (#328)"
+        (unset SETJOIN_SAMLACS_MUTANT; python3 "$ROOT/scripts/test-samlacs-mutants.py") || rc=1
+      fi
     fi
   else
     echo "ADEQUACY-SUBSET (stages=$subset entries=${LANE_ADEQUACY_ENTRIES:-all}) — workspace tests NOT run; not a lane result"

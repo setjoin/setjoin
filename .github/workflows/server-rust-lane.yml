@@ -316,7 +316,7 @@ jobs:
           workspaces: server-rust -> ../../../../lane-build/target
           shared-key: lane
           save-if: false
-      - name: Static guards, cargo-deny, pilot, schema-simulation, bench-mark-read, doc tests
+      - name: Static guards, cargo-deny, pilot, schema-simulation, bench-mark-read, doc tests, SAML ACS mutants
         run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
