@@ -2164,7 +2164,11 @@ async fn native_dpop_login_handles_natively_without_forwarding() {
         clear_state(&n.c, &ips, &n.fx.email).await?;
         purge_native_audits(&n.c, &ips, &n.fx.email).await?;
         let spy = spy().await?;
-        let cfg = rust_config(&n.db, Preset::Off, Some(format!("http://{}", spy.server.addr)))?;
+        let cfg = rust_config(
+            &n.db,
+            Preset::Off,
+            Some(format!("http://{}", spy.server.addr)),
+        )?;
         let server = native_server(&n.db, cfg).await?;
         let raw = json!({"email": n.fx.email, "password": PASSWORD, "dpop_jwk": {"kty": "EC"}})
             .to_string();
@@ -2180,15 +2184,18 @@ async fn native_dpop_login_handles_natively_without_forwarding() {
         let hits = spy.hits.lock().unwrap().clone();
         spy.server.close().await;
         if status != 200 || !hits.is_empty() {
-            return Err(format!("expected native 200 without forward, got {status} and {} hits", hits.len()).into());
+            return Err(format!(
+                "expected native 200 without forward, got {status} and {} hits",
+                hits.len()
+            )
+            .into());
         }
         Ok::<_, Err>(())
     }
     .await;
-    let _ = n
-        .c
-        .execute("DELETE FROM sessions WHERE user_id=$1", &[&n.fx.a.user])
-        .await;
+    let _ =
+        n.c.execute("DELETE FROM sessions WHERE user_id=$1", &[&n.fx.a.user])
+            .await;
     let audits = purge_native_audits(&n.c, &ips, &n.fx.email).await;
     let closed = native_close(n, &ips).await;
     result.and(audits).and(closed).unwrap();
@@ -4233,7 +4240,7 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
             if r.status != 401 {
                 return Err(format!("{label}: expected native 401, got {}", r.status).into());
             }
-            let body: Value = serde_json::from_slice(&r.body)?;
+            let body: Value = serde_json::from_str(&r.body)?;
             if body["code"] != "dpop_admission" {
                 return Err(format!("{label}: expected dpop_admission, got {body}").into());
             }

@@ -1577,11 +1577,15 @@ async fn dpop_webauthn_bound_management_and_login_finish_issuance() {
         )
         .await?;
         let cookie_codec = setjoin_identity::webauthn::CookieCipher::new(secret.as_bytes());
+        let cred_params: Vec<Value> = [-7, -35, -36, -257, -258, -259, -37, -38, -39, -8]
+            .iter()
+            .map(|alg| json!({"type": "public-key", "alg": alg}))
+            .collect();
         let reg_sess = json!({
             "challenge": vector["challenge"],
             "rpId": "localhost",
             "user_id": base64::engine::general_purpose::STANDARD.encode(&handle),
-            "credParams": [-7,-35,-36,-257,-258,-259,-37,-38,-39,-8].iter().map(|alg| json!({"type":"public-key","alg":alg})).collect::<Vec<_>>(),
+            "credParams": cred_params,
             "expires": "0001-01-01T00:00:00Z"
         });
         let reg_cookie = format!("wa_reg_sess={}", cookie_codec.seal(reg_sess.to_string().as_bytes())?);
