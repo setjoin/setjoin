@@ -36,7 +36,7 @@ const REMINDER_EFFECTS: &[(&str, &str)] = &[
 const CONTINUITY_EFFECTS: &[(&str, &str)] = &[
     (
         "control",
-        "SELECT coalesce(continuity_last_wall_clock::text,'null') || '|' || coalesce(continuity_last_boot_epoch::text,'null') FROM upgrade_control_state WHERE singleton",
+        "SELECT (continuity_last_wall_clock IS NOT NULL)::text || '|' || coalesce(continuity_last_boot_epoch::text,'null') FROM upgrade_control_state WHERE singleton",
     ),
     (
         "witnesses",
