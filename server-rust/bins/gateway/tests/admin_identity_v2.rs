@@ -1094,6 +1094,11 @@ async fn sources_plan_and_apply_answer_surrogates_and_huge_numbers_natively(
 
         let send_post = |path: &str, body: String, extra: &[(&str, &str)]| {
             let token = token.clone();
+            let path = path.to_owned();
+            let extra: Vec<(String, String)> = extra
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect();
             async move {
                 let mut builder = Request::builder()
                     .method("POST")
@@ -1102,8 +1107,8 @@ async fn sources_plan_and_apply_answer_surrogates_and_huge_numbers_natively(
                     .header("origin", "http://mail.test")
                     .header("content-type", "application/json")
                     .header("authorization", format!("Bearer {token}"));
-                for (k, v) in extra {
-                    builder = builder.header(*k, *v);
+                for (k, v) in &extra {
+                    builder = builder.header(k.as_str(), v.as_str());
                 }
                 let resp = common::send(gw, builder.body(common::full(body))?).await;
                 let status = resp.status().as_u16();
