@@ -1,0 +1,23 @@
+{
+  "case": "task-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <created>, \"rrule\": null, \"title\": \"Buy milk\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": null, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 1, \"mailbox_id\": <a.mailbox>, \"sort_order\": 1, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}, {\"id\": <created>, \"rrule\": null, \"title\": \"Buy milk\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": null, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 2, \"mailbox_id\": <a.mailbox>, \"sort_order\": 2, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}]",
+      "before": "[]",
+      "name": "tasks"
+    },
+    {
+      "after": "[{\"seq\": 2, \"datatype\": \"Task\", \"mailbox_id\": <a.mailbox>}]",
+      "before": "[]",
+      "name": "entity_state"
+    },
+    {
+      "after": "[{\"op\": \"created\", \"datatype\": \"Task\", \"entity_id\": <created>, \"state_seq\": 1, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <a.mailbox>, \"resource_uid\": null, \"collection_id\": null}, {\"op\": \"created\", \"datatype\": \"Task\", \"entity_id\": <created>, \"state_seq\": 2, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <a.mailbox>, \"resource_uid\": null, \"collection_id\": null}]",
+      "before": "[]",
+      "name": "journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap Task/set"
+}

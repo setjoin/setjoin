@@ -1,0 +1,54 @@
+{
+  "case": "reminder-snooze-success",
+  "format": 1,
+  "go_source": "049892f50ec28a92c779bffe022d3751b9d8ae7d",
+  "kind": "success",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [],
+    "effects": {
+      "foreign": {
+        "after": "0|",
+        "before": "0|"
+      },
+      "own": {
+        "after": "1|<seed.0>:null:<timestamp>+00",
+        "before": "0|<seed.0>:null:null"
+      }
+    },
+    "notify": [
+      "tag:<a.mailbox> {\"event\": \"reminder_changed\", \"state\": 1}"
+    ],
+    "repeat": null,
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:setjoin:params:jmap:reminders\"],\"methodCalls\":[[\"Reminder/snooze\",{\"accountId\":\"<a.mailbox>\",\"reminderId\":\"<seed.0>\",\"until\":\"<timestamp>Z\"},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"Reminder/snooze\",{\"until\":\"<timestamp>+00:00\",\"snoozed\":true,\"reminderId\":\"<seed.0>\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap Reminder/snooze"
+}

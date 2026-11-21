@@ -1,0 +1,23 @@
+{
+  "case": "mail-draft-lease-cross-tenant-row-effects",
+  "effects": [
+    {
+      "after": "0",
+      "before": "0",
+      "name": "mail_drafts"
+    },
+    {
+      "after": "<a.mailbox>:0,<f.mailbox>:0",
+      "before": "<a.mailbox>:0,<f.mailbox>:0",
+      "name": "mailwork_state"
+    },
+    {
+      "after": "0",
+      "before": "0",
+      "name": "mail_work_operations"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailDraft/lease"
+}

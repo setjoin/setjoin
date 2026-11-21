@@ -1,0 +1,18 @@
+{
+  "case": "task-list-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <list>, \"name\": \"Team Board\", \"color\": \"#2563eb\", \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}, {\"id\": <list>, \"name\": \"Team Board\", \"color\": \"#2563eb\", \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}]",
+      "before": "[]",
+      "name": "task_lists"
+    },
+    {
+      "after": "[{\"role\": \"owner\", \"list_id\": <list>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}, {\"role\": \"owner\", \"list_id\": <list>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}]",
+      "before": "[]",
+      "name": "task_list_members"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap TaskList/set"
+}

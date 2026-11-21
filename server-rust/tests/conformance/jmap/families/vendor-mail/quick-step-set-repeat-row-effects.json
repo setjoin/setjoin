@@ -1,0 +1,13 @@
+{
+  "case": "quick-step-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <created.id>, \"icon\": \"Zap\", \"name\": \"Repeat Step\", \"actions\": [{\"type\": \"flag\"}], \"position\": 0, \"mailbox_id\": <a.mailbox>}, {\"id\": <created.id>, \"icon\": \"Zap\", \"name\": \"Repeat Step\", \"actions\": [{\"type\": \"flag\"}], \"position\": 1, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[]",
+      "name": "quick_steps"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap QuickStep/set"
+}
