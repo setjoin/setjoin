@@ -1,0 +1,86 @@
+{
+  "case": "mail-work-set-repeat",
+  "format": 1,
+  "go_source": "3b0bb9ffd013cf1391e0374515bb407dbbf97fe2",
+  "kind": "repeat",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [
+      "admin {\"ip\": null, \"notes\": \"triage\", \"action\": \"mail_work_claimed\", \"user_id\": <a.user>, \"target_id\": <seed.0>, \"after_state\": {\"due_at\": \"<timestamp>+00:00\", \"status\": \"owned\", \"thread_id\": \"mw-thread-1\", \"generation\": 1, \"sla_minutes\": 480, \"completed_at\": null, \"last_event_id\": \"<uuid>\", \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {\"source\": \"organization_default\", \"version\": 1, \"holidays\": [], \"timezone\": \"UTC\", \"slaMinutes\": 480, \"workdayEnd\": \"17:00:00\", \"weekdayMask\": 62, \"workdayStart\": \"09:00:00\"}}, \"target_type\": \"mailbox\", \"before_state\": null}"
+    ],
+    "effects": {
+      "audit": {
+        "after": "[]",
+        "before": "[]"
+      },
+      "changes": {
+        "after": "[{\"op\": \"created\", \"object_id\": \"mw-thread-1\", \"state_seq\": 1, \"object_kind\": \"work\"}]",
+        "before": "[]"
+      },
+      "events": {
+        "after": "[{\"reason\": \"triage\", \"threadId\": \"mw-thread-1\", \"eventType\": \"claimed\", \"generation\": 1, \"actorUserId\": <a.user>}]",
+        "before": "[]"
+      },
+      "ops": {
+        "after": "[{\"op\": \"<uuid>\", \"kind\": \"work_set\", \"actor\": <a.user>, \"has_digest\": true}]",
+        "before": "[]"
+      },
+      "state": {
+        "after": "1",
+        "before": "0"
+      },
+      "work": {
+        "after": "[{\"due_at\": \"<timestamp>+00:00\", \"status\": \"owned\", \"thread_id\": \"mw-thread-1\", \"generation\": 1, \"sla_minutes\": 480, \"completed_at\": null, \"last_event_id\": \"<uuid>\", \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {\"source\": \"organization_default\", \"version\": 1, \"holidays\": [], \"timezone\": \"UTC\", \"slaMinutes\": 480, \"workdayEnd\": \"17:00:00\", \"weekdayMask\": 62, \"workdayStart\": \"09:00:00\"}}]",
+        "before": "[]"
+      }
+    },
+    "notify": [
+      "tag:<seed.0> {\"op\": \"created\", \"type\": \"MailWorkEvent\", \"state\": \"1\", \"objectId\": \"mw-thread-1\", \"accountId\": \"<seed.0>\", \"objectKind\": \"work\"}"
+    ],
+    "repeat": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"MailWork/set\",{\"id\":\"mw-thread-1\",\"dueAt\":\"<timestamp>+00:00\",\"state\":\"1\",\"status\":\"owned\",\"eventId\":\"<uuid>\",\"replayed\":true,\"accountId\":\"<seed.0>\",\"generation\":\"1\",\"operationId\":\"<uuid>\",\"assigneeUserId\":\"<a.user>\"},\"c0\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:ietf:params:jmap:mail\"],\"methodCalls\":[[\"MailWork/set\",{\"accountId\":\"<seed.0>\",\"threadId\":\"mw-thread-1\",\"operationId\":\"<uuid>\",\"action\":\"claim\",\"expectedGeneration\":\"0\",\"reason\":\"triage\"},\"c0\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"MailWork/set\",{\"id\":\"mw-thread-1\",\"dueAt\":\"<timestamp>+00:00\",\"state\":\"1\",\"status\":\"owned\",\"eventId\":\"<uuid>\",\"replayed\":false,\"accountId\":\"<seed.0>\",\"generation\":\"1\",\"operationId\":\"<uuid>\",\"assigneeUserId\":\"<a.user>\"},\"c0\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap MailWork/set"
+}

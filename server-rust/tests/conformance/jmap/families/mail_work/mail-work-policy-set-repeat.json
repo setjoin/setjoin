@@ -1,0 +1,82 @@
+{
+  "case": "mail-work-policy-set-repeat",
+  "format": 1,
+  "go_source": "3b0bb9ffd013cf1391e0374515bb407dbbf97fe2",
+  "kind": "repeat",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [
+      "admin {\"ip\": null, \"notes\": \"Future work adopts the new policy generation; existing snapshots are unchanged\", \"action\": \"mail_work_sla_policy_set\", \"user_id\": <a.user>, \"target_id\": <seed.0>, \"after_state\": {\"source\": \"mailbox\", \"version\": 1, \"holidays\": [\"2026-10-01\"], \"timezone\": \"Asia/Shanghai\", \"generation\": \"1\", \"slaMinutes\": 240, \"workdayEnd\": \"18:00:00\", \"weekdayMask\": 62, \"workdayStart\": \"09:00:00\"}, \"target_type\": \"mailbox\", \"before_state\": {\"source\": \"organization_default\", \"version\": 1, \"holidays\": [], \"timezone\": \"UTC\", \"slaMinutes\": 480, \"workdayEnd\": \"17:00:00\", \"weekdayMask\": 62, \"workdayStart\": \"09:00:00\"}}"
+    ],
+    "effects": {
+      "audit": {
+        "after": "[]",
+        "before": "[]"
+      },
+      "changes": {
+        "after": "[{\"op\": \"updated\", \"object_id\": \"sla\", \"state_seq\": 1, \"object_kind\": \"policy\"}]",
+        "before": "[]"
+      },
+      "ops": {
+        "after": "[{\"op\": \"<uuid>\", \"kind\": \"sla_policy_set\", \"actor\": <a.user>, \"has_digest\": true}]",
+        "before": "[]"
+      },
+      "policy": {
+        "after": "{\"holidays\": [\"2026-10-01\"], \"timezone\": \"Asia/Shanghai\", \"generation\": 1, \"updated_by\": <a.user>, \"sla_minutes\": 240, \"workday_end\": \"18:00:00\", \"weekday_mask\": 62, \"workday_start\": \"09:00:00\"}",
+        "before": "none"
+      },
+      "state": {
+        "after": "1",
+        "before": "0"
+      }
+    },
+    "notify": [
+      "tag:<seed.0> {\"op\": \"updated\", \"type\": \"MailWorkEvent\", \"state\": \"1\", \"objectId\": \"sla\", \"accountId\": \"<seed.0>\", \"objectKind\": \"policy\"}"
+    ],
+    "repeat": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"MailWorkPolicy/set\",{\"policy\":{\"source\":\"mailbox\",\"version\":1,\"holidays\":[\"2026-10-01\"],\"timezone\":\"Asia/Shanghai\",\"generation\":\"1\",\"slaMinutes\":240,\"workdayEnd\":\"18:00:00\",\"weekdayMask\":62,\"workdayStart\":\"09:00:00\"},\"replayed\":true,\"accountId\":\"<seed.0>\",\"canManage\":true,\"operationId\":\"<uuid>\"},\"c0\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:ietf:params:jmap:mail\"],\"methodCalls\":[[\"MailWorkPolicy/set\",{\"accountId\":\"<seed.0>\",\"operationId\":\"<uuid>\",\"expectedGeneration\":\"0\",\"timezone\":\"Asia/Shanghai\",\"weekdayMask\":62,\"workdayStart\":\"09:00\",\"workdayEnd\":\"18:00\",\"holidays\":[\"2026-10-01\"],\"slaMinutes\":240},\"c0\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"MailWorkPolicy/set\",{\"policy\":{\"source\":\"mailbox\",\"version\":1,\"holidays\":[\"2026-10-01\"],\"timezone\":\"Asia/Shanghai\",\"generation\":\"1\",\"slaMinutes\":240,\"workdayEnd\":\"18:00:00\",\"weekdayMask\":62,\"workdayStart\":\"09:00:00\"},\"replayed\":false,\"accountId\":\"<seed.0>\",\"canManage\":true,\"operationId\":\"<uuid>\"},\"c0\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap MailWorkPolicy/set"
+}

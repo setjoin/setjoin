@@ -1,5 +1,7 @@
 //! Frozen-Go TOTP HTTP and committed-effect oracle.
 mod common;
+#[path = "common/revoke.rs"]
+mod revoke;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};
@@ -1870,3 +1872,554 @@ async fn guest_verify_acct_500() { run("verify", "guest-account-type-unavailable
 async fn guest_bootstrap_confirm_ok() { run("bootstrap-confirm", "guest", false).await.unwrap(); }
 #[tokio::test]
 async fn guest_login_totp_challenge() { run("login-totp", "guest", false).await.unwrap(); }
+
+#[tokio::test]
+async fn dpop_totp_bound_sessions_and_verify_issuance() {
+    use sha2::{Digest, Sha256};
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDMFA1-dpop").expect("assigned DB required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let receipt_ids = common::receipt_ids(&c).await;
+    let saved_rate = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    let saved_tb = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+        &[],
+    )
+    .await
+    .unwrap();
+    let a = fixture::account(&c, "idmfa1-dpop-actor").await.unwrap();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        c.execute(
+            "UPDATE users SET password_hash=$2,totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($3,$4),totp_enabled_at=now(),factor_generation=2 WHERE id=$1",
+            &[&a.user, &bcrypt::hash("Password1!", 4)?, &SECRET, &ENC],
+        )
+        .await?;
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.db_encryption_key = ENC.into();
+        cfg.signing_alg = "ES256".into();
+        cfg.go_upstream = None;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = auth_server(
+            Arc::new(
+                AuthServer::load(exec.clone(), cfg)
+                    .await?
+                    .with_threat_gate(&db.dsn)
+                    .await?,
+            ),
+            false,
+        )
+        .await;
+
+        let dkey = common::dpop::key(41);
+        let (jwk, jkt) = common::dpop::jwk_and_jkt(&dkey);
+        let email: String = c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+
+        // 1. Bound session on /auth/totp/setup, /auth/totp/confirm, /auth/totp/remove/begin, /auth/totp/remove.
+        let tok1 = common::dpop::bound_access_jwt(secret, a.user, &email, "idmfa1-dpop-1", &jkt);
+        let auth1 = format!("Bearer {tok1}");
+        let grant_hash = format!("{:x}", Sha256::digest(b"idmfa1-dpop-reauth"));
+        c.execute(
+            "INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at) VALUES($1,$2,'idmfa1-dpop-1','totp.replace','totp',2,'session',now()+interval '5 minutes')",
+            &[&grant_hash, &a.user],
+        )
+        .await?;
+
+        let (st, hs, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/totp/setup",
+            String::new(),
+            &[("authorization", &auth1), ("x-mfa-reauth", "idmfa1-dpop-reauth")],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "GET",
+            "http://auth.idmfa1.test/auth/totp/setup",
+            Some(&tok1),
+            "j-totp-setup",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/totp/setup",
+            String::new(),
+            &[
+                ("authorization", &auth1),
+                ("x-mfa-reauth", "idmfa1-dpop-reauth"),
+                ("dpop", &p),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 200, "totp/setup with DPoP: {raw}");
+        let setup_v: Value = serde_json::from_str(&raw)?;
+        let eid = setup_v["enrollment_id"].as_str().ok_or("enrollment_id")?;
+        let uri = setup_v["provisioning_uri"].as_str().ok_or("provisioning_uri")?;
+        let pending_secret = uri.split("secret=").nth(1).unwrap().split('&').next().unwrap();
+        let confirm_code = setjoin_identity::totp::code(pending_secret, common::dpop::now()).unwrap();
+        let confirm_body = json!({"code": confirm_code, "enrollment_id": eid, "reauth_token": "idmfa1-dpop-reauth"}).to_string();
+
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/confirm",
+            confirm_body.clone(),
+            &[("authorization", &auth1), ("x-mfa-reauth", "idmfa1-dpop-reauth")],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa1.test/auth/totp/confirm",
+            Some(&tok1),
+            "j-totp-confirm",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/confirm",
+            confirm_body,
+            &[
+                ("authorization", &auth1),
+                ("x-mfa-reauth", "idmfa1-dpop-reauth"),
+                ("dpop", &p),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 204, "totp/confirm with DPoP: {raw}");
+
+        // Restore SECRET and test remove/begin + remove with fresh JTI.
+        c.execute(
+            "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),last_totp_used_at=NULL WHERE id=$1",
+            &[&a.user, &SECRET, &ENC],
+        )
+        .await?;
+        c.execute("DELETE FROM totp_counter_claims WHERE user_id=$1", &[&a.user])
+            .await?;
+        let tok2 = common::dpop::bound_access_jwt(secret, a.user, &email, "idmfa1-dpop-2", &jkt);
+        let auth2 = format!("Bearer {tok2}");
+        let remove_code = setjoin_identity::totp::code(SECRET, common::dpop::now()).unwrap();
+        let begin_body = json!({"password": "Password1!", "code": remove_code}).to_string();
+
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/remove/begin",
+            begin_body.clone(),
+            &[("authorization", &auth2)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa1.test/auth/totp/remove/begin",
+            Some(&tok2),
+            "j-totp-rem-begin",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/remove/begin",
+            begin_body,
+            &[("authorization", &auth2), ("dpop", &p)],
+        )
+        .await?;
+        assert_eq!(st, 200, "totp/remove/begin with DPoP: {raw}");
+        let step_up = serde_json::from_str::<Value>(&raw)?["step_up_token"]
+            .as_str()
+            .ok_or("step_up_token")?
+            .to_owned();
+
+        let rem_body = json!({"step_up_token": step_up, "confirm": "REMOVE"}).to_string();
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/remove",
+            rem_body.clone(),
+            &[("authorization", &auth2)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa1.test/auth/totp/remove",
+            Some(&tok2),
+            "j-totp-rem",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/remove",
+            rem_body,
+            &[("authorization", &auth2), ("dpop", &p)],
+        )
+        .await?;
+        assert_eq!(st, 204, "totp/remove with DPoP: {raw}");
+
+        // 2. POST /auth/totp/verify token binding: OFF / ON / malformed / DB fault.
+        c.execute(
+            "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),last_totp_used_at=NULL WHERE id=$1",
+            &[&a.user, &SECRET, &ENC],
+        )
+        .await?;
+        c.execute("DELETE FROM totp_counter_claims WHERE user_id=$1", &[&a.user])
+            .await?;
+
+        let mfa_tok = common::dpop::mfa_pending_jwt(secret, a.user, &email, "idmfa1-dpop-mfa");
+        let verify_code = setjoin_identity::totp::code(SECRET, common::dpop::now()).unwrap();
+        let v_valid = json!({"mfa_token": mfa_tok, "code": verify_code, "dpop_jwk": jwk}).to_string();
+
+        // Toggle OFF -> unbound.
+        let (st, _, raw) = request(srv.addr, "POST", "/auth/totp/verify", v_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "totp/verify toggle OFF: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        // Toggle ON -> bound access + refresh.
+        c.execute("UPDATE users SET last_totp_used_at=NULL WHERE id=$1", &[&a.user])
+            .await?;
+        c.execute("DELETE FROM totp_counter_claims WHERE user_id=$1", &[&a.user])
+            .await?;
+        c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await?;
+        let (st, _, raw) = request(srv.addr, "POST", "/auth/totp/verify", v_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "totp/verify toggle ON: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(
+            common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+        assert_eq!(
+            common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+
+        // Toggle ON + malformed dpop_jwk -> unbound.
+        c.execute("UPDATE users SET last_totp_used_at=NULL WHERE id=$1", &[&a.user])
+            .await?;
+        c.execute("DELETE FROM totp_counter_claims WHERE user_id=$1", &[&a.user])
+            .await?;
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/verify",
+            json!({"mfa_token": mfa_tok, "code": verify_code, "dpop_jwk": {"kty": "RSA"}}).to_string(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 200, "totp/verify malformed dpop_jwk: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        // DB fault reading feature.token_binding returns 500 BEFORE totp_counter_claims consumption.
+        if db.app.is_some() {
+            c.execute("UPDATE users SET last_totp_used_at=NULL WHERE id=$1", &[&a.user])
+                .await?;
+            c.execute("DELETE FROM totp_counter_claims WHERE user_id=$1", &[&a.user])
+                .await?;
+            let guard = revoke::table(&db.dsn, &c, &exec, "feature_toggles").await?;
+            let call = request(srv.addr, "POST", "/auth/totp/verify", v_valid, &[]).await;
+            guard.restore(&c).await?;
+            let (st, _, raw) = call?;
+            assert_eq!(st, 500, "totp/verify token_binding DB fault: {raw}");
+            let claims_rows: i64 = c
+                .query_one(
+                    "SELECT count(*) FROM totp_counter_claims WHERE user_id=$1",
+                    &[&a.user],
+                )
+                .await?
+                .get(0);
+            assert_eq!(claims_rows, 0, "DB fault must abort before TOTP consumption");
+        }
+
+        srv.close().await;
+        Ok(())
+    }
+    .await;
+
+    for tbl in [
+        "totp_counter_claims",
+        "totp_removal_step_ups",
+        "mfa_reauth_step_ups",
+        "totp_pending_enrollments",
+        "session_revocations",
+        "auth_event_log",
+        "login_events",
+        "sessions",
+        "oauth_tokens",
+    ] {
+        let _ = c
+            .execute(&format!("DELETE FROM {tbl} WHERE user_id=$1"), &[&a.user])
+            .await;
+    }
+    common::restore_receipts(&c, &receipt_ids).await;
+    let _ = fixture::remove(&c, &a).await;
+    for (key, saved) in [
+        ("feature.rate_limit", saved_rate),
+        ("feature.token_binding", saved_tb),
+    ] {
+        if let Some(prev) = saved {
+            let _ = c
+                .execute(
+                    "INSERT INTO feature_toggles(key,enabled) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+                    &[&key, &prev],
+                )
+                .await;
+        } else {
+            let _ = c
+                .execute("DELETE FROM feature_toggles WHERE key=$1", &[&key])
+                .await;
+        }
+    }
+    c.query_one(
+        "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn dpop_totp_bootstrap_confirm_issuance() {
+    use sha2::{Digest, Sha256};
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDMFA1-dpop-boot").expect("assigned DB required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let receipt_ids = common::receipt_ids(&c).await;
+    let saved_rate = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    let saved_tb = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+        &[],
+    )
+    .await
+    .unwrap();
+    let a = fixture::account(&c, "idmfa1-dpop-boot").await.unwrap();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        let email: String = c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+        let mfa_tok = common::dpop::mfa_pending_jwt(secret, a.user, &email, "idmfa1-dpop-boot");
+        let tok_hash = format!("{:x}", Sha256::digest(mfa_tok.as_bytes()));
+
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.db_encryption_key = ENC.into();
+        cfg.signing_alg = "ES256".into();
+        cfg.go_upstream = None;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = auth_server(
+            Arc::new(
+                AuthServer::load(exec.clone(), cfg)
+                    .await?
+                    .with_threat_gate(&db.dsn)
+                    .await?,
+            ),
+            false,
+        )
+        .await;
+
+        let dkey = common::dpop::key(42);
+        let (jwk, jkt) = common::dpop::jwk_and_jkt(&dkey);
+
+        let reseed = || async {
+            c.execute("UPDATE users SET totp_enabled=false,totp_secret_enc=NULL,totp_enabled_at=NULL,mfa_exempt=false,push_mfa_enabled=false,last_totp_used_at=NULL,factor_generation=2 WHERE id=$1", &[&a.user]).await?;
+            c.execute("DELETE FROM totp_counter_claims WHERE user_id=$1", &[&a.user]).await?;
+            c.execute("DELETE FROM mfa_reauth_step_ups WHERE user_id=$1", &[&a.user]).await?;
+            c.execute("DELETE FROM totp_pending_enrollments WHERE user_id=$1", &[&a.user]).await?;
+            c.execute(
+                "INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,target_ref,expires_at) VALUES($1,$2,'idmfa1-dpop-boot','bootstrap.totp.enroll','password',2,'mfa_pending',$3,now()+interval '5 minutes')",
+                &[&tok_hash, &a.user, &ENROLLMENT],
+            ).await?;
+            c.execute(
+                "INSERT INTO totp_pending_enrollments(id,user_id,secret_enc,staged_by_jti,staged_via,expires_at) VALUES($1::text::uuid,$2,pgp_sym_encrypt($3,$4),'idmfa1-dpop-boot','enroll_setup',now()+interval '15 minutes')",
+                &[&ENROLLMENT, &a.user, &STAGED, &ENC],
+            ).await?;
+            Ok::<_, Err>(())
+        };
+
+        let code = setjoin_identity::totp::code(STAGED, common::dpop::now()).unwrap();
+        let valid_body =
+            json!({"mfa_token": mfa_tok, "code": code, "enrollment_id": ENROLLMENT, "dpop_jwk": jwk})
+                .to_string();
+
+        // 1. Toggle OFF -> unbound.
+        reseed().await?;
+        let (st, _, raw) =
+            request(srv.addr, "POST", "/auth/totp/enroll/confirm", valid_body.clone(), &[]).await?;
+        assert_eq!(st, 200, "bootstrap/confirm toggle OFF: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        // 2. Toggle ON -> bound access + refresh.
+        reseed().await?;
+        c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await?;
+        let (st, _, raw) =
+            request(srv.addr, "POST", "/auth/totp/enroll/confirm", valid_body.clone(), &[]).await?;
+        assert_eq!(st, 200, "bootstrap/confirm toggle ON: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(
+            common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+        assert_eq!(
+            common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+
+        // 3. Toggle ON + malformed dpop_jwk -> unbound.
+        reseed().await?;
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/totp/enroll/confirm",
+            json!({"mfa_token": mfa_tok, "code": code, "enrollment_id": ENROLLMENT, "dpop_jwk": {"kty": "EC"}}).to_string(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 200, "bootstrap/confirm malformed dpop_jwk: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        // 4. DB fault reading feature.token_binding returns 500 BEFORE factor promotion.
+        if db.app.is_some() {
+            reseed().await?;
+            let guard = revoke::table(&db.dsn, &c, &exec, "feature_toggles").await?;
+            let call = request(srv.addr, "POST", "/auth/totp/enroll/confirm", valid_body, &[]).await;
+            guard.restore(&c).await?;
+            let (st, _, raw) = call?;
+            assert_eq!(st, 500, "bootstrap/confirm token_binding DB fault: {raw}");
+            let enabled: bool = c
+                .query_one("SELECT totp_enabled FROM users WHERE id=$1", &[&a.user])
+                .await?
+                .get(0);
+            assert!(!enabled, "DB fault must abort before promoting TOTP");
+        }
+
+        srv.close().await;
+        Ok(())
+    }
+    .await;
+
+    for tbl in [
+        "totp_counter_claims",
+        "totp_removal_step_ups",
+        "mfa_reauth_step_ups",
+        "totp_pending_enrollments",
+        "session_revocations",
+        "auth_event_log",
+        "login_events",
+        "sessions",
+        "oauth_tokens",
+    ] {
+        let _ = c
+            .execute(&format!("DELETE FROM {tbl} WHERE user_id=$1"), &[&a.user])
+            .await;
+    }
+    common::restore_receipts(&c, &receipt_ids).await;
+    let _ = fixture::remove(&c, &a).await;
+    for (key, saved) in [
+        ("feature.rate_limit", saved_rate),
+        ("feature.token_binding", saved_tb),
+    ] {
+        if let Some(prev) = saved {
+            let _ = c
+                .execute(
+                    "INSERT INTO feature_toggles(key,enabled) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+                    &[&key, &prev],
+                )
+                .await;
+        } else {
+            let _ = c
+                .execute("DELETE FROM feature_toggles WHERE key=$1", &[&key])
+                .await;
+        }
+    }
+    c.query_one(
+        "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    result.unwrap();
+}

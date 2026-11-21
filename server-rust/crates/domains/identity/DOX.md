@@ -175,7 +175,7 @@ federation retain their named owners.
 identity fields cannot construct it. `/auth/me` uses its principal for profile,
 primary-mailbox aliases and direct send-as delegates, deriving admin/guest state
 from PostgreSQL. `/auth/session/token` reveals the presented string without mint
-or rotation. Bound access-token admission stays with DPoP owner #405.
+or rotation. Bound access-token admission is native in `bins/auth` (#352).
 
 Logout calls the existing `revoke_user_sessions` boundary, including audit,
 critical-event notify, OAuth/runtime/possession cleanup. Unknown COMMIT returns

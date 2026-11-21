@@ -1,0 +1,38 @@
+{
+  "case": "mail-work-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "1",
+      "before": "0",
+      "name": "state"
+    },
+    {
+      "after": "[{\"due_at\": \"<timestamp>+00:00\", \"status\": \"owned\", \"thread_id\": \"mw-thread-1\", \"generation\": 1, \"sla_minutes\": 480, \"completed_at\": null, \"last_event_id\": \"<uuid>\", \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {\"source\": \"organization_default\", \"version\": 1, \"holidays\": [], \"timezone\": \"UTC\", \"slaMinutes\": 480, \"workdayEnd\": \"17:00:00\", \"weekdayMask\": 62, \"workdayStart\": \"09:00:00\"}}]",
+      "before": "[]",
+      "name": "work"
+    },
+    {
+      "after": "[{\"reason\": \"triage\", \"threadId\": \"mw-thread-1\", \"eventType\": \"claimed\", \"generation\": 1, \"actorUserId\": <a.user>}]",
+      "before": "[]",
+      "name": "events"
+    },
+    {
+      "after": "[{\"op\": \"created\", \"object_id\": \"mw-thread-1\", \"state_seq\": 1, \"object_kind\": \"work\"}]",
+      "before": "[]",
+      "name": "changes"
+    },
+    {
+      "after": "[{\"op\": \"<uuid>\", \"kind\": \"work_set\", \"actor\": <a.user>, \"has_digest\": true}]",
+      "before": "[]",
+      "name": "ops"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "3b0bb9ffd013cf1391e0374515bb407dbbf97fe2",
+  "route": "POST /jmap MailWork/set"
+}

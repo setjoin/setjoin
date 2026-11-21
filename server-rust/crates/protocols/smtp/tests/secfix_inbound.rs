@@ -208,7 +208,7 @@ async fn dkim_honours_signature_expiry() {
         .domain("signer.test")
         .selector("sf2exp")
         .headers(["From", "To", "Subject"])
-        .expiration(1)
+        .expiration(3)
         .sign(MESSAGE)
         .unwrap();
     use mail_auth::common::headers::HeaderWriter;
@@ -216,7 +216,7 @@ async fn dkim_honours_signature_expiry() {
     signed.extend_from_slice(MESSAGE);
     let auth = auth(json!({"txt:sf2exp._domainkey.signer.test": [rsa_record()]}));
     assert_eq!(auth.verify_dkim(&signed).await.result, "pass", "fresh");
-    tokio::time::sleep(Duration::from_millis(2300)).await;
+    tokio::time::sleep(Duration::from_millis(4300)).await;
     assert_eq!(
         auth.verify_dkim(&signed).await.result,
         "fail",

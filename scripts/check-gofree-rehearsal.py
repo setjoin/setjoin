@@ -45,11 +45,7 @@ EXCLUDED_LISTENERS = {"fedharness"}
 # Inventory entries still OFF, with the ticket that turns each ON. Ratchet: an entry that turns ON or
 # leaves the inventory must be deleted here; never add one. #141 criterion 1 holds only when this is empty.
 PENDING = {
-    ("auth", "GET", "/auth/guest-invite/accept"): "#342",
-    ("auth", "POST", "/auth/guest-invite/accept"): "#342",
     ("gateway", "*", "/auth/admin/"): "#340",
-    ("gateway", "GET", "/auth/guest-invite/accept"): "#342",
-    ("gateway", "POST", "/auth/guest-invite/accept"): "#342",
     ("gateway", "GET", "/terms/pending"): "#340",
     ("gateway", "POST", "/terms/accept"): "#340",
 }
@@ -64,7 +60,7 @@ FORWARD_PATTERNS = {
     "ws_client": re.compile(r"\bclient_async\("),
 }
 FORWARD_SITES = {
-    ("auth", "forward"): 53,  # lowered from 54 when threat admission (#349a) went native (ratchet)
+    ("auth", "forward"): 12,  # lowered from 44 when #352 retired DPoP admission & token_binding_handoff (ratchet)
     ("gateway", "forward"): 159,  # lowered from 160 (#355a native DAV/Drive Basic auth)
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,

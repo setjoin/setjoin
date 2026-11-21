@@ -1,0 +1,18 @@
+{
+  "case": "task-comment-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"rrule\": null, \"title\": \"Own task\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": null, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"sort_order\": 0, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}]",
+      "before": "[{\"id\": <seed.0>, \"rrule\": null, \"title\": \"Own task\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": null, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"sort_order\": 0, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}]",
+      "name": "tasks"
+    },
+    {
+      "after": "[{\"body\": \"Hello team\", \"kind\": \"comment\", \"meta\": null, \"task_id\": <seed.0>, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <a.mailbox>, \"author_user_id\": <a.user>, \"mentioned_user_ids\": []}, {\"body\": \"Hello team\", \"kind\": \"comment\", \"meta\": null, \"task_id\": <seed.0>, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <a.mailbox>, \"author_user_id\": <a.user>, \"mentioned_user_ids\": []}]",
+      "before": "[]",
+      "name": "task_activity"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap TaskComment/set"
+}

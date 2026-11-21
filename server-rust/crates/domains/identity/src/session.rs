@@ -62,11 +62,14 @@ impl Session {
         &self.claims
     }
     pub fn bound(&self) -> bool {
+        self.bound_jkt().is_some()
+    }
+    pub fn bound_jkt(&self) -> Option<&str> {
         self.claims
             .get("cnf")
             .and_then(|v| v.get("jkt"))
             .and_then(Value::as_str)
-            .is_some_and(|s| !s.is_empty())
+            .filter(|s| !s.is_empty())
     }
     /// Opaque commit metadata only, under a freshly verified refresh credential
     /// and the same user/operation lock. A revoked/disabled proof is an error,
