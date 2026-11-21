@@ -453,6 +453,56 @@ pub async fn authorize_attachment(
     })
 }
 
+/// Exact-surface attachment bearer admission keeping [`Refusal`] classes (#201).
+/// Evaluation order mirrors [`admit`]: credential extraction, clock read,
+/// dedicated HS256+HKDF token verification (`token::attachment`), then live
+/// admission and caller checks. Ordinary routes remain isolated from attachment tokens.
+pub async fn admit_attachment(
+    exec: &ScopedExecutor,
+    headers: &HeaderMap,
+    issuer: &str,
+    secrets: &[&[u8]],
+) -> Result<AuthorizedAttachment, Refusal> {
+    let token = credential(headers)?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Refusal::Unavailable)?
+        .as_secs_f64();
+    let (session, claims) = token::attachment(&token, issuer, now, secrets)
+        .ok_or_else(|| remap(headers, Refusal::InvalidToken))?;
+    if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None))
+        .await
+        .unwrap_or(false)
+    {
+        return Err(Refusal::Unavailable);
+    }
+    let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
+        .await
+        .unwrap_or(gates::Caller::Unavailable);
+    let mailbox = match caller {
+        gates::Caller::Member { mailbox, .. } => mailbox,
+        gates::Caller::Guest => return Err(Refusal::Guest),
+        gates::Caller::Revoked => return Err(Refusal::Revoked),
+        gates::Caller::NoMailbox => return Err(Refusal::NoPrimaryMailbox),
+        gates::Caller::Blocked => return Err(Refusal::MailboxBlocked),
+        gates::Caller::Unavailable => return Err(Refusal::Unavailable),
+    };
+    Ok(AuthorizedAttachment {
+        identity: AuthContext {
+            guest: false,
+            user_id: session.user_id,
+            email: session.email,
+            mailbox_id: mailbox,
+            domain_scope: None,
+            admin: false,
+            permissions: Vec::new(),
+            roles: Vec::new(),
+            auth_time: None,
+        },
+        claims,
+    })
+}
+
 pub mod go_url;
 pub mod ssrf;
 

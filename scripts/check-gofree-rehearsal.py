@@ -61,7 +61,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 12,  # lowered from 44 when #352 retired DPoP admission & token_binding_handoff (ratchet)
-    ("gateway", "forward"): 47,  # lowered from 92 as Chat/Meet/Calendar/Contacts/Drive routes closed forward fallbacks (#354/#200/#192)
+    ("gateway", "forward"): 42,  # lowered from 47 as F16 attachment/blobs/recovery retired fallbacks (#201)
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,

@@ -31,6 +31,10 @@ authenticated ownership predicates.
 with HKDF-SHA256 domain separation and current/retiring gateway secrets. It
 returns a sealed identity plus signed binding after the same guest, revocation,
 primary-mailbox and lifecycle checks. It cannot authorize ordinary routes.
+`admit_attachment` (#201) exposes the same narrow verifier as `Result<AuthorizedAttachment, Refusal>`
+using `admit`'s exact credential extraction, clock read, token verification, and
+bounded `admission_allowed`/`caller` evaluation order, without weakening `admit`
+or allowing `mail-attachment` tokens on ordinary routes.
 The F16 adapter must repeat origin-session, device, policy-generation and
 blob-ownership checks; signature verification alone grants no object access.
 

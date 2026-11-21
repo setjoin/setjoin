@@ -128,21 +128,31 @@ impl<K: KeySource + 'static> Intercept for FinalizeRoute<K> {
     fn matches(&self, r: &Request<Body>) -> bool {
         r.method() == Method::POST && target(r.uri().path()).is_some()
     }
-    fn admits_member(&self, h: hyper::HeaderMap, s: &'static str) -> BoxFuture<bool> {
+    fn admits_member(&self, h: hyper::HeaderMap, _s: &'static str) -> BoxFuture<bool> {
         let commands = self.0.clone();
-        Box::pin(async move { commands.authorize(&h, s).await.is_some() })
+        Box::pin(async move {
+            commands
+                .admits_member(&h, "POST", "/api/recovery/uploads/x/finalize")
+                .await
+        })
     }
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let commands = self.0.clone();
         let scanner = self.1.clone();
         Box::pin(async move {
-            let Some(a) = commands.authorize(r.headers(), c.identity.proto).await else {
-                return c.upstream.forward(r, &c.identity).await;
+            let (r, a) = match commands.admit_route(r, &c, commands.store.is_some()).await {
+                Ok(ok) => ok,
+                Err(response) => return response,
             };
-            let operation = crate::jmap::random().expect("OS random");
+            let Some(operation) = crate::jmap::random() else {
+                let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+                return problem(400, "mail recovery operation failed", c.identity.proto, id);
+            };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let fail = |detail| problem(400, detail, c.identity.proto, id.clone());
-            let raw_session = target(r.uri().path()).expect("matched route");
+            let Some(raw_session) = target(r.uri().path()) else {
+                return problem(404, "not found", c.identity.proto, id);
+            };
             let session = String::from_utf8(crate::inventory::unescape(raw_session))
                 .ok()
                 .and_then(|v| setjoin_blobs::recovery_uuid(&v));
@@ -208,8 +218,10 @@ impl<K: KeySource + 'static> Intercept for FinalizeRoute<K> {
                     empty_parsed(&meta.eligibility)
                 }
             };
-            let artifact =
-                crate::jmap::reply::request_id(None, crate::jmap::random().expect("OS random"));
+            let Some(artifact_rand) = crate::jmap::random() else {
+                return fail("mail recovery operation failed");
+            };
+            let artifact = crate::jmap::reply::request_id(None, artifact_rand);
             let parsed = parsed.to_string();
             match setjoin_blobs::quarantine(
                 &commands.worker_exec,
