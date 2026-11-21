@@ -1,0 +1,18 @@
+{
+  "case": "reminder-dismiss-repeat-row-effects",
+  "effects": [
+    {
+      "after": "2|<seed.0>:<timestamp>+00:null",
+      "before": "0|<seed.0>:null:null",
+      "name": "own"
+    },
+    {
+      "after": "0|",
+      "before": "0|",
+      "name": "foreign"
+    }
+  ],
+  "format": 1,
+  "go_source": "049892f50ec28a92c779bffe022d3751b9d8ae7d",
+  "route": "POST /jmap Reminder/dismiss"
+}

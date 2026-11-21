@@ -545,6 +545,48 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn reminder_and_continuity_classification_and_readiness() {
+        for name in ["Reminder/get", "Reminder/dismiss", "Reminder/snooze"] {
+            assert!(
+                classify(&body("urn:setjoin:params:jmap:reminders", name, "{}"), None).is_some(),
+                "{name} should be claimed without continuity signer"
+            );
+            assert!(
+                classify(&body("urn:ietf:params:jmap:mail", name, "{}"), None).is_none(),
+                "{name} requires reminders capability"
+            );
+        }
+        for name in ["Continuity/get", "Continuity/present"] {
+            assert!(
+                classify(&body("urn:ietf:params:jmap:mail", name, "{}"), None).is_none(),
+                "{name} stays with Go when continuity signer is absent"
+            );
+            assert!(
+                !(find(name).expect("registered").ready)(Ready { continuity: false }),
+                "{name} ready=false when continuity=false"
+            );
+            assert!(
+                (find(name).expect("registered").ready)(Ready { continuity: true }),
+                "{name} ready=true when continuity=true"
+            );
+        }
+
+        let exec = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=x dbname=x", 1)
+            .expect("lazy pool");
+        let auth = MailboxAuthContext::from_authenticated_session(
+            ActorId::new(1).expect("actor"),
+            MailboxId::new(2).expect("mailbox"),
+            Generation(1),
+        );
+        let get_method = find("Continuity/get").expect("Continuity/get");
+        let cx = Cx::new(&exec, None, &auth, 1, 2, get_method, "{}");
+        assert_eq!(
+            serve(&cx, "c1", "s").await,
+            "{\"sessionState\":\"s\",\"methodResponses\":[[\"error\",{\"type\":\"urn:ietf:params:jmap:error:forbidden\",\"status\":500,\"detail\":\"client continuity receipts are disabled\"},\"c1\"]]}\n"
+        );
+    }
+
     #[test]
     fn registry_matches_frozen_go() {
         // Delete with Go (#142).
