@@ -55,8 +55,8 @@ mod db {
     use futures_util::FutureExt;
     use setjoin_conformance::fixture::{self, Account};
     use setjoin_conformance::harness::Db;
-    use setjoin_contracts::ids::{ActorId, Generation};
-    use setjoin_pg::ScopedExecutor;
+    use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
+    use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
     use tokio_postgres::Client;
 
     use super::*;
@@ -329,8 +329,8 @@ mod db {
 
 #[cfg(test)]
 mod offline {
-    use setjoin_contracts::ids::{ActorId, Generation};
-    use setjoin_pg::ScopedExecutor;
+    use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
+    use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
 
     use super::*;
     use crate::jmap::family::{always, Gate, Method, Reply};
