@@ -220,3 +220,147 @@ async fn legacy_plaintext_secret_is_resealed_under_app_rls() -> Result<(), BoxEr
     fixture::remove(&owner, &a).await?;
     result
 }
+
+#[tokio::test]
+async fn resolve_for_user_binds_owned_device_and_rejects_foreign_invalid_and_missing_headers(
+) -> Result<(), BoxError> {
+    let Some(db) = Db::for_case("auth-device-resolve-for-user") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "resolve-user-a").await?;
+    let b = fixture::account(&owner, "resolve-user-b").await?;
+    let device: i64 = owner
+        .query_one(
+            "INSERT INTO devices(user_id,fingerprint,hmac_secret,enroll_state) VALUES($1,'resolve-user-fp','fixture-device-secret','approved') RETURNING id",
+            &[&a.user],
+        )
+        .await?
+        .get(0);
+    let exec =
+        ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).map_err(|e| e.0)?;
+    let resolver = DeviceResolver::new(
+        exec,
+        b"authzgates-test-master-secret-32".to_vec(),
+        CryptoProfile::Standard,
+    );
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs()
+        .to_string();
+    let hash = format!("{:x}", Sha256::digest(b"login-body"));
+    let challenge = format!("{device}:{timestamp}:POST:/auth/login:{hash}:resolve-user-nonce");
+    let mut mac = Hmac::<Sha256>::new_from_slice(b"fixture-device-secret").unwrap();
+    mac.update(challenge.as_bytes());
+    let signature = format!("{:x}", mac.finalize().into_bytes());
+    let mut headers = hyper::HeaderMap::new();
+    for (k, v) in [
+        ("x-device-id", device.to_string()),
+        ("x-device-timestamp", timestamp),
+        ("x-device-body-sha256", hash),
+        ("x-device-nonce", "resolve-user-nonce".into()),
+        ("x-device-hmac", signature),
+    ] {
+        headers.insert(
+            hyper::header::HeaderName::from_bytes(k.as_bytes())?,
+            v.parse()?,
+        );
+    }
+
+    let result = async {
+        let missing = resolver
+            .resolve_for_user(
+                a.user,
+                DeviceRequest {
+                    headers: &hyper::HeaderMap::new(),
+                    method: "POST",
+                    uri: "/auth/login",
+                    body: b"login-body",
+                },
+            )
+            .await;
+        if missing.bound {
+            return Err("missing headers must not bind".into());
+        }
+
+        let mut bad_sig_headers = headers.clone();
+        bad_sig_headers.insert("x-device-hmac", "0".repeat(64).parse()?);
+        let bad_sig = resolver
+            .resolve_for_user(
+                a.user,
+                DeviceRequest {
+                    headers: &bad_sig_headers,
+                    method: "POST",
+                    uri: "/auth/login",
+                    body: b"login-body",
+                },
+            )
+            .await;
+        if bad_sig.bound {
+            return Err("invalid hmac must not bind".into());
+        }
+
+        let foreign = resolver
+            .resolve_for_user(
+                b.user,
+                DeviceRequest {
+                    headers: &headers,
+                    method: "POST",
+                    uri: "/auth/login",
+                    body: b"login-body",
+                },
+            )
+            .await;
+        if foreign.bound {
+            return Err("foreign user must not bind".into());
+        }
+
+        let owned = resolver
+            .resolve_for_user(
+                a.user,
+                DeviceRequest {
+                    headers: &headers,
+                    method: "POST",
+                    uri: "/auth/login",
+                    body: b"login-body",
+                },
+            )
+            .await;
+        if !owned.bound || owned.device_id != device || owned.enroll_state != "approved" {
+            return Err(
+                format!("expected bound device after foreign attempt, got {owned:?}").into(),
+            );
+        }
+
+        let replay = resolver
+            .resolve_for_user(
+                a.user,
+                DeviceRequest {
+                    headers: &headers,
+                    method: "POST",
+                    uri: "/auth/login",
+                    body: b"login-body",
+                },
+            )
+            .await;
+        if replay.bound {
+            return Err("replayed nonce must not bind".into());
+        }
+        Ok::<_, BoxError>(())
+    }
+    .await;
+
+    owner
+        .execute(
+            "DELETE FROM device_auth_nonces WHERE device_id=$1",
+            &[&device],
+        )
+        .await
+        .ok();
+    owner
+        .execute("DELETE FROM devices WHERE id=$1", &[&device])
+        .await?;
+    fixture::remove(&owner, &a).await?;
+    fixture::remove(&owner, &b).await?;
+    result
+}
