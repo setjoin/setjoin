@@ -1,0 +1,13 @@
+{
+  "case": "saved-search-delete-invalid-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "saved_searches"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap SavedSearch/delete"
+}

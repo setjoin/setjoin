@@ -1691,10 +1691,36 @@ mod db {
              manager scope only from a full_access/manage_calendar grant and $2 is p_on_behalf_of",
         ),
         (
+            "mail_work_action_enqueue",
+            "p_target_id",
+            "mail_work_action_enqueue.sql:38-46: chat_member_role(p_target_id, p_actor_user_id) \
+             and drive_runtime_has_node_capability(p_actor_user_id, p_target_id, 'read_metadata') \
+             authorize the target against the seam-bound actor",
+        ),
+        (
             "mail_work_set",
             "p_assignee_user_id",
             "mail_work_set.sql:83-88,40-42: another user only with full_access, and only a \
              collaboration-capable delegate of the bound mailbox (:87)",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_target_user_id",
+            "mail_draft_lease_action.sql:52-55: handoff requires the bound actor as lease holder \
+             (:53) and mail_work_can_collaborate(p_mailbox_id, p_target_user_id) (:54)",
+        ),
+        (
+            "mail_comment_set",
+            "p_mention_user_ids",
+            "mail_comment_set.sql:99-105: each mentioned user must satisfy \
+             mail_work_can_read(p_mailbox_id, v_mention) (:100); capability comes from \
+             mail_work_can_collaborate (:103)",
+        ),
+        (
+            "mail_comment_set",
+            "p_handoff_user_id",
+            "mail_comment_set.sql:88-90: requires full_access for the bound actor and \
+             mail_work_can_collaborate(p_mailbox_id, p_handoff_user_id) (:89)",
         ),
         (
             "task_list_add_member",
@@ -1708,6 +1734,13 @@ mod db {
             "task_lists.sql:160: worker call; p_user_id (the verified user, $1) is the actor \
              the reducer authorizes the roster change against",
         ),
+        (
+            "task_comment_create",
+            "p_mentioned_emails",
+            "jmap_task_comment.sql:112-147: author is derived from the bound scope p_mailbox_id; \
+             mentionedEmails are resolved via resolve_identity to record mentions and deliver \
+             best-effort notifications after the task ownership check at :84-93",
+        ),
     ];
     /// Reviewed neutral (reducer, parameter, why it is not authority): payload,
     /// row ids resolved under the bound actor/scope, and time bounds. Every
@@ -1715,6 +1748,66 @@ mod db {
     /// placeholder, a scope mailbox on `$1`, a reviewed pair, or listed here.
     /// The `seam_probe_*` rows are the #427 test reducers.
     const REVIEWED_NEUTRAL_ARGUMENTS: &[(&str, &str, &str)] = &[
+        (
+            "jmap_task_get",
+            "p_ids",
+            "jmap_task.sql:28-29: optional task id filter; read is scoped by WHERE t.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_task_query",
+            "p_filter",
+            "jmap_task.sql:92-123: query filter JSON payload; v_where starts with mailbox_id = $1 AND list_id IS NULL",
+        ),
+        (
+            "jmap_task_query",
+            "p_sort",
+            "jmap_task.sql:78-144: unused sort JSON payload",
+        ),
+        (
+            "jmap_task_query",
+            "p_position",
+            "jmap_task.sql:130-133: pagination offset",
+        ),
+        (
+            "jmap_task_query",
+            "p_limit",
+            "jmap_task.sql:130-133: pagination limit clamped in 1..=256",
+        ),
+        (
+            "jmap_task_changes",
+            "p_since_state",
+            "jmap_task.sql:155, jmap_entity_changes.sql:13-34: state cursor token scoped to p_mailbox_id",
+        ),
+        (
+            "jmap_task_set_create",
+            "p_creates",
+            "jmap_task.sql:254-365: JSON create payload; inserts only into p_mailbox_id and resolves assigneeEmail via resolve_identity",
+        ),
+        (
+            "jmap_task_set_update",
+            "p_updates",
+            "jmap_task.sql:368-595: JSON update patch map; updates only WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_task_set_destroy",
+            "p_ids",
+            "jmap_task.sql:611-613: task id array; deletes only WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "task_activity_list",
+            "p_task_id",
+            "jmap_task_comment.sql:166-174: checks tasks.mailbox_id = p_mailbox_id or shared-list membership before reading activity for p_task_id",
+        ),
+        (
+            "task_comment_create",
+            "p_task_id",
+            "jmap_task_comment.sql:84-93: checks tasks.mailbox_id = p_mailbox_id or shared-list membership before inserting comment",
+        ),
+        (
+            "task_comment_create",
+            "p_body",
+            "jmap_task_comment.sql:95-104: comment body text payload",
+        ),
         ("jmap_calendar_event_get_shared", "p_after", "time bound"),
         ("jmap_calendar_event_get_shared", "p_before", "time bound"),
         (
@@ -1773,6 +1866,285 @@ mod db {
         ("mail_work_set", "p_due_at", "mail_work_set.sql:111-114: payload; requires the bound actor as assignee or full access"),
         ("mail_work_set", "p_reason", "mail_work_set.sql:28: length-validated audit text"),
         ("mail_work_set", "p_request_digest", "mail_work_set.sql:26,51: validated hex digest compared on replay"),
+        (
+            "saved_search_set",
+            "p_name",
+            "saved_searches.sql:22-39: payload name validated non-empty and inserted for p_mailbox_id",
+        ),
+        (
+            "saved_search_set",
+            "p_query",
+            "saved_searches.sql:26-39: payload query validated non-empty and stored verbatim for p_mailbox_id",
+        ),
+        (
+            "saved_search_delete",
+            "p_id",
+            "saved_searches.sql:48: row id deleted WHERE id = p_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "quick_step_set",
+            "p_id",
+            "quick_steps.sql:55-68: optional row id updated WHERE id = p_id AND mailbox_id = p_mailbox_id (NULL inserts)",
+        ),
+        (
+            "quick_step_set",
+            "p_name",
+            "quick_steps.sql:35-62: payload name validated non-empty for p_mailbox_id",
+        ),
+        (
+            "quick_step_set",
+            "p_icon",
+            "quick_steps.sql:57,61: payload icon text for p_mailbox_id",
+        ),
+        (
+            "quick_step_set",
+            "p_actions",
+            "quick_steps.sql:39-53: JSONB action array checked against quick_step_action_allowed",
+        ),
+        (
+            "quick_step_delete",
+            "p_id",
+            "quick_steps.sql:75: row id deleted WHERE id = p_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "email_template_set",
+            "p_name",
+            "email_templates.sql:25-38: payload name validated non-empty and upserted on (mailbox_id, name)",
+        ),
+        (
+            "email_template_set",
+            "p_subject",
+            "email_templates.sql:34-37: payload subject text stored for p_mailbox_id",
+        ),
+        (
+            "email_template_set",
+            "p_body_html",
+            "email_templates.sql:34-37: payload HTML body stored verbatim for p_mailbox_id",
+        ),
+        (
+            "email_template_delete",
+            "p_id",
+            "email_templates.sql:50: row id deleted WHERE id = p_id AND mailbox_id = p_mailbox_id",
+        ),
+        ("reminders_get", "p_limit", "reminders_get.sql:27,32: row limit clamped to 1..500; reads scoped WHERE r.mailbox_id = p_mailbox_id"),
+        ("reminder_dismiss", "p_reminder_id", "reminders_actions.sql:55: updated only WHERE id = p_reminder_id AND mailbox_id = p_mailbox_id"),
+        ("reminder_snooze", "p_reminder_id", "reminders_actions.sql:113: updated only WHERE id = p_reminder_id AND mailbox_id = p_mailbox_id"),
+        ("reminder_snooze", "p_until", "reminders_actions.sql:104-112: future snooze timestamp payload"),
+        ("continuity_context_issue", "p_boot_epoch", "continuity_context_issue.sql:33-35: server boot epoch UUID recorded in singleton upgrade_control_state"),
+        ("continuity_client_witness_record", "p_token_sha256", "continuity_client_witness_record.sql:50-51,61: SHA-256 hex digest of verified witness token, scoped by mailbox_id = p_mailbox_id"),
+        ("continuity_client_witness_record", "p_installation_id", "continuity_client_witness_record.sql:31: verified token installation UUID compared against singleton upgrade_control_state"),
+        ("continuity_client_witness_record", "p_timeline_generation", "continuity_client_witness_record.sql:46-47,61: timeline generation counter from verified witness token"),
+        ("continuity_client_witness_record", "p_state_watermark", "continuity_client_witness_record.sql:47,62: state watermark counter from verified witness token"),
+        ("continuity_client_witness_record", "p_issued_at", "continuity_client_witness_record.sql:25-26,62: token issuance timestamp within bounded freshness window"),
+        ("continuity_client_witness_record", "p_boot_epoch", "continuity_client_witness_record.sql:26,62: boot epoch UUID from verified witness token"),
+        (
+            "mail_draft_get",
+            "p_ids",
+            "mail_draft_get.sql:23-24,26-28: every read filters by d.mailbox_id=p_mailbox_id; access gate mail_work_can_read at :12",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_operation_id",
+            "mail_draft_session_open.sql:41-48: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303; inserted at :83-84",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_message_id",
+            "mail_draft_session_open.sql:30-31,51,55: draft message checked, read and locked WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_received_at",
+            "mail_draft_session_open.sql:31,51,55: composite message timestamp key checked WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_final_sender_address",
+            "mail_draft_session_open.sql:34-40: validated against the bound mailbox, its aliases, and the bound actor's user/aliases",
+        ),
+        (
+            "mail_draft_session_open",
+            "p_request_digest",
+            "mail_draft_session_open.sql:19,44: validated hex digest compared on replay",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_operation_id",
+            "mail_draft_lease_action.sql:29-35,73-74: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_draft_session_id",
+            "mail_draft_lease_action.sql:36-37: session locked WHERE draft_session_id=p_draft_session_id AND mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_action",
+            "mail_draft_lease_action.sql:19: closed set renew/release/handoff/takeover validated before any write",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_expected_epoch",
+            "mail_draft_lease_action.sql:20,39: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_reason",
+            "mail_draft_lease_action.sql:20: length-validated reason text",
+        ),
+        (
+            "mail_draft_lease_action",
+            "p_request_digest",
+            "mail_draft_lease_action.sql:21,33: validated hex digest compared on replay",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_operation_id",
+            "mail_draft_revision_accept.sql:18-25,50-51: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_draft_session_id",
+            "mail_draft_revision_accept.sql:26-28: session locked WHERE draft_session_id=p_draft_session_id AND mailbox_id=p_mailbox_id with lease_holder_user_id=p_actor_user_id",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_expected_epoch",
+            "mail_draft_revision_accept.sql:13,29: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_base_revision",
+            "mail_draft_revision_accept.sql:13,30: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_message_id",
+            "mail_draft_revision_accept.sql:30,34-35: matched against locked draft row and messages WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_received_at",
+            "mail_draft_revision_accept.sql:31,35: matched against locked draft row and messages WHERE mailbox_id=p_mailbox_id",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_content_digest",
+            "mail_draft_revision_accept.sql:14,40: validated SHA-256 hex digest payload",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_attachment_digest",
+            "mail_draft_revision_accept.sql:15,40: validated SHA-256 hex digest payload",
+        ),
+        (
+            "mail_draft_revision_accept",
+            "p_request_digest",
+            "mail_draft_revision_accept.sql:15,21: validated hex digest compared on replay",
+        ),
+        (
+            "mail_draft_replace",
+            "p_operation_id",
+            "mail_draft_replace.sql:21-28,83-84: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_draft_replace",
+            "p_draft_session_id",
+            "mail_draft_replace.sql:30-32: session locked WHERE draft_session_id=p_draft_session_id AND mailbox_id=p_mailbox_id with lease_holder_user_id=p_actor_user_id",
+        ),
+        (
+            "mail_draft_replace",
+            "p_expected_epoch",
+            "mail_draft_replace.sql:16,33: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_replace",
+            "p_base_revision",
+            "mail_draft_replace.sql:17,34: compared with the locked draft row of the bound mailbox",
+        ),
+        (
+            "mail_draft_replace",
+            "p_draft",
+            "mail_draft_replace.sql:17-18,42-50,57: JSON object payload whose from[0].email is checked against final_sender_address and passed to jmap_email_set_create(p_mailbox_id, ...)",
+        ),
+        (
+            "mail_draft_replace",
+            "p_request_digest",
+            "mail_draft_replace.sql:18,24: validated hex digest compared on replay",
+        ),
+        (
+            "mail_comment_get",
+            "p_thread_id",
+            "mail_comment_get.sql:34,43: filtered by mailbox_id=p_mailbox_id; access gate mail_work_can_read at :19",
+        ),
+        (
+            "mail_comment_get",
+            "p_before",
+            "mail_comment_get.sql:35,44: time bound cursor",
+        ),
+        (
+            "mail_comment_get",
+            "p_limit",
+            "mail_comment_get.sql:15,45: bounded 1..100 page size",
+        ),
+        (
+            "mail_comment_set",
+            "p_thread_id",
+            "mail_comment_set.sql:45-47,60,80,114: thread checked, locked and updated WHERE mailbox_id=p_mailbox_id; collaboration gate at :40",
+        ),
+        (
+            "mail_comment_set",
+            "p_operation_id",
+            "mail_comment_set.sql:50-58,126-129: replay returns only when mailbox_id and actor_user_id match the bound ones, else BZ303",
+        ),
+        (
+            "mail_comment_set",
+            "p_expected_generation",
+            "mail_comment_set.sql:26,62,73: compared with the work row of the bound mailbox/thread",
+        ),
+        (
+            "mail_comment_set",
+            "p_body",
+            "mail_comment_set.sql:28,98: length- and NUL-validated comment body payload",
+        ),
+        (
+            "mail_comment_set",
+            "p_replaces_comment_id",
+            "mail_comment_set.sql:78-86: original comment locked and tombstoned WHERE id=p_replaces_comment_id AND mailbox_id=p_mailbox_id AND thread_id=p_thread_id",
+        ),
+        (
+            "mail_comment_set",
+            "p_request_digest",
+            "mail_comment_set.sql:26,54: validated hex digest compared on replay",
+        ),
+        ("mail_work_action_enqueue", "p_thread_id", "mail_work_action_enqueue.sql:33-37: work row looked up and locked WHERE mailbox_id=p_mailbox_id AND thread_id=p_thread_id; collaboration gate at :22"),
+        ("mail_work_action_enqueue", "p_operation_id", "mail_work_action_enqueue.sql:25-31,63-64: replay returns only when mailbox and actor equal the bound ones, else BZ303; insert stores them"),
+        ("mail_work_action_enqueue", "p_expected_generation", "mail_work_action_enqueue.sql:35: compared with locked mail_thread_work row of the bound mailbox"),
+        ("mail_work_action_enqueue", "p_action_kind", "mail_work_action_enqueue.sql:13,38-46: closed set ('task','chat','drive') gating target lookup"),
+        ("mail_work_action_enqueue", "p_request_digest", "mail_work_action_enqueue.sql:15,28: validated hex digest compared on replay"),
+        ("mail_work_changes", "p_since_state", "mail_work_changes.sql:14-25: monotonic state cursor validated >= 0 and checked against mailbox state"),
+        ("mail_work_changes", "p_max_changes", "mail_work_changes.sql:21: page size clamped to 1..=256"),
+        ("mail_work_collaborators_get", "p_query", "mail_work_collaborators_get.sql:13,23-24: length-validated filter over mailbox_delegates WHERE d.mailbox_id=p_mailbox_id"),
+        ("mail_work_collaborators_get", "p_limit", "mail_work_collaborators_get.sql:13,25: page limit bounded 1..=50"),
+        ("mail_work_metrics_get", "p_from", "mail_work_metrics_get.sql:14,23,30: date range lower bound over bound mailbox"),
+        ("mail_work_metrics_get", "p_to", "mail_work_metrics_get.sql:14,23,30: date range upper bound over bound mailbox"),
+        ("mail_work_metrics_get", "p_policy_version", "mail_work_metrics_get.sql:14,23,30: positive policy version filter over bound mailbox"),
+        ("mail_work_notification_preferences_set", "p_operation_id", "mail_work_notification_preferences_set.sql:28-35,51-52: replay returns only when mailbox and actor equal the bound ones, else BZ303; insert stores them"),
+        ("mail_work_notification_preferences_set", "p_category", "mail_work_notification_preferences_set.sql:19,37,46: closed category enum scoped to (p_mailbox_id, p_actor_user_id)"),
+        ("mail_work_notification_preferences_set", "p_delivery", "mail_work_notification_preferences_set.sql:20: closed delivery mode ('immediate','digest','off')"),
+        ("mail_work_notification_preferences_set", "p_timezone", "mail_work_notification_preferences_set.sql:21: length-validated timezone payload"),
+        ("mail_work_notification_preferences_set", "p_digest_hour", "mail_work_notification_preferences_set.sql:22: hour payload bounded 0..=23"),
+        ("mail_work_notification_preferences_set", "p_expected_generation", "mail_work_notification_preferences_set.sql:39,43: compared with locked preference row of (p_mailbox_id, p_actor_user_id, p_category)"),
+        ("mail_work_notification_preferences_set", "p_request_digest", "mail_work_notification_preferences_set.sql:22,31: validated hex digest compared on replay"),
+        ("mail_work_sla_policy_set", "p_operation_id", "mail_work_sla_policy_set.sql:39-46,72-73: replay returns only when mailbox and actor equal the bound ones, else BZ303; insert stores them"),
+        ("mail_work_sla_policy_set", "p_expected_generation", "mail_work_sla_policy_set.sql:52,61: compared with locked mail_work_sla_policies row of the bound mailbox"),
+        ("mail_work_sla_policy_set", "p_timezone", "mail_work_sla_policy_set.sql:22,28: length- and pg_timezone_names-validated SLA timezone"),
+        ("mail_work_sla_policy_set", "p_weekday_mask", "mail_work_sla_policy_set.sql:22: bounded bitmask 1..=127"),
+        ("mail_work_sla_policy_set", "p_workday_start", "mail_work_sla_policy_set.sql:23: workday start time payload"),
+        ("mail_work_sla_policy_set", "p_workday_end", "mail_work_sla_policy_set.sql:23: workday end time payload"),
+        ("mail_work_sla_policy_set", "p_holidays", "mail_work_sla_policy_set.sql:24,31: bounded distinct holiday date array"),
+        ("mail_work_sla_policy_set", "p_sla_minutes", "mail_work_sla_policy_set.sql:24: bounded SLA minutes 1..=525600"),
+        ("mail_work_sla_policy_set", "p_request_digest", "mail_work_sla_policy_set.sql:25,42: validated hex digest compared on replay"),
         ("seam_probe_expr", "p_x", "probe payload"),
         ("seam_probe_unbound", "p_x", "probe payload"),
         ("seam_probe_scope", "p_x", "probe payload"),

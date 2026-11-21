@@ -1,0 +1,13 @@
+{
+  "case": "saved-search-set-success-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <created.id>, \"name\": \"Important\", \"query\": \"is:flagged\", \"position\": 0, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[]",
+      "name": "saved_searches"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap SavedSearch/set"
+}

@@ -1,0 +1,70 @@
+{
+  "case": "mail-work-action-delegate-allowed",
+  "format": 1,
+  "go_source": "3b0bb9ffd013cf1391e0374515bb407dbbf97fe2",
+  "kind": "delegate-allowed",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [],
+    "effects": {
+      "changes": {
+        "after": "[{\"op\": \"updated\", \"object_id\": \"mw-action-1\", \"state_seq\": 1, \"object_kind\": \"work\"}]",
+        "before": "[]"
+      },
+      "events": {
+        "after": "[{\"reason\": \"Approved internal action requested\", \"threadId\": \"mw-action-1\", \"eventType\": \"action_requested\", \"generation\": 2, \"actorUserId\": <a.user>}]",
+        "before": "[]"
+      },
+      "ops": {
+        "after": "[{\"op\": \"<uuid>\", \"kind\": \"outbox_action\", \"actor\": <a.user>, \"has_digest\": true}]",
+        "before": "[]"
+      },
+      "outbox": {
+        "after": "[{\"id\": \"<outboxId>\", \"kind\": \"task\", \"state\": \"pending\", \"payload\": {\"version\": 1, \"targetId\": null, \"threadId\": \"mw-action-1\", \"mailboxId\": \"<seed.0>\", \"actionKind\": \"task\", \"actorUserId\": \"<a.user>\"}}]",
+        "before": "[]"
+      },
+      "state": {
+        "after": "1",
+        "before": "0"
+      },
+      "work": {
+        "after": "[{\"due_at\": null, \"status\": \"owned\", \"thread_id\": \"mw-action-1\", \"generation\": 2, \"sla_minutes\": null, \"completed_at\": null, \"last_event_id\": \"<uuid>\", \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {}}]",
+        "before": "[{\"due_at\": null, \"status\": \"owned\", \"thread_id\": \"mw-action-1\", \"generation\": 1, \"sla_minutes\": null, \"completed_at\": null, \"last_event_id\": null, \"sla_breached_at\": null, \"assignee_user_id\": <a.user>, \"last_activity_at\": \"<timestamp>+00:00\", \"first_activity_at\": \"<timestamp>+00:00\", \"first_response_at\": null, \"sla_policy_snapshot\": {}}]"
+      }
+    },
+    "notify": [
+      "tag:<seed.0> {\"op\": \"updated\", \"type\": \"MailWorkEvent\", \"state\": \"1\", \"objectId\": \"mw-action-1\", \"accountId\": \"<seed.0>\", \"objectKind\": \"work\"}"
+    ],
+    "repeat": null,
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:ietf:params:jmap:mail\"],\"methodCalls\":[[\"MailWork/action\",{\"accountId\":\"<seed.0>\",\"threadId\":\"mw-action-1\",\"operationId\":\"<uuid>\",\"expectedGeneration\":\"1\",\"actionKind\":\"task\"},\"c0\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"MailWork/action\",{\"state\":\"1\",\"eventId\":\"<uuid>\",\"outboxId\":\"<outboxId>\",\"replayed\":false,\"targetId\":null,\"threadId\":\"mw-action-1\",\"accountId\":\"<seed.0>\",\"actionKind\":\"task\",\"generation\":\"2\"},\"c0\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap MailWork/action"
+}

@@ -1342,6 +1342,27 @@ async fn cleanup(
             break;
         }
     }
+    // Task activity author_user_id references users(id) without CASCADE; tasks
+    // journal into jmap_changes_journal on DELETE (#373). Remove them before
+    // jmap_changes_journal and fixture::remove.
+    owner
+        .query_typed(
+            "DELETE FROM task_activity WHERE mailbox_id = ANY($1) OR author_user_id = ANY($2)",
+            &[(&every, Type::INT8_ARRAY), (&users, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM tasks WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM task_lists WHERE owner_user_id = ANY($1)",
+            &[(&users, Type::INT8_ARRAY)],
+        )
+        .await?;
     // A calendar journals into its mailbox when deleted (trg_journal_calendar),
     // so calendars go while their mailbox exists, then that journal; a sharing
     // default pins its creator (no cascade) (#371).

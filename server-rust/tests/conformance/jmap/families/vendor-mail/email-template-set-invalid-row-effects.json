@@ -1,0 +1,13 @@
+{
+  "case": "email-template-set-invalid-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "email_templates"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap EmailTemplate/set"
+}

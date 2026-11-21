@@ -1,0 +1,18 @@
+{
+  "case": "task-list-task-set-entitlement-denied-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Team Tasks\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Team Tasks\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}]",
+      "name": "task_lists"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "tasks"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap TaskList/taskSet"
+}

@@ -1,0 +1,71 @@
+{
+  "case": "task-list-member-set-repeat",
+  "format": 1,
+  "go_source": "3b0bb9ffd013cf1391e0374515bb407dbbf97fe2",
+  "kind": "repeat",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [],
+    "effects": {
+      "task_list_members": {
+        "after": "[{\"role\": \"owner\", \"list_id\": <seed.0>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}, {\"role\": \"member\", \"list_id\": <seed.0>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}, {\"role\": \"member\", \"list_id\": <seed.1>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}, {\"role\": \"owner\", \"list_id\": <seed.1>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}]",
+        "before": "[{\"role\": \"owner\", \"list_id\": <seed.0>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}, {\"role\": \"member\", \"list_id\": <seed.1>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}, {\"role\": \"owner\", \"list_id\": <seed.1>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}]"
+      },
+      "task_lists": {
+        "after": "[{\"id\": <seed.0>, \"name\": \"Roster List\", \"color\": null, \"state_seq\": 1, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}, {\"id\": <seed.1>, \"name\": \"Helper Lookup\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]",
+        "before": "[{\"id\": <seed.0>, \"name\": \"Roster List\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}, {\"id\": <seed.1>, \"name\": \"Helper Lookup\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]"
+      }
+    },
+    "notify": [
+      "task:<a.mailbox> {\"event\": \"tasklist_changed\", \"list_id\": <seed.0>, \"task_id\": null, \"list_state\": \"1\"}",
+      "task:<f.mailbox> {\"event\": \"tasklist_changed\", \"list_id\": <seed.0>, \"task_id\": null, \"list_state\": \"1\"}"
+    ],
+    "repeat": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"TaskListMember/set\",{\"listId\":\"<seed.0>\",\"members\":[{\"role\":\"member\",\"email\":\"<var.member_email>\",\"userId\":\"<f.user>\",\"displayName\":\"fam-tasks-foreign\"},{\"role\":\"owner\",\"email\":\"<a.email>\",\"userId\":\"<a.user>\",\"displayName\":\"fam-tasks\"}],\"notAdded\":{},\"notRemoved\":{}},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:tasks\"],\"methodCalls\":[[\"TaskListMember/set\",{\"listId\":\"<seed.0>\",\"add\":[\"<var.member_email>\"]},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"TaskListMember/set\",{\"listId\":\"<seed.0>\",\"members\":[{\"role\":\"member\",\"email\":\"<var.member_email>\",\"userId\":\"<f.user>\",\"displayName\":\"fam-tasks-foreign\"},{\"role\":\"owner\",\"email\":\"<a.email>\",\"userId\":\"<a.user>\",\"displayName\":\"fam-tasks\"}],\"notAdded\":{},\"notRemoved\":{}},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": [
+      "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"TaskList/get\",{\"lists\":[{\"id\":\"<seed.1>\",\"name\":\"Helper Lookup\",\"role\":\"member\",\"color\":null,\"state\":\"0\",\"members\":[{\"role\":\"member\",\"email\":\"<a.email>\",\"userId\":\"<a.user>\",\"displayName\":\"fam-tasks\"},{\"role\":\"owner\",\"email\":\"<var.member_email>\",\"userId\":\"<f.user>\",\"displayName\":\"fam-tasks-foreign\"}],\"openCount\":0,\"memberCount\":2},{\"id\":\"<seed.0>\",\"name\":\"Roster List\",\"role\":\"owner\",\"color\":null,\"state\":\"0\",\"members\":[{\"role\":\"owner\",\"email\":\"<a.email>\",\"userId\":\"<a.user>\",\"displayName\":\"fam-tasks\"}],\"openCount\":0,\"memberCount\":1}]},\"s0\"]]}\n"
+    ]
+  },
+  "route": "POST /jmap TaskListMember/set"
+}
