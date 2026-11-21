@@ -616,11 +616,10 @@ impl AuthServer {
         if self.config.vapid_private_key.is_empty() {
             return Self::push_named_problem(404, "push MFA not configured", "not-found", &path);
         }
-        match self.totp_completion_route().await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(req).await,
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
             Err(()) => return Self::failure(500, "internal error", req.uri().path()),
-        }
+        };
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
         let agent = req
@@ -703,6 +702,8 @@ impl AuthServer {
                 body: &raw,
             },
             risk,
+            ca_enabled,
+            dt_enabled,
             false,
         )
         .await

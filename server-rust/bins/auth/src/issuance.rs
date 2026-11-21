@@ -624,17 +624,7 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        for control in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if !matches!(
-                setjoin_identity::login::enabled(&self.exec, control).await,
-                Ok(false)
-            ) {
-                return self.forward(staged.into_request()).await;
-            }
-        }
+        // #352/#458: webpush is governed by session admission + DPoP proof, never login CA/device-trust.
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,

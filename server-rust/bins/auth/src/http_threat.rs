@@ -370,23 +370,7 @@ impl AuthServer {
         reply
     }
 
-    /// Login preflight (#349 F7): CA and device trust still forward whole (#351);
-    /// both are decided from toggles alone, before any admission effect. A read
-    /// error refuses (#454 Codex r1): Go's risk read fails open, so it is never the fallback.
-    pub(super) async fn login_ca_route(&self) -> Result<bool, ()> {
-        for control in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if login::enabled(&self.exec, control).await.map_err(|_| ())? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    #[cfg(test)]
-    fn http_country(&self, ip: &str) -> String {
+    pub(super) fn http_country(&self, ip: &str) -> String {
         ip.parse()
             .ok()
             .and_then(|ip| self.geo.as_ref().map(|g| g.country(ip)))

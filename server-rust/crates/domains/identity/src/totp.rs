@@ -53,7 +53,6 @@ impl Operation {
             Self::PushSend => "mfa-push-send",
             Self::WebauthnPossessionBegin => "mfa-webauthn-possession-begin",
             Self::WebauthnPossessionFinish => "mfa-webauthn-possession-finish",
-
         }
     }
 }
@@ -191,21 +190,26 @@ pub fn validate(presented: &str, secret: &str, unix: i64) -> bool {
 /// Return the highest matching counter, so a rare adjacent-code collision also
 /// cannot replay a previously accepted value. Library constant-time selection
 /// retains the fixed three-window verification work.
-pub(crate) fn counter_proof(presented:&str,secret:&str,unix:i64)->Option<(i64,Vec<u8>)>{
-    use subtle::{ConstantTimeEq,ConditionallySelectable};
+pub(crate) fn counter_proof(presented: &str, secret: &str, unix: i64) -> Option<(i64, Vec<u8>)> {
+    use subtle::{ConditionallySelectable, ConstantTimeEq};
     // #455: an empty decoded key (missing, blank or all-padding secret) proves nothing.
     // Frozen Go's generator accepts it (totp-secret-vectors.json: "" -> 812658); Rust refuses.
-    if secret_key(secret)?.is_empty(){return None;}
-    let mut found=subtle::Choice::from(0);let mut counter=0u64;
-    for offset in [-30,0,30]{
-        if let Some(expected)=code(secret,unix+offset){
-            let hit=presented.as_bytes().ct_eq(expected.as_bytes());
-            counter=u64::conditional_select(&counter,&(((unix+offset)/30) as u64),hit);
-            found|=hit;
+    if secret_key(secret)?.is_empty() {
+        return None;
+    }
+    let mut found = subtle::Choice::from(0);
+    let mut counter = 0u64;
+    for offset in [-30, 0, 30] {
+        if let Some(expected) = code(secret, unix + offset) {
+            let hit = presented.as_bytes().ct_eq(expected.as_bytes());
+            counter = u64::conditional_select(&counter, &(((unix + offset) / 30) as u64), hit);
+            found |= hit;
         }
     }
-    if !bool::from(found){return None;}
-    Some((counter as i64,Sha256::digest(secret_key(secret)?).to_vec()))
+    if !bool::from(found) {
+        return None;
+    }
+    Some((counter as i64, Sha256::digest(secret_key(secret)?).to_vec()))
 }
 
 /// The `secret` of a `ready` TOTP reducer row (#455). A missing, NULL or non-string value is
@@ -217,7 +221,6 @@ pub(crate) fn ready_secret(value: &serde_json::Value) -> Result<&str, StatementF
         message: "TOTP secret".into(),
     })
 }
-
 
 pub async fn cycle(
     exec: &ScopedExecutor,
@@ -248,13 +251,21 @@ pub(crate) async fn cycle_for(
                 hint: None,
                 message: "TOTP cycle row".into(),
             };
-            let outcome: String = rows.first().ok_or_else(bad)?.try_get(0).map_err(|_| bad())?;
+            let outcome: String = rows
+                .first()
+                .ok_or_else(bad)?
+                .try_get(0)
+                .map_err(|_| bad())?;
             if outcome != "evaluate" {
                 return Ok(
                     setjoin_pg::ProvenStatement::new("SELECT $1::text").bind(outcome, Type::TEXT)
                 );
             }
-            let secret: Option<String> = rows.first().ok_or_else(bad)?.try_get(1).map_err(|_| bad())?;
+            let secret: Option<String> = rows
+                .first()
+                .ok_or_else(bad)?
+                .try_get(1)
+                .map_err(|_| bad())?;
             let Some(secret) = secret else {
                 return Ok(setjoin_pg::ProvenStatement::new(
                     "SELECT 'bookkeeping'::text",
@@ -264,13 +275,16 @@ pub(crate) async fn cycle_for(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let proof=counter_proof(presented,&secret,now);
-            let counter=proof.as_ref().map(|p|p.0);let factor=proof.map(|p|p.1);
-            let valid=counter.is_some();
+            let proof = counter_proof(presented, &secret, now);
+            let counter = proof.as_ref().map(|p| p.0);
+            let factor = proof.map(|p| p.1);
+            let valid = counter.is_some();
             Ok(
                 setjoin_pg::ProvenStatement::new("SELECT rust_identity_totp_cycle($1,$2,$3,$4)")
                     .bind(user, Type::INT8)
-                    .bind(valid, Type::BOOL).bind(counter,Type::INT8).bind(factor,Type::BYTEA),
+                    .bind(valid, Type::BOOL)
+                    .bind(counter, Type::INT8)
+                    .bind(factor, Type::BYTEA),
             )
         },
         |rows| {
@@ -341,7 +355,11 @@ pub async fn begin(
         )
         .await
         .map_err(|_| internal())?;
-    let hash: String = hashes.first().ok_or_else(internal)?.try_get(0).map_err(|_| internal())?;
+    let hash: String = hashes
+        .first()
+        .ok_or_else(internal)?
+        .try_get(0)
+        .map_err(|_| internal())?;
     let password = password.to_owned();
     if !tokio::task::spawn_blocking(move || setjoin_authz::password::verify(&hash, &password))
         .await
@@ -377,7 +395,11 @@ pub async fn begin(
                     )
                     .await
                     .map_err(|_| internal())?;
-                let hashes: Option<Vec<String>> = rows.first().ok_or_else(internal)?.try_get(0).map_err(|_| internal())?;
+                let hashes: Option<Vec<String>> = rows
+                    .first()
+                    .ok_or_else(internal)?
+                    .try_get(0)
+                    .map_err(|_| internal())?;
                 let code = presented.to_owned();
                 accepted = tokio::task::spawn_blocking(move || {
                     hashes
@@ -550,7 +572,8 @@ pub async fn confirm(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let Some((counter,factor))=counter_proof(presented,ready_secret(&result)?,now) else {
+            let Some((counter, factor)) = counter_proof(presented, ready_secret(&result)?, now)
+            else {
                 return Ok(setjoin_pg::ProvenStatement::new(
                     "SELECT '{\"status\":\"invalid_code\"}'::text",
                 ));
@@ -562,7 +585,9 @@ pub async fn confirm(
             .bind(claims.clone(), Type::TEXT)
             .bind(hash.clone(), Type::TEXT)
             .bind(enrollment.to_owned(), Type::TEXT)
-            .bind(ip.to_owned(), Type::TEXT).bind(counter,Type::INT8).bind(factor,Type::BYTEA))
+            .bind(ip.to_owned(), Type::TEXT)
+            .bind(counter, Type::INT8)
+            .bind(factor, Type::BYTEA))
         },
         json_row,
     )
@@ -579,6 +604,9 @@ pub struct CompletionUser {
 impl CompletionUser {
     pub fn user(&self) -> i64 {
         self.user
+    }
+    pub fn email(&self) -> &str {
+        &self.email
     }
     pub async fn load(
         exec: &ScopedExecutor,
@@ -680,7 +708,10 @@ impl CompletionUser {
     /// #454: a feature-flag or risk query error (also with the flag off), an invalid actor
     /// and an unreadable or unparsable stored value fail closed; only a missing row or level
     /// none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
-    pub async fn risk(&self, exec: &ScopedExecutor) -> Result<Option<serde_json::Value>, StatementFailure> {
+    pub async fn risk(
+        &self,
+        exec: &ScopedExecutor,
+    ) -> Result<Option<serde_json::Value>, StatementFailure> {
         use serde_json::{json, Value};
         let bad = || StatementFailure {
             sqlstate: None,
@@ -852,10 +883,16 @@ mod fail_closed {
         assert_eq!(code("", 59).as_deref(), Some("812658"));
         for secret in ["", "   ", "\r\n"] {
             let presented = code(secret, now).expect("Go-compatible empty-key code");
-            assert!(counter_proof(&presented, secret, now).is_none(), "{secret:?}");
+            assert!(
+                counter_proof(&presented, secret, now).is_none(),
+                "{secret:?}"
+            );
         }
         let presented = code(SECRET, now).unwrap();
-        assert!(counter_proof(&presented, SECRET, now).is_some(), "control: an enrolled key still proves");
+        assert!(
+            counter_proof(&presented, SECRET, now).is_some(),
+            "control: an enrolled key still proves"
+        );
     }
 
     #[test]
@@ -868,15 +905,27 @@ mod fail_closed {
         ] {
             assert!(ready_secret(&row).is_err(), "{row}");
         }
-        assert_eq!(ready_secret(&json!({"status":"ready","secret":SECRET})).unwrap(), SECRET);
+        assert_eq!(
+            ready_secret(&json!({"status":"ready","secret":SECRET})).unwrap(),
+            SECRET
+        );
     }
 
     #[test]
     fn completion_risk_lookup_error_is_an_error() {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         rt.block_on(async {
-            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
-            let user = CompletionUser { user: 7, email: String::new(), admin: false };
+            let exec =
+                setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1)
+                    .unwrap();
+            let user = CompletionUser {
+                user: 7,
+                email: String::new(),
+                admin: false,
+            };
             assert!(user.risk(&exec).await.is_err());
         });
     }

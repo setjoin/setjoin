@@ -60,7 +60,7 @@ FORWARD_PATTERNS = {
     "ws_client": re.compile(r"\bclient_async\("),
 }
 FORWARD_SITES = {
-    ("auth", "forward"): 10,  # lowered from 12 when #350 retired login/webpush x-device forwards & made device proof native (ratchet)
+    ("auth", "forward"): 2,  # lowered from 10: #351 made CA/device-trust native (7 sites) & #458 dropped webpush CA forward (1 site); 2 #357 Part B unmatched fallbacks remain (ratchet)
     ("gateway", "forward"): 160,  # lowered from 167 (#194, admin-identity leftovers)
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
