@@ -1687,3 +1687,558 @@ async fn impersonate_repeat() {
 async fn bootstrap_unicode_surrogate() {
     run("bootstrap", "unicode-surrogate", false).await.unwrap();
 }
+
+async fn send_direct_dpop(
+    server: &AuthServer,
+    tls: bool,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    payload: &str,
+) -> (u16, Option<String>, String) {
+    let mut b = Request::builder().method(method).uri(path);
+    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("host")) {
+        b = b.header("host", "auth.idlogin3.test");
+    }
+    if !payload.is_empty()
+        && !headers
+            .iter()
+            .any(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+    {
+        b = b.header("content-type", "application/json");
+    }
+    for (k, v) in headers {
+        b = b.header(*k, *v);
+    }
+    let mut req = b.body(body(payload.to_owned())).unwrap();
+    req.extensions_mut().insert(setjoin_auth::ConnectionMeta {
+        peer: "127.0.0.1:44444".parse().unwrap(),
+        tls,
+    });
+    let resp = server.handle(req).await;
+    let status = resp.status().as_u16();
+    let www = resp
+        .headers()
+        .get("www-authenticate")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let body_text = String::from_utf8(resp.into_body().collect().await.unwrap().to_bytes().to_vec())
+        .unwrap();
+    (status, www, body_text)
+}
+
+#[tokio::test]
+async fn dpop_issuance_bound_routes_and_uri_edge_cases() {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDLOGIN3-dpop").expect("database required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let saved_rate = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false) ON CONFLICT(key) DO UPDATE SET enabled=false",
+        &[],
+    )
+    .await
+    .unwrap();
+    let seed = Seed::create(&c).await.unwrap();
+    let tou_id: i64 = c
+        .query_one(
+            "INSERT INTO terms_of_use(name,body_md) VALUES('idlogin3-dpop-policy','# Policy') RETURNING id",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        seed.impersonation_seed(&c, "success").await?;
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.db_encryption_key = "22".repeat(32);
+        cfg.signing_alg = "ES256".into();
+        cfg.go_upstream = None;
+        for key in ["threat_feed", "geo_block", "spray_detect", "captcha", "tarpit"] {
+            cfg.threat.overrides.insert(format!("feature.{key}"), false);
+        }
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = Arc::new(
+            AuthServer::load(exec, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
+        );
+
+        let key_a = common::dpop::key(11);
+        let (_, jkt_a) = common::dpop::jwk_and_jkt(&key_a);
+        let wrong_key = common::dpop::key(22);
+        let token = common::dpop::bound_admin_access_jwt(
+            secret,
+            seed.a.user,
+            &seed.email,
+            "dpop-idlogin3-actor",
+            &jkt_a,
+        );
+        let auth = format!("Bearer {token}");
+
+        // 1. All DPoP rejection classes on GET /terms/pending -> 401 dpop_admission + WWW-Authenticate.
+        let (s, w, b) = send_direct_dpop(
+            &srv,
+            false,
+            "GET",
+            "/terms/pending",
+            &[("authorization", &auth)],
+            "",
+        )
+        .await;
+        common::dpop::assert_dpop_401(s, w.as_deref(), &b);
+
+        for (label, bad_proof) in [
+            ("malformed", "not-a-jwt".to_owned()),
+            (
+                "wrong-typ",
+                common::dpop::proof_custom(
+                    &key_a,
+                    "JWT",
+                    "GET",
+                    "http://auth.idlogin3.test/terms/pending",
+                    Some(&token),
+                    "j-typ",
+                    common::dpop::now(),
+                )
+                .0,
+            ),
+            (
+                "wrong-htm",
+                common::dpop::proof(
+                    &key_a,
+                    "POST",
+                    "http://auth.idlogin3.test/terms/pending",
+                    Some(&token),
+                    "j-htm",
+                )
+                .0,
+            ),
+            (
+                "wrong-htu",
+                common::dpop::proof(
+                    &key_a,
+                    "GET",
+                    "http://auth.idlogin3.test/other",
+                    Some(&token),
+                    "j-htu",
+                )
+                .0,
+            ),
+            (
+                "stale-iat",
+                common::dpop::proof_custom(
+                    &key_a,
+                    "dpop+jwt",
+                    "GET",
+                    "http://auth.idlogin3.test/terms/pending",
+                    Some(&token),
+                    "j-stale",
+                    common::dpop::now() - 180,
+                )
+                .0,
+            ),
+            (
+                "future-iat",
+                common::dpop::proof_custom(
+                    &key_a,
+                    "dpop+jwt",
+                    "GET",
+                    "http://auth.idlogin3.test/terms/pending",
+                    Some(&token),
+                    "j-future",
+                    common::dpop::now() + 180,
+                )
+                .0,
+            ),
+            (
+                "wrong-key",
+                common::dpop::proof(
+                    &wrong_key,
+                    "GET",
+                    "http://auth.idlogin3.test/terms/pending",
+                    Some(&token),
+                    "j-wkey",
+                )
+                .0,
+            ),
+            (
+                "wrong-ath",
+                common::dpop::proof(
+                    &key_a,
+                    "GET",
+                    "http://auth.idlogin3.test/terms/pending",
+                    Some("other-access-token"),
+                    "j-ath",
+                )
+                .0,
+            ),
+            (
+                "missing-ath",
+                common::dpop::proof(
+                    &key_a,
+                    "GET",
+                    "http://auth.idlogin3.test/terms/pending",
+                    None,
+                    "j-noath",
+                )
+                .0,
+            ),
+        ] {
+            let (s, w, b) = send_direct_dpop(
+                &srv,
+                false,
+                "GET",
+                "/terms/pending",
+                &[("authorization", &auth), ("dpop", &bad_proof)],
+                "",
+            )
+            .await;
+            assert_eq!(s, 401, "{label}: {b}");
+            common::dpop::assert_dpop_401(s, w.as_deref(), &b);
+        }
+
+        // Failed proof followed by valid proof succeeds; replaying the valid proof fails.
+        let (good_p, _) = common::dpop::proof(
+            &key_a,
+            "GET",
+            "http://auth.idlogin3.test/terms/pending",
+            Some(&token),
+            "j-replay-once",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "GET",
+            "/terms/pending",
+            &[("authorization", &auth), ("dpop", &good_p)],
+            "",
+        )
+        .await;
+        assert_eq!(s, 200, "valid proof after failure: {b}");
+
+        let (s, w, b) = send_direct_dpop(
+            &srv,
+            false,
+            "GET",
+            "/terms/pending",
+            &[("authorization", &auth), ("dpop", &good_p)],
+            "",
+        )
+        .await;
+        common::dpop::assert_dpop_401(s, w.as_deref(), &b);
+
+        // 2. Concurrent replay over TCP: exactly 1 succeeds (200) and 1 fails (401 dpop_admission).
+        let tcp = auth_server(srv.clone(), false).await;
+        let (conc_p, _) = common::dpop::proof(
+            &key_a,
+            "GET",
+            "http://auth.idlogin3.test/terms/pending",
+            Some(&token),
+            "j-concurrent-replay",
+        );
+        let conc_headers = [("authorization", auth.as_str()), ("dpop", conc_p.as_str())];
+        let (r1, r2) = tokio::join!(
+            request(
+                tcp.addr,
+                "GET",
+                "/terms/pending",
+                String::new(),
+                &conc_headers,
+            ),
+            request(
+                tcp.addr,
+                "GET",
+                "/terms/pending",
+                String::new(),
+                &conc_headers,
+            ),
+        );
+        tcp.close().await;
+        let r1 = r1?;
+        let r2 = r2?;
+        let (win, lose) = if r1.0 == 200 { (r1, r2) } else { (r2, r1) };
+        assert_eq!(win.0, 200, "one concurrent request must win");
+        common::dpop::assert_dpop_401(
+            lose.0,
+            lose.1["www-authenticate"].as_str(),
+            &lose.2,
+        );
+
+        // 3. Remaining issuance.rs routes: /auth/admin/users/{id}/impersonate, /auth/device/register (webpush), /terms/accept.
+        let imp_path = format!("/auth/admin/users/{}/impersonate", seed.b.user);
+        let imp_uri = format!("http://auth.idlogin3.test{imp_path}");
+        let (s, w, b) = send_direct_dpop(
+            &srv,
+            false,
+            "POST",
+            &imp_path,
+            &[("authorization", &auth)],
+            "{}",
+        )
+        .await;
+        common::dpop::assert_dpop_401(s, w.as_deref(), &b);
+        let (p, _) = common::dpop::proof(&key_a, "POST", &imp_uri, Some(&token), "j-imp");
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "POST",
+            &imp_path,
+            &[("authorization", &auth), ("dpop", &p)],
+            "{}",
+        )
+        .await;
+        assert_eq!(s, 200, "impersonate with DPoP: {b}");
+
+        let webpush_body = json!({
+            "provider": "webpush",
+            "push_token": json!({
+                "endpoint": "https://push.idlogin3.test/send",
+                "keys": {"auth": "test-auth", "p256dh": "test-key"}
+            }).to_string(),
+            "device_name": "DPoP Webpush"
+        })
+        .to_string();
+        let (s, w, b) = send_direct_dpop(
+            &srv,
+            false,
+            "POST",
+            "/auth/device/register",
+            &[("authorization", &auth)],
+            &webpush_body,
+        )
+        .await;
+        common::dpop::assert_dpop_401(s, w.as_deref(), &b);
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "POST",
+            "http://auth.idlogin3.test/auth/device/register",
+            Some(&token),
+            "j-webpush",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "POST",
+            "/auth/device/register",
+            &[("authorization", &auth), ("dpop", &p)],
+            &webpush_body,
+        )
+        .await;
+        assert_eq!(s, 204, "webpush with DPoP: {b}");
+
+        let accept_body = json!({"tou_id": tou_id, "version": 1}).to_string();
+        let (s, w, b) = send_direct_dpop(
+            &srv,
+            false,
+            "POST",
+            "/terms/accept",
+            &[("authorization", &auth)],
+            &accept_body,
+        )
+        .await;
+        common::dpop::assert_dpop_401(s, w.as_deref(), &b);
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "POST",
+            "http://auth.idlogin3.test/terms/accept",
+            Some(&token),
+            "j-accept",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "POST",
+            "/terms/accept",
+            &[("authorization", &auth), ("dpop", &p)],
+            &accept_body,
+        )
+        .await;
+        assert_eq!(s, 204, "accept with DPoP: {b}");
+
+        // 4. htu edge cases: ports, bracketed IPv6, TLS, X-Forwarded-Proto/Host sanitization, stripped query.
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "GET",
+            "http://auth.idlogin3.test:8443/terms/pending",
+            Some(&token),
+            "j-port",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "GET",
+            "/terms/pending?next=%2Fmail",
+            &[
+                ("authorization", &auth),
+                ("host", "auth.idlogin3.test:8443"),
+                ("dpop", &p),
+            ],
+            "",
+        )
+        .await;
+        assert_eq!(s, 200, "explicit port + stripped query: {b}");
+
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "GET",
+            "http://[::1]:8443/terms/pending",
+            Some(&token),
+            "j-ipv6",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "GET",
+            "/terms/pending",
+            &[
+                ("authorization", &auth),
+                ("host", "[::1]:8443"),
+                ("dpop", &p),
+            ],
+            "",
+        )
+        .await;
+        assert_eq!(s, 200, "bracketed IPv6 host: {b}");
+
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "GET",
+            "https://auth.idlogin3.test/terms/pending",
+            Some(&token),
+            "j-tls",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            true,
+            "GET",
+            "/terms/pending",
+            &[("authorization", &auth), ("dpop", &p)],
+            "",
+        )
+        .await;
+        assert_eq!(s, 200, "tls=true defaults to https: {b}");
+
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "GET",
+            "https://edge.idlogin3.test:9443/terms/pending",
+            Some(&token),
+            "j-xf",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "GET",
+            "/terms/pending",
+            &[
+                ("authorization", &auth),
+                ("x-forwarded-proto", "HTTPS"),
+                ("x-forwarded-host", "edge.idlogin3.test:9443"),
+                ("dpop", &p),
+            ],
+            "",
+        )
+        .await;
+        assert_eq!(s, 200, "valid x-forwarded-proto/host: {b}");
+
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "GET",
+            "http://auth.idlogin3.test/terms/pending",
+            Some(&token),
+            "j-bad-xf",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            false,
+            "GET",
+            "/terms/pending",
+            &[
+                ("authorization", &auth),
+                ("x-forwarded-proto", "ftp"),
+                ("x-forwarded-host", "evil.test, auth.idlogin3.test"),
+                ("dpop", &p),
+            ],
+            "",
+        )
+        .await;
+        assert_eq!(s, 200, "invalid x-forwarded-* falls back to Host/scheme: {b}");
+
+        // Bootstrap /device/register aligned to dpop_client_facing_uri (tls=true -> https).
+        let dev_body = json!({
+            "fingerprint": "dpop-bootstrap-0123456789abcdef0",
+            "platform": "desktop",
+            "device_name": "DPoP Bootstrap"
+        })
+        .to_string();
+        let (p, _) = common::dpop::proof(
+            &key_a,
+            "POST",
+            "https://auth.idlogin3.test/device/register",
+            Some(&token),
+            "j-boot",
+        );
+        let (s, _, b) = send_direct_dpop(
+            &srv,
+            true,
+            "POST",
+            "/device/register",
+            &[("authorization", &auth), ("dpop", &p)],
+            &dev_body,
+        )
+        .await;
+        assert_eq!(s, 201, "bootstrap device/register with DPoP tls=true: {b}");
+
+        Ok(())
+    }
+    .await;
+
+    let _ = c
+        .execute("DELETE FROM devices WHERE user_id=$1", &[&seed.a.user])
+        .await;
+    let _ = seed.webpush_cleanup(&c).await;
+    let _ = seed.impersonation_cleanup(&c).await;
+    let _ = c
+        .execute("DELETE FROM terms_of_use WHERE id=$1", &[&tou_id])
+        .await;
+    let _ = seed.cleanup(&c).await;
+    if let Some(prev) = saved_rate {
+        c.execute(
+            "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',$1) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+            &[&prev],
+        )
+        .await
+        .unwrap();
+    } else {
+        c.execute(
+            "DELETE FROM feature_toggles WHERE key='feature.rate_limit'",
+            &[],
+        )
+        .await
+        .unwrap();
+    }
+    result.unwrap();
+}

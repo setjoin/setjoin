@@ -60,7 +60,7 @@ FORWARD_PATTERNS = {
     "ws_client": re.compile(r"\bclient_async\("),
 }
 FORWARD_SITES = {
-    ("auth", "forward"): 44,  # lowered from 53 when #349b retired threat_pending/threat_controls (ratchet)
+    ("auth", "forward"): 12,  # lowered from 44 when #352 retired DPoP admission & token_binding_handoff (ratchet)
     ("gateway", "forward"): 150,  # lowered from 160 when gateway fallbacks (#357/#378) went native
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,

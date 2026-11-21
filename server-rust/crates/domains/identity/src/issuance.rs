@@ -258,7 +258,6 @@ pub struct SessionProof {
 pub enum SessionError {
     Invalid,
     WrongType,
-    Bound,
 }
 impl SessionProof {
     pub fn user(&self) -> i64 {
@@ -267,17 +266,15 @@ impl SessionProof {
     pub fn claims(&self) -> &serde_json::Map<String, Value> {
         &self.claims
     }
-    /// The transport applies its shared process-local revocation snapshot to
-    /// this sealed, signature-verified session before constructing route proof.
+    /// The transport applies its shared process-local revocation snapshot and
+    /// DPoP proof-of-possession check to this sealed, signature-verified
+    /// session before constructing route proof.
     pub fn from_session(session: &super::session::Session) -> Result<Self, SessionError> {
         if session.text("typ") != "access" {
             return Err(SessionError::WrongType);
         }
         if session.user() <= 0 {
             return Err(SessionError::Invalid);
-        }
-        if session.bound() {
-            return Err(SessionError::Bound);
         }
         Ok(Self { claims: session.claims().clone() })
     }

@@ -2,6 +2,7 @@
 mod captcha;
 mod config;
 mod device;
+mod dpop;
 mod guest_invite;
 mod http_threat;
 mod ingress;
@@ -1296,21 +1297,7 @@ impl AuthServer {
     async fn session_route(&self, req: Request<Body>) -> Response<Body> {
         let recovery = req.uri().path() == "/auth/session/token";
         let presented = Self::presented_access_token(req.headers());
-        let legacy = setjoin_authz::legacy_jwt::LegacyKeys::from_pem(
-            self.config.secret.as_bytes(),
-            &["authserver-hmac-1"],
-            self.config.sm2_pem.as_deref(),
-        )
-        .ok();
-        let session = presented.as_deref().and_then(|t| {
-            setjoin_identity::session::Session::verify(
-                t,
-                self.keys.as_deref(),
-                legacy.as_ref()?,
-                &self.config.issuer,
-            )
-        });
-        let Some(session) = session else {
+        let unauthorized = || {
             let mut r = Self::failure(401, "Unauthorized", "");
             if !recovery {
                 r.headers_mut().insert(
@@ -1318,24 +1305,25 @@ impl AuthServer {
                     hyper::header::HeaderValue::from_static("Bearer realm=\"authserver\""),
                 );
             }
-            return r;
+            r
         };
-        if session.text("typ") != "access" {
-            return Self::failure(403, "Invalid token type", "");
-        }
-        if self.revocations.contains(&session) {
-            let mut r = Self::failure(401, "Unauthorized", "");
-            if !recovery {
-                r.headers_mut().insert(
-                    "www-authenticate",
-                    hyper::header::HeaderValue::from_static("Bearer realm=\"authserver\""),
-                );
+        let Some(token) = presented.as_deref() else {
+            return unauthorized();
+        };
+        let session = match self.verify_presented_access(&req, token, !recovery) {
+            Ok(s) => s,
+            Err(dpop::AccessError::Unauthorized) => return unauthorized(),
+            Err(dpop::AccessError::WrongType) => {
+                return Self::failure(403, "Invalid token type", "")
             }
-            return r;
-        }
-        if session.bound() {
-            return self.forward(req).await;
-        } // #405 owns DPoP admission.
+            Err(dpop::AccessError::TokenBinding) => {
+                return if recovery {
+                    Self::failure(401, "Unauthorized", "")
+                } else {
+                    Self::dpop_admission_denied(req.uri().path())
+                };
+            }
+        };
         let path = req.uri().path();
         if req.method() == Method::PUT && path == "/auth/password" {
             let (headers, scheme) = Self::csrf_context(&req);
@@ -1514,25 +1502,15 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        // A mounted request decides the dpop_jwk handoff (#352) from its buffered
-        // body before admission; an unmounted one keeps the late check below.
-        let dpop_decided = staged.raw().is_some();
-        if staged.raw().is_some_and(Self::login_dpop_requested) {
-            match self.token_binding_handoff("/auth/login").await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(staged.into_request()).await,
-                Err(reply) => return reply,
-            }
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.login_admitted(req, dpop_decided).await;
+        let reply = self.login_admitted(req).await;
         self.threat_tail(admitted, reply).await
     }
     /// Go CSRF(Login): the handler behind the dynamic threat mount.
-    async fn login_admitted(&self, req: Request<Body>, dpop_decided: bool) -> Response<Body> {
+    async fn login_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let (csrf_headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&csrf_headers, scheme) {
@@ -1565,8 +1543,7 @@ impl AuthServer {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let (parts, b) = req.into_parts();
-        let raw = match Limited::new(b, 1 << 20).collect().await {
+        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -1663,13 +1640,10 @@ impl AuthServer {
                 return Self::failure(500, "identity transition admission resolution failed", &path)
             }
         };
-        if !dpop_decided && input.dpop.as_object().is_some_and(|v| !v.is_empty()) {
-            match self.token_binding_handoff(&path).await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-                Err(reply) => return reply,
-            }
-        }
+        let dpop_jkt = match self.resolve_dpop_cnf(Some(&input.dpop), &path).await {
+            Ok(jkt) => jkt,
+            Err(reply) => return reply,
+        };
         let family = uuid::Uuid::new_v4().to_string();
         let (jti, refresh_jti) = match (login::random_jti(), login::random_jti()) {
             (Ok(a), Ok(r)) => (a, r),
@@ -1694,7 +1668,7 @@ impl AuthServer {
         if guest {
             access_claims["acct"] = Value::from("guest");
         }
-        let refresh_claims = login::claims(
+        let mut refresh_claims = login::claims(
             &proof,
             "refresh",
             &refresh_jti,
@@ -1704,6 +1678,10 @@ impl AuthServer {
             self.config.refresh_seconds,
             None,
         );
+        if let Some(jkt) = &dpop_jkt {
+            access_claims["cnf"] = json!({"jkt": jkt});
+            refresh_claims["cnf"] = json!({"jkt": jkt});
+        }
         let (access, refresh) = match (self.sign(&access_claims), self.sign(&refresh_claims)) {
             (Ok(a), Ok(r)) => (a, r),
             _ => return Self::failure(500, "token issue failed", &path),

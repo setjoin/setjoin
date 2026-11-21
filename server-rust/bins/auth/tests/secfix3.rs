@@ -255,7 +255,7 @@ async fn bound_token_needs_a_dpop_proof_on_device_register() {
     let Some(e) = env("secfix3-device-bound").await else { return };
     let a = fixture::account(&e.c, "secfix3-devbound").await.unwrap();
     let key = SigningKey::from_slice(&[7u8; 32]).unwrap();
-    let uri = "https://mail.test/device/register";
+    let uri = "http://mail.test/device/register";
     let (_, jkt) = dpop(&key, "POST", uri, "x", "probe");
     let t = token(&e.secret, json!({"uid":a.user,"email":"x@y","jti":"secfix3-devbound-jti","cnf":{"jkt":jkt}}));
     let s = server(&e, None).await;

@@ -2105,7 +2105,6 @@ async fn preflight(
     case: &str,
     flags: &[(&str, bool)],
     header: Option<(&str, &str)>,
-    dpop: bool,
 ) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
     let Some(n) = native_open(case, true, flags).await? else {
@@ -2117,12 +2116,7 @@ async fn preflight(
         let spy = spy().await?;
         let cfg = rust_config(&n.db, Preset::Off, Some(format!("http://{}", spy.server.addr)))?;
         let server = native_server(&n.db, cfg).await?;
-        let raw = if dpop {
-            json!({"email": n.fx.email, "password": PASSWORD, "dpop_jwk": {"kty": "EC"}})
-        } else {
-            json!({"email": n.fx.email, "password": PASSWORD})
-        }
-        .to_string();
+        let raw = json!({"email": n.fx.email, "password": PASSWORD}).to_string();
         let mut builder = Request::post(LOGIN).header("host", HOST).header("origin", ORIGIN);
         if let Some((k, v)) = header {
             builder = builder.header(k, v);
@@ -2157,15 +2151,54 @@ async fn preflight(
 }
 
 #[tokio::test]
-async fn native_dpop_preflight_forwards_before_any_admission_effect() {
-    preflight(
-        "GOFREE349A-dpop",
-        &[("feature.token_binding", true)],
-        None,
-        true,
-    )
-    .await
-    .unwrap();
+async fn native_dpop_login_handles_natively_without_forwarding() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349A-dpop", true, &[("feature.token_binding", true)])
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let ips = vec!["127.0.0.90".to_owned()];
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
+        let spy = spy().await?;
+        let cfg = rust_config(
+            &n.db,
+            Preset::Off,
+            Some(format!("http://{}", spy.server.addr)),
+        )?;
+        let server = native_server(&n.db, cfg).await?;
+        let raw = json!({"email": n.fx.email, "password": PASSWORD, "dpop_jwk": {"kty": "EC"}})
+            .to_string();
+        let mut req = Request::post(LOGIN)
+            .header("host", HOST)
+            .header("origin", ORIGIN)
+            .body(body(raw))?;
+        req.extensions_mut().insert(setjoin_auth::ConnectionMeta {
+            peer: "127.0.0.90:40000".parse()?,
+            tls: false,
+        });
+        let status = server.handle(req).await.status().as_u16();
+        let hits = spy.hits.lock().unwrap().clone();
+        spy.server.close().await;
+        if status != 200 || !hits.is_empty() {
+            return Err(format!(
+                "expected native 200 without forward, got {status} and {} hits",
+                hits.len()
+            )
+            .into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let _ =
+        n.c.execute("DELETE FROM sessions WHERE user_id=$1", &[&n.fx.a.user])
+            .await;
+    let audits = purge_native_audits(&n.c, &ips, &n.fx.email).await;
+    let closed = native_close(n, &ips).await;
+    result.and(audits).and(closed).unwrap();
 }
 
 #[tokio::test]
@@ -2174,7 +2207,6 @@ async fn native_ca_preflight_forwards_before_any_admission_effect() {
         "GOFREE349A-ca",
         &[("feature.conditional_access", true)],
         None,
-        false,
     )
     .await
     .unwrap();
@@ -2182,7 +2214,7 @@ async fn native_ca_preflight_forwards_before_any_admission_effect() {
 
 #[tokio::test]
 async fn native_device_proof_preflight_forwards_before_any_admission_effect() {
-    preflight("GOFREE349A-device", &[], Some(("x-device-id", "7")), false)
+    preflight("GOFREE349A-device", &[], Some(("x-device-id", "7")))
         .await
         .unwrap();
 }
@@ -3155,17 +3187,8 @@ fn native_outcome_stamps_and_preflight_order_are_pinned() {
         !recovery.contains("totp_ingress"),
         "recovery is admitted by http_threat"
     );
-    let login = section(lib, "async fn login_admitted(", "pub struct ConnectionMeta");
-    assert_eq!(
-        login.matches("self.forward(").count(),
-        1,
-        "only the unmounted dpop handoff"
-    );
-    assert!(
-        login.contains("if !dpop_decided"),
-        "the late dpop forward never follows admission"
-    );
     for (text, start, end) in [
+        (lib, "async fn login_admitted(", "pub struct ConnectionMeta"),
         (lib, "async fn reset_admitted(", "async fn refresh("),
         (
             lib,
@@ -3631,7 +3654,7 @@ fn native_349b_wiring_and_with_user_id_are_pinned() {
     assert!(!section(
         totp,
         "pub(super) async fn totp_completion_route(",
-        "fn completion_dpop_requested"
+        "pub(super) async fn completion_guest_scope("
     )
     .contains("feature.rate_limit"));
     assert_eq!(push.matches("Self::threat_user(").count(), 0);
@@ -4157,14 +4180,14 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
         let bound_claims = json!({"uid":n.fx.a.user,"email":n.fx.email,"typ":"access","cnf":{"jkt":"bound-thumbprint"},"iss":"mailserver","aud":["mailserver-gateway"],"iat":now,"exp":now+3600,"jti":"349b-bound"});
         let bound_access =
             setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &bound_claims.to_string());
-        let preflights: [(&str, u8, &str, &str, Vec<u8>, Option<(&str, &str)>); 4] = [
+        let preflights: [(&str, u8, &str, &str, Vec<u8>, (&str, &str)); 2] = [
             (
                 "x-device on totp/verify",
                 161,
                 "POST",
                 "/auth/totp/verify",
                 b"{\"mfa_token\":\"m\",\"code\":\"123456\"}".to_vec(),
-                Some(("x-device-id", "7")),
+                ("x-device-id", "7"),
             ),
             (
                 "x-device on backup-codes/verify",
@@ -4172,32 +4195,12 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
                 "POST",
                 "/auth/backup-codes/verify",
                 b"{\"mfa_token\":\"m\",\"code\":\"backup\"}".to_vec(),
-                Some(("x-device-id", "7")),
-            ),
-            (
-                "bound session on totp/setup",
-                163,
-                "GET",
-                "/auth/totp/setup",
-                Vec::new(),
-                None,
-            ),
-            (
-                "bound session on device/register",
-                164,
-                "POST",
-                "/auth/device/register",
-                b"{\"provider\":\"webpush\"}".to_vec(),
-                None,
+                ("x-device-id", "7"),
             ),
         ];
-        for (label, octet, method, path, payload_bytes, extra_hdr) in preflights {
+        for (label, octet, method, path, payload_bytes, (k, v)) in preflights {
             let mut hdrs = origin();
-            if let Some((k, v)) = extra_hdr {
-                hdrs.push((k.into(), v.into()));
-            } else {
-                hdrs.push(("authorization".into(), format!("Bearer {bound_access}")));
-            }
+            hdrs.push((k.into(), v.into()));
             let r = send_method(server.addr, ip(octet), method, path, payload_bytes, &hdrs).await?;
             if r.status != 418 {
                 return Err(format!("{label}: expected 418 forward, got {}", r.status).into());
@@ -4215,11 +4218,38 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
                 return Err(format!("{label}: preflight ran threat_admit first ({rows} rows)").into());
             }
         }
+        for (label, octet, method, path, payload_bytes) in [
+            (
+                "bound session on totp/setup",
+                163,
+                "GET",
+                "/auth/totp/setup",
+                Vec::new(),
+            ),
+            (
+                "bound session on device/register",
+                164,
+                "POST",
+                "/auth/device/register",
+                b"{\"provider\":\"webpush\"}".to_vec(),
+            ),
+        ] {
+            let mut hdrs = origin();
+            hdrs.push(("authorization".into(), format!("Bearer {bound_access}")));
+            let r = send_method(server.addr, ip(octet), method, path, payload_bytes, &hdrs).await?;
+            if r.status != 401 {
+                return Err(format!("{label}: expected native 401, got {}", r.status).into());
+            }
+            let body: Value = serde_json::from_str(&r.body)?;
+            if body["code"] != "dpop_admission" {
+                return Err(format!("{label}: expected dpop_admission, got {body}").into());
+            }
+        }
         server.close().await;
         let hits = spy.hits.lock().unwrap().len();
         spy.server.close().await;
-        if hits != 4 {
-            return Err(format!("expected 4 preflight forwards, got {hits}").into());
+        if hits != 2 {
+            return Err(format!("expected 2 preflight forwards, got {hits}").into());
         }
         Ok::<_, Err>(())
     }

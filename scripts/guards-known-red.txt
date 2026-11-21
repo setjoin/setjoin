@@ -4,9 +4,5 @@
 # Fix or re-scope the guard, then delete its line. Never add a guard here without an issue reference.
 check-audit-coverage              # #348 (175 Rust reducers unclassified in scripts/audit-coverage.tsv)
 check-deploy-doc-currency         # #348 (self-test)
-check-guest-doors                 # #348
-check-mailbox-lifecycle-contracts # #348
-check-rls-allow                   # #348
-check-rls-denial                  # #348
 check-shfmt-ratchet             # #348 (29 Rust-era shell scripts missing from config/shfmt.baseline)
 check-xinchuang-matrix           # #348 (self-test: 175 reducers absent from the xinchuang matrix and README block stale)

@@ -7,12 +7,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if matches!(
-            self.totp_session_headers(staged.headers()),
-            Err(super::totp::Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -23,10 +17,7 @@ impl AuthServer {
     async fn password_grant_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => {
-                return Self::failure(500, "internal error", req.uri().path())
-            }
+            Err(r) => return r,
         };
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -216,12 +207,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if matches!(
-            self.totp_session_headers(staged.headers()),
-            Err(super::totp::Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -232,10 +217,7 @@ impl AuthServer {
     async fn possession_totp_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => {
-                return Self::failure(500, "internal error", req.uri().path())
-            }
+            Err(r) => return r,
         };
         let path = req.uri().path().to_owned();
         let (headers, scheme) = Self::csrf_context(&req);
@@ -348,12 +330,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if matches!(
-            self.totp_session_headers(staged.headers()),
-            Err(super::totp::Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -364,10 +340,7 @@ impl AuthServer {
     async fn generate_backups_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => {
-                return Self::failure(500, "internal error", req.uri().path())
-            }
+            Err(r) => return r,
         };
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -656,8 +629,7 @@ impl AuthServer {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let (parts, b) = req.into_parts();
-        let raw = match Limited::new(b, 1 << 20).collect().await {
+        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -683,19 +655,12 @@ impl AuthServer {
         let Some(pending) = self.totp_pending(token) else {
             return Self::push_named_problem(401, "invalid MFA token", "unauthorized", &path);
         };
-        if fields
-            .get("dpop_jwk")
-            .and_then(Value::as_object)
-            .is_some_and(|v| !v.is_empty())
-        {
-            match self.token_binding_handoff(&path).await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-                Err(reply) => return reply,
-            }
-        } // #405.
-          // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
-          // here, so no factor is spent and no token is signed or stored.
+        let dpop_jkt = match self.resolve_dpop_cnf(fields.get("dpop_jwk"), &path).await {
+            Ok(jkt) => jkt,
+            Err(reply) => return reply,
+        };
+        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+        // here, so no factor is spent and no token is signed or stored.
         let risk = match pending.risk(&self.exec).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", &path),
@@ -728,6 +693,7 @@ impl AuthServer {
             secure,
             Some(factors),
             (500, "user lookup failed"),
+            dpop_jkt,
             risk,
             false,
         )
