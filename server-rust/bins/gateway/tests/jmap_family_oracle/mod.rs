@@ -1383,6 +1383,17 @@ async fn cleanup(
             )
             .await?;
     }
+    // Clear department references and seeded #370 test departments before
+    // removing the fixture users.
+    owner
+        .query_typed(
+            "UPDATE users SET department_id = NULL WHERE id = ANY($1) AND department_id IS NOT NULL",
+            &[(&users, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .batch_execute("DELETE FROM departments WHERE path LIKE '/jmap370-%'")
+        .await?;
     fixture::remove(owner, &fx.a).await?;
     fixture::remove(owner, &fx.f).await?;
     Ok(())

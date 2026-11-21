@@ -1808,6 +1808,151 @@ mod db {
         ("mail_work_set", "p_due_at", "mail_work_set.sql:111-114: payload; requires the bound actor as assignee or full access"),
         ("mail_work_set", "p_reason", "mail_work_set.sql:28: length-validated audit text"),
         ("mail_work_set", "p_request_digest", "mail_work_set.sql:26,51: validated hex digest compared on replay"),
+        (
+            "jmap_addressbook_get",
+            "p_ids",
+            "jmap_contact.sql:18-19: addressbook id filter; rows scoped by ab.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_addressbook_changes",
+            "p_since_state",
+            "jmap_contact.sql:54: JMAP state cursor passed to jmap_entity_changes",
+        ),
+        (
+            "jmap_addressbook_set_create",
+            "p_creates",
+            "jmap_contact.sql:72-88: JSON payload; inserts into p_mailbox_id only",
+        ),
+        (
+            "jmap_addressbook_set_update",
+            "p_updates",
+            "jmap_contact.sql:126-140: JSON payload; updates WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_addressbook_set_destroy",
+            "p_ids",
+            "jmap_contact.sql:186-187: deletes WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_get",
+            "p_ids",
+            "jmap_contact_group.sql:54-55: group id filter; rows scoped by g.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_query",
+            "p_filter",
+            "jmap_contact_group.sql:113-119: JSON text filter; scoped by mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_set_create",
+            "p_creates",
+            "jmap_contact_group.sql:164-166: JSON payload; inserts into p_mailbox_id only",
+        ),
+        (
+            "jmap_contact_group_set_update",
+            "p_updates",
+            "jmap_contact_group.sql:230-234: JSON payload; updates WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_set_destroy",
+            "p_ids",
+            "jmap_contact_group.sql:286: deletes WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "contact_group_members_set",
+            "p_group_id",
+            "jmap_contact_group.sql:327,373: group verified owned by p_mailbox_id before member writes",
+        ),
+        (
+            "contact_group_members_set",
+            "p_add",
+            "jmap_contact_group.sql:333-354: JSON member list; contactId ownership-checked against p_mailbox_id",
+        ),
+        (
+            "contact_group_members_set",
+            "p_remove",
+            "jmap_contact_group.sql:357-369: JSON member list; removes only from verified group",
+        ),
+        (
+            "expand_contact_group",
+            "p_group_id",
+            "jmap_contact_group.sql:396: group verified owned by p_mailbox_id before expanding",
+        ),
+        (
+            "jmap_contact_get",
+            "p_ids",
+            "jmap_contact.sql:235-236: contact id filter; rows scoped by ab.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_query",
+            "p_filter",
+            "jmap_contact.sql:284,292-303: JSON filter; query always prefixed by ab.mailbox_id = $1",
+        ),
+        (
+            "jmap_contact_query",
+            "p_sort",
+            "jmap_contact.sql:276: unused sort payload",
+        ),
+        (
+            "jmap_contact_query",
+            "p_position",
+            "jmap_contact.sql:312: pagination offset",
+        ),
+        (
+            "jmap_contact_query",
+            "p_limit",
+            "jmap_contact.sql:312: pagination limit (clamped 1..=256)",
+        ),
+        (
+            "jmap_contact_changes",
+            "p_since_state",
+            "jmap_contact.sql:336: JMAP state cursor passed to jmap_entity_changes",
+        ),
+        (
+            "contact_merge",
+            "p_keep_id",
+            "jmap_contact.sql:633-636: keeper contact verified owned via addressbooks.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "contact_merge",
+            "p_drop_id",
+            "jmap_contact.sql:650-653,725-727: loser contact verified owned via addressbooks.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "gal_search",
+            "p_text",
+            "jmap_contact.sql:558-562: search text over directory_visible_users(p_mailbox_id)",
+        ),
+        (
+            "gal_search",
+            "p_limit",
+            "jmap_contact.sql:564: result limit (clamped 1..=256)",
+        ),
+        (
+            "directory_members",
+            "p_department_id",
+            "directory_browse.sql:183-192: department id filter over directory_visible_users(p_mailbox_id)",
+        ),
+        (
+            "directory_members",
+            "p_offset",
+            "directory_browse.sql:192: pagination offset",
+        ),
+        (
+            "directory_members",
+            "p_limit",
+            "directory_browse.sql:192: pagination limit (clamped 1..=256)",
+        ),
+        (
+            "directory_search",
+            "p_query",
+            "directory_browse.sql:235-241: search text over directory_visible_users(p_mailbox_id)",
+        ),
+        (
+            "directory_search",
+            "p_limit",
+            "directory_browse.sql:243: result limit (clamped 1..=256)",
+        ),
         ("seam_probe_expr", "p_x", "probe payload"),
         ("seam_probe_unbound", "p_x", "probe payload"),
         ("seam_probe_scope", "p_x", "probe payload"),
