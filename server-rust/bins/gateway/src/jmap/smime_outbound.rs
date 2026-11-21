@@ -160,6 +160,48 @@ fn parse_creation_flags(raw: &str) -> CreationFlags {
     flags
 }
 
+fn normalize_envelope_value(val: Value) -> Value {
+    let Value::Object(map) = val else {
+        return val;
+    };
+    let mut out = serde_json::Map::with_capacity(map.len());
+    for (k, v) in map {
+        let canonical = match crate::guests_input::fold(&k).as_str() {
+            "mailfrom" => "mailFrom".to_owned(),
+            "rcptto" => "rcptTo".to_owned(),
+            _ => k,
+        };
+        let norm_v = match canonical.as_str() {
+            "mailFrom" => normalize_addr_obj(v),
+            "rcptTo" => match v {
+                Value::Array(arr) => {
+                    Value::Array(arr.into_iter().map(normalize_addr_obj).collect())
+                }
+                other => other,
+            },
+            _ => v,
+        };
+        out.insert(canonical, norm_v);
+    }
+    Value::Object(out)
+}
+
+fn normalize_addr_obj(val: Value) -> Value {
+    let Value::Object(map) = val else {
+        return val;
+    };
+    let mut out = serde_json::Map::with_capacity(map.len());
+    for (k, v) in map {
+        let canonical = if crate::guests_input::fold(&k) == "email" {
+            "email".to_owned()
+        } else {
+            k
+        };
+        out.insert(canonical, v);
+    }
+    Value::Object(out)
+}
+
 fn strip_smime_keys(raw: &str) -> String {
     let Ok(OrderedFields(fields)) = serde_json::from_str::<OrderedFields>(raw) else {
         return raw.to_owned();
@@ -170,9 +212,27 @@ fn strip_smime_keys(raw: &str) -> String {
         if folded == "signsmime" || folded == "encryptsmime" {
             continue;
         }
-        if let Ok(val) = serde_json::from_str::<Value>(v.get()) {
-            kept.insert(k, val);
-        }
+        let Ok(val) = serde_json::from_str::<Value>(v.get()) else {
+            continue;
+        };
+        let canonical = match folded.as_str() {
+            "emailid" => "emailId".to_owned(),
+            "identityid" => "identityId".to_owned(),
+            "draftsessionid" => "draftSessionId".to_owned(),
+            "draftleaseepoch" => "draftLeaseEpoch".to_owned(),
+            "draftrevision" => "draftRevision".to_owned(),
+            "envelope" => "envelope".to_owned(),
+            "sendat" => "sendAt".to_owned(),
+            "onsendundowindowseconds" => "onSendUndoWindowSeconds".to_owned(),
+            "onsuccessupdateemail" => "onSuccessUpdateEmail".to_owned(),
+            _ => k,
+        };
+        let norm_val = if canonical == "envelope" {
+            normalize_envelope_value(val)
+        } else {
+            val
+        };
+        kept.insert(canonical, norm_val);
     }
     serde_json::to_string(&Value::Object(kept)).unwrap_or_else(|_| raw.to_owned())
 }
