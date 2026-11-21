@@ -384,44 +384,37 @@ impl<K: KeySource + 'static> Intercept for PlatformTermsRoute<K> {
         let resolver = self.resolver.clone();
         let store = self.store.clone();
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let what = action(r.method(), r.uri().path()).expect("matched route");
             if what == Action::SetupStatus {
                 return setup_status(&worker, &r, &c).await;
             }
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let Ok(authority) = setjoin_platform::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            if !authority.allows_any(required) {
-                let _ = setjoin_platform::console_denied(
-                    &exec,
-                    actor,
-                    &go_path,
-                    &required.join("|"),
-                    operation,
-                )
-                .await;
-                return bare(403, "Forbidden", &c, &id);
-            }
+            let authority = match setjoin_platform::authority(&exec, actor).await {
+                Ok(authority) if authority.allows_any(required) => authority,
+                _ => {
+                    let _ = setjoin_platform::console_denied(
+                        &exec,
+                        actor,
+                        &go_path,
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                }
+            };
             if authority.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
@@ -706,10 +699,19 @@ mod setup_status_tests {
                     ("/setup/status", Target::LocalRust),
                     "{method} {path}"
                 );
-                assert_eq!(action(&method, path), Some(Action::SetupStatus), "{method} {path}");
+                assert_eq!(
+                    action(&method, path),
+                    Some(Action::SetupStatus),
+                    "{method} {path}"
+                );
             }
         }
-        for path in ["/a%70i/setup/status", "/setup/status/", "/setup", "/api/api/setup/status"] {
+        for path in [
+            "/a%70i/setup/status",
+            "/setup/status/",
+            "/setup",
+            "/api/api/setup/status",
+        ] {
             assert_eq!(action(&Method::GET, path), None, "{path}");
         }
         assert_eq!(action(&Method::POST, "/setup/status"), None);
