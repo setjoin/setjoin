@@ -1,0 +1,91 @@
+{
+  "case": "checkin-not-modified-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "device": "<device-a>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": false
+        },
+        {
+          "device": "<device-b>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": false
+        }
+      ],
+      "before": [
+        {
+          "device": "<device-a>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": false
+        },
+        {
+          "device": "<device-b>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": false
+        }
+      ],
+      "table": "devices"
+    },
+    {
+      "after": [
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "17.1"
+          },
+          "event_type": "os_update",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "<frida>&"
+          },
+          "event_type": "jailbreak_detected",
+          "severity": "info"
+        }
+      ],
+      "before": [],
+      "table": "device_events"
+    },
+    {
+      "after": [
+        {
+          "device": "<device-a>",
+          "nonce": "gofree341-checkin-not-modified",
+          "window_seconds": 660
+        },
+        {
+          "device": "<device-a>",
+          "nonce": "gofree341-checkin-not-modified-prelude",
+          "window_seconds": 660
+        }
+      ],
+      "before": [],
+      "table": "device_auth_nonces"
+    }
+  ],
+  "format": 1,
+  "go_source": "d54ae127ffeb07f2524b01b730ce4dc8af7862d4",
+  "route": "POST /device/checkin"
+}

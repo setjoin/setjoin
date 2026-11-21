@@ -7,7 +7,7 @@ pub(super) struct Env {
     listener: Option<setjoin_identity::rp::Listener>,
     auth: Server,
     pub idp: idp::Idp,
-    old: Option<(String, bool)>,
+    old: Option<String>,
     old_rate: Option<bool>,
     old_identity: Option<bool>,
     old_sentinel: Option<(String, bool)>,
@@ -22,6 +22,17 @@ impl Env {
         Self::configured(mutant, issuer, json!({})).await
     }
     pub async fn configured(mutant: bool, issuer: &str, extra: Value) -> Result<Self, Err> {
+        Self::start_with_serving(mutant, issuer, extra, false).await
+    }
+    pub async fn worker_test() -> Result<Self, Err> {
+        Self::start_with_serving(false, idp::ISSUER, json!({}), true).await
+    }
+    async fn start_with_serving(
+        mutant: bool,
+        issuer: &str,
+        extra: Value,
+        use_native_serving: bool,
+    ) -> Result<Self, Err> {
         let db = Db::for_case("IDFED2-rp").expect("assigned DB required");
         let c = db.connect().await?;
         c.query_one(
@@ -49,11 +60,11 @@ impl Env {
         let idp = idp::Idp::start().await?;
         let old = c
             .query_opt(
-                "SELECT value::text,encrypted FROM system_config WHERE key=$1",
+                "SELECT to_jsonb(cfg)::text FROM system_config cfg WHERE key=$1",
                 &[&CONFIG],
             )
             .await?
-            .map(|r| (r.get(0), r.get(1)));
+            .map(|r| r.get(0));
         let mut doc = json!({"name":"idfed2","provider_url":issuer,"client_id":idp::CLIENT,"client_secret":"","redirect_url":idp::REDIRECT,"enabled":true,"jit_enabled":false,"group_claim":"groups","group_mappings":[]});
         if let Some(extra) = extra.as_object() {
             for (k, v) in extra {
@@ -78,7 +89,7 @@ impl Env {
         let mut cfg = Config::for_secret(fixture()["secret"].as_str().unwrap().into());
         cfg.signing_alg = "ES256".into();
         cfg.dsn = db.dsn.clone();
-        cfg.direct_dsn = db.dsn.clone();
+        cfg.direct_dsn = db.direct.clone();
         cfg.oidc_rp_enabled = true;
         let native = Arc::new(
             AuthServer::load_with_rp_http(
@@ -92,13 +103,28 @@ impl Env {
         let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
         let recording = record.is_some();
         assert!(!mutant || !recording);
-        let listener = if recording {
-            None
-        } else {
-            native.start_rp_listener("oidc_rp", "oidc_rp").await?
-        };
         let mutation = Arc::new(std::sync::atomic::AtomicBool::new(mutant));
-        let auth = auth_server_armed(native, mutation.clone()).await;
+        let (auth, listener) = if use_native_serving {
+            let tcp = TcpListener::bind("127.0.0.1:0").await?;
+            let addr = tcp.local_addr()?;
+            let (stop, rx) = oneshot::channel();
+            let task = tokio::spawn(setjoin_auth::serve_until(native, tcp, None, async {
+                let _ = rx.await;
+            }));
+            let auth = Server {
+                stop: Some(stop),
+                task,
+                addr,
+            };
+            (auth, None)
+        } else {
+            let listener = if recording {
+                None
+            } else {
+                native.start_rp_listener().await
+            };
+            (auth_server_armed(native, mutation.clone()).await, listener)
+        };
         let gw = gateway_mode(auth.addr, record, true).await;
         if recording {
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -161,17 +187,22 @@ impl Env {
         }
     }
     pub async fn close(self) -> Result<(), Err> {
-        let metrics = request(self.gw.addr, "GET", "/_gateway/metrics", String::new(), &[]).await?;
+        let metrics = request(self.gw.addr, "GET", "/_gateway/metrics", String::new(), &[]).await;
         drop(self.listener);
         self.gw.close().await;
         self.auth.close().await;
         self.idp.close().await;
         match self.old {
-            Some((value, encrypted)) => {
+            Some(row) => {
+                // Extract value as JSONB so a JSON null survives row restoration.
                 self.c
                     .execute(
-                        "UPDATE system_config SET value=$2::text::jsonb,encrypted=$3 WHERE key=$1",
-                        &[&CONFIG, &value, &encrypted],
+                        "INSERT INTO system_config(key,value,encrypted,description,updated_at,updated_by)
+                         SELECT saved.key,$1::text::jsonb -> 'value',saved.encrypted,saved.description,saved.updated_at,saved.updated_by
+                         FROM jsonb_populate_record(NULL::system_config,$1::text::jsonb) AS saved
+                         ON CONFLICT(key) DO UPDATE SET value=excluded.value,encrypted=excluded.encrypted,
+                           description=excluded.description,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
+                        &[&row],
                     )
                     .await?;
             }
@@ -225,6 +256,7 @@ impl Env {
                 )
                 .await?;
         }
+        let metrics = metrics?;
         if !self.recording && !metrics.2.contains("setjoin_gateway_proxied_to_go_total 0") {
             return Err("native RP contacted Go".into());
         }

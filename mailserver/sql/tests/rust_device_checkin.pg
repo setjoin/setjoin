@@ -1,0 +1,83 @@
+-- #341 public reducer seam for the native device check-in: invoker rights,
+-- effective policy before writes, request-ordered events via the definer
+-- append, Go's role-dependent heartbeat (R3), the event cap, whole-command
+-- abort, isolation, and the accepted revoked-mid-flight residual.
+BEGIN;
+SELECT plan(19);
+
+INSERT INTO domains(name,is_local) VALUES('device341-pgtap.test',true) RETURNING id AS dom \gset
+INSERT INTO departments(name,path,ldap_ou) VALUES('device341-dept','/device341-dept','ou=device341') RETURNING id AS dept \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash,department_id)
+VALUES('device341-a','a@device341-pgtap.test','a',:dom,'x',:dept) RETURNING id AS a \gset
+INSERT INTO users(username,email,display_name,domain_id,password_hash)
+VALUES('device341-b','b@device341-pgtap.test','b',:dom,'x') RETURNING id AS b \gset
+INSERT INTO devices(user_id,fingerprint,hmac_secret_enc,hmac_secret_key_id,last_seen)
+VALUES(:a,'device341-fingerprint-a-0123456789abcdef',decode('00','hex'),'v1','2026-01-02T03:04:05Z')
+RETURNING id AS dev_a \gset
+INSERT INTO devices(user_id,fingerprint,hmac_secret_enc,hmac_secret_key_id,last_seen)
+VALUES(:b,'device341-fingerprint-b-0123456789abcdef',decode('00','hex'),'v1','2026-01-02T03:04:05Z')
+RETURNING id AS dev_b \gset
+INSERT INTO device_policy(device_id,policy_key,policy_value) VALUES
+  (NULL,'device341_layer','global'),(NULL,'device341_global_only','g'),
+  (:dev_a,'device341_layer','device'),(:dev_b,'device341_foreign','b');
+INSERT INTO device_policy_groups(group_type,group_id,policy_key,policy_value) VALUES
+  ('department',:dept,'device341_layer','group'),('department',:dept,'device341_group_only','d');
+
+SELECT is((SELECT prosecdef FROM pg_proc WHERE oid='rust_device_checkin(bigint,jsonb)'::regprocedure),false,
+  'rust_device_checkin runs with the caller''s rights (no definer widening)');
+
+-- The runtime credential with no user GUC (the device-proof path has none).
+SET LOCAL ROLE setjoin_app;
+SELECT rust_device_checkin(:dev_a,'[{"type":"os_update","data":"17.1"},{"type":"crash","data":""}]'::jsonb)::text AS result \gset
+RESET ROLE;
+
+SELECT is((:'result')::jsonb->'policies'->>'device341_layer','device','device layer wins over group and global');
+SELECT is((:'result')::jsonb->'policies'->>'device341_group_only','d','department group layer applies');
+SELECT is((:'result')::jsonb->'policies'->>'device341_global_only','g','global layer applies');
+SELECT ok(NOT ((:'result')::jsonb->'policies' ? 'device341_foreign'),'another device''s policy never leaks (R1)');
+SELECT is((:'result')::jsonb->>'wipe_requested','false','wipe flag comes from the device row');
+SELECT is((SELECT jsonb_agg(jsonb_build_array(event_type,event_data) ORDER BY id) FROM device_events WHERE device_id=:dev_a),
+  '[["os_update",{"data":"17.1"}],["crash",{"data":""}]]'::jsonb,'events append in request order with Go''s data envelope');
+SELECT is((SELECT count(*) FROM device_events WHERE device_id=:dev_b),0::bigint,'no event lands on another device (R2)');
+SELECT is((SELECT last_seen FROM devices WHERE id=:dev_a),'2026-01-02T03:04:05Z'::timestamptz,
+  'app role without a GUC: the heartbeat matches Go''s RLS-filtered UPDATE (no row)');
+
+-- A credential the devices policy admits (the session owner) gets the heartbeat, on the proved row only.
+SELECT rust_device_checkin(:dev_a,'[]'::jsonb) IS NOT NULL AS owner_ok \gset
+SELECT ok((SELECT last_seen > '2026-01-02T03:04:05Z'::timestamptz FROM devices WHERE id=:dev_a),
+  'an admitting credential gets Go''s heartbeat');
+SELECT is((SELECT last_seen FROM devices WHERE id=:dev_b),'2026-01-02T03:04:05Z'::timestamptz,
+  'the heartbeat touches only the proved device (R3)');
+
+UPDATE devices SET wipe_requested=true WHERE id=:dev_a;
+SET LOCAL ROLE setjoin_app;
+SELECT rust_device_checkin(:dev_a,'[]'::jsonb)->>'wipe_requested' AS wiped \gset
+RESET ROLE;
+SELECT is(:'wiped'::text,'true'::text,'an armed wipe is reported to the proved device');
+
+CREATE FUNCTION public.device341_event_fail() RETURNS trigger LANGUAGE plpgsql AS
+$$BEGIN IF NEW.event_type='device341-fail' THEN RAISE EXCEPTION 'device341 injected event failure'; END IF; RETURN NEW; END;$$;
+CREATE TRIGGER device341_event_fail BEFORE INSERT ON device_events FOR EACH ROW EXECUTE FUNCTION public.device341_event_fail();
+SELECT throws_ok(format('SELECT rust_device_checkin(%s,%L::jsonb)',:dev_a,'[{"type":"device341-first"},{"type":"device341-fail"}]'),
+  'P0001','device341 injected event failure','a failed event aborts the whole check-in');
+SELECT is((SELECT count(*) FROM device_events WHERE event_type='device341-first'),0::bigint,'no earlier event survives the abort');
+DROP TRIGGER device341_event_fail ON device_events;
+
+SELECT throws_ok('SELECT rust_device_checkin(0,''[]''::jsonb)','BZ095',NULL,'a non-positive device id is refused');
+SELECT throws_ok(format('SELECT rust_device_checkin(%s,%L::jsonb)',(SELECT max(id)+1000000 FROM devices),'[{"type":"x"}]'),
+  'BZ095',NULL,'an unresolved device appends nothing and aborts');
+SELECT throws_ok(format('SELECT rust_device_checkin(%s,%L::jsonb)',:dev_a,
+  (SELECT jsonb_agg(jsonb_build_object('type','device341-burst'))::text FROM generate_series(1,101))),
+  'BZ095',NULL,'more than 100 events are refused (security cap)');
+SELECT is((SELECT count(*) FROM device_events WHERE event_type='device341-burst'),0::bigint,'an over-cap check-in appends nothing');
+
+-- Accepted residual (as in Go): revocation after the proof does not stop the in-flight check-in.
+UPDATE devices SET enroll_state='revoked', revoked_at=now() WHERE id=:dev_b;
+SET LOCAL ROLE setjoin_app;
+SELECT rust_device_checkin(:dev_b,'[{"type":"device341-after-revoke"}]'::jsonb) IS NOT NULL AS late_ok \gset
+RESET ROLE;
+SELECT is((SELECT count(*) FROM device_events WHERE device_id=:dev_b AND event_type='device341-after-revoke'),1::bigint,
+  'revoked mid-flight: the proved check-in still completes (accepted TOCTOU residual)');
+
+SELECT * FROM finish();
+ROLLBACK;

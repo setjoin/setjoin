@@ -6,11 +6,13 @@ use base64::{
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{json, Value};
+use crate::sso_cache::Cache;
 use setjoin_pg::ScopedExecutor;
 use std::{
     collections::BTreeMap,
+    future::Future,
     io::Write,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 pub const REDIRECT: &str = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect";
 pub const POST: &str = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST";
@@ -120,8 +122,7 @@ pub struct Registry {
     encryption_key: String,
     key: Arc<Key>,
     http: Arc<dyn crate::rp::Http>,
-    entries: RwLock<BTreeMap<String, Arc<Registration>>>,
-    reload: tokio::sync::Mutex<()>,
+    entries: Cache<Registration>,
 }
 impl Registry {
     pub async fn load(
@@ -141,8 +142,7 @@ impl Registry {
             encryption_key: encryption_key.to_owned(),
             key: Arc::new(key),
             http,
-            entries: RwLock::new(BTreeMap::new()),
-            reload: tokio::sync::Mutex::new(()),
+            entries: Cache::default(),
         });
         if let Err(error) = registry.reload().await {
             eprintln!("SAML registrations failed closed: {error}");
@@ -150,26 +150,12 @@ impl Registry {
         Ok(registry)
     }
     pub fn registration(&self, name: &str) -> Option<Arc<Registration>> {
-        self.entries.read().unwrap().get(name).cloned()
+        self.entries.get(name)
     }
-    pub async fn reload(&self) -> Result<(), String> {
-        let _lock = self.reload.lock().await;
-        let result = self.load_entries().await;
-        match result {
-            Ok((entries, errors)) => {
-                *self.entries.write().unwrap() = entries;
-                if errors.is_empty() {
-                    Ok(())
-                } else {
-                    Err(errors.join("; "))
-                }
-            }
-            Err(e) => {
-                self.entries.write().unwrap().clear();
-                Err(e)
-            }
-        }
+    pub fn reload(&self) -> impl Future<Output = Result<(), String>> + '_ {
+        self.entries.reload(self.load_entries())
     }
+
     async fn load_entries(
         &self,
     ) -> Result<(BTreeMap<String, Arc<Registration>>, Vec<String>), String> {
@@ -561,7 +547,7 @@ mod flow;
 pub use flow::{audit, relay_target, valid_relay, Consumed, Tracking};
 #[path = "saml_listener.rs"]
 mod listener;
-pub use listener::{admit_worker, Listener};
+pub use listener::Listener;
 
 // These configuration structs use Go encoding/json's folded names and null
 // no-op behavior; unknown fields are skipped without numeric conversion.

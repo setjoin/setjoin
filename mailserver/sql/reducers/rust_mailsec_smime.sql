@@ -20,7 +20,7 @@ BEGIN
   ON CONFLICT (fingerprint, domain_id) DO UPDATE SET label = EXCLUDED.label;
   n := n + 1;
  END LOOP;
- PERFORM pg_notify('smime_trust_changed', '1');
+ PERFORM app_notify('smime_trust_changed', '1');
  RETURN n;
 END;
 $$;
@@ -32,7 +32,7 @@ RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 BEGIN
  DELETE FROM smime_trust_anchors WHERE id = p_id AND (p_domain = 0 OR domain_id = p_domain);
  IF NOT FOUND THEN RETURN false; END IF;
- PERFORM pg_notify('smime_trust_changed', '1');
+ PERFORM app_notify('smime_trust_changed', '1');
  RETURN true;
 END;
 $$;

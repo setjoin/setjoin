@@ -47,8 +47,6 @@ EXCLUDED_LISTENERS = {"fedharness"}
 PENDING = {
     ("auth", "GET", "/auth/guest-invite/accept"): "#342",
     ("auth", "POST", "/auth/guest-invite/accept"): "#342",
-    ("auth", "GET", "/device/policy"): "#341",
-    ("auth", "POST", "/device/checkin"): "#341",
     ("gateway", "*", "/auth/admin/"): "#340",
     ("gateway", "GET", "/auth/guest-invite/accept"): "#342",
     ("gateway", "POST", "/auth/guest-invite/accept"): "#342",
@@ -67,8 +65,8 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 53,  # lowered from 54 when threat admission (#349a) went native (ratchet)
-    ("gateway", "forward"): 167,  # lowered from 198 as routes went native (ratchet)
-    ("gateway", "forward_body"): 3,
+    ("gateway", "forward"): 160,  # lowered from 167 (#194, admin-identity leftovers)
+    ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,
 }
