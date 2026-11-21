@@ -1087,3 +1087,14 @@ when `ContinuitySigner` and `continuity_boot` are loaded and
 verification); `recoveryIntakeAllowed` stays `false`. Oracle cases and mutants:
 `tests/jmap_family_377.rs` and `tests/conformance/route-catalog.d/jmap-377.json`
 (goldens recorded via `gofree-record.yml`).
+
+`MailDraft/{get,open,lease,save,replace}` and `MailComment/{get,set}` (#372,
+`src/jmap/family/mail_draft.rs`): gate `feature.shared_mail_drafts` /
+`feature.shared_mail_comments` before argument/account checks (`serverUnavailable`
+when off), distinguish Go `*string` null vs empty via `Args::opt_str`, hash the
+Go-ordered request structs (`go_compact` + SHA-256) for `mail_work_operations`
+idempotency (`p_operation_id` as `$4`/`$5`, distinct from the seam's `$3` receipt
+operation), and invoke the existing `mail_draft_*` / `mail_comment_*` reducers
+through `family::seam` (`Gate::Read` for `/get`, `Gate::Collaborate` for
+mutations). Oracle: `tests/jmap_family_372.rs` and fragment
+`tests/conformance/route-catalog.d/jmap-372.json`.
