@@ -521,7 +521,7 @@ cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test 
 A failed MFA-factor, risk or `feature.user_risk` read, or a failed common-password lookup, refuses
 before any token is signed or stored: WebAuthn finish 500 `internal error` (factors), password
 login, WebAuthn, SSO and MFA completions 500 `token issue failed`, refresh 503 with
-`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A routing-flag lookup error (conditional access, device trust, token binding) refuses locally and never forwards on the completions that mint: login, TOTP verify (`/auth/totp/verify`), enroll confirm (`/auth/totp/enroll/confirm`), backup-codes verify, push status and WebAuthn login finish answer 500 `internal error` before minting or factor consumption (`feature.rate_limit` and `feature.token_binding` are handled natively via `http_threat` and `src/dpop.rs`, and malformed `dpop_jwk` degrades to unbound when `feature.token_binding` is ON). An enabled CA/device-trust flag forwards before `threat_admit` (verify, enroll confirm, backup, webpush) or before body read (`push_status`, `webauthn_login_finish`); the OIDC callback answers 500 `internal error` and SAML ACS 503 `SAML authentication unavailable`. `totp_completion_route` and `rp_completion_route` forward only on CA/device-trust flags (#351); `X-Device-*` proof (#350) runs natively after principal/factor verification. Stored risk `signals` must be an array of strings. TOTP, backup-code,
+`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A required `feature.conditional_access` / `feature.device_trust_enforcement` / `feature.token_binding` lookup error refuses locally (`500 internal error` on login, TOTP verify, enroll confirm, backup-codes verify, push status, WebAuthn finish, OIDC callback; preserved `503 SAML authentication unavailable` on SAML ACS) without minting or consuming factors (`feature.rate_limit` and `feature.token_binding` are handled natively via `http_threat` and `src/dpop.rs`, malformed `dpop_jwk` degrades to unbound when `feature.token_binding` is ON, `webpush` is governed by session admission + DPoP only (#458), and `X-Device-*` proof (#350) runs natively after principal/factor verification). Missing/failing `is_guest_account($1)` returns `503 conditional access context unavailable`. Stored risk `signals` must be an array of strings. TOTP, backup-code,
 push-status and bootstrap completions read the risk from the pending token before consuming
 the factor, so the factor stays unspent. Push status reads the risk on every poll, so under a
 fault a poll that is not yet approved answers 500 instead of `{"approved":false}`. Frozen Go fails
@@ -560,7 +560,7 @@ receipts, and one `failure` attempt); the Go recorder skips `fault` cases, so th
 Login and refresh are dynamic (`dynamic() == true`, admitted while one of the six gate
 toggles is on); forgot-password (`{begin,verify,reset}`) and all 21 `#349b` routes
 (`Route::Anonymous`, empty `""` username: `guest_invite_post`, `webpush`, `totp_{setup,confirm,enroll/setup,verify,enroll/confirm}`, `generate_backups`, `backup_verify`, `webauthn_register_{begin,finish}`, `push_{verify,approve,send}`, `password_grant`, `possession_{totp,webauthn_begin,webauthn_finish}`, and OIDC OP `/authorize`, `/authorize/callback`, `/oauth/`, `/userinfo`, `/revoke`, `/end_session` after CORS preflight) are always admitted (`dynamic() == false`).
-Preflight Go forwards (CA/device trust, #351) run between `threat_stage` and `threat_admit` so forwarded requests cause zero double admission. `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`). `feature.rate_limit`, `X-Device-*` proof (#350), and DPoP are no longer forwarded on any route.
+CA, device trust (#351), `feature.rate_limit`, `X-Device-*` proof (#350), and DPoP (#352) all run natively with zero auth forwards across login and completion routes (only the two `#357` Part B unmatched fallbacks remain in `src/lib.rs`). `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`).
 
 ## Native DPoP admission and token binding at issuance (#352)
 
@@ -599,8 +599,36 @@ authenticated principal on all eight Go-parity auth/completion paths (`POST /aut
 `POST /auth/totp/verify`, `POST /auth/totp/enroll/confirm`, `POST /auth/backup-codes/verify`,
 `POST /auth/push/status` after approval harvest, `POST /auth/webauthn/login/finish` after
 assertion and guest-scope check, `GET /auth/oidc/callback`, and `POST /auth/saml/{idp}/acs`)
-using the staged method, `path_and_query`, headers, and exact body bytes when CA/device-trust
-toggles are OFF (when CA is ON, POST/GET auth and OIDC completion routes forward whole before
-admission so `X-Device-Nonce` is never consumed twice, while SAML ACS keeps its existing
-pre-relay 503 after assertion replay consumption). `POST /auth/device/register` (`webpush`) ignores `X-Device-*` headers without
-forwarding or burning nonces. Tests: `tests/device_proof_oracle.rs`, `tests/handoff.rs`.
+using the staged method, `path_and_query`, headers, and exact body bytes (`X-Device-Nonce` is
+consumed once and fed directly into native CA context). `POST /auth/device/register` (`webpush`)
+ignores `X-Device-*` headers without forwarding or burning nonces (#458). Tests:
+`tests/device_proof_oracle.rs`, `tests/handoff.rs`.
+
+## Conditional Access, Device Trust Claims, and Session Controls (#351)
+
+`src/ca.rs` implements native CA policy evaluation, device-trust JWT claims, and session controls
+across all seven sign-in families (`POST /auth/login`, `POST /auth/totp/verify`,
+`POST /auth/totp/enroll/confirm`, `POST /auth/backup-codes/verify`, `POST /auth/push/status`,
+`POST /auth/webauthn/login/finish`, `GET /auth/oidc/callback`, `POST /auth/saml/{idp}/acs`):
+
+- **Engine & listener:** borrows `ThreatGate::engine()` when attached, or uses `AuthServer::ca_engine`
+  (loaded with the same policy store/refresh semantics plus `DirectListener` on `conditional_access`
+  in `serve_until`) when `gate` is absent. Calls `invalidate_user_scope` after SSO settlement before
+  evaluation.
+- **Decisions & telemetry:** evaluates once and appends one `ca_signin_log_append` row best-effort.
+  Hard blocks (`remediation.is_empty()`) return `403` + `X-CA-Correlation-Id`, including during step-up
+  completion; remediable blocks (`require_terms` / `require_risk_remediation`) allow issuance for
+  runtime remediation. Fresh step-up returns `202` `{mfa_required, mfa_token, step_up_reason,
+  step_up_methods, correlation_id}` + `X-CA-Correlation-Id` and stamps ThreatGate `verified_no_outcome`;
+  repeated step-up challenges are suppressed only on verified `mfa_pending` completion. WebAuthn
+  enforces CA before either second-factor MFA challenge or final issuance.
+- **Device trust & session controls:** gated on `feature.device_trust_enforcement`, queries
+  `managed_devices WHERE device_hash=$1 AND user_id=$2` via `read_user_scoped` across all 7
+  families (missing/unknown/lookup fault omits `device` claim while flag-read errors fail closed);
+  reads `policy_session_view($1)` (`sif` in seconds + original `auth_time` on both access and
+  refresh JWTs on password login and MFA/WebAuthn completions, retained across `/auth/refresh`;
+  fail-closed `sif=3600` + `persist="never"` on matched-policy read errors; cookie writer honors
+  `persistent_session` + `stay_signed_in` on password login — setting `Max-Age` for `"always"` or
+  `"user_choice"` with `stay_signed_in=true`, omitting `Max-Age` otherwise and never emitting
+  `Max-Age=0` — while preserving frozen Go's full-TTL cookie on MFA/WebAuthn and legacy `sif=None`/
+  full-TTL cookie on SSO). Tests: `tests/ca_351.rs`.

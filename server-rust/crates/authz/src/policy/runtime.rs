@@ -82,9 +82,19 @@ impl Engine {
             s.loaded = false;
         }
         match store::break_glass(&self.exec).await {
-            Ok(ids) => { s.break_glass = ids; Ok(()) },
-            Err(error) => { s.break_glass.clear(); Err(error) }
+            Ok(ids) => {
+                s.break_glass = ids;
+                Ok(())
+            }
+            Err(error) => {
+                s.break_glass.clear();
+                Err(error)
+            }
         }
+    }
+    /// Clear one user's cached group/role membership (e.g. after SSO group settlement).
+    pub async fn invalidate_user_scope(&self, user_id: i64) {
+        self.state.lock().await.scopes.remove(&user_id);
     }
     pub async fn evaluate(&self, mut c: Context) -> Result {
         let mut s = self.state.lock().await;
@@ -176,13 +186,13 @@ fn enforcing(actions: &serde_json::Value) -> bool {
     let is = |kind: &str| {
         (step_up && kind == "step_up")
             || matches!(
-            kind,
-            "block"
-                | "require_acr"
-                | "require_strength"
-                | "require_terms"
-                | "require_risk_remediation"
-        )
+                kind,
+                "block"
+                    | "require_acr"
+                    | "require_strength"
+                    | "require_terms"
+                    | "require_risk_remediation"
+            )
     };
     if actions["require_compliant_device"] == true || is(text(actions, "action")) {
         return true;

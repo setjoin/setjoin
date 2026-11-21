@@ -1,5 +1,5 @@
-//! Whole-request handoff only to explicitly unported owners: CA policy (#351).
-//! Threat admission (#349), device proof (#350), and DPoP (#352) are native.
+//! Whole-request handoff only to unmatched routes (#357 Part B).
+//! Threat admission (#349), device proof (#350), CA/device-trust (#351), and DPoP (#352) are native.
 mod common;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http_body_util::BodyExt;
@@ -10,7 +10,7 @@ use setjoin_conformance::{fixture, harness::Db};
 use sha2::{Digest, Sha256};
 use tokio::{net::TcpListener, sync::mpsc};
 type Error = Box<dyn std::error::Error + Send + Sync>;
-async fn check_policy() -> Result<(), Error> {
+async fn check_unmatched_handoff() -> Result<(), Error> {
     let db = Db::for_case("IDLOGIN1-handoff").unwrap();
     let c = db.connect().await?;
     c.query_one(
@@ -36,38 +36,63 @@ async fn check_policy() -> Result<(), Error> {
         .await?
         .get(0);
     let (listener_addr, mut seen, spy) = spy().await?;
-    let result=async{
-  let f:Value=serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
-  let mut cfg=Config::for_secret(f["secret"].as_str().unwrap().into());cfg.go_upstream=Some(format!("http://{listener_addr}"));
-  let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),2).map_err(|e|e.0)?;
-  let server=AuthServer::load(exec,cfg).await?.with_threat_gate(&db.dsn).await?;
-  let raw="{deliberately-not-decoded".to_owned();
-  let path="/auth/login?next=%2F";
-  let request=Request::post(path).header("host","auth.idlogin1.test");
-  let response=server.handle(request.body(body(raw.clone()))?).await;
-  let status=response.status().as_u16();let returned=response.into_body().collect().await?.to_bytes();
-  let event=tokio::time::timeout(std::time::Duration::from_secs(10),seen.recv()).await?.ok_or("no handoff request")?;
-  let rows:i64=c.query_one("SELECT (SELECT count(*) FROM oauth_tokens WHERE user_id=$1)+(SELECT count(*) FROM sessions WHERE user_id=$1)+(SELECT count(*) FROM login_events WHERE user_id=$1)+(SELECT count(*) FROM auth_event_log WHERE email=$2)",&[&a.user,&email]).await?.get(0);
-  drop(server);
-  Ok::<_,Error>((raw,path,status,returned,event,rows))
- }.await;
+    let result = async {
+        let f: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-login/keys.json"
+        ))?;
+        let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+        cfg.go_upstream = Some(format!("http://{listener_addr}"));
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
+            .map_err(|e| e.0)?;
+        let server = AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?;
+        // #351: login handles CA natively and never forwards even when feature.conditional_access=true.
+        let ca_raw = json!({"email": email, "password": "Password1!"}).to_string();
+        let ca_resp = server
+            .handle(
+                Request::post("/auth/login?next=%2F")
+                    .header("host", "auth.idlogin1.test")
+                    .body(body(ca_raw))?,
+            )
+            .await;
+        let ca_status = ca_resp.status().as_u16();
+        assert!(
+            seen.try_recv().is_err(),
+            "CA login must execute natively without forwarding"
+        );
+        assert_eq!(ca_status, 200);
+        // #357 Part B: unmatched route still receives original undecoded request.
+        let raw = "{deliberately-not-decoded".to_owned();
+        let path = "/auth/unmatched-owner?next=%2F";
+        let request = Request::post(path).header("host", "auth.idlogin1.test");
+        let response = server.handle(request.body(body(raw.clone()))?).await;
+        let status = response.status().as_u16();
+        let returned = response.into_body().collect().await?.to_bytes();
+        let event = tokio::time::timeout(std::time::Duration::from_secs(10), seen.recv())
+            .await?
+            .ok_or("no handoff request")?;
+        drop(server);
+        Ok::<_, Error>((raw, path, status, returned, event))
+    }
+    .await;
     spy.abort();
     let _ = spy.await;
+    c.execute("DELETE FROM sessions WHERE user_id=$1", &[&a.user])
+        .await?;
     c.execute("DELETE FROM auth_event_log WHERE email=$1", &[&email])
         .await?;
     c.execute("DELETE FROM login_events WHERE user_id=$1", &[&a.user])
         .await?;
+    c.batch_execute(&format!("BEGIN;SET LOCAL ca.signin_log_prune='on';DELETE FROM ca_signin_log WHERE user_id={};COMMIT", a.user)).await?;
     fixture::remove(&c, &a).await?;
     c.execute("DELETE FROM feature_toggles WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.token_binding')",&[]).await?;
     c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)",&[&flags]).await?;
-    let (raw, path, status, returned, event, rows) = result?;
+    let (raw, path, status, returned, event) = result?;
     assert_eq!(
         event,
         ("POST".to_owned(), path.to_owned(), raw.into_bytes())
-    );
-    assert_eq!(
-        rows, 0,
-        "an unported dependency must be selected before effects"
     );
     assert_eq!(status, 403);
     assert_eq!(
@@ -126,8 +151,8 @@ async fn spy() -> Result<
     Ok((addr, rx, task))
 }
 #[tokio::test]
-async fn policy_owner_405_receives_the_original_undecoded_request() {
-    check_policy().await.unwrap();
+async fn unmatched_route_receives_the_original_undecoded_request() {
+    check_unmatched_handoff().await.unwrap();
 }
 #[tokio::test]
 async fn device_proof_login_resolves_natively_without_forwarding() {
@@ -353,8 +378,12 @@ async fn duplicate_dpop_map_binds_natively_without_forwarding() {
         assert!(seen.try_recv().is_err(), "DPoP issuance must not forward");
         assert_eq!(status, 200, "body={}", String::from_utf8_lossy(&returned));
         let json: Value = serde_json::from_slice(&returned)?;
-        let access = json["access_token"].as_str().ok_or("missing access_token")?;
-        let refresh = json["refresh_token"].as_str().ok_or("missing refresh_token")?;
+        let access = json["access_token"]
+            .as_str()
+            .ok_or("missing access_token")?;
+        let refresh = json["refresh_token"]
+            .as_str()
+            .ok_or("missing refresh_token")?;
         assert_eq!(jwt_cnf_jkt(access).as_deref(), Some(expected_jkt.as_str()));
         assert_eq!(jwt_cnf_jkt(refresh).as_deref(), Some(expected_jkt.as_str()));
         Ok(())
@@ -386,4 +415,3 @@ async fn duplicate_dpop_map_binds_natively_without_forwarding() {
     .unwrap();
     result.unwrap();
 }
-
