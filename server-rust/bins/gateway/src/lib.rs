@@ -594,7 +594,21 @@ async fn handle(
                 strip_api_prefix(&mut req);
             }
             return match &shared.rust_auth_upstream {
-                Some(upstream) => upstream.forward(req, &identity).await,
+                Some(upstream) => {
+                    let mut response = upstream.forward(req, &identity).await;
+                    if !auth_listener
+                        && route.is_some_and(inventory::Inventory::is_pinned_and_mounted)
+                    {
+                        jmap::reply::security_headers(response.headers_mut(), identity.proto);
+                        response
+                            .headers_mut()
+                            .entry(hyper::header::CACHE_CONTROL)
+                            .or_insert_with(|| {
+                                hyper::header::HeaderValue::from_static("no-store")
+                            });
+                    }
+                    response
+                }
                 None => proxy::status(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Rust auth upstream unavailable\n",

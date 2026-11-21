@@ -359,10 +359,16 @@ pub async fn run(label: &str, mutant: bool) -> Result<(), BoxError> {
             *date = json!(["<timestamp>"]);
         }
         let text = mask_uuids(&names(&raw));
-        if case.method != "HEAD" {
-            if let Some(length) = headers.get_mut("content-length") {
-                *length = json!([text.len().to_string()]);
+        if case.method == "HEAD" {
+            let length = headers.remove("content-length");
+            if !recording && length != Some(json!(["19"])) {
+                return Err(format!(
+                    "auth-admin/{label}: expected HEAD content-length 19, got {length:?}"
+                )
+                .into());
             }
+        } else if let Some(length) = headers.get_mut("content-length") {
+            *length = json!([text.len().to_string()]);
         }
         let observation = json!({
             "request": {

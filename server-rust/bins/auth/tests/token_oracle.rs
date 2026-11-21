@@ -131,8 +131,13 @@ async fn request(
     let mut req = Request::builder()
         .method(method)
         .uri(format!("http://{addr}{path}"))
-        .header("host", "auth.idlogin3.test")
         .header("user-agent", "IDLOGIN3 oracle");
+    if !headers
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("host"))
+    {
+        req = req.header("host", "auth.idlogin3.test");
+    }
     if !headers
         .iter()
         .any(|(k, _)| k.eq_ignore_ascii_case("content-type"))
@@ -1843,10 +1848,10 @@ async fn terms_gateway_pending_and_api_alias() -> Result<(), Err> {
                 "HEAD {path}"
             );
 
-            for (label, bad) in [
-                ("missing", "Bearer invalid"),
-                ("expired", expired.as_str()),
-                ("wrong-type", refresh.as_str()),
+            for (label, bad, want) in [
+                ("missing", "Bearer invalid", 401),
+                ("expired", expired.as_str(), 401),
+                ("wrong-type", refresh.as_str(), 403),
             ] {
                 let (st, _, body) = request(
                     gw.addr,
@@ -1856,7 +1861,7 @@ async fn terms_gateway_pending_and_api_alias() -> Result<(), Err> {
                     &[("authorization", bad), ("host", "mail.test")],
                 )
                 .await?;
-                assert_eq!(st, 401, "{path} {label}: {body}");
+                assert_eq!(st, want, "{path} {label}: {body}");
             }
         }
         assert_zero_go_hops(gw.addr).await?;
