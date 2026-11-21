@@ -286,6 +286,36 @@ pub(crate) fn go_map(entries: Vec<(&str, Value)>) -> String {
     go_compact(&serde_json::to_string(&map).expect("map JSON")).expect("map JSON")
 }
 
+/// Go `ExecuteBatch` `extractCreatedIDs` (`handler.go:742`): collect `/set` creations.
+fn created_ids(name: &str, args: &str) -> Option<String> {
+    if !name.ends_with("/set") {
+        return None;
+    }
+    #[derive(serde::Deserialize)]
+    struct Creation {
+        #[serde(default)]
+        id: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct SetResult {
+        created: Option<std::collections::BTreeMap<String, Option<Creation>>>,
+    }
+    let SetResult {
+        created: Some(created),
+    } = serde_json::from_str(args).ok()?
+    else {
+        return None;
+    };
+    if created.is_empty() {
+        return None;
+    }
+    let ids: std::collections::BTreeMap<String, String> = created
+        .into_iter()
+        .map(|(k, v)| (k, v.map_or_else(String::new, |c| c.id)))
+        .collect();
+    go_compact(&serde_json::to_string(&ids).ok()?)
+}
+
 /// Go's `dispatchInvocation` (handler.go:1527) and the HTTP envelope.
 pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String {
     let method = cx.method();
@@ -312,13 +342,23 @@ pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String
         },
         Err(error) => ("error", error.json()),
     };
-    format!(
-        "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]]}}\n",
-        crate::problem::go_string(session),
-        crate::problem::go_string(name),
-        args,
-        crate::problem::go_string(client_id)
-    )
+    match created_ids(name, &args) {
+        Some(ids) => format!(
+            "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]],\"createdIds\":{}}}\n",
+            crate::problem::go_string(session),
+            crate::problem::go_string(name),
+            args,
+            crate::problem::go_string(client_id),
+            ids
+        ),
+        None => format!(
+            "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]]}}\n",
+            crate::problem::go_string(session),
+            crate::problem::go_string(name),
+            args,
+            crate::problem::go_string(client_id)
+        ),
+    }
 }
 
 /// Every non-stub registry row must be covered by exactly the fragments'
@@ -542,6 +582,32 @@ mod tests {
         assert_eq!(
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/get\",{\"a\":1},\"c1\"]]}\n"
+        );
+        fn run_set<'a>(_: &'a Cx<'a>) -> Reply<'a> {
+            Box::pin(async {
+                Ok(Answer {
+                    name: "Test/set",
+                    args: r#"{"created":{"c1":{"id":"19000001"}}}"#.into(),
+                })
+            })
+        }
+        let set_method = Method {
+            run: run_set,
+            ..TESTS[2]
+        };
+        let cx = Cx::new(&exec, None, &auth, 1, 2, &set_method, "null");
+        assert_eq!(
+            serve(&cx, "c1", "s").await,
+            "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/set\",{\"created\":{\"c1\":{\"id\":\"19000001\"}}},\"c1\"]],\"createdIds\":{\"c1\":\"19000001\"}}\n"
+        );
+        assert_eq!(
+            created_ids("Test/set", r#"{"created":{"c1":{"id":"19000001"}}}"#).as_deref(),
+            Some(r#"{"c1":"19000001"}"#)
+        );
+        assert_eq!(created_ids("Test/set", r#"{"created":{}}"#), None);
+        assert_eq!(
+            created_ids("Test/get", r#"{"created":{"c1":{"id":"1"}}}"#),
+            None
         );
     }
 

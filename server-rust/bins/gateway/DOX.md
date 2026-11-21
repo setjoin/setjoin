@@ -1064,7 +1064,6 @@ gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
-<<<<<<< HEAD
 
 Vendor mail methods (#376, `src/jmap/family/vendor_mail.rs`): `SavedSearch/{list,set,delete}`,
 `QuickStep/{get,set,apply}`, and `EmailTemplate/{list,set,delete}` run natively on both HTTP
@@ -1107,3 +1106,16 @@ and `feature.shared_mail_analytics` for `MailWorkMetrics/get`), validating SLA t
 through `seam::ics::load_location` and computing Go-canonical `json.Marshal` SHA-256
 request digests; oracle `tests/jmap_family_374.rs`, catalog fragment
 `tests/conformance/route-catalog.d/jmap-374.json`.
+
+Issue `#373` ports all 13 `urn:ietf:params:jmap:tasks` methods across
+`src/jmap/family/task.rs` (`Task/get`, `Task/query`, `Task/changes`,
+`Task/set`, `TaskComment/get`, `TaskComment/set`, account-scoped under
+`setjoin_app`) and `src/jmap/family/task_list.rs` (`TaskList/get`,
+`TaskList/set`, `TaskListMember/set`, `TaskList/tasks`, `TaskList/taskSet`,
+`TaskAssigned/get`, `TaskAssigned/setStatus`, cross-tenant worker-pool handlers
+gated by `feature.shared_task_lists`). `family::serve` attaches top-level
+`createdIds` for `/set` responses, `Args::opt_str` distinguishes absent/`null`
+from `""` for Go `*string` fields, `tests/jmap_family_oracle/mod.rs` cleans
+`task_activity`, `tasks`, and `task_lists` before `jmap_changes_journal`,
+and oracle cases/catalog entries live in `tests/jmap_family_373.rs` and
+`tests/conformance/route-catalog.d/jmap-373.json`.

@@ -1734,6 +1734,13 @@ mod db {
             "task_lists.sql:160: worker call; p_user_id (the verified user, $1) is the actor \
              the reducer authorizes the roster change against",
         ),
+        (
+            "task_comment_create",
+            "p_mentioned_emails",
+            "jmap_task_comment.sql:112-147: author is derived from the bound scope p_mailbox_id; \
+             mentionedEmails are resolved via resolve_identity to record mentions and deliver \
+             best-effort notifications after the task ownership check at :84-93",
+        ),
     ];
     /// Reviewed neutral (reducer, parameter, why it is not authority): payload,
     /// row ids resolved under the bound actor/scope, and time bounds. Every
@@ -1741,6 +1748,66 @@ mod db {
     /// placeholder, a scope mailbox on `$1`, a reviewed pair, or listed here.
     /// The `seam_probe_*` rows are the #427 test reducers.
     const REVIEWED_NEUTRAL_ARGUMENTS: &[(&str, &str, &str)] = &[
+        (
+            "jmap_task_get",
+            "p_ids",
+            "jmap_task.sql:28-29: optional task id filter; read is scoped by WHERE t.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_task_query",
+            "p_filter",
+            "jmap_task.sql:92-123: query filter JSON payload; v_where starts with mailbox_id = $1 AND list_id IS NULL",
+        ),
+        (
+            "jmap_task_query",
+            "p_sort",
+            "jmap_task.sql:78-144: unused sort JSON payload",
+        ),
+        (
+            "jmap_task_query",
+            "p_position",
+            "jmap_task.sql:130-133: pagination offset",
+        ),
+        (
+            "jmap_task_query",
+            "p_limit",
+            "jmap_task.sql:130-133: pagination limit clamped in 1..=256",
+        ),
+        (
+            "jmap_task_changes",
+            "p_since_state",
+            "jmap_task.sql:155, jmap_entity_changes.sql:13-34: state cursor token scoped to p_mailbox_id",
+        ),
+        (
+            "jmap_task_set_create",
+            "p_creates",
+            "jmap_task.sql:254-365: JSON create payload; inserts only into p_mailbox_id and resolves assigneeEmail via resolve_identity",
+        ),
+        (
+            "jmap_task_set_update",
+            "p_updates",
+            "jmap_task.sql:368-595: JSON update patch map; updates only WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_task_set_destroy",
+            "p_ids",
+            "jmap_task.sql:611-613: task id array; deletes only WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "task_activity_list",
+            "p_task_id",
+            "jmap_task_comment.sql:166-174: checks tasks.mailbox_id = p_mailbox_id or shared-list membership before reading activity for p_task_id",
+        ),
+        (
+            "task_comment_create",
+            "p_task_id",
+            "jmap_task_comment.sql:84-93: checks tasks.mailbox_id = p_mailbox_id or shared-list membership before inserting comment",
+        ),
+        (
+            "task_comment_create",
+            "p_body",
+            "jmap_task_comment.sql:95-104: comment body text payload",
+        ),
         ("jmap_calendar_event_get_shared", "p_after", "time bound"),
         ("jmap_calendar_event_get_shared", "p_before", "time bound"),
         (
