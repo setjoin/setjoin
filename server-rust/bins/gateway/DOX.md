@@ -452,8 +452,10 @@ transferred here. Production origin policy mirrors Go's TLS_CERT_FILE,
 TLS_AUTOCERT_DOMAINS and HTTP_MODE=proxy test, including its second upgrader check.
 Cookie authentication, 1000-client and 10MiB bounds, ping30/pong70/revalidate300,
 app admission and targeted revocation are exercised over live sockets.
-Legacy HS256/SM2 credentials remain the named Identity #331 shape; shared HTTP
-security admission for presence remains #420. No new rollback path is added.
+HS256/SM2 push credentials are verified natively by the shared legacy key seam
+(#356a, `tests/jmap_push_profiles_recorded.rs`); header shape never selects Go.
+Without JWT_SECRET they are refused (startup line). Shared HTTP security
+admission for presence remains #420. No new rollback path is added.
 The route catalog binds the recorded suite and one planted status mutant per
 route; native replays require total Go proxies zero. Deferred batches separately
 prove unchanged frames, one Go attribution and absence of preceding Rust writes.
@@ -512,7 +514,7 @@ All three use one registry; the two push transports also share the client
 counter and direct-DSN notification hub. The SSE inventory row is ON; the
 [family contract](../../crates/domains/jmap/DOX.md) and
 [recorded oracle](../../tests/conformance/jmap/sse/README.md) define lifetime,
-query, wire and named Identity #331 handoff parity. No shared-effect worker or
+query, wire and native HS256/SM2 (#356a) parity. No shared-effect worker or
 Go-off setting changes. The executable test leaves the Go mail upstream unset;
 its required auth-upstream setting is an unreachable #331 endpoint and receives
 no request.

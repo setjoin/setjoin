@@ -163,7 +163,7 @@ with amd64 `int64()` semantics (out of range is `i64::MIN`), normalised by
 wrapped internal seconds as the validator does. Claim keys fold case like
 encoding/json (`EXP` fills `exp`; every match decodes in order, last wins).
 `normalize_token_claims` is the one public entry for every first-party verifier
-(push switches after #356a).
+(including push, #356a).
 `go_url::mailserver_handler_path(method, raw)` derives the `r.URL.Path` a
 mailserverd handler sees for chain.go:434 `pathWithinScope`, following Go 1.26
 ServeMux and buildRootDispatch: `None` for a 400 escape, an unclean path or bare
