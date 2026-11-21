@@ -103,8 +103,34 @@ pub fn verify(
     replay: &ReplayCache,
     access_token: &str,
 ) -> bool {
-    checked(proof, method, uri, expected_jkt, now, replay, access_token).is_some()
+    checked(
+        proof,
+        method,
+        uri,
+        expected_jkt,
+        now,
+        replay,
+        Some(access_token),
+    )
+    .is_some()
 }
+
+/// Verifies a DPoP proof without requiring `ath`, for admission recovery
+/// (`GET/HEAD /auth/session/token`, #281) where a tab holds the bound cookie/key
+/// but does not yet know the access token string to hash into `ath`. All other
+/// checks (`htm`, `htu`, `jti` replay, `iat`, `exp`/`nbf`, ES256 signature, and
+/// `jwk` thumbprint == `expected_jkt`) still run.
+pub fn verify_without_ath(
+    proof: &str,
+    method: &str,
+    uri: &str,
+    expected_jkt: &str,
+    now: f64,
+    replay: &ReplayCache,
+) -> bool {
+    checked(proof, method, uri, expected_jkt, now, replay, None).is_some()
+}
+
 fn checked(
     proof: &str,
     method: &str,
@@ -112,7 +138,7 @@ fn checked(
     expected_jkt: &str,
     now: f64,
     replay: &ReplayCache,
-    access_token: &str,
+    access_token: Option<&str>,
 ) -> Option<()> {
     let mut parts = proof.split('.');
     let (h, p, s) = (parts.next()?, parts.next()?, parts.next()?);
@@ -147,10 +173,12 @@ fn checked(
     if claims["htm"] != method || claims["htu"] != uri {
         return None;
     }
-    if !setjoin_contracts::mutants::on("dpop-without-ath")
-        && claims["ath"].as_str() != Some(access_token_hash(access_token).as_str())
-    {
-        return None;
+    if let Some(access_token) = access_token {
+        if !setjoin_contracts::mutants::on("dpop-without-ath")
+            && claims["ath"].as_str() != Some(access_token_hash(access_token).as_str())
+        {
+            return None;
+        }
     }
     let iat = claims["iat"].as_f64().unwrap_or(0.0) as i64;
     if (now - iat as f64).abs() > 60.0 {

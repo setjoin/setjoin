@@ -52,12 +52,42 @@ pub(super) fn acr_satisfies(token: &str, required: &str) -> bool {
         token == required
     }
 }
-fn grant(g: &Value, c: &Context, s: &Snapshot) -> &'static str {
+fn default_step_up_methods() -> Vec<String> {
+    vec!["totp".into(), "webauthn".into()]
+}
+fn cheapest_missing(combos: Option<&Vec<Value>>, completed: &[String]) -> Vec<String> {
+    let Some(combos) = combos else {
+        return default_step_up_methods();
+    };
+    for combo in combos {
+        let Some(items) = combo.as_array() else {
+            continue;
+        };
+        let missing: Vec<String> = items
+            .iter()
+            .filter_map(Value::as_str)
+            .filter(|f| !completed.iter().any(|c| c == f))
+            .map(str::to_owned)
+            .collect();
+        if !missing.is_empty() {
+            return missing;
+        }
+    }
+    if let Some(first) = combos.first().and_then(Value::as_array) {
+        return first
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+    }
+    default_step_up_methods()
+}
+fn grant(g: &Value, c: &Context, s: &Snapshot) -> (&'static str, Vec<String>) {
     match text(g, "type") {
-        "allow" | "limited_web" => "allow",
-        "block" => "block",
-        "step_up" => "step_up",
-        "notify" => "notify",
+        "allow" | "limited_web" => ("allow", vec![]),
+        "block" => ("block", vec![]),
+        "step_up" => ("step_up", default_step_up_methods()),
+        "notify" => ("notify", vec![]),
         "require_acr" => {
             let required = if text(g, "acr").is_empty() {
                 "aal2"
@@ -65,38 +95,38 @@ fn grant(g: &Value, c: &Context, s: &Snapshot) -> &'static str {
                 text(g, "acr")
             };
             if acr_satisfies(&c.current_acr, required) {
-                "allow"
+                ("allow", vec![])
             } else {
-                "step_up"
+                ("step_up", default_step_up_methods())
             }
         }
         "require_strength" => {
             let Some(strength) = s.strengths.iter().find(|v| v["id"] == g["strength_id"]) else {
-                return "block";
+                return ("block", vec![]);
             };
             if c.current_acr.is_empty() && c.completed_factors.is_none() {
-                return "block";
+                return ("block", vec![]);
             }
             let factors = c.completed_factors.as_deref().unwrap_or_default();
-            let satisfied = strength
+            let combos = strength
                 .get("requirement")
                 .or_else(|| strength.get("combinations"))
-                .and_then(Value::as_array)
-                .is_some_and(|a| {
-                    a.iter().any(|combo| {
-                        combo.as_array().is_some_and(|a| {
-                            a.iter()
-                                .all(|v| v.as_str().is_some_and(|s| factors.iter().any(|f| f == s)))
-                        })
+                .and_then(Value::as_array);
+            let satisfied = combos.is_some_and(|a| {
+                a.iter().any(|combo| {
+                    combo.as_array().is_some_and(|a| {
+                        a.iter()
+                            .all(|v| v.as_str().is_some_and(|s| factors.iter().any(|f| f == s)))
                     })
-                });
+                })
+            });
             if acr_satisfies(&c.current_acr, text(strength, "min_acr")) && satisfied {
-                "allow"
+                ("allow", vec![])
             } else {
-                "step_up"
+                ("step_up", cheapest_missing(combos, factors))
             }
         }
-        _ => "block",
+        _ => ("block", vec![]),
     }
 }
 fn priority(d: &str) -> u8 {
@@ -151,8 +181,9 @@ pub(super) fn dispatch(p: &Value, c: &Context, s: &Snapshot) -> Result {
         r.reason = format!("policy {name:?} blocked (empty grants — fail-closed)");
         return r;
     }
+    let mut best_methods = Vec::new();
     for g in &grants {
-        let d = grant(g, c, s);
+        let (d, methods) = grant(g, c, s);
         if op == "one" && d == "allow" {
             r.decision = "allow".into();
             if r.reason.is_empty() {
@@ -173,10 +204,29 @@ pub(super) fn dispatch(p: &Value, c: &Context, s: &Snapshot) -> Result {
         }
         if priority(d) > priority(&r.decision) {
             r.decision = d.into();
+            best_methods = methods;
         }
     }
     if r.reason.is_empty() {
         r.reason = format!("policy {name:?} matched (operator={op})");
+    }
+    if r.decision == "step_up" {
+        r.step_up_methods = best_methods;
+        if let Some(methods) = a
+            .get("methods")
+            .or_else(|| a.get("step_up_methods"))
+            .and_then(Value::as_array)
+            .filter(|m| !m.is_empty())
+        {
+            r.step_up_methods = methods
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+        }
+        if r.step_up_methods.is_empty() {
+            r.step_up_methods = default_step_up_methods();
+        }
     }
     r.limited_web = r.decision == "allow" && grants.iter().any(|g| g["type"] == "limited_web");
     r
