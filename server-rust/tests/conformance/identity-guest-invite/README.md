@@ -27,3 +27,5 @@ Non-catalog tests pin the terminal-delay floor and ceiling, lock release before
 the delay, the GET/POST stamp race, the executor deadline, login-shared threat
 toggles, the CAPTCHA header (a failed token is 403, as in Go) and the #346 residual shape (username keys) and upgrade
 posture (reducers absent, worker without BYPASSRLS).
+The native #347 credential test covers common-password and history refusals
+without account changes and verifies that acceptance records the new hash in history.

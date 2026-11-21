@@ -1,6 +1,9 @@
 //! Frozen-Go guest invitation acceptance (#342), authserver/internal/handlers/guest_invite.go.
 //! Canonical reducers own every lock, lifecycle check and write; this module selects
 //! the executor scope, hashes the credential and decodes verdicts.
+use crate::password::{
+    common_password_digest, password_was_used, COMMON_PASSWORD_ERROR, REUSED_PASSWORD_ERROR,
+};
 use serde_json::Value;
 use setjoin_config_secret::CryptoProfile;
 use setjoin_contracts::ids::{ActorId, OperationId};
@@ -101,7 +104,7 @@ pub async fn readiness(worker: &ScopedExecutor) -> Result<(), String> {
     let rows = worker.read(
         "SELECT COALESCE((SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname=current_user),false), \
          to_regprocedure('rust_guest_invite_disclosure(bigint,text)') IS NOT NULL \
-         AND to_regprocedure('rust_guest_invite_accept_read(bigint,text,text,boolean,boolean)') IS NOT NULL \
+         AND to_regprocedure('rust_guest_invite_accept_read(bigint,text,text,boolean,boolean,bytea)') IS NOT NULL \
          AND to_regprocedure('rust_guest_invite_accept_finish(bigint,bigint,text,text,inet)') IS NOT NULL",
         &[],
     ).await.map_err(|e| format!("readiness query failed: {}", e.message))?;
@@ -171,8 +174,8 @@ pub async fn disclosure(worker: &ScopedExecutor, raw_token: &[u8]) -> Outcome<Di
     )
 }
 
-/// POST: discovery selects the scope; the read reducer locks and decides; the
-/// password is hashed under those locks before the one finishing write.
+/// POST: discovery selects the scope. The read reducer locks and checks policy.
+/// Rust checks history and hashes under those locks before the finishing write.
 pub async fn accept(
     worker: &ScopedExecutor,
     raw_token: &str,
@@ -194,6 +197,7 @@ pub async fn accept(
     // PostgreSQL TEXT cannot carry NUL; never bind it (Go fails at its later bind).
     let invalid_text = password.contains('\0');
     let bound: Option<&str> = (!too_long && !invalid_text).then_some(password);
+    let digest = bound.map(common_password_digest);
     let candidate = bound.unwrap_or("").to_owned();
     let token = hash.clone();
     let worker = worker.clone().with_user_receipt(ReceiptCommand {
@@ -202,31 +206,41 @@ pub async fn accept(
     });
     settle(worker.run_user_async_proof_command_with_tail(
         actor, operation,
-        "SELECT rust_guest_invite_accept_read($1,$2,$3,$4,$5)::text",
+        "SELECT rust_guest_invite_accept_read($1,$2,$3,$4,$5,$6)::text",
         &[
             (&guest, Type::INT8),
             (&hash, Type::TEXT),
             (&bound, Type::TEXT),
             (&too_long, Type::BOOL),
             (&invalid_text, Type::BOOL),
+            (&digest, Type::BYTEA),
         ],
         move |rows: &[Row]| {
-            let v = verdict(rows);
+            let mut v = verdict(rows);
             let invite = v["invite_id"].as_i64();
             let status = v["status"].as_str().unwrap_or("reject").to_owned();
             let error = v["error"].as_str().unwrap_or("").to_owned();
             async move {
                 match (status.as_str(), invite) {
                     ("ready", Some(invite)) => {
-                        let hashed = tokio::task::spawn_blocking(move || setjoin_authz::password::hash(&candidate, profile))
-                            .await.map_err(|_| marker("guest invite hash task failed", None))?
-                            .map_err(|_| marker("guest invite hash failed", None))?;
+                        let history: Vec<String> = serde_json::from_value(v["history"].take())
+                            .map_err(|_| marker("guest invite history result", None))?;
+                        let hashed = tokio::task::spawn_blocking(move || {
+                            if password_was_used(&history, &candidate) {
+                                return Err(marker(INVALID, Some(REUSED_PASSWORD_ERROR.into())));
+                            }
+                            setjoin_authz::password::hash(&candidate, profile)
+                                .map_err(|_| marker("guest invite hash failed", None))
+                        })
+                        .await
+                        .map_err(|_| marker("guest invite hash task failed", None))??;
                         Ok(ProvenStatement::new("SELECT rust_guest_invite_accept_finish($1,$2,$3,$4,$5::text::inet)::text")
                             .bind(guest, Type::INT8).bind(invite, Type::INT8).bind(token, Type::TEXT)
                             .bind(hashed, Type::TEXT).bind(ip, Type::TEXT))
                     }
                     ("expired", _) => Ok(ProvenStatement::new("SELECT $1::text").bind(r#"{"status":"expired"}"#.to_owned(), Type::TEXT)),
                     ("invalid", _) => Err(marker(INVALID, Some(error))),
+                    ("common", _) => Err(marker(INVALID, Some(COMMON_PASSWORD_ERROR.into()))),
                     _ => Err(marker(REJECT, None)),
                 }
             }
