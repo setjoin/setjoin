@@ -146,7 +146,7 @@ impl<K: KeySource> RecoveryCommands<K> {
         }
         let feature_on = tokio::time::timeout(
             setjoin_authz::precheck_timeout(),
-            setjoin_authz::route_enabled(&self.exec, FEATURE),
+            setjoin_authz::gates::route_enabled(&self.exec, FEATURE),
         )
         .await
         .unwrap_or(false);
