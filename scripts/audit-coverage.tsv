@@ -28,9 +28,13 @@ admin_can_manage.sql	admin_can_manage	READ_ONLY	-	pure read path (guard re-deriv
 admin_can_manage.sql	admin_can_manage_with_permission	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_can_reach.sql	admin_can_reach	READ_ONLY	-	pure read path (guard re-derives no DML)
 import_export.sql	admin_can_reach_mailbox	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_org_wide_grant.sql	admin_can_reach_perm	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_org_wide_grant.sql	admin_domain_restriction	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_effective_authority.sql	admin_effective_authority	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_is_super.sql	admin_is_super	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_mailbox_in_group.sql	admin_mailbox_in_group	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_org_wide_grant.sql	admin_org_wide_grant	READ_ONLY	-	pure read path (guard re-derives no DML)
+admin_org_wide_grant.sql	admin_perm_unconfined	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_protection_check.sql	admin_protection_check	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_reset_password.sql	admin_reset_password	MUST	core	lifecycle/authority transition (WP3 core class)
 admin_role_activate.sql	admin_role_activate	MUST	core	lifecycle/authority transition (WP3 core class)
@@ -63,6 +67,7 @@ booking_pages.sql	booking_page_list	READ_ONLY	-	pure read path (guard re-derives
 booking_pages.sql	booking_page_public_get	READ_ONLY	-	pure read path (guard re-derives no DML)
 booking_pages.sql	booking_page_upsert	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
 booking_pages.sql	booking_slots	READ_ONLY	-	pure read path (guard re-derives no DML)
+boot_config_secret_apply.sql	boot_config_secret_apply	EXEMPT	-	startup config-secret encryption upgrade mechanics; pre-request boot path
 build_jmap_get_response.sql	build_jmap_get_response	READ_ONLY	-	pure read path (guard re-derives no DML)
 bulk_role_job_apply.sql	bulk_role_job_apply	MUST	core	grants/revokes admin_role_assignments — authority transitions per row (astra P2-5)
 jmap_contact_group.sql	bump_contact_group_state	READ_ONLY	-	pure read path (guard re-derives no DML)
@@ -327,6 +332,9 @@ drive_effective_access.sql	drive_runtime_capability_sources	READ_ONLY	-	pure rea
 drive_effective_access.sql	drive_runtime_capability_sources_set	READ_ONLY	-	pure read path (guard re-derives no DML)
 drive_effective_access.sql	drive_runtime_has_node_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
 drive_effective_access.sql	drive_runtime_has_space_root_capability	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_rust_list_spaces.sql	drive_rust_list_spaces	EXEMPT	-	write-by-delegation front door calling drive_space_create (EXEMPT) to lazily ensure personal space before listing
+drive_rust_node_patch.sql	drive_rust_node_patch	EXEMPT	-	write-by-delegation front door calling drive_node_rename and drive_node_move (EXEMPT)
+drive_rust_preview_audit.sql	drive_rust_preview_audit	EXEMPT	-	write-by-delegation front door calling drive_access_audit (EXEMPT)
 drive_search_nodes.sql	drive_search_nodes	READ_ONLY	-	pure read path (guard re-derives no DML)
 drive_share_approval_decide.sql	drive_share_approval_decide	EXEMPT	-	user-content/ACL mutation on owned Drive objects; access-authority transitions carry their own drive_access_audit trail
 drive_effective_access.sql	drive_space_access_role	READ_ONLY	-	pure read path (guard re-derives no DML)
@@ -590,6 +598,7 @@ jmap_email_submission.sql	jmap_email_submission_get	READ_ONLY	-	pure read path (
 jmap_email_submission.sql	jmap_email_submission_query	READ_ONLY	-	pure read path (guard re-derives no DML)
 jmap_email_submission.sql	jmap_email_submission_set	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
 jmap_entity_changes.sql	jmap_entity_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_identity_set_batch.sql	jmap_identity_set_batch	EXEMPT	-	write-by-delegation front door calling jmap_identity_set_create/update/destroy (jmap_identity_set_update is EXEMPT)
 jmap_identity.sql	jmap_identity_set_create	READ_ONLY	-	pure read path (guard re-derives no DML)
 jmap_identity.sql	jmap_identity_set_destroy	READ_ONLY	-	pure read path (guard re-derives no DML)
 jmap_identity.sql	jmap_identity_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
@@ -597,10 +606,12 @@ jmap_mailbox.sql	jmap_mailbox_changes	READ_ONLY	-	pure read path (guard re-deriv
 jmap_mailbox.sql	jmap_mailbox_get	READ_ONLY	-	pure read path (guard re-derives no DML)
 jmap_mailbox.sql	jmap_mailbox_query	READ_ONLY	-	pure read path (guard re-derives no DML)
 jmap_mailbox.sql	jmap_mailbox_query_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_mailbox_set_batch.sql	jmap_mailbox_set_batch	EXEMPT	-	write-by-delegation front door calling jmap_mailbox_set_create/update/destroy (EXEMPT)
 jmap_mailbox.sql	jmap_mailbox_set_create	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
 jmap_mailbox.sql	jmap_mailbox_set_destroy	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
 jmap_mailbox.sql	jmap_mailbox_set_update	EXEMPT	-	jmap sync-set user-content mutation; ownership-scoped (R1-R4), high-frequency protocol traffic with its own state journal
 jmap_thread.sql	jmap_search_snippet_get	READ_ONLY	-	pure read path (guard re-derives no DML)
+jmap_session_device_register.sql	jmap_session_device_register	EXEMPT	-	callee-backed wrapper delegating to offline_device_register (MUST/core, audited there)
 jmap_task.sql	jmap_task_changes	READ_ONLY	-	pure read path (guard re-derives no DML)
 jmap_task.sql	jmap_task_get	READ_ONLY	-	pure read path (guard re-derives no DML)
 jmap_task.sql	jmap_task_query	READ_ONLY	-	pure read path (guard re-derives no DML)
@@ -889,9 +900,171 @@ scheduled_actions_dispatch.sql	run_scheduled_action	READ_ONLY	-	pure read path (
 rust_device_checkin.sql	rust_device_checkin	EXEMPT	-	device telemetry and heartbeat; frozen Go writes no admin audit or notification
 rust_device_enroll_transition.sql	rust_device_enroll_transition	EXEMPT	-	delegates to device_enroll_transition (MUST/core), which writes the lifecycle audit and notifies on revocation
 rust_device_secret_reseal.sql	rust_device_secret_reseal	EXEMPT	-	credential storage maintenance; re-seals the same device secret without a lifecycle transition or notification
+rust_admin_app_password_revoke.sql	rust_admin_app_password_revoke	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_department_assign_user.sql	rust_admin_department_assign_user	EXEMPT	-	admin directory/department assignment; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_department_create.sql	rust_admin_department_create	EXEMPT	-	admin directory/department CRUD; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_department_delete.sql	rust_admin_department_delete	EXEMPT	-	admin directory/department CRUD; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_department_update.sql	rust_admin_department_update	EXEMPT	-	admin directory/department CRUD; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_eap_reorder.sql	rust_admin_eap_reorder	EXEMPT	-	email-address policy priority reorder; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_folder_create.sql	rust_admin_folder_create	EXEMPT	-	mailbox folder/tag user-content CRUD; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_folder_delete.sql	rust_admin_folder_delete	EXEMPT	-	mailbox folder/tag user-content CRUD; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_folder_update.sql	rust_admin_folder_update	EXEMPT	-	mailbox folder/tag user-content CRUD; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_admin_group_mappings_put.sql	rust_admin_group_mappings_put	EXEMPT	-	SSO group-mapping configuration (frozen Go parity); outside the frozen WP3 MUST classes (candidate for future policy round)
+rust_admin_mailbox_delete.sql	rust_admin_mailbox_delete	EXEMPT	-	legacy compatibility mailbox deletion when mailbox_lifecycle_enabled=false (frozen Go parity); lifecycle-enabled purge audits in mailbox_purge_execute (MUST/core)
+rust_admin_role_assign.sql	rust_admin_role_assign	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_role_create.sql	rust_admin_role_create	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_role_delete.sql	rust_admin_role_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_role_remove.sql	rust_admin_role_remove	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_role_update.sql	rust_admin_role_update	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_scope_set_create.sql	rust_admin_scope_set_create	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_scope_set_delete.sql	rust_admin_scope_set_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_scope_set_member_add.sql	rust_admin_scope_set_member_add	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_scope_set_member_remove.sql	rust_admin_scope_set_member_remove	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_scope_set_update.sql	rust_admin_scope_set_update	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_admin_user_create.sql	rust_admin_user_create	EXEMPT	-	callee-backed wrapper delegating to provision_account (MUST/core, audited there)
+rust_admin_user_delete.sql	rust_admin_user_delete	EXEMPT	-	legacy compatibility user deletion when mailbox_lifecycle_enabled=false (frozen Go parity); candidate for WP3 core audit parity with scim_delete_user
+rust_admin_user_secure.sql	rust_admin_user_secure	EXEMPT	-	callee-backed wrapper delegating to secure_account (MUST/core, audited there)
+rust_admin_user_sign_ins.sql	rust_admin_user_sign_ins	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_admin_user_update.sql	rust_admin_user_update	EXEMPT	-	admin user patch (display_name/enabled/is_local_admin via dynamic EXECUTE, frozen Go parity); candidate for WP3 core audit parity with scim_disable_user
+rust_approval_policy_create.sql	rust_approval_policy_create	EXEMPT	-	caller-audited at tier core in Rust gateway (approvals.rs calls setjoin_approvals::audit_policy_created, mirroring frozen Go)
+rust_approval_policy_delete.sql	rust_approval_policy_delete	EXEMPT	-	caller-audited at tier core in Rust gateway (approvals.rs calls setjoin_approvals::audit_policy_change, mirroring frozen Go)
+rust_approval_policy_reorder.sql	rust_approval_policy_reorder	EXEMPT	-	caller-audited at tier core in Rust gateway (approvals.rs calls setjoin_approvals::audit_policy_change, mirroring frozen Go)
+rust_approval_policy_update.sql	rust_approval_policy_update	EXEMPT	-	caller-audited at tier core in Rust gateway (approvals.rs calls setjoin_approvals::audit_policy_change, mirroring frozen Go)
+rust_ca_policy_reach.sql	rust_ca_audit_priority_ok	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_ca_policy_reach.sql	rust_ca_policy_audit_reach	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_ca_policy_reach.sql	rust_ca_policy_reorder	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_ca_policy_reach.sql	rust_ca_policy_row_reach	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_ca_policy.sql	rust_ca_policy_save	EXEMPT	-	callee-backed wrapper delegating to ca_policy_upsert and set_session_control (both MUST/core, audited there)
+rust_ca_policy_reach.sql	rust_ca_policy_scope_reach	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_ca_policy_reach.sql	rust_ca_priority_floor	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_ca_policy_reach.sql	rust_ca_priority_ok	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_calendar_subscribe.sql	rust_calendar_subscribe	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
+rust_compliance_audit_policy_set.sql	rust_compliance_audit_policy_set	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_case_close.sql	rust_compliance_case_close	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_chat_command.sql	rust_compliance_chat_command	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_chat_policy.sql	rust_compliance_chat_policy	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_export_authorize.sql	rust_compliance_export_authorize	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_log_prune.sql	rust_compliance_log_prune	EXEMPT	-	GC/retention mechanics delegating to prune_log_tables()
+rust_compliance_log_retention_set.sql	rust_compliance_log_retention_set	EXEMPT	-	log-retention day thresholds in system_config; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_compliance_message_hold.sql	rust_compliance_message_hold	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_retention_create.sql	rust_compliance_retention_create	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_retention_delete.sql	rust_compliance_retention_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_retention_update.sql	rust_compliance_retention_update	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_compliance_search_complete.sql	rust_compliance_search_complete	EXEMPT	-	async eDiscovery search worker completion mechanics; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_contacts_import_remove.sql	rust_contacts_import_remove	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+rust_contacts_import_write.sql	rust_contacts_import_write	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+rust_drive_audit_view.sql	rust_drive_audit_view	EXEMPT	-	write-by-delegation front door calling drive_access_audit (EXEMPT)
+rust_drive_content_meta.sql	rust_drive_content_meta	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_drive_restore_version.sql	rust_drive_restore_version	EXEMPT	-	write-by-delegation front door calling drive_file_restore_version (user-content version restore)
+rust_guest_invite.sql	rust_guest_approval_decide	EXEMPT	-	callee-backed wrapper delegating to guest_invite_approval_decide and rust_guest_invite_prepare (MUST/core, audited there)
+rust_guest_invite.sql	rust_guest_invite	EXEMPT	-	callee-backed wrapper delegating to provision_account, guest_profile_apply, and guest_invite_create (MUST/core, audited there)
+rust_guest_invite_accept.sql	rust_guest_invite_accept_finish	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_guest_invite_accept.sql	rust_guest_invite_accept_read	EXEMPT	-	guest invite expiry bookkeeping during acceptance preflight; acceptance audits in rust_guest_invite_accept_finish (MUST/core)
+rust_guest_invite_disclosure.sql	rust_guest_invite_disclosure	EXEMPT	-	guest invite disclosure version stamp during acceptance preflight; outside the frozen WP3 MUST classes
+rust_guest_invite.sql	rust_guest_invite_prepare	EXEMPT	-	callee-backed wrapper delegating to guest_invite_create (MUST/core, audited there)
+rust_guest_invite.sql	rust_guest_invite_revoke	EXEMPT	-	callee-backed wrapper delegating to guest_invite_revoke (MUST/core, audited there)
+rust_guest_profile_save.sql	rust_guest_profile_save	EXEMPT	-	callee-backed wrapper delegating to guest_profile_set (MUST/core, audited there)
+rust_guest_invite.sql	rust_guest_reinvite	EXEMPT	-	callee-backed wrapper delegating to guest_set_status and guest_invite_create (MUST/core, audited there)
+rust_guest_status.sql	rust_guest_status	EXEMPT	-	callee-backed wrapper delegating to guest_set_status (MUST/core, audited there)
+rust_identity_backup_generate.sql	rust_identity_backup_generate	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_device_register.sql	rust_identity_device_register	EXEMPT	-	self-service device registration/heartbeat mechanics (devices + device_events); outside the frozen WP3 MUST classes
+rust_identity_login_mint.sql	rust_identity_login_mint	EXEMPT	-	auth/session refresh-token minting mechanics; high-frequency login flow
+rust_identity_mfa_bootstrap_grant.sql	rust_identity_mfa_bootstrap_grant	EXEMPT	-	auth/MFA ephemeral step-up grant mechanics (mfa_reauth_step_ups); high-frequency session flow
+rust_identity_mfa_mint.sql	rust_identity_mfa_mint	EXEMPT	-	auth/session refresh-token minting mechanics after MFA; high-frequency login flow
+rust_identity_native_register.sql	rust_identity_native_register	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_oidc_consume.sql	rust_identity_oidc_consume	EXEMPT	-	OIDC single-use authorization code consumption mechanics; high-frequency auth flow
+rust_identity_oidc_lookup.sql	rust_identity_oidc_refresh_anchor	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_oidc_reuse.sql	rust_identity_oidc_reuse	EXEMPT	-	OIDC refresh-token reuse family revocation mechanics; auth/session state
+rust_identity_oidc_lookup.sql	rust_identity_oidc_revoke_target	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_oidc_rotate.sql	rust_identity_oidc_rotate	EXEMPT	-	OIDC refresh-token rotation mechanics; high-frequency auth/session state
+rust_identity_oidc_lookup.sql	rust_identity_oidc_token_owner	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_password_write.sql	rust_identity_password_write	EXEMPT	-	auth/credential self-service password change/reset; session revocation audited via revoke_user_sessions (MUST/core)
+rust_identity_possession_consume.sql	rust_identity_possession_consume	EXEMPT	-	auth/MFA single-use step-up proof consumption mechanics
+rust_identity_possession_issue.sql	rust_identity_possession_issue	EXEMPT	-	auth/MFA password possession step-up issuance and lockout counter mechanics
+rust_identity_possession_read.sql	rust_identity_possession_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_possession_totp_issue.sql	rust_identity_possession_totp_issue	EXEMPT	-	auth/MFA TOTP possession step-up issuance mechanics
+rust_identity_possession_totp_read.sql	rust_identity_possession_totp_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_possession_webauthn_begin.sql	rust_identity_possession_webauthn_begin	EXEMPT	-	auth/MFA WebAuthn management ceremony setup mechanics
+rust_identity_possession_webauthn_finish.sql	rust_identity_possession_webauthn_finish	EXEMPT	-	auth/MFA WebAuthn management ceremony verification and lockout mechanics
+rust_identity_possession_webauthn_finish.sql	rust_identity_possession_webauthn_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_push_approve.sql	rust_identity_push_approval_finish	EXEMPT	-	auth/MFA push challenge state mechanics (push_mfa_challenges)
+rust_identity_push_approve.sql	rust_identity_push_approval_read	EXEMPT	-	read path with FOR UPDATE OF row lock that matches guard DML regex; no data mutation
+rust_identity_recovery_budget.sql	rust_identity_recovery_budget	EXEMPT	-	auth recovery rate-limit budget mechanics delegating to recovery_budget_acquire/record
+rust_identity_recovery_push.sql	rust_identity_recovery_push_finish	EXEMPT	-	auth recovery push MFA verification and lockout mechanics
+rust_identity_recovery_push.sql	rust_identity_recovery_push_read	EXEMPT	-	auth lockout/recovery preflight delegating to push_lockout_count_locked
+rust_identity_refresh.sql	rust_identity_refresh	EXEMPT	-	auth/session refresh-token rotation mechanics; delegates reuse revocation to revoke_user_sessions (MUST/core)
+rust_identity_rp_link_begin.sql	rust_identity_rp_link_begin	EXEMPT	-	IdP-sync/federated link wrapper delegating to identity_auth_link_elevation_begin (EXEMPT)
+rust_identity_rp_link_finish.sql	rust_identity_rp_link_finish	EXEMPT	-	IdP-sync/federated link wrapper delegating to identity_auth_link_authorized and identity_entitlements_reconcile_sso (EXEMPT)
+rust_identity_rp_link_hold.sql	rust_identity_rp_link_hold	EXEMPT	-	IdP-sync ephemeral OIDC link completion hold mechanics
+rust_identity_rp_link_take.sql	rust_identity_rp_link_take	EXEMPT	-	IdP-sync ephemeral OIDC link completion consume mechanics
+rust_identity_rp_map.sql	rust_identity_rp_map	EXEMPT	-	IdP-sync/JIT machine flow keyed to external provider claims; high-frequency, provider holds the identity authority
+rust_identity_rp_mint.sql	rust_identity_rp_mint	EXEMPT	-	auth/session federated refresh-token minting mechanics
+rust_identity_rp_reseal.sql	rust_identity_rp_reseal	EXEMPT	-	startup OIDC client_secret resealing mechanics in system_config
+rust_identity_rp_settle.sql	rust_identity_rp_settle	EXEMPT	-	IdP-sync/JIT wrapper delegating to rust_identity_rp_map and identity_entitlements_reconcile_sso (EXEMPT)
+rust_identity_saml_consume.sql	rust_identity_saml_consume	EXEMPT	-	SAML single-use assertion/request replay-cache consumption mechanics
+rust_identity_saml_link_begin.sql	rust_identity_saml_link_begin	EXEMPT	-	IdP-sync/federated link wrapper delegating to identity_auth_link_elevation_begin (EXEMPT)
+rust_identity_saml_link_finish.sql	rust_identity_saml_link_finish	EXEMPT	-	IdP-sync/federated link wrapper delegating to identity_auth_link_authorized and identity_entitlements_reconcile_sso (EXEMPT)
+rust_identity_saml_link_hold.sql	rust_identity_saml_link_hold	EXEMPT	-	IdP-sync ephemeral SAML link completion hold mechanics
+rust_identity_saml_link_take.sql	rust_identity_saml_link_take	EXEMPT	-	IdP-sync ephemeral SAML link completion consume mechanics
+rust_identity_signin_record.sql	rust_identity_signin_record	EXEMPT	-	the row written to login_events IS the login-security trail (its own ledger)
+rust_identity_smime_cert_default.sql	rust_identity_smime_cert_default	EXEMPT	-	user preference/content mutation on own S/MIME certificates; ownership-scoped
+rust_identity_smime_cert_delete.sql	rust_identity_smime_cert_delete	EXEMPT	-	user preference/content mutation on own S/MIME certificates; ownership-scoped
+rust_identity_totp_bootstrap_confirm.sql	rust_identity_totp_bootstrap_confirm	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_totp_bootstrap_fail.sql	rust_identity_totp_bootstrap_fail	EXEMPT	-	auth/MFA TOTP bootstrap lockout counter mechanics
+rust_identity_totp_bootstrap_read.sql	rust_identity_totp_bootstrap_read	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_totp_bootstrap_setup.sql	rust_identity_totp_bootstrap_setup	EXEMPT	-	auth/MFA pending TOTP bootstrap enrollment staging mechanics
+rust_identity_totp_confirm.sql	rust_identity_totp_confirm	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_totp_confirm_read.sql	rust_identity_totp_confirm_read	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_totp_cycle.sql	rust_identity_totp_cycle	EXEMPT	-	auth/MFA TOTP counter-replay and lockout mechanics
+rust_identity_totp_cycle_read.sql	rust_identity_totp_cycle_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_totp_remove.sql	rust_identity_totp_remove	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_totp_setup.sql	rust_identity_totp_setup	EXEMPT	-	auth/MFA pending TOTP enrollment staging mechanics
+rust_identity_unlink.sql	rust_identity_unlink	EXEMPT	-	IdP-sync wrapper delegating to identity_auth_unlink (EXEMPT)
+rust_identity_webauthn_begin.sql	rust_identity_webauthn_begin	EXEMPT	-	auth/MFA WebAuthn registration ceremony setup mechanics
+rust_identity_webauthn_fence.sql	rust_identity_webauthn_fence	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_webauthn_finish.sql	rust_identity_webauthn_finish	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_identity_webauthn_login_claim.sql	rust_identity_webauthn_login_claim	EXEMPT	-	auth/MFA passkey login replay protection and counter update mechanics
+rust_identity_webauthn_registration_read.sql	rust_identity_webauthn_registration_read	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_identity_webauthn_revoke.sql	rust_identity_webauthn_revoke	EXEMPT	-	auth/MFA self-service flow mirrored from Go authserver; writes directly to admin_audit_log without audit_write()
+rust_mailsec_dlp.sql	rust_mailsec_dlp_patterns_replace	EXEMPT	-	mail-security DLP pattern configuration; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mailsec_threat.sql	rust_mailsec_ip_rule_create	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_mailsec_threat.sql	rust_mailsec_ip_rule_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_mailsec_quarantine.sql	rust_mailsec_quarantine_reject	EXEMPT	-	per-message quarantine flow outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mailsec_quarantine.sql	rust_mailsec_quarantine_release	EXEMPT	-	per-message quarantine flow outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mailsec_queue.sql	rust_mailsec_queue_bounce	EXEMPT	-	outbound mail-queue transport mechanics; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mailsec_queue.sql	rust_mailsec_queue_retry	EXEMPT	-	outbound mail-queue transport mechanics; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mailsec_spam.sql	rust_mailsec_report	MUST	routine	user spam/phish report; row only at audit_policy full
+rust_mailsec_spam.sql	rust_mailsec_sender_list_replace	EXEMPT	-	user preference/content mutation (legacy sender_control_center OFF path); ownership-scoped
+rust_mailsec_spam.sql	rust_mailsec_sender_never_block	EXEMPT	-	user preference/content mutation (legacy sender_control_center OFF path); ownership-scoped
+rust_mailsec_smime.sql	rust_mailsec_smime_anchor_delete	EXEMPT	-	mail-security S/MIME trust-anchor store; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mailsec_smime.sql	rust_mailsec_smime_anchor_import	EXEMPT	-	mail-security S/MIME trust-anchor store; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mailsec_tls.sql	rust_mailsec_tls_config_set	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_mailsec_tls.sql	rust_mailsec_tls_policy_set	EXEMPT	-	outbound TLS policy configuration in system_config; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mam_device_policy_set.sql	rust_mam_device_policy_set	EXEMPT	-	MAM device policy configuration; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mam_global_policy_set.sql	rust_mam_global_policy_set	EXEMPT	-	MAM global policy configuration; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mam_group_policy_set.sql	rust_mam_group_policy_set	EXEMPT	-	MAM group policy configuration; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mdm_policy_delete.sql	rust_mdm_policy_delete	EXEMPT	-	MDM policy configuration delete; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_mdm_policy_reorder.sql	rust_mdm_policy_reorder	EXEMPT	-	MDM policy priority reorder; outside the frozen WP3 MUST classes (frozen Go parity)
+rust_migration_apply_aux_object.sql	rust_migration_apply_aux_object	EXEMPT	-	upgrade-program mechanics delegating to migration_aux_object_begin/complete and jmap/calendar importers (EXEMPT)
+rust_offline_command.sql	rust_offline_command	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_offline_device_prefs.sql	rust_offline_device_set_preferences	EXEMPT	-	callee-backed wrapper delegating to offline_device_set_preferences (MUST/routine, audited there)
+rust_offline_devices_pending.sql	rust_offline_devices_pending	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_platform_sod_mode_set.sql	rust_platform_sod_mode_set	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_platform_tou_create.sql	rust_platform_tou_create	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_platform_tou_delete.sql	rust_platform_tou_delete	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_platform_tou_update.sql	rust_platform_tou_update	MUST	core	lifecycle/authority transition (WP3 core class)
+rust_platform_welcome_test_send.sql	rust_platform_welcome_test_send	EXEMPT	-	admin welcome-email test delivery delegating to deliver() (EXEMPT)
+rust_settings_sessions.sql	rust_secure_account_self	EXEMPT	-	callee-backed self-service wrapper delegating to secure_account (MUST/core, audited there)
+rust_settings_sessions.sql	rust_session_revoke_one	EXEMPT	-	self-service session revocation; delegates to revoke_user_sessions (MUST/core) for web/family sessions (legacy single-token fallback matches Go)
+rust_settings_sessions.sql	rust_sessions_revoke_all	EXEMPT	-	callee-backed self-service wrapper delegating to revoke_user_sessions (MUST/core, audited there)
+rust_settings_signature.sql	rust_settings_signature_put	EXEMPT	-	user preference/content mutation; ownership-scoped, high-frequency
+rust_settings_undo_delay.sql	rust_settings_undo_delay_put	EXEMPT	-	user preference/content mutation; ownership-scoped, high-frequency
 rust_smtp_imip.sql	rust_smtp_imip_cancel_occurrence	EXEMPT	-	inbound calendar-content mutation; matches the recipient mailbox and organizer before marking one recurrence excluded
 rust_smtp_imip.sql	rust_smtp_imip_request_apply	EXEMPT	-	inbound calendar-content mutation; rechecks the recipient context before creating an event or updating an occurrence
 rust_smtp_imip.sql	rust_smtp_imip_request_gate	EXEMPT	-	inbound transport rate limiting; matches the attendee to the envelope recipient's mailbox owner and charges the recipient rate counter
+rust_smtp_inbound_security.sql	rust_smtp_inbound_security	EXEMPT	-	inbound SMTP delivery front door delegating to group_moderation_hold, smtp_inbound_deliver, and quarantine_message (EXEMPT)
+rust_vip_senders.sql	rust_vip_sender_set	EXEMPT	-	write-by-delegation wrapper delegating to vip_sender_set (EXEMPT)
+rust_vip_senders.sql	rust_vip_senders_list	READ_ONLY	-	pure read path (guard re-derives no DML)
 saved_searches.sql	saved_search_delete	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 saved_searches.sql	saved_search_list	READ_ONLY	-	pure read path (guard re-derives no DML)
 saved_searches.sql	saved_search_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
