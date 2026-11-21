@@ -1656,3 +1656,681 @@ async fn webpush_unauthenticated() {
 #[tokio::test]async fn impersonate_repeat(){run("impersonate","repeat",false).await.unwrap();}
 
 #[tokio::test]async fn bootstrap_unicode_surrogate(){run("bootstrap","unicode-surrogate",false).await.unwrap();}
+
+async fn gateway_front_door(
+    auth: std::net::SocketAddr,
+    go_upstream: Option<std::net::SocketAddr>,
+    exec: setjoin_pg::ScopedExecutor,
+    secret: &str,
+) -> Server {
+    let keys = setjoin_gateway::jmap::jwks::Jwks::with_fetch(Box::new(|| {
+        Box::pin(async { Ok(br#"{"keys":[]}"#.to_vec()) })
+    }))
+    .with_legacy_keys(
+        setjoin_authz::legacy_jwt::LegacyKeys::new(secret.as_bytes(), &["authserver-hmac-1"], None)
+            .unwrap(),
+    );
+    let table =
+        RouteTable::proxy_all().with_admission(exec, Arc::new(keys), "mailserver".into(), None);
+    let gw = Gateway::new(
+        setjoin_gateway::Config {
+            upstream: go_upstream.map(|addr| format!("http://{addr}").parse().unwrap()),
+            upstream_header_timeout: std::time::Duration::from_secs(30),
+            trusted_proxies: TrustedProxies::parse("").unwrap(),
+            edge_limit: Some(setjoin_gateway::jmap::limit::EdgeLimit::for_front_door(
+                setjoin_gateway::jmap::limit::Limiter::new(60000, 60),
+            )),
+        },
+        table,
+    )
+    .unwrap()
+    .with_inventory(setjoin_gateway::inventory::BUNDLED)
+    .unwrap()
+    .with_rust_auth_upstream(format!("http://{auth}").parse().unwrap())
+    .unwrap();
+    let gw = if let Some(addr) = go_upstream {
+        gw.with_auth_upstream(format!("http://{addr}").parse().unwrap())
+            .unwrap()
+    } else {
+        gw
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, rx) = oneshot::channel();
+    let task = tokio::spawn(gw.serve_until(listener, async {
+        let _ = rx.await;
+    }));
+    Server {
+        stop: Some(tx),
+        task,
+        addr,
+    }
+}
+
+fn sign_member_token(
+    secret: &str,
+    user: i64,
+    email: &str,
+    extra: Option<(&str, Value)>,
+    exp_offset: i64,
+    typ: &str,
+) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let mut claims = json!({
+        "uid": user,
+        "email": email,
+        "typ": typ,
+        "iss": "mailserver",
+        "aud": ["mailserver-gateway"],
+        "iat": now,
+        "exp": now + exp_offset,
+        "jti": format!("gw363-{}", uuid::Uuid::new_v4()),
+    });
+    if let Some((k, v)) = extra {
+        claims[k] = v;
+    }
+    format!(
+        "Bearer {}",
+        setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &claims.to_string())
+    )
+}
+
+async fn setup_terms_gateway_fixture(
+    c: &tokio_postgres::Client,
+    db: &Db,
+    go_auth: Option<std::net::SocketAddr>,
+) -> Result<(String, Seed, i64, Server, Server, Vec<String>), Err> {
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await?;
+    common::signing_key(c).await;
+    let receipts = common::receipt_ids(c).await;
+    let mut seed = Seed::create(c).await?;
+    let tou: i64 = c
+        .query_one(
+            "INSERT INTO terms_of_use(name,body_md) VALUES('gw363-policy','# Policy\nAgree') RETURNING id",
+            &[],
+        )
+        .await?
+        .get(0);
+    seed.tou = Some(tou);
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))?;
+    let secret = keys["secret"].as_str().unwrap().to_owned();
+    let mut cfg = Config::for_secret(secret.clone());
+    if let Some(addr) = go_auth {
+        cfg.go_upstream = Some(format!("http://{addr}"));
+    }
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+        .map_err(|e| e.0)?;
+    let auth = auth_server(Arc::new(AuthServer::load(exec.clone(), cfg).await?), false).await;
+    let gw = gateway_front_door(auth.addr, go_auth, exec, &secret).await;
+    Ok((secret, seed, tou, auth, gw, receipts))
+}
+
+async fn cleanup_terms_gateway(
+    c: &tokio_postgres::Client,
+    seed: &Seed,
+    receipts: &[String],
+) -> Result<(), Err> {
+    seed.cleanup(c).await?;
+    common::restore_receipts(c, receipts).await;
+    c.query_one(
+        "SELECT pg_advisory_unlock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await?;
+    Ok(())
+}
+
+async fn assert_zero_go_hops(addr: std::net::SocketAddr) -> Result<(), Err> {
+    let (_, _, metrics) = request(addr, "GET", "/_gateway/metrics", String::new(), &[]).await?;
+    if !metrics.contains("setjoin_gateway_proxied_to_go_total 0") {
+        return Err(format!("unexpected Go hop: {metrics}").into());
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn terms_gateway_pending_and_api_alias() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("GW363-terms-pending").expect("database required");
+    let c = db.connect().await?;
+    let (secret, seed, _, auth, gw, receipts) = setup_terms_gateway_fixture(&c, &db, None).await?;
+    let token = sign_member_token(&secret, seed.a.user, &seed.email, None, 3600, "access");
+    let expired = sign_member_token(&secret, seed.a.user, &seed.email, None, -10, "access");
+    let refresh = sign_member_token(&secret, seed.a.user, &seed.email, None, 3600, "refresh");
+
+    let res = async {
+        for path in ["/terms/pending", "/api/terms/pending"] {
+            let (status, headers, raw) = request(
+                gw.addr,
+                "GET",
+                path,
+                String::new(),
+                &[("authorization", &token), ("host", "mail.test")],
+            )
+            .await?;
+            assert_eq!(status, 200, "GET {path}: {raw}");
+            assert_eq!(headers["cache-control"], "no-store");
+            assert_eq!(headers["x-content-type-options"], "nosniff");
+            let parsed: Value = serde_json::from_str(&raw)?;
+            assert!(parsed["terms"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t["name"] == "gw363-policy"));
+
+            let (head_status, head_headers, head_raw) = request(
+                gw.addr,
+                "HEAD",
+                path,
+                String::new(),
+                &[("authorization", &token), ("host", "mail.test")],
+            )
+            .await?;
+            assert_eq!(head_status, 200);
+            assert!(head_raw.is_empty());
+            assert_eq!(
+                head_headers["content-length"],
+                raw.len().to_string(),
+                "HEAD {path}"
+            );
+
+            for (label, bad) in [
+                ("missing", "Bearer invalid"),
+                ("expired", expired.as_str()),
+                ("wrong-type", refresh.as_str()),
+            ] {
+                let (st, _, body) = request(
+                    gw.addr,
+                    "GET",
+                    path,
+                    String::new(),
+                    &[("authorization", bad), ("host", "mail.test")],
+                )
+                .await?;
+                assert_eq!(st, 401, "{path} {label}: {body}");
+            }
+        }
+        assert_zero_go_hops(gw.addr).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+
+    gw.close().await;
+    auth.close().await;
+    cleanup_terms_gateway(&c, &seed, &receipts).await?;
+    res
+}
+
+#[tokio::test]
+async fn terms_gateway_accept_and_api_alias() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("GW363-terms-accept").expect("database required");
+    let c = db.connect().await?;
+    let (secret, seed, tou, auth, gw, receipts) =
+        setup_terms_gateway_fixture(&c, &db, None).await?;
+    let token = sign_member_token(&secret, seed.a.user, &seed.email, None, 3600, "access");
+    let tou2: i64 = c
+        .query_one(
+            "INSERT INTO terms_of_use(name,body_md) VALUES('gw363-policy-2','# Policy 2') RETURNING id",
+            &[],
+        )
+        .await?
+        .get(0);
+
+    let res = async {
+        let (st_unauth, _, _) = request(
+            gw.addr,
+            "POST",
+            "/api/terms/accept",
+            json!({"tou_id": tou, "version": 1}).to_string(),
+            &[("host", "mail.test"), ("origin", "http://mail.test")],
+        )
+        .await?;
+        assert_eq!(st_unauth, 401);
+
+        let (st_stale, _, stale_body) = request(
+            gw.addr,
+            "POST",
+            "/api/terms/accept",
+            json!({"tou_id": tou, "version": 2}).to_string(),
+            &[
+                ("authorization", &token),
+                ("host", "mail.test"),
+                ("origin", "http://mail.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(
+            st_stale, 409,
+            "stale version should return BZ102 409: {stale_body}"
+        );
+
+        let (st_ok_root, headers_root, _) = request(
+            gw.addr,
+            "POST",
+            "/terms/accept",
+            json!({"tou_id": tou, "version": 1}).to_string(),
+            &[
+                ("authorization", &token),
+                ("host", "mail.test"),
+                ("origin", "http://mail.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st_ok_root, 204);
+        assert_eq!(headers_root["cache-control"], "no-store");
+        assert_eq!(headers_root["x-content-type-options"], "nosniff");
+
+        let (st_ok_api, headers_api, _) = request(
+            gw.addr,
+            "POST",
+            "/api/terms/accept",
+            json!({"tou_id": tou2, "version": 1}).to_string(),
+            &[
+                ("authorization", &token),
+                ("host", "mail.test"),
+                ("origin", "http://mail.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st_ok_api, 204);
+        assert_eq!(headers_api["cache-control"], "no-store");
+
+        c.execute(
+            "UPDATE terms_of_use SET enabled=false WHERE id=$1",
+            &[&tou2],
+        )
+        .await?;
+        let (st_disabled, _, _) = request(
+            gw.addr,
+            "POST",
+            "/api/terms/accept",
+            json!({"tou_id": tou2, "version": 1}).to_string(),
+            &[
+                ("authorization", &token),
+                ("host", "mail.test"),
+                ("origin", "http://mail.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st_disabled, 409);
+
+        assert_zero_go_hops(gw.addr).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+
+    gw.close().await;
+    auth.close().await;
+    c.execute("DELETE FROM terms_of_use WHERE id=$1", &[&tou2])
+        .await?;
+    cleanup_terms_gateway(&c, &seed, &receipts).await?;
+    res
+}
+
+#[tokio::test]
+async fn terms_gateway_outer_csrf() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("GW363-terms-csrf").expect("database required");
+    let c = db.connect().await?;
+    let (secret, seed, tou, auth, gw, receipts) =
+        setup_terms_gateway_fixture(&c, &db, None).await?;
+    let token = sign_member_token(&secret, seed.a.user, &seed.email, None, 3600, "access");
+
+    let res = async {
+        for path in ["/terms/accept", "/api/terms/accept"] {
+            let (st, headers, raw) = request(
+                gw.addr,
+                "POST",
+                path,
+                json!({"tou_id": tou, "version": 1}).to_string(),
+                &[
+                    ("authorization", &token),
+                    ("host", "mail.test"),
+                    ("origin", "https://evil.test"),
+                ],
+            )
+            .await?;
+            assert_eq!(st, 403, "CSRF on {path}: {raw}");
+            assert_eq!(headers["cache-control"], "no-store");
+            assert_eq!(headers["x-content-type-options"], "nosniff");
+            assert!(raw.contains("csrf_failed"), "unexpected CSRF body: {raw}");
+        }
+        let rows: i64 = c
+            .query_one(
+                "SELECT count(*) FROM terms_of_use_acceptance WHERE user_id=$1 AND tou_id=$2",
+                &[&seed.a.user, &tou],
+            )
+            .await?
+            .get(0);
+        assert_eq!(rows, 0, "outer CSRF must block before authserverd runs");
+        assert_zero_go_hops(gw.addr).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+
+    gw.close().await;
+    auth.close().await;
+    cleanup_terms_gateway(&c, &seed, &receipts).await?;
+    res
+}
+
+#[tokio::test]
+async fn terms_gateway_rate_limit() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("GW363-terms-ratelimit").expect("database required");
+    let c = db.connect().await?;
+    let (secret, seed, tou, auth, gw, receipts) =
+        setup_terms_gateway_fixture(&c, &db, None).await?;
+    let token = sign_member_token(&secret, seed.a.user, &seed.email, None, 3600, "access");
+
+    let res = async {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        let remaining = 900 - now % 900;
+        if remaining <= 30 {
+            tokio::time::sleep(std::time::Duration::from_secs(remaining + 1)).await;
+        }
+        for i in 0..20 {
+            let path = if i % 2 == 0 {
+                "/terms/pending"
+            } else {
+                "/api/terms/pending"
+            };
+            let (st, _, raw) = request(
+                gw.addr,
+                "GET",
+                path,
+                String::new(),
+                &[("authorization", &token), ("host", "mail.test")],
+            )
+            .await?;
+            assert_eq!(st, 200, "request #{i} {path}: {raw}");
+        }
+        let (st_pending, headers, body) = request(
+            gw.addr,
+            "GET",
+            "/api/terms/pending",
+            String::new(),
+            &[("authorization", &token), ("host", "mail.test")],
+        )
+        .await?;
+        assert_eq!(st_pending, 429, "21st request must 429: {body}");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert!(body.contains("rate limit exceeded"));
+
+        let (st_accept, _, accept_body) = request(
+            gw.addr,
+            "POST",
+            "/api/terms/accept",
+            json!({"tou_id": tou, "version": 1}).to_string(),
+            &[
+                ("authorization", &token),
+                ("host", "mail.test"),
+                ("origin", "http://mail.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(
+            st_accept, 429,
+            "shared authLimit bucket must 429: {accept_body}"
+        );
+        assert_zero_go_hops(gw.addr).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+
+    gw.close().await;
+    auth.close().await;
+    cleanup_terms_gateway(&c, &seed, &receipts).await?;
+    res
+}
+
+#[tokio::test]
+async fn terms_gateway_guest_admission() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("GW363-terms-guest").expect("database required");
+    let c = db.connect().await?;
+    let (secret, seed, tou, auth, gw, receipts) =
+        setup_terms_gateway_fixture(&c, &db, None).await?;
+    let guest_token = sign_member_token(
+        &secret,
+        seed.a.user,
+        &seed.email,
+        Some(("acct", json!("guest"))),
+        3600,
+        "access",
+    );
+    let old_feature = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'",
+            &[],
+        )
+        .await?
+        .map(|r| r.get::<_, bool>(0));
+
+    let res = async {
+        for path in ["/terms/pending", "/api/terms/pending"] {
+            let (st, _, raw) = request(
+                gw.addr,
+                "GET",
+                path,
+                String::new(),
+                &[("authorization", &guest_token), ("host", "mail.test")],
+            )
+            .await?;
+            assert_eq!(st, 401, "inactive guest claim on {path}: {raw}");
+        }
+
+        c.execute(
+            "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) VALUES($1,$2,'inviter@idlogin3.test',$3,'active')",
+            &[&seed.a.user, &seed.email, &seed.a.domain],
+        )
+        .await?;
+        c.execute(
+            "INSERT INTO feature_toggles(key,enabled) VALUES('feature.guest_accounts',true) ON CONFLICT(key) DO UPDATE SET enabled=true",
+            &[],
+        )
+        .await?;
+
+        for (method, path, payload) in [
+            ("GET", "/terms/pending", String::new()),
+            ("GET", "/api/terms/pending", String::new()),
+            (
+                "POST",
+                "/terms/accept",
+                json!({"tou_id": tou, "version": 1}).to_string(),
+            ),
+            (
+                "POST",
+                "/api/terms/accept",
+                json!({"tou_id": tou, "version": 1}).to_string(),
+            ),
+        ] {
+            let (st, _, raw) = request(
+                gw.addr,
+                method,
+                path,
+                payload,
+                &[
+                    ("authorization", &guest_token),
+                    ("host", "mail.test"),
+                    ("origin", "http://mail.test"),
+                ],
+            )
+            .await?;
+            assert_eq!(st, 404, "active guest {method} {path}: {raw}");
+        }
+        assert_zero_go_hops(gw.addr).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+
+    gw.close().await;
+    auth.close().await;
+    c.execute(
+        "DELETE FROM guest_accounts WHERE user_id=$1",
+        &[&seed.a.user],
+    )
+    .await?;
+    if let Some(prev) = old_feature {
+        c.execute(
+            "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.guest_accounts'",
+            &[&prev],
+        )
+        .await?;
+    } else {
+        c.execute(
+            "DELETE FROM feature_toggles WHERE key='feature.guest_accounts'",
+            &[],
+        )
+        .await?;
+    }
+    cleanup_terms_gateway(&c, &seed, &receipts).await?;
+    res
+}
+
+#[tokio::test]
+async fn terms_gateway_dpop_bound_forwards() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("GW363-terms-dpop").expect("database required");
+    let c = db.connect().await?;
+
+    let seen = Arc::new(std::sync::Mutex::new(Vec::<(String, String)>::new()));
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let mock_addr = listener.local_addr()?;
+    let (stop_tx, stop_rx) = oneshot::channel();
+    let seen_srv = seen.clone();
+    let mock_task = tokio::spawn(async move {
+        let mut conns = tokio::task::JoinSet::new();
+        tokio::pin!(stop_rx);
+        loop {
+            tokio::select! {
+                _ = &mut stop_rx => break,
+                accepted = listener.accept() => {
+                    let (stream, _) = accepted.unwrap();
+                    let seen_conn = seen_srv.clone();
+                    conns.spawn(async move {
+                        let service = hyper::service::service_fn(move |req: Request<hyper::body::Incoming>| {
+                            let seen_req = seen_conn.clone();
+                            async move {
+                                let method = req.method().as_str().to_owned();
+                                let uri = req.uri().path_and_query().map(|pq| pq.as_str()).unwrap_or("").to_owned();
+                                seen_req.lock().unwrap().push((method.clone(), uri));
+                                let resp = if method == "POST" {
+                                    hyper::Response::builder().status(204).body(body("")).unwrap()
+                                } else {
+                                    hyper::Response::builder()
+                                        .status(200)
+                                        .header("content-type", "application/json")
+                                        .body(body(r#"{"proxied":"go"}"#))
+                                        .unwrap()
+                                };
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        });
+                        let _ = hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                            .serve_connection(hyper_util::rt::TokioIo::new(stream), service)
+                            .await;
+                    });
+                }
+            }
+        }
+        conns.abort_all();
+        while conns.join_next().await.is_some() {}
+    });
+    let mock_go = Server {
+        stop: Some(stop_tx),
+        task: mock_task,
+        addr: mock_addr,
+    };
+
+    let (secret, seed, tou, auth, gw, receipts) =
+        setup_terms_gateway_fixture(&c, &db, Some(mock_go.addr)).await?;
+    let bound = sign_member_token(
+        &secret,
+        seed.a.user,
+        &seed.email,
+        Some(("cnf", json!({"jkt": "gw363-dpop-jkt"}))),
+        3600,
+        "access",
+    );
+
+    let res = async {
+        for (method, path, payload, want_status, want_forwarded_path) in [
+            (
+                "GET",
+                "/terms/pending",
+                String::new(),
+                200,
+                "/terms/pending",
+            ),
+            (
+                "GET",
+                "/api/terms/pending",
+                String::new(),
+                200,
+                "/terms/pending",
+            ),
+            (
+                "POST",
+                "/terms/accept",
+                json!({"tou_id": tou, "version": 1}).to_string(),
+                204,
+                "/terms/accept",
+            ),
+            (
+                "POST",
+                "/api/terms/accept",
+                json!({"tou_id": tou, "version": 1}).to_string(),
+                204,
+                "/terms/accept",
+            ),
+        ] {
+            let before = seen.lock().unwrap().len();
+            let (st, _, raw) = request(
+                gw.addr,
+                method,
+                path,
+                payload,
+                &[
+                    ("authorization", &bound),
+                    ("host", "mail.test"),
+                    ("origin", "http://mail.test"),
+                ],
+            )
+            .await?;
+            assert_eq!(st, want_status, "{method} {path}: {raw}");
+            let guard = seen.lock().unwrap();
+            assert_eq!(
+                guard.len(),
+                before + 1,
+                "{method} {path} should forward via auth"
+            );
+            assert_eq!(
+                guard[before],
+                (method.to_owned(), want_forwarded_path.to_owned()),
+                "gateway must strip /api before rust-auth handles cnf forward"
+            );
+        }
+        assert_zero_go_hops(gw.addr).await?;
+        Ok::<(), Err>(())
+    }
+    .await;
+
+    gw.close().await;
+    auth.close().await;
+    mock_go.close().await;
+    cleanup_terms_gateway(&c, &seed, &receipts).await?;
+    res
+}

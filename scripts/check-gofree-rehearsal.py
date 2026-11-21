@@ -49,11 +49,8 @@ PENDING = {
     ("auth", "POST", "/auth/guest-invite/accept"): "#342",
     ("auth", "GET", "/device/policy"): "#341",
     ("auth", "POST", "/device/checkin"): "#341",
-    ("gateway", "*", "/auth/admin/"): "#340",
     ("gateway", "GET", "/auth/guest-invite/accept"): "#342",
     ("gateway", "POST", "/auth/guest-invite/accept"): "#342",
-    ("gateway", "GET", "/terms/pending"): "#340",
-    ("gateway", "POST", "/terms/accept"): "#340",
 }
 # Call sites in server-rust/bins/*/src that forward a request to a Go upstream: the auth server's
 # `self.forward(` to Go auth, the gateway's `upstream.forward(` proxy, `forward_body(`, and the JMAP

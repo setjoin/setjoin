@@ -85,7 +85,9 @@ password policy, first-party JWKS, health and ready. `sessions-refresh` (#332)
 owns refresh/logout/me/session-token and forgot-password. #337 assigns the
 existing password-change registration to `connectors-a` below.
 `token-issuance` (#333) owns the remaining first-party public/internal/device/
-guest/terms endpoints and the chain listener. MFA uses the three slices below; OIDC/SAML,
+guest/terms endpoints and the chain listener; `gateway * /auth/admin/` is ON natively in
+`bins/gateway/src/auth_admin.rs` (#365), and gateway `/terms/{pending,accept}` aliases are ON
+via `rust-auth` (#363). MFA uses the three slices below; OIDC/SAML,
 identity-links and the OIDC discovery wrapper use the three federation slices below (#339–#341).
 The census includes mailserver `/auth/me/*` aliases; their original Go provenance
 is retained for #333's closing audit rather than silently removed or enabled.

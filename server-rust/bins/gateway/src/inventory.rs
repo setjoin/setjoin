@@ -9,8 +9,14 @@ pub const BUNDLED: &str = include_str!("../route-inventory.json");
 
 /// Registrations Go pins at the root that its `/api` mount also serves (`StripPrefix`): a
 /// native gateway row claims both spellings, and a subtree row its bare spelling (the mux's
-/// redirect), so neither reaches Go (#364, #365).
-const PINNED_AND_MOUNTED: [&str; 1] = ["/setup/status"];
+/// redirect), so neither reaches Go (#363, #364, #365).
+const PINNED_AND_MOUNTED: [&str; 5] = [
+    "/setup/status",
+    "/terms/pending",
+    "/terms/accept",
+    "/auth/admin/",
+    "/auth/admin/users/{id}/impersonate",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -128,6 +134,10 @@ impl Inventory {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn is_pinned_and_mounted(route: &Route) -> bool {
+        route.listener == "gateway" && PINNED_AND_MOUNTED.contains(&route.path.as_str())
     }
 
     /// The wildcard-method SPA/mux subtree rows (`/`, `/api/`, `/chat/`, `/drive/`,
@@ -321,7 +331,7 @@ impl Inventory {
                                 || route.path.starts_with("/drive")))
                         || route.target == Target::LocalRust);
                 let both = route.listener == "gateway"
-                    && route.target == Target::LocalRust
+                    && matches!(route.target, Target::LocalRust | Target::RustAuth)
                     && PINNED_AND_MOUNTED.contains(&route.path.as_str());
                 let external = (mounted_api && !both).then(|| format!("/api{}", route.path));
                 let pattern = external.as_deref().unwrap_or(&route.path);
@@ -419,4 +429,134 @@ pub(crate) fn path_score(pattern: &str, path: &str) -> Option<Vec<u8>> {
         }
     }
     (want.len() == got.len()).then_some(score)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pinned_and_mounted_routes_claim_root_and_api_mount() {
+        let inventory = Inventory::parse(BUNDLED).expect("bundled inventory");
+        for (method, path, want_path, want_target) in [
+            (
+                Method::GET,
+                "/terms/pending",
+                "/terms/pending",
+                Target::RustAuth,
+            ),
+            (
+                Method::HEAD,
+                "/terms/pending",
+                "/terms/pending",
+                Target::RustAuth,
+            ),
+            (
+                Method::GET,
+                "/api/terms/pending",
+                "/terms/pending",
+                Target::RustAuth,
+            ),
+            (
+                Method::HEAD,
+                "/api/terms/pending",
+                "/terms/pending",
+                Target::RustAuth,
+            ),
+            (
+                Method::POST,
+                "/terms/accept",
+                "/terms/accept",
+                Target::RustAuth,
+            ),
+            (
+                Method::POST,
+                "/api/terms/accept",
+                "/terms/accept",
+                Target::RustAuth,
+            ),
+            (
+                Method::POST,
+                "/auth/admin/users/1/impersonate",
+                "/auth/admin/users/{id}/impersonate",
+                Target::RustAuth,
+            ),
+            (
+                Method::POST,
+                "/api/auth/admin/users/1/impersonate",
+                "/auth/admin/users/{id}/impersonate",
+                Target::RustAuth,
+            ),
+            (
+                Method::GET,
+                "/auth/admin/unknown",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+            (
+                Method::GET,
+                "/api/auth/admin/unknown",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+            (
+                Method::POST,
+                "/api/auth/admin/unknown",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+            (
+                Method::GET,
+                "/auth/admin",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+            (
+                Method::GET,
+                "/api/auth/admin",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+            (
+                Method::GET,
+                "/auth/%61dmin/unknown",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+            (
+                Method::GET,
+                "/auth/admin/users/1/impersonate",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+            (
+                Method::GET,
+                "/api/auth/admin/users/1/impersonate",
+                "/auth/admin/",
+                Target::LocalRust,
+            ),
+        ] {
+            let route = inventory
+                .find(&method, path)
+                .unwrap_or_else(|| panic!("no route for {method} {path}"));
+            assert_eq!(
+                (route.path.as_str(), route.target),
+                (want_path, want_target),
+                "{method} {path}"
+            );
+        }
+        // Literal /api mount only: escaped `/a%70i` must not match mounted auth/terms rows.
+        assert_eq!(
+            inventory
+                .find(&Method::GET, "/a%70i/terms/pending")
+                .map(|r| r.path.as_str()),
+            Some("/")
+        );
+        assert_eq!(
+            inventory
+                .find(&Method::GET, "/a%70i/auth/admin/unknown")
+                .map(|r| r.path.as_str()),
+            Some("/")
+        );
+    }
 }
