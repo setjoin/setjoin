@@ -244,7 +244,7 @@ async fn delete_policies(c: &Client, policy_ids: &mut Vec<i64>) -> Result<(), Er
     if !policy_ids.is_empty() {
         c.execute(
             "DELETE FROM conditional_access_policies WHERE id = ANY($1)",
-            &[&policy_ids],
+            &[&policy_ids.as_slice()],
         )
         .await?;
         policy_ids.clear();
