@@ -575,8 +575,11 @@ mod tests {
             })
         }
         static SET_METHOD: Method = Method {
+            name: "Test/set",
+            mutator: true,
+            state: true,
             run: run_set,
-            ..TESTS[2]
+            ..TESTS[0]
         };
         let exec = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=x dbname=x", 1)
             .expect("lazy pool");

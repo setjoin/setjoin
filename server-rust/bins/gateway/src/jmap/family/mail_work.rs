@@ -783,8 +783,8 @@ fn run_metrics_get<'a>(cx: &'a Cx<'a>) -> Reply<'a> {
         let policy_version_i32 =
             i32::try_from(policy_version).map_err(|_| MethodError::server_fail())?;
         let scope = resolve(cx, args.str("accountId")).await?;
-        let from_str = from.format("%Y-%m-%d").to_string();
-        let to_str = to.format("%Y-%m-%d").to_string();
+        let from_str = from.to_string();
+        let to_str = to.to_string();
         let raw = read(
             cx,
             &scope,
