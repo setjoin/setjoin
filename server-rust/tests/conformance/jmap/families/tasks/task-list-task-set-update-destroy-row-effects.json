@@ -1,0 +1,28 @@
+{
+  "case": "task-list-task-set-update-destroy-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Team Tasks\", \"color\": null, \"state_seq\": 2, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Team Tasks\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]",
+      "name": "task_lists"
+    },
+    {
+      "after": "[{\"id\": <seed.1>, \"rrule\": null, \"title\": \"Member Edits\", \"due_at\": null, \"status\": \"completed\", \"list_id\": <seed.0>, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 1, \"mailbox_id\": <f.mailbox>, \"sort_order\": 0, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": \"<timestamp>+00:00\", \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}]",
+      "before": "[{\"id\": <seed.1>, \"rrule\": null, \"title\": \"Member Edits\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": <seed.0>, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 0, \"mailbox_id\": <f.mailbox>, \"sort_order\": 0, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}, {\"id\": <seed.2>, \"rrule\": null, \"title\": \"Member Deletes\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": <seed.0>, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 0, \"mailbox_id\": <f.mailbox>, \"sort_order\": 0, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}]",
+      "name": "tasks"
+    },
+    {
+      "after": "[{\"body\": null, \"kind\": \"status_change\", \"meta\": {\"new\": \"completed\", \"old\": \"needs-action\"}, \"task_id\": <seed.1>, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <f.mailbox>, \"author_user_id\": <a.user>, \"mentioned_user_ids\": []}]",
+      "before": "[]",
+      "name": "task_activity"
+    },
+    {
+      "after": "[{\"op\": \"created\", \"datatype\": \"Task\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <f.mailbox>, \"resource_uid\": null, \"collection_id\": null}, {\"op\": \"created\", \"datatype\": \"Task\", \"entity_id\": <seed.2>, \"state_seq\": 2, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <f.mailbox>, \"resource_uid\": null, \"collection_id\": null}, {\"op\": \"updated\", \"datatype\": \"Task\", \"entity_id\": <seed.1>, \"state_seq\": 3, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <f.mailbox>, \"resource_uid\": null, \"collection_id\": null}, {\"op\": \"destroyed\", \"datatype\": \"Task\", \"entity_id\": <seed.2>, \"state_seq\": 4, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <f.mailbox>, \"resource_uid\": null, \"collection_id\": null}]",
+      "before": "[{\"op\": \"created\", \"datatype\": \"Task\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <f.mailbox>, \"resource_uid\": null, \"collection_id\": null}, {\"op\": \"created\", \"datatype\": \"Task\", \"entity_id\": <seed.2>, \"state_seq\": 2, \"created_at\": \"<timestamp>+00:00\", \"mailbox_id\": <f.mailbox>, \"resource_uid\": null, \"collection_id\": null}]",
+      "name": "journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap TaskList/taskSet"
+}

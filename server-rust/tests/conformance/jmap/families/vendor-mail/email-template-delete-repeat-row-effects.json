@@ -1,0 +1,13 @@
+{
+  "case": "email-template-delete-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Delete Twice\", \"subject\": \"Subj\", \"body_html\": \"<p>Body</p>\", \"mailbox_id\": <a.mailbox>}]",
+      "name": "email_templates"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap EmailTemplate/delete"
+}

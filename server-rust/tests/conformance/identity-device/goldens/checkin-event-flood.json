@@ -1,0 +1,965 @@
+{
+  "case": "checkin-event-flood",
+  "format": 1,
+  "go_source": "d54ae127ffeb07f2524b01b730ce4dc8af7862d4",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "device_auth_nonces": [
+        {
+          "device": "<device-a>",
+          "nonce": "gofree341-checkin-event-flood",
+          "window_seconds": 660
+        }
+      ],
+      "device_events": [
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "0"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "1"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "2"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "3"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "4"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "5"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "6"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "7"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "8"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "9"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "10"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "11"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "12"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "13"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "14"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "15"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "16"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "17"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "18"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "19"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "20"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "21"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "22"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "23"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "24"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "25"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "26"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "27"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "28"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "29"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "30"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "31"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "32"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "33"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "34"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "35"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "36"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "37"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "38"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "39"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "40"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "41"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "42"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "43"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "44"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "45"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "46"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "47"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "48"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "49"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "50"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "51"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "52"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "53"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "54"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "55"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "56"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "57"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "58"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "59"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "60"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "61"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "62"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "63"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "64"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "65"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "66"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "67"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "68"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "69"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "70"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "71"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "72"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "73"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "74"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "75"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "76"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "77"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "78"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "79"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "80"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "81"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "82"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "83"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "84"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "85"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "86"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "87"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "88"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "89"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "90"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "91"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "92"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "93"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "94"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "95"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "96"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "97"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "98"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "99"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        },
+        {
+          "details": {},
+          "device": "<device-a>",
+          "event_data": {
+            "data": "100"
+          },
+          "event_type": "burst",
+          "severity": "info"
+        }
+      ],
+      "devices": [
+        {
+          "device": "<device-a>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": false
+        },
+        {
+          "device": "<device-b>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "{\"device_id\":\"<device-a>\",\"events\":[{\"type\":\"burst\",\"data\":\"0\"},{\"type\":\"burst\",\"data\":\"1\"},{\"type\":\"burst\",\"data\":\"2\"},{\"type\":\"burst\",\"data\":\"3\"},{\"type\":\"burst\",\"data\":\"4\"},{\"type\":\"burst\",\"data\":\"5\"},{\"type\":\"burst\",\"data\":\"6\"},{\"type\":\"burst\",\"data\":\"7\"},{\"type\":\"burst\",\"data\":\"8\"},{\"type\":\"burst\",\"data\":\"9\"},{\"type\":\"burst\",\"data\":\"10\"},{\"type\":\"burst\",\"data\":\"11\"},{\"type\":\"burst\",\"data\":\"12\"},{\"type\":\"burst\",\"data\":\"13\"},{\"type\":\"burst\",\"data\":\"14\"},{\"type\":\"burst\",\"data\":\"15\"},{\"type\":\"burst\",\"data\":\"16\"},{\"type\":\"burst\",\"data\":\"17\"},{\"type\":\"burst\",\"data\":\"18\"},{\"type\":\"burst\",\"data\":\"19\"},{\"type\":\"burst\",\"data\":\"20\"},{\"type\":\"burst\",\"data\":\"21\"},{\"type\":\"burst\",\"data\":\"22\"},{\"type\":\"burst\",\"data\":\"23\"},{\"type\":\"burst\",\"data\":\"24\"},{\"type\":\"burst\",\"data\":\"25\"},{\"type\":\"burst\",\"data\":\"26\"},{\"type\":\"burst\",\"data\":\"27\"},{\"type\":\"burst\",\"data\":\"28\"},{\"type\":\"burst\",\"data\":\"29\"},{\"type\":\"burst\",\"data\":\"30\"},{\"type\":\"burst\",\"data\":\"31\"},{\"type\":\"burst\",\"data\":\"32\"},{\"type\":\"burst\",\"data\":\"33\"},{\"type\":\"burst\",\"data\":\"34\"},{\"type\":\"burst\",\"data\":\"35\"},{\"type\":\"burst\",\"data\":\"36\"},{\"type\":\"burst\",\"data\":\"37\"},{\"type\":\"burst\",\"data\":\"38\"},{\"type\":\"burst\",\"data\":\"39\"},{\"type\":\"burst\",\"data\":\"40\"},{\"type\":\"burst\",\"data\":\"41\"},{\"type\":\"burst\",\"data\":\"42\"},{\"type\":\"burst\",\"data\":\"43\"},{\"type\":\"burst\",\"data\":\"44\"},{\"type\":\"burst\",\"data\":\"45\"},{\"type\":\"burst\",\"data\":\"46\"},{\"type\":\"burst\",\"data\":\"47\"},{\"type\":\"burst\",\"data\":\"48\"},{\"type\":\"burst\",\"data\":\"49\"},{\"type\":\"burst\",\"data\":\"50\"},{\"type\":\"burst\",\"data\":\"51\"},{\"type\":\"burst\",\"data\":\"52\"},{\"type\":\"burst\",\"data\":\"53\"},{\"type\":\"burst\",\"data\":\"54\"},{\"type\":\"burst\",\"data\":\"55\"},{\"type\":\"burst\",\"data\":\"56\"},{\"type\":\"burst\",\"data\":\"57\"},{\"type\":\"burst\",\"data\":\"58\"},{\"type\":\"burst\",\"data\":\"59\"},{\"type\":\"burst\",\"data\":\"60\"},{\"type\":\"burst\",\"data\":\"61\"},{\"type\":\"burst\",\"data\":\"62\"},{\"type\":\"burst\",\"data\":\"63\"},{\"type\":\"burst\",\"data\":\"64\"},{\"type\":\"burst\",\"data\":\"65\"},{\"type\":\"burst\",\"data\":\"66\"},{\"type\":\"burst\",\"data\":\"67\"},{\"type\":\"burst\",\"data\":\"68\"},{\"type\":\"burst\",\"data\":\"69\"},{\"type\":\"burst\",\"data\":\"70\"},{\"type\":\"burst\",\"data\":\"71\"},{\"type\":\"burst\",\"data\":\"72\"},{\"type\":\"burst\",\"data\":\"73\"},{\"type\":\"burst\",\"data\":\"74\"},{\"type\":\"burst\",\"data\":\"75\"},{\"type\":\"burst\",\"data\":\"76\"},{\"type\":\"burst\",\"data\":\"77\"},{\"type\":\"burst\",\"data\":\"78\"},{\"type\":\"burst\",\"data\":\"79\"},{\"type\":\"burst\",\"data\":\"80\"},{\"type\":\"burst\",\"data\":\"81\"},{\"type\":\"burst\",\"data\":\"82\"},{\"type\":\"burst\",\"data\":\"83\"},{\"type\":\"burst\",\"data\":\"84\"},{\"type\":\"burst\",\"data\":\"85\"},{\"type\":\"burst\",\"data\":\"86\"},{\"type\":\"burst\",\"data\":\"87\"},{\"type\":\"burst\",\"data\":\"88\"},{\"type\":\"burst\",\"data\":\"89\"},{\"type\":\"burst\",\"data\":\"90\"},{\"type\":\"burst\",\"data\":\"91\"},{\"type\":\"burst\",\"data\":\"92\"},{\"type\":\"burst\",\"data\":\"93\"},{\"type\":\"burst\",\"data\":\"94\"},{\"type\":\"burst\",\"data\":\"95\"},{\"type\":\"burst\",\"data\":\"96\"},{\"type\":\"burst\",\"data\":\"97\"},{\"type\":\"burst\",\"data\":\"98\"},{\"type\":\"burst\",\"data\":\"99\"},{\"type\":\"burst\",\"data\":\"100\"}]}",
+      "method": "POST",
+      "path": "/device/checkin",
+      "query": null
+    },
+    "response": {
+      "body": "{\"policy_version\":1144165766776231148,\"policy\":{\"copy_paste\":\"allow\",\"encryption\":\"required\",\"gofree341_lock_timeout\":\"300\",\"gofree341_note\":\"\\u003cb\\u003e\\u0026ok\\u003c/b\\u003e\",\"max_offline_days\":\"30\",\"notification_profile\":\"push\",\"screen_capture\":\"allow\",\"watermark\":\"false\"},\"wipe_requested\":false}\n",
+      "headers": {
+        "cache-control": "private, max-age=300",
+        "content-type": "application/json",
+        "etag": "1144165766776231148"
+      },
+      "status": 200
+    }
+  },
+  "route": "POST /device/checkin"
+}

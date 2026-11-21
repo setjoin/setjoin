@@ -1,0 +1,60 @@
+{
+  "case": "mail-draft-open-suspended",
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "kind": "suspended",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [],
+    "effects": {
+      "mail_draft_revisions": {
+        "after": "0",
+        "before": "0"
+      },
+      "mail_drafts": {
+        "after": "",
+        "before": ""
+      },
+      "mail_work_operations": {
+        "after": "0",
+        "before": "0"
+      },
+      "mailwork_state": {
+        "after": "0",
+        "before": "0"
+      }
+    },
+    "notify": [],
+    "repeat": null,
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:mail\"],\"methodCalls\":[[\"MailDraft/open\",{\"accountId\":\"<seed.0>\",\"operationId\":\"<uuid>\",\"messageId\":\"<seed.1>\",\"receivedAt\":\"<timestamp>Z\",\"finalSenderAddress\":\"shared-<a.mailbox>@oracle.test\"},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"error\",{\"type\":\"urn:ietf:params:jmap:error:forbidden\",\"status\":500,\"detail\":\"mailbox access is suspended or detached\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap MailDraft/open"
+}

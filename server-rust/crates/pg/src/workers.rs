@@ -5,7 +5,10 @@
 
 use crate::{auth::AuditKeys, executor::AUDIT_SCOPE};
 use futures_util::future::poll_fn;
-use std::sync::Arc;
+use std::{
+    sync::{Arc, RwLock},
+    task::Poll,
+};
 use tokio::sync::mpsc;
 use tokio_postgres::{types::Type, AsyncMessage, Client, Config, NoTls, Notification};
 
@@ -289,8 +292,50 @@ pub struct DirectListener {
     driver: Option<tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>>,
 }
 
+// A single nonblocking poll and its terminal state change are indivisible to
+// consumers of state. Never hold the state lock across an await.
+struct DisconnectGuard<S, F: FnOnce(&mut S)> {
+    state: Arc<RwLock<S>>,
+    on_disconnect: Option<F>,
+}
+
+impl<S, F: FnOnce(&mut S)> DisconnectGuard<S, F> {
+    fn poll<T, E>(
+        &mut self,
+        poll: impl FnOnce() -> Poll<Option<Result<T, E>>>,
+    ) -> Poll<Option<Result<T, E>>> {
+        let mut state = self.state.write().unwrap();
+        let result = poll();
+        if matches!(result, Poll::Ready(None | Some(Err(_)))) {
+            if let Some(disconnect) = self.on_disconnect.take() {
+                disconnect(&mut state);
+            }
+        }
+        result
+    }
+}
+
+impl<S, F: FnOnce(&mut S)> Drop for DisconnectGuard<S, F> {
+    fn drop(&mut self) {
+        if let Some(disconnect) = self.on_disconnect.take() {
+            disconnect(&mut self.state.write().unwrap());
+        }
+    }
+}
+
 impl DirectListener {
     pub async fn connect(direct_dsn: &str, channel: &str) -> Result<Self, Error> {
+        Self::connect_guarded(direct_dsn, channel, Arc::new(RwLock::new(())), |_| {}).await
+    }
+
+    /// Poll the driver under the consumer's state lock. EOF/error invalidates
+    /// that state before unlocking. Cancellation also invalidates it on drop.
+    pub async fn connect_guarded<S: Send + Sync + 'static>(
+        direct_dsn: &str,
+        channel: &str,
+        state: Arc<RwLock<S>>,
+        on_disconnect: impl FnOnce(&mut S) + Send + 'static,
+    ) -> Result<Self, Error> {
         if channel.is_empty()
             || !channel
                 .bytes()
@@ -304,25 +349,30 @@ impl DirectListener {
         }
         let (client, mut connection) = tokio_postgres::connect(direct_dsn, NoTls).await?;
         let (send, notifications) = mpsc::unbounded_channel();
+        let disconnect = DisconnectGuard {
+            state,
+            on_disconnect: Some(on_disconnect),
+        };
         let driver = tokio::spawn(async move {
-            while let Some(message) = poll_fn(|cx| connection.poll_message(cx)).await {
-                match message? {
-                    AsyncMessage::Notification(notification) => {
+            let mut disconnect = disconnect;
+            loop {
+                match poll_fn(|cx| disconnect.poll(|| connection.poll_message(cx))).await {
+                    Some(Ok(AsyncMessage::Notification(notification))) => {
                         let _ = send.send(notification);
                     }
-                    _ => {}
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => break Err(error),
+                    None => break Ok(()),
                 }
             }
-            Ok(())
         });
-        client
-            .batch_execute(&format!("LISTEN \"{channel}\""))
-            .await?;
-        Ok(Self {
+        let listener = Self {
             client: Some(client),
             notifications,
             driver: Some(driver),
-        })
+        };
+        listener.listen(channel).await?;
+        Ok(listener)
     }
 
     /// Add a trusted dispatcher channel on this same direct connection.
@@ -498,5 +548,27 @@ impl WorkerDatabase {
         drop(client);
         driver.await??;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod disconnect_tests {
+    use super::*;
+
+    #[test]
+    fn terminal_poll_excludes_publishers_until_invalidation() {
+        for terminal in [None, Some(Err::<(), _>("lost"))] {
+            let live = Arc::new(RwLock::new(true));
+            let mut driver = DisconnectGuard {
+                state: live.clone(),
+                on_disconnect: Some(|state: &mut bool| *state = false),
+            };
+            let result = driver.poll(|| {
+                assert!(live.try_write().is_err());
+                Poll::Ready(terminal)
+            });
+            assert_eq!(result, Poll::Ready(terminal));
+            assert!(!*live.read().unwrap());
+        }
     }
 }

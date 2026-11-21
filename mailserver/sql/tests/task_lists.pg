@@ -1,7 +1,7 @@
 -- pgTAP: task_lists.pg — notify_task_list_state seam + task_lists.sql (list +
 -- membership) reducers. Plan: 2026-07-08-shared-team-task-lists.md.
 BEGIN;
-SELECT plan(31);
+SELECT plan(33);
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- notify_task_list_state — state bump + member fan-out push
@@ -72,6 +72,9 @@ SELECT is(
 SELECT is(
   (SELECT role FROM task_list_members WHERE list_id = :lid AND user_id = :um),
   'member', 'the added user lands with role member');
+SELECT matches(pg_get_functiondef('task_list_add_member(bigint,bigint,text)'::regprocedure),
+  'WHERE id = p_list_id AND owner_user_id = p_user_id[[:space:]]+FOR NO KEY UPDATE',
+  'add_member locks the matching owner row against concurrent revocation');
 
 -- duplicate add is idempotent
 SELECT lives_ok(
@@ -103,6 +106,11 @@ SELECT throws_ok(
 SELECT lives_ok(
   format($$ SELECT task_list_remove_member(%s, %s, %s) $$, :us, :lid, :us),
   'member self-leave succeeds');
+SELECT ok(EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'task_list_members'::regclass
+    AND mode = 'RowShareLock'
+), 'self-leave locks the authorizing membership before deleting it');
 SELECT is(
   (SELECT count(*)::INT FROM task_list_members WHERE list_id = :lid AND user_id = :us),
   0, 'the leaver''s roster row is gone');

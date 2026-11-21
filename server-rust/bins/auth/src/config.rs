@@ -15,11 +15,11 @@ pub struct Config {
     pub oidc_origins: String,
     pub vapid_private_key: String,
     pub threat: setjoin_threat::Config,
-    pub direct_dsn:String,
-    pub geoip_path:String,
-    pub webauthn_rp_id:String,
-    pub webauthn_rp_name:String,
-    pub webauthn_rp_origin:String,
+    pub direct_dsn: String,
+    pub geoip_path: String,
+    pub webauthn_rp_id: String,
+    pub webauthn_rp_name: String,
+    pub webauthn_rp_origin: String,
     pub db_encryption_key: String,
     pub audit_hmac_key: String,
     pub internal_api_key: String,
@@ -35,7 +35,6 @@ pub struct Config {
     pub tls_key: Option<String>,
     pub trust_proxy: bool,
     pub trusted_proxies: Vec<ipnet::IpNet>,
-    pub threat_controls: [bool; 5],
     pub listen: String,
     pub dsn: String,
     pub worker_dsn: Option<String>,
@@ -58,11 +57,11 @@ impl Config {
             oidc_origins: String::new(),
             vapid_private_key: String::new(),
             threat: Self::quiet_threat(&secret),
-            direct_dsn:String::new(),
-            geoip_path:String::new(),
-            webauthn_rp_id:"localhost".into(),
-            webauthn_rp_name:"SetJoin".into(),
-            webauthn_rp_origin:"http://localhost:8080".into(),
+            direct_dsn: String::new(),
+            geoip_path: String::new(),
+            webauthn_rp_id: "localhost".into(),
+            webauthn_rp_name: "SetJoin".into(),
+            webauthn_rp_origin: "http://localhost:8080".into(),
             db_encryption_key: String::new(),
             audit_hmac_key: String::new(),
             internal_api_key: String::new(),
@@ -78,7 +77,6 @@ impl Config {
             tls_key: None,
             trust_proxy: false,
             trusted_proxies: Vec::new(),
-            threat_controls: [false; 5],
             listen: "127.0.0.1:8443".into(),
             dsn: String::new(),
             worker_dsn: std::env::var("DB_WORKER_DSN").ok(),
@@ -91,7 +89,13 @@ impl Config {
     /// The captcha key is Go's derived default, and empty for an empty secret (F7).
     fn quiet_threat(secret: &str) -> setjoin_threat::Config {
         let mut threat = setjoin_threat::Config::default();
-        for key in ["threat_feed", "geo_block", "spray_detect", "captcha", "tarpit"] {
+        for key in [
+            "threat_feed",
+            "geo_block",
+            "spray_detect",
+            "captcha",
+            "tarpit",
+        ] {
             threat.overrides.insert(format!("feature.{key}"), false);
         }
         if !secret.is_empty() {
@@ -142,32 +146,57 @@ impl Config {
         c.saml_enabled = get("SAML_ENABLED", "saml.enabled").is_some_and(|s| go_bool(&s));
         c.saml_cert_file = get("SAML_CERT_FILE", "saml.cert_file").unwrap_or_default();
         c.saml_key_file = get("SAML_KEY_FILE", "saml.key_file").unwrap_or_default();
-        c.jit_enabled = get("JIT_ENABLED","jit.enabled").is_some_and(|s|go_bool(&s));
-        c.sso_allow_super_admin_mapping = get("SSO_ALLOW_SUPER_ADMIN_MAPPING","sso.allow_super_admin_mapping").is_some_and(|s|go_bool(&s));
+        c.jit_enabled = get("JIT_ENABLED", "jit.enabled").is_some_and(|s| go_bool(&s));
+        c.sso_allow_super_admin_mapping = get(
+            "SSO_ALLOW_SUPER_ADMIN_MAPPING",
+            "sso.allow_super_admin_mapping",
+        )
+        .is_some_and(|s| go_bool(&s));
         c.oidc_rp_enabled = get("OIDC_ENABLED", "oidc.enabled").is_some_and(|s| go_bool(&s));
-        c.oidc_enabled = get("OIDC_PROVIDER_ENABLED", "oidc_provider.enabled").is_some_and(|s| go_bool(&s));
+        c.oidc_enabled =
+            get("OIDC_PROVIDER_ENABLED", "oidc_provider.enabled").is_some_and(|s| go_bool(&s));
         c.oidc_hostname = get("HOSTNAME", "hostname").unwrap_or(c.oidc_hostname);
-        c.oidc_private_key = get("OIDC_PROVIDER_PRIVATE_KEY_FILE", "oidc_provider.private_key_file").unwrap_or(c.oidc_private_key);
-        c.oidc_public_key = get("OIDC_PROVIDER_PUBLIC_KEY_FILE", "oidc_provider.public_key_file").unwrap_or(c.oidc_public_key);
-        c.oidc_origins = get("OIDC_PROVIDER_ALLOWED_ORIGINS", "oidc_provider.allowed_origins").unwrap_or_default();
+        c.oidc_private_key = get(
+            "OIDC_PROVIDER_PRIVATE_KEY_FILE",
+            "oidc_provider.private_key_file",
+        )
+        .unwrap_or(c.oidc_private_key);
+        c.oidc_public_key = get(
+            "OIDC_PROVIDER_PUBLIC_KEY_FILE",
+            "oidc_provider.public_key_file",
+        )
+        .unwrap_or(c.oidc_public_key);
+        c.oidc_origins = get(
+            "OIDC_PROVIDER_ALLOWED_ORIGINS",
+            "oidc_provider.allowed_origins",
+        )
+        .unwrap_or_default();
         if c.oidc_enabled && !setjoin_identity::oidc::valid_origins(&c.oidc_origins) {
             return Err("OIDC_PROVIDER_ALLOWED_ORIGINS requires exact HTTPS origins (HTTP only for loopback development)".into());
         }
-        if c.oidc_enabled && (c.oidc_private_key.is_empty() || c.oidc_public_key.is_empty() || c.oidc_private_key==c.oidc_public_key) {
+        if c.oidc_enabled
+            && (c.oidc_private_key.is_empty()
+                || c.oidc_public_key.is_empty()
+                || c.oidc_private_key == c.oidc_public_key)
+        {
             return Err("OIDC provider key files must be non-empty and distinct".into());
         }
         c.vapid_private_key = get("VAPID_PRIVATE_KEY", "vapid.private_key").unwrap_or_default();
-        c.webauthn_rp_id=get("WEBAUTHN_RP_ID","webauthn.rp_id").unwrap_or(c.webauthn_rp_id);
-        c.webauthn_rp_name=get("WEBAUTHN_RP_NAME","webauthn.rp_name").unwrap_or(c.webauthn_rp_name);
-        c.webauthn_rp_origin=get("WEBAUTHN_RP_ORIGIN","webauthn.rp_origin").unwrap_or(c.webauthn_rp_origin);
+        c.webauthn_rp_id = get("WEBAUTHN_RP_ID", "webauthn.rp_id").unwrap_or(c.webauthn_rp_id);
+        c.webauthn_rp_name =
+            get("WEBAUTHN_RP_NAME", "webauthn.rp_name").unwrap_or(c.webauthn_rp_name);
+        c.webauthn_rp_origin =
+            get("WEBAUTHN_RP_ORIGIN", "webauthn.rp_origin").unwrap_or(c.webauthn_rp_origin);
         c.db_encryption_key = get("DB_ENCRYPTION_KEY", "db.encryption_key").unwrap_or_default();
         c.audit_hmac_key = get("AUDIT_HMAC_KEY", "audit.hmac_key").unwrap_or_default();
         c.internal_api_key = get("INTERNAL_API_KEY", "internal.api_key").unwrap_or_default();
         c.client_proxy = std::env::var("TRUSTED_PROXY_IP").unwrap_or_default();
         c.dsn = get("DB_DSN", "db.dsn").ok_or("DB_DSN required")?;
         c.worker_dsn = get("DB_WORKER_DSN", "db.worker_dsn");
-        c.direct_dsn=get("DB_DIRECT_DSN","db.direct_dsn").filter(|s|!s.is_empty()).unwrap_or_else(||c.dsn.clone());
-        c.geoip_path=get("GEOIP_DB_PATH","geoip.db_path").unwrap_or_default();
+        c.direct_dsn = get("DB_DIRECT_DSN", "db.direct_dsn")
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| c.dsn.clone());
+        c.geoip_path = get("GEOIP_DB_PATH", "geoip.db_path").unwrap_or_default();
         c.issuer = get("JWT_ISSUER", "jwt.issuer").unwrap_or(c.issuer);
         c.signing_alg = get("JWT_SIGNING_ALG", "jwt.signing_alg").unwrap_or(c.signing_alg);
         let profile =
@@ -194,18 +223,24 @@ impl Config {
             32
         };
         if !c.db_encryption_key.is_empty() {
-            if c.profile==CryptoProfile::Smx && c.db_encryption_key.len()<16 {
-                return Err("DB_ENCRYPTION_KEY must be at least 16 characters for profile smx".into());
+            if c.profile == CryptoProfile::Smx && c.db_encryption_key.len() < 16 {
+                return Err(
+                    "DB_ENCRYPTION_KEY must be at least 16 characters for profile smx".into(),
+                );
             }
-            if c.profile!=CryptoProfile::Smx && c.db_encryption_key.len()<32 {
+            if c.profile != CryptoProfile::Smx && c.db_encryption_key.len() < 32 {
                 return Err("DB_ENCRYPTION_KEY must be at least 32 characters or empty".into());
             }
         }
         if c.profile == CryptoProfile::Smx && c.sm2_pem.is_none() {
             return Err("SM2_PRIVATE_KEY_FILE required for smx".into());
         }
-        if c.access_seconds <= 0 || c.access_seconds > 2592000 {return Err("JWT_EXPIRY must be greater than zero and no more than 720h".into());}
-        if c.refresh_seconds <= 0 {return Err("JWT_REFRESH_EXPIRY must be greater than zero".into());}
+        if c.access_seconds <= 0 || c.access_seconds > 2592000 {
+            return Err("JWT_EXPIRY must be greater than zero and no more than 720h".into());
+        }
+        if c.refresh_seconds <= 0 {
+            return Err("JWT_REFRESH_EXPIRY must be greater than zero".into());
+        }
         if c.secret.len() < min_secret
             || c.issuer.is_empty()
             || c.access_seconds <= 0
@@ -221,13 +256,8 @@ impl Config {
             .filter(|u| matches!(u.scheme_str(), Some("http" | "https")) && u.host().is_some());
         c.listen = get("LISTEN_ADDR", "listen.addr")
             .or_else(|| {
-                uri.as_ref().map(|u| {
-                    format!(
-                        "{}:{}",
-                        u.host().unwrap(),
-                        u.port_u16().unwrap_or(8443)
-                    )
-                })
+                uri.as_ref()
+                    .map(|u| format!("{}:{}", u.host().unwrap(), u.port_u16().unwrap_or(8443)))
             })
             .unwrap_or("127.0.0.1:8443".into());
         let loopback = c
@@ -266,18 +296,6 @@ impl Config {
         c.go_upstream = std::env::var("AUTHSERVER_GO_UPSTREAM")
             .ok()
             .filter(|s| !s.is_empty());
-        for (i, (env, path)) in [
-            ("THREAT_FEED_ENABLED", "threat_feed.enabled"),
-            ("GEO_BLOCK_ENABLED", "geo_block.enabled"),
-            ("SPRAY_DETECT_ENABLED", "spray_detect.enabled"),
-            ("CAPTCHA_ENABLED", "captcha.enabled"),
-            ("TARPIT_ENABLED", "tarpit.enabled"),
-        ]
-        .iter()
-        .enumerate()
-        {
-            c.threat_controls[i] = get(env, path).map_or(true, |v| go_bool(&v));
-        }
         // authserverd derives HandlerConfig.CookieSecure from TLSCertFile.
         c.cookie_secure = c.tls_cert.is_some();
         Ok(c)

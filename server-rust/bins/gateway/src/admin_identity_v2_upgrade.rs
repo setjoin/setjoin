@@ -192,7 +192,9 @@ fn member_text(raw: &str, name: &str) -> Option<String> {
 }
 
 impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -214,7 +216,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
         let (secrets, runtime) = (self.secrets.clone(), self.runtime.clone());
         Box::pin(async move {
             let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
+                return bare(404, "not found", &c, "");
             };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
@@ -233,9 +235,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2UpgradeRoute<K> {
             let query = r.uri().query().unwrap_or("").to_owned();
             // `r.URL.Query()` is read before the gate by the shadow handler's key check
             // only; every route resolves its query lazily below.
-            let Ok(authority) = setjoin_admin_identity::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let authority = setjoin_admin_identity::authority(&exec, actor)
+                .await
+                .unwrap_or_else(|_| setjoin_admin_identity::Authority::lookup_failed());
             // Go's audited route guards (`RequirePermAudited`), one per permission.
             for perm in gates(what) {
                 if !authority.allows_any(&[perm]) {

@@ -4,7 +4,10 @@ use std::process::Command;
 fn child(test: &str) -> Command {
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
-        .arg0(format!("{}-config-probe", std::env::var("GOFREE_RESOURCE_PREFIX").unwrap_or_else(|_| "gofree-idlogin1".into())))
+        .arg0(format!(
+            "{}-config-probe",
+            std::env::var("GOFREE_RESOURCE_PREFIX").unwrap_or_else(|_| "gofree-idlogin1".into())
+        ))
         .args(["--exact", test, "--nocapture"])
         .env_remove("SETJOIN_CONFIG")
         .env("CRYPTO_ALGORITHM_PROFILE", "standard")
@@ -18,7 +21,19 @@ fn child(test: &str) -> Command {
 fn go_boolean_spellings_preserve_enabled_security_controls() {
     if std::env::var_os("IDLOGIN1_CONFIG_PROBE").is_some() {
         let cfg = setjoin_auth::Config::from_env().unwrap();
-        assert_eq!(cfg.threat_controls, [true; 5]);
+        for key in [
+            "threat_feed",
+            "geo_block",
+            "spray_detect",
+            "captcha",
+            "tarpit",
+        ] {
+            assert_eq!(
+                cfg.threat.overrides.get(&format!("feature.{key}")),
+                Some(&true),
+                "{key}"
+            );
+        }
         assert!(
             !cfg.cookie_secure,
             "Go does not read COOKIE_SECURE; TLS configuration supplies the default"
@@ -77,44 +92,76 @@ fn smx_profile_keeps_go_s_sixteen_byte_secret_floor() {
 #[test]
 fn webauthn_relying_party_environment_overrides_yaml() {
     if std::env::var_os("IDLOGIN1_CONFIG_PROBE").is_some() {
-        let cfg=setjoin_auth::Config::from_env().unwrap();
-        assert_eq!(cfg.webauthn_rp_id,"env.example.test");
-        assert_eq!(cfg.webauthn_rp_name,"Environment RP");
-        assert_eq!(cfg.webauthn_rp_origin,"https://env.example.test");
+        let cfg = setjoin_auth::Config::from_env().unwrap();
+        assert_eq!(cfg.webauthn_rp_id, "env.example.test");
+        assert_eq!(cfg.webauthn_rp_name, "Environment RP");
+        assert_eq!(cfg.webauthn_rp_origin, "https://env.example.test");
         return;
     }
-    let path=std::env::temp_dir().join(format!("gofree-idmfa2-config-{}.yaml",std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gofree-idmfa2-config-{}.yaml", std::process::id()));
     std::fs::write(&path,"webauthn:\n  rp_id: yaml.example.test\n  rp_name: YAML RP\n  rp_origin: https://yaml.example.test\n").unwrap();
-    let out=child("webauthn_relying_party_environment_overrides_yaml").env("SETJOIN_CONFIG",&path)
-        .env("WEBAUTHN_RP_ID","env.example.test").env("WEBAUTHN_RP_NAME","Environment RP")
-        .env("WEBAUTHN_RP_ORIGIN","https://env.example.test").output();
-    std::fs::remove_file(path).unwrap();let out=out.unwrap();
-    assert!(out.status.success(),"{}{}",String::from_utf8_lossy(&out.stdout),String::from_utf8_lossy(&out.stderr));
+    let out = child("webauthn_relying_party_environment_overrides_yaml")
+        .env("SETJOIN_CONFIG", &path)
+        .env("WEBAUTHN_RP_ID", "env.example.test")
+        .env("WEBAUTHN_RP_NAME", "Environment RP")
+        .env("WEBAUTHN_RP_ORIGIN", "https://env.example.test")
+        .output();
+    std::fs::remove_file(path).unwrap();
+    let out = out.unwrap();
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]
-fn auth_url_without_port_keeps_go_auth_listener_port_for_process_swap(){
- if std::env::var_os("IDLOGIN1_CONFIG_PROBE").is_some(){
-  assert_eq!(setjoin_auth::Config::from_env().unwrap().listen,"127.0.0.1:8443");return;
- }
- for url in ["http://127.0.0.1","https://127.0.0.1"]{
-  let out=child("auth_url_without_port_keeps_go_auth_listener_port_for_process_swap").env_remove("LISTEN_ADDR").env("AUTHSERVER_URL",url).output().unwrap();
-  assert!(out.status.success(),"{url}: {}{}",String::from_utf8_lossy(&out.stdout),String::from_utf8_lossy(&out.stderr));
- }
+fn auth_url_without_port_keeps_go_auth_listener_port_for_process_swap() {
+    if std::env::var_os("IDLOGIN1_CONFIG_PROBE").is_some() {
+        assert_eq!(
+            setjoin_auth::Config::from_env().unwrap().listen,
+            "127.0.0.1:8443"
+        );
+        return;
+    }
+    for url in ["http://127.0.0.1", "https://127.0.0.1"] {
+        let out = child("auth_url_without_port_keeps_go_auth_listener_port_for_process_swap")
+            .env_remove("LISTEN_ADDR")
+            .env("AUTHSERVER_URL", url)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{url}: {}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 }
 
 #[test]
 fn rp_boot_and_mapping_settings_are_independent_of_op() {
     if std::env::var_os("IDLOGIN1_CONFIG_PROBE").is_some() {
-        let cfg=setjoin_auth::Config::from_env().unwrap();
+        let cfg = setjoin_auth::Config::from_env().unwrap();
         assert!(cfg.oidc_rp_enabled);
         assert!(!cfg.oidc_enabled);
         assert!(cfg.jit_enabled);
         assert!(cfg.sso_allow_super_admin_mapping);
         return;
     }
-    let out=child("rp_boot_and_mapping_settings_are_independent_of_op")
-        .env("OIDC_ENABLED","TRUE").env("OIDC_PROVIDER_ENABLED","false")
-        .env("JIT_ENABLED","1").env("SSO_ALLOW_SUPER_ADMIN_MAPPING","t").output().unwrap();
-    assert!(out.status.success(),"{}{}",String::from_utf8_lossy(&out.stdout),String::from_utf8_lossy(&out.stderr));
+    let out = child("rp_boot_and_mapping_settings_are_independent_of_op")
+        .env("OIDC_ENABLED", "TRUE")
+        .env("OIDC_PROVIDER_ENABLED", "false")
+        .env("JIT_ENABLED", "1")
+        .env("SSO_ALLOW_SUPER_ADMIN_MAPPING", "t")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 }

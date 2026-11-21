@@ -5,8 +5,7 @@ impl AuthServer {
     pub(super) async fn webauthn_list(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let mut response = match webauthn::list(&self.exec, &session).await {
             Ok(raw) => Response::builder()
@@ -37,8 +36,7 @@ impl AuthServer {
     pub(super) async fn webauthn_name(&self, req: Request<Body>, id: String) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let path = req.uri().path().to_owned();
         let (headers, scheme) = Self::csrf_context(&req);
@@ -185,23 +183,18 @@ impl AuthServer {
             .and_then(|h| h.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let (parts, b) = req.into_parts();
-        let raw = match Limited::new(b, 1 << 20).collect().await {
+        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => return Self::failure(400, "invalid request body", &path),
         };
-        if serde_json::from_slice::<Value>(&raw)
+        let dpop_jwk = ingress::typed_fields(&raw, &[("dpop_jwk", ingress::Field::Object)])
             .ok()
-            .and_then(|v| v.get("dpop_jwk").cloned())
-            .and_then(|v| v.as_object().cloned())
-            .is_some_and(|m| !m.is_empty())
-        {
-            match self.token_binding_handoff(&path).await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-                Err(reply) => return reply,
-            }
-        } // #405.
+            .and_then(|mut m| m.remove("dpop_jwk"))
+            .filter(Value::is_object);
+        let dpop_jkt = match self.resolve_dpop_cnf(dpop_jwk.as_ref(), &path).await {
+            Ok(jkt) => jkt,
+            Err(reply) => return reply,
+        };
         let proof = match rp.finish_login(&self.exec, &transport, &raw).await {
             Ok(p) => p,
             Err(webauthn::LoginFailure::Refused(detail)) => {
@@ -252,16 +245,25 @@ impl AuthServer {
             };
             if push && !self.config.vapid_private_key.is_empty() {
                 match proof.push_challenge(&self.exec).await {
-                    setjoin_pg::CommandOutcome::Committed(setjoin_identity::push::Generated::Created(challenge))=>{
-                        let nonce=challenge.nonce().to_owned();
-                        self.native_push.enqueue(self.exec.clone(),challenge);
-                        return Self::json(200,json!({"mfa_required":true,"mfa_method":"push","mfa_token":token,"nonce":nonce,"ttl_seconds":120,"fallback":["totp","backup_codes"]}));
+                    setjoin_pg::CommandOutcome::Committed(
+                        setjoin_identity::push::Generated::Created(challenge),
+                    ) => {
+                        let nonce = challenge.nonce().to_owned();
+                        self.native_push.enqueue(self.exec.clone(), challenge);
+                        return Self::json(
+                            200,
+                            json!({"mfa_required":true,"mfa_method":"push","mfa_token":token,"nonce":nonce,"ttl_seconds":120,"fallback":["totp","backup_codes"]}),
+                        );
                     }
-                    setjoin_pg::CommandOutcome::Unknown{operation}=>return Self::webauthn_unknown(operation,"Push challenge",&path),
-                    _=>{}
+                    setjoin_pg::CommandOutcome::Unknown { operation } => {
+                        return Self::webauthn_unknown(operation, "Push challenge", &path)
+                    }
+                    _ => {}
                 }
             }
-            if !totp {return Self::failure(500,"MFA required but no method available",&path);}
+            if !totp {
+                return Self::failure(500, "MFA required but no method available", &path);
+            }
             return Self::json(
                 200,
                 json!({"mfa_required":true,"mfa_method":"totp","mfa_token":token,"fallback":["backup_codes"]}),
@@ -308,7 +310,7 @@ impl AuthServer {
         if guest {
             claims["acct"] = Value::from("guest");
         }
-        let refresh_claims = user.claims(
+        let mut refresh_claims = user.claims(
             "refresh",
             &refresh_jti,
             &family,
@@ -318,6 +320,10 @@ impl AuthServer {
             None,
             &[],
         );
+        if let Some(jkt) = &dpop_jkt {
+            claims["cnf"] = json!({"jkt": jkt});
+            refresh_claims["cnf"] = json!({"jkt": jkt});
+        }
         let (Ok(access), Ok(refresh)) = (self.sign(&claims), self.sign(&refresh_claims)) else {
             return Self::failure(500, "token issue failed", &path);
         };
@@ -395,13 +401,21 @@ fn cookie_value(headers: &hyper::HeaderMap, name: &str) -> Option<String> {
 }
 impl AuthServer {
     pub(super) async fn webauthn_register_begin(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_threat_pending().await {
-            return self.forward(req).await;
-        } // #420.
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.webauthn_register_begin_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn webauthn_register_begin_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
@@ -524,13 +538,21 @@ impl AuthServer {
 }
 impl AuthServer {
     pub(super) async fn webauthn_register_finish(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_threat_pending().await {
-            return self.forward(req).await;
-        } // #420.
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.webauthn_register_finish_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn webauthn_register_finish_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
@@ -631,8 +653,7 @@ impl AuthServer {
     pub(super) async fn webauthn_revoke(&self, req: Request<Body>, id: String) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if self.webauthn.is_none() {
             return Self::not_found();

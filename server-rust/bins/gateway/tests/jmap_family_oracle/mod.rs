@@ -1514,10 +1514,12 @@ async fn cleanup(
             break;
         }
     }
-    // Calendars, contacts, and addressbooks journal into their mailbox when
-    // deleted (trg_journal_calendar / V096 contact/addressbook triggers), so they
-    // must go while their mailbox still exists, then that journal; a sharing
-    // default pins its creator (no cascade) (#370, #371, #375).
+    // Calendars, contacts, addressbooks, and tasks journal into their mailbox
+    // when deleted (trg_journal_calendar / V096 contact & addressbook / #373
+    // task triggers), so they must go before jmap_changes_journal and
+    // fixture::remove; a sharing default pins its creator (no cascade)
+    // (#370, #371, #373, #375). Task activity author_user_id references
+    // users(id) without CASCADE.
     owner
         .query_typed(
             "DELETE FROM contact_group_members m USING contact_groups g WHERE m.group_id = g.id AND g.mailbox_id = ANY($1)",
@@ -1540,6 +1542,24 @@ async fn cleanup(
         .query_typed(
             "DELETE FROM addressbooks WHERE mailbox_id = ANY($1)",
             &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM task_activity WHERE mailbox_id = ANY($1) OR author_user_id = ANY($2)",
+            &[(&every, Type::INT8_ARRAY), (&users, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM tasks WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM task_lists WHERE owner_user_id = ANY($1)",
+            &[(&users, Type::INT8_ARRAY)],
         )
         .await?;
     owner

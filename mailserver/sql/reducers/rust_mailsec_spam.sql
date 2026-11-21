@@ -46,7 +46,7 @@ BEGIN
  END IF;
  PERFORM audit_write(p_user, 'report_' || p_type, 'message', p_message, NULL, NULL, NULL, p_note, 'routine');
  IF p_type = 'spam' THEN
-  PERFORM pg_notify('spam_train',
+  PERFORM app_notify('spam_train',
    json_build_object('user_id', p_user, 'message_id', p_message, 'is_spam', TRUE)::text);
  END IF;
  RETURN true;

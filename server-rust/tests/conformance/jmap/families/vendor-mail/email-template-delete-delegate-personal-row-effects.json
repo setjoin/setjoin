@@ -1,0 +1,13 @@
+{
+  "case": "email-template-delete-delegate-personal-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Foreign\", \"subject\": \"Subj\", \"body_html\": \"<p>Body</p>\", \"mailbox_id\": <f.mailbox>}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Foreign\", \"subject\": \"Subj\", \"body_html\": \"<p>Body</p>\", \"mailbox_id\": <f.mailbox>}]",
+      "name": "email_templates"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap EmailTemplate/delete"
+}

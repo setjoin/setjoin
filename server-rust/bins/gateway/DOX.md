@@ -1072,3 +1072,58 @@ Continuity/* stays with Go while the continuity signing key is not loaded
 - `#371` (`calendar.rs`, `calendar_delegate.rs`, `tests/jmap_family_371.rs`, `jmap-371.json`): `Calendar/*` (7 methods: `Calendar/get`, `Calendar/changes`, `Calendar/set`, `Calendar/getShared`, `Calendar/shareGet`, `Calendar/shareSet`, `Calendar/delegateList`) run natively with `Gate::Personal`, app `"calendar"`, `WorkerRead::CalendarDelegates`, and `CALENDAR_A3_METHODS` (`project_calendar`).
 - `#370` (`contact_card.rs`, `tests/jmap_family_370.rs`, `jmap-370.json`): `ContactCard/*` (10 methods, `personal` gate, `contacts` app, `accountId`). `ContactCard/set` mirrors frozen Go G1 (`jmap_contactcard_set_{create,update,destroy}` remain in `seam/call.rs::KNOWN_MISSING` -> `serverFail` when populated).
 - `#375` (`address_book.rs`, `tests/jmap_family_375.rs`, `jmap-375.json`): `AddressBook/*` and `ContactGroup/*` (7 methods, `personal` gate, `contacts` app, `accountId`). `family/mod.rs::serve` aggregates `/set` `created` maps into top-level `createdIds` to match Go `ExecuteBatch`.
+
+Vendor mail methods (#376, `src/jmap/family/vendor_mail.rs`): `SavedSearch/{list,set,delete}`,
+`QuickStep/{get,set,apply}`, and `EmailTemplate/{list,set,delete}` run natively on both HTTP
+and WebSocket under `urn:setjoin:params:jmap:mail` with `Gate::Personal` and no app gate.
+`SavedSearch/*` and `EmailTemplate/*` use scoped reads/writes (`saved_search_*`,
+`email_template_*`), preserving JSONB inner key order and Go HTML escaping (`raw_map`).
+`QuickStep/get` calls `quick_step_list`; `QuickStep/set` dispatches `quick_step_delete`
+(`destroy: true`) or `quick_step_set`; `QuickStep/apply` runs `ScopedQuery::QuickStepApply`
+and maps a missing/foreign message (`null`) to `notFound` (`message not found`). Oracle
+cases and mutants live in `tests/jmap_family_376.rs` and fragment
+`tests/conformance/route-catalog.d/jmap-376.json` (`no-tenant-filter` on `quick_step_list`).
+
+Reminder and Continuity (#377): `src/jmap/family/reminder.rs` serves
+`Reminder/{get,dismiss,snooze}` (`urn:setjoin:params:jmap:reminders`, personal
+gate) via `reminders_get`, `reminder_dismiss`, `reminder_dismiss_all` and
+`reminder_snooze`. `src/jmap/family/continuity.rs` serves
+`Continuity/{get,present}` (`urn:ietf:params:jmap:mail`, read delegate gate)
+when `ContinuitySigner` and `continuity_boot` are loaded and
+`feature.client_recovery_receipts` is enabled, calling `continuity_context_issue`
+(and `continuity_client_witness_record` after Ed25519/freshness/scope
+verification); `recoveryIntakeAllowed` stays `false`. Oracle cases and mutants:
+`tests/jmap_family_377.rs` and `tests/conformance/route-catalog.d/jmap-377.json`
+(goldens recorded via `gofree-record.yml`).
+
+`MailDraft/{get,open,lease,save,replace}` and `MailComment/{get,set}` (#372,
+`src/jmap/family/mail_draft.rs`): gate `feature.shared_mail_drafts` /
+`feature.shared_mail_comments` before argument/account checks (`serverUnavailable`
+when off), distinguish Go `*string` null vs empty via `Args::opt_str`, hash the
+Go-ordered request structs (`go_compact` + SHA-256) for `mail_work_operations`
+idempotency (`p_operation_id` as `$4`/`$5`, distinct from the seam's `$3` receipt
+operation), and invoke the existing `mail_draft_*` / `mail_comment_*` reducers
+through `family::seam` (`Gate::Read` for `/get`, `Gate::Collaborate` for
+mutations). Oracle: `tests/jmap_family_372.rs` and fragment
+`tests/conformance/route-catalog.d/jmap-372.json`.
+
+MailWork/* (#374, `src/jmap/family/mail_work.rs`) serves all ten `MailWork*` methods
+under `feature.shared_mail_work` (plus `feature.shared_mail_integrations` for
+`MailWork/action`, `feature.shared_mail_notifications` for `MailWorkNotificationPreferences/*`,
+and `feature.shared_mail_analytics` for `MailWorkMetrics/get`), validating SLA timezones
+through `seam::ics::load_location` and computing Go-canonical `json.Marshal` SHA-256
+request digests; oracle `tests/jmap_family_374.rs`, catalog fragment
+`tests/conformance/route-catalog.d/jmap-374.json`.
+
+Issue `#373` ports all 13 `urn:ietf:params:jmap:tasks` methods across
+`src/jmap/family/task.rs` (`Task/get`, `Task/query`, `Task/changes`,
+`Task/set`, `TaskComment/get`, `TaskComment/set`, account-scoped under
+`setjoin_app`) and `src/jmap/family/task_list.rs` (`TaskList/get`,
+`TaskList/set`, `TaskListMember/set`, `TaskList/tasks`, `TaskList/taskSet`,
+`TaskAssigned/get`, `TaskAssigned/setStatus`, cross-tenant worker-pool handlers
+gated by `feature.shared_task_lists`). `family::serve` attaches top-level
+`createdIds` for `/set` responses, `Args::opt_str` distinguishes absent/`null`
+from `""` for Go `*string` fields, `tests/jmap_family_oracle/mod.rs` cleans
+`task_activity`, `tasks`, and `task_lists` before `jmap_changes_journal`,
+and oracle cases/catalog entries live in `tests/jmap_family_373.rs` and
+`tests/conformance/route-catalog.d/jmap-373.json`.

@@ -292,19 +292,19 @@ pub(crate) fn go_map(entries: Vec<(&str, Value)>) -> String {
     go_compact(&serde_json::to_string(&map).expect("map JSON")).expect("map JSON")
 }
 
-/// Go's `extractCreatedIDs` (`handler.go:742`) for `/set` responses.
-fn created_ids(method: &str, args: &str) -> Option<String> {
-    if !method.ends_with("/set") {
+/// Go `ExecuteBatch` `extractCreatedIDs` (`handler.go:742`): collect `/set` creations.
+fn created_ids(name: &str, args: &str) -> Option<String> {
+    if !name.ends_with("/set") {
         return None;
     }
     #[derive(serde::Deserialize)]
-    struct Created {
+    struct Creation {
         #[serde(default)]
         id: String,
     }
     #[derive(serde::Deserialize)]
     struct SetResult {
-        created: Option<std::collections::BTreeMap<String, Option<Created>>>,
+        created: Option<std::collections::BTreeMap<String, Option<Creation>>>,
     }
     let SetResult {
         created: Some(created),
@@ -315,16 +315,11 @@ fn created_ids(method: &str, args: &str) -> Option<String> {
     if created.is_empty() {
         return None;
     }
-    let entries: Vec<(&str, Value)> = created
-        .iter()
-        .map(|(k, v)| {
-            (
-                k.as_str(),
-                Value::String(v.as_ref().map_or_else(String::new, |c| c.id.clone())),
-            )
-        })
+    let ids: std::collections::BTreeMap<String, String> = created
+        .into_iter()
+        .map(|(k, v)| (k, v.map_or_else(String::new, |c| c.id)))
         .collect();
-    Some(go_map(entries))
+    go_compact(&serde_json::to_string(&ids).ok()?)
 }
 
 /// Go's `dispatchInvocation` (handler.go:1527) and the HTTP envelope.
@@ -353,17 +348,23 @@ pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String
         },
         Err(error) => ("error", error.json()),
     };
-    let tail = match created_ids(name, &args) {
-        Some(ids) => format!(",\"createdIds\":{ids}"),
-        None => String::new(),
-    };
-    format!(
-        "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]]{tail}}}\n",
-        crate::problem::go_string(session),
-        crate::problem::go_string(name),
-        args,
-        crate::problem::go_string(client_id)
-    )
+    match created_ids(name, &args) {
+        Some(ids) => format!(
+            "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]],\"createdIds\":{}}}\n",
+            crate::problem::go_string(session),
+            crate::problem::go_string(name),
+            args,
+            crate::problem::go_string(client_id),
+            ids
+        ),
+        None => format!(
+            "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]]}}\n",
+            crate::problem::go_string(session),
+            crate::problem::go_string(name),
+            args,
+            crate::problem::go_string(client_id)
+        ),
+    }
 }
 
 /// Every non-stub registry row must be covered by exactly the fragments'
@@ -571,6 +572,21 @@ mod tests {
 
     #[tokio::test]
     async fn serve_answers_go_shapes_without_a_database() {
+        fn run_set<'a>(_: &'a Cx<'a>) -> Reply<'a> {
+            Box::pin(async {
+                Ok(Answer {
+                    name: "Test/set",
+                    args: r#"{"created":{"c1":{"id":"19000001"}}}"#.into(),
+                })
+            })
+        }
+        static SET_METHOD: Method = Method {
+            name: "Test/set",
+            mutator: true,
+            state: true,
+            run: run_set,
+            ..TESTS[0]
+        };
         let exec = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=x dbname=x", 1)
             .expect("lazy pool");
         let auth = MailboxAuthContext::from_authenticated_session(
@@ -612,10 +628,61 @@ mod tests {
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/set\",{\"created\":{\"b\\u003c\":{\"id\":\"2\"},\"a\":{\"id\":\"1\"}}},\"c1\"]],\"createdIds\":{\"a\":\"1\",\"b\\u003c\":\"2\"}}\n"
         );
+        let cx = Cx::new(&exec, None, &auth, 1, 2, &SET_METHOD, "null");
+        assert_eq!(
+            serve(&cx, "c1", "s").await,
+            "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/set\",{\"created\":{\"c1\":{\"id\":\"19000001\"}}},\"c1\"]],\"createdIds\":{\"c1\":\"19000001\"}}\n"
+        );
+        assert_eq!(
+            created_ids("Test/set", r#"{"created":{"c1":{"id":"19000001"}}}"#).as_deref(),
+            Some(r#"{"c1":"19000001"}"#)
+        );
         assert_eq!(created_ids("Test/set", r#"{"created":{}}"#), None);
         assert_eq!(
-            created_ids("Test/get", r#"{"created":{"a":{"id":"1"}}}"#),
+            created_ids("Test/get", r#"{"created":{"c1":{"id":"1"}}}"#),
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn reminder_and_continuity_classification_and_readiness() {
+        for name in ["Reminder/get", "Reminder/dismiss", "Reminder/snooze"] {
+            assert!(
+                classify(&body("urn:setjoin:params:jmap:reminders", name, "{}"), None).is_some(),
+                "{name} should be claimed without continuity signer"
+            );
+            assert!(
+                classify(&body("urn:ietf:params:jmap:mail", name, "{}"), None).is_none(),
+                "{name} requires reminders capability"
+            );
+        }
+        for name in ["Continuity/get", "Continuity/present"] {
+            assert!(
+                classify(&body("urn:ietf:params:jmap:mail", name, "{}"), None).is_none(),
+                "{name} stays with Go when continuity signer is absent"
+            );
+            assert!(
+                !(find(name).expect("registered").ready)(Ready { continuity: false }),
+                "{name} ready=false when continuity=false"
+            );
+            assert!(
+                (find(name).expect("registered").ready)(Ready { continuity: true }),
+                "{name} ready=true when continuity=true"
+            );
+        }
+
+        let exec = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=x dbname=x", 1)
+            .expect("lazy pool");
+        let auth = MailboxAuthContext::from_authenticated_session(
+            ActorId::new(1).expect("actor"),
+            MailboxId::new(2).expect("mailbox"),
+            Generation(1),
+        );
+        let get_method = find("Continuity/get").expect("Continuity/get");
+        let cx = Cx::new(&exec, None, &auth, 1, 2, get_method, "{}");
+        assert_eq!(
+            serve(&cx, "c1", "s").await,
+            "{\"sessionState\":\"s\",\"methodResponses\":[[\"error\",{\"type\":\"urn:ietf:params:jmap:error:forbidden\",\"status\":500,\"detail\":\"client continuity receipts are disabled\"},\"c1\"]]}\n"
         );
     }
 
