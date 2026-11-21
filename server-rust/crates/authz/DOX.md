@@ -390,3 +390,16 @@ denials; the gateway forwards them from one site (`bins/gateway/src/deny.rs`). A
 verify timeout is `Unavailable` (503); an unknown kid, including inside the JWKS
 refresh cooldown, is `InvalidToken` (401). The flagged `authorize_*` helpers are
 unchanged for the callers that still use them.
+
+## Auth-issuance seams (#350, #351, #352)
+
+`dpop::verify_without_ath` shares the `dpop::verify` checks (`htm`, `htu`, `jti`
+replay, `iat`, `exp`/`nbf`, ES256 signature and `jwk` thumbprint) while omitting
+`ath` for `GET/HEAD /auth/session/token` admission recovery (#352/#281);
+`dpop::verify` retains strict `ath` enforcement. `DeviceResolver::resolve_for_user`
+shares `DeviceResolver::resolve`'s `#499`-ordered ownership-before-nonce check for
+verified login/MFA user IDs without a minted `Proof` (#350). `policy::eval::Result`
+carries `correlation_id` (`CA-<8hex>`, minted by `Engine::evaluate` on enforcing
+`block`/`step_up`), `step_up_methods` (`actions.methods` / `actions.step_up_methods`
+or `require_strength` cheapest missing factors, default `["totp","webauthn"]`),
+`report_only`, and `would_decision` for `ca_signin_log_append` (#351).

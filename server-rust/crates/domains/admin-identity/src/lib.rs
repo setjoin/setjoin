@@ -77,6 +77,15 @@ pub struct Authority {
     domain_scope: i64,
 }
 impl Authority {
+    /// Fail-closed authority after a failed live lookup (#484): never fall back
+    /// to signed JWT grants when the governed role query cannot be read.
+    pub fn lookup_failed() -> Self {
+        Self {
+            permissions: Vec::new(),
+            global: Vec::new(),
+            domain_scope: 0,
+        }
+    }
     pub fn allows_any(&self, wanted: &[&str]) -> bool {
         wanted
             .iter()
@@ -751,4 +760,26 @@ pub async fn set_app_access(
         count,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Authority;
+
+    #[test]
+    fn lookup_failed_drops_all_grants_and_is_global_zero_scope() {
+        let failed = Authority::lookup_failed();
+        assert!(!failed.allows_any(&[
+            "users.read",
+            "users.create",
+            "roles.manage",
+            "identity.write",
+            "system.upgrade",
+            "audit.read",
+            "audit.export",
+        ]));
+        assert!(!failed.global_any(&["identity.write", "system.upgrade", "audit.export"]));
+        assert_eq!(failed.domain_scope(), 0);
+        assert!(!failed.refused_for_scope(&["audit.read", "audit.export"]));
+    }
 }

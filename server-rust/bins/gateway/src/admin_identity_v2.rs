@@ -43,7 +43,7 @@ pub trait SourceProbe: Send + Sync {
 pub struct SourceSecrets {
     env: EnvLookup,
     codec: Arc<tokio::sync::OnceCell<Arc<setjoin_config_secret::ConfigSecretCodec>>>,
-    /// Without a probe a dry run of an AD or LDAP source with its secrets set is Go's.
+    /// Without a probe a dry run of an AD or LDAP source with its secrets set fails closed with 503.
     probe: Option<Arc<dyn SourceProbe>>,
 }
 impl SourceSecrets {
@@ -269,7 +269,9 @@ pub(crate) fn segment(path: &str, index: usize) -> String {
 }
 
 impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -291,7 +293,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
         let secrets = self.secrets.clone();
         Box::pin(async move {
             let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
+                return bare(404, "not found", &c, "");
             };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
@@ -307,9 +309,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
             let path = r.uri().path().to_owned();
             let go_path = path.strip_prefix("/api").unwrap_or(&path).to_owned();
             let go_path = crate::guests_input::go_utf8(&crate::inventory::unescape(&go_path));
-            let Ok(authority) = setjoin_admin_identity::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let authority = setjoin_admin_identity::authority(&exec, actor)
+                .await
+                .unwrap_or_else(|_| setjoin_admin_identity::Authority::lookup_failed());
             // Go's audited route guard: `RequirePermAudited` (users.read, audit.read),
             // `RequireAnyPermAudited` (the Auth console set) or
             // `RequireAnyPermissionSetAudited` (the job access sets).
@@ -817,7 +819,6 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     let document = match src::validate(&text) {
                         src::Validation::Valid(d) => d,
                         src::Validation::Refuse(detail) => return bare(400, &detail, &c, &id),
-                        src::Validation::Forward => return forward_body(r, bytes, &c).await,
                     };
                     if let Some(refused) = unscoped_all_identity(&authority) {
                         return bare(403, refused, &c, &id);
@@ -883,7 +884,6 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     let document = match src::validate(&raw_document) {
                         src::Validation::Valid(d) => d,
                         src::Validation::Refuse(detail) => return bare(400, &detail, &c, &id),
-                        src::Validation::Forward => return forward_body(r, bytes, &c).await,
                     };
                     let path_key = if r.method() == Method::PUT {
                         segment(&path, 6)
@@ -1182,10 +1182,15 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         .collect();
                     let mut transport = "not_required";
                     if blockers.is_empty() && matches!(row.kind.as_str(), "ad" | "ldap") {
-                        // The directory transport probe (Go `h.sourceProbe`); without
-                        // one wired the whole request is Go's.
+                        // The directory transport probe (Go `h.sourceProbe`); fail
+                        // closed with 503 when no probe is wired.
                         let Some(probe) = secrets.probe.clone() else {
-                            return forward_body(r, bytes, &c).await;
+                            return bare(
+                                503,
+                                "identity source directory probe is unavailable",
+                                &c,
+                                &id,
+                            );
                         };
                         let codec = secrets.codec(&worker).await;
                         match src::decode_runtime(codec.as_deref(), &key, &row.kind, &row.envelope)
@@ -1554,22 +1559,6 @@ fn unscoped_all_identity(authority: &setjoin_admin_identity::Authority) -> Optio
     } else {
         None
     }
-}
-
-/// Re-send a request whose body was already read to Go (an outcome that is not modelled).
-pub(crate) async fn forward_body(
-    r: Request<Body>,
-    bytes: Vec<u8>,
-    c: &RequestContext,
-) -> Response<Body> {
-    use http_body_util::BodyExt;
-    let (parts, _) = r.into_parts();
-    let body: Body = http_body_util::Full::new(hyper::body::Bytes::from(bytes))
-        .map_err(|never| match never {})
-        .boxed();
-    c.upstream
-        .forward(Request::from_parts(parts, body), &c.identity)
-        .await
 }
 
 /// A reducer's committed result that must carry a `generation`: the route's success

@@ -12,7 +12,7 @@ BEGIN
   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
  INSERT INTO system_config (key, value, updated_at) VALUES ('outbound_tls_global_mode', p_mode, now())
   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
- PERFORM pg_notify('config_changed', '{"key":"outbound_tls_policy","enabled":true}');
+ PERFORM app_notify('config_changed', '{"key":"outbound_tls_policy","enabled":true}');
  RETURN true;
 END;
 $$;

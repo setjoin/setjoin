@@ -208,11 +208,15 @@ async fn callback_account_guards() {
 #[tokio::test]
 async fn oidc_rp_worker_seed_and_tick() {
     let _serial = SERIAL.lock().await;
-    let env = flows::Env::start(false).await.unwrap();
+    let env = flows::Env::worker_test().await.unwrap();
     let result=async{
         let seed=request(env.gw.addr,"GET","/auth/oidc/login?provider=idfed2",String::new(),&[]).await?;
         let (seed,_)=flows::normalize_flow(seed)?;
-        env.c.execute("UPDATE system_config SET value=jsonb_set(value,'{enabled}','false'::jsonb) WHERE key='oidc_provider_idfed2_config'",&[]).await?;
+        // The DELETE trigger must invalidate the running registry.
+        let removed = env.c.execute("DELETE FROM system_config WHERE key='oidc_provider_idfed2_config'", &[]).await?;
+        if removed != 1 {
+            return Err("OIDC fixture provider was not deleted".into());
+        }
         let deadline=tokio::time::Instant::now()+std::time::Duration::from_secs(5);
         let tick=loop{
             let response=request(env.gw.addr,"GET","/auth/oidc/login?provider=idfed2",String::new(),&[]).await?;
@@ -230,26 +234,6 @@ async fn oidc_rp_worker_seed_and_tick() {
     env.close().await.unwrap();
     result.unwrap();
 }
-#[test]
-fn oidc_rp_worker_requires_go_retirement() {
-    use std::os::unix::process::CommandExt;
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
-        .arg0("gofree-idfed2-worker-guard")
-        .env("RUST_WORKERS_ON", "oidc_rp")
-        .env_remove("GO_WORKERS_OFF")
-        .env_remove("SETJOIN_CONFIG")
-        .env("JWT_SECRET", fixture()["secret"].as_str().unwrap())
-        .env("DB_DSN", "invalid")
-        .output()
-        .unwrap();
-    assert!(!out.status.success());
-    assert!(
-        String::from_utf8_lossy(&out.stderr).contains("GO_WORKERS_OFF=oidc_rp"),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
 #[tokio::test]
 async fn callback_profile_update() {
     settlement::run("jit").await.unwrap();

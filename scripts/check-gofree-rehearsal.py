@@ -65,8 +65,8 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 53,  # lowered from 54 when threat admission (#349a) went native (ratchet)
-    ("gateway", "forward"): 166,  # lowered from 198 as routes went native (ratchet)
-    ("gateway", "forward_body"): 3,
+    ("gateway", "forward"): 159,  # lowered from 160 (#355a native DAV/Drive Basic auth)
+    ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,
 }

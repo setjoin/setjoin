@@ -2,7 +2,6 @@
 # ("Xinchuang CI: 12 guards red on the public tree"). run-guards.sh --known-red still RUNS each one
 # (self-test first) and prints a warning; only these names may fail without failing the lane.
 # Fix or re-scope the guard, then delete its line. Never add a guard here without an issue reference.
-check-app-notify                  # #348
 check-audit-coverage              # #348 (175 Rust reducers unclassified in scripts/audit-coverage.tsv)
 check-deploy-doc-currency         # #348 (self-test)
 check-guest-doors                 # #348
