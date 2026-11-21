@@ -566,6 +566,18 @@ mod tests {
 
     #[tokio::test]
     async fn serve_answers_go_shapes_without_a_database() {
+        fn run_set<'a>(_: &'a Cx<'a>) -> Reply<'a> {
+            Box::pin(async {
+                Ok(Answer {
+                    name: "Test/set",
+                    args: r#"{"created":{"c1":{"id":"19000001"}}}"#.into(),
+                })
+            })
+        }
+        let set_method = Method {
+            run: run_set,
+            ..TESTS[2]
+        };
         let exec = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=x dbname=x", 1)
             .expect("lazy pool");
         let auth = MailboxAuthContext::from_authenticated_session(
@@ -583,18 +595,6 @@ mod tests {
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/get\",{\"a\":1},\"c1\"]]}\n"
         );
-        fn run_set<'a>(_: &'a Cx<'a>) -> Reply<'a> {
-            Box::pin(async {
-                Ok(Answer {
-                    name: "Test/set",
-                    args: r#"{"created":{"c1":{"id":"19000001"}}}"#.into(),
-                })
-            })
-        }
-        let set_method = Method {
-            run: run_set,
-            ..TESTS[2]
-        };
         let cx = Cx::new(&exec, None, &auth, 1, 2, &set_method, "null");
         assert_eq!(
             serve(&cx, "c1", "s").await,

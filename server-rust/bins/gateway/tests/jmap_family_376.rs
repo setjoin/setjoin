@@ -28,17 +28,19 @@ const QUICK_STEP_APPLY_EFFECTS: &[(&str, &str)] = &[
     (
         "messages",
         "SELECT COALESCE(jsonb_agg(jsonb_build_object(\
-         'id', id, 'mailbox_id', mailbox_id, 'is_read', is_read, 'is_flagged', is_flagged) \
-         ORDER BY id), '[]'::jsonb)::text \
-         FROM messages WHERE mailbox_id IN ({a.mailbox}, {f.mailbox})",
+         'idx', idx, 'mailbox_id', mailbox_id, 'is_read', is_read, 'is_flagged', is_flagged) \
+         ORDER BY idx), '[]'::jsonb)::text \
+         FROM (SELECT row_number() OVER (ORDER BY id) AS idx, mailbox_id, is_read, is_flagged \
+         FROM messages WHERE mailbox_id IN ({a.mailbox}, {f.mailbox})) sub",
     ),
     (
         "message_tags",
         "SELECT COALESCE(jsonb_agg(jsonb_build_object(\
-         'message_id', mt.message_id, 'tag_name', t.name) \
-         ORDER BY mt.message_id, t.name), '[]'::jsonb)::text \
+         'message_idx', msg_idx, 'tag_name', tag_name) \
+         ORDER BY msg_idx, tag_name), '[]'::jsonb)::text \
+         FROM (SELECT dense_rank() OVER (ORDER BY mt.message_id) AS msg_idx, t.name AS tag_name \
          FROM message_tags mt JOIN tags t ON t.id = mt.tag_id \
-         WHERE t.mailbox_id IN ({a.mailbox}, {f.mailbox})",
+         WHERE t.mailbox_id IN ({a.mailbox}, {f.mailbox})) sub",
     ),
     (
         "mailboxes",

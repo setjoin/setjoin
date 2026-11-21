@@ -21,7 +21,7 @@ const EFFECT_ACTIVITY: (&str, &str) = (
 );
 const EFFECT_ENTITY_STATE: (&str, &str) = (
     "entity_state",
-    "SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.datatype), '[]'::jsonb)::text \
+    "SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.mailbox_id, s.datatype), '[]'::jsonb)::text \
      FROM jmap_entity_state s WHERE s.mailbox_id IN ({a.mailbox},{f.mailbox})",
 );
 const EFFECT_JOURNAL: (&str, &str) = (
@@ -439,6 +439,7 @@ const TASK_COMMENT_GET_SUCCESS: Case = Case {
          VALUES ({seed.2}, {f.mailbox}, {f.user}, 'comment', 'Foreign comment') RETURNING id",
     ],
     absent: &["{seed.2}", "{seed.3}", "Foreign comment"],
+    scrub: &[("/methodResponses/0/1/list/0/authorEmail", "a.email")],
     effects: &[EFFECT_TASKS, EFFECT_ACTIVITY],
     ..Case::new(
         "tasks",
@@ -584,6 +585,7 @@ const TASK_LIST_GET_SUCCESS: Case = Case {
         "INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id) VALUES ({seed.1}, {f.user}, 'owner', {f.user})",
     ],
     absent: &["{seed.1}", "Foreign List"],
+    scrub: &[("/methodResponses/0/1/lists/0/members/0/email", "a.email")],
     effects: &[EFFECT_LISTS, EFFECT_MEMBERS],
     ..Case::new(
         "tasks",
@@ -749,6 +751,7 @@ const TASK_LIST_MEMBER_SET_SUCCESS: Case = Case {
         r#"{"using":["urn:ietf:params:jmap:tasks"],"methodCalls":[["TaskList/get",{},"s0"]]}"#,
     ],
     vars: member_email_from_lists,
+    scrub: &[("/methodResponses/0/1/members/1/email", "a.email")],
     notify: &["task:{a.mailbox}", "task:{f.mailbox}"],
     effects: &[EFFECT_LISTS, EFFECT_MEMBERS],
     ..Case::new(
@@ -772,6 +775,10 @@ const TASK_LIST_MEMBER_SET_SELF_LEAVE: Case = Case {
         "INSERT INTO task_lists (owner_user_id, name) VALUES ({f.user}, 'Leave List') RETURNING id",
         "INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id) VALUES ({seed.0}, {f.user}, 'owner', {f.user})",
         "INSERT INTO task_list_members (list_id, user_id, role, added_by_user_id) VALUES ({seed.0}, {a.user}, 'member', {f.user})",
+    ],
+    scrub: &[
+        ("/methodResponses/0/1/members/0/email", "a.email"),
+        ("/methodResponses/0/1/members/1/email", "f.email"),
     ],
     notify: &["task:{a.mailbox}", "task:{f.mailbox}"],
     effects: &[EFFECT_LISTS, EFFECT_MEMBERS],
@@ -861,6 +868,7 @@ const TASK_LIST_TASKS_SUCCESS: Case = Case {
         "INSERT INTO tasks (mailbox_id, list_id, title) VALUES ({f.mailbox}, {seed.2}, 'Foreign Shared Task') RETURNING id",
     ],
     absent: &["{seed.2}", "{seed.3}", "Foreign Shared Task"],
+    scrub: &[("/methodResponses/0/1/list/0/creatorEmail", "a.email")],
     effects: &[EFFECT_LISTS, EFFECT_TASKS],
     ..Case::new(
         "tasks",
@@ -1022,6 +1030,7 @@ const TASK_ASSIGNED_GET_SUCCESS: Case = Case {
         "INSERT INTO tasks (mailbox_id, title, assignee_user_id) VALUES ({f.mailbox}, 'Foreign Assigned Task', {f.user}) RETURNING id",
     ],
     absent: &["{seed.1}", "Foreign Assigned Task"],
+    scrub: &[("/methodResponses/0/1/list/0/ownerEmail", "f.email")],
     effects: &[EFFECT_TASKS, EFFECT_LISTS],
     ..Case::new(
         "tasks",

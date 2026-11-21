@@ -79,7 +79,7 @@ const WORK_EFFECTS: &[(&str, &str)] = &[
     (
         "ops",
         "SELECT coalesce(jsonb_agg(jsonb_build_object('op', o.operation_id, 'kind', o.operation_kind, \
-         'actor', o.actor_user_id, 'digest', o.request_digest) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
+         'actor', o.actor_user_id, 'has_digest', (o.request_digest IS NOT NULL)) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
          FROM mail_work_operations o WHERE o.mailbox_id = {seed.0}",
     ),
 ];
@@ -109,7 +109,7 @@ const WORK_SET_EFFECTS: &[(&str, &str)] = &[
     (
         "ops",
         "SELECT coalesce(jsonb_agg(jsonb_build_object('op', o.operation_id, 'kind', o.operation_kind, \
-         'actor', o.actor_user_id, 'digest', o.request_digest) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
+         'actor', o.actor_user_id, 'has_digest', (o.request_digest IS NOT NULL)) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
          FROM mail_work_operations o WHERE o.mailbox_id = {seed.0}",
     ),
     (
@@ -144,7 +144,7 @@ const WORK_ACTION_EFFECTS: &[(&str, &str)] = &[
     (
         "ops",
         "SELECT coalesce(jsonb_agg(jsonb_build_object('op', o.operation_id, 'kind', o.operation_kind, \
-         'actor', o.actor_user_id, 'digest', o.request_digest) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
+         'actor', o.actor_user_id, 'has_digest', (o.request_digest IS NOT NULL)) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
          FROM mail_work_operations o WHERE o.mailbox_id = {seed.0}",
     ),
     (
@@ -174,7 +174,7 @@ const POLICY_EFFECTS: &[(&str, &str)] = &[
     (
         "ops",
         "SELECT coalesce(jsonb_agg(jsonb_build_object('op', o.operation_id, 'kind', o.operation_kind, \
-         'actor', o.actor_user_id, 'digest', o.request_digest) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
+         'actor', o.actor_user_id, 'has_digest', (o.request_digest IS NOT NULL)) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
          FROM mail_work_operations o WHERE o.mailbox_id = {seed.0}",
     ),
     (
@@ -193,7 +193,7 @@ const PREFS_EFFECTS: &[(&str, &str)] = &[
     (
         "ops",
         "SELECT coalesce(jsonb_agg(jsonb_build_object('op', o.operation_id, 'kind', o.operation_kind, \
-         'actor', o.actor_user_id, 'digest', o.request_digest) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
+         'actor', o.actor_user_id, 'has_digest', (o.request_digest IS NOT NULL)) ORDER BY o.created_at, o.operation_id), '[]'::jsonb)::text \
          FROM mail_work_operations o WHERE o.mailbox_id = {seed.0}",
     ),
 ];
