@@ -6,10 +6,10 @@ use base64::Engine as _;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use setjoin_auth::{body, AuthServer, Config};
 use setjoin_conformance::{fixture, golden, harness::Db};
 use setjoin_gateway::{Gateway, RouteTable, TrustedProxies};
+use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -197,12 +197,6 @@ async fn gateway(auth: SocketAddr, record: Option<String>) -> Server {
         if record.is_some() {
             r["state"] = json!("OFF");
             r["upstream"] = json!("go-auth");
-        } else if r["path"] == PATH {
-            // The four guest-invite rows stay OFF/go-auth in the bundled inventory until #396
-            // (threat admission: captcha + username lockout parity) has merged AND a separate
-            // activation PR qualifies them; this harness turns the path ON for its own gateway only.
-            r["state"] = json!("ON");
-            r["upstream"] = json!("rust-auth");
         }
     }
     let gw = Gateway::new(
@@ -470,7 +464,7 @@ async fn load(ctx: &Ctx, client_proxy: bool, default_deadlines: bool) -> Result<
         setjoin_pg::ScopedExecutor::from_dsn(ctx.db.app.as_deref().unwrap_or(&ctx.db.dsn), 4)
             .unwrap();
     let server = AuthServer::load(exec, cfg).await?;
-    Ok(if default_deadlines {
+    let server = if default_deadlines {
         server.with_guest_worker(
             setjoin_pg::ScopedExecutor::from_dsn_with(
                 &ctx.db.dsn,
@@ -481,7 +475,8 @@ async fn load(ctx: &Ctx, client_proxy: bool, default_deadlines: bool) -> Result<
         )
     } else {
         server
-    })
+    };
+    server.with_threat_gate(&ctx.db.dsn).await
 }
 
 struct Fx {
@@ -540,7 +535,8 @@ async fn seed(ctx: &Ctx, state: &str) -> Result<Fx, Err> {
     .await?;
     let guest_email = format!("guest-{unique}@guestaccept-partner.test");
     let token = format!("guest-invite-token-{unique}");
-    let (guest, invite) = invited(ctx, &guest_email, "guestaccept-host.test", &token, state).await?;
+    let (guest, invite) =
+        invited(ctx, &guest_email, "guestaccept-host.test", &token, state).await?;
     let (foreign, foreign_invite) = invited(
         ctx,
         &format!("foreign-{unique}@guestaccept-partner.test"),
@@ -1236,8 +1232,8 @@ async fn exercise(
         return phase1(name, method, kind, reply.status, &body, mutant);
     }
     if native_fault {
-        // The rollback leaves guests and audit untouched; the handler then records exactly
-        // one failure attempt outside the failed transaction (guest_invite.rs http_attempt).
+        // The rollback leaves guests and audit untouched; threat_tail then records
+        // one failure attempt outside the failed transaction.
         let attempts = |v: &Value, outcome: &str| {
             v["attempts"]
                 .as_array()
@@ -1317,10 +1313,12 @@ async fn exercise(
         if golden::compare(&expected, &actual).is_ok() {
             return Err("mutant survived".into());
         }
+        println!("MUTANT-REJECTED: {route} :: status");
         return Ok(());
     }
     golden::compare(&expected, &actual)?;
     golden::compare(&expected_rows, &effects)?;
+    println!("GOLDEN-REPLAY: {route} :: {name}");
     Ok(())
 }
 
@@ -1507,17 +1505,16 @@ cases! {
     guest_post_gateway_spoofed_xff => "POST", "gateway-spoofed-xff";
 }
 
-/// Regression: the bundled inventory keeps all four guest-invite registrations
-/// (auth and gateway listener, GET and POST) OFF/go-auth until #396 has merged and a
-/// separate activation PR qualifies them. The harness above flips its own copy only.
+/// Regression: all four guest-invite registrations (auth and gateway listener,
+/// GET and POST) are ON/rust-auth in the bundled inventory (#342).
 #[test]
 fn guest_invite_bundled_registrations_stay_off_go_auth() {
     let inventory: Value = serde_json::from_str(setjoin_gateway::inventory::BUNDLED).unwrap();
     let mut seen: Vec<(String, String)> = Vec::new();
     for r in inventory["routes"].as_array().unwrap() {
         if r["path"] == PATH {
-            assert_eq!(r["state"], "OFF", "{r}");
-            assert_eq!(r["upstream"], "go-auth", "{r}");
+            assert_eq!(r["state"], "ON", "{r}");
+            assert_eq!(r["upstream"], "rust-auth", "{r}");
             seen.push((
                 r["listener"].as_str().unwrap().to_owned(),
                 r["method"].as_str().unwrap().to_owned(),
@@ -1576,7 +1573,10 @@ native!(
     toggles_follow_login
 );
 native!(guest_post_captcha_header_native, captcha_header);
-native!(guest_post_failed_captcha_rows_are_bounded, failed_captcha_flood);
+native!(
+    guest_post_failed_captcha_rows_are_bounded,
+    failed_captcha_flood
+);
 native!(guest_post_threat_username_keys, username_keys);
 native!(guest_upgrade_reducers_absent, reducers_absent);
 
@@ -1585,8 +1585,11 @@ native!(guest_upgrade_reducers_absent, reducers_absent);
 /// Every row this test's guest source owns, whatever its time: its attempt rows and its audit
 /// rows (the audit delete runs in one replica-mode transaction, rolled back on any error).
 async fn purge_guest_source(c: &Client, ip: &str) -> Result<(), Err> {
-    c.execute("DELETE FROM auth_attempts WHERE source_ip=$1::text::inet", &[&ip])
-        .await?;
+    c.execute(
+        "DELETE FROM auth_attempts WHERE source_ip=$1::text::inet",
+        &[&ip],
+    )
+    .await?;
     c.batch_execute("BEGIN").await?;
     if let Err(error) = c
         .batch_execute("SET LOCAL session_replication_role=replica")
@@ -1596,7 +1599,10 @@ async fn purge_guest_source(c: &Client, ip: &str) -> Result<(), Err> {
         return Err(error.into());
     }
     match c
-        .execute("DELETE FROM audit_log WHERE source_ip=$1::text::inet", &[&ip])
+        .execute(
+            "DELETE FROM audit_log WHERE source_ip=$1::text::inet",
+            &[&ip],
+        )
         .await
     {
         Ok(_) => {
@@ -1620,7 +1626,10 @@ async fn native_server_with_tarpit_window(ctx: &Ctx, minutes: i32) -> Result<Ser
     let exec =
         setjoin_pg::ScopedExecutor::from_dsn(ctx.db.app.as_deref().unwrap_or(&ctx.db.dsn), 4)
             .unwrap();
-    let server = AuthServer::load(exec, cfg).await?;
+    let server = AuthServer::load(exec, cfg)
+        .await?
+        .with_threat_gate(&ctx.db.dsn)
+        .await?;
     Ok(auth_server(Arc::new(server), false).await)
 }
 
@@ -1707,7 +1716,8 @@ async fn credential_policy(ctx: &Ctx) -> Result<(), Err> {
                 "INSERT INTO common_passwords(password_hash) VALUES($1) ON CONFLICT DO NOTHING",
                 &[&digest],
             )
-            .await? == 1;
+            .await?
+            == 1;
         let server = native_server(ctx).await?;
         let post = |password| {
             request(
@@ -1765,20 +1775,26 @@ async fn credential_policy(ctx: &Ctx) -> Result<(), Err> {
 
     let cleaned = async {
         if inserted_common {
-            c.execute("DELETE FROM common_passwords WHERE password_hash=$1", &[&digest])
-                .await?;
+            c.execute(
+                "DELETE FROM common_passwords WHERE password_hash=$1",
+                &[&digest],
+            )
+            .await?;
         }
         c.batch_execute("BEGIN").await?;
         let removed = async {
-            c.batch_execute("SET LOCAL session_replication_role=replica").await?;
+            c.batch_execute("SET LOCAL session_replication_role=replica")
+                .await?;
             c.execute(
                 "DELETE FROM admin_audit_log WHERE target_type='guest_invite'
                  AND user_id=(SELECT id FROM users WHERE email=$1)",
                 &[&email],
             )
             .await?;
-            c.batch_execute("SET LOCAL session_replication_role=origin").await?;
-            c.execute("DELETE FROM users WHERE email=$1", &[&email]).await?;
+            c.batch_execute("SET LOCAL session_replication_role=origin")
+                .await?;
+            c.execute("DELETE FROM users WHERE email=$1", &[&email])
+                .await?;
             Ok::<_, Err>(())
         }
         .await;
@@ -1807,7 +1823,10 @@ async fn credential_policy(ctx: &Ctx) -> Result<(), Err> {
     );
     assert!(reused_unchanged, "reused password changed guest state");
     assert_eq!(accepted_status, 200);
-    assert!(recorded, "accepted password must be the first history entry");
+    assert!(
+        recorded,
+        "accepted password must be the first history entry"
+    );
     Ok(())
 }
 
@@ -2056,25 +2075,25 @@ async fn deadline(ctx: &Ctx) -> Result<(), Err> {
 }
 
 async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
-    let fx = seed(ctx, "valid").await?;
     let since = now_text(&ctx.c).await?;
     let mut result: Result<(), Err> = Ok(());
     for (i, key) in TOGGLES.into_iter().enumerate() {
+        let fx = seed(ctx, "valid").await?;
         let from = Ipv4Addr::new(127, 0, 0, 160 + i as u8);
         set_toggle(&ctx.c, key, Some(true)).await?;
-        // The gate caches the toggles when it loads, so it is built after the toggle is
-        // on: with feature.rate_limit on, login is admitted natively (http_threat.rs);
-        // only guest-invite, CA and device trust still forward.
-        let server = auth_server(
-            Arc::new(
-                load(ctx, false, false)
-                    .await?
-                    .with_threat_gate(&ctx.db.dsn)
-                    .await?,
-            ),
-            false,
+        // Guest-invite POST is admitted unconditionally by native http_threat (#349b),
+        // so all three toggles run natively on guest-invite; login stays native on
+        // feature.rate_limit and still forwards on CA and device trust.
+        let server = auth_server(Arc::new(load(ctx, false, false).await?), false).await;
+        let get = request(
+            server.addr,
+            from,
+            "GET",
+            &format!("{PATH}?token={}", fx.token),
+            Vec::new(),
+            &[],
         )
-        .await;
+        .await?;
         let (target, payload) = shape("POST", "success", &fx.token);
         let guest = request(server.addr, from, "POST", &target, payload, &[]).await?;
         let login_body = json!({ "email": "nobody@guestaccept.test", "password": "x" });
@@ -2084,15 +2103,6 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
             "POST",
             "/auth/login",
             login_body.to_string().into_bytes(),
-            &[],
-        )
-        .await?;
-        let get = request(
-            server.addr,
-            from,
-            "GET",
-            &format!("{PATH}?token={}", fx.token),
-            Vec::new(),
             &[],
         )
         .await?;
@@ -2114,21 +2124,30 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         } else {
             login.status == 503 && login.body == OWNER
         };
-        if guest.status != 503 || guest.body != OWNER || !login_ok || get.status != 200 {
+        let guest_rows: i64 = ctx
+            .c
+            .query_one(
+                "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND target_username='' AND protocol='http' AND outcome='success' AND occurred_at >= $2::text::timestamptz",
+                &[&from.to_string(), &since],
+            )
+            .await?
+            .get(0);
+        let state = rows(&ctx.c, &fx, "-infinity", PASSWORD).await?;
+        if guest.status != 200
+            || guest_rows != 1
+            || state["guests"][0]["status"] != "active"
+            || !login_ok
+            || get.status != 200
+        {
             result = Err(format!(
-                "{key}: guest {} login {} get {}",
-                guest.status, login.status, get.status
+                "{key}: guest {} (rows {guest_rows}, status {}) login {} get {}",
+                guest.status, state["guests"][0]["status"], login.status, get.status
             )
             .into());
             break;
         }
     }
-    let state = rows(&ctx.c, &fx, "-infinity", PASSWORD).await?;
-    result?;
-    if state["guests"][0]["status"] != "invited" {
-        return Err("a forwarded POST changed state".into());
-    }
-    Ok(())
+    result
 }
 
 async fn captcha_header(ctx: &Ctx) -> Result<(), Err> {

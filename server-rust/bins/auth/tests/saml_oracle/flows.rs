@@ -113,11 +113,13 @@ impl Env {
             &[],
         )
         .await?;
+        let mut config = config()?;
+        config.direct_dsn = db.direct.clone();
         let native = Arc::new(
             AuthServer::load(
                 setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
                     .unwrap(),
-                config()?,
+                config,
             )
             .await?,
         );

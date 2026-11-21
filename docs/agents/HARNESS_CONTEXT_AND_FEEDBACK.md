@@ -17,10 +17,7 @@ Setjoin borrows the portable parts of an open agent harness:
   safety boundaries, outputs and acceptance checks. They do not prescribe
   incidental algorithms, prompt style or a preferred implementation when the
   contract does not require it.
-- **Product boundary stays explicit.** Codex's `exec`, SDK and app-server
-  lifecycle is a reference for agent tooling only. Setjoin does not claim to
-  implement a Codex-compatible agent runtime or protocol unless a separate
-  approved plan says so.
+- **Product boundary stays explicit.** External agent runtimes, SDKs, and CLI lifecycles are tooling references only; Setjoin implements no third-party agent protocol unless a separate approved plan says so.
 
 ## Write — persist the useful state
 
@@ -108,7 +105,7 @@ owned elsewhere:
 
 All first-party rails (including hidden/new files) and their ancestor chains are checked
 by `bash scripts/check-agent-context-budget.sh`; `bash scripts/check-agent-docs.sh` adds
-links, anchors and the `.claude` self-tests. After changing AGENTS/DOX, run it. Reference movement preserves domain contracts and approval state.
+link and anchor checks. After changing AGENTS/DOX, run it. Reference movement preserves domain contracts and approval state.
 
 For authorized implementation, completion includes relevant checks, inspection, fixing
 task-caused failures and cleanup. Unrelated failures get a separate record. Do not

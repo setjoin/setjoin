@@ -53,6 +53,10 @@ pub struct Result {
     pub terms_id: i64,
     pub limited_web: bool,
     pub grants: Vec<Value>,
+    pub correlation_id: Option<String>,
+    pub step_up_methods: Vec<String>,
+    pub report_only: bool,
+    pub would_decision: String,
 }
 impl Default for Result {
     fn default() -> Self {
@@ -65,8 +69,20 @@ impl Default for Result {
             terms_id: 0,
             limited_web: false,
             grants: vec![],
+            correlation_id: None,
+            step_up_methods: vec![],
+            report_only: false,
+            would_decision: String::new(),
         }
     }
+}
+/// Mint a short opaque per-evaluation reference (`CA-<8hex>`, matching Go
+/// `newCorrelationID` in `shared/threat/policy.go`).
+pub(super) fn new_correlation_id() -> String {
+    use ring::rand::{SecureRandom, SystemRandom};
+    let mut b = [0u8; 4];
+    let _ = SystemRandom::new().fill(&mut b);
+    format!("CA-{:02x}{:02x}{:02x}{:02x}", b[0], b[1], b[2], b[3])
 }
 pub fn text<'a>(v: &'a Value, key: &str) -> &'a str {
     v[key].as_str().unwrap_or("")
@@ -276,6 +292,17 @@ pub fn evaluate(snapshot: &Snapshot, ctx: &Context) -> Result {
         }
         result.evaluated.push(trace);
     }
+    if result.policy_id == 0 {
+        if let Some(would) = result
+            .evaluated
+            .iter()
+            .filter_map(|v| text(v, "outcome").strip_prefix("would_"))
+            .next()
+        {
+            result.report_only = true;
+            result.would_decision = would.to_owned();
+        }
+    }
     result
 }
 
@@ -342,3 +369,131 @@ pub fn simulate_json(snapshot: &Snapshot, context: &Context) -> String {
 }
 
 pub use super::runtime::{risk_score, Engine};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn report_only_sets_would_decision_only_when_no_policy_enforced() {
+        let report_only_block = Policy::from_document(json!({
+            "id": 12, "name": "block RO", "priority": 1, "state": "report_only",
+            "scope_type": "global", "conditions": {}, "actions": {"action": "block"}
+        }));
+        let enforced_block = Policy::from_document(json!({
+            "id": 5, "name": "hard block", "priority": 2, "state": "on",
+            "scope_type": "global", "conditions": {}, "actions": {"action": "block"}
+        }));
+
+        let ro = evaluate(
+            &Snapshot {
+                policies: vec![report_only_block.clone()],
+                ..Default::default()
+            },
+            &Context::default(),
+        );
+        assert_eq!(ro.decision, "allow");
+        assert!(ro.report_only);
+        assert_eq!(ro.would_decision, "block");
+        assert_eq!(ro.correlation_id, None);
+
+        let enforced = evaluate(
+            &Snapshot {
+                policies: vec![report_only_block, enforced_block],
+                ..Default::default()
+            },
+            &Context::default(),
+        );
+        assert_eq!(enforced.decision, "block");
+        assert!(!enforced.report_only);
+        assert_eq!(enforced.would_decision, "");
+
+        let clean = evaluate(&Snapshot::default(), &Context::default());
+        assert_eq!(clean.decision, "allow");
+        assert!(!clean.report_only);
+        assert_eq!(clean.would_decision, "");
+    }
+
+    #[test]
+    fn step_up_methods_follow_legacy_methods_and_require_strength_missing_factors() {
+        let eval_one = |actions: Value, ctx: Context, strengths: Vec<Value>| {
+            evaluate(
+                &Snapshot {
+                    policies: vec![Policy::from_document(json!({
+                        "id": 1, "name": "mfa", "priority": 1, "state": "on",
+                        "scope_type": "global", "conditions": {}, "actions": actions
+                    }))],
+                    strengths,
+                    ..Default::default()
+                },
+                &ctx,
+            )
+        };
+
+        let legacy_custom = eval_one(
+            json!({"action": "step_up", "methods": ["totp", "webauthn", "push"]}),
+            Context::default(),
+            vec![],
+        );
+        assert_eq!(legacy_custom.decision, "step_up");
+        assert_eq!(
+            legacy_custom.step_up_methods,
+            vec!["totp", "webauthn", "push"]
+        );
+
+        let legacy_default = eval_one(json!({"action": "step_up"}), Context::default(), vec![]);
+        assert_eq!(legacy_default.step_up_methods, vec!["totp", "webauthn"]);
+
+        let acr = eval_one(
+            json!({"grants": [{"type": "require_acr", "acr": "aal2"}]}),
+            Context::default(),
+            vec![],
+        );
+        assert_eq!(acr.decision, "step_up");
+        assert_eq!(acr.step_up_methods, vec!["totp", "webauthn"]);
+
+        let strengths = vec![json!({
+            "id": 9,
+            "min_acr": "aal2",
+            "requirement": [["webauthn"], ["password", "totp"]]
+        })];
+        let missing_first_combo = eval_one(
+            json!({"grants": [{"type": "require_strength", "strength_id": 9}]}),
+            Context {
+                current_acr: "aal1".into(),
+                completed_factors: Some(vec!["password".into()]),
+                ..Default::default()
+            },
+            strengths,
+        );
+        assert_eq!(missing_first_combo.decision, "step_up");
+        assert_eq!(missing_first_combo.step_up_methods, vec!["webauthn"]);
+
+        let strengths_missing_totp = vec![json!({
+            "id": 10,
+            "min_acr": "aal2",
+            "combinations": [["password", "totp"], ["webauthn"]]
+        })];
+        let missing_totp = eval_one(
+            json!({"grants": [{"type": "require_strength", "strength_id": 10}]}),
+            Context {
+                current_acr: "aal1".into(),
+                completed_factors: Some(vec!["password".into()]),
+                ..Default::default()
+            },
+            strengths_missing_totp,
+        );
+        assert_eq!(missing_totp.decision, "step_up");
+        assert_eq!(missing_totp.step_up_methods, vec!["totp"]);
+    }
+
+    #[test]
+    fn correlation_id_uses_ca_hex_format() {
+        let id = new_correlation_id();
+        assert!(id.starts_with("CA-"));
+        assert_eq!(id.len(), 11);
+        assert!(id[3..]
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+    }
+}

@@ -461,7 +461,14 @@ async fn run_inner(
                     .query_one(&format!("SELECT pg_get_functiondef('{signature}'::regprocedure)"), &[])
                     .await?
                     .get(0);
-                owner.batch_execute(&def.replace("PERFORM pg_notify('smime_trust_changed', '1');", "")).await?;
+                let patched = def
+                    .replace("PERFORM app_notify('smime_trust_changed', '1');", "")
+                    .replace("PERFORM pg_notify('smime_trust_changed', '1');", "");
+                assert_ne!(
+                    patched, def,
+                    "no-smime-notify fault did not strip notification from {signature}"
+                );
+                owner.batch_execute(&patched).await?;
                 undo.push(def);
             }
         }

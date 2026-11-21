@@ -1,0 +1,14 @@
+{
+  "totp-account-password": {
+    "issue": "#355",
+    "reviewed": true,
+    "reviewer": "owner 2026-11-14",
+    "reason": "Frozen Go loads users.totp_enabled in pwhash.CheckPassword but IMAP LOGIN/AUTHENTICATE ignores it, so a TOTP user's account password opens a session with no second factor. Rust refuses the account password of a user with totp_enabled (same NO Authentication failed reply as a wrong password); app passwords still work. The flag is read by the per-call account SELECT, before the verification cache.",
+    "review": "owner ruling 2026-11-14 (#355-0): IMAP follows the DAV rule, app passwords only for TOTP users",
+    "go_source": "shared/pwhash/pwhash.go:149-160; mailserver/internal/imap/imap.go:603",
+    "goldens": "unchanged: no recorded IMAP session uses a TOTP user",
+    "secure_test": "password_policy::totp_user_account_password_is_refused_even_on_a_warm_cache",
+    "mutant": "imap-totp-account-password-admit",
+    "mutant_note": "TotpAccountPassword::Admit in imap/src/auth.rs POLICY makes secure_test fail (not wired to a lane yet)"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "case": "continuity-present-newer-timeline-row-effects",
+  "effects": [
+    {
+      "after": "true|<uuid>",
+      "before": "true|<uuid>",
+      "name": "control"
+    },
+    {
+      "after": "<a.mailbox>:1:999999:client_observed_newer_timeline",
+      "before": "",
+      "name": "witnesses"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap Continuity/present"
+}

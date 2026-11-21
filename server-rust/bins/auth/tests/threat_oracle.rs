@@ -3242,7 +3242,10 @@ async fn delete_test_audits(
     let users = users.to_vec();
     let keys = keys.to_vec();
     c.batch_execute("BEGIN").await?;
-    if let Err(error) = c.batch_execute("SET LOCAL session_replication_role=replica").await {
+    if let Err(error) = c
+        .batch_execute("SET LOCAL session_replication_role=replica")
+        .await
+    {
         c.batch_execute("ROLLBACK").await?;
         return Err(error.into());
     }
@@ -3385,19 +3388,26 @@ async fn native_rate_limited_flood_writes_one_row_per_window() {
 #[tokio::test]
 async fn native_long_usernames_stay_distinct_for_spray() {
     let _serial = SERIAL.lock().await;
-    let Some(n) = native_open("GOFREE349A-long-spray", true, &[]).await.unwrap() else {
-        return;
-    };
-    let since: String = n
-        .c
-        .query_one("SELECT now()::text", &[])
+    let Some(n) = native_open("GOFREE349A-long-spray", true, &[])
         .await
         .unwrap()
-        .get(0);
+    else {
+        return;
+    };
+    let since: String =
+        n.c.query_one("SELECT now()::text", &[])
+            .await
+            .unwrap()
+            .get(0);
     let ips = vec!["127.0.0.130".to_owned()];
     let prefix = "p".repeat(300);
     let users: Vec<String> = (0..3u32)
-        .map(|seed| format!("{}@gofree349a.test", high_entropy_name(&prefix, seed, 4 * 1024)))
+        .map(|seed| {
+            format!(
+                "{}@gofree349a.test",
+                high_entropy_name(&prefix, seed, 4 * 1024)
+            )
+        })
         .collect();
     let result = async {
         clear_state(&n.c, &ips, &n.fx.email).await?;
@@ -3407,7 +3417,9 @@ async fn native_long_usernames_stay_distinct_for_spray() {
         let server = serve(native_server(&n.db, cfg).await?).await?;
         let mut statuses = Vec::new();
         for user in users.iter().chain(users.first()) {
-            let body = json!({"email": user, "password": WRONG}).to_string().into_bytes();
+            let body = json!({"email": user, "password": WRONG})
+                .to_string()
+                .into_bytes();
             let reply = send(server.addr, ip(130), LOGIN, body, &origin()).await;
             statuses.push(reply.map(|r| {
                 (
@@ -3449,16 +3461,23 @@ async fn native_long_usernames_stay_distinct_for_spray() {
 #[tokio::test]
 async fn native_long_name_locks_and_clears_on_bounded_keys() {
     let _serial = SERIAL.lock().await;
-    let Some(mut n) = native_open("GOFREE349A-long-lock", true, &[]).await.unwrap() else {
-        return;
-    };
-    let since: String = n
-        .c
-        .query_one("SELECT now()::text", &[])
+    let Some(mut n) = native_open("GOFREE349A-long-lock", true, &[])
         .await
         .unwrap()
-        .get(0);
-    let domain = n.fx.email.split_once('@').expect("fixture email").1.to_owned();
+    else {
+        return;
+    };
+    let since: String =
+        n.c.query_one("SELECT now()::text", &[])
+            .await
+            .unwrap()
+            .get(0);
+    let domain =
+        n.fx.email
+            .split_once('@')
+            .expect("fixture email")
+            .1
+            .to_owned();
     let long = format!("{}@{domain}", "a".repeat(290));
     n.c.execute(
         "UPDATE users SET email=$1 WHERE id=$2",
@@ -3470,12 +3489,18 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
     let bounded = setjoin_threat::bounded_name(&setjoin_authz::address::lower(&long)).into_owned();
     let user_key = format!("user:{bounded}");
     let ip_user = format!("ip_user:127.0.0.126:{bounded}");
-    let ips: Vec<String> = (120..=126u8).map(|last| format!("127.0.0.{last}")).collect();
+    let ips: Vec<String> = (120..=126u8)
+        .map(|last| format!("127.0.0.{last}"))
+        .collect();
     let result = async {
         clear_state(&n.c, &ips, &long).await?;
         let server =
             serve(native_server(&n.db, rust_config(&n.db, Preset::Off, None)?).await?).await?;
-        let wrong = |email: &str| json!({"email": email, "password": WRONG}).to_string().into_bytes();
+        let wrong = |email: &str| {
+            json!({"email": email, "password": WRONG})
+                .to_string()
+                .into_bytes()
+        };
         // (a) five wrong passwords from five sources reach the user threshold (5); a sixth
         // source is refused by the user lock.
         for last in 120..125u8 {
@@ -3507,17 +3532,22 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
             server.close().await;
             return Err(format!("user key failed_count {failed:?}").into());
         }
-        let good = json!({"email": &long, "password": PASSWORD}).to_string().into_bytes();
+        let good = json!({"email": &long, "password": PASSWORD})
+            .to_string()
+            .into_bytes();
         let reply = send(server.addr, ip(126), LOGIN, good, &origin()).await?;
         server.close().await;
         if reply.status != 200 {
             return Err(format!("{} {}", reply.status, reply.body).into());
         }
-        let left: i64 = n
-            .c
-            .query_one(
+        let left: i64 =
+            n.c.query_one(
                 "SELECT count(*) FROM auth_lockouts WHERE lockout_key=ANY($1::text[])",
-                &[&vec![user_key.clone(), ip_user.clone(), "ip:127.0.0.126".to_owned()]],
+                &[&vec![
+                    user_key.clone(),
+                    ip_user.clone(),
+                    "ip:127.0.0.126".to_owned(),
+                ]],
             )
             .await?
             .get(0);
@@ -3535,4 +3565,666 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
     .await;
     let closed = native_close(n, &ips).await;
     result.and(cleaned).and(closed).unwrap();
+}
+
+#[test]
+fn native_349b_wiring_and_with_user_id_are_pinned() {
+    let config = include_str!("../src/config.rs");
+    let http_threat = include_str!("../src/http_threat.rs");
+    let guest_invite = include_str!("../src/guest_invite.rs");
+    let issuance = include_str!("../src/issuance.rs");
+    let lib = include_str!("../src/lib.rs");
+    let totp = include_str!("../src/totp.rs");
+    let webauthn = include_str!("../src/webauthn.rs");
+    let push = include_str!("../src/push.rs");
+    let possession = include_str!("../src/possession.rs");
+    let oidc = include_str!("../src/oidc.rs");
+    let section = |text: &'static str, start: &str, end: &str| -> &'static str {
+        let from = text.find(start).expect(start);
+        let rest = &text[from..];
+        &rest[..rest.find(end).expect(end)]
+    };
+
+    for (name, text) in [
+        ("config.rs", config),
+        ("http_threat.rs", http_threat),
+        ("guest_invite.rs", guest_invite),
+        ("issuance.rs", issuance),
+        ("lib.rs", lib),
+        ("totp.rs", totp),
+        ("webauthn.rs", webauthn),
+        ("push.rs", push),
+        ("possession.rs", possession),
+        ("oidc.rs", oidc),
+    ] {
+        for retired in [
+            "http_threat_pending",
+            "totp_threat_pending",
+            "totp_ingress",
+            "oidc_attempt",
+            "pub threat_controls",
+            "self.config.threat_controls",
+        ] {
+            assert!(!text.contains(retired), "{name} must not contain {retired}");
+        }
+    }
+
+    // WithUserID parity: only totp_verify, totp_bootstrap_confirm, and backup_verify (mfa_finish(..., true)).
+    let compact = |s: &str| -> String { s.chars().filter(|c| !c.is_whitespace()).collect() };
+    assert_eq!(totp.matches("Self::threat_user(").count(), 3);
+    assert!(
+        section(totp, "async fn totp_verify_admitted(", "impl AuthServer")
+            .contains("Self::threat_user(")
+    );
+    assert!(section(
+        totp,
+        "async fn totp_bootstrap_confirm_admitted(",
+        "impl AuthServer"
+    )
+    .contains("Self::threat_user("));
+    let backup = compact(section(
+        totp,
+        "async fn backup_verify_admitted(",
+        "pub(super) async fn mfa_finish(",
+    ));
+    assert!(backup.contains("self.mfa_finish(") && backup.contains("risk,true,).await"));
+    assert!(!section(
+        totp,
+        "pub(super) async fn totp_completion_route(",
+        "fn completion_dpop_requested"
+    )
+    .contains("feature.rate_limit"));
+    assert_eq!(push.matches("Self::threat_user(").count(), 0);
+    let push_st = compact(section(
+        push,
+        "pub(super) async fn push_status(",
+        "\n    }\n",
+    ));
+    assert!(push_st.contains("self.mfa_finish(") && push_st.contains("risk,false,).await"));
+    assert_eq!(guest_invite.matches("self.forward(").count(), 0);
+    assert!(!section(
+        issuance,
+        "pub(super) async fn webpush(",
+        "async fn webpush_admitted("
+    )
+    .contains("feature.rate_limit"));
+    assert!(!section(issuance, "async fn webpush_admitted(", "\n}\n").contains("self.forward("));
+}
+
+fn oidc_test_cfg(db: &Db, preset: Preset, upstream: Option<String>) -> Result<Config, Err> {
+    let mut cfg = rust_config(db, preset, upstream)?;
+    cfg.db_encryption_key = ENC.into();
+    cfg.vapid_private_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into();
+    let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/conformance/identity-oidc");
+    cfg.oidc_enabled = true;
+    cfg.oidc_hostname = "auth.idfed1.test".into();
+    cfg.oidc_private_key = corpus.join("op-private.pem").to_str().unwrap().into();
+    cfg.oidc_public_key = corpus.join("op-public.pem").to_str().unwrap().into();
+    Ok(cfg)
+}
+
+async fn send_method(
+    addr: SocketAddr,
+    from: Ipv4Addr,
+    method: &str,
+    path: &str,
+    payload: Vec<u8>,
+    headers: &[(String, String)],
+) -> Result<Reply, Err> {
+    let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
+    http.set_local_address(Some(IpAddr::V4(from)));
+    let client: hyper_util::client::legacy::Client<_, setjoin_auth::Body> =
+        hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(http);
+    let mut req = Request::builder()
+        .method(method)
+        .uri(format!("http://{addr}{path}"))
+        .header("host", HOST)
+        .header("user-agent", AGENT)
+        .header("content-type", "application/json");
+    for (k, v) in headers {
+        req = req.header(k.as_str(), v.as_str());
+    }
+    let started = Instant::now();
+    let resp = client.request(req.body(body(payload))?).await?;
+    let status = resp.status().as_u16();
+    let mut hs = serde_json::Map::new();
+    if let Some(v) = resp.headers().get("x-threat-reason") {
+        hs.insert("x-threat-reason".into(), json!(v.to_str()?));
+    }
+    let raw = String::from_utf8(resp.into_body().collect().await?.to_bytes().to_vec())?;
+    Ok(Reply {
+        status,
+        headers: Value::Object(hs),
+        body: raw,
+        elapsed: started.elapsed(),
+    })
+}
+
+#[tokio::test]
+async fn native_349b_missing_gate_refuses_every_newly_admitted_route() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349B-missing-gate", true, &[])
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let result = async {
+        let cfg = oidc_test_cfg(&n.db, Preset::Off, None)?;
+        let exec =
+            setjoin_pg::ScopedExecutor::from_dsn(n.db.app.as_deref().unwrap_or(&n.db.dsn), 4)
+                .map_err(|e| e.0)?;
+        let server = AuthServer::load(exec, cfg).await?;
+        let cases: [(&str, &str); 22] = [
+            ("GET", "/auth/totp/setup"),
+            ("POST", "/auth/totp/confirm"),
+            ("POST", "/auth/totp/enroll/setup"),
+            ("POST", "/auth/totp/verify"),
+            ("POST", "/auth/totp/enroll/confirm"),
+            ("POST", "/auth/backup-codes/generate"),
+            ("POST", "/auth/backup-codes/verify"),
+            ("GET", "/auth/webauthn/register/begin"),
+            ("POST", "/auth/webauthn/register/finish"),
+            ("POST", "/auth/push/verify"),
+            ("POST", "/auth/mfa/approve"),
+            ("POST", "/auth/mfa/push/send"),
+            ("POST", "/auth/mfa/reauth"),
+            ("POST", "/auth/mfa/possession/totp"),
+            ("POST", "/auth/mfa/possession/webauthn/begin"),
+            ("POST", "/auth/mfa/possession/webauthn/finish"),
+            ("POST", "/auth/device/register"),
+            ("POST", "/auth/guest-invite/accept"),
+            ("GET", "/authorize"),
+            ("GET", "/authorize/callback"),
+            ("POST", "/oauth/token"),
+            ("GET", "/userinfo"),
+        ];
+        for (method, path) in cases {
+            let reply = server
+                .handle(
+                    Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header("host", HOST)
+                        .body(body("{}"))?,
+                )
+                .await;
+            let status = reply.status().as_u16();
+            let text = String::from_utf8(reply.into_body().collect().await?.to_bytes().to_vec())?;
+            if status != 503 || !text.contains("threat admission unavailable") {
+                return Err(format!("{method} {path}: {status} {text}").into());
+            }
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let closed = native_close(n, &[]).await;
+    result.and(closed).unwrap();
+}
+
+async fn purge_349b_user_rows(c: &Client, user: i64) -> Result<(), Err> {
+    c.execute("DELETE FROM device_registry WHERE user_id=$1", &[&user])
+        .await?;
+    for table in [
+        "login_events",
+        "sessions",
+        "oauth_tokens",
+        "totp_counter_claims",
+        "push_mfa_challenges",
+        "mfa_reauth_step_ups",
+        "totp_pending_enrollments",
+        "passkey_credentials",
+    ] {
+        c.execute(&format!("DELETE FROM {table} WHERE user_id=$1"), &[&user])
+            .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_349b_with_user_id_and_unwrapped_rate_limit_parity() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349B-userid-parity", true, &[])
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let ips: Vec<String> = (150u8..=155).map(|o| format!("127.0.0.{o}")).collect();
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_349b_user_rows(&n.c, n.fx.a.user).await?;
+        let spy = spy().await?;
+        let cfg =
+            oidc_test_cfg(&n.db, Preset::Threat, Some(format!("http://{}", spy.server.addr)))?;
+        let server = serve(native_server(&n.db, cfg).await?).await?;
+
+        let secret = fixture_secret();
+        let totp_secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        let staged_secret = "JBSWY3DPEHPK3PXP";
+        let backup_code = "backup349b";
+        let enrollment_id = "00000000-0000-4000-8000-00000000349b";
+        let backup_hashes = vec![bcrypt::hash(backup_code, 4)?];
+        let now = unix_now() as u64;
+        let pending = |jti: &str| {
+            let claims = json!({"uid":n.fx.a.user,"email":n.fx.email,"typ":"mfa_pending","amr":["pwd"],"iss":"mailserver","aud":["mailserver-gateway"],"iat":now,"exp":now+3600,"jti":jti});
+            setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &claims.to_string())
+        };
+
+        // 1. POST /auth/totp/enroll/confirm (while totp_enabled=false) stamps WithUserID -> records device_registry + success.
+        n.c.execute(
+            "UPDATE users SET mfa_exempt=false,totp_enabled=false,factor_generation=2 WHERE id=$1",
+            &[&n.fx.a.user],
+        )
+        .await?;
+        let confirm_tok = pending("349b-confirm");
+        let confirm_hash = format!("{:x}", Sha256::digest(confirm_tok.as_bytes()));
+        n.c.execute(
+            "INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at,target_ref) VALUES($1,$2,'349b-confirm','bootstrap.totp.enroll','password',2,'mfa_pending',now()+interval '5 minutes',$3)",
+            &[&confirm_hash, &n.fx.a.user, &enrollment_id],
+        )
+        .await?;
+        n.c.execute(
+            "INSERT INTO totp_pending_enrollments(id,user_id,secret_enc,staged_by_jti,staged_via,expires_at) VALUES($1::text::uuid,$2,pgp_sym_encrypt($3,$4),'349b-confirm','enroll_setup',now()+interval '15 minutes')",
+            &[&enrollment_id, &n.fx.a.user, &staged_secret, &ENC],
+        )
+        .await?;
+        let r_confirm = send(
+            server.addr,
+            ip(151),
+            "/auth/totp/enroll/confirm",
+            json!({"mfa_token":confirm_tok,"code":setjoin_identity::totp::code(staged_secret, now as i64).ok_or("totp code")?,"enrollment_id":enrollment_id})
+                .to_string()
+                .into_bytes(),
+            &origin(),
+        )
+        .await?;
+        if r_confirm.status != 200 {
+            return Err(
+                format!("enroll_confirm failed: {} {}", r_confirm.status, r_confirm.body).into(),
+            );
+        }
+        let devs: i64 = n
+            .c
+            .query_one(
+                "SELECT count(*) FROM device_registry WHERE user_id=$1",
+                &[&n.fx.a.user],
+            )
+            .await?
+            .get(0);
+        if devs != 1
+            || outcomes(&n.c, "127.0.0.151").await? != vec![("success".into(), String::new())]
+        {
+            return Err(format!("enroll_confirm device/attempt mismatch: devs={devs}").into());
+        }
+
+        // 2. POST /auth/totp/verify stamps WithUserID -> records device_registry + success attempt.
+        n.c.execute(
+            "DELETE FROM totp_counter_claims WHERE user_id=$1",
+            &[&n.fx.a.user],
+        )
+        .await?;
+        n.c.execute(
+            "DELETE FROM device_registry WHERE user_id=$1",
+            &[&n.fx.a.user],
+        )
+        .await?;
+        n.c.execute(
+            "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),totp_enabled_at=now(),totp_backup_codes_enc=$4,last_totp_used_at=NULL,totp_failed_attempts=0,totp_locked_until=NULL,factor_generation=2 WHERE id=$1",
+            &[&n.fx.a.user, &totp_secret, &ENC, &backup_hashes],
+        )
+        .await?;
+        let r_totp = send(
+            server.addr,
+            ip(150),
+            "/auth/totp/verify",
+            json!({"mfa_token":pending("349b-verify"),"code":setjoin_identity::totp::code(totp_secret, now as i64).ok_or("totp code")?})
+                .to_string()
+                .into_bytes(),
+            &origin(),
+        )
+        .await?;
+        if r_totp.status != 200 {
+            return Err(format!("totp_verify failed: {} {}", r_totp.status, r_totp.body).into());
+        }
+        let devs: i64 = n
+            .c
+            .query_one(
+                "SELECT count(*) FROM device_registry WHERE user_id=$1",
+                &[&n.fx.a.user],
+            )
+            .await?
+            .get(0);
+        if devs != 1
+            || outcomes(&n.c, "127.0.0.150").await? != vec![("success".into(), String::new())]
+        {
+            return Err(format!("totp_verify device/attempt mismatch: devs={devs}").into());
+        }
+
+        // 3. POST /auth/backup-codes/verify stamps WithUserID -> records device_registry + success.
+        n.c.execute(
+            "DELETE FROM device_registry WHERE user_id=$1",
+            &[&n.fx.a.user],
+        )
+        .await?;
+        let r_backup = send(
+            server.addr,
+            ip(152),
+            "/auth/backup-codes/verify",
+            json!({"mfa_token":pending("349b-backup"),"code":backup_code})
+                .to_string()
+                .into_bytes(),
+            &origin(),
+        )
+        .await?;
+        if r_backup.status != 200 {
+            return Err(
+                format!("backup_verify failed: {} {}", r_backup.status, r_backup.body).into(),
+            );
+        }
+        let devs: i64 = n
+            .c
+            .query_one(
+                "SELECT count(*) FROM device_registry WHERE user_id=$1",
+                &[&n.fx.a.user],
+            )
+            .await?
+            .get(0);
+        if devs != 1
+            || outcomes(&n.c, "127.0.0.152").await? != vec![("success".into(), String::new())]
+        {
+            return Err(format!("backup_verify device/attempt mismatch: devs={devs}").into());
+        }
+
+        // 4. POST /auth/push/status has NO http_threat and NO WithUserID, and ignores feature.rate_limit = true.
+        n.c.execute(
+            "DELETE FROM device_registry WHERE user_id=$1",
+            &[&n.fx.a.user],
+        )
+        .await?;
+        let push_tok = pending("349b-push");
+        n.c.execute(
+            "INSERT INTO push_mfa_challenges(user_id,challenge_code,nonce,session_id,expires_at,verified_at,approved_at) VALUES($1,'42',decode($2,'hex'),$3,now()+interval '120 seconds',now(),now())",
+            &[&n.fx.a.user, &"11".repeat(32), &push_tok],
+        )
+        .await?;
+        let r_push = send(
+            server.addr,
+            ip(153),
+            "/auth/push/status",
+            json!({"mfa_token":push_tok,"nonce":"11".repeat(32)})
+                .to_string()
+                .into_bytes(),
+            &origin(),
+        )
+        .await?;
+        if r_push.status != 200 {
+            return Err(format!("push_status failed: {} {}", r_push.status, r_push.body).into());
+        }
+        let devs: i64 = n
+            .c
+            .query_one(
+                "SELECT count(*) FROM device_registry WHERE user_id=$1",
+                &[&n.fx.a.user],
+            )
+            .await?
+            .get(0);
+        if devs != 0 || !outcomes(&n.c, "127.0.0.153").await?.is_empty() {
+            return Err("push_status must not run http_threat or WithUserID".into());
+        }
+
+        // 5. POST /auth/webauthn/login/finish ignores feature.rate_limit = true and stays native.
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-webauthn/vectors.json"
+        ))?;
+        let v = &vectors["cases"][0];
+        let b64 = |s: &str| base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s);
+        let unhex = |raw: &str| -> Vec<u8> {
+            (0..raw.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&raw[i..i + 2], 16).unwrap())
+                .collect()
+        };
+        let cred_id = b64(v["id"].as_str().unwrap())?;
+        let handle = b64(v["handle"].as_str().unwrap())?;
+        n.c.execute(
+            "UPDATE users SET webauthn_user_handle=$2 WHERE id=$1",
+            &[&n.fx.a.user, &handle],
+        )
+        .await?;
+        n.c.execute(
+            "INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count,device_name,created_at,uv_capable) VALUES($1,$2,$3,'none',7,'My key','2026-10-01T02:03:04Z',true)",
+            &[&cred_id, &n.fx.a.user, &unhex(v["key"].as_str().unwrap())],
+        )
+        .await?;
+        let std_b64 = base64::engine::general_purpose::STANDARD;
+        let wa_sess = json!({"challenge":v["challenge"],"rpId":"localhost","user_id":std_b64.encode(&handle),"allowed_credentials":[std_b64.encode(&cred_id)],"expires":"0001-01-01T00:00:00Z"});
+        let codec = setjoin_identity::webauthn::CookieCipher::new(secret.as_bytes());
+        let mut wa_headers = origin();
+        wa_headers.push((
+            "cookie".into(),
+            format!(
+                "wa_login_sess={}; wa_login_uid={}",
+                codec.seal(wa_sess.to_string().as_bytes())?,
+                codec.seal(n.fx.a.user.to_string().as_bytes())?,
+            ),
+        ));
+        let r_wa = send(
+            server.addr,
+            ip(154),
+            "/auth/webauthn/login/finish",
+            v["assertions"]["success"]["request"].to_string().into_bytes(),
+            &wa_headers,
+        )
+        .await?;
+        if r_wa.status != 200 || !outcomes(&n.c, "127.0.0.154").await?.is_empty() {
+            return Err(format!("webauthn_login_finish mismatch: {}", r_wa.status).into());
+        }
+
+        // 6. GET /auth/totp/setup returns 200 + success attempt WITHOUT WithUserID (zero device rows).
+        n.c.execute(
+            "DELETE FROM device_registry WHERE user_id=$1",
+            &[&n.fx.a.user],
+        )
+        .await?;
+        let reauth_hash = format!("{:x}", Sha256::digest(b"349b-reauth"));
+        n.c.execute(
+            "INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at) VALUES($1,$2,'349b-setup','totp.replace','totp',2,'session',now()+interval '5 minutes')",
+            &[&reauth_hash, &n.fx.a.user],
+        )
+        .await?;
+        let access_claims = json!({"uid":n.fx.a.user,"email":n.fx.email,"typ":"access","iss":"mailserver","aud":["mailserver-gateway"],"iat":now,"exp":now+3600,"jti":"349b-setup"});
+        let access =
+            setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &access_claims.to_string());
+        let mut setup_headers = origin();
+        setup_headers.push(("authorization".into(), format!("Bearer {access}")));
+        setup_headers.push(("x-mfa-reauth".into(), "349b-reauth".into()));
+        let r_setup = send_method(
+            server.addr,
+            ip(155),
+            "GET",
+            "/auth/totp/setup",
+            Vec::new(),
+            &setup_headers,
+        )
+        .await?;
+        let devs: i64 = n
+            .c
+            .query_one(
+                "SELECT count(*) FROM device_registry WHERE user_id=$1",
+                &[&n.fx.a.user],
+            )
+            .await?
+            .get(0);
+        if r_setup.status != 200
+            || devs != 0
+            || outcomes(&n.c, "127.0.0.155").await? != vec![("success".into(), String::new())]
+        {
+            return Err(format!(
+                "totp_setup mismatch: status={} body={} devs={devs}",
+                r_setup.status, r_setup.body
+            )
+            .into());
+        }
+
+        let hits = spy.hits.lock().unwrap().len();
+        server.close().await;
+        spy.server.close().await;
+        if hits != 0 {
+            return Err(format!("expected zero Go forwards, got {hits}").into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let purged = purge_349b_user_rows(&n.c, n.fx.a.user).await;
+    let audits = purge_native_audits(&n.c, &ips, &n.fx.email).await;
+    let closed = native_close(n, &ips).await;
+    result.and(purged).and(audits).and(closed).unwrap();
+}
+
+#[tokio::test]
+async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349B-admission-preflight", true, &[])
+        .await
+        .unwrap()
+    else {
+        return;
+    };
+    let ips: Vec<String> = (156u8..=164).map(|o| format!("127.0.0.{o}")).collect();
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        let spy = spy().await?;
+        let cfg =
+            oidc_test_cfg(&n.db, Preset::Threat, Some(format!("http://{}", spy.server.addr)))?;
+        let server = serve(native_server(&n.db, cfg).await?).await?;
+
+        // A. IP block across newly admitted routes.
+        for (octet, method, path) in [
+            (156u8, "POST", "/auth/totp/verify"),
+            (157u8, "POST", "/auth/device/register"),
+            (158u8, "POST", "/auth/guest-invite/accept"),
+            (159u8, "GET", "/authorize"),
+        ] {
+            let src = format!("127.0.0.{octet}");
+            setup(&n.c, &Setup::IpRule("block"), &src, &n.fx).await?;
+            let resp = send_method(
+                server.addr,
+                ip(octet),
+                method,
+                path,
+                if method == "GET" {
+                    Vec::new()
+                } else {
+                    b"{}".to_vec()
+                },
+                &origin(),
+            )
+            .await?;
+            let reason = resp.headers.get("x-threat-reason").and_then(Value::as_str);
+            if resp.status != 403 || reason != Some("ip_blocked") {
+                return Err(
+                    format!("{method} {path} ip_blocked got {} {reason:?}", resp.status).into(),
+                );
+            }
+        }
+
+        // B. Rate limit on /auth/totp/verify returns 429 + rate_limited.
+        setup(&n.c, &Setup::RateCounter(3), "127.0.0.160", &n.fx).await?;
+        let r_rate = send(
+            server.addr,
+            ip(160),
+            "/auth/totp/verify",
+            b"{}".to_vec(),
+            &origin(),
+        )
+        .await?;
+        if r_rate.status != 429
+            || r_rate
+                .headers
+                .get("x-threat-reason")
+                .and_then(Value::as_str)
+                != Some("rate_limited")
+        {
+            return Err(format!("totp_verify rate_limit mismatch: {}", r_rate.status).into());
+        }
+
+        // C. Preflight forwards run BEFORE threat_admit (Go sees raw request; zero attempts/rate counters written).
+        let secret = fixture_secret();
+        let now = unix_now() as u64;
+        let bound_claims = json!({"uid":n.fx.a.user,"email":n.fx.email,"typ":"access","cnf":{"jkt":"bound-thumbprint"},"iss":"mailserver","aud":["mailserver-gateway"],"iat":now,"exp":now+3600,"jti":"349b-bound"});
+        let bound_access =
+            setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &bound_claims.to_string());
+        let preflights: [(&str, u8, &str, &str, Vec<u8>, Option<(&str, &str)>); 4] = [
+            (
+                "x-device on totp/verify",
+                161,
+                "POST",
+                "/auth/totp/verify",
+                b"{\"mfa_token\":\"m\",\"code\":\"123456\"}".to_vec(),
+                Some(("x-device-id", "7")),
+            ),
+            (
+                "x-device on backup-codes/verify",
+                162,
+                "POST",
+                "/auth/backup-codes/verify",
+                b"{\"mfa_token\":\"m\",\"code\":\"backup\"}".to_vec(),
+                Some(("x-device-id", "7")),
+            ),
+            (
+                "bound session on totp/setup",
+                163,
+                "GET",
+                "/auth/totp/setup",
+                Vec::new(),
+                None,
+            ),
+            (
+                "bound session on device/register",
+                164,
+                "POST",
+                "/auth/device/register",
+                b"{\"provider\":\"webpush\"}".to_vec(),
+                None,
+            ),
+        ];
+        for (label, octet, method, path, payload_bytes, extra_hdr) in preflights {
+            let mut hdrs = origin();
+            if let Some((k, v)) = extra_hdr {
+                hdrs.push((k.into(), v.into()));
+            } else {
+                hdrs.push(("authorization".into(), format!("Bearer {bound_access}")));
+            }
+            let r = send_method(server.addr, ip(octet), method, path, payload_bytes, &hdrs).await?;
+            if r.status != 418 {
+                return Err(format!("{label}: expected 418 forward, got {}", r.status).into());
+            }
+            let src = format!("127.0.0.{octet}");
+            let rows: i64 = n
+                .c
+                .query_one(
+                    "SELECT (SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet)+(SELECT count(*) FROM rate_limit_counters WHERE key='auth:http:'||$1)",
+                    &[&src],
+                )
+                .await?
+                .get(0);
+            if rows != 0 {
+                return Err(format!("{label}: preflight ran threat_admit first ({rows} rows)").into());
+            }
+        }
+        server.close().await;
+        let hits = spy.hits.lock().unwrap().len();
+        spy.server.close().await;
+        if hits != 4 {
+            return Err(format!("expected 4 preflight forwards, got {hits}").into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let audits = purge_native_audits(&n.c, &ips, &n.fx.email).await;
+    let closed = native_close(n, &ips).await;
+    result.and(audits).and(closed).unwrap();
 }

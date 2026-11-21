@@ -180,7 +180,7 @@ fn name_ids(text: &str, key: &str, ids: &[(i64, String)]) -> String {
 }
 
 /// Cases share fixed fixture keys and global windows (audit id, receipts), so they run one at a time.
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;

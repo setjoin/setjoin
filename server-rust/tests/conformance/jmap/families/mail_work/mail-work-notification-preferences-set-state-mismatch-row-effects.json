@@ -1,0 +1,18 @@
+{
+  "case": "mail-work-notification-preferences-set-state-mismatch-row-effects",
+  "effects": [
+    {
+      "after": "[{\"user_id\": <a.user>, \"category\": \"due\", \"delivery\": \"digest\", \"timezone\": \"UTC\", \"generation\": 1, \"digest_hour\": 9}]",
+      "before": "[{\"user_id\": <a.user>, \"category\": \"due\", \"delivery\": \"digest\", \"timezone\": \"UTC\", \"generation\": 1, \"digest_hour\": 9}]",
+      "name": "prefs"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "ops"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailWorkNotificationPreferences/set"
+}

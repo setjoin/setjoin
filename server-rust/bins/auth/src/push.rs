@@ -3,14 +3,30 @@ use super::*;
 use setjoin_identity::{push, totp};
 impl AuthServer {
     pub(super) async fn password_grant(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
+        if matches!(
+            self.totp_session_headers(staged.headers()),
+            Err(super::totp::Admission::Forward)
+        ) {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.password_grant_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn password_grant_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
             Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(super::totp::Admission::Forward) => {
+                return Self::failure(500, "internal error", req.uri().path())
+            }
         };
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -196,14 +212,30 @@ impl AuthServer {
         }
     }
     pub(super) async fn possession_totp(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
+        if matches!(
+            self.totp_session_headers(staged.headers()),
+            Err(super::totp::Admission::Forward)
+        ) {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.possession_totp_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn possession_totp_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
             Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(super::totp::Admission::Forward) => {
+                return Self::failure(500, "internal error", req.uri().path())
+            }
         };
         let path = req.uri().path().to_owned();
         let (headers, scheme) = Self::csrf_context(&req);
@@ -312,14 +344,30 @@ impl AuthServer {
         }
     }
     pub(super) async fn generate_backups(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
+        if matches!(
+            self.totp_session_headers(staged.headers()),
+            Err(super::totp::Admission::Forward)
+        ) {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.generate_backups_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn generate_backups_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
             Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(super::totp::Admission::Forward) => {
+                return Self::failure(500, "internal error", req.uri().path())
+            }
         };
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -463,10 +511,18 @@ impl AuthServer {
         }
     }
     pub(super) async fn push_verify(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.push_verify_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn push_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         if self.config.vapid_private_key.is_empty() {
             return Self::push_named_problem(404, "push MFA not configured", "not-found", &path);
@@ -509,7 +565,12 @@ impl AuthServer {
             ))
             .unwrap()
     }
-    pub(super) fn push_problem(status: u16, detail: &str, code: Option<&str>, path: &str) -> Response<Body> {
+    pub(super) fn push_problem(
+        status: u16,
+        detail: &str,
+        code: Option<&str>,
+        path: &str,
+    ) -> Response<Body> {
         let p = problem::Problem::new(status, detail).instance(path);
         let p = if let Some(code) = code {
             p.code(code)
@@ -633,8 +694,8 @@ impl AuthServer {
                 Err(reply) => return reply,
             }
         } // #405.
-        // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
-        // here, so no factor is spent and no token is signed or stored.
+          // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
+          // here, so no factor is spent and no token is signed or stored.
         let risk = match pending.risk(&self.exec).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", &path),
@@ -668,6 +729,7 @@ impl AuthServer {
             Some(factors),
             (500, "user lookup failed"),
             risk,
+            false,
         )
         .await
     }
@@ -675,10 +737,18 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn push_approve(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(v) => v,
-            Err(r) => return r,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
         };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.push_approve_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn push_approve_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let raw = match Limited::new(req.into_body(), body_cap()).collect().await {
             Ok(v) => v.to_bytes(),
@@ -756,10 +826,18 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn push_send(&self, req: Request<Body>) -> Response<Body> {
-        let req = match self.totp_ingress(req).await {
-            Ok(v) => v,
-            Err(r) => return r,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
         };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.push_send_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn push_send_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         if self.config.vapid_private_key.is_empty() {
             return Self::push_named_problem(404, "push MFA not configured", "not-found", &path);
@@ -881,16 +959,36 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    pub(super) fn mfa_namespace(req:Request<Body>)->Response<Body>{
-        let allow=match req.uri().path(){
-            "/auth/push/vapid-key"=>Some("GET, HEAD"),
-            "/auth/push/verify"|"/auth/push/status"|"/auth/backup-codes/generate"|"/auth/backup-codes/verify"=>Some("POST"),
-            _=>None,
+    pub(super) fn mfa_namespace(req: Request<Body>) -> Response<Body> {
+        let allow = match req.uri().path() {
+            "/auth/push/vapid-key" => Some("GET, HEAD"),
+            "/auth/push/verify"
+            | "/auth/push/status"
+            | "/auth/backup-codes/generate"
+            | "/auth/backup-codes/verify" => Some("POST"),
+            _ => None,
         };
-        let text=if allow.is_some(){"Method Not Allowed\n"}else{"404 page not found\n"};
-        let mut reply=Response::builder().status(if allow.is_some(){405}else{404}).header("content-type","text/plain; charset=utf-8").header("x-content-type-options","nosniff");
-        if let Some(allow)=allow{reply=reply.header("allow",allow);}
-        if req.method()==Method::HEAD{reply=reply.header("content-length",text.len());}
-        reply.body(body(if req.method()==Method::HEAD{""}else{text})).unwrap()
+        let text = if allow.is_some() {
+            "Method Not Allowed\n"
+        } else {
+            "404 page not found\n"
+        };
+        let mut reply = Response::builder()
+            .status(if allow.is_some() { 405 } else { 404 })
+            .header("content-type", "text/plain; charset=utf-8")
+            .header("x-content-type-options", "nosniff");
+        if let Some(allow) = allow {
+            reply = reply.header("allow", allow);
+        }
+        if req.method() == Method::HEAD {
+            reply = reply.header("content-length", text.len());
+        }
+        reply
+            .body(body(if req.method() == Method::HEAD {
+                ""
+            } else {
+                text
+            }))
+            .unwrap()
     }
 }

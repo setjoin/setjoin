@@ -467,3 +467,11 @@ BYPASSRLS/reducer posture.
 Owner-approved security divergence from frozen Go (#347) blocks common and
 recently used passwords with the change-password messages. Accept records the
 new hash in password history in the same transaction as guest activation.
+
+## Device trust accept side (#341)
+
+`device_trust` takes only a `VerifiedDevice`: `effective_policy` reads the
+`mdm_effective_policy` evaluator; `checkin` runs `rust_device_checkin` through
+`run_protocol_command` (scope `device:<id>`, receipt F21/device-checkin, empty
+user GUC as in Go); `EVENT_CAP` is the owner-approved 100-event bound;
+`Effective::version` is frozen Go's FNV-1a content hash (the ETag).

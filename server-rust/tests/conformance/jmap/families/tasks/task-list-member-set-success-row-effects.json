@@ -1,0 +1,18 @@
+{
+  "case": "task-list-member-set-success-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Roster List\", \"color\": null, \"state_seq\": 1, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}, {\"id\": <seed.1>, \"name\": \"Helper Lookup\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Roster List\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <a.user>}, {\"id\": <seed.1>, \"name\": \"Helper Lookup\", \"color\": null, \"state_seq\": 0, \"created_at\": \"<timestamp>+00:00\", \"updated_at\": \"<timestamp>+00:00\", \"owner_user_id\": <f.user>}]",
+      "name": "task_lists"
+    },
+    {
+      "after": "[{\"role\": \"owner\", \"list_id\": <seed.0>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}, {\"role\": \"member\", \"list_id\": <seed.0>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}, {\"role\": \"member\", \"list_id\": <seed.1>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}, {\"role\": \"owner\", \"list_id\": <seed.1>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}]",
+      "before": "[{\"role\": \"owner\", \"list_id\": <seed.0>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <a.user>}, {\"role\": \"member\", \"list_id\": <seed.1>, \"user_id\": <a.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}, {\"role\": \"owner\", \"list_id\": <seed.1>, \"user_id\": <f.user>, \"added_at\": \"<timestamp>+00:00\", \"added_by_user_id\": <f.user>}]",
+      "name": "task_list_members"
+    }
+  ],
+  "format": 1,
+  "go_source": "3b0bb9ffd013cf1391e0374515bb407dbbf97fe2",
+  "route": "POST /jmap TaskListMember/set"
+}

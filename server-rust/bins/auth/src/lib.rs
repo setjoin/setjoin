@@ -1,19 +1,20 @@
 //! HTTP transport for the standalone identity process. See DOX.md.
+mod captcha;
 mod config;
+mod device;
+mod guest_invite;
+mod http_threat;
 mod ingress;
 mod issuance;
-mod revocations;
-mod totp;
+mod oidc;
+mod possession;
 mod push;
 mod recovery;
-mod possession;
-mod webauthn;
-mod oidc;
+mod revocations;
 mod rp;
 mod saml;
-mod http_threat;
-mod captcha;
-mod guest_invite;
+mod totp;
+mod webauthn;
 use bytes::Bytes;
 pub use config::Config;
 use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
@@ -74,24 +75,86 @@ pub struct AuthServer {
     captcha_used: captcha::UsedSet,
 }
 impl AuthServer {
-    fn oidc_cors(&self,req:&Request<Body>,mut reply:Response<Body>)->Response<Body> {
-        let origin=req.headers().get("origin").and_then(|h|h.to_str().ok()).unwrap_or("");
-        let allowed=!origin.is_empty() && (origin.eq_ignore_ascii_case(&format!("https://{}",self.config.oidc_hostname)) || self.config.oidc_origins.split(',').map(|s|s.trim().trim_end_matches('/')).any(|s|s.eq_ignore_ascii_case(origin)));
-        let preflight=req.method()==Method::OPTIONS && req.headers().get("access-control-request-method").is_some_and(|h|!h.is_empty());
+    fn oidc_cors(&self, req: &Request<Body>, mut reply: Response<Body>) -> Response<Body> {
+        let origin = req
+            .headers()
+            .get("origin")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("");
+        let allowed = !origin.is_empty()
+            && (origin.eq_ignore_ascii_case(&format!("https://{}", self.config.oidc_hostname))
+                || self
+                    .config
+                    .oidc_origins
+                    .split(',')
+                    .map(|s| s.trim().trim_end_matches('/'))
+                    .any(|s| s.eq_ignore_ascii_case(origin)));
+        let preflight = req.method() == Method::OPTIONS
+            && req
+                .headers()
+                .get("access-control-request-method")
+                .is_some_and(|h| !h.is_empty());
         if preflight {
-            reply=Response::builder().status(204).header("vary","Origin, Access-Control-Request-Method, Access-Control-Request-Headers").body(body("")).unwrap();
-            let method=req.headers()["access-control-request-method"].to_str().unwrap_or("");
-            let headers_ok=req.headers().get_all("access-control-request-headers").iter().all(|h|h.to_str().is_ok_and(|s|s.split(',').all(|s|matches!(s.trim().to_ascii_lowercase().as_str(),"origin"|"accept"|"accept-language"|"authorization"|"content-type"|"x-requested-with"))));
-            if allowed && matches!(method,"GET"|"HEAD"|"POST") && headers_ok {
-                reply.headers_mut().insert("access-control-allow-origin",req.headers()["origin"].clone());
-                reply.headers_mut().insert("access-control-allow-methods",req.headers()["access-control-request-method"].clone());
-                for h in req.headers().get_all("access-control-request-headers") {if !h.is_empty(){reply.headers_mut().append("access-control-allow-headers",h.clone());}}
+            reply = Response::builder()
+                .status(204)
+                .header(
+                    "vary",
+                    "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+                )
+                .body(body(""))
+                .unwrap();
+            let method = req.headers()["access-control-request-method"]
+                .to_str()
+                .unwrap_or("");
+            let headers_ok = req
+                .headers()
+                .get_all("access-control-request-headers")
+                .iter()
+                .all(|h| {
+                    h.to_str().is_ok_and(|s| {
+                        s.split(',').all(|s| {
+                            matches!(
+                                s.trim().to_ascii_lowercase().as_str(),
+                                "origin"
+                                    | "accept"
+                                    | "accept-language"
+                                    | "authorization"
+                                    | "content-type"
+                                    | "x-requested-with"
+                            )
+                        })
+                    })
+                });
+            if allowed && matches!(method, "GET" | "HEAD" | "POST") && headers_ok {
+                reply.headers_mut().insert(
+                    "access-control-allow-origin",
+                    req.headers()["origin"].clone(),
+                );
+                reply.headers_mut().insert(
+                    "access-control-allow-methods",
+                    req.headers()["access-control-request-method"].clone(),
+                );
+                for h in req.headers().get_all("access-control-request-headers") {
+                    if !h.is_empty() {
+                        reply
+                            .headers_mut()
+                            .append("access-control-allow-headers", h.clone());
+                    }
+                }
             }
         } else {
-            reply.headers_mut().insert("vary","Origin".parse().unwrap());
-            if allowed && matches!(req.method(),&Method::GET|&Method::HEAD|&Method::POST) {
-                reply.headers_mut().insert("access-control-allow-origin",req.headers()["origin"].clone());
-                reply.headers_mut().insert("access-control-expose-headers","Location, Content-Length".parse().unwrap());
+            reply
+                .headers_mut()
+                .insert("vary", "Origin".parse().unwrap());
+            if allowed && matches!(req.method(), &Method::GET | &Method::HEAD | &Method::POST) {
+                reply.headers_mut().insert(
+                    "access-control-allow-origin",
+                    req.headers()["origin"].clone(),
+                );
+                reply.headers_mut().insert(
+                    "access-control-expose-headers",
+                    "Location, Content-Length".parse().unwrap(),
+                );
             }
         }
         reply
@@ -102,7 +165,7 @@ impl AuthServer {
             rp: None,
             oidc_key: None,
             oidc_cipher: None,
-            webauthn:None,
+            webauthn: None,
             internal_key: std::sync::RwLock::new(String::new()),
             client: client(),
             exec,
@@ -123,10 +186,19 @@ impl AuthServer {
         }
     }
     pub async fn load(exec: setjoin_pg::ScopedExecutor, config: Config) -> Result<Self, String> {
-        Self::load_with_rp_http(exec,config,Arc::new(setjoin_identity::rp::SafeHttp::new()?)).await
+        Self::load_with_rp_http(
+            exec,
+            config,
+            Arc::new(setjoin_identity::rp::SafeHttp::new()?),
+        )
+        .await
     }
     /// Embedding boundary for external IdP HTTPS only; it carries no identity authority.
-    pub async fn load_with_rp_http(exec:setjoin_pg::ScopedExecutor,config:Config,http:Arc<dyn setjoin_identity::rp::Http>)->Result<Self,String>{
+    pub async fn load_with_rp_http(
+        exec: setjoin_pg::ScopedExecutor,
+        config: Config,
+        http: Arc<dyn setjoin_identity::rp::Http>,
+    ) -> Result<Self, String> {
         if config.secret.is_empty() || config.issuer.is_empty() {
             return Err("JWT secret and issuer required".into());
         }
@@ -169,7 +241,13 @@ impl AuthServer {
         } else {
             setjoin_identity::push_delivery::Dispatch::from_env()
         };
-        let recovery_worker = config.worker_dsn.as_deref().filter(|s|!s.is_empty()).or_else(||(!config.dsn.is_empty()).then_some(config.dsn.as_str())).map(|dsn|setjoin_pg::ScopedExecutor::from_dsn(dsn,4).map_err(|e|e.0)).transpose()?;
+        let recovery_worker = config
+            .worker_dsn
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
+            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 4).map_err(|e| e.0))
+            .transpose()?;
         // #342: Go's guest-invite workerPool on its own two-connection pool.
         let guest_worker = config
             .worker_dsn
@@ -205,22 +283,68 @@ impl AuthServer {
             .and_then(Result::ok)
             .map(Arc::new);
         let oidc_key = if config.oidc_enabled {
-            let (private,public)=(config.oidc_private_key.clone(),config.oidc_public_key.clone());
-            Some(tokio::task::spawn_blocking(move || setjoin_identity::oidc::SigningKey::load(&private,&public)).await.map_err(|_|"OIDC key task failed")??)
-        } else {None};
-        let saml = if config.saml_enabled && !config.saml_cert_file.is_empty() && !config.saml_key_file.is_empty() {
-            match setjoin_identity::saml::Registry::load(exec.clone(), &config.saml_cert_file, &config.saml_key_file, &config.db_encryption_key, http.clone()).await {
+            let (private, public) = (
+                config.oidc_private_key.clone(),
+                config.oidc_public_key.clone(),
+            );
+            Some(
+                tokio::task::spawn_blocking(move || {
+                    setjoin_identity::oidc::SigningKey::load(&private, &public)
+                })
+                .await
+                .map_err(|_| "OIDC key task failed")??,
+            )
+        } else {
+            None
+        };
+        let saml = if config.saml_enabled
+            && !config.saml_cert_file.is_empty()
+            && !config.saml_key_file.is_empty()
+        {
+            match setjoin_identity::saml::Registry::load(
+                exec.clone(),
+                &config.saml_cert_file,
+                &config.saml_key_file,
+                &config.db_encryption_key,
+                http.clone(),
+            )
+            .await
+            {
                 Ok(registry) => Some(registry),
-                Err(error) => { eprintln!("SAML registrations failed closed: {error}"); None }
+                Err(error) => {
+                    eprintln!("SAML registrations failed closed: {error}");
+                    None
+                }
             }
-        } else { None };
-        let rp=if config.oidc_rp_enabled{Some(setjoin_identity::rp::Registry::load(exec.clone(),config.secret.as_bytes(),http).await)}else{None};
+        } else {
+            None
+        };
+        let rp = if config.oidc_rp_enabled {
+            Some(
+                setjoin_identity::rp::Registry::load(exec.clone(), config.secret.as_bytes(), http)
+                    .await,
+            )
+        } else {
+            None
+        };
         Ok(Self {
             saml,
             rp,
-            oidc_cipher: if config.oidc_enabled {Some(setjoin_identity::oidc::CodeCipher::new(config.secret.as_bytes())?)}else{None},
+            oidc_cipher: if config.oidc_enabled {
+                Some(setjoin_identity::oidc::CodeCipher::new(
+                    config.secret.as_bytes(),
+                )?)
+            } else {
+                None
+            },
             oidc_key,
-            webauthn: setjoin_identity::webauthn::RelyingParty::new(config.secret.as_bytes(), &config.webauthn_rp_id, &config.webauthn_rp_name, &config.webauthn_rp_origin).ok(),
+            webauthn: setjoin_identity::webauthn::RelyingParty::new(
+                config.secret.as_bytes(),
+                &config.webauthn_rp_id,
+                &config.webauthn_rp_name,
+                &config.webauthn_rp_origin,
+            )
+            .ok(),
             internal_key: std::sync::RwLock::new(config.internal_api_key.clone()),
             revocations,
             dpop_replay: Default::default(),
@@ -268,14 +392,20 @@ impl AuthServer {
         self.with_threat_gate_dsns(dsn, dsn).await
     }
     /// [`Self::with_threat_gate`] with separate request and worker DSNs.
-    pub async fn with_threat_gate_dsns(self, request_dsn: &str, worker_dsn: &str) -> Result<Self, Error> {
+    pub async fn with_threat_gate_dsns(
+        self,
+        request_dsn: &str,
+        worker_dsn: &str,
+    ) -> Result<Self, Error> {
         let request = setjoin_pg::ScopedExecutor::from_dsn(request_dsn, 4).map_err(|e| e.0)?;
         let worker = setjoin_threat::WorkerPools::from_dsn(worker_dsn)?;
         let geo = if self.config.geoip_path.is_empty() {
             None
         } else {
             let bytes = std::fs::read(&self.config.geoip_path)?;
-            Some(setjoin_authz::geoip::CountryDb::from_bytes(bytes, false, "")?)
+            Some(setjoin_authz::geoip::CountryDb::from_bytes(
+                bytes, false, "",
+            )?)
         };
         let gate =
             setjoin_threat::Gate::load(request, worker, self.config.threat.clone(), geo).await?;
@@ -323,14 +453,14 @@ impl AuthServer {
             .unwrap()
     }
     fn client_ip(&self, req: &Request<Body>) -> std::net::IpAddr {
-        let peer = req
-            .extensions()
-            .get::<ConnectionMeta>()
-            .map_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), |m| {
+        let peer = req.extensions().get::<ConnectionMeta>().map_or(
+            std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            |m| {
                 // A dual-stack listener reports an IPv4 proxy as ::ffff:a.b.c.d; Go's
                 // RemoteAddr prints the IPv4 form, so match on the canonical address.
                 m.peer.ip().to_canonical()
-            });
+            },
+        );
         let trusted = if self.config.client_proxy == peer.to_string() {
             setjoin_authz::clientip::TrustedProxies::parse(&peer.to_string()).unwrap_or_default()
         } else {
@@ -361,43 +491,131 @@ impl AuthServer {
         }
     }
     pub async fn handle(&self, req: Request<Body>) -> Response<Body> {
-        if req.uri().path()=="/auth/identity-links" && matches!(req.method(),&Method::GET|&Method::HEAD) {return self.saml_links(req).await;}
-        if req.uri().path().starts_with("/auth/identity-links/") && req.method()==Method::DELETE {return self.identity_unlink(req).await;}
-        if req.uri().path().starts_with("/auth/saml/") { return self.saml_request(req).await; }
-        if req.method()==Method::POST && req.uri().path()=="/auth/oidc/link"{return self.rp_link(req).await;}
-        if req.method()==Method::GET && req.uri().path()=="/auth/oidc/link/complete" {return self.rp_link_complete(req).await;}
-        if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/auth/oidc/login" {return self.rp_login(req).await;}
-        if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/auth/oidc/callback" {return self.rp_callback(req).await;}
-        if req.uri().path()=="/oauth" && self.config.oidc_enabled{return self.oidc_bare_oauth(&req);}
-        if req.uri().path().starts_with("/authorize/")&&req.uri().path()!="/authorize/callback"{return Self::not_found();}
-        if req.uri().path().starts_with("/oauth/") || matches!(req.uri().path(),"/userinfo"|"/revoke"|"/end_session") {return self.oidc_oauth(req).await;}
-        if req.uri().path()=="/authorize/callback" {return self.oidc_callback(req).await;}
-        if req.uri().path()=="/auth/oidc/op/complete" {return self.oidc_complete(req).await;}
-        if req.uri().path().starts_with("/auth/oidc/"){return Self::rp_namespace(req);}
-        if req.uri().path()=="/authorize" {return self.oidc_authorize(req).await;}
-        if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/.well-known/oauth-authorization-server" {
-            let text=setjoin_identity::oidc::metadata(&self.config.oidc_hostname);
-            let mut reply=Self::wire_json(200,text.clone());
-            if req.method()==Method::HEAD {reply.headers_mut().insert("content-length",text.len().into());*reply.body_mut()=body("");}
+        if req.uri().path() == "/auth/identity-links"
+            && matches!(req.method(), &Method::GET | &Method::HEAD)
+        {
+            return self.saml_links(req).await;
+        }
+        if req.uri().path().starts_with("/auth/identity-links/") && req.method() == Method::DELETE {
+            return self.identity_unlink(req).await;
+        }
+        if req.uri().path().starts_with("/auth/saml/") {
+            return self.saml_request(req).await;
+        }
+        if req.method() == Method::POST && req.uri().path() == "/auth/oidc/link" {
+            return self.rp_link(req).await;
+        }
+        if req.method() == Method::GET && req.uri().path() == "/auth/oidc/link/complete" {
+            return self.rp_link_complete(req).await;
+        }
+        if matches!(req.method(), &Method::GET | &Method::HEAD)
+            && req.uri().path() == "/auth/oidc/login"
+        {
+            return self.rp_login(req).await;
+        }
+        if matches!(req.method(), &Method::GET | &Method::HEAD)
+            && req.uri().path() == "/auth/oidc/callback"
+        {
+            return self.rp_callback(req).await;
+        }
+        if req.uri().path() == "/oauth" && self.config.oidc_enabled {
+            return self.oidc_bare_oauth(&req);
+        }
+        if req.uri().path().starts_with("/authorize/") && req.uri().path() != "/authorize/callback"
+        {
+            return Self::not_found();
+        }
+        if req.uri().path().starts_with("/oauth/")
+            || matches!(req.uri().path(), "/userinfo" | "/revoke" | "/end_session")
+        {
+            return self.oidc_oauth(req).await;
+        }
+        if req.uri().path() == "/authorize/callback" {
+            return self.oidc_callback(req).await;
+        }
+        if req.uri().path() == "/auth/oidc/op/complete" {
+            return self.oidc_complete(req).await;
+        }
+        if req.uri().path().starts_with("/auth/oidc/") {
+            return Self::rp_namespace(req);
+        }
+        if req.uri().path() == "/authorize" {
+            return self.oidc_authorize(req).await;
+        }
+        if matches!(req.method(), &Method::GET | &Method::HEAD)
+            && req.uri().path() == "/.well-known/oauth-authorization-server"
+        {
+            let text = setjoin_identity::oidc::metadata(&self.config.oidc_hostname);
+            let mut reply = Self::wire_json(200, text.clone());
+            if req.method() == Method::HEAD {
+                reply
+                    .headers_mut()
+                    .insert("content-length", text.len().into());
+                *reply.body_mut() = body("");
+            }
             return reply;
         }
-        if req.uri().path()=="/keys" {
+        if req.uri().path() == "/keys" {
             return match &self.oidc_key {
-                Some(key)=>self.oidc_cors(&req,Response::builder().header("content-type","application/json").body(body(key.jwks())).unwrap()),
-                None=>Self::not_found(),
+                Some(key) => self.oidc_cors(
+                    &req,
+                    Response::builder()
+                        .header("content-type", "application/json")
+                        .body(body(key.jwks()))
+                        .unwrap(),
+                ),
+                None => Self::not_found(),
             };
         }
-        if req.uri().path()=="/.well-known/openid-configuration" {
+        if req.uri().path() == "/.well-known/openid-configuration" {
             return if self.config.oidc_enabled {
-                let text=if req.method()==Method::GET {setjoin_identity::oidc::discovery(&self.config.oidc_hostname)}else{setjoin_identity::oidc::discovery_unwrapped(&self.config.oidc_hostname)};
-                let mut reply=Response::builder().header("content-type","application/json").header("vary","Origin");
-                if req.method()==Method::HEAD {reply=reply.header("content-length",text.len());}
-                self.oidc_cors(&req,reply.body(body(if req.method()==Method::HEAD {String::new()}else{text})).unwrap())
-            } else {Self::not_found()};
+                let text = if req.method() == Method::GET {
+                    setjoin_identity::oidc::discovery(&self.config.oidc_hostname)
+                } else {
+                    setjoin_identity::oidc::discovery_unwrapped(&self.config.oidc_hostname)
+                };
+                let mut reply = Response::builder()
+                    .header("content-type", "application/json")
+                    .header("vary", "Origin");
+                if req.method() == Method::HEAD {
+                    reply = reply.header("content-length", text.len());
+                }
+                self.oidc_cors(
+                    &req,
+                    reply
+                        .body(body(if req.method() == Method::HEAD {
+                            String::new()
+                        } else {
+                            text
+                        }))
+                        .unwrap(),
+                )
+            } else {
+                Self::not_found()
+            };
         }
-        if req.uri().path().starts_with("/.well-known/") && !(matches!(req.method(),&Method::GET|&Method::HEAD)&&matches!(req.uri().path(),"/.well-known/setjoin"|"/.well-known/jwks.json")){return if self.config.oidc_enabled{self.oidc_cors(&req,Self::not_found())}else{Self::not_found()};}
-        if req.method()==Method::POST && req.uri().path()=="/auth/mfa/possession/webauthn/finish" {return self.possession_webauthn_finish(req).await;}
-        if req.method()==Method::POST && req.uri().path()=="/auth/mfa/possession/webauthn/begin" {return self.possession_webauthn_begin(req).await;}
+        if req.uri().path().starts_with("/.well-known/")
+            && !(matches!(req.method(), &Method::GET | &Method::HEAD)
+                && matches!(
+                    req.uri().path(),
+                    "/.well-known/setjoin" | "/.well-known/jwks.json"
+                ))
+        {
+            return if self.config.oidc_enabled {
+                self.oidc_cors(&req, Self::not_found())
+            } else {
+                Self::not_found()
+            };
+        }
+        if req.method() == Method::POST
+            && req.uri().path() == "/auth/mfa/possession/webauthn/finish"
+        {
+            return self.possession_webauthn_finish(req).await;
+        }
+        if req.method() == Method::POST && req.uri().path() == "/auth/mfa/possession/webauthn/begin"
+        {
+            return self.possession_webauthn_begin(req).await;
+        }
         if req.method() == Method::POST && req.uri().path() == "/auth/forgot-password/verify" {
             return self.recovery_verify(req).await;
         }
@@ -428,14 +646,28 @@ impl AuthServer {
         if req.method() == Method::POST && req.uri().path() == "/auth/mfa/reauth" {
             return self.password_grant(req).await;
         }
-        if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path() == "/auth/push/vapid-key" {
-            let mut reply = match setjoin_identity::push::vapid_public_key(&self.config.vapid_private_key) {
-                Some(key) => Self::wire_json(200, format!("{{\"vapid_public_key\":\"{key}\"}}\n")),
-                None => Self::push_named_problem(404, "push not configured", "not-found", req.uri().path()),
-            };
-            if req.method()==Method::HEAD {
-                if let Some(n)=reply.body().size_hint().exact(){reply.headers_mut().insert("content-length",n.to_string().parse().unwrap());}
-                *reply.body_mut()=body("");
+        if matches!(req.method(), &Method::GET | &Method::HEAD)
+            && req.uri().path() == "/auth/push/vapid-key"
+        {
+            let mut reply =
+                match setjoin_identity::push::vapid_public_key(&self.config.vapid_private_key) {
+                    Some(key) => {
+                        Self::wire_json(200, format!("{{\"vapid_public_key\":\"{key}\"}}\n"))
+                    }
+                    None => Self::push_named_problem(
+                        404,
+                        "push not configured",
+                        "not-found",
+                        req.uri().path(),
+                    ),
+                };
+            if req.method() == Method::HEAD {
+                if let Some(n) = reply.body().size_hint().exact() {
+                    reply
+                        .headers_mut()
+                        .insert("content-length", n.to_string().parse().unwrap());
+                }
+                *reply.body_mut() = body("");
             }
             return reply;
         }
@@ -449,7 +681,9 @@ impl AuthServer {
                 .body(body("404 page not found\n"))
                 .unwrap();
         }
-        if req.uri().path().starts_with("/auth/push/") || req.uri().path().starts_with("/auth/backup-codes/") {
+        if req.uri().path().starts_with("/auth/push/")
+            || req.uri().path().starts_with("/auth/backup-codes/")
+        {
             return Self::mfa_namespace(req);
         }
         if req.method() == Method::POST && req.uri().path() == "/auth/device/register" {
@@ -457,6 +691,9 @@ impl AuthServer {
         }
         if req.method() == Method::POST && req.uri().path() == "/device/register" {
             return self.bootstrap(req).await;
+        }
+        if matches!(req.uri().path(), "/device/policy" | "/device/checkin") {
+            return self.device_trust(req).await;
         }
         if req.method() == Method::POST {
             if let Some(target) = req
@@ -490,33 +727,69 @@ impl AuthServer {
         if req.method() == Method::POST && req.uri().path() == "/admin/reload" {
             return self.reload_http(req).await;
         }
-        if req.method()==Method::DELETE {
-            if let Some(id)=req.uri().path().strip_prefix("/auth/webauthn/credential/").filter(|s|!s.is_empty()&&!s.contains('/')) {
-                let id=id.to_owned();return self.webauthn_revoke(req,id).await;
+        if req.method() == Method::DELETE {
+            if let Some(id) = req
+                .uri()
+                .path()
+                .strip_prefix("/auth/webauthn/credential/")
+                .filter(|s| !s.is_empty() && !s.contains('/'))
+            {
+                let id = id.to_owned();
+                return self.webauthn_revoke(req, id).await;
             }
         }
-        if req.method()==Method::POST && req.uri().path()=="/auth/webauthn/register/finish" { let req=match self.webauthn_ingress(req).await{Ok(r)=>r,Err(r)=>return r}; return self.webauthn_register_finish(req).await; }
-        if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/auth/webauthn/register/begin" { return self.webauthn_register_begin(req).await; }
-        if req.method()==Method::POST && req.uri().path()=="/auth/webauthn/login/finish" { return self.webauthn_login_finish(req).await; }
-        if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/auth/webauthn/login/begin" { return self.webauthn_login_begin(req).await; }
-        if req.method()==Method::PUT {
-            if let Some(id)=req.uri().path().strip_prefix("/auth/webauthn/credential/").and_then(|s|s.strip_suffix("/name")).filter(|s|!s.is_empty()&&!s.contains('/')) {
-                let id=id.to_owned();return self.webauthn_name(req,id).await;
+        if req.method() == Method::POST && req.uri().path() == "/auth/webauthn/register/finish" {
+            let req = match self.webauthn_ingress(req).await {
+                Ok(r) => r,
+                Err(r) => return r,
+            };
+            return self.webauthn_register_finish(req).await;
+        }
+        if matches!(req.method(), &Method::GET | &Method::HEAD)
+            && req.uri().path() == "/auth/webauthn/register/begin"
+        {
+            return self.webauthn_register_begin(req).await;
+        }
+        if req.method() == Method::POST && req.uri().path() == "/auth/webauthn/login/finish" {
+            return self.webauthn_login_finish(req).await;
+        }
+        if matches!(req.method(), &Method::GET | &Method::HEAD)
+            && req.uri().path() == "/auth/webauthn/login/begin"
+        {
+            return self.webauthn_login_begin(req).await;
+        }
+        if req.method() == Method::PUT {
+            if let Some(id) = req
+                .uri()
+                .path()
+                .strip_prefix("/auth/webauthn/credential/")
+                .and_then(|s| s.strip_suffix("/name"))
+                .filter(|s| !s.is_empty() && !s.contains('/'))
+            {
+                let id = id.to_owned();
+                return self.webauthn_name(req, id).await;
             }
         }
-        if matches!(req.method(), &Method::GET | &Method::HEAD) && req.uri().path()=="/auth/webauthn/credentials" { return self.webauthn_list(req).await; }
-        if req.uri().path().starts_with("/auth/webauthn/") {return Self::webauthn_mux(req);}
-        // verify and enroll/confirm bound their own body after the completion route (totp.rs), so
-        // they are not in this list: a flag error refuses locally before any handoff (#454 Codex r2).
-        let req = if (req.method()==Method::POST && matches!(req.uri().path(),
-            "/auth/totp/confirm"|"/auth/totp/enroll/setup")) ||
-            (matches!(req.method(),&Method::GET|&Method::HEAD) && req.uri().path()=="/auth/totp/setup") {
-            match self.totp_ingress(req).await {Ok(req)=>req,Err(reply)=>return reply}
-        } else {req};
-        if req.method()==Method::POST && req.uri().path()=="/auth/totp/enroll/confirm" {return self.totp_bootstrap_confirm(req).await;}
-        if req.method()==Method::POST && req.uri().path()=="/auth/totp/verify" {return self.totp_verify(req).await;}
-        if req.method()==Method::POST && req.uri().path()=="/auth/totp/enroll/setup" {return self.totp_bootstrap_setup(req).await;}
-        if req.method()==Method::POST && req.uri().path()=="/auth/totp/confirm" {return self.totp_confirm(req).await;}
+        if matches!(req.method(), &Method::GET | &Method::HEAD)
+            && req.uri().path() == "/auth/webauthn/credentials"
+        {
+            return self.webauthn_list(req).await;
+        }
+        if req.uri().path().starts_with("/auth/webauthn/") {
+            return Self::webauthn_mux(req);
+        }
+        if req.method() == Method::POST && req.uri().path() == "/auth/totp/enroll/confirm" {
+            return self.totp_bootstrap_confirm(req).await;
+        }
+        if req.method() == Method::POST && req.uri().path() == "/auth/totp/verify" {
+            return self.totp_verify(req).await;
+        }
+        if req.method() == Method::POST && req.uri().path() == "/auth/totp/enroll/setup" {
+            return self.totp_bootstrap_setup(req).await;
+        }
+        if req.method() == Method::POST && req.uri().path() == "/auth/totp/confirm" {
+            return self.totp_confirm(req).await;
+        }
         if matches!(req.method(), &Method::GET | &Method::HEAD)
             && req.uri().path() == "/auth/totp/setup"
         {
@@ -531,16 +804,36 @@ impl AuthServer {
         if req.uri().path().starts_with("/auth/totp/") {
             let allow = match req.uri().path() {
                 "/auth/totp/setup" => Some("GET, HEAD"),
-                "/auth/totp/confirm" | "/auth/totp/verify" | "/auth/totp/enroll/setup" |
-                "/auth/totp/enroll/confirm" | "/auth/totp/remove/begin" | "/auth/totp/remove" => Some("POST"),
+                "/auth/totp/confirm"
+                | "/auth/totp/verify"
+                | "/auth/totp/enroll/setup"
+                | "/auth/totp/enroll/confirm"
+                | "/auth/totp/remove/begin"
+                | "/auth/totp/remove" => Some("POST"),
                 _ => None,
             };
-            let text = if allow.is_some() { "Method Not Allowed\n" } else { "404 page not found\n" };
-            let mut reply = Response::builder().status(if allow.is_some(){405}else{404})
-                .header("content-type","text/plain; charset=utf-8").header("x-content-type-options","nosniff");
-            if let Some(allow)=allow {reply=reply.header("allow",allow);}
-            if req.method()==Method::HEAD {reply=reply.header("content-length",text.len());}
-            return reply.body(body(if req.method()==Method::HEAD{""}else{text})).unwrap();
+            let text = if allow.is_some() {
+                "Method Not Allowed\n"
+            } else {
+                "404 page not found\n"
+            };
+            let mut reply = Response::builder()
+                .status(if allow.is_some() { 405 } else { 404 })
+                .header("content-type", "text/plain; charset=utf-8")
+                .header("x-content-type-options", "nosniff");
+            if let Some(allow) = allow {
+                reply = reply.header("allow", allow);
+            }
+            if req.method() == Method::HEAD {
+                reply = reply.header("content-length", text.len());
+            }
+            return reply
+                .body(body(if req.method() == Method::HEAD {
+                    ""
+                } else {
+                    text
+                }))
+                .unwrap();
         }
         if req.uri().path() == "/auth/guest-invite/accept" {
             return self.guest_invite(req).await;
@@ -658,7 +951,13 @@ impl AuthServer {
             }
             return response;
         }
-        if req.uri().path().starts_with("/.well-known/"){return if self.config.oidc_enabled{self.oidc_cors(&req,Self::not_found())}else{Self::not_found()};}
+        if req.uri().path().starts_with("/.well-known/") {
+            return if self.config.oidc_enabled {
+                self.oidc_cors(&req, Self::not_found())
+            } else {
+                Self::not_found()
+            };
+        }
         self.forward(req).await
     }
     fn not_found() -> Response<Body> {
@@ -1280,7 +1579,14 @@ impl AuthServer {
         if self.config.secret.is_empty() {
             return Self::failure(503, "signing keys unavailable", &path);
         }
-        let proof = match login::verify(&self.exec, &input.email, &input.password, self.config.profile).await {
+        let proof = match login::verify(
+            &self.exec,
+            &input.email,
+            &input.password,
+            self.config.profile,
+        )
+        .await
+        {
             Ok(Some(p)) => p,
             _ => {
                 login::record_failure(&self.exec, &input.email, &ip).await;
@@ -1318,13 +1624,30 @@ impl AuthServer {
                 Err(_) => Self::failure(500, "token issue failed", &path),
             };
         }
-        match login::mfa_policy(&self.exec,&proof).await {
-            Ok(policy)=>{
-                if policy["status"]=="enrollment_required"{return Self::threat_challenge(self.totp_login_challenge(&proof,Some(&policy),&path).await);}
-                if proof.push{return Self::threat_challenge(self.push_login_challenge(&proof,&path).await);}
-                if proof.totp{return Self::threat_challenge(self.totp_login_challenge(&proof,None,&path).await);}
-            },
-            Err(_)=>return Self::failure(503,"MFA policy verification unavailable. Please try again.",&path)
+        match login::mfa_policy(&self.exec, &proof).await {
+            Ok(policy) => {
+                if policy["status"] == "enrollment_required" {
+                    return Self::threat_challenge(
+                        self.totp_login_challenge(&proof, Some(&policy), &path)
+                            .await,
+                    );
+                }
+                if proof.push {
+                    return Self::threat_challenge(self.push_login_challenge(&proof, &path).await);
+                }
+                if proof.totp {
+                    return Self::threat_challenge(
+                        self.totp_login_challenge(&proof, None, &path).await,
+                    );
+                }
+            }
+            Err(_) => {
+                return Self::failure(
+                    503,
+                    "MFA policy verification unavailable. Please try again.",
+                    &path,
+                )
+            }
         }
         let domain = match login::domain_scope(&self.exec, &proof).await {
             Ok(d) => d,
@@ -1340,9 +1663,7 @@ impl AuthServer {
                 return Self::failure(500, "identity transition admission resolution failed", &path)
             }
         };
-        if !dpop_decided
-            && input.dpop.as_object().is_some_and(|v| !v.is_empty())
-        {
+        if !dpop_decided && input.dpop.as_object().is_some_and(|v| !v.is_empty()) {
             match self.token_binding_handoff(&path).await {
                 Ok(false) => {}
                 Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
@@ -1491,6 +1812,9 @@ pub async fn serve_until(
     tls: Option<tokio_rustls::TlsAcceptor>,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    // These subscriptions keep the native SSO registries current for this server.
+    let _saml_listener = server.start_saml_listener().await;
+    let _rp_listener = server.start_rp_listener().await;
     let mut tasks = tokio::task::JoinSet::new();
     tokio::pin!(shutdown);
     loop {

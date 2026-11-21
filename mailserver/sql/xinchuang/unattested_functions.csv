@@ -795,6 +795,7 @@ rule_config_template_create,rule_config_template_create.sql
 rule_config_update,rule_config_update.sql
 rules_apply_retroactive,rules_apply_retroactive.sql
 run_scheduled_action,scheduled_actions_dispatch.sql
+rust_device_checkin,rust_device_checkin.sql
 saved_search_delete,saved_searches.sql
 saved_search_list,saved_searches.sql
 saved_search_set,saved_searches.sql

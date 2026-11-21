@@ -334,11 +334,15 @@
       "path": "/auth/guest-invite/accept",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "authserver/cmd/authserverd/main.go"
-      ]
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": []
     },
     {
       "listener": "auth",
@@ -580,11 +584,15 @@
       "path": "/device/policy",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "authserver/internal/device/auth.go"
-      ]
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": []
     },
     {
       "listener": "auth",
@@ -784,10 +792,16 @@
       "path": "/auth/guest-invite/accept",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "authserver/cmd/authserverd/main.go"
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": [
+        ""
       ]
     },
     {
@@ -1242,10 +1256,16 @@
       "path": "/device/checkin",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "authserver/internal/device/auth.go"
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": [
+        ""
       ]
     },
     {
@@ -7297,12 +7317,16 @@
       "path": "/auth/guest-invite/accept",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "mailserver/cmd/mailserverd/main.go",
         "mailserver/cmd/mailserverd/testdata/route_inventory.golden"
-      ]
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": []
     },
     {
       "listener": "gateway",
@@ -13178,11 +13202,17 @@
       "path": "/auth/guest-invite/accept",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "mailserver/cmd/mailserverd/main.go",
         "mailserver/cmd/mailserverd/testdata/route_inventory.golden"
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": [
+        ""
       ]
     },
     {

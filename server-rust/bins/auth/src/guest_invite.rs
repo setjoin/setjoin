@@ -107,29 +107,9 @@ impl AuthServer {
     }
 
     async fn guest_invite_post(&self, req: Request<Body>) -> Response<Body> {
-        // Login's existing #420/#405 boundary (shared); no new forward path.
-        if self.http_threat_pending().await {
-            return self.forward(req).await;
-        }
-        let ip = self.client_ip(&req).to_string();
-        let captcha_token = req
-            .headers()
-            .get("x-captcha-token")
-            .map(|v| v.as_bytes().to_vec())
-            .unwrap_or_default();
-        let captcha_answer = req
-            .headers()
-            .get("x-captcha-answer")
-            .map(|v| v.as_bytes().to_vec())
-            .unwrap_or_default();
-        let agent = req
-            .headers()
-            .get("user-agent")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned();
         // Go's outer limitRequestBody precedes the interceptor (main.go:966-967).
-        let raw = match Limited::new(req.into_body(), BODY_LIMIT).collect().await {
+        let (parts, input) = req.into_parts();
+        let raw = match Limited::new(input, BODY_LIMIT).collect().await {
             Ok(b) => b.to_bytes(),
             Err(error) => {
                 let (status, text) = if error.is::<http_body_util::LengthLimitError>() {
@@ -145,57 +125,24 @@ impl AuthServer {
                     .unwrap();
             }
         };
-        // Always "": the accept body carries no identity, so a caller cannot choose
-        // the recorded or captcha-bound username (divergence threat-username-handler-decode).
-        let username = "";
-        // Go's always-mounted middleware (interceptor.go:412-418) answers a present
-        // token that fails verification 403 `captcha` before any other rule, controls
-        // off or not. Rust's token is bound and single-use (divergence
-        // captcha-token-bound-single-use), so a replayed one fails the same way.
-        if !captcha_token.is_empty() {
-            let route = "/auth/guest-invite/accept";
-            let binding = captcha::Binding {
-                ip: &ip,
-                route,
-                username,
-            };
-            let now = captcha::now();
-            let solved = captcha::verify(
-                &self.config.threat.captcha_secret,
-                &captcha_token,
-                &captcha_answer,
-                &binding,
-                now,
-            )
-            .is_some_and(|(mac, exp)| self.captcha_used.claim(&mac, exp, now));
-            if !solved {
-                self.http_refusal(&ip, &agent, username, "captcha_needed")
-                    .await;
-                return http_threat::threat_reply(
-                    403,
-                    "captcha",
-                    "CAPTCHA verification failed",
-                    None,
-                    std::time::Duration::ZERO,
-                )
-                .await;
-            }
-        }
-        if let Some(blocked) = self.http_ip_rules(&ip, &agent, username).await {
-            return blocked;
-        }
+        let req = Request::from_parts(parts, body(raw.clone()));
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let ip = self.client_ip(&req).to_string();
         let reply = self.guest_invite_accept(&ip, &raw).await;
         // Divergence guest-invite-no-row-on-rate-limit: a 429 writes no attempt row.
-        if reply.status().as_u16() == 429 {
-            return reply;
-        }
-        let outcome = if matches!(reply.status().as_u16(), 200 | 204) {
-            "success"
+        let reply = if reply.status().as_u16() == 429 {
+            Self::threat_no_outcome(reply)
         } else {
-            "failure"
+            reply
         };
-        self.http_attempt(&ip, &agent, username, outcome).await;
-        reply
+        self.threat_tail(admitted, reply).await
     }
 
     async fn guest_invite_accept(&self, ip: &str, raw: &[u8]) -> Response<Body> {
