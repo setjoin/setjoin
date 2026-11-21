@@ -109,3 +109,98 @@ fn dpop_replay_cache_refuses_new_proofs_instead_of_evicting_live_ones() {
     assert!(!cache.add("a", 1011.0), "the oldest live proof must still be a replay");
     assert!(cache.add("d", 1400.0), "expired entries free room");
 }
+
+#[test]
+fn dpop_verify_without_ath_checks_binding_and_replay_without_requiring_ath() {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine};
+    use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+    let key = SigningKey::from_slice(&[9u8; 32]).unwrap();
+    let other_key = SigningKey::from_slice(&[7u8; 32]).unwrap();
+    let jwk_for = |sk: &SigningKey| {
+        let point = sk.verifying_key().to_sec1_point(false);
+        json!({"kty":"EC","crv":"P-256","x":B64.encode(point.x().unwrap()),"y":B64.encode(point.y().unwrap())})
+    };
+    let jwk = jwk_for(&key);
+    let jkt = setjoin_authz::dpop::thumbprint(&jwk).unwrap();
+    let make = |sk: &SigningKey, jti: &str, htm: &str, htu: &str, iat: i64, ath: Option<&str>| {
+        let h = B64.encode(json!({"typ":"dpop+jwt","alg":"ES256","jwk":jwk_for(sk)}).to_string());
+        let mut claims = json!({"htm":htm,"htu":htu,"iat":iat,"jti":jti});
+        if let Some(ath) = ath {
+            claims["ath"] = json!(ath);
+        }
+        let p = B64.encode(claims.to_string());
+        let sig: Signature = sk.sign(format!("{h}.{p}").as_bytes());
+        format!("{h}.{p}.{}", B64.encode(sig.to_bytes()))
+    };
+    let uri = "https://mail.example.com/auth/session/token";
+    let now = 1751500000.0;
+    let cache = setjoin_authz::dpop::ReplayCache::default();
+
+    let no_ath = make(&key, "r1", "GET", uri, 1751500000, None);
+    assert!(setjoin_authz::dpop::verify_without_ath(
+        &no_ath, "GET", uri, &jkt, now, &cache
+    ));
+    assert!(
+        !setjoin_authz::dpop::verify_without_ath(&no_ath, "GET", uri, &jkt, now, &cache),
+        "replayed jti must be rejected"
+    );
+
+    // Stale-tab proof carrying an ath claim is also accepted when recovery omits ath check.
+    let with_ath = make(&key, "r2", "HEAD", uri, 1751500000, Some("stale-ath"));
+    assert!(setjoin_authz::dpop::verify_without_ath(
+        &with_ath, "HEAD", uri, &jkt, now, &cache
+    ));
+
+    let fresh = setjoin_authz::dpop::ReplayCache::default();
+    assert!(
+        !setjoin_authz::dpop::verify_without_ath(
+            &make(&key, "r3", "POST", uri, 1751500000, None),
+            "GET",
+            uri,
+            &jkt,
+            now,
+            &fresh
+        ),
+        "bad htm"
+    );
+    assert!(
+        !setjoin_authz::dpop::verify_without_ath(
+            &make(
+                &key,
+                "r4",
+                "GET",
+                "https://mail.example.com/other",
+                1751500000,
+                None
+            ),
+            "GET",
+            uri,
+            &jkt,
+            now,
+            &fresh
+        ),
+        "bad htu"
+    );
+    assert!(
+        !setjoin_authz::dpop::verify_without_ath(
+            &make(&other_key, "r5", "GET", uri, 1751500000, None),
+            "GET",
+            uri,
+            &jkt,
+            now,
+            &fresh
+        ),
+        "bad jkt"
+    );
+    assert!(
+        !setjoin_authz::dpop::verify_without_ath(
+            &make(&key, "r6", "GET", uri, 1751500100, None),
+            "GET",
+            uri,
+            &jkt,
+            now,
+            &fresh
+        ),
+        "bad iat outside 60s skew"
+    );
+}

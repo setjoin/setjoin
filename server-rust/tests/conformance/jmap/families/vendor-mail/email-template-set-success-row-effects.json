@@ -1,0 +1,13 @@
+{
+  "case": "email-template-set-success-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <created.id>, \"name\": \"Out of Office\", \"subject\": \"OOO\", \"body_html\": \"<p>Back soon & rested</p>\", \"mailbox_id\": <a.mailbox>}]",
+      "before": "[]",
+      "name": "email_templates"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap EmailTemplate/set"
+}

@@ -72,9 +72,16 @@ hostile transports, admission); `tests/hooks.rs` covers the seams below.
   collapses repeated spaces; STARTTLS drops pipelined bytes behind it; SELECT
   matches `imap_name` OR `name`, so `SELECT ""` can match a tag with an empty alias.
 - No certificate means no STARTTLS and plaintext LOGIN is allowed.
-- The 60 s password-verification cache is a pure optimisation and is not ported.
+- Go's 60 s password-verification cache is ported in `setjoin_authz::basic` (#355-0): bounded, one per `Server`, keyed by a per-instance HMAC instead of Go's truncated SHA-256 slugs, swept on insert; it only skips verification and self-heal. App passwords are never cached.
 - Self-heal of weak hashes uses the standard profile only (same limit as LDAP); a
   configured crypto profile needs the shared admission provider.
+
+Owner-approved security divergence (#355-0, `oracle/divergences.json`
+`totp-account-password`): a user with `totp_enabled` cannot LOGIN or
+AUTHENTICATE with the account password (`NO Authentication failed`); app
+passwords still work. Frozen Go admits it. No recorded session uses a TOTP
+user, so the goldens are unchanged; `tests/password_policy.rs` pins it,
+including on a warm cache.
 
 Deliberate differences with no wire effect: TLS handshakes are bounded at 30 s,
 and listener stop aborts sessions (Go lets them finish their next command).

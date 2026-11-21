@@ -48,6 +48,12 @@ ALLOWLIST=(
   # never request-derived; every actual value (id, errMsg, backoff seconds)
   # rides a bind parameter ($N).
   "worker.go:table is always a fixed Go string constant (pushIntentsTable/chatIntentsTable); values are always \$N bind params"
+  # Frozen Go test fixtures (mailserver/cmd/mailserverd/worker_switch_db_test.go and
+  # mailserver/internal/cron/worker_switch_test.go) format only a test-generated
+  # `gofree_t8_*_<unix_nano>` channel name into `SELECT pg_notify('%s', ...)` with
+  # constant payloads; Go is frozen per root AGENTS.md.
+  "worker_switch_db_test.go:frozen Go test fixture; internal gofree_t8_switch_<nano> channel name only"
+  "worker_switch_test.go:frozen Go test fixture; internal gofree_t8_cron_<nano> channel name only"
 )
 
 is_allowlisted() {

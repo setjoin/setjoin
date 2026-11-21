@@ -1,0 +1,13 @@
+{
+  "case": "quick-step-set-cross-tenant-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "quick_steps"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap QuickStep/set"
+}

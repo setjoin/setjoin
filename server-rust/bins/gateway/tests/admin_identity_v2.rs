@@ -502,10 +502,26 @@ case2!(create_doc_metadata_string, "create", "doc-metadata-string");
 case2!(create_doc_metadata_array, "create", "doc-metadata-array");
 case2!(create_doc_key_type, "create", "doc-key-type");
 case2!(create_doc_display_type, "create", "doc-display-type");
-case2!(create_doc_type_before_unknown, "create", "doc-type-before-unknown");
-case2!(create_doc_unknown_before_type, "create", "doc-unknown-before-type");
-case2!(create_doc_metadata_unknown_before_type, "create", "doc-metadata-unknown-before-type");
-case2!(create_doc_metadata_type_before_unknown, "create", "doc-metadata-type-before-unknown");
+case2!(
+    create_doc_type_before_unknown,
+    "create",
+    "doc-type-before-unknown"
+);
+case2!(
+    create_doc_unknown_before_type,
+    "create",
+    "doc-unknown-before-type"
+);
+case2!(
+    create_doc_metadata_unknown_before_type,
+    "create",
+    "doc-metadata-unknown-before-type"
+);
+case2!(
+    create_doc_metadata_type_before_unknown,
+    "create",
+    "doc-metadata-type-before-unknown"
+);
 case2!(plan_doc_string, "plan", "doc-string");
 case2!(plan_doc_array, "plan", "doc-array");
 case2!(plan_doc_number, "plan", "doc-number");
@@ -517,10 +533,26 @@ case2!(plan_doc_metadata_string, "plan", "doc-metadata-string");
 case2!(plan_doc_metadata_array, "plan", "doc-metadata-array");
 case2!(plan_doc_key_type, "plan", "doc-key-type");
 case2!(plan_doc_display_type, "plan", "doc-display-type");
-case2!(plan_doc_type_before_unknown, "plan", "doc-type-before-unknown");
-case2!(plan_doc_unknown_before_type, "plan", "doc-unknown-before-type");
-case2!(plan_doc_metadata_unknown_before_type, "plan", "doc-metadata-unknown-before-type");
-case2!(plan_doc_metadata_type_before_unknown, "plan", "doc-metadata-type-before-unknown");
+case2!(
+    plan_doc_type_before_unknown,
+    "plan",
+    "doc-type-before-unknown"
+);
+case2!(
+    plan_doc_unknown_before_type,
+    "plan",
+    "doc-unknown-before-type"
+);
+case2!(
+    plan_doc_metadata_unknown_before_type,
+    "plan",
+    "doc-metadata-unknown-before-type"
+);
+case2!(
+    plan_doc_metadata_type_before_unknown,
+    "plan",
+    "doc-metadata-type-before-unknown"
+);
 case2!(put_doc_api_type, "put", "doc-api-type");
 case2!(put_doc_string, "put", "doc-string");
 case2!(plan_success_status_mutant, "plan", "success-status-mutant");
@@ -888,3 +920,613 @@ case2!(
     "t-rollback",
     "success-status-mutant"
 );
+
+fn signed_admin_token(user: i64, perms: &[&str]) -> String {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use p256::ecdsa::{signature::Signer, SigningKey};
+    let source = common::recovery_token(user);
+    let fields = source.split('.').collect::<Vec<_>>();
+    let mut claims: serde_json::Value =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(fields[1]).unwrap()).unwrap();
+    claims["admin"] = serde_json::json!(true);
+    claims["perms"] = serde_json::json!(perms);
+    let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
+    let key = SigningKey::from_slice(&[0x11; 32]).unwrap();
+    let signature: p256::ecdsa::Signature = key.sign(format!("{}.{payload}", fields[0]).as_bytes());
+    format!(
+        "{}.{payload}.{}",
+        fields[0],
+        URL_SAFE_NO_PAD.encode(signature.to_bytes())
+    )
+}
+
+async fn cut_authority_proxy(
+    dsn: &str,
+) -> Result<(String, tokio::task::JoinHandle<()>), common::BoxError> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let cfg: tokio_postgres::Config = dsn.parse()?;
+    let host = match cfg.get_hosts().first() {
+        Some(tokio_postgres::config::Host::Tcp(h)) => h.clone(),
+        _ => return Err("TCP fixture DSN required".into()),
+    };
+    let port = *cfg.get_ports().first().unwrap_or(&5432);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let mut proxied = format!("host=127.0.0.1 port={}", listener.local_addr()?.port());
+    {
+        let mut add = |key: &str, value: &str| {
+            proxied.push_str(&format!(
+                " {key}='{}'",
+                value.replace('\\', "\\\\").replace('\'', "\\'")
+            ));
+        };
+        if let Some(v) = cfg.get_user() {
+            add("user", v);
+        }
+        if let Some(v) = cfg.get_password() {
+            add("password", std::str::from_utf8(v)?);
+        }
+        if let Some(v) = cfg.get_dbname() {
+            add("dbname", v);
+        }
+        if let Some(v) = cfg.get_options() {
+            add("options", v);
+        }
+    }
+    let task = tokio::spawn(async move {
+        const MARKER: &[u8] = b"public.admin_role_assignments";
+        loop {
+            let Ok((client, _)) = listener.accept().await else {
+                break;
+            };
+            let host = host.clone();
+            tokio::spawn(async move {
+                let Ok(server) = tokio::net::TcpStream::connect((host.as_str(), port)).await else {
+                    return;
+                };
+                let (mut cr, mut cw) = client.into_split();
+                let (mut sr, mut sw) = server.into_split();
+                let c2s = async {
+                    let mut buf = [0u8; 8192];
+                    let mut tail = Vec::with_capacity(MARKER.len());
+                    loop {
+                        let Ok(n) = cr.read(&mut buf).await else {
+                            break;
+                        };
+                        if n == 0 {
+                            break;
+                        }
+                        let mut window = Vec::with_capacity(tail.len() + n);
+                        window.extend_from_slice(&tail);
+                        window.extend_from_slice(&buf[..n]);
+                        if window.windows(MARKER.len()).any(|w| w == MARKER) {
+                            let _ = sw.shutdown().await;
+                            break;
+                        }
+                        let keep = window.len().min(MARKER.len() - 1);
+                        tail.clear();
+                        tail.extend_from_slice(&window[window.len() - keep..]);
+                        if sw.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                };
+                let s2c = async {
+                    let _ = tokio::io::copy(&mut sr, &mut cw).await;
+                };
+                tokio::select! {
+                    _ = c2s => {}
+                    _ = s2c => {}
+                }
+            });
+        }
+    });
+    Ok((proxied, task))
+}
+
+#[tokio::test]
+async fn sources_plan_and_apply_answer_surrogates_and_huge_numbers_natively(
+) -> Result<(), common::BoxError> {
+    use hyper::{Request, Response};
+    use setjoin_conformance::{fixture, harness::Db};
+    use setjoin_gateway::{
+        admin_identity_v2::{AdminIdentityV2Route, SourceSecrets},
+        RouteTable,
+    };
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    let _serial = admin_identity_v2_oracle::SERIAL.lock().await;
+    let Some(db) = Db::for_case("admin-identity-v2-json-native") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "admin7-194-json").await?;
+    let role_id: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,'{identity.write,users.read}',NULL) RETURNING id",
+            &[&format!("admin7-194-json-{}", a.user)],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)",
+            &[&a.user, &role_id],
+        )
+        .await?;
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
+    let receipts: Vec<String> = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F01'",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+
+    let result = async {
+        let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
+            .with_audit_keys("22".repeat(32), String::new());
+        let worker =
+            common::patient_exec(&db.dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        let route = AdminIdentityV2Route {
+            exec,
+            worker,
+            keys: Arc::new(common::recovery_keys()),
+            issuer: "mailserver".into(),
+            secrets: SourceSecrets::new(|name| (name == "DB_ENCRYPTION_KEY").then(|| "22".repeat(32))),
+        };
+        let go_hits = Arc::new(AtomicUsize::new(0));
+        let hits = go_hits.clone();
+        let upstream = common::fake_upstream(move |_| {
+            hits.fetch_add(1, Ordering::SeqCst);
+            async { Response::builder().status(500).body(common::full("go-called")).unwrap() }
+        })
+        .await;
+        let gw = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
+        let token = signed_admin_token(a.user, &["identity.write"]);
+
+        let send_post = |path: &str, body: String, extra: &[(&str, &str)]| {
+            let token = token.clone();
+            let path = path.to_owned();
+            let extra: Vec<(String, String)> = extra
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect();
+            async move {
+                let mut builder = Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("host", "mail.test")
+                    .header("origin", "http://mail.test")
+                    .header("content-type", "application/json")
+                    .header("authorization", format!("Bearer {token}"));
+                for (k, v) in &extra {
+                    builder = builder.header(k.as_str(), v.as_str());
+                }
+                let resp = common::send(gw, builder.body(common::full(body))?).await;
+                let status = resp.status().as_u16();
+                let text = String::from_utf8(common::body_bytes(resp).await.to_vec())?;
+                Ok::<_, common::BoxError>((status, text))
+            }
+        };
+
+        // Plan: lone surrogate & out-of-f64-range numbers answered natively.
+        let (st, _) = send_post(
+            "/api/admin/identity/v2/sources/plan",
+            r#"{"\uD800":1}"#.into(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 400);
+
+        let (st, body) = send_post(
+            "/api/admin/identity/v2/sources/plan",
+            r#"{"apiVersion":1e999}"#.into(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 400);
+        assert!(body.contains("cannot unmarshal number"), "{body}");
+
+        let valid_huge = r#"{"apiVersion":"setjoin.io/v1","kind":"IdentitySource","metadata":{"sourceKey":"test194-huge","displayName":"Test194 Huge"},"spec":{"type":"local","passwordPolicy":{"minLength":1e999}}}"#;
+        let (st, body) = send_post(
+            "/api/admin/identity/v2/sources/plan",
+            valid_huge.into(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 200, "{body}");
+        assert!(body.contains("1e999"), "{body}");
+
+        // Apply (POST /sources): lone surrogate & out-of-f64-range numbers answered natively.
+        let idem1 = "95300000-0000-4000-8000-000000000194";
+        let idem2 = "95300000-0000-4000-8000-000000000195";
+        let hdrs1 = [("x-audit-reason", "test194"), ("idempotency-key", idem1)];
+        let hdrs2 = [("x-audit-reason", "test194"), ("idempotency-key", idem2)];
+
+        let (st, _) = send_post(
+            "/api/admin/identity/v2/sources",
+            format!(r#"{{"document":{{"\uD800":1}},"reason":"test194","idempotencyKey":"{idem1}"}}"#),
+            &hdrs1,
+        )
+        .await?;
+        assert_eq!(st, 400);
+
+        let (st, body) = send_post(
+            "/api/admin/identity/v2/sources",
+            format!(r#"{{"document":{{"apiVersion":1e999}},"reason":"test194","idempotencyKey":"{idem1}"}}"#),
+            &hdrs1,
+        )
+        .await?;
+        assert_eq!(st, 400);
+        assert!(body.contains("cannot unmarshal number"), "{body}");
+
+        let (st, body) = send_post(
+            "/api/admin/identity/v2/sources",
+            format!(r#"{{"document":{valid_huge},"reason":"test194","idempotencyKey":"{idem2}"}}"#),
+            &hdrs2,
+        )
+        .await?;
+        assert_eq!(st, 201, "{body}");
+
+        assert_eq!(go_hits.load(Ordering::SeqCst), 0, "must not forward to Go");
+        let metrics = common::send(
+            gw,
+            Request::get("/_gateway/metrics").body(common::full(""))?,
+        )
+        .await;
+        let metrics_body = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
+        assert!(
+            metrics_body
+                .lines()
+                .any(|l| l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F01\"} 0"),
+            "unexpected F01 proxy metric: {metrics_body}"
+        );
+        Ok::<_, common::BoxError>(())
+    }
+    .await;
+
+    let _ = owner
+        .batch_execute(
+            "BEGIN; SET LOCAL session_replication_role=replica; \
+             DELETE FROM identity_source_operations WHERE source_id IN (SELECT id FROM identity_sources WHERE source_key='test194-huge'); \
+             DELETE FROM identity_link_events WHERE source_id IN (SELECT id FROM identity_sources WHERE source_key='test194-huge'); \
+             DELETE FROM identity_sources WHERE source_key='test194-huge'; COMMIT;",
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F01' AND operation_id::text<>ALL($1)",
+            &[&receipts],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await;
+    let _ = owner
+        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role_id])
+        .await;
+    let _ = common::remove_blob_account(&owner, &a).await;
+    let _ = owner
+        .batch_execute(&format!(
+            "BEGIN; SET LOCAL session_replication_role=replica; DELETE FROM admin_audit_log WHERE id>{audit_start}; COMMIT;"
+        ))
+        .await;
+    result
+}
+
+#[tokio::test]
+async fn dry_run_without_source_probe_returns_503_natively() -> Result<(), common::BoxError> {
+    use hyper::{Request, Response};
+    use setjoin_conformance::{fixture, harness::Db};
+    use setjoin_gateway::{
+        admin_identity_v2::{AdminIdentityV2Route, SourceSecrets},
+        RouteTable,
+    };
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    let _serial = admin_identity_v2_oracle::SERIAL.lock().await;
+    let Some(db) = Db::for_case("admin-identity-v2-dry-run-no-probe") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "admin7-194-probe").await?;
+    let role_id: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,'{identity.write,users.read}',NULL) RETURNING id",
+            &[&format!("admin7-194-probe-{}", a.user)],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)",
+            &[&a.user, &role_id],
+        )
+        .await?;
+    let deployment_id: String = owner
+        .query_one(
+            "SELECT value #>> '{}' FROM system_config WHERE key='identity.deployment_id'",
+            &[],
+        )
+        .await?
+        .get(0);
+    let keyring = setjoin_config_secret::keyring_from_lookup(&deployment_id, |name| {
+        (name == "DB_ENCRYPTION_KEY").then(|| "22".repeat(32))
+    })?;
+    let codec = setjoin_config_secret::ConfigSecretCodec::new(keyring)?;
+    let plain = r#"{"document":{"apiVersion":"setjoin.io/v1","kind":"IdentitySource","metadata":{"sourceKey":"test194-ldap","displayName":"Test194 LDAP"},"spec":{"type":"ldap","baseDN":"dc=example,dc=test","subjectAttribute":"entryUUID","endpoint":{"host":"ldap.test","port":636,"tls":"ldaps"}}},"secrets":{"bindPassword":"c2VjcmV0"}}"#;
+    let sealed = codec.encrypt("identity_source.test194-ldap", plain.as_bytes())?;
+    owner
+        .execute(
+            "INSERT INTO identity_sources(source_key,display_name,kind,capabilities,state,generation,mapping_version,config_envelope,config_key_version) \
+             VALUES('test194-ldap','Test194 LDAP','ldap','{\"authenticate\": false, \"provision_lifecycle\": true, \"stable_immutable_subject\": true}'::jsonb,'draft',1,2,$1,1)",
+            &[&sealed],
+        )
+        .await?;
+
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
+    let receipts: Vec<String> = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F01'",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+
+    let result = async {
+        let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
+            .with_audit_keys("22".repeat(32), String::new());
+        let worker =
+            common::patient_exec(&db.dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        // SourceSecrets::new has probe: None.
+        let route = AdminIdentityV2Route {
+            exec,
+            worker,
+            keys: Arc::new(common::recovery_keys()),
+            issuer: "mailserver".into(),
+            secrets: SourceSecrets::new(|name| {
+                (name == "DB_ENCRYPTION_KEY").then(|| "22".repeat(32))
+            }),
+        };
+        let go_hits = Arc::new(AtomicUsize::new(0));
+        let hits = go_hits.clone();
+        let upstream = common::fake_upstream(move |_| {
+            hits.fetch_add(1, Ordering::SeqCst);
+            async {
+                Response::builder()
+                    .status(500)
+                    .body(common::full("go-called"))
+                    .unwrap()
+            }
+        })
+        .await;
+        let gw = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
+        let token = signed_admin_token(a.user, &["identity.write"]);
+        let idem = "95300000-0000-4000-8000-000000000196";
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/admin/identity/v2/sources/test194-ldap/dry-run")
+            .header("host", "mail.test")
+            .header("origin", "http://mail.test")
+            .header("content-type", "application/json")
+            .header("if-match", "\"1\"")
+            .header("idempotency-key", idem)
+            .header("x-audit-reason", "test194")
+            .header("authorization", format!("Bearer {token}"))
+            .body(common::full(format!(
+                r#"{{"expectedGeneration":"1","idempotencyKey":"{idem}","reason":"test194"}}"#
+            )))?;
+        let resp = common::send(gw, req).await;
+        let status = resp.status().as_u16();
+        let body = String::from_utf8(common::body_bytes(resp).await.to_vec())?;
+        assert_eq!(
+            status, 503,
+            "expected 503 without SourceProbe, got {status}: {body}"
+        );
+        let v: serde_json::Value = serde_json::from_str(&body)?;
+        assert_eq!(
+            v["detail"],
+            "identity source directory probe is unavailable"
+        );
+        assert_eq!(go_hits.load(Ordering::SeqCst), 0, "must not forward to Go");
+        let metrics = common::send(
+            gw,
+            Request::get("/_gateway/metrics").body(common::full(""))?,
+        )
+        .await;
+        let metrics_body = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
+        assert!(
+            metrics_body
+                .lines()
+                .any(|l| l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F01\"} 0"),
+            "unexpected F01 proxy metric: {metrics_body}"
+        );
+        Ok::<_, common::BoxError>(())
+    }
+    .await;
+
+    let _ = owner
+        .batch_execute(
+            "BEGIN; SET LOCAL session_replication_role=replica; \
+             DELETE FROM identity_source_operations WHERE source_id IN (SELECT id FROM identity_sources WHERE source_key='test194-ldap'); \
+             DELETE FROM identity_link_events WHERE source_id IN (SELECT id FROM identity_sources WHERE source_key='test194-ldap'); \
+             DELETE FROM identity_sources WHERE source_key='test194-ldap'; COMMIT;",
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F01' AND operation_id::text<>ALL($1)",
+            &[&receipts],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await;
+    let _ = owner
+        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role_id])
+        .await;
+    let _ = common::remove_blob_account(&owner, &a).await;
+    let _ = owner
+        .batch_execute(&format!(
+            "BEGIN; SET LOCAL session_replication_role=replica; DELETE FROM admin_audit_log WHERE id>{audit_start}; COMMIT;"
+        ))
+        .await;
+    result
+}
+
+#[tokio::test]
+async fn authority_lookup_failure_fails_closed_without_forwarding() -> Result<(), common::BoxError>
+{
+    use hyper::{Request, Response};
+    use setjoin_conformance::{fixture, harness::Db};
+    use setjoin_gateway::{
+        admin_identity_v2::{AdminIdentityV2Route, SourceSecrets},
+        RouteTable,
+    };
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    let _serial = admin_identity_v2_oracle::SERIAL.lock().await;
+    let Some(db) = Db::for_case("admin-identity-v2-authority-fail-closed") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "admin7-194-auth").await?;
+    let role_id: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,'{users.read}',NULL) RETURNING id",
+            &[&format!("admin7-194-auth-{}", a.user)],
+        )
+        .await?
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)",
+            &[&a.user, &role_id],
+        )
+        .await?;
+    let audit_start: i64 = owner
+        .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
+        .await?
+        .get(0);
+    let receipts: Vec<String> = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F01'",
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+
+    let exec_dsn = db.app.as_deref().unwrap_or(&db.dsn);
+    let (proxied_dsn, db_proxy) = cut_authority_proxy(exec_dsn).await?;
+    let result = async {
+        let exec =
+            common::patient_exec(&proxied_dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        let worker =
+            common::patient_exec(&db.dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
+        let route = AdminIdentityV2Route {
+            exec,
+            worker,
+            keys: Arc::new(common::recovery_keys()),
+            issuer: "mailserver".into(),
+            secrets: SourceSecrets::new(|name| {
+                (name == "DB_ENCRYPTION_KEY").then(|| "22".repeat(32))
+            }),
+        };
+        let go_hits = Arc::new(AtomicUsize::new(0));
+        let hits = go_hits.clone();
+        let upstream = common::fake_upstream(move |_| {
+            hits.fetch_add(1, Ordering::SeqCst);
+            async {
+                Response::builder()
+                    .status(500)
+                    .body(common::full("go-called"))
+                    .unwrap()
+            }
+        })
+        .await;
+        let gw = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
+        let token = signed_admin_token(a.user, &["users.read"]);
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/admin/identity/v2/sources")
+            .header("host", "mail.test")
+            .header("origin", "http://mail.test")
+            .header("authorization", format!("Bearer {token}"))
+            .body(common::full(""))?;
+        let resp = common::send(gw, req).await;
+        let status = resp.status().as_u16();
+        let body = String::from_utf8(common::body_bytes(resp).await.to_vec())?;
+        assert_eq!(
+            status, 403,
+            "expected fail-closed 403, got {status}: {body}"
+        );
+        let v: serde_json::Value = serde_json::from_str(&body)?;
+        assert_eq!(v["detail"], "Forbidden");
+        assert_eq!(go_hits.load(Ordering::SeqCst), 0, "must not forward to Go");
+        let metrics = common::send(
+            gw,
+            Request::get("/_gateway/metrics").body(common::full(""))?,
+        )
+        .await;
+        let metrics_body = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
+        assert!(
+            metrics_body
+                .lines()
+                .any(|l| l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F01\"} 0"),
+            "unexpected F01 proxy metric: {metrics_body}"
+        );
+        Ok::<_, common::BoxError>(())
+    }
+    .await;
+
+    db_proxy.abort();
+    let _ = owner
+        .execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F01' AND operation_id::text<>ALL($1)",
+            &[&receipts],
+        )
+        .await;
+    let _ = owner
+        .execute(
+            "DELETE FROM admin_role_assignments WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await;
+    let _ = owner
+        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role_id])
+        .await;
+    let _ = common::remove_blob_account(&owner, &a).await;
+    let _ = owner
+        .batch_execute(&format!(
+            "BEGIN; SET LOCAL session_replication_role=replica; DELETE FROM admin_audit_log WHERE id>{audit_start}; COMMIT;"
+        ))
+        .await;
+    result
+}

@@ -1,5 +1,7 @@
 //! LOGIN and AUTHENTICATE PLAIN: a port of `handleLogin`/`handleAuthenticate`
-//! including their ordering, replies and audit effects.
+//! including their ordering, replies and audit effects. Credential checks are
+//! the shared `setjoin_authz::basic` module (#355-0); a TOTP user's account
+//! password is refused (owner-approved divergence, oracle/divergences.json).
 use crate::{
     hooks::{ConnectionMeta, ThreatAction, ThreatPolicy, WebhookPolicy},
     session::{split_args, Session},
@@ -9,8 +11,8 @@ use base64::{
     engine::{general_purpose::GeneralPurposeConfig, GeneralPurpose},
     Engine,
 };
+use setjoin_authz::basic::{Accept, GuestAppPasswords, Policy, TotpAccountPassword, Verdict};
 use setjoin_pg::Type;
-use sha2::{Digest, Sha256};
 use std::time::SystemTime;
 
 /// Go's `base64.StdEncoding`: padded, but non-zero trailing bits are accepted.
@@ -19,9 +21,14 @@ const STD: GeneralPurpose = GeneralPurpose::new(
     GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true),
 );
 
-fn non_empty(s: &str) -> Option<&str> {
-    (!s.is_empty()).then_some(s)
-}
+/// IMAP's explicit credential policy: Go's app-then-account order; guest app
+/// passwords admitted (frozen Go parity, follow-up); TOTP users' account
+/// password refused (owner ruling 2026-11-14, security divergence).
+const POLICY: Policy = Policy {
+    accept: Accept::AppPasswordThenAccountPassword,
+    guest_app_passwords: GuestAppPasswords::Admit,
+    totp_account_password: TotpAccountPassword::Refuse,
+};
 
 #[derive(Clone, Copy)]
 enum Style {
@@ -97,17 +104,7 @@ async fn log_event(
     ip: Option<&str>,
 ) {
     // Best effort, errors swallowed: logging never breaks authentication.
-    let _ = s
-        .server
-        .db
-        .record_protocol_auth_event(
-            user,
-            event,
-            provider,
-            non_empty(email),
-            ip.and_then(non_empty),
-        )
-        .await;
+    setjoin_authz::basic::record_event(&s.server.db, user, event, provider, email, ip).await;
 }
 
 async fn webhook(s: &Session, success: bool, email: &str, provider: &str, ip: &str) {
@@ -166,47 +163,50 @@ async fn credentials(s: &mut Session, tag: &str, email: &str, password: &str, st
             ThreatAction::Allow => {}
         }
     }
-    // App password first.
-    if let Some(user) = check_app_password(s, email, password).await {
-        meta.app_password = true;
-        admit(
-            s,
-            tag,
-            user,
-            email,
-            &client_ip,
-            &mut meta,
-            true,
-            authenticated_at,
-            style,
-        )
-        .await;
-        return;
-    }
-
-    let Some(user) = check_password(s, email, password).await else {
-        if let Some(gate) = &gate {
-            gate.record_result(&meta, false, 0).await;
+    let verdict =
+        setjoin_authz::basic::verify(&s.server.db, &s.server.passwords, email, password, POLICY)
+            .await;
+    match verdict {
+        Verdict::AppPassword(user) => {
+            meta.app_password = true;
+            admit(
+                s,
+                tag,
+                user.user_id,
+                email,
+                &client_ip,
+                &mut meta,
+                true,
+                authenticated_at,
+                style,
+            )
+            .await;
         }
-        log_event(s, None, "login_failed", "bcrypt", email, Some(&peer_text)).await;
-        webhook(s, false, email, "bcrypt", &client_ip).await;
-        s.reply(tag, "NO Authentication failed");
-        return;
-    };
-    log_event(s, Some(user), "login", "bcrypt", email, Some(&peer_text)).await;
-    webhook(s, true, email, "bcrypt", &client_ip).await;
-    admit(
-        s,
-        tag,
-        user,
-        email,
-        &client_ip,
-        &mut meta,
-        false,
-        authenticated_at,
-        style,
-    )
-    .await;
+        Verdict::AccountPassword(user) => {
+            log_event(s, Some(user.user_id), "login", "bcrypt", email, Some(&peer_text)).await;
+            webhook(s, true, email, "bcrypt", &client_ip).await;
+            admit(
+                s,
+                tag,
+                user.user_id,
+                email,
+                &client_ip,
+                &mut meta,
+                false,
+                authenticated_at,
+                style,
+            )
+            .await;
+        }
+        Verdict::Refused => {
+            if let Some(gate) = &gate {
+                gate.record_result(&meta, false, 0).await;
+            }
+            log_event(s, None, "login_failed", "bcrypt", email, Some(&peer_text)).await;
+            webhook(s, false, email, "bcrypt", &client_ip).await;
+            s.reply(tag, "NO Authentication failed");
+        }
+    }
 }
 
 /// Identity install plus the post-credential checks, in Go's order. The app
@@ -335,94 +335,4 @@ async fn deny_if_mailbox_blocked(s: &mut Session, tag: &str, user: i64) -> bool 
         return deny(s, tag, "NO Mailbox access suspended");
     }
     false
-}
-
-/// `pwhash.CheckAppPassword`: SHA-256 of the presented token, bookkeeping and
-/// the audit rows on both outcomes (the failure row carries no IP).
-async fn check_app_password(s: &Session, email: &str, token: &str) -> Option<i64> {
-    let digest = Sha256::digest(token.as_bytes());
-    let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    let found = s
-        .server
-        .db
-        .read(
-            "SELECT u.id FROM users u JOIN app_passwords ap ON ap.user_id = u.id \
-             WHERE lower(u.email) = lower($1) AND u.enabled = TRUE AND ap.token_hash = $2 \
-             AND ap.revoked_at IS NULL AND (ap.expires_at IS NULL OR ap.expires_at > now())",
-            &[(&email, Type::TEXT), (&hash, Type::TEXT)],
-        )
-        .await
-        .ok()
-        .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()));
-    let Some(user) = found else {
-        log_event(s, None, "login_failed", "app_password", email, None).await;
-        return None;
-    };
-    let _ = s.server.db.touch_app_password(user, &hash).await;
-    log_event(s, Some(user), "login", "app_password", email, None).await;
-    // Go re-reads the enabled user; a vanished row makes the credential fail
-    // over to the password check after the success row was already written.
-    let rows = s
-        .server
-        .db
-        .read(
-            "SELECT id FROM users WHERE id = $1 AND enabled = TRUE",
-            &[(&user, Type::INT8)],
-        )
-        .await
-        .ok()?;
-    rows.first()?;
-    Some(user)
-}
-
-/// `auth.CheckPassword`: bcrypt/SM3 verification, best-effort below-floor
-/// self-heal, then the fail-closed guest check.
-async fn check_password(s: &Session, email: &str, password: &str) -> Option<i64> {
-    let rows = s
-        .server
-        .db
-        .read(
-            "SELECT u.id, u.password_hash FROM users u JOIN domains d ON d.id = u.domain_id \
-             WHERE u.email = $1 AND u.enabled = TRUE",
-            &[(&email, Type::TEXT)],
-        )
-        .await
-        .ok()?;
-    let row = rows.first()?;
-    let id: i64 = row.get(0);
-    let hash: String = row.try_get(1).ok()?;
-    if hash.is_empty() {
-        return None;
-    }
-    let verified = hash.clone();
-    let password = password.to_string();
-    let (valid, upgrade) = tokio::task::spawn_blocking(move || {
-        let valid = setjoin_authz::password::verify(&hash, &password);
-        let upgrade = valid
-            .then(|| setjoin_authz::password::standard_upgrade(&hash, &password))
-            .flatten();
-        (valid, upgrade)
-    })
-    .await
-    .ok()?;
-    if !valid {
-        return None;
-    }
-    if let Some(new) = upgrade {
-        let _ = s
-            .server
-            .db
-            .upgrade_legacy_protocol_password(id, email, &verified, &new)
-            .await;
-    }
-    let guest = s
-        .server
-        .db
-        .read("SELECT is_guest_account($1)", &[(&id, Type::INT8)])
-        .await
-        .ok()?;
-    if guest.first()?.try_get::<_, bool>(0).ok()? {
-        return None;
-    }
-    Some(id)
 }

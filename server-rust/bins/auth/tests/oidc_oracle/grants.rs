@@ -85,6 +85,8 @@ impl Env {
                         .unwrap(),
                     cfg,
                 )
+                .await?
+                .with_threat_gate(&db.dsn)
                 .await?,
             ),
             status_mutation.clone(),
@@ -546,8 +548,14 @@ pub(super) fn qualify(actual: &Value) -> Vec<Value> {
     };
     let mut out = Vec::new();
     for (key, path) in targets {
-        let wire=actual["observation"]["request"].get("wire_method").unwrap_or(&actual["observation"]["request"]["method"]).as_str().unwrap_or("");
-        if key.starts_with("GET ")&&!matches!(wire,"GET"|"HEAD"){continue;}
+        let wire = actual["observation"]["request"]
+            .get("wire_method")
+            .unwrap_or(&actual["observation"]["request"]["method"])
+            .as_str()
+            .unwrap_or("");
+        if key.starts_with("GET ") && !matches!(wire, "GET" | "HEAD") {
+            continue;
+        }
         let mut v = actual.clone();
         let r = &mut v["observation"]["request"];
         if r.get("wire_method").is_none() {
@@ -561,7 +569,12 @@ pub(super) fn qualify(actual: &Value) -> Vec<Value> {
         v["route"] = json!(key);
         out.push(v);
     }
-    if key == "* /.well-known/" && matches!(actual["observation"]["request"]["method"].as_str(),Some("GET"|"HEAD")) {
+    if key == "* /.well-known/"
+        && matches!(
+            actual["observation"]["request"]["method"].as_str(),
+            Some("GET" | "HEAD")
+        )
+    {
         let mut v = out[0].clone();
         v["route"] = json!("GET /.well-known/openid-configuration");
         v["observation"]["request"]["method"] = json!("GET");
@@ -623,7 +636,10 @@ pub(super) fn expected_for(baseline: &std::path::Path, actual: &Value) -> Result
         .as_str()
         .unwrap()
         .contains("owner-approved security fix 2026-11-05"));
-    assert!(!entry["reason"].as_str().unwrap().contains("UNREVIEWED") || std::env::var("SECFIX7_WRITE_SECURITY").is_ok());
+    assert!(
+        !entry["reason"].as_str().unwrap().contains("UNREVIEWED")
+            || std::env::var("SECFIX7_WRITE_SECURITY").is_ok()
+    );
     assert_eq!(
         entry["sha256"],
         format!("{:x}", Sha256::digest(std::fs::read(baseline)?)),

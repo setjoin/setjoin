@@ -317,18 +317,11 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    /// Library embeddings must attest both halves of the named task transfer.
-    pub async fn start_saml_listener(
-        &self,
-        rust_on: &str,
-        go_off: &str,
-    ) -> Result<Option<setjoin_identity::saml::Listener>, String> {
-        if !setjoin_identity::saml::admit_worker(rust_on, go_off)? {
-            return Ok(None);
-        }
+    /// Start cache invalidation for the native routes when their registry is loaded.
+    pub async fn start_saml_listener(&self) -> Option<setjoin_identity::saml::Listener> {
         match &self.saml {
-            Some(registry) => Ok(Some(registry.listen(&self.config.direct_dsn).await)),
-            None => Ok(None),
+            Some(registry) => Some(registry.listen(&self.config.direct_dsn).await),
+            None => None,
         }
     }
 }

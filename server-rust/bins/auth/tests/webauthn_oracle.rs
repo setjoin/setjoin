@@ -172,7 +172,7 @@ fn corpus() -> std::path::PathBuf {
         .join("../../tests/conformance/identity-webauthn/goldens")
 }
 async fn run(route: &str, kind: &str, mutant: bool) -> Result<(), Err> {
-    run_security(route,kind,mutant,false).await
+    run_security(route, kind, mutant, false).await
 }
 async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
@@ -183,12 +183,16 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         &[],
     )
     .await?;
-    let secure_sql=include_str!("../../../../mailserver/sql/reducers/rust_identity_webauthn_login_claim.sql");
+    let secure_sql =
+        include_str!("../../../../mailserver/sql/reducers/rust_identity_webauthn_login_claim.sql");
     if bug {
         assert!(std::env::var("GOFREE_RECORD_UPSTREAM").is_err());
-        let start=secure_sql.find("    -- SECURITY-ASSERTION-BEGIN").unwrap();
-        let end=secure_sql.find("    -- SECURITY-ASSERTION-END").unwrap()+"    -- SECURITY-ASSERTION-END".len();
-        let mut restored=secure_sql.to_owned();restored.replace_range(start..end,"");c.batch_execute(&restored).await?;
+        let start = secure_sql.find("    -- SECURITY-ASSERTION-BEGIN").unwrap();
+        let end = secure_sql.find("    -- SECURITY-ASSERTION-END").unwrap()
+            + "    -- SECURITY-ASSERTION-END".len();
+        let mut restored = secure_sql.to_owned();
+        restored.replace_range(start..end, "");
+        c.batch_execute(&restored).await?;
     }
     common::signing_key(&c).await;
     let saved_rate = c
@@ -273,7 +277,9 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
     let mut cfg = Config::for_secret(keys["secret"].as_str().unwrap().into());
     if route == "login-finish" {
         cfg.signing_alg = "ES256".into();
-        if kind.starts_with("pending-push"){cfg.vapid_private_key="AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into();}
+        if kind.starts_with("pending-push") {
+            cfg.vapid_private_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into();
+        }
     }
     let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
         .map_err(|e| e.0)?;
@@ -283,7 +289,16 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         setjoin_config_secret::CryptoProfile::Standard,
     )
     .await?;
-    let auth = auth_server(Arc::new(AuthServer::load(exec, cfg).await?), mutant).await;
+    let auth = auth_server(
+        Arc::new(
+            AuthServer::load(exec, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
+        ),
+        mutant,
+    )
+    .await;
     let record = std::env::var("GOFREE_RECORD_UPSTREAM").ok();
     assert!(!mutant || record.is_none());
     let gw = gateway(auth.addr, record.clone()).await;
@@ -520,13 +535,19 @@ async fn run_security(route: &str, kind: &str, mutant: bool, bug: bool) -> Resul
         if record.is_none(){let (_,_,metrics)=request(gw.addr,"GET","/_gateway/metrics",String::new(),&[]).await?;assert!(metrics.contains("setjoin_gateway_proxied_to_go_total 0"));}
         Ok::<(),Err>(())
     }.await;
-    if bug {c.batch_execute(secure_sql).await?;}
+    if bug {
+        c.batch_execute(secure_sql).await?;
+    }
     if let Some((table, _, _)) = &fault {
         c.batch_execute(&format!("DROP TRIGGER IF EXISTS gofree_idmfa2_fault ON {table};DROP FUNCTION IF EXISTS gofree_idmfa2_fault()")).await?;
     }
     gw.close().await;
     auth.close().await;
-    c.execute("DELETE FROM push_mfa_challenges WHERE user_id=ANY($1::bigint[])",&[&vec![a.user,b.user]]).await?;
+    c.execute(
+        "DELETE FROM push_mfa_challenges WHERE user_id=ANY($1::bigint[])",
+        &[&vec![a.user, b.user]],
+    )
+    .await?;
     common::restore_receipts(&c, &receipts).await;
     if let Some(value) = saved_rate {
         c.execute(
@@ -1246,8 +1267,18 @@ fn issued_pending(
 ) -> Result<Value, Err> {
     let reply: Value = serde_json::from_str(raw)?;
     assert_eq!(reply["mfa_required"], true);
-    assert!(matches!(reply["mfa_method"].as_str(),Some("totp"|"push")));
-    assert_eq!(reply["fallback"], if reply["mfa_method"]=="push"{json!(["totp","backup_codes"])}else{json!(["backup_codes"])});
+    assert!(matches!(
+        reply["mfa_method"].as_str(),
+        Some("totp" | "push")
+    ));
+    assert_eq!(
+        reply["fallback"],
+        if reply["mfa_method"] == "push" {
+            json!(["totp", "backup_codes"])
+        } else {
+            json!(["backup_codes"])
+        }
+    );
     assert!(headers.get("set-cookie").is_none());
     let token = reply["mfa_token"].as_str().ok_or("pending token")?;
     let legacy = setjoin_authz::legacy_jwt::LegacyKeys::new(
@@ -1303,15 +1334,26 @@ register_finish_case!(
 );
 
 #[tokio::test]
-async fn mutant_login_counter_regression_restores_go_bug(){run_security("login-finish","counter-regression",false,true).await.unwrap();}
+async fn mutant_login_counter_regression_restores_go_bug() {
+    run_security("login-finish", "counter-regression", false, true)
+        .await
+        .unwrap();
+}
 #[tokio::test]
-async fn mutant_login_assertion_replay_restores_go_bug(){run_security("login-finish","repeat",false,true).await.unwrap();}
+async fn mutant_login_assertion_replay_restores_go_bug() {
+    run_security("login-finish", "repeat", false, true)
+        .await
+        .unwrap();
+}
 
-async fn push_rows(c:&tokio_postgres::Client,user:i64)->Result<Value,Err>{
+async fn push_rows(c: &tokio_postgres::Client, user: i64) -> Result<Value, Err> {
     let rows=c.query("SELECT session_id,verified_at IS NOT NULL,failed_attempts,expires_at>now() FROM push_mfa_challenges WHERE user_id=$1 ORDER BY id",&[&user]).await?;
     Ok(json!(rows.iter().map(|r|json!({"session":r.get::<_,String>(0),"verified":r.get::<_,bool>(1),"failures":r.get::<_,i32>(2),"live":r.get::<_,bool>(3)})).collect::<Vec<_>>()))
 }
-finish_case!(login_finish_pending_push,"pending-push");
-finish_case!(login_finish_pending_push_only,"pending-push-only");
-finish_case!(login_finish_pending_push_limit,"pending-push-limit");
-finish_case!(login_finish_pending_push_only_limit,"pending-push-only-limit");
+finish_case!(login_finish_pending_push, "pending-push");
+finish_case!(login_finish_pending_push_only, "pending-push-only");
+finish_case!(login_finish_pending_push_limit, "pending-push-limit");
+finish_case!(
+    login_finish_pending_push_only_limit,
+    "pending-push-only-limit"
+);

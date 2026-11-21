@@ -1,0 +1,28 @@
+{
+  "case": "mail-draft-lease-not-found-row-effects",
+  "effects": [
+    {
+      "after": "",
+      "before": "",
+      "name": "mail_drafts"
+    },
+    {
+      "after": "0",
+      "before": "0",
+      "name": "mail_draft_revisions"
+    },
+    {
+      "after": "0",
+      "before": "0",
+      "name": "mailwork_state"
+    },
+    {
+      "after": "0",
+      "before": "0",
+      "name": "mail_work_operations"
+    }
+  ],
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "route": "POST /jmap MailDraft/lease"
+}

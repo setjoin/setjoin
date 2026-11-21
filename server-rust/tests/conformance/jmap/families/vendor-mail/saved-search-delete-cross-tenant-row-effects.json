@@ -1,0 +1,13 @@
+{
+  "case": "saved-search-delete-cross-tenant-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Foreign\", \"query\": \"is:unread\", \"position\": 0, \"mailbox_id\": <f.mailbox>}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Foreign\", \"query\": \"is:unread\", \"position\": 0, \"mailbox_id\": <f.mailbox>}]",
+      "name": "saved_searches"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap SavedSearch/delete"
+}

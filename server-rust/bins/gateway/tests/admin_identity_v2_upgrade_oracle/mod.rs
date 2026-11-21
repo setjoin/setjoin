@@ -17,7 +17,7 @@ use setjoin_gateway::{
 use setjoin_pg::ScopedExecutor;
 use std::sync::Arc;
 
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Probe {
     inner: AdminIdentityV2UpgradeRoute<setjoin_gateway::jmap::jwks::Jwks>,
@@ -759,7 +759,10 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
     // mailboxes, so no other preflight fact moves; the case removes them on every path.
     let mut pads = Vec::new();
     if matches!(action, "preflight" | "backfill") {
-        let present: i64 = owner.query_one("SELECT count(*) FROM users", &[]).await?.get(0);
+        let present: i64 = owner
+            .query_one("SELECT count(*) FROM users", &[])
+            .await?
+            .get(0);
         for n in present..RECORDED_PEOPLE {
             pads.push(fixture::account(&owner, &format!("pad9-{n}")).await?);
         }
@@ -1085,7 +1088,10 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
 /// The report as the reducer hashes it: everything but `generatedAt`.
 fn report_core(body: &str) -> Result<Value, BoxError> {
     let mut report: Value = serde_json::from_str(body)?;
-    report.as_object_mut().ok_or("preflight report is not an object")?.remove("generatedAt");
+    report
+        .as_object_mut()
+        .ok_or("preflight report is not an object")?
+        .remove("generatedAt");
     Ok(report)
 }
 
@@ -1094,7 +1100,11 @@ fn report_core(body: &str) -> Result<Value, BoxError> {
 pub fn report_matches_fresh(reported: &str, fresh: &str) -> Result<(), BoxError> {
     let (reported, fresh) = (report_core(reported)?, report_core(fresh)?);
     if reported != fresh {
-        return Err(format!("stale preflight report: differs from a fresh one: {}", golden::compare(&fresh, &reported).err().unwrap_or_default()).into());
+        return Err(format!(
+            "stale preflight report: differs from a fresh one: {}",
+            golden::compare(&fresh, &reported).err().unwrap_or_default()
+        )
+        .into());
     }
     Ok(())
 }
@@ -1102,16 +1112,37 @@ pub fn report_matches_fresh(reported: &str, fresh: &str) -> Result<(), BoxError>
 /// Facts of the report that the database answers on its own, independent of the endpoint under
 /// test: a self-consistent report (right digest, equal to a repeat of the same wrong answer) with
 /// a wrong head count or wrong feature flags is rejected.
-pub async fn facts_match_database(owner: &tokio_postgres::Client, body: &str) -> Result<(), BoxError> {
+pub async fn facts_match_database(
+    owner: &tokio_postgres::Client,
+    body: &str,
+) -> Result<(), BoxError> {
     let report: Value = serde_json::from_str(body)?;
-    let people: i64 = owner.query_one("SELECT count(*) FROM users", &[]).await?.get(0);
+    let people: i64 = owner
+        .query_one("SELECT count(*) FROM users", &[])
+        .await?
+        .get(0);
     if report["estimates"]["people"].as_i64() != Some(people) {
-        return Err(format!("stale preflight report: estimates.people {} but the database has {people} users", report["estimates"]["people"]).into());
+        return Err(format!(
+            "stale preflight report: estimates.people {} but the database has {people} users",
+            report["estimates"]["people"]
+        )
+        .into());
     }
-    for (name, key) in [("identityModelV2", "feature.identity_model_v2"), ("normalizedReads", "feature.identity_normalized_reads"), ("transitions", "feature.identity_transitions")] {
-        let enabled: bool = owner.query_opt("SELECT enabled FROM feature_toggles WHERE key=$1", &[&key]).await?.is_some_and(|r| r.get(0));
+    for (name, key) in [
+        ("identityModelV2", "feature.identity_model_v2"),
+        ("normalizedReads", "feature.identity_normalized_reads"),
+        ("transitions", "feature.identity_transitions"),
+    ] {
+        let enabled: bool = owner
+            .query_opt("SELECT enabled FROM feature_toggles WHERE key=$1", &[&key])
+            .await?
+            .is_some_and(|r| r.get(0));
         if report["featureFlags"][name].as_bool() != Some(enabled) {
-            return Err(format!("stale preflight report: featureFlags.{name} {} but the toggle is {enabled}", report["featureFlags"][name]).into());
+            return Err(format!(
+                "stale preflight report: featureFlags.{name} {} but the toggle is {enabled}",
+                report["featureFlags"][name]
+            )
+            .into());
         }
     }
     Ok(())
@@ -1137,7 +1168,9 @@ pub async fn digest_is_current(owner: &tokio_postgres::Client, body: &str) -> Re
         .await?
         .get(0);
     if wire != expected {
-        return Err(format!("stale preflight digest: wire {wire}, report hashes to {expected}").into());
+        return Err(
+            format!("stale preflight digest: wire {wire}, report hashes to {expected}").into(),
+        );
     }
     Ok(())
 }
