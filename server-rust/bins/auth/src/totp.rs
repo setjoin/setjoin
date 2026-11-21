@@ -7,6 +7,12 @@ pub(super) enum Admission {
 }
 impl AuthServer {
     pub(super) fn totp_session(&self, req: &Request<Body>) -> Result<Session, Admission> {
+        self.totp_session_headers(req.headers())
+    }
+    pub(super) fn totp_session_headers(
+        &self,
+        headers: &hyper::HeaderMap,
+    ) -> Result<Session, Admission> {
         let deny = |status, detail| {
             let mut r = Self::failure(status, detail, "");
             if status == 401 {
@@ -18,7 +24,7 @@ impl AuthServer {
             Admission::Denied(r)
         };
         let token =
-            Self::presented_access_token(req.headers()).ok_or_else(|| deny(401, "Unauthorized"))?;
+            Self::presented_access_token(headers).ok_or_else(|| deny(401, "Unauthorized"))?;
         let legacy = self
             .legacy
             .as_ref()
@@ -247,50 +253,36 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    /// Frozen threat middleware bounds the complete body before auth/CSRF,
-    /// even when disabled policy controls let this shape run natively.
-    pub(super) async fn totp_ingress(
-        &self,
-        req: Request<Body>,
-    ) -> Result<Request<Body>, Response<Body>> {
-        if self.totp_threat_pending().await {
-            return Err(self.forward(req).await);
-        }
-        self.totp_bounded(req).await
-    }
-    /// Bounds the complete body before any completion routing reads a flag (#454 Codex r1, F1).
-    pub(super) async fn totp_bounded(
-        &self,
-        req: Request<Body>,
-    ) -> Result<Request<Body>, Response<Body>> {
-        let (parts, input) = req.into_parts();
-        match Limited::new(input,1<<20).collect().await {
-            Ok(raw)=>Ok(Request::from_parts(parts,body(raw.to_bytes()))),
-            Err(error) if error.is::<http_body_util::LengthLimitError>()=>Err(Self::totp_body_too_large()),
-            Err(_)=>Err(Response::builder().status(400).header("content-type","application/json")
-                .header("x-threat-reason","invalid_body").body(body("{\"captcha_prompt\":\"request body could not be read\",\"error\":\"invalid_body\"}\n")).unwrap()),
-        }
-    }
-    pub(super) async fn totp_threat_pending(&self) -> bool {
-        self.config.threat_controls.iter().any(|v| *v)
-            || !matches!(
-                login::enabled(&self.exec, "feature.rate_limit").await,
-                Ok(false)
-            )
-    }
     pub(super) fn totp_reauth(path: &str) -> Response<Body> {
         Response::builder().status(403).header("content-type","application/problem+json").header("cache-control","no-store")
             .body(body(problem::Problem::new(403,"prove possession at /auth/mfa/reauth (or the possession endpoints for C1 accounts) and retry with the issued reauth_token")
                 .kind("https://setjoin.com/errors/reauth-required").title("Re-authentication required").instance(path).remediation("reauth").code("reauth_required").body())).unwrap()
     }
     pub(super) async fn totp_setup(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_threat_pending().await {
-            return self.forward(req).await;
-        } // #420 pre-auth threat/rate owner.
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        if matches!(
+            self.totp_session_headers(staged.headers()),
+            Err(Admission::Forward)
+        ) {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.totp_setup_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn totp_setup_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
             Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(Admission::Forward) => {
+                return Self::failure(500, "internal error", req.uri().path())
+            }
         };
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -380,13 +372,30 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn totp_confirm(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_threat_pending().await {
-            return self.forward(req).await;
-        } // #420.
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        if matches!(
+            self.totp_session_headers(staged.headers()),
+            Err(Admission::Forward)
+        ) {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.totp_confirm_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn totp_confirm_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
             Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(Admission::Forward) => {
+                return Self::failure(500, "internal error", req.uri().path())
+            }
         };
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
@@ -490,10 +499,6 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    fn totp_body_too_large() -> Response<Body> {
-        Response::builder().status(413).header("content-type", "application/json").header("x-threat-reason", "body_too_large")
-            .body(body("{\"captcha_prompt\":\"request body exceeds the security limit\",\"error\":\"body_too_large\"}\n")).unwrap()
-    }
     pub(super) fn totp_pending(&self, token: &str) -> Option<Session> {
         let s = Session::verify(
             token,
@@ -563,9 +568,18 @@ impl AuthServer {
         }
     }
     pub(super) async fn totp_bootstrap_setup(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_threat_pending().await {
-            return self.forward(req).await;
-        } // #420.
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.totp_bootstrap_setup_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn totp_bootstrap_setup_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let fields = match Limited::new(req.into_body(), body_cap())
@@ -631,9 +645,6 @@ impl AuthServer {
     /// native, and a flag-lookup error refuses (#454 Codex r1): Go's risk read fails open, so an
     /// unreadable routing flag must never hand a completion to it.
     pub(super) async fn totp_completion_route(&self, req: &Request<Body>) -> Result<bool, ()> {
-        if self.config.threat_controls.iter().any(|v| *v) {
-            return Ok(true);
-        }
         if [
             "x-device-id",
             "x-device-hmac",
@@ -647,7 +658,6 @@ impl AuthServer {
             return Ok(true);
         } // #420.
         for key in [
-            "feature.rate_limit",
             "feature.conditional_access",
             "feature.device_trust_enforcement",
         ] {
@@ -656,6 +666,17 @@ impl AuthServer {
             } // #405/#420.
         }
         Ok(false)
+    }
+    /// The same decode completion handlers use: a non-empty `dpop_jwk` object.
+    fn completion_dpop_requested(raw: &[u8]) -> bool {
+        ingress::typed_fields(raw, &[("dpop_jwk", ingress::Field::Object)])
+            .ok()
+            .and_then(|v| {
+                v.get("dpop_jwk")
+                    .and_then(Value::as_object)
+                    .map(|m| !m.is_empty())
+            })
+            .unwrap_or(false)
     }
     /// The `feature.token_binding` handoff for a request carrying a `dpop_jwk` (#405). Ok(true)
     /// forwards whole, Ok(false) stays native, and a lookup error is a 500 refusal (#454 Codex r1).
@@ -681,10 +702,19 @@ impl AuthServer {
             )
             .await;
         match rows {
-            Ok(rows) if rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()).is_some() => {
+            Ok(rows)
+                if rows
+                    .first()
+                    .and_then(|r| r.try_get::<_, bool>(0).ok())
+                    .is_some() =>
+            {
                 Ok(())
             }
-            _ => Err(Self::failure(503, "conditional access context unavailable", path)),
+            _ => Err(Self::failure(
+                503,
+                "conditional access context unavailable",
+                path,
+            )),
         }
     }
     pub(super) fn totp_secure(&self, req: &Request<Body>) -> bool {
@@ -723,8 +753,14 @@ impl AuthServer {
         .await
     }
     pub(super) async fn completion_tokens(
-        &self,user:&totp::CompletionUser,path:&str,family:Option<String>,factors:Vec<String>,guest_mint:GuestMint,risk:Option<Value>,
-    )->Result<MfaTokens,Response<Body>> {
+        &self,
+        user: &totp::CompletionUser,
+        path: &str,
+        family: Option<String>,
+        factors: Vec<String>,
+        guest_mint: GuestMint,
+        risk: Option<Value>,
+    ) -> Result<MfaTokens, Response<Body>> {
         let scope = user
             .scope(&self.exec)
             .await
@@ -843,13 +879,28 @@ impl AuthServer {
         if route.is_err() {
             return Self::failure(500, "internal error", req.uri().path());
         }
-        let req = match self.totp_bounded(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
         if route == Ok(true) {
-            return self.forward(req).await;
+            return self.forward(staged.into_request()).await;
         }
+        if staged.raw().is_some_and(Self::completion_dpop_requested) {
+            match self.token_binding_handoff(staged.path()).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(staged.into_request()).await,
+                Err(reply) => return reply,
+            }
+        } // #405.
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.totp_verify_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn totp_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -859,10 +910,9 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let (parts, b) = req.into_parts();
-        let raw = match Limited::new(b, 1 << 20).collect().await {
+        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
-            Err(_) => return Self::totp_body_too_large(),
+            Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
         let input = match ingress::typed_fields(
             &raw,
@@ -879,17 +929,6 @@ impl AuthServer {
         let Some(pending) = self.totp_pending(token) else {
             return Self::failure(401, "invalid MFA token", &path);
         };
-        if input
-            .get("dpop_jwk")
-            .and_then(Value::as_object)
-            .is_some_and(|m| !m.is_empty())
-        {
-            match self.token_binding_handoff(&path).await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-                Err(reply) => return reply,
-            }
-        } // #405.
         let code = input.get("code").and_then(Value::as_str).unwrap_or("");
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
         // here, so no factor is spent and no token is signed or stored.
@@ -932,7 +971,10 @@ impl AuthServer {
             Ok(None) => return Self::failure(401, "user not found", &path),
             Err(_) => return Self::failure(500, "internal error", &path),
         };
-        let tokens = match self.mfa_tokens(&user, &pending, &path, None, None, risk).await {
+        let tokens = match self
+            .mfa_tokens(&user, &pending, &path, None, None, risk)
+            .await
+        {
             Ok(t) => t,
             Err(r) => return r,
         };
@@ -947,7 +989,7 @@ impl AuthServer {
         {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("minted") => {}
-                Some("revoked") => return Self::failure(401,"invalid MFA token",&path),
+                Some("revoked") => return Self::failure(401, "invalid MFA token", &path),
                 Some("credential_changed") => {
                     return Self::failure(
                         401,
@@ -994,7 +1036,10 @@ impl AuthServer {
             }
             _ => return Self::failure(500, "An internal error occurred. Please try again.", &path),
         }
-        self.mfa_publish(&user, tokens, &ip, &agent, secure).await
+        Self::threat_user(
+            self.mfa_publish(&user, tokens, &ip, &agent, secure).await,
+            user.user(),
+        )
     }
 }
 
@@ -1004,13 +1049,28 @@ impl AuthServer {
         if route.is_err() {
             return Self::failure(500, "internal error", req.uri().path());
         }
-        let req = match self.totp_bounded(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
         if route == Ok(true) {
-            return self.forward(req).await;
+            return self.forward(staged.into_request()).await;
         }
+        if staged.raw().is_some_and(Self::completion_dpop_requested) {
+            match self.token_binding_handoff(staged.path()).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(staged.into_request()).await,
+                Err(reply) => return reply,
+            }
+        } // #405.
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.totp_bootstrap_confirm_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn totp_bootstrap_confirm_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -1020,10 +1080,9 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let (parts, b) = req.into_parts();
-        let raw = match Limited::new(b, 1 << 20).collect().await {
+        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
-            Err(_) => return Self::totp_body_too_large(),
+            Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
         let input = match ingress::typed_fields(
             &raw,
@@ -1057,17 +1116,6 @@ impl AuthServer {
         if code.is_empty() || id.is_empty() {
             return Self::failure(400, "code and enrollment_id are required", &path);
         }
-        if input
-            .get("dpop_jwk")
-            .and_then(Value::as_object)
-            .is_some_and(|m| !m.is_empty())
-        {
-            match self.token_binding_handoff(&path).await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-                Err(reply) => return reply,
-            }
-        } // #405.
         let signed = !pending.text("credential_fence").is_empty()
             || pending
                 .claims()
@@ -1120,7 +1168,14 @@ impl AuthServer {
                     },
                 };
                 let tokens = match self
-                    .mfa_tokens(&user, pending_ref, path_ref, Some(family), None, risk_ref.clone())
+                    .mfa_tokens(
+                        &user,
+                        pending_ref,
+                        path_ref,
+                        Some(family),
+                        None,
+                        risk_ref.clone(),
+                    )
                     .await
                 {
                     Ok(t) => t,
@@ -1164,10 +1219,10 @@ impl AuthServer {
         .await;
         match result {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
-                Some("minted") => self.mfa_response(
-                    prepared.lock().unwrap().take().expect("minted proposal").1,
-                    secure,
-                ),
+                Some("minted") => {
+                    let (user, tokens) = prepared.lock().unwrap().take().expect("minted proposal");
+                    Self::threat_user(self.mfa_response(tokens, secure), user.user())
+                }
                 Some("completion_reply") => {
                     failed.lock().unwrap().take().expect("completion refusal")
                 }
@@ -1224,9 +1279,9 @@ impl AuthServer {
         policy: Option<&Value>,
         path: &str,
     ) -> Response<Body> {
-        let (token,jti) = match self.password_pending(proof) {
+        let (token, jti) = match self.password_pending(proof) {
             Ok(value) => value,
-            Err(()) => return Self::failure(500,"token issue failed",path),
+            Err(()) => return Self::failure(500, "token issue failed", path),
         };
         if let Some(policy) = policy {
             match login::bootstrap_mfa_grant(&self.exec, proof, &token, &jti).await {
@@ -1273,13 +1328,28 @@ impl AuthServer {
         if route.is_err() {
             return Self::failure(500, "internal error", req.uri().path());
         }
-        let req = match self.totp_bounded(req).await {
-            Ok(req) => req,
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
             Err(reply) => return reply,
         };
         if route == Ok(true) {
-            return self.forward(req).await;
+            return self.forward(staged.into_request()).await;
         }
+        if staged.raw().is_some_and(Self::completion_dpop_requested) {
+            match self.token_binding_handoff(staged.path()).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(staged.into_request()).await,
+                Err(reply) => return reply,
+            }
+        } // #405.
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.backup_verify_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn backup_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -1289,10 +1359,9 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let (parts, b) = req.into_parts();
-        let raw = match Limited::new(b, 1 << 20).collect().await {
+        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
-            Err(_) => return Self::totp_body_too_large(),
+            Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
         let input = match ingress::typed_fields(
             &raw,
@@ -1306,45 +1375,75 @@ impl AuthServer {
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
         let token = input.get("mfa_token").and_then(Value::as_str).unwrap_or("");
-        if token.is_empty(){return Self::failure(400,"mfa_token is required",&path);}
-        let code=input.get("code").and_then(Value::as_str).unwrap_or("");
-        if code.is_empty(){return Self::failure(400,"code is required",&path);}
+        if token.is_empty() {
+            return Self::failure(400, "mfa_token is required", &path);
+        }
+        let code = input.get("code").and_then(Value::as_str).unwrap_or("");
+        if code.is_empty() {
+            return Self::failure(400, "code is required", &path);
+        }
         let Some(pending) = self.totp_pending(token) else {
             return Self::failure(401, "invalid MFA token", &path);
         };
-        if input
-            .get("dpop_jwk")
-            .and_then(Value::as_object)
-            .is_some_and(|m| !m.is_empty())
-        {
-            match self.token_binding_handoff(&path).await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-                Err(reply) => return reply,
-            }
-        } // #405.
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
         // here, so no factor is spent and no token is signed or stored.
         let risk = match pending.risk(&self.exec).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", &path),
         };
-        match setjoin_identity::push::consume_backup(&self.exec,&pending,code).await{
-            setjoin_pg::CommandOutcome::Committed(true)=>{},
-            setjoin_pg::CommandOutcome::Committed(false)=>return Self::failure(401,"invalid or used backup code",&path),
-            setjoin_pg::CommandOutcome::Unknown{operation}=>{let mut r=Self::failure(503,"Backup-code verification outcome unavailable. Inspect the operation before retrying.",&path);r.headers_mut().insert("x-operation-id",uuid::Uuid::from_bytes(operation.0).to_string().parse().unwrap());return r;},
-            _=>return Self::failure(500,"verification failed",&path)
+        match setjoin_identity::push::consume_backup(&self.exec, &pending, code).await {
+            setjoin_pg::CommandOutcome::Committed(true) => {}
+            setjoin_pg::CommandOutcome::Committed(false) => {
+                return Self::failure(401, "invalid or used backup code", &path)
+            }
+            setjoin_pg::CommandOutcome::Unknown { operation } => {
+                let mut r=Self::failure(503,"Backup-code verification outcome unavailable. Inspect the operation before retrying.",&path);
+                r.headers_mut().insert(
+                    "x-operation-id",
+                    uuid::Uuid::from_bytes(operation.0)
+                        .to_string()
+                        .parse()
+                        .unwrap(),
+                );
+                return r;
+            }
+            _ => return Self::failure(500, "verification failed", &path),
         }
-        self.mfa_finish(pending,path,ip,agent,secure,None,(401,"user not found"),risk).await
+        self.mfa_finish(
+            pending,
+            path,
+            ip,
+            agent,
+            secure,
+            None,
+            (401, "user not found"),
+            risk,
+            true,
+        )
+        .await
     }
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn mfa_finish(&self,pending:Session,path:String,ip:String,agent:String,secure:bool,factors:Option<Vec<String>>,missing:(u16,&str),risk:Option<Value>)->Response<Body>{
+    pub(super) async fn mfa_finish(
+        &self,
+        pending: Session,
+        path: String,
+        ip: String,
+        agent: String,
+        secure: bool,
+        factors: Option<Vec<String>>,
+        missing: (u16, &str),
+        risk: Option<Value>,
+        stamp_user: bool,
+    ) -> Response<Body> {
         let user = match totp::CompletionUser::load(&self.exec, &pending).await {
             Ok(Some(u)) => u,
             Err(_) => return Self::failure(500, "internal error", &path),
             _ => return Self::failure(missing.0, missing.1, &path),
         };
-        let tokens = match self.mfa_tokens(&user, &pending, &path, None, factors, risk).await {
+        let tokens = match self
+            .mfa_tokens(&user, &pending, &path, None, factors, risk)
+            .await
+        {
             Ok(t) => t,
             Err(r) => return r,
         };
@@ -1359,7 +1458,7 @@ impl AuthServer {
         {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("minted") => {}
-                Some("revoked") => return Self::failure(401,"invalid MFA token",&path),
+                Some("revoked") => return Self::failure(401, "invalid MFA token", &path),
                 Some("credential_changed") => {
                     return Self::failure(
                         401,
@@ -1406,6 +1505,11 @@ impl AuthServer {
             }
             _ => return Self::failure(500, "An internal error occurred. Please try again.", &path),
         }
-        self.mfa_publish(&user, tokens, &ip, &agent, secure).await
+        let reply = self.mfa_publish(&user, tokens, &ip, &agent, secure).await;
+        if stamp_user {
+            Self::threat_user(reply, user.user())
+        } else {
+            reply
+        }
     }
 }
