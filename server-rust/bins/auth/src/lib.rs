@@ -1,6 +1,7 @@
 //! HTTP transport for the standalone identity process. See DOX.md.
 mod captcha;
 mod config;
+mod device;
 mod guest_invite;
 mod http_threat;
 mod ingress;
@@ -690,6 +691,9 @@ impl AuthServer {
         }
         if req.method() == Method::POST && req.uri().path() == "/device/register" {
             return self.bootstrap(req).await;
+        }
+        if matches!(req.uri().path(), "/device/policy" | "/device/checkin") {
+            return self.device_trust(req).await;
         }
         if req.method() == Method::POST {
             if let Some(target) = req
@@ -1808,6 +1812,9 @@ pub async fn serve_until(
     tls: Option<tokio_rustls::TlsAcceptor>,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    // These subscriptions keep the native SSO registries current for this server.
+    let _saml_listener = server.start_saml_listener().await;
+    let _rp_listener = server.start_rp_listener().await;
     let mut tasks = tokio::task::JoinSet::new();
     tokio::pin!(shutdown);
     loop {

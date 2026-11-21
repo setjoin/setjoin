@@ -225,6 +225,9 @@ impl Gate {
             }
         }
     }
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
     pub fn enabled(&self, name: &str) -> bool {
         self.config
             .overrides

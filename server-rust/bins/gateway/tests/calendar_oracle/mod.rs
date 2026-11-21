@@ -1010,6 +1010,9 @@ async fn run_inner(route: &str, label: &str, fault: Option<&str>) -> Result<(), 
             if let Some(Value::String(body)) = expected.pointer_mut("/observation/request/body") {
                 *body = when_text(body, "2026-11-16");
             }
+            let mut observation = observation;
+            normalize_mail_mime_size(&mut expected["observation"])?;
+            normalize_mail_mime_size(&mut observation)?;
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {
                 let error = compared.err().ok_or("planted status mutant survived")?;
@@ -1120,6 +1123,31 @@ async fn fault_restore(
     Ok(())
 }
 
+/// mail.rs records raw `object.1.len()` before `normalize()`, so `<D-long>`
+/// (e.g. "Monday, November 16, 2026" vs "Monday, December 7, 2026") changes raw
+/// MIME length across dates while normalized `headers`, `body`, and
+/// `soft_break_offsets` still match byte-for-byte. Positive lengths collapse to
+/// `<mime-bytes>`, `0` stays `0` (`public_book_unparseable_email`), and missing
+/// or non-integer `size` values fail.
+fn normalize_mail_mime_size(obs: &mut Value) -> Result<(), BoxError> {
+    if let Some(mail) = obs.get_mut("mail").and_then(Value::as_array_mut) {
+        for item in mail {
+            let mime = item
+                .get_mut("mime")
+                .and_then(Value::as_object_mut)
+                .ok_or("mail item missing mime object")?;
+            let size = mime
+                .get("size")
+                .and_then(Value::as_u64)
+                .ok_or("mail item mime.size must be a u64")?;
+            if size > 0 {
+                mime.insert("size".to_owned(), json!("<mime-bytes>"));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Verification mode compares immutable Go observations instead of rewriting them.
 fn record(path: &std::path::Path, value: &Value) -> Result<(), BoxError> {
     if std::env::var_os("GOFREE_VERIFY_GO").is_some() {
@@ -1127,7 +1155,10 @@ fn record(path: &std::path::Path, value: &Value) -> Result<(), BoxError> {
         if let Some(Value::String(body)) = expected.pointer_mut("/observation/request/body") {
             *body = when_text(body, "2026-11-16");
         }
-        golden::compare(&expected, value)?;
+        let mut value = value.clone();
+        normalize_mail_mime_size(&mut expected["observation"])?;
+        normalize_mail_mime_size(&mut value["observation"])?;
+        golden::compare(&expected, &value)?;
         Ok(())
     } else {
         golden::record(path, value).map_err(Into::into)

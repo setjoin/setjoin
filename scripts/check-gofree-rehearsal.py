@@ -45,8 +45,6 @@ EXCLUDED_LISTENERS = {"fedharness"}
 # Inventory entries still OFF, with the ticket that turns each ON. Ratchet: an entry that turns ON or
 # leaves the inventory must be deleted here; never add one. #141 criterion 1 holds only when this is empty.
 PENDING = {
-    ("auth", "GET", "/device/policy"): "#341",
-    ("auth", "POST", "/device/checkin"): "#341",
     ("gateway", "*", "/auth/admin/"): "#340",
     ("gateway", "GET", "/terms/pending"): "#340",
     ("gateway", "POST", "/terms/accept"): "#340",
@@ -63,8 +61,8 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 44,  # lowered from 53 when #349b retired threat_pending/threat_controls (ratchet)
-    ("gateway", "forward"): 167,  # lowered from 198 as routes went native (ratchet)
-    ("gateway", "forward_body"): 3,
+    ("gateway", "forward"): 160,  # lowered from 167 (#194, admin-identity leftovers)
+    ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,
 }

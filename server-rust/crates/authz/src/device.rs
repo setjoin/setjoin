@@ -42,9 +42,18 @@ impl DeviceResolver {
         }
     }
     pub async fn resolve(&self, proof: &Proof, r: DeviceRequest<'_>) -> Binding {
-        self.checked(proof, r).await.unwrap_or_default()
+        self.resolve_for_user(proof.user_id(), r).await
     }
-    async fn checked(&self, proof: &Proof, r: DeviceRequest<'_>) -> Option<Binding> {
+    /// Resolve a device credential binding for an already-verified `user_id`
+    /// without requiring a minted JWT `Proof` (login/MFA CA evaluation, #350).
+    /// Preserves `#499`: `devices.user_id = $2` is checked before nonce consumption.
+    pub async fn resolve_for_user(&self, user_id: i64, r: DeviceRequest<'_>) -> Binding {
+        self.checked_user(user_id, r).await.unwrap_or_default()
+    }
+    async fn checked_user(&self, user_id: i64, r: DeviceRequest<'_>) -> Option<Binding> {
+        if user_id <= 0 {
+            return None;
+        }
         let id = r
             .headers
             .get("x-device-id")?
@@ -55,7 +64,7 @@ impl DeviceResolver {
         // Owner-approved security fix 2026-11-05 (#499): ownership is checked
         // BEFORE the proof consumes the device's single-use nonce, so a foreign
         // caller cannot burn another user's device nonce with a refused request.
-        let rows=self.exec.read("SELECT enroll_state,revoked_at IS NOT NULL FROM devices WHERE id=$1 AND user_id=$2",&[(&id,Type::INT8),(&proof.user_id(),Type::INT8)]).await.ok()?;
+        let rows=self.exec.read("SELECT enroll_state,revoked_at IS NOT NULL FROM devices WHERE id=$1 AND user_id=$2",&[(&id,Type::INT8),(&user_id,Type::INT8)]).await.ok()?;
         let restored = setjoin_contracts::mutants::on("device-nonce-before-ownership");
         if !restored {
             rows.first()?;
@@ -116,13 +125,21 @@ impl DeviceResolver {
         let legacy: Option<String> = row.get(0);
         let envelope: Option<Vec<u8>> = row.get(1);
         let key_id: Option<String> = row.get(2);
+        // Owner-approved security fix (#341): an empty device secret is refused; Go keys HMAC with it
         let secret = if let Some(envelope) = envelope {
             if key_id.as_deref() != Some("v1") {
                 return None;
             }
-            Zeroizing::new(open_column(&envelope, &self.master).ok()?)
+            let secret = Zeroizing::new(open_column(&envelope, &self.master).ok()?);
+            if secret.is_empty() {
+                return None;
+            }
+            secret
         } else {
             let legacy = Zeroizing::new(legacy?);
+            if legacy.is_empty() {
+                return None;
+            }
             // Go's compatibility migration is a separate best-effort autocommit,
             // before HMAC verification; retain those transaction boundaries.
             // Owner-approved security fix 2026-11-05 (#513 item 1): Go's UPDATE ran with no

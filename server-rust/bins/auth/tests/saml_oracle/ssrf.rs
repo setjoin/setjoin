@@ -45,17 +45,34 @@ pub async fn run() {
         let listener = if env.recording {
             None
         } else {
-            env.native
-                .start_saml_listener("saml_sp", "saml_sp")
-                .await
-                .unwrap()
+            env.native.start_saml_listener().await
         };
         let result=async{
-            env.c.execute("UPDATE saml_sp_registrations SET idp_metadata_url=$1 WHERE id=34101",&[&format!("https://{host}:{port}/metadata")]).await?;
-            env.c.execute("INSERT INTO saml_sp_registrations(id,idp_entity_id,idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings) SELECT 34102,'idfed3-sentinel',$1,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings FROM saml_sp_registrations WHERE id=34101",&[&flows::metadata("Redirect")]).await?;
-            env.c.execute("SELECT pg_notify('config_changed','{\"key\":\"saml_sp\"}')",&[]).await?;
-            wait(&env,"/auth/saml/idfed3-sentinel/login",302).await?;
-            let response=observe(&env,"/auth/saml/idfed3/login").await?;
+            let path = "/auth/saml/idfed3/login";
+            let sentinel = "/auth/saml/idfed3-sentinel/login";
+            wait(&env, path, 302).await?;
+            // Commit both entries together so the listener reconciles one snapshot.
+            env.c.execute(
+                "WITH changed AS (
+                     UPDATE saml_sp_registrations SET idp_metadata_url=$1 WHERE id=34101
+                     RETURNING idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings
+                 )
+                 INSERT INTO saml_sp_registrations(id,idp_entity_id,idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings)
+                 SELECT 34102,'idfed3-sentinel',$2,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings FROM changed",
+                &[&format!("https://{host}:{port}/metadata"), &flows::metadata("Redirect")],
+            ).await?;
+            let response = if env.recording {
+                wait(&env, sentinel, 302).await?;
+                observe(&env, path).await?
+            } else {
+                let response = wait(&env, path, 404).await?;
+                if observe(&env, sentinel).await?["status"] != 404 {
+                    return Err("failed SAML reload published a healthy registration".into());
+                }
+                env.c.execute("DELETE FROM saml_sp_registrations WHERE id=34101", &[]).await?;
+                wait(&env, sentinel, 302).await?;
+                response
+            };
             let connections=count.load(std::sync::atomic::Ordering::SeqCst);
             if response["status"]!=404||connections!=0{return Err(format!("private metadata admitted: {response}, connections={connections}").into());}
             check(&format!("ssrf-{host}"),&json!({"format":1,"go_source":SOURCE,"route":"GET /auth/saml/{idp}/login","case":format!("ssrf-{host}"),"observation":{"request":{"method":"GET","path":"/auth/saml/idfed3/login","metadata_url":format!("https://{host}:_private_port/metadata")},"response":response,"effects":[],"audit":[],"notify":[],"private_tcp_connections":connections}}),env.recording)

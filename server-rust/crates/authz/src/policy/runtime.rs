@@ -160,7 +160,14 @@ impl Engine {
             Err(_) => return failure(&s),
         };
         c.score_band = risk_score(&c.geo_tier, c.feed_hits, c.vpn_score).1.into();
-        evaluate(snapshot, &c)
+        let mut result = evaluate(snapshot, &c);
+        stamp_correlation(&mut result);
+        result
+    }
+}
+fn stamp_correlation(result: &mut Result) {
+    if matches!(result.decision.as_str(), "block" | "step_up") {
+        result.correlation_id = Some(super::eval::new_correlation_id());
     }
 }
 fn enforcing(actions: &serde_json::Value) -> bool {
@@ -253,4 +260,48 @@ pub fn risk_score(tier: &str, feed_hits: i32, vpn: i32) -> (i32, &'static str) {
             "critical"
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stamp_correlation_mints_per_event_id_only_for_enforcing_block_or_step_up() {
+        let mut block = Result {
+            decision: "block".into(),
+            ..Default::default()
+        };
+        let mut block_again = block.clone();
+        stamp_correlation(&mut block);
+        stamp_correlation(&mut block_again);
+        assert!(block
+            .correlation_id
+            .as_deref()
+            .is_some_and(|s| s.starts_with("CA-")));
+        assert!(block_again
+            .correlation_id
+            .as_deref()
+            .is_some_and(|s| s.starts_with("CA-")));
+        assert_ne!(block.correlation_id, block_again.correlation_id);
+
+        let mut step_up = Result {
+            decision: "step_up".into(),
+            ..Default::default()
+        };
+        stamp_correlation(&mut step_up);
+        assert!(step_up
+            .correlation_id
+            .as_deref()
+            .is_some_and(|s| s.starts_with("CA-")));
+
+        for decision in ["allow", "notify"] {
+            let mut r = Result {
+                decision: decision.into(),
+                ..Default::default()
+            };
+            stamp_correlation(&mut r);
+            assert_eq!(r.correlation_id, None);
+        }
+    }
 }

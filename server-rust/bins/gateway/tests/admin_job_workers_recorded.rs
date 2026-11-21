@@ -226,16 +226,42 @@ fn cases() -> Vec<Case> {
         job(3, "assign", 880002, "$T2", "done", 2),
         job(4, "assign", 880002, "$T2", "error", 3),
     ]);
-    all.push(Case { worker: w, label: "drain-assign-revoke", seed, lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "drain-assign-revoke",
+        seed,
+        lk: Lk::Unset,
+    });
     let mut seed = bulk_setup("NULL");
-    seed.extend([job(1, "assign", 880002, "$T1,999999999", "queued", 0), job(2, "assign", 880002, "$T2", "queued", 1)]);
-    all.push(Case { worker: w, label: "reducer-raise-marks-error", seed, lk: Lk::Unset });
+    seed.extend([
+        job(1, "assign", 880002, "$T1,999999999", "queued", 0),
+        job(2, "assign", 880002, "$T2", "queued", 1),
+    ]);
+    all.push(Case {
+        worker: w,
+        label: "reducer-raise-marks-error",
+        seed,
+        lk: Lk::Unset,
+    });
     let mut seed = bulk_setup("$DOM");
-    seed.extend([job(1, "assign", 880099, "$T1", "queued", 0), job(2, "assign", 880002, "$T1", "queued", 1)]);
-    all.push(Case { worker: w, label: "role-deleted", seed, lk: Lk::Unset });
+    seed.extend([
+        job(1, "assign", 880099, "$T1", "queued", 0),
+        job(2, "assign", 880002, "$T1", "queued", 1),
+    ]);
+    all.push(Case {
+        worker: w,
+        label: "role-deleted",
+        seed,
+        lk: Lk::Unset,
+    });
     let mut seed = bulk_setup("$DOM");
     seed.extend([job(1, "assign", 880002, "$T1,$T2", "running", 0)]);
-    all.push(Case { worker: w, label: "stale-running-reclaimed", seed, lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "stale-running-reclaimed",
+        seed,
+        lk: Lk::Unset,
+    });
     let mut seed = bulk_setup("$DOM");
     seed.extend([
         "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES ($T1,880002,$ACT),($T2,880002,$ACT)".into(),
@@ -243,68 +269,255 @@ fn cases() -> Vec<Case> {
         "INSERT INTO admin_role_groups(id,name,permissions,domain_scope) OVERRIDING SYSTEM VALUE VALUES (880003,'gofree-ajw-broad','{users.read,users.write}',NULL)".into(),
         job(2, "assign", 880003, "$T1", "queued", 1),
     ]);
-    all.push(Case { worker: w, label: "revoke-members-and-actor-lacks-perms", seed, lk: Lk::Unset });
-    all.push(Case { worker: w, label: "empty-queue", seed: bulk_setup("$DOM"), lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "revoke-members-and-actor-lacks-perms",
+        seed,
+        lk: Lk::Unset,
+    });
+    all.push(Case {
+        worker: w,
+        label: "empty-queue",
+        seed: bulk_setup("$DOM"),
+        lk: Lk::Unset,
+    });
 
     let w = "email-address-policy-jobs";
     let mut seed = eap_setup("$DOM");
-    seed.extend([eap_job(1, "880001", "queued"), eap_job(2, "NULL", "queued"), eap_job(3, "NULL", "done")]);
-    all.push(Case { worker: w, label: "apply-and-drain", seed, lk: Lk::Unset });
+    seed.extend([
+        eap_job(1, "880001", "queued"),
+        eap_job(2, "NULL", "queued"),
+        eap_job(3, "NULL", "done"),
+    ]);
+    all.push(Case {
+        worker: w,
+        label: "apply-and-drain",
+        seed,
+        lk: Lk::Unset,
+    });
     let mut seed = eap_setup("$DOM2");
-    seed.extend(["UPDATE domains SET is_local=false WHERE id=$DOM2".into(), eap_job(1, "NULL", "queued"), eap_job(2, "NULL", "queued")]);
-    all.push(Case { worker: w, label: "reducer-error-marks-error", seed, lk: Lk::Unset });
+    seed.extend([
+        "UPDATE domains SET is_local=false WHERE id=$DOM2".into(),
+        eap_job(1, "NULL", "queued"),
+        eap_job(2, "NULL", "queued"),
+    ]);
+    all.push(Case {
+        worker: w,
+        label: "reducer-error-marks-error",
+        seed,
+        lk: Lk::Unset,
+    });
     let mut seed = eap_setup("$DOM");
-    seed.extend(["UPDATE feature_toggles SET enabled=false WHERE key='feature.email_address_policy'".into(), eap_job(1, "NULL", "queued")]);
-    all.push(Case { worker: w, label: "toggle-off-applies-nothing", seed, lk: Lk::Unset });
+    seed.extend([
+        "UPDATE feature_toggles SET enabled=false WHERE key='feature.email_address_policy'".into(),
+        eap_job(1, "NULL", "queued"),
+    ]);
+    all.push(Case {
+        worker: w,
+        label: "toggle-off-applies-nothing",
+        seed,
+        lk: Lk::Unset,
+    });
     let mut seed = eap_setup("$DOM");
     seed.extend([eap_job(1, "NULL", "running")]);
-    all.push(Case { worker: w, label: "stale-running-reclaimed", seed, lk: Lk::Unset });
-    all.push(Case { worker: w, label: "empty-queue", seed: eap_setup("$DOM"), lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "stale-running-reclaimed",
+        seed,
+        lk: Lk::Unset,
+    });
+    all.push(Case {
+        worker: w,
+        label: "empty-queue",
+        seed: eap_setup("$DOM"),
+        lk: Lk::Unset,
+    });
 
     let w = "identity-operations";
     let cursor = "{\"processed\":7,\"linksObserved\":3,\"conflictsRecorded\":0,\"nextAfterUserId\":\"9999999999\"}";
-    all.push(Case { worker: w, label: "backfill-accumulates-cursor", seed: vec![ops_job(1, "upgrade_backfill", "NULL", "{}", cursor)], lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "backfill-accumulates-cursor",
+        seed: vec![ops_job(1, "upgrade_backfill", "NULL", "{}", cursor)],
+        lk: Lk::Unset,
+    });
     all.push(Case { worker: w, label: "backfill-items", seed: vec![ops_job(1, "upgrade_backfill", "NULL", "{}", "jsonb_build_object('processed',0,'linksObserved',0,'conflictsRecorded',0,'nextAfterUserId',($P-1)::text)")], lk: Lk::Unset });
-    all.push(Case { worker: w, label: "backfill-invalid-cursor-fails-retryable", seed: vec![ops_job(1, "upgrade_backfill", "NULL", "{}", "{\"nextAfterUserId\":\"not-a-number\"}")], lk: Lk::Unset });
-    all.push(Case { worker: w, label: "diagnostics-source-artifact", seed: vec![OPS_SOURCE.into(), ops_job(1, "diagnostics", OPS_SRC, "{\"sinceSeconds\":3600}", "{\"processed\":0,\"failed\":0}")], lk: Lk::Unset });
-    all.push(Case { worker: w, label: "diagnostics-bad-scope-fails", seed: vec![OPS_SOURCE.into(), ops_job(1, "diagnostics", OPS_SRC, "{\"sinceSeconds\":0}", "{\"processed\":0,\"failed\":0}")], lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "backfill-invalid-cursor-fails-retryable",
+        seed: vec![ops_job(
+            1,
+            "upgrade_backfill",
+            "NULL",
+            "{}",
+            "{\"nextAfterUserId\":\"not-a-number\"}",
+        )],
+        lk: Lk::Unset,
+    });
+    all.push(Case {
+        worker: w,
+        label: "diagnostics-source-artifact",
+        seed: vec![
+            OPS_SOURCE.into(),
+            ops_job(
+                1,
+                "diagnostics",
+                OPS_SRC,
+                "{\"sinceSeconds\":3600}",
+                "{\"processed\":0,\"failed\":0}",
+            ),
+        ],
+        lk: Lk::Unset,
+    });
+    all.push(Case {
+        worker: w,
+        label: "diagnostics-bad-scope-fails",
+        seed: vec![
+            OPS_SOURCE.into(),
+            ops_job(
+                1,
+                "diagnostics",
+                OPS_SRC,
+                "{\"sinceSeconds\":0}",
+                "{\"processed\":0,\"failed\":0}",
+            ),
+        ],
+        lk: Lk::Unset,
+    });
     all.push(Case { worker: w, label: "diagnostics-failure-budget-exhausted", seed: vec![OPS_SOURCE.into(), ops_job(1, "diagnostics", OPS_SRC, "{\"sinceSeconds\":86401}", "{\"processed\":0,\"failed\":0}"), "UPDATE identity_jobs SET failure_count=20 WHERE id::text LIKE 'aaaaaaaa-0000-4000-8000-%'".into()], lk: Lk::Unset });
-    all.push(Case { worker: w, label: "oldest-first-one-per-tick", seed: vec![ops_job(2, "upgrade_backfill", "NULL", "{}", cursor), ops_job(1, "upgrade_backfill", "NULL", "{}", cursor)], lk: Lk::Unset });
-    all.push(Case { worker: w, label: "empty-queue", seed: vec![], lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "oldest-first-one-per-tick",
+        seed: vec![
+            ops_job(2, "upgrade_backfill", "NULL", "{}", cursor),
+            ops_job(1, "upgrade_backfill", "NULL", "{}", cursor),
+        ],
+        lk: Lk::Unset,
+    });
+    all.push(Case {
+        worker: w,
+        label: "empty-queue",
+        seed: vec![],
+        lk: Lk::Unset,
+    });
 
     let w = "identity-transitions";
-    let mut seed = transition(1, "effects_pending", &[("auth_sessions", &[]), ("subscriber_notice", &[])]);
-    seed.extend(transition(2, "rolling_back", &[("rollback_auth_sessions", &[]), ("rollback_subscriber_notice", &[])]));
+    let mut seed = transition(
+        1,
+        "effects_pending",
+        &[("auth_sessions", &[]), ("subscriber_notice", &[])],
+    );
+    seed.extend(transition(
+        2,
+        "rolling_back",
+        &[
+            ("rollback_auth_sessions", &[]),
+            ("rollback_subscriber_notice", &[]),
+        ],
+    ));
     seed.extend(transition(3, "completed", &[("subscriber_notice", &[])]));
     seed.extend(transition(4, "effects_pending", &[("auth_sessions", &[])]));
     seed.push("UPDATE identity_transition_effects SET state='completed',completed_at=now() WHERE transition_id='bbbbbbbb-0000-4000-8000-000000000004'".into());
-    all.push(Case { worker: w, label: "notice-and-sessions-settle", seed, lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "notice-and-sessions-settle",
+        seed,
+        lk: Lk::Unset,
+    });
     let past = "now()-interval '1 minute'";
-    let mut seed = transition(1, "effects_pending", &[("livekit_sessions", &[("room-a|u:1", past), ("room-b|u:2", "NULL")])]);
-    all.push(Case { worker: w, label: "livekit-evicts-targets", seed: seed.clone(), lk: Lk::Ok });
-    all.push(Case { worker: w, label: "livekit-participant-missing-is-success", seed: seed.clone(), lk: Lk::Missing });
-    all.push(Case { worker: w, label: "livekit-unavailable-fails-effect", seed: seed.clone(), lk: Lk::Unavailable });
-    all.push(Case { worker: w, label: "livekit-not-configured-fails-effect", seed, lk: Lk::Unset });
-    let seed = transition(2, "effects_pending", &[("livekit_sessions", &[("bad-target-without-separator", "NULL")])]);
-    all.push(Case { worker: w, label: "livekit-bad-target", seed, lk: Lk::Ok });
+    let mut seed = transition(
+        1,
+        "effects_pending",
+        &[(
+            "livekit_sessions",
+            &[("room-a|u:1", past), ("room-b|u:2", "NULL")],
+        )],
+    );
+    all.push(Case {
+        worker: w,
+        label: "livekit-evicts-targets",
+        seed: seed.clone(),
+        lk: Lk::Ok,
+    });
+    all.push(Case {
+        worker: w,
+        label: "livekit-participant-missing-is-success",
+        seed: seed.clone(),
+        lk: Lk::Missing,
+    });
+    all.push(Case {
+        worker: w,
+        label: "livekit-unavailable-fails-effect",
+        seed: seed.clone(),
+        lk: Lk::Unavailable,
+    });
+    all.push(Case {
+        worker: w,
+        label: "livekit-not-configured-fails-effect",
+        seed,
+        lk: Lk::Unset,
+    });
+    let seed = transition(
+        2,
+        "effects_pending",
+        &[(
+            "livekit_sessions",
+            &[("bad-target-without-separator", "NULL")],
+        )],
+    );
+    all.push(Case {
+        worker: w,
+        label: "livekit-bad-target",
+        seed,
+        lk: Lk::Ok,
+    });
     let mut seed = transition(1, "effects_pending", &[("livekit_sessions", &[])]);
-    seed.extend(transition(2, "effects_pending", &[("rollback_auth_sessions", &[])]));
-    all.push(Case { worker: w, label: "no-targets-and-wrong-phase", seed, lk: Lk::Unset });
+    seed.extend(transition(
+        2,
+        "effects_pending",
+        &[("rollback_auth_sessions", &[])],
+    ));
+    all.push(Case {
+        worker: w,
+        label: "no-targets-and-wrong-phase",
+        seed,
+        lk: Lk::Unset,
+    });
     let seed = vec![
         intent("$T1", 0, "now()-interval '1 minute'"),
         intent("$T2", 0, "now()+interval '1 hour'"),
         intent("$T3", 2, "now()-interval '1 minute'"),
     ];
-    all.push(Case { worker: w, label: "session-evictions-ok", seed: seed.clone(), lk: Lk::Ok });
-    all.push(Case { worker: w, label: "session-evictions-missing", seed: seed.clone(), lk: Lk::Missing });
+    all.push(Case {
+        worker: w,
+        label: "session-evictions-ok",
+        seed: seed.clone(),
+        lk: Lk::Ok,
+    });
+    all.push(Case {
+        worker: w,
+        label: "session-evictions-missing",
+        seed: seed.clone(),
+        lk: Lk::Missing,
+    });
     let seed = vec![
         intent("$T1", 0, "now()+interval '1 hour'"),
         intent("$T2", 2, "now()+interval '1 hour'"),
         intent("$T3", 19, "now()+interval '1 hour'"),
         intent("$ACT", 59, "now()+interval '1 hour'"),
     ];
-    all.push(Case { worker: w, label: "session-evictions-unavailable", seed: seed.clone(), lk: Lk::Unavailable });
-    all.push(Case { worker: w, label: "session-evictions-not-configured", seed, lk: Lk::Unset });
+    all.push(Case {
+        worker: w,
+        label: "session-evictions-unavailable",
+        seed: seed.clone(),
+        lk: Lk::Unavailable,
+    });
+    all.push(Case {
+        worker: w,
+        label: "session-evictions-not-configured",
+        seed,
+        lk: Lk::Unset,
+    });
     all
 }
 
@@ -327,7 +540,10 @@ async fn fixture(owner: &Client) -> Result<Ids, BoxError> {
     let mut domains = Vec::new();
     for name in ["gofree-ajw.test", "gofree-ajw2.test"] {
         let id: i64 = owner
-            .query_one("INSERT INTO domains(name) VALUES ($1) RETURNING id", &[&name])
+            .query_one(
+                "INSERT INTO domains(name) VALUES ($1) RETURNING id",
+                &[&name],
+            )
             .await?
             .get(0);
         domains.push(id);
@@ -335,7 +551,11 @@ async fn fixture(owner: &Client) -> Result<Ids, BoxError> {
     let mut users = Vec::new();
     for (name, domain) in [("act", 0), ("t1", 0), ("t2", 0), ("t3", 1)] {
         let username = format!("gofree-ajw-{name}");
-        let domain_name = if domain == 0 { "gofree-ajw.test" } else { "gofree-ajw2.test" };
+        let domain_name = if domain == 0 {
+            "gofree-ajw.test"
+        } else {
+            "gofree-ajw2.test"
+        };
         let email = format!("{username}@{domain_name}");
         let user: i64 = owner.query_one("INSERT INTO users(username,domain_id,email,display_name) VALUES ($1,$2,$3,$1) RETURNING id", &[&username, &domains[domain], &email]).await?.get(0);
         let mailbox: i64 = owner.query_one("INSERT INTO mailboxes(user_id,domain_id,email,display_name,is_primary) VALUES ($1,$2,$3,$4,true) RETURNING id", &[&user, &domains[domain], &email, &username]).await?.get(0);
@@ -443,7 +663,12 @@ async fn admin_job_workers_seed_plus_one_tick() -> Result<(), BoxError> {
     }
     let _ = drop_person(&owner, ids.person).await;
     for (key, enabled) in toggles {
-        owner.execute("UPDATE feature_toggles SET enabled=$2 WHERE key=$1", &[&key, &enabled]).await?;
+        owner
+            .execute(
+                "UPDATE feature_toggles SET enabled=$2 WHERE key=$1",
+                &[&key, &enabled],
+            )
+            .await?;
     }
     owner.batch_execute(&format!(
         "DELETE FROM admin_role_assignments WHERE user_id IN ({0},{1},{2},{3}); DELETE FROM mailboxes WHERE user_id IN ({0},{1},{2},{3}); DELETE FROM users WHERE id IN ({0},{1},{2},{3}); DELETE FROM domains WHERE id IN ({4},{5})",
@@ -508,20 +733,24 @@ async fn sfu(mode: Lk) -> Sfu {
                 fields.push(String::from_utf8_lossy(&rest[2..2 + length]).into_owned());
                 rest = &rest[2 + length..];
             }
-            capture.lock().unwrap().push(format!(
-                "{path}:{}:auth={authorized}",
-                fields.join("|")
-            ));
+            capture
+                .lock()
+                .unwrap()
+                .push(format!("{path}:{}:auth={authorized}", fields.join("|")));
             match mode {
                 Lk::Unavailable => hyper::Response::builder()
                     .status(503)
                     .header("content-type", "application/json")
-                    .body(common::full("{\"code\":\"unavailable\",\"msg\":\"SFU unavailable\"}"))
+                    .body(common::full(
+                        "{\"code\":\"unavailable\",\"msg\":\"SFU unavailable\"}",
+                    ))
                     .unwrap(),
                 Lk::Missing => hyper::Response::builder()
                     .status(404)
                     .header("content-type", "application/json")
-                    .body(common::full("{\"code\":\"not_found\",\"msg\":\"participant missing\"}"))
+                    .body(common::full(
+                        "{\"code\":\"not_found\",\"msg\":\"participant missing\"}",
+                    ))
                     .unwrap(),
                 _ => hyper::Response::builder()
                     .header("content-type", "application/protobuf")
@@ -548,7 +777,8 @@ async fn run_case(
     let golden = if recording || learn {
         None
     } else {
-        let bytes = std::fs::read(&path).map_err(|e| format!("no golden {}: {e}", path.display()))?;
+        let bytes =
+            std::fs::read(&path).map_err(|e| format!("no golden {}: {e}", path.display()))?;
         Some(serde_json::from_slice::<Value>(&bytes)?)
     };
     let observe = |sfu: Arc<Mutex<Vec<String>>>, base, mask_metrics| {
@@ -588,7 +818,8 @@ async fn run_case(
     let notifies = drain_listeners(owner, &mut listeners).await?;
     let mut observation = json!({"before": before, "after": after, "notifies": notifies});
     if let Some((go_before, go_after, go_notifies)) = go {
-        let go_observation = json!({"before": go_before, "after": go_after, "notifies": go_notifies});
+        let go_observation =
+            json!({"before": go_before, "after": go_after, "notifies": go_notifies});
         setjoin_conformance::golden::compare(&go_observation, &observation)
             .map_err(|e| format!("Rust differs from frozen Go: {e}"))?;
         // The recorded golden masks the database-wide diagnostic metrics.
@@ -606,7 +837,10 @@ async fn run_case(
         return Ok(());
     }
     setjoin_conformance::golden::compare(&golden.unwrap()["observation"], &observation)?;
-    println!("GOLDEN-REPLAY: {} :: {} :: seed-plus-one-tick", case.worker, case.label);
+    println!(
+        "GOLDEN-REPLAY: {} :: {} :: seed-plus-one-tick",
+        case.worker, case.label
+    );
     Ok(())
 }
 
@@ -641,7 +875,10 @@ async fn audit_base(owner: &Client) -> Result<i64, BoxError> {
         .get(0))
 }
 
-async fn drain_listeners(owner: &Client, listeners: &mut [Listener]) -> Result<Vec<String>, BoxError> {
+async fn drain_listeners(
+    owner: &Client,
+    listeners: &mut [Listener],
+) -> Result<Vec<String>, BoxError> {
     let mut out = Vec::new();
     for listener in listeners {
         out.extend(listener.drain(owner).await?);
@@ -673,9 +910,15 @@ async fn observe_all(
         &format!("SELECT action||':'||coalesce(target_type,'')||':'||coalesce(notes,'') FROM admin_audit_log WHERE id>{audit_base} AND action<>'chat.chain_notary' ORDER BY id"),
     )
     .await?;
-    let mut observation = json!({"rows": rows, "audit": audit.iter().map(|t| mask(t, ids)).collect::<Vec<_>>()});
+    let mut observation =
+        json!({"rows": rows, "audit": audit.iter().map(|t| mask(t, ids)).collect::<Vec<_>>()});
     if worker == "identity-transitions" {
-        observation["sfu"] = json!(sfu.lock().unwrap().iter().map(|c| mask(c, ids)).collect::<Vec<_>>());
+        observation["sfu"] = json!(sfu
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| mask(c, ids))
+            .collect::<Vec<_>>());
     }
     if worker == "identity-operations" {
         observation["artifacts"] = artifacts(owner).await?;
@@ -721,7 +964,9 @@ async fn artifacts(owner: &Client) -> Result<Value, BoxError> {
             use sha2::{Digest, Sha256};
             Sha256::digest(&bytes).to_vec()
         };
-        out.push(json!({"job": id, "entries": unzip(&bytes)?, "sha256_matches_artifact": digest == sha}));
+        out.push(
+            json!({"job": id, "entries": unzip(&bytes)?, "sha256_matches_artifact": digest == sha}),
+        );
     }
     Ok(json!(out))
 }
@@ -745,10 +990,23 @@ fn unzip(bytes: &[u8]) -> Result<Value, BoxError> {
         if le32(bytes, at) != 0x0201_4b50 {
             return Err("bad central directory entry".into());
         }
-        let (creator, reader, flags, method) = (le16(bytes, at + 4), le16(bytes, at + 6), le16(bytes, at + 8), le16(bytes, at + 10));
-        let (time, date, crc) = (le16(bytes, at + 12), le16(bytes, at + 14), le32(bytes, at + 16));
+        let (creator, reader, flags, method) = (
+            le16(bytes, at + 4),
+            le16(bytes, at + 6),
+            le16(bytes, at + 8),
+            le16(bytes, at + 10),
+        );
+        let (time, date, crc) = (
+            le16(bytes, at + 12),
+            le16(bytes, at + 14),
+            le32(bytes, at + 16),
+        );
         let (csize, usize_) = (le32(bytes, at + 20), le32(bytes, at + 24));
-        let (name_len, extra_len, comment_len) = (le16(bytes, at + 28), le16(bytes, at + 30), le16(bytes, at + 32));
+        let (name_len, extra_len, comment_len) = (
+            le16(bytes, at + 28),
+            le16(bytes, at + 30),
+            le16(bytes, at + 32),
+        );
         let external = le32(bytes, at + 38);
         let offset = le32(bytes, at + 42);
         let name = String::from_utf8(bytes[at + 46..at + 46 + name_len].to_vec())?;
@@ -841,20 +1099,21 @@ fn record_go_tick(db: &Db, case: &Case, lk_url: Option<&str>) -> Result<(), BoxE
     command
         .args(["run", "--rm", "--name", &name, "--network", "host", "-v"])
         .arg(format!("{}:/src", root.display()))
-        .args([
-            "-v",
-            &gofree_go_mod_mount(),
-            "-w",
-            "/src/mailserver",
-            "-e",
-        ])
+        .args(["-v", &gofree_go_mod_mount(), "-w", "/src/mailserver", "-e"])
         .arg(format!("GOFREE_JOBS_DSN={}", db.dsn))
         .args(["-e", &format!("GOFREE_JOBS_HMAC={HMAC}")]);
     if let Some(url) = lk_url {
         command.args(["-e", &format!("GOFREE_JOBS_LK_URL={url}")]);
     }
     let output = command
-        .args(["-e", "GOMAXPROCS=1", "-e", "GOGC=50", "-e", "GOMEMLIMIT=768MiB"])
+        .args([
+            "-e",
+            "GOMAXPROCS=1",
+            "-e",
+            "GOGC=50",
+            "-e",
+            "GOMEMLIMIT=768MiB",
+        ])
         .args(["-e", "GOCACHE=/src/test-results/gofree-adminjobs/go-cache"])
         .args([
             "setjoin-ci-linux-tc:local-amd64",
@@ -912,7 +1171,14 @@ async fn livekit_eviction_waits_for_the_horizon() -> Result<(), BoxError> {
     let case = Case {
         worker: "identity-transitions",
         label: "horizon",
-        seed: transition(1, "effects_pending", &[("livekit_sessions", &[("room-a|u:1", "now()+interval '4 seconds'")])]),
+        seed: transition(
+            1,
+            "effects_pending",
+            &[(
+                "livekit_sessions",
+                &[("room-a|u:1", "now()+interval '4 seconds'")],
+            )],
+        ),
         lk: Lk::Ok,
     };
     let result = async {
@@ -932,12 +1198,91 @@ async fn livekit_eviction_waits_for_the_horizon() -> Result<(), BoxError> {
     let _ = owner.batch_execute("BEGIN; SET LOCAL session_replication_role=replica; DELETE FROM identity_link_events WHERE transition_id::text LIKE 'bbbbbbbb-0000-4000-8000-%'; DELETE FROM identity_source_inbox i WHERE i.applied_event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM identity_link_events e WHERE e.id=i.applied_event_id); DELETE FROM identity_sync_log WHERE source_id IN (SELECT id FROM identity_sources WHERE source_key LIKE 'legacy:%'); UPDATE identity_sources SET last_success_at=NULL WHERE source_key LIKE 'legacy:%' AND last_success_at IS NOT NULL; COMMIT").await;
     let _ = drop_person(&owner, ids.person).await;
     for (key, enabled) in toggles {
-        owner.execute("UPDATE feature_toggles SET enabled=$2 WHERE key=$1", &[&key, &enabled]).await?;
+        owner
+            .execute(
+                "UPDATE feature_toggles SET enabled=$2 WHERE key=$1",
+                &[&key, &enabled],
+            )
+            .await?;
     }
     owner.batch_execute(&format!(
         "DELETE FROM mailboxes WHERE user_id IN ({0},{1},{2},{3}); DELETE FROM users WHERE id IN ({0},{1},{2},{3}); DELETE FROM domains WHERE id IN ({4},{5})",
         ids.act, ids.t[0], ids.t[1], ids.t[2], ids.dom, ids.dom2
     )).await?;
+    result
+}
+
+/// PostgreSQL SQLSTATE 57014 (`query_canceled` / statement timeout) during `bulk_role_job_apply`
+/// must leave the job `'queued'` for retry rather than stamping terminal `status='error'`,
+/// matching Go's `applyFailureIsCancellation`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bulk_role_jobs_57014_cancellation_leaves_job_queued() -> Result<(), BoxError> {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(db) = Db::for_case("admin-job-workers-bulk-57014") else {
+        return Ok(());
+    };
+    let mut owner = db.connect().await?;
+    let ids = fixture(&owner).await?;
+    let mut seed_sql = bulk_setup("NULL");
+    seed_sql.push(job(90, "assign", 880002, "$T1", "queued", 1));
+    let case = Case {
+        worker: "bulk-role-jobs",
+        label: "57014-cancel",
+        seed: seed_sql,
+        lk: Lk::Unset,
+    };
+    let result = async {
+        seed(&owner, &case, &ids).await?;
+        let worker = WorkerDatabase::new(&db.dsn)?.with_audit_keys(String::new(), HMAC.into());
+        let c = worker.connect_session().await?;
+        c.query("SET statement_timeout = '200ms'", &[]).await?;
+        let locker = owner.transaction().await?;
+        locker
+            .batch_execute("LOCK TABLE admin_role_groups IN ACCESS EXCLUSIVE MODE")
+            .await?;
+
+        let w = BulkRoleJobs { db: worker };
+        let err = w
+            .process_once(&c)
+            .await
+            .expect_err("statement_timeout must return Err");
+        assert!(err.contains("57014"), "expected SQLSTATE 57014, got: {err}");
+        locker.rollback().await?;
+
+        let (status, job_err): (String, Option<String>) = owner
+            .query_one(
+                "SELECT status, error FROM bulk_role_jobs WHERE id=880090",
+                &[],
+            )
+            .await
+            .map(|r| (r.get(0), r.get(1)))?;
+        assert_eq!(status, "queued", "57014 cancellation must leave job queued");
+        assert!(
+            job_err.is_none(),
+            "57014 cancellation must not write terminal error: {job_err:?}"
+        );
+
+        // Retry after the lock clears must run to completion.
+        c.query("SET statement_timeout = DEFAULT", &[]).await?;
+        assert!(w.process_once(&c).await?, "queued job should retry and run");
+        let retried_status: String = owner
+            .query_one("SELECT status FROM bulk_role_jobs WHERE id=880090", &[])
+            .await?
+            .get(0);
+        assert_eq!(retried_status, "done");
+        Ok::<_, BoxError>(())
+    }
+    .await;
+
+    let _ = reset(&owner, &case, &ids).await;
+    let _ = owner
+        .batch_execute(&format!(
+            "DELETE FROM admin_role_assignments WHERE user_id IN ({0},{1},{2},{3}); DELETE FROM mailboxes WHERE user_id IN ({0},{1},{2},{3}); DELETE FROM users WHERE id IN ({0},{1},{2},{3}); DELETE FROM domains WHERE id IN ({4},{5})",
+            ids.act, ids.t[0], ids.t[1], ids.t[2], ids.dom, ids.dom2
+        ))
+        .await;
     result
 }
 

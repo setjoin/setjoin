@@ -122,6 +122,25 @@ owned device upsert and event together; unknown COMMIT returns 503/operation ID.
 Only first creation returns the secret. The oracle opens complete row envelopes
 and checks them against the returned secret before masking random ciphertext.
 
+`GET /device/policy` and `POST /device/checkin` (#341) are ON through the
+`rust-auth` upstream and take no JWT. Frozen `RequireDeviceHMAC` order: device_id
+(query `%d` scan, or one JSON value in a 64KiB body prefix) else 400; proof
+headers, then a body that is
+read and, when empty, provably empty, then `DeviceResolver::verify_request`
+(HMAC over id:ts:method:URI:body-SHA256:nonce, ±5 min, revoked rows excluded,
+JWT-secret EK01 codec, nonce committed in its own statement) else 401 with
+one `device proof refused route= device_id= reason=` warn line (never proof
+material); then the handler (valid-proof HEAD → Go's JSON 405; decode error →
+400 after the nonce). Owner-approved security fix: more than 100 events → 400
+before any proof work. Policy reads `mdm_effective_policy`; check-in runs
+`rust_device_checkin` in one acknowledged protocol transaction (no late commit;
+lost COMMIT → 500 + `x-operation-id`). ETag is Go's FNV policy version; equal
+If-None-Match → bare 304 after effects; 200s `private, max-age=300`, errors
+`no-store`. Tests: `device_oracle`, `device_faults`
+([corpus](../../tests/conformance/identity-device/README.md)).
+Owner-approved security fix (#341): Rust refuses empty plaintext and decrypted
+device secrets before re-sealing or verifying the HMAC, while Go uses them as keys.
+
 WebPush-only `POST /auth/device/register` (#333) keeps outer 64KiB buffering,
 full session/CSRF, provider/subscription bounds and shared Go URL admission.
 Device proof shapes remain #420 (threat admission is native, #349b); native push providers
@@ -415,11 +434,10 @@ retain their existing #405/#420 owners before token exchange or any write.
 The [RP contract](../../crates/domains/identity/RP.md) owns the guarded HTTPS,
 sealed assertion, profile/JIT/mapping, normalized fence and link semantics.
 
-RP callback account/JIT/group settlement and `oidc_rp` task are native (#340).
-The [RP contract](../../crates/domains/identity/RP.md) owns the sealed assertion,
-normalized fence and explicit link transaction details. Library embeddings start
-the listener explicitly; main requires both named transfer attestations. The
-listener uses DB_DIRECT_DSN, while normalized reducers use DB_WORKER_DSN.
+RP callback account/JIT/group settlement is native (#340). The
+[RP contract](../../crates/domains/identity/RP.md) owns the sealed assertion,
+normalized fence and explicit link transaction details. Normalized reducers use
+DB_WORKER_DSN.
 
 RP secret migration failure warns and retains the healthy sealed-provider subset;
 it does not stop the process, matching frozen authserver main.go:693. Provider
@@ -445,11 +463,23 @@ the encrypted flow and signed request. List no-store, link cookie order,
 HTTP corpus validates ciphertext contents against the committed row before
 normalizing randomness. `rust_identity_saml.pg` covers the SQL transaction.
 
-Shared unlink and SAML worker (#341): `DELETE /auth/identity-links/{id}` uses
-fresh token-owned authority and the canonical reducer/receipt transaction;
-COMMIT ambiguity publishes no success. `start_saml_listener` and process startup
-require both named transfer attestations; the retained task uses DB_DIRECT_DSN.
-Detailed contracts and oracle evidence are in the identity SAML profile above.
+Shared unlink (#341): `DELETE /auth/identity-links/{id}` uses fresh token-owned
+authority and the canonical reducer/receipt transaction. COMMIT ambiguity
+publishes no success. Detailed contracts and oracle evidence are in the identity
+SAML profile above.
+
+SSO revocation (#394, following #359): auth starts the SAML and OIDC RP
+`config_changed` listeners for their loaded registries before serving requests,
+independent of `RUST_WORKERS_ON` and `GO_WORKERS_OFF`. These process-local caches
+subscribe over DB_DIRECT_DSN, reload on change and reconcile after reconnect.
+A failed subscription, detected disconnect, or reload error clears cached trust
+until a fully successful reload. Both registries use the cache lock to serialize
+detection of connection loss with snapshot publication. A reload captures the
+subscription generation when requested, before queuing. After loss, only a reload
+requested after the next confirmed LISTEN can restore trust. Library embeddings
+with their own HTTP serving loop start and retain the corresponding listener.
+`saml_worker` deletes an IdP while the real binary runs with empty worker flags.
+`rp_oracle` checks live provider deletion through the gateway.
 
 Verified ACS (#546, owner-approved feature 2026-11-08, decision on #534):
 `POST /auth/saml/{idp}/acs` verifies a SAMLResponse against the registration's pinned

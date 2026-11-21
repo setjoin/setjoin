@@ -584,11 +584,15 @@
       "path": "/device/policy",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "authserver/internal/device/auth.go"
-      ]
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": []
     },
     {
       "listener": "auth",
@@ -1252,10 +1256,16 @@
       "path": "/device/checkin",
       "family": "F21",
       "slice": "token-issuance",
-      "upstream": "go-auth",
-      "state": "OFF",
+      "upstream": "rust-auth",
+      "state": "ON",
       "sources": [
         "authserver/internal/device/auth.go"
+      ],
+      "oracle_commands": [
+        ""
+      ],
+      "oracle_mutators": [
+        ""
       ]
     },
     {
