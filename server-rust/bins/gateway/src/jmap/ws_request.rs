@@ -101,134 +101,6 @@ pub fn decode(data: &[u8]) -> Option<Envelope> {
 pub const CORE: &str = "urn:ietf:params:jmap:core";
 pub const MAIL: &str = "urn:ietf:params:jmap:mail";
 
-/// Decide the writer for the entire frame before executing any call. Unported
-/// JMAP methods/shapes use the shared classifier; encrypted reads and submission
-/// MIME preprocessing belong to #328, delegated invocation policy to #316.
-pub async fn needs_go<K: super::token::KeySource>(
-    commands: &super::JmapCommands<K>,
-    identity: &setjoin_authz::push::PushIdentity,
-    env: &Envelope,
-) -> bool {
-    if env.using.is_empty() || env.calls.len() > 32 {
-        return false;
-    }
-    let mut auth = None;
-    for call in &env.calls {
-        // Go validates in order and may already have written when a later
-        // capability/size error terminates the batch. Never reorder that work.
-        if call.args.get().len() > 2_000_000
-            || !env.using.iter().any(|c| c == capability(&call.name))
-        {
-            break;
-        }
-        if call.name == "Core/echo" || !registered(&call.name) {
-            continue;
-        }
-        // HTTP parity: a family claims `null` args (family::classify), so the
-        // socket must not hand them to Go either.
-        if family_claims_null(env, call, |body| {
-            super::family::classify(body, commands.services.as_deref()).is_some()
-        }) {
-            continue;
-        }
-        let Ok(Value::Object(args)) = serde_json::from_str::<Value>(call.args.get()) else {
-            if call.args.get() != "null" {
-                continue;
-            }
-            return true;
-        };
-        if args.keys().any(|k| k.starts_with('#')) {
-            return true;
-        }
-        let Some(claimed) = super::claim(
-            single_body(env, call, call.args.get()).as_bytes(),
-            commands.services.as_deref(),
-        ) else {
-            return true;
-        };
-        if auth.is_none() {
-            auth = identity.command_authorization(&commands.exec).await;
-        }
-        let Some(authorized) = auth.as_ref() else {
-            return true;
-        };
-        let mailbox = authorized.context().mailbox_id();
-        if let Some(account) = args
-            .get("accountId")
-            .and_then(Value::as_str)
-            .and_then(|s| s.parse::<i64>().ok())
-        {
-            if account!=mailbox && !matches!(claimed, super::Claimed::Family(_)) && commands.exec.read(
-                "SELECT EXISTS(SELECT 1 FROM mailbox_delegates WHERE mailbox_id=$1 AND user_id=$2)",
-                &[(&account,setjoin_pg::Type::INT8),(&identity.user_id(),setjoin_pg::Type::INT8)]
-            ).await.is_ok_and(|r|r[0].get::<_,bool>(0)){return true}
-        }
-        if let super::Claimed::Get(get) = &claimed {
-            // Same reducer projection as the qualified Email/get adapter,
-            // READ ONLY and before any audit or other batch command.
-            if get.account_id == mailbox {
-                use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-                let scope = setjoin_pg::MailboxAuthContext::from_authenticated_session(
-                    ActorId::new(identity.user_id()).expect("verified actor"),
-                    MailboxId::new(mailbox).expect("verified mailbox"),
-                    Generation(1),
-                );
-                let ids = Some(get.ids.clone());
-                let properties = get.properties.clone();
-                let encrypted=commands.exec.read_scoped(&scope,
-                    "SELECT EXISTS(SELECT 1 FROM jsonb_array_elements(jmap_email_get($1,$2::bigint[],$3::text[])->'list') e WHERE e->>'cryptoType'='smime-encrypted')",
-                    &[(&mailbox,setjoin_pg::Type::INT8),(&ids,setjoin_pg::Type::INT8_ARRAY),(&properties,setjoin_pg::Type::TEXT_ARRAY)]
-                ).await;
-                if !encrypted.is_ok_and(|r| !r[0].get::<_, bool>(0)) {
-                    return true;
-                }
-            }
-        }
-        if let super::Claimed::Submission(request) = &claimed {
-            if request.account_id == mailbox {
-                use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-                let scope = setjoin_pg::MailboxAuthContext::from_authenticated_session(
-                    ActorId::new(identity.user_id()).expect("verified actor"),
-                    MailboxId::new(mailbox).expect("verified mailbox"),
-                    Generation(1),
-                );
-                if !tokio::time::timeout(
-                    setjoin_authz::precheck_timeout(),
-                    request.needs_preprocessing(&commands.exec, &scope),
-                )
-                .await
-                .is_ok_and(|result| matches!(result, Ok(false)))
-                {
-                    return true;
-                }
-            }
-        }
-        if matches!(claimed, super::Claimed::Receipt(_))
-            && super::gates::toggle_state(&commands.exec, "feature.client_recovery_receipts").await
-                == Some(true)
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn single_body(env: &Envelope, call: &Call, args: &str) -> String {
-    format!(
-        "{{\"using\":{},\"methodCalls\":[[{},{},{}]]}}",
-        serde_json::to_string(&env.using).expect("using"),
-        crate::problem::go_string(&call.name),
-        args,
-        crate::problem::go_string(&call.id)
-    )
-}
-
-/// A `null`-argument call the family classifier claims stays native, exactly
-/// as the same body is claimed over HTTP.
-fn family_claims_null(env: &Envelope, call: &Call, claims: impl Fn(&[u8]) -> bool) -> bool {
-    call.args.get() == "null" && claims(single_body(env, call, "null").as_bytes())
-}
-
 /// Use Go's WebSocket seam: forwarding this as HTTP POST would introduce
 /// different CSRF/device admission and could change frozen-Go behavior.
 pub async fn forward_unported(
@@ -293,120 +165,44 @@ pub async fn execute<K: super::token::KeySource>(
     commands: &super::JmapCommands<K>,
     identity: &setjoin_authz::push::PushIdentity,
     env: &Envelope,
-    context: &crate::RequestContext,
-) -> String {
-    let exec = &commands.exec;
+) -> Result<String, super::DeferToGo> {
     if env.using.is_empty() {
-        return request_error(&env.id, "notRequest", "'using' array must not be empty");
+        return Ok(request_error(
+            &env.id,
+            "notRequest",
+            "'using' array must not be empty",
+        ));
     }
-    let authorized = identity.command_authorization(exec).await;
-    let session = authorized
-        .as_ref()
-        .map(|a| a.session_state().encode())
-        .unwrap_or_else(|| "unavailable".into());
     if env.calls.len() > 32 {
-        return request_error(
+        return Ok(request_error(
             &env.id,
             "requestTooLarge",
             &format!(
                 "maxCallsInRequest of 32 exceeded ({} calls)",
                 env.calls.len()
             ),
-        );
+        ));
     }
-    let mut responses: Vec<Call> = Vec::new();
-    for call in &env.calls {
-        if call.args.get().len() > 2_000_000 {
-            return request_error(
-                &env.id,
-                "requestTooLarge",
-                &format!("method call '{}' exceeds 2 MB limit", call.name),
-            );
-        }
-        let capability = capability(&call.name);
-        if !env.using.iter().any(|s| s == capability) {
-            return request_error(
-                &env.id,
-                "unknownCapability",
-                &format!("Capability not declared in 'using': {capability}"),
-            );
-        }
-        let (name, args) = match references(call.args.get(), &responses) {
-            Err((kind, detail)) => ("error".to_owned(), method_error(kind, &detail)),
-            Ok(args) => {
-                if call.name.is_empty() || call.name.len() > 128 {
-                    (
-                        "error".into(),
-                        method_error("unknownMethod", "invalid method name"),
-                    )
-                } else if call.name != "Core/echo" && !registered(&call.name) {
-                    ("error".into(), method_error("unknownMethod", ""))
-                } else if !matches!(
-                    serde_json::from_str::<Value>(&args),
-                    Ok(Value::Object(_) | Value::Null)
-                ) {
-                    (
-                        "error".into(),
-                        method_error("invalidArguments", "args must be a JSON object"),
-                    )
-                } else if call.name != "Core/echo" {
-                    let body = single_body(env, call, &args);
-                    let (parts, _) = hyper::Request::builder()
-                        .method("POST")
-                        .uri("/jmap")
-                        .body(())
-                        .expect("command request")
-                        .into_parts();
-                    let result = match authorized.as_ref() {
-                        Some(auth) => {
-                            commands
-                                .execute_authorized(
-                                    &parts,
-                                    &bytes::Bytes::from(body),
-                                    context,
-                                    auth,
-                                )
-                                .await
-                        }
-                        None => Err("push authorization unavailable"),
-                    };
-                    match result {
-                        Ok(response) => {
-                            use http_body_util::BodyExt;
-                            #[derive(serde::Deserialize)]
-                            struct Reply {
-                                #[serde(rename = "methodResponses")]
-                                calls: Vec<Call>,
-                            }
-                            let call = response
-                                .into_body()
-                                .collect()
-                                .await
-                                .ok()
-                                .and_then(|b| serde_json::from_slice::<Reply>(&b.to_bytes()).ok())
-                                .and_then(|r| r.calls.into_iter().next());
-                            match call {
-                                Some(call) => (call.name, call.args.get().to_owned()),
-                                None => ("error".into(), server_fail()),
-                            }
-                        }
-                        Err(_) => ("error".into(), server_fail()),
-                    }
-                } else {
-                    (
-                        call.name.clone(),
-                        super::reply::go_compact(&args).expect("decoded args"),
-                    )
-                }
-            }
-        };
-        responses.push(Call {
-            name,
-            args: RawValue::from_string(args).expect("response JSON"),
-            id: call.id.clone(),
-        });
-    }
-    response(&session, &responses, &env.id)
+    let authorized = identity
+        .command_authorization(&commands.exec)
+        .await
+        .ok_or(super::DeferToGo("push authorization unavailable"))?;
+    let id_ctx = authorized.context();
+    let session = authorized.session_state().encode();
+    let (_, outcome) = commands
+        .execute_batch_verified(
+            id_ctx.user_id(),
+            id_ctx.mailbox_id(),
+            id_ctx.email(),
+            &env.using,
+            &env.calls,
+            false,
+        )
+        .await?;
+    Ok(match outcome {
+        super::BatchOutcome::Problem { kind, detail, .. } => request_error(&env.id, kind, &detail),
+        super::BatchOutcome::Response(responses) => response(&session, &responses, &env.id),
+    })
 }
 
 pub fn response(session: &str, calls: &[Call], id: &str) -> String {
@@ -429,27 +225,7 @@ pub fn response(session: &str, calls: &[Call], id: &str) -> String {
         }
         out.push(']');
     }
-    // ExecuteBatch accumulates successful /set creations across the batch.
-    // Keep the WebSocket projection when using the shared single-call adapters.
-    #[derive(serde::Deserialize)]
-    struct Creation {
-        id: Option<String>,
-    }
-    #[derive(serde::Deserialize)]
-    struct SetResult {
-        created: Option<BTreeMap<String, Option<Creation>>>,
-    }
-    let mut created_ids = BTreeMap::new();
-    for call in calls.iter().filter(|call| call.name.ends_with("/set")) {
-        if let Ok(SetResult {
-            created: Some(created),
-        }) = serde_json::from_str(call.args.get())
-        {
-            for (key, creation) in created {
-                created_ids.insert(key, creation.and_then(|entry| entry.id).unwrap_or_default());
-            }
-        }
-    }
+    let created_ids = super::reply::collect_created_ids(calls);
     if !created_ids.is_empty() {
         out.push_str(",\"createdIds\":");
         out.push_str(
@@ -533,7 +309,7 @@ impl<'de> serde::Deserialize<'de> for ResultReference {
         d.deserialize_any(Fields)
     }
 }
-fn references(raw: &str, prior: &[Call]) -> Result<String, (&'static str, String)> {
+pub(super) fn references(raw: &str, prior: &[Call]) -> Result<String, (&'static str, String)> {
     // Go rewrites map[string]RawMessage: only referenced values are decoded.
     // Preserve every ordinary nested object's order and numeric spelling.
     let Ok(mut args) = serde_json::from_str::<BTreeMap<String, Box<RawValue>>>(raw) else {
@@ -718,7 +494,7 @@ fn tokens(doc: &Value, path: &[&str]) -> Result<Value, String> {
     tokens(next, rest)
 }
 
-fn server_fail() -> String {
+pub(super) fn server_fail() -> String {
     r#"{"type":"urn:ietf:params:jmap:error:serverFail","status":500,"detail":"database error"}"#
         .into()
 }
@@ -838,10 +614,10 @@ pub(super) fn metadata(name: &str) -> Option<&'static str> {
         _ => return None,
     })
 }
-fn capability(name: &str) -> &'static str {
+pub(super) fn capability(name: &str) -> &'static str {
     metadata(name).unwrap_or(CORE)
 }
-fn registered(name: &str) -> bool {
+pub(super) fn registered(name: &str) -> bool {
     metadata(name).is_some()
 }
 
@@ -850,24 +626,18 @@ mod family_tests {
     use super::*;
 
     #[test]
-    fn null_family_args_use_the_http_classification_body() {
-        let env = Envelope {
-            using: vec!["urn:test".into()],
-            ..Default::default()
-        };
+    fn null_family_args_classify_natively_by_call() {
+        assert!(crate::jmap::family::classify_call("Test/get", "null", "c", None).is_none());
+        assert_eq!(
+            metadata("CalendarEvent/get"),
+            Some("urn:ietf:params:jmap:calendars")
+        );
         let call = Call {
-            name: "Test/get".into(),
+            name: "Core/echo".into(),
             args: RawValue::from_string("null".into()).expect("null"),
             id: "c".into(),
         };
-        assert!(family_claims_null(&env, &call, |body| {
-            body == br#"{"using":["urn:test"],"methodCalls":[["Test/get",null,"c"]]}"#
-        }));
-        assert!(!family_claims_null(&env, &call, |_| false));
-        let object = Call {
-            args: RawValue::from_string("{}".into()).expect("object"),
-            ..call
-        };
-        assert!(!family_claims_null(&env, &object, |_| true));
+        assert_eq!(capability(&call.name), CORE);
+        assert!(registered(&call.name));
     }
 }

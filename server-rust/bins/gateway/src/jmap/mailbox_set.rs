@@ -1,66 +1,115 @@
 //! Go's SetRequest / dispatchSet input contract, including ignored ifInState.
-use super::envelope::{canonical_id, single_call_with_capability};
-use serde_json::Value;
+use super::envelope::{
+    go_string_array_field, go_string_field, single_call_with_capability, struct_arguments,
+};
+
+pub enum MailboxSetArgs {
+    Valid {
+        create: Option<String>,
+        update: Option<String>,
+        destroy: Option<Vec<i64>>,
+        bad: Vec<String>,
+    },
+    Invalid(String),
+}
+
 pub struct Request {
     pub method: &'static str,
-    pub account_id: i64,
+    pub raw_account_id: String,
     pub client_id: String,
-    pub create: Option<String>,
-    pub update: Option<String>,
-    pub destroy: Option<Vec<i64>>,
-    pub bad: Vec<String>,
+    pub args: MailboxSetArgs,
 }
+
 pub fn classify(body: &[u8]) -> Option<Request> {
-    classify_method(body, "Mailbox/set", "urn:ietf:params:jmap:mail")
+    let call = single_call_with_capability(body, "Mailbox/set", "urn:ietf:params:jmap:mail")?;
+    classify_call("Mailbox/set", &call.raw_args, &call.client_id)
 }
+
 pub fn classify_identity(body: &[u8]) -> Option<Request> {
-    classify_method(body, "Identity/set", "urn:ietf:params:jmap:submission")
+    let call =
+        single_call_with_capability(body, "Identity/set", "urn:ietf:params:jmap:submission")?;
+    classify_call("Identity/set", &call.raw_args, &call.client_id)
 }
-fn classify_method(body: &[u8], method: &'static str, capability: &str) -> Option<Request> {
-    let call = single_call_with_capability(body, method, capability)?;
-    let fields = super::envelope::struct_arguments(
-        &call.raw_args,
+
+pub fn classify_call(method: &str, raw_args: &str, client_id: &str) -> Option<Request> {
+    let method: &'static str = match method {
+        "Mailbox/set" => "Mailbox/set",
+        "Identity/set" => "Identity/set",
+        _ => return None,
+    };
+    let fields = struct_arguments(
+        raw_args,
         &["accountId", "ifInState", "create", "update", "destroy"],
     )?;
-    let value: Value = serde_json::from_str(&serde_json::to_string(&fields).ok()?).ok()?;
-    let args = value.as_object()?;
-    if args
-        .get("ifInState")
-        .is_some_and(|v| !v.is_null() && !v.is_string())
-    {
-        return None;
+    let invalid = |raw_account_id: String, msg: String| {
+        Some(Request {
+            method,
+            raw_account_id,
+            client_id: client_id.to_owned(),
+            args: MailboxSetArgs::Invalid(msg),
+        })
+    };
+    let raw_account_id = match fields.get("accountId") {
+        None => String::new(),
+        Some(raw) => match go_string_field(raw.get()) {
+            Ok(opt) => opt.unwrap_or_default(),
+            Err(msg) => return invalid(String::new(), msg),
+        },
+    };
+    if let Some(raw) = fields.get("ifInState") {
+        if let Err(msg) = go_string_field(raw.get()) {
+            return invalid(raw_account_id, msg);
+        }
     }
-    let account_id = canonical_id(args.get("accountId")?.as_str()?)?;
-    let object = |key| {
-        fields
-            .get(key)
-            .filter(|v| v.get().trim_start().starts_with('{'))
-            .map(|v| v.get().to_owned())
+    let object_field = |key: &str| -> Result<Option<String>, String> {
+        let Some(raw) = fields.get(key) else {
+            return Ok(None);
+        };
+        let trimmed = raw.get().trim();
+        if trimmed == "null" {
+            return Ok(None);
+        }
+        if trimmed.starts_with('{') {
+            return Ok(Some(raw.get().to_owned()));
+        }
+        Err(format!("invalid {key} argument"))
+    };
+    let create = match object_field("create") {
+        Ok(v) => v,
+        Err(msg) => return invalid(raw_account_id, msg),
+    };
+    let update = match object_field("update") {
+        Ok(v) => v,
+        Err(msg) => return invalid(raw_account_id, msg),
     };
     let mut bad = Vec::new();
-    let destroy = match args.get("destroy") {
-        None | Some(Value::Null) => None,
-        Some(Value::Array(items)) if items.is_empty() => None,
-        Some(Value::Array(items)) => {
-            let mut ids = Vec::new();
-            for id in items {
-                let id = if id.is_null() { "" } else { id.as_str()? };
-                match super::get::parse_id(id) {
-                    Some(id) => ids.push(id),
-                    None => bad.push(id.to_owned()),
+    let destroy = match fields.get("destroy") {
+        None => None,
+        Some(raw) => match go_string_array_field(raw.get()) {
+            Ok(None) => None,
+            Ok(Some(items)) if items.is_empty() => None,
+            Ok(Some(items)) => {
+                let mut ids = Vec::new();
+                for id in items {
+                    match super::get::parse_id(&id) {
+                        Some(id) => ids.push(id),
+                        None => bad.push(id),
+                    }
                 }
+                Some(ids)
             }
-            Some(ids)
-        }
-        _ => return None,
+            Err(msg) => return invalid(raw_account_id, msg),
+        },
     };
     Some(Request {
         method,
-        account_id,
-        client_id: call.client_id,
-        create: object("create"),
-        update: object("update"),
-        destroy,
-        bad,
+        raw_account_id,
+        client_id: client_id.to_owned(),
+        args: MailboxSetArgs::Valid {
+            create,
+            update,
+            destroy,
+            bad,
+        },
     })
 }

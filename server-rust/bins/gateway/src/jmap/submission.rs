@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 
 pub const CAPABILITY: &str = "urn:ietf:params:jmap:submission";
 pub(crate) struct SubmissionRequest {
-    pub account_id: i64,
+    pub raw_account_id: String,
+    #[allow(dead_code)]
     pub client_id: String,
     pub args: Arguments,
 }
@@ -81,6 +82,7 @@ impl SubmissionRequest {
         }
     }
 }
+#[allow(dead_code)]
 pub(crate) fn classify(body: &[u8]) -> Option<SubmissionRequest> {
     let (method, call) = [
         "EmailSubmission/set",
@@ -92,29 +94,35 @@ pub(crate) fn classify(body: &[u8]) -> Option<SubmissionRequest> {
     .find_map(|method| {
         single_call_with_capability(body, method, CAPABILITY).map(|call| (method, call))
     })?;
+    classify_call(method, &call.raw_args, &call.client_id)
+}
+
+pub(crate) fn classify_call(
+    method: &str,
+    raw_args: &str,
+    client_id: &str,
+) -> Option<SubmissionRequest> {
+    let method: &'static str = match method {
+        "EmailSubmission/set" => "EmailSubmission/set",
+        "EmailSubmission/cancel" => "EmailSubmission/cancel",
+        "EmailSubmission/get" => "EmailSubmission/get",
+        "EmailSubmission/query" => "EmailSubmission/query",
+        _ => return None,
+    };
     let rejected = |error| SubmissionRequest {
-        account_id: 0,
-        client_id: call.client_id.clone(),
+        raw_account_id: String::new(),
+        client_id: client_id.to_owned(),
         args: Arguments::Rejected {
             method,
             error,
             early: true,
         },
     };
-    let input = match submission_input::decode(method, &call.raw_args) {
+    let input = match submission_input::decode(method, raw_args) {
         Ok(v) => v,
         Err(e) => return Some(rejected(e)),
     };
-    let account_id = match parse_id(&input.account) {
-        Some(v) => v,
-        None => {
-            return Some(rejected(Failure::account(if input.account.is_empty() {
-                "accountId is required"
-            } else {
-                "invalid accountId"
-            })))
-        }
-    };
+    let raw_account_id = input.account;
     let args = match method {
         "EmailSubmission/get" => {
             let raw = input.ids.unwrap_or_default();
@@ -190,33 +198,30 @@ pub(crate) fn classify(body: &[u8]) -> Option<SubmissionRequest> {
         _ => unreachable!(),
     };
     Some(SubmissionRequest {
-        account_id,
-        client_id: call.client_id,
+        raw_account_id,
+        client_id: client_id.to_owned(),
         args,
     })
 }
 
-/// Render a claimed call. Once claimed, a database failure is a native JMAP
-/// error; an ambiguous commit carries its operation ID and is never replayed.
-pub(crate) async fn response(
+/// Render a claimed call for batch/single dispatch (`(name, payload_json)`).
+/// Once claimed, a database failure is a native JMAP error; an ambiguous
+/// commit carries its operation ID and is never replayed.
+pub(crate) async fn response_call(
     exec: &setjoin_pg::ScopedExecutor,
     auth: &setjoin_pg::MailboxAuthContext,
     worker: &setjoin_pg::ScopedExecutor,
     request: SubmissionRequest,
-    session: &str,
     operation: [u8; 16],
     digest: [u8; 32],
-) -> String {
+) -> (&'static str, String) {
     use super::reply;
     let method = request.args.method();
     let raw = match request.args {
         Arguments::Rejected { error, .. } => {
-            return reply::method_error(
-                session,
-                error.kind,
-                error.status,
-                &error.detail,
-                &request.client_id,
+            return (
+                "error",
+                reply::jmap_error_json(error.kind, error.status, &error.detail),
             )
         }
         Arguments::Get { ids, bad } => setjoin_jmap::submission::get(exec, auth, ids.as_deref())
@@ -228,12 +233,9 @@ pub(crate) async fn response(
             limit,
         } => setjoin_jmap::submission::query(exec, auth, filter.as_deref(), position, limit).await,
         Arguments::Set(Err(detail)) => {
-            return reply::method_error(
-                session,
-                "invalidArguments",
-                400,
-                &detail,
-                &request.client_id,
+            return (
+                "error",
+                reply::jmap_error_json("invalidArguments", 400, &detail),
             )
         }
         Arguments::Set(Ok(create)) => {
@@ -258,35 +260,30 @@ pub(crate) async fn response(
                     failure,
                 )) => Err(failure),
                 setjoin_pg::CommandOutcome::RolledBack(_) => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        "database error",
-                        &request.client_id,
+                    return (
+                        "error",
+                        reply::jmap_error_json("serverFail", 500, "database error"),
                     )
                 }
                 setjoin_pg::CommandOutcome::Unknown { operation } => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        &format!(
-                            "commit outcome unknown; look up operation {}",
-                            setjoin_pg::operation_hex(operation)
+                    return (
+                        "error",
+                        reply::jmap_error_json(
+                            "serverFail",
+                            500,
+                            &format!(
+                                "commit outcome unknown; look up operation {}",
+                                setjoin_pg::operation_hex(operation)
+                            ),
                         ),
-                        &request.client_id,
                     )
                 }
             }
         }
         Arguments::Cancel(Err(detail)) => {
-            return reply::method_error(
-                session,
-                "invalidArguments",
-                400,
-                detail,
-                &request.client_id,
+            return (
+                "error",
+                reply::jmap_error_json("invalidArguments", 400, detail),
             )
         }
         Arguments::Cancel(Ok(email_id)) => {
@@ -311,75 +308,38 @@ pub(crate) async fn response(
                     failure,
                 )) => Err(failure),
                 setjoin_pg::CommandOutcome::RolledBack(_) => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        "database error",
-                        &request.client_id,
+                    return (
+                        "error",
+                        reply::jmap_error_json("serverFail", 500, "database error"),
                     )
                 }
                 setjoin_pg::CommandOutcome::Unknown { operation } => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        &format!(
-                            "commit outcome unknown; look up operation {}",
-                            setjoin_pg::operation_hex(operation)
+                    return (
+                        "error",
+                        reply::jmap_error_json(
+                            "serverFail",
+                            500,
+                            &format!(
+                                "commit outcome unknown; look up operation {}",
+                                setjoin_pg::operation_hex(operation)
+                            ),
                         ),
-                        &request.client_id,
                     )
                 }
             }
         }
     };
     match raw {
-        Ok(raw) => {
-            let mut body = reply::method_response(session, method, &raw, &request.client_id)
-                .expect("reducer JSON");
-            if method == "EmailSubmission/set" {
-                // Go's dispatcher accumulates every /set response's created IDs
-                // into the final envelope, sorted as an encoding/json map.
-                let result: Value = serde_json::from_str(&raw).expect("reducer JSON");
-                if let Some(created) = result
-                    .get("created")
-                    .and_then(Value::as_object)
-                    .filter(|m| !m.is_empty())
-                {
-                    let ids: BTreeMap<&str, &str> = created
-                        .iter()
-                        .map(|(key, item)| {
-                            (
-                                key.as_str(),
-                                item.get("id").and_then(Value::as_str).unwrap_or(""),
-                            )
-                        })
-                        .collect();
-                    let ids = reply::go_compact(&serde_json::to_string(&ids).expect("string map"))
-                        .expect("string map");
-                    body.truncate(body.len() - 2);
-                    body.push_str(&format!(",\"createdIds\":{ids}}}\n"));
-                }
-            }
-            body
-        }
-        Err(failure) if failure.sqlstate.as_deref() == Some("BZ020") => {
-            reply::method_error(session, "notFound", 500, "notFound", &request.client_id)
-        }
-        Err(failure) => reply::failure_error(
-            session,
-            setjoin_jmap::classify_failure(&failure),
-            &request.client_id,
-        )
-        .unwrap_or_else(|| {
-            reply::method_error(
-                session,
-                "serverFail",
-                500,
-                "database error",
-                &request.client_id,
-            )
-        }),
+        Ok(raw) => (method, raw),
+        Err(failure) if failure.sqlstate.as_deref() == Some("BZ020") => (
+            "error",
+            reply::jmap_error_json("notFound", 500, "notFound"),
+        ),
+        Err(failure) => (
+            "error",
+            reply::failure_json(setjoin_jmap::classify_failure(&failure)).unwrap_or_else(|| {
+                reply::jmap_error_json("serverFail", 500, "database error")
+            }),
+        ),
     }
 }

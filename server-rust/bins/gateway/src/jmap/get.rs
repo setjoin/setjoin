@@ -1,10 +1,10 @@
-//! `Email/get` served by Rust (#315): Go's `emailGet`.
+//! `Email/get` served by Rust (#315, #356): Go's `emailGet`.
 //!
-//! [`classify`] recognises one `Email/get` call whose arguments are `accountId`
-//! (a canonical id string), a non-empty array of at most 256 strings `ids`, and
-//! an optional `properties` (null or an array of strings). Any other shape
-//! (other keys, non-string ids, no ids, over 256 ids, several calls, result
-//! references) is `None` and the whole request goes to Go untouched.
+//! [`classify_call`] accepts `Email/get` with Go struct arguments (`accountId`,
+//! `ids`, `properties`, case-folded ASCII keys, extra keys ignored): `ids` may
+//! be absent, `null`, `[]`, or any length (`> 256` returns `requestTooLarge`
+//! natively after `resolve_account`). Invalid field types return
+//! `invalidArguments`.
 //!
 //! Go splits `ids` with `parseIDList`: a string is an id when it is a base-10
 //! int64 greater than zero (an explicit `+` is accepted, leading zeros too);
@@ -16,55 +16,88 @@ use std::collections::BTreeMap;
 use serde_json::value::RawValue;
 use serde_json::Value;
 
-use super::envelope::{canonical_id, exact_keys, single_call};
+use super::envelope::{go_string_array_field, go_string_field, struct_arguments};
 
 pub const MAX_IDS: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GetRequest {
-    pub account_id: i64,
-    pub client_id: String,
-    /// Go's `parseIDList` valid ids; `None` is Go's nil slice (NULL = all),
-    /// which the classifier never produces for a request it claims, except
-    /// that an all-malformed list is an empty non-nil slice.
-    pub ids: Vec<i64>,
-    /// Malformed ids, in request order.
-    pub bad: Vec<String>,
-    pub properties: Option<Vec<String>>,
+pub enum GetArgs {
+    Valid {
+        raw_account_id: String,
+        /// Go's `parseIDList` valid ids; empty when `ids` was absent/`null`/`[]`
+        /// or all-malformed.
+        ids: Vec<i64>,
+        /// Malformed ids, in request order.
+        bad: Vec<String>,
+        properties: Option<Vec<String>>,
+        too_many: bool,
+    },
+    Invalid(String),
 }
 
-pub fn classify(body: &[u8]) -> Option<GetRequest> {
-    let call = single_call(body, "Email/get")?;
-    let args = exact_keys(&call.args, &["accountId", "ids"], &["properties"])?;
-    let account_id = canonical_id(args.get("accountId")?.as_str()?)?;
-    let raw_ids = args.get("ids")?.as_array()?;
-    if raw_ids.is_empty() || raw_ids.len() > MAX_IDS {
-        return None;
-    }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GetRequest {
+    pub client_id: String,
+    pub args: GetArgs,
+}
+
+pub fn classify_call(raw_args: &str, client_id: &str) -> Option<GetRequest> {
+    let fields = struct_arguments(raw_args, &["accountId", "ids", "properties"])?;
+    let raw_account_id = match fields.get("accountId") {
+        None => String::new(),
+        Some(raw) => match go_string_field(raw.get()) {
+            Ok(opt) => opt.unwrap_or_default(),
+            Err(detail) => {
+                return Some(GetRequest {
+                    client_id: client_id.to_owned(),
+                    args: GetArgs::Invalid(detail),
+                })
+            }
+        },
+    };
+    let raw_ids = match fields.get("ids") {
+        None => Vec::new(),
+        Some(raw) => match go_string_array_field(raw.get()) {
+            Ok(opt) => opt.unwrap_or_default(),
+            Err(detail) => {
+                return Some(GetRequest {
+                    client_id: client_id.to_owned(),
+                    args: GetArgs::Invalid(detail),
+                })
+            }
+        },
+    };
+    let properties = match fields.get("properties") {
+        None => None,
+        Some(raw) => match go_string_array_field(raw.get()) {
+            Ok(opt) => opt,
+            Err(detail) => {
+                return Some(GetRequest {
+                    client_id: client_id.to_owned(),
+                    args: GetArgs::Invalid(detail),
+                })
+            }
+        },
+    };
+    let too_many = raw_ids.len() > MAX_IDS;
     let (mut ids, mut bad) = (Vec::new(), Vec::new());
-    for id in raw_ids {
-        let id = id.as_str()?;
-        match parse_id(id) {
-            Some(v) => ids.push(v),
-            None => bad.push(id.to_owned()),
+    if !too_many {
+        for id in raw_ids {
+            match parse_id(&id) {
+                Some(v) => ids.push(v),
+                None => bad.push(id),
+            }
         }
     }
-    let properties = match args.get("properties") {
-        None | Some(Value::Null) => None,
-        Some(Value::Array(items)) => Some(
-            items
-                .iter()
-                .map(|p| p.as_str().map(str::to_owned))
-                .collect::<Option<Vec<_>>>()?,
-        ),
-        Some(_) => return None,
-    };
     Some(GetRequest {
-        account_id,
-        client_id: call.client_id,
-        ids,
-        bad,
-        properties,
+        client_id: client_id.to_owned(),
+        args: GetArgs::Valid {
+            raw_account_id,
+            ids,
+            bad,
+            properties,
+            too_many,
+        },
     })
 }
 
@@ -98,46 +131,55 @@ pub fn add_not_found(raw: &str, bad: &[String]) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn call(args: &str) -> String {
-        format!(
-            r#"{{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{args},"c1"]]}}"#
-        )
-    }
-
     #[test]
-    fn the_webmail_shape_is_claimed_and_ids_are_split() {
-        let r = classify(
-            call(r#"{"accountId":"12","ids":["5","+6","x","0","-3"],"properties":["subject"]}"#)
-                .as_bytes(),
+    fn widened_get_handles_empty_null_extra_and_over_256() {
+        let r = classify_call(
+            r#"{"ACCOUNTID":"0012","ids":["5","+6","x","0","-3"],"properties":["subject"],"extra":1}"#,
+            "c1",
         )
         .unwrap();
-        assert_eq!(r.ids, vec![5, 6]);
-        assert_eq!(r.bad, vec!["x", "0", "-3"]);
-        assert_eq!(r.properties, Some(vec!["subject".to_owned()]));
-    }
+        assert_eq!(
+            r.args,
+            GetArgs::Valid {
+                raw_account_id: "0012".into(),
+                ids: vec![5, 6],
+                bad: vec!["x".into(), "0".into(), "-3".into()],
+                properties: Some(vec!["subject".to_owned()]),
+                too_many: false,
+            }
+        );
 
-    #[test]
-    fn anything_else_goes_to_go() {
-        for args in [
-            r#"{"accountId":"12"}"#,
-            r#"{"accountId":"12","ids":[]}"#,
-            r#"{"accountId":"12","ids":null}"#,
-            r#"{"accountId":"12","ids":[1]}"#,
-            r#"{"accountId":"12","ids":["1"],"properties":"subject"}"#,
-            r#"{"accountId":"12","ids":["1"],"properties":[1]}"#,
-            r#"{"accountId":"12","ids":["1"],"extra":1}"#,
-            r#"{"accountId":12,"ids":["1"]}"#,
-        ] {
-            assert_eq!(classify(call(args).as_bytes()), None, "{args}");
+        for args in [r#"{"accountId":"12"}"#, r#"{"accountId":"12","ids":[]}"#, r#"{"accountId":"12","ids":null}"#] {
+            let r = classify_call(args, "c1").unwrap();
+            assert_eq!(
+                r.args,
+                GetArgs::Valid {
+                    raw_account_id: "12".into(),
+                    ids: vec![],
+                    bad: vec![],
+                    properties: None,
+                    too_many: false,
+                },
+                "{args}"
+            );
         }
+
         let many = (0..257)
             .map(|i| format!("\"{i}\""))
             .collect::<Vec<_>>()
             .join(",");
-        assert_eq!(
-            classify(call(&format!(r#"{{"accountId":"12","ids":[{many}]}}"#)).as_bytes()),
-            None
-        );
+        let r = classify_call(&format!(r#"{{"accountId":"12","ids":[{many}]}}"#), "c1").unwrap();
+        assert!(matches!(r.args, GetArgs::Valid { too_many: true, .. }));
+
+        for bad_args in [
+            r#"{"accountId":"12","ids":[1]}"#,
+            r#"{"accountId":"12","ids":["1"],"properties":"subject"}"#,
+            r#"{"accountId":"12","ids":["1"],"properties":[1]}"#,
+            r#"{"accountId":12,"ids":["1"]}"#,
+        ] {
+            let r = classify_call(bad_args, "c1").unwrap();
+            assert!(matches!(r.args, GetArgs::Invalid(_)), "{bad_args}");
+        }
     }
 
     #[test]

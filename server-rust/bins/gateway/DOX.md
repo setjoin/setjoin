@@ -1032,8 +1032,8 @@ The remaining frozen-Go JMAP methods are ported per family under
 `src/jmap/family/`. Each family owns exactly one stub file (two for #371 and
 #373) that exports `METHODS`. The rows must equal
 `mailserver/internal/jmap/testdata/methods.golden` (`registry_matches_frozen_go`).
-A listed, ready method is claimed for every well-formed single call, so
-`ws_request::needs_go` stops forwarding it, and it is answered in Go's
+A listed, ready method is claimed for every well-formed call, so
+unified `ws_request::execute` serves it natively instead of returning `DeferToGo`, and it is answered in Go's
 `dispatchInvocation` order: args object check, app entitlement (`app_blocked`
 audit without IP), handler.
 
@@ -1064,3 +1064,12 @@ gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
+
+## JMAP HTTP/WS batch & non-Family delegated accounts (#356 Wave 1)
+
+`POST /jmap` and `/jmap/ws` share one preflight/execution engine (`jmap/mod.rs`
+`execute_batch_verified`, `preflight_batch`, `execute_batch`, `execute_call`):
+- **Auth-first HTTP:** `preauth_http` (`authorize_request` + `SessionDenylist` checks) runs before buffering the body. Unauthenticated or revoked callers forward untouched without buffering or Rust `400` replies. Verified callers buffer up to `JMAP_BODY_CAP` (10 MB; over-cap returns HTTP `400` `notJSON`), while Focus retains `FOCUS_BODY_CAP` (64 KiB, forwarding >64 KiB streams).
+- **Ordered preflight & `!mutated` guard:** Before Call 0 (and before drawing `calls.len()` `OperationId`s + `request_random`), `preflight_batch` walks `calls` in order up to the first >2 MB / undeclared-capability stop, stripping top-level `#ref` keys only for static shape classification, checking `Email/get` `smime-encrypted` via `read_scoped(&target_auth, ...)` (for static `ids` and `#ids`/`#accountId`), `EmailSubmission/set` `#`/S/MIME/`needs_preprocessing(&target_auth)`, and `Email/recoveryReceipt` feature state. Any unsupported call or precheck error defers whole (`DeferToGo` -> HTTP forwards `bytes` or WS calls `forward_unported`). Once `mutated` becomes true, later call failures never re-send to Go and emit `("error", server_fail)`.
+- **Non-Family delegated accounts:** `jmap/account.rs` (`resolve_account`, shared by `family::seam::account::resolve`) re-reads the primary mailbox, queries `mailbox_delegates` under `exec.read_user_scoped(ActorId(user_id), ...)` (V090 FORCE-RLS), enforces `Gate` (`Personal` on `Identity/set`, `Read`/`Mutate`/`Submit` per method; `Identity/{get,changes}`, `Core/echo`, `Blob/*` keep primary-only `Gate::Personal` without `resolve_account`; `Email/recoveryReceipt` checks its toggle first), checks `mailbox_lifecycle_access_allowed`, and scopes domain calls by `target_auth`.
+- **Widened classifiers:** `struct_arguments`, `go_string`-escaped arbitrary `client_id`s, `raw_account_id` echoing, removed 256-item destroy/recover/purge caps, and shared HTTP/WS `createdIds` envelope collection (`reply::http_batch_response` always includes `methodResponses`). Tests: `tests/jmap_batch_delegate.rs`.

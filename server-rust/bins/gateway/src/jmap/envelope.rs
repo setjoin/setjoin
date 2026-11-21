@@ -145,3 +145,80 @@ pub(crate) fn struct_arguments(
         .deserialize_any(Fields(known))
         .ok()
 }
+
+/// Decode a Go `string` field (`null` -> `None`, JSON string -> `Some(s)`).
+pub(crate) fn go_string_field(raw: &str) -> Result<Option<String>, String> {
+    let trimmed = raw.trim();
+    if trimmed == "null" {
+        return Ok(None);
+    }
+    let bytes = crate::guests_input::go_json_bytes(trimmed.as_bytes());
+    serde_json::from_slice::<String>(&bytes)
+        .map(Some)
+        .map_err(|_| "invalid string argument".to_owned())
+}
+
+/// Decode a Go `[]string` field (`null` -> `None`, array elements `null` -> `""`).
+pub(crate) fn go_string_array_field(raw: &str) -> Result<Option<Vec<String>>, String> {
+    let trimmed = raw.trim();
+    if trimmed == "null" {
+        return Ok(None);
+    }
+    let items: Vec<Box<serde_json::value::RawValue>> =
+        serde_json::from_str(trimmed).map_err(|_| "invalid string array argument".to_owned())?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        out.push(go_string_field(item.get())?.unwrap_or_default());
+    }
+    Ok(Some(out))
+}
+
+/// Decode a Go `int` / `int64` field (`null` -> `None`, integer JSON -> `Some(n)`).
+pub(crate) fn go_i64_field(raw: &str) -> Result<Option<i64>, String> {
+    let trimmed = raw.trim();
+    if trimmed == "null" {
+        return Ok(None);
+    }
+    serde_json::from_str::<i64>(trimmed).map(Some).map_err(|_| "invalid integer argument".to_owned())
+}
+
+/// Replace top-level `#foo` reference keys with `"foo": <dummy>` solely for
+/// static preflight shape checks, returning `None` if no `#` keys are present
+/// or `raw` is not a JSON object.
+pub(crate) fn dummy_stripped_args(raw: &str) -> Option<String> {
+    use serde_json::value::RawValue;
+    use std::collections::BTreeMap;
+    let map: BTreeMap<String, Box<RawValue>> = serde_json::from_str(raw).ok()?;
+    if !map.keys().any(|k| k.starts_with('#')) {
+        return None;
+    }
+    let mut out: BTreeMap<String, Box<RawValue>> = BTreeMap::new();
+    for (k, v) in &map {
+        if !k.starts_with('#') {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+    for k in map.keys().filter(|k| k.starts_with('#')) {
+        let name = &k[1..];
+        if out.keys().any(|existing| existing.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        let dummy = match name.to_ascii_lowercase().as_str() {
+            "accountid" => "\"1\"",
+            "ids" | "emailids" | "hashes" | "destroy" | "properties" | "typenames" => "[\"1\"]",
+            "filter" => "{}",
+            "sort" => "[]",
+            "position" | "limit" | "maxchanges" => "0",
+            "sincestate" | "sincequerystate" | "ifinstate" | "threadid" | "emailid"
+            | "fromaccountid" | "toaccountid" => "\"0\"",
+            "update" => "{\"1\":{}}",
+            "create" => "{}",
+            _ => "null",
+        };
+        out.insert(
+            name.to_owned(),
+            RawValue::from_string(dummy.to_owned()).ok()?,
+        );
+    }
+    serde_json::to_string(&out).ok()
+}
