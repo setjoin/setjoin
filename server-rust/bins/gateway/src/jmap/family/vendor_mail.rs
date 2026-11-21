@@ -371,8 +371,8 @@ mod tests {
             assert_eq!(method.mutator, expected_mutator, "{}", method.name);
         }
         let ok = br#"{"using":["urn:setjoin:params:jmap:mail"],"methodCalls":[["QuickStep/get",{"accountId":"1"},"c1"]]}"#;
-        assert!(super::super::classify(ok, None).is_some());
+        assert!(crate::jmap::family::classify(ok, None).is_some());
         let core_only = br#"{"using":["urn:ietf:params:jmap:core"],"methodCalls":[["QuickStep/get",{"accountId":"1"},"c1"]]}"#;
-        assert!(super::super::classify(core_only, None).is_none());
+        assert!(crate::jmap::family::classify(core_only, None).is_none());
     }
 }
