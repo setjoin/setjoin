@@ -1416,7 +1416,7 @@ async fn ca_351_oidc_rp_settled_groups_step_up_and_block() -> Result<(), Err> {
         "enabled": true,
         "jit_enabled": false,
         "group_claim": "groups",
-        "group_mappings": [{"idp_group": "engineering", "admin_role": "Audit Reader"}]
+        "group_mappings": [{"idp_group": "engineering", "admin_role": "auditor"}]
     })
     .to_string();
     c.execute(
