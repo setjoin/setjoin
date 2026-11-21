@@ -116,13 +116,21 @@ impl DeviceResolver {
         let legacy: Option<String> = row.get(0);
         let envelope: Option<Vec<u8>> = row.get(1);
         let key_id: Option<String> = row.get(2);
+        // Owner-approved security fix (#341): an empty device secret is refused; Go keys HMAC with it
         let secret = if let Some(envelope) = envelope {
             if key_id.as_deref() != Some("v1") {
                 return None;
             }
-            Zeroizing::new(open_column(&envelope, &self.master).ok()?)
+            let secret = Zeroizing::new(open_column(&envelope, &self.master).ok()?);
+            if secret.is_empty() {
+                return None;
+            }
+            secret
         } else {
             let legacy = Zeroizing::new(legacy?);
+            if legacy.is_empty() {
+                return None;
+            }
             // Go's compatibility migration is a separate best-effort autocommit,
             // before HMAC verification; retain those transaction boundaries.
             // Owner-approved security fix 2026-11-05 (#513 item 1): Go's UPDATE ran with no

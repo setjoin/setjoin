@@ -7,6 +7,7 @@ mod totp;
 mod push;
 mod recovery;
 mod possession;
+mod device;
 mod webauthn;
 mod oidc;
 mod rp;
@@ -457,6 +458,9 @@ impl AuthServer {
         }
         if req.method() == Method::POST && req.uri().path() == "/device/register" {
             return self.bootstrap(req).await;
+        }
+        if matches!(req.uri().path(), "/device/policy" | "/device/checkin") {
+            return self.device_trust(req).await;
         }
         if req.method() == Method::POST {
             if let Some(target) = req

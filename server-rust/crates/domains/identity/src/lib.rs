@@ -26,6 +26,7 @@ pub mod login;
 pub mod issuance;
 pub mod impersonation;
 pub mod bootstrap;
+pub mod device_trust;
 
 pub mod drive_token;
 pub mod session;
