@@ -138,18 +138,8 @@ impl setjoin_authz::token::KeySource for VerifyKeys<'_> {
         Some(self.legacy)
     }
 }
-enum Admission {
-    Denied(Response<Body>),
-    Forward,
-}
 impl AuthServer {
-    async fn session(&self, req: &Request<Body>) -> Result<issuance::SessionProof, Admission> {
-        self.session_headers(req.headers()).await
-    }
-    async fn session_headers(
-        &self,
-        headers: &hyper::HeaderMap,
-    ) -> Result<issuance::SessionProof, Admission> {
+    async fn session(&self, req: &Request<Body>) -> Result<issuance::SessionProof, Response<Body>> {
         let deny = |status, detail| {
             let mut r = Self::failure(status, detail, "");
             if status == 401 {
@@ -158,40 +148,27 @@ impl AuthServer {
                     hyper::header::HeaderValue::from_static("Bearer realm=\"authserver\""),
                 );
             }
-            Admission::Denied(r)
+            r
         };
-        let Some(token) = Self::presented_access_token(headers) else {
+        let Some(token) = Self::presented_access_token(req.headers()) else {
             return Err(deny(401, "Unauthorized"));
         };
-        let (Some(keys), Some(legacy)) = (&self.keys, &self.legacy) else {
-            return Err(deny(401, "Unauthorized"));
-        };
-        let Some(session) = setjoin_identity::session::Session::verify(
-            &token,
-            Some(keys.as_ref()),
-            legacy,
-            &self.config.issuer,
-        ) else {
-            return Err(deny(401, "Unauthorized"));
-        };
-        if session.text("typ") != "access" {
-            return Err(deny(403, "Invalid token type"));
-        }
-        if self.revocations.contains(&session) {
-            return Err(deny(401, "Unauthorized"));
-        }
-        match issuance::SessionProof::from_session(&session) {
-            Ok(p) => Ok(p),
-            Err(issuance::SessionError::WrongType) => Err(deny(403, "Invalid token type")),
-            Err(issuance::SessionError::Bound) => Err(Admission::Forward),
-            Err(issuance::SessionError::Invalid) => Err(deny(401, "Unauthorized")),
-        }
+        let session = self
+            .verify_presented_access(req, &token, true)
+            .map_err(|e| match e {
+                dpop::AccessError::Unauthorized => deny(401, "Unauthorized"),
+                dpop::AccessError::WrongType => deny(403, "Invalid token type"),
+                dpop::AccessError::TokenBinding => Self::dpop_admission_denied(req.uri().path()),
+            })?;
+        issuance::SessionProof::from_session(&session).map_err(|e| match e {
+            issuance::SessionError::WrongType => deny(403, "Invalid token type"),
+            issuance::SessionError::Invalid => deny(401, "Unauthorized"),
+        })
     }
     pub(super) async fn pending(&self, req: Request<Body>) -> Response<Body> {
         let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         match proof.pending(&self.exec).await {
             Ok(raw) => {
@@ -239,8 +216,7 @@ impl AuthServer {
         let path = req.uri().path().to_owned();
         let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if let Some(r) = Self::csrf_failure(&req) {
             return r;
@@ -387,8 +363,7 @@ impl AuthServer {
     pub(super) async fn impersonate(&self, req: Request<Body>, target: String) -> Response<Body> {
         let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if let Some(r) = Self::csrf_failure(&req) {
             return r;
@@ -511,15 +486,7 @@ impl AuthServer {
         }
         if let Some(jkt) = proof.bound_jkt() {
             if !setjoin_contracts::mutants::on("bootstrap-bound-no-dpop") {
-                let (headers, _) = Self::csrf_context(&req);
-                let uri = format!(
-                    "https://{}{}",
-                    headers
-                        .get("host")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or(""),
-                    req.uri().path()
-                );
+                let uri = Self::dpop_client_facing_uri(&req);
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0.0, |d| d.as_secs_f64());
@@ -680,12 +647,6 @@ impl AuthServer {
                 return self.forward(staged.into_request()).await;
             }
         }
-        if matches!(
-            self.session_headers(staged.headers()).await,
-            Err(Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -696,10 +657,9 @@ impl AuthServer {
 
     async fn webpush_admitted(&self, req: Request<Body>, raw: &[u8]) -> Response<Body> {
         let path = req.uri().path().to_owned();
-        let proof = match self.session_headers(req.headers()).await {
+        let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return Self::failure(500, "internal error", &path),
+            Err(r) => return r,
         };
         if let Some(r) = Self::csrf_failure(&req) {
             return r;

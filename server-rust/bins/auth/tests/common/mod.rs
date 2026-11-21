@@ -1,5 +1,6 @@
 //! Family seed: the immutable Go-recorded synthetic key, independent of test order.
 //! Caller holds the family owner-connection advisory lock for the whole case.
+pub mod dpop;
 pub async fn signing_key(c: &tokio_postgres::Client) {
     let f: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../tests/conformance/identity-login/keys.json"

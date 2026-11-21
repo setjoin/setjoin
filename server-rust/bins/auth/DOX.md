@@ -19,8 +19,8 @@ SIGINT/SIGTERM drain owned connections with Go's 30-second bound.
 
 The front door selects `rust-auth` for qualified entries using
 GATEWAY_RUST_AUTH_UPSTREAM. AUTHSERVER_GO_UPSTREAM is only for shapes not yet
-ported: device proof/trust (#420; HTTP threat admission is native, #349a/#349b), conditional
-access/DPoP controls (#405), or federation (#339–#341).
+ported: device proof/trust (#420; HTTP threat admission #349a/#349b and DPoP
+admission/token binding #352 are native), conditional access (#405), or federation (#339–#341).
 Forwarding happens before any effect and preserves the whole request/body. An
 unset upstream fails closed. Completed shapes have no return-to-Go flag.
 
@@ -54,7 +54,7 @@ The DB test common fixture installs the recorded synthetic Go key under the
 family advisory lock before listeners load, including fresh-schema runs. It
 never changes runtime key custody or the immutable recorded public key.
 Duplicate JSON map fields merge as in Go (null resets); an empty later
-DPoP map cannot erase an earlier key before the #405 handoff.
+`dpop_jwk` map cannot erase an earlier key during native #352 binding.
 
 #333 token-slice wire recordings start in `tests/conformance/identity-token`;
 `token_oracle` replays the real front door with Go upstreams unset and checks
@@ -78,8 +78,8 @@ no form token here and is not the introspection legacy contract. COMMIT wire
 loss returns 503 with x-operation-id; `token_faults` proves before/after outcomes.
 
 `GET/HEAD /terms/pending` and `POST /terms/accept` (#333) are native. They use
-Go authserver's signature/access/revocation guard, without gateway mailbox or
-guest gates; non-empty cnf.jkt still forwards whole to #405 before effects.
+Go authserver's signature/access/revocation guard and native DPoP admission (#352),
+without gateway mailbox or guest gates.
 Mutations retain CSRF and authenticated source IP. Pending JSON preserves struct
 order and no added cache policy; HEAD preserves representation length. Terms
 acceptance ignores request identity, maps stale/missing/disabled documents to
@@ -209,7 +209,9 @@ and process-local revocation snapshot. It does not query revocations per request
 `token_recorded::token_and_session_routes_share_the_process_revocation_snapshot`
 proves both routes retain admission before reconciliation and reject after a
 fresh startup snapshot, matching Go's shared bearerAuth registration. The sealed
-identity SessionProof retains access-type, positive-user and DPoP checks.
+identity `SessionProof` retains access-type and positive-user checks, while
+`src/dpop.rs` enforces transport DPoP verification once per bound request (`ath`
+required everywhere except `GET/HEAD /auth/session/token`, #281).
 
 TOTP MFA slice (#334): [domain contract](../../crates/domains/identity/TOTP.md).
 The native removal adapter uses the same verified Session and process revocation
@@ -222,9 +224,9 @@ verify, enroll/setup, enroll/confirm, remove/begin and remove. Pending endpoints
 validate the signed mfa_pending type directly; authenticated management shares
 the existing revocation snapshot, CSRF and impersonation rejection. Go's verify
 endpoint has its distinct admission, preserved by the oracle. Completion bodies
-retain Go duplicate-map merging and null reset for dpop_jwk. Only unported
-device, CA/DPoP and guest shapes forward to their
-named owners before effects. The MFA corpus checks the real front door with
+retain Go duplicate-map merging and null reset for `dpop_jwk`. Only unported
+device and CA shapes forward to their named owners before effects (DPoP and
+guest are native, #352/#353). The MFA corpus checks the real front door with
 Go unset, raw JSON/cookie bytes, audited factor state and signed anchor links.
 
 Password-login MFA branches are native for push preference, TOTP fallback and
@@ -314,7 +316,8 @@ person/users fence. Unknown commits return an actor-bound opaque operation ID.
 Owner-approved security fix 2026-11-05 rejects counter regression and repeated
 login challenges through the atomic live-key claim reducer (including zero counters).
 Immutable Go captures and reviewed security expectations retain the divergence trail.
-DPoP/CA completion (#405) shapes retain their named upstream owner before writes.
+CA completion (#405) shapes retain their named upstream owner before writes;
+DPoP admission and `cnf.jkt` binding at issuance are native (#352).
 
 Public recovery begin (#336) snapshots the same startup feature mount as reset.
 Its process-local enumeration budget is separate from push-send's budget;
@@ -423,14 +426,14 @@ Native OP handoff (#339) owns authorization, authenticated completion and callba
 transport; the detailed [profile](../../crates/domains/identity/OIDC.md) defines
 its sealed capabilities, one-shot digest binding and commit publication. These
 qualified mounts have no completed-shape return-to-Go switch. Shared HTTP threat
-and DPoP shapes retain their existing named #420/#405 handoffs before effects.
+and DPoP admission are native (#349b/#352).
 
 OIDC RP startup (#340): `OIDC_ENABLED` (YAML `oidc.enabled`, default false)
 is independent of the OP switch. Login, callback, authenticated link and the
 mixed gateway namespace are ON in the bundled inventory. GET/HEAD gateway link
 aliases retain Go's 405 because auth registers POST only. Completed RP shapes
-have no return-to-Go switch. Login-time CA/device and bound-session prerequisites
-retain their existing #405/#420 owners before token exchange or any write.
+have no return-to-Go switch. Login-time CA/device prerequisites retain their
+existing #405/#420 owners before token exchange or any write.
 The [RP contract](../../crates/domains/identity/RP.md) owns the guarded HTTPS,
 sealed assertion, profile/JIT/mapping, normalized fence and link semantics.
 
@@ -516,7 +519,7 @@ cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test 
 A failed MFA-factor, risk or `feature.user_risk` read, or a failed common-password lookup, refuses
 before any token is signed or stored: WebAuthn finish 500 `internal error` (factors), password
 login, WebAuthn, SSO and MFA completions 500 `token issue failed`, refresh 503 with
-`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A routing-flag lookup error (conditional access, device trust, token binding) refuses locally and never forwards on the completions that mint: TOTP verify (`/auth/totp/verify`), enroll confirm (`/auth/totp/enroll/confirm`), backup-codes verify, push status and WebAuthn login finish answer 500 `internal error` (`feature.rate_limit` is handled natively via `http_threat` and no longer forwards). An enabled CA/device-trust flag forwards before `threat_admit` (verify, enroll confirm, backup, webpush) or before body read (`push_status`, `webauthn_login_finish`); `dpop_jwk` + `feature.token_binding` forwards before `threat_admit` on TOTP/backup completions and before mint on password login; the OIDC callback answers 500 `internal error` and SAML ACS 503 `SAML authentication unavailable`. `totp_setup` and `totp_confirm` forward on bound sessions before `threat_admit` without reading feature flags (`totp_bootstrap_setup` has no forward path), while an `x-device-*` header on `totp_completion_route` or `webpush` still hands off to Go before any flag is read (#420). Stored risk `signals` must be an array of strings. TOTP, backup-code,
+`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A routing-flag lookup error (conditional access, device trust, token binding) refuses locally and never forwards on the completions that mint: login, TOTP verify (`/auth/totp/verify`), enroll confirm (`/auth/totp/enroll/confirm`), backup-codes verify, push status and WebAuthn login finish answer 500 `internal error` before minting or factor consumption (`feature.rate_limit` and `feature.token_binding` are handled natively via `http_threat` and `src/dpop.rs`, and malformed `dpop_jwk` degrades to unbound when `feature.token_binding` is ON). An enabled CA/device-trust flag forwards before `threat_admit` (verify, enroll confirm, backup, webpush) or before body read (`push_status`, `webauthn_login_finish`); the OIDC callback answers 500 `internal error` and SAML ACS 503 `SAML authentication unavailable`. An `x-device-*` header on `totp_completion_route` or `webpush` still hands off to Go before any flag is read (#420). Stored risk `signals` must be an array of strings. TOTP, backup-code,
 push-status and bootstrap completions read the risk from the pending token before consuming
 the factor, so the factor stays unspent. Push status reads the risk on every poll, so under a
 fault a poll that is not yet approved answers 500 instead of `{"approved":false}`. Frozen Go fails
@@ -555,7 +558,11 @@ receipts, and one `failure` attempt); the Go recorder skips `fault` cases, so th
 Login and refresh are dynamic (`dynamic() == true`, admitted while one of the six gate
 toggles is on); forgot-password (`{begin,verify,reset}`) and all 21 `#349b` routes
 (`Route::Anonymous`, empty `""` username: `guest_invite_post`, `webpush`, `totp_{setup,confirm,enroll/setup,verify,enroll/confirm}`, `generate_backups`, `backup_verify`, `webauthn_register_{begin,finish}`, `push_{verify,approve,send}`, `password_grant`, `possession_{totp,webauthn_begin,webauthn_finish}`, and OIDC OP `/authorize`, `/authorize/callback`, `/oauth/`, `/userinfo`, `/revoke`, `/end_session` after CORS preflight) are always admitted (`dynamic() == false`).
-Preflight Go forwards (`x-device-*`, CA/device trust, bound sessions, `dpop_jwk` + token binding) run between `threat_stage` and `threat_admit` so forwarded requests cause zero double admission. `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`). `feature.rate_limit` is no longer forwarded on any route.
+Preflight Go forwards (`x-device-*`, CA/device trust) run between `threat_stage` and `threat_admit` so forwarded requests cause zero double admission. `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`). `feature.rate_limit` and DPoP are no longer forwarded on any route.
+
+## Native DPoP admission and token binding at issuance (#352)
+
+`src/dpop.rs` owns client-facing URI reconstruction (`AuthServer::dpop_client_facing_uri`: TLS vs HTTP scheme overridden only by single `http`/`https` `X-Forwarded-Proto`, sanitized single `X-Forwarded-Host` with `Host` fallback matching Go's port/IPv6/whitespace/delimiter checks, raw escaped path defaulting to `/`, no query string; shared with bootstrap `/device/register`), once-per-request proof admission (`AuthServer::verify_presented_access`: `setjoin_authz::dpop::verify` with `ath` required everywhere except `GET/HEAD /auth/session/token`, which uses `verify_without_ath` #281 and omits `WWW-Authenticate` and `dpop_admission` on 401; all other bound-session DPoP rejections return 401 `dpop_admission` + `WWW-Authenticate: Bearer realm="authserver"`, while `possession_token` disqualifies failed Bearer/cookie DPoP and falls through to `mfa_token` before returning `dpop_admission` "invalid MFA token"), and `AuthServer::resolve_dpop_cnf` (reads `feature.token_binding` once before minting or factor consumption across all 6 mint paths: `login`, `totp_verify`, `totp_bootstrap_confirm`, `backup_verify`, `push_status`, `webauthn_login_finish`, embedding `cnf.jkt` in both access and refresh JWTs; `/auth/refresh` already preserves `cnf`).
 A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests use
 `with_threat_gate`. Security divergences
 ([identity-threat](../../tests/conformance/identity-threat/divergences.json)):

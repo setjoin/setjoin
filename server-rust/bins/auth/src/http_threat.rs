@@ -83,22 +83,9 @@ impl Staged {
         &self.parts.method
     }
 
-    /// Request path, for preflight error responses.
-    pub(super) fn path(&self) -> &str {
-        self.parts.uri.path()
-    }
-
     /// Request headers, for preflight session/header forwarding before admission.
     pub(super) fn headers(&self) -> &hyper::HeaderMap {
         &self.parts.headers
-    }
-
-    /// The buffered body when admission is mounted.
-    pub(super) fn raw(&self) -> Option<&[u8]> {
-        match &self.stage {
-            Stage::Read { raw, .. } => Some(&raw[..]),
-            Stage::Pass(_) => None,
-        }
     }
 
     /// The whole original request, for a preflight forward before any admission effect.
@@ -396,14 +383,6 @@ impl AuthServer {
             }
         }
         Ok(false)
-    }
-
-    /// The same decode the login handler uses: a non-empty `dpop_jwk` object.
-    pub(super) fn login_dpop_requested(raw: &[u8]) -> bool {
-        let decoded = ingress::go_decode_bytes(raw);
-        let mut stream = serde_json::Deserializer::from_slice(&decoded);
-        ingress::Login::deserialize(&mut stream)
-            .is_ok_and(|input| input.dpop.as_object().is_some_and(|v| !v.is_empty()))
     }
 
     #[cfg(test)]
