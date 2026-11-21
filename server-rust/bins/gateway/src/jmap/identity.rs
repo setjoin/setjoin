@@ -1,65 +1,57 @@
-use super::{
-    envelope::{self, SingleCall},
-    reply,
-};
-use serde_json::json;
+use super::{envelope, reply};
+use serde_json::{json, Value};
 use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
+
 pub struct Request {
     pub method: &'static str,
-    pub call: SingleCall,
     pub since: String,
 }
-pub fn classify(body: &[u8]) -> Option<Request> {
-    for method in ["Identity/get", "Identity/changes"] {
-        if let Some(call) =
-            envelope::single_call_with_capability(body, method, "urn:ietf:params:jmap:submission")
-        {
-            if !call.args.is_object() && !call.args.is_null() {
-                return None;
-            }
-            let since = if method == "Identity/changes" && !call.args.is_null() {
-                let args =
-                    envelope::struct_arguments(&call.raw_args, &["accountId", "sinceState"])?;
-                args.get("sinceState")
-                    .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            return Some(Request {
-                method,
-                call,
-                since,
-            });
-        }
+
+pub fn classify_call(method: &str, raw_args: &str, _client_id: &str) -> Option<Request> {
+    let method: &'static str = match method {
+        "Identity/get" => "Identity/get",
+        "Identity/changes" => "Identity/changes",
+        _ => return None,
+    };
+    let val: Value = serde_json::from_str(raw_args).ok()?;
+    if !val.is_object() && !val.is_null() {
+        return None;
     }
-    None
+    // Go `identityChanges` ignores json.Unmarshal errors, defaulting non-string
+    // `sinceState` to "" and ignoring invalid `accountId`/`maxChanges`.
+    let since = if method == "Identity/changes" && !val.is_null() {
+        let args = envelope::struct_arguments(raw_args, &["accountId", "sinceState"])?;
+        args.get("sinceState")
+            .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    Some(Request { method, since })
 }
-pub async fn response(
+
+pub async fn response_call(
     exec: &ScopedExecutor,
     worker: &ScopedExecutor,
     auth: &MailboxAuthContext,
-    session: &str,
     r: &Request,
-) -> Option<String> {
+) -> (&'static str, String) {
+    let since = r.since.as_str();
     let state = setjoin_jmap::identity::state(exec, auth).await;
     let value = if r.method == "Identity/changes" {
         let Some(state) = state else {
-            return Some(reply::method_error(
-                session,
-                "serverFail",
-                500,
-                "user not found",
-                &r.call.client_id,
-            ));
+            return (
+                "error",
+                reply::jmap_error_json("serverFail", 500, "user not found"),
+            );
         };
-        let changed = !r.since.is_empty() && r.since != state;
+        let changed = !since.is_empty() && since != state;
         let updated = if changed {
             vec![format!("i{}", auth.actor().get())]
         } else {
             vec![]
         };
-        json!({"created":[],"destroyed":[],"hasMoreChanges":false,"newState":state,"oldState":r.since,"updated":updated})
+        json!({"created":[],"destroyed":[],"hasMoreChanges":false,"newState":state,"oldState":since,"updated":updated})
     } else {
         let primary = setjoin_jmap::identity::primary(exec, auth).await;
         let mut p = json!({"id":format!("i{}",auth.actor().get()),"name":primary.name,"email":primary.email,"isDefault":true,"mayDelete":false});
@@ -102,5 +94,5 @@ pub async fn response(
         }
         json!({"list":list,"state":state.unwrap_or_else(||"unavailable".into())})
     };
-    reply::method_response(session, r.method, &value.to_string(), &r.call.client_id)
+    (r.method, value.to_string())
 }

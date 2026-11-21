@@ -1,62 +1,85 @@
-//! General `Email/query` served by Rust (#315): Go's `emailQuery`.
+//! General `Email/query` served by Rust (#315, #356): Go's `emailQuery`.
 //!
-//! [`classify`] recognises one `Email/query` call whose arguments are
-//! `accountId` (a canonical id string) and optionally `filter`, `sort`
-//! (any JSON, passed to the reducer exactly as written, `null` included),
-//! `position` (an integer in `i32`) and `limit` (an integer). The reducer
-//! `jmap_email_query` owns every filter and sort. `limit` is clamped as Go
-//! clamps it (`<= 0` or `> 256` is 50). Other keys, non-integer numbers,
-//! several calls and result references are `None`: the request goes to Go.
-use std::collections::BTreeMap;
+//! [`classify_call`] accepts `Email/query` with Go struct arguments
+//! (`accountId`, `filter`, `sort`, `position`, `limit`, ASCII case-folded,
+//! ignoring `calculateTotal`, `collapseThreads`, `anchor`, extra keys).
+//! `null` `position`/`limit` map to `0` (`limit` clamped to `50` outside
+//! `1..=256`); non-integer types return `invalidArguments`.
 
-use serde_json::value::RawValue;
-use serde_json::Value;
+use super::envelope::{go_i64_field, go_string_field, struct_arguments};
 
-use super::envelope::{canonical_id, single_call};
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueryArgs {
+    Valid {
+        raw_account_id: String,
+        /// Go's `RawMessage`: `None` when the key is absent.
+        filter: Option<String>,
+        sort: Option<String>,
+        /// `Err(())` when an `i64` overflows `i32` (PostgreSQL `22003` -> `serverFail`).
+        position: Result<i32, ()>,
+        limit: i32,
+    },
+    Invalid(String),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueryRequest {
-    pub account_id: i64,
     pub client_id: String,
-    /// Go's `RawMessage`: `None` when the key is absent.
-    pub filter: Option<String>,
-    pub sort: Option<String>,
-    pub position: i32,
-    pub limit: i32,
+    pub args: QueryArgs,
 }
 
-pub fn classify(body: &[u8]) -> Option<QueryRequest> {
-    let call = single_call(body, "Email/query")?;
-    let raw: BTreeMap<String, Box<RawValue>> = serde_json::from_str(&call.raw_args).ok()?;
-    if raw
-        .keys()
-        .any(|k| !["accountId", "filter", "sort", "position", "limit"].contains(&k.as_str()))
-    {
-        return None;
-    }
-    let account_id = canonical_id(call.args.get("accountId")?.as_str()?)?;
-    let integer = |name: &str| -> Option<Option<i64>> {
-        match call.args.get(name) {
-            None => Some(None),
-            Some(Value::Number(n)) => n.as_i64().map(Some),
-            Some(_) => None,
-        }
+pub fn classify_call(raw_args: &str, client_id: &str) -> Option<QueryRequest> {
+    let fields = struct_arguments(
+        raw_args,
+        &["accountId", "filter", "sort", "position", "limit"],
+    )?;
+    let raw_account_id = match fields.get("accountId") {
+        None => String::new(),
+        Some(raw) => match go_string_field(raw.get()) {
+            Ok(opt) => opt.unwrap_or_default(),
+            Err(detail) => {
+                return Some(QueryRequest {
+                    client_id: client_id.to_owned(),
+                    args: QueryArgs::Invalid(detail),
+                })
+            }
+        },
     };
-    let position = match integer("position")? {
-        None => 0,
-        Some(n) => i32::try_from(n).ok()?,
+    let position = match fields.get("position") {
+        None => Ok(0),
+        Some(raw) => match go_i64_field(raw.get()) {
+            Ok(None) => Ok(0),
+            Ok(Some(n)) => i32::try_from(n).map_err(|_| ()),
+            Err(detail) => {
+                return Some(QueryRequest {
+                    client_id: client_id.to_owned(),
+                    args: QueryArgs::Invalid(detail),
+                })
+            }
+        },
     };
-    let limit = match integer("limit")? {
-        Some(n) if (1..=256).contains(&n) => n as i32,
-        _ => 50,
+    let limit = match fields.get("limit") {
+        None => 50,
+        Some(raw) => match go_i64_field(raw.get()) {
+            Ok(Some(n)) if (1..=256).contains(&n) => n as i32,
+            Ok(_) => 50,
+            Err(detail) => {
+                return Some(QueryRequest {
+                    client_id: client_id.to_owned(),
+                    args: QueryArgs::Invalid(detail),
+                })
+            }
+        },
     };
     Some(QueryRequest {
-        account_id,
-        client_id: call.client_id,
-        filter: raw.get("filter").map(|v| v.get().to_owned()),
-        sort: raw.get("sort").map(|v| v.get().to_owned()),
-        position,
-        limit,
+        client_id: client_id.to_owned(),
+        args: QueryArgs::Valid {
+            raw_account_id,
+            filter: fields.get("filter").map(|v| v.get().to_owned()),
+            sort: fields.get("sort").map(|v| v.get().to_owned()),
+            position,
+            limit,
+        },
     })
 }
 
@@ -64,40 +87,40 @@ pub fn classify(body: &[u8]) -> Option<QueryRequest> {
 mod tests {
     use super::*;
 
-    fn parse(args: &str) -> Option<QueryRequest> {
-        classify(
-            format!(
-                r#"{{"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/query",{args},"c1"]]}}"#
-            )
-            .as_bytes(),
+    #[test]
+    fn filter_and_sort_pass_through_and_extra_keys_ignored() {
+        let r = classify_call(
+            r#"{"ACCOUNTID":"0012","filter":{"text":"a  b","minSize":12345678901234567890},"sort":null,"position":null,"limit":null,"calculateTotal":true,"collapseThreads":true,"anchor":"1"}"#,
+            "c1",
         )
-    }
-
-    #[test]
-    fn filter_and_sort_pass_through_as_written() {
-        let r = parse(r#"{"accountId":"12","filter":{"text":"a  b","minSize":12345678901234567890},"sort":null,"position":3,"limit":0}"#)
-            .unwrap();
+        .unwrap();
         assert_eq!(
-            r.filter.as_deref(),
-            Some(r#"{"text":"a  b","minSize":12345678901234567890}"#)
+            r.args,
+            QueryArgs::Valid {
+                raw_account_id: "0012".into(),
+                filter: Some(r#"{"text":"a  b","minSize":12345678901234567890}"#.into()),
+                sort: Some("null".into()),
+                position: Ok(0),
+                limit: 50,
+            }
         );
-        assert_eq!(r.sort.as_deref(), Some("null"));
-        assert_eq!((r.position, r.limit), (3, 50));
-        let r = parse(r#"{"accountId":"12"}"#).unwrap();
-        assert_eq!((r.filter, r.sort, r.position, r.limit), (None, None, 0, 50));
-    }
 
-    #[test]
-    fn anything_else_goes_to_go() {
-        for args in [
-            r#"{"accountId":"12","anchor":"1"}"#,
+        let r = classify_call(r#"{"accountId":"12","position":2147483648}"#, "c1").unwrap();
+        assert!(matches!(
+            r.args,
+            QueryArgs::Valid {
+                position: Err(()),
+                ..
+            }
+        ));
+
+        for bad in [
             r#"{"accountId":"12","limit":1.5}"#,
             r#"{"accountId":"12","limit":"5"}"#,
-            r#"{"accountId":"12","position":2147483648}"#,
             r#"{"accountId":12}"#,
-            r#"{"filter":{}}"#,
         ] {
-            assert_eq!(parse(args), None, "{args}");
+            let r = classify_call(bad, "c1").unwrap();
+            assert!(matches!(r.args, QueryArgs::Invalid(_)), "{bad}");
         }
     }
 }

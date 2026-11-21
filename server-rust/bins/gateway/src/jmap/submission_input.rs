@@ -18,6 +18,7 @@ impl Failure {
             detail: detail.into(),
         }
     }
+    #[allow(dead_code)]
     pub fn account(detail: &str) -> Self {
         Self {
             kind: "accountNotFound",

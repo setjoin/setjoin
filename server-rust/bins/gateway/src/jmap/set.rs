@@ -1,26 +1,24 @@
-//! General `Email/set` served by Rust (#315): Go's `emailSet`, one phase.
+//! General `Email/set` served by Rust (#315, #356): Go's `emailSet`, one phase.
 //!
-//! [`classify`] recognises one `Email/set` call with `accountId` and exactly
-//! one non-empty phase: `update` (an object of canonical message ids to patch
-//! objects, none naming `snoozeUntil`) or `destroy` (an array of at most 256
-//! strings); `create` must be absent or null. Anything else (create, snooze
-//! patches, several phases, `ifInState`, other keys) is `None` and the whole
-//! request goes to Go untouched: those need Go's attachment-blob gate, the
-//! per-message snooze calls or a multi-reducer batch.
+//! [`classify_call`] accepts `Email/set` with Go struct arguments
+//! (`accountId`, `ifInState`, `create`, `update`, `destroy`, ASCII case-folded,
+//! extra keys ignored) for a single active phase:
+//! - `update`: `{}` (`SetPhase::Update("{}")`) or a map of numeric positive ids
+//!   to patch objects without `snoozeUntil` (non-canonical numeric keys allowed;
+//!   `destroy: []` or `null` alongside `update` is allowed).
+//! - `destroy`: non-empty array of strings of any length (no 256 cap).
 //!
-//! The answer is Go's: the reducer's JSONB re-marshalled as a map
-//! ([`super::reply::marshal_sorted`]), and for `destroy` the malformed ids
-//! folded into `notDestroyed` as `{"type":"notFound"}` (`addSetErrors`).
+//! `create` (non-null), `snoozeUntil`, mixed `update` + non-empty `destroy`,
+//! and zero-phase (`{accountId}`) return `None` and defer to Wave 2 / Go via
+//! preflight.
 use std::collections::BTreeMap;
 
 use serde_json::value::RawValue;
 use serde_json::Value;
 
-use super::envelope::{canonical_id, single_call};
+use super::envelope::{go_string_array_field, go_string_field, struct_arguments};
 use super::get::parse_id;
 use super::reply::marshal_sorted;
-
-pub const MAX_DESTROY: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -33,64 +31,99 @@ pub enum Phase {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SetRequest {
-    pub account_id: i64,
-    pub client_id: String,
-    pub phase: Phase,
+pub enum SetArgs {
+    Valid {
+        raw_account_id: String,
+        phase: Phase,
+    },
+    Invalid(String),
 }
 
-pub fn classify(body: &[u8]) -> Option<SetRequest> {
-    let call = single_call(body, "Email/set")?;
-    let raw: BTreeMap<String, Box<RawValue>> = serde_json::from_str(&call.raw_args).ok()?;
-    if raw
-        .keys()
-        .any(|k| !["accountId", "create", "update", "destroy"].contains(&k.as_str()))
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SetRequest {
+    pub client_id: String,
+    pub args: SetArgs,
+}
+
+pub fn classify_call(raw_args: &str, client_id: &str) -> Option<SetRequest> {
+    let fields = struct_arguments(
+        raw_args,
+        &["accountId", "ifInState", "create", "update", "destroy"],
+    )?;
+    let raw_account_id = match fields.get("accountId") {
+        None => String::new(),
+        Some(raw) => match go_string_field(raw.get()) {
+            Ok(opt) => opt.unwrap_or_default(),
+            Err(detail) => {
+                return Some(SetRequest {
+                    client_id: client_id.to_owned(),
+                    args: SetArgs::Invalid(detail),
+                })
+            }
+        },
+    };
+    let destroy = match fields.get("destroy") {
+        None => None,
+        Some(raw) => match go_string_array_field(raw.get()) {
+            Ok(None) => None,
+            Ok(Some(items)) if items.is_empty() => None,
+            Ok(Some(items)) => {
+                let (mut ids, mut bad) = (Vec::new(), Vec::new());
+                for item in items {
+                    match parse_id(&item) {
+                        Some(id) => ids.push(id),
+                        None => bad.push(item),
+                    }
+                }
+                Some((ids, bad))
+            }
+            Err(detail) => {
+                return Some(SetRequest {
+                    client_id: client_id.to_owned(),
+                    args: SetArgs::Invalid(detail),
+                })
+            }
+        },
+    };
+    if fields
+        .get("create")
+        .is_some_and(|raw| raw.get().trim() != "null")
     {
         return None;
     }
-    let account_id = canonical_id(call.args.get("accountId")?.as_str()?)?;
-    if !matches!(call.args.get("create"), None | Some(Value::Null)) {
-        return None;
-    }
-    let update = match call.args.get("update") {
-        None | Some(Value::Null) => None,
-        Some(Value::Object(map)) if !map.is_empty() => Some(map),
-        Some(_) => return None,
-    };
-    let destroy = match call.args.get("destroy") {
-        None | Some(Value::Null) => None,
-        Some(Value::Array(items)) if !items.is_empty() && items.len() <= MAX_DESTROY => Some(items),
-        Some(_) => return None,
+    let update = match fields.get("update") {
+        None => None,
+        Some(raw) if raw.get().trim() == "null" => None,
+        Some(raw) => {
+            let Value::Object(map) = serde_json::from_str::<Value>(raw.get()).ok()? else {
+                return None;
+            };
+            if map.is_empty() {
+                Some("{}".to_owned())
+            } else {
+                for (id, patch) in &map {
+                    parse_id(id)?;
+                    if !patch.as_object()?.keys().all(|k| k != "snoozeUntil") {
+                        return None;
+                    }
+                }
+                let patches: BTreeMap<String, Box<RawValue>> =
+                    serde_json::from_str(raw.get()).ok()?;
+                Some(marshal_sorted(&patches)?)
+            }
+        }
     };
     let phase = match (update, destroy) {
-        (Some(update), None) => {
-            for (id, patch) in update {
-                canonical_id(id)?;
-                if !patch.as_object()?.keys().all(|k| k != "snoozeUntil") {
-                    return None;
-                }
-            }
-            let patches: BTreeMap<String, Box<RawValue>> =
-                serde_json::from_str(raw.get("update")?.get()).ok()?;
-            Phase::Update(marshal_sorted(&patches)?)
-        }
-        (None, Some(items)) => {
-            let (mut ids, mut bad) = (Vec::new(), Vec::new());
-            for item in items {
-                let item = item.as_str()?;
-                match parse_id(item) {
-                    Some(id) => ids.push(id),
-                    None => bad.push(item.to_owned()),
-                }
-            }
-            Phase::Destroy { ids, bad }
-        }
+        (Some(patches), None) => Phase::Update(patches),
+        (None, Some((ids, bad))) => Phase::Destroy { ids, bad },
         _ => return None,
     };
     Some(SetRequest {
-        account_id,
-        client_id: call.client_id,
-        phase,
+        client_id: client_id.to_owned(),
+        args: SetArgs::Valid {
+            raw_account_id,
+            phase,
+        },
     })
 }
 
@@ -128,53 +161,59 @@ pub fn add_not_destroyed(merged_result: &str, bad: &[String]) -> Option<String> 
 mod tests {
     use super::*;
 
-    fn parse(args: &str) -> Option<SetRequest> {
-        classify(
-            format!(
-                r#"{{"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{args},"c1"]]}}"#
-            )
-            .as_bytes(),
+    #[test]
+    fn widened_set_handles_empty_update_empty_destroy_if_in_state_and_over_256() {
+        let r = classify_call(
+            r#"{"ACCOUNTID":"0012","ifInState":"1","create":null,"update":{"+20":{"keywords":{"$seen":true}},"003":{"mailboxIds":{"9":true}}},"destroy":[],"extra":1}"#,
+            "c1",
         )
-    }
-
-    #[test]
-    fn update_patches_are_sorted_and_compact() {
-        let r = parse(r#"{"accountId":"12","create":null,"update":{"20":{"keywords":{"$seen":true}},"3":{"mailboxIds":{"9":true}}},"destroy":null}"#)
-            .unwrap();
+        .unwrap();
         assert_eq!(
-            r.phase,
-            Phase::Update(
-                r#"{"20":{"keywords":{"$seen":true}},"3":{"mailboxIds":{"9":true}}}"#.into()
-            )
-        );
-    }
-
-    #[test]
-    fn destroy_splits_malformed_ids() {
-        let r = parse(r#"{"accountId":"12","destroy":["5","x","+6"]}"#).unwrap();
-        assert_eq!(
-            r.phase,
-            Phase::Destroy {
-                ids: vec![5, 6],
-                bad: vec!["x".into()]
+            r.args,
+            SetArgs::Valid {
+                raw_account_id: "0012".into(),
+                phase: Phase::Update(
+                    r#"{"+20":{"keywords":{"$seen":true}},"003":{"mailboxIds":{"9":true}}}"#.into()
+                ),
             }
         );
+
+        let r = classify_call(r#"{"accountId":"12","update":{},"destroy":[]}"#, "c1").unwrap();
+        assert_eq!(
+            r.args,
+            SetArgs::Valid {
+                raw_account_id: "12".into(),
+                phase: Phase::Update("{}".into()),
+            }
+        );
+
+        let many = (1..=300)
+            .map(|i| format!("\"{i}\""))
+            .collect::<Vec<_>>()
+            .join(",");
+        let r = classify_call(&format!(r#"{{"accountId":"12","destroy":[{many}]}}"#), "c1").unwrap();
+        assert!(matches!(
+            r.args,
+            SetArgs::Valid {
+                phase: Phase::Destroy { ref ids, .. },
+                ..
+            } if ids.len() == 300
+        ));
     }
 
     #[test]
-    fn anything_else_goes_to_go() {
+    fn deferred_shapes_return_none() {
         for args in [
             r#"{"accountId":"12","create":{"a":{}}}"#,
+            r#"{"accountId":"12","create":{}}"#,
             r#"{"accountId":"12","update":{"1":{"snoozeUntil":null}}}"#,
             r#"{"accountId":"12","update":{"1":{}},"destroy":["2"]}"#,
             r#"{"accountId":"12","update":{"x":{}}}"#,
-            r#"{"accountId":"12","update":{}}"#,
-            r#"{"accountId":"12","destroy":[]}"#,
             r#"{"accountId":"12","update":{"1":5}}"#,
-            r#"{"accountId":"12","ifInState":"1","destroy":["2"]}"#,
             r#"{"accountId":"12"}"#,
+            r#"{"accountId":"12","destroy":[]}"#,
         ] {
-            assert_eq!(parse(args), None, "{args}");
+            assert_eq!(classify_call(args, "c1"), None, "{args}");
         }
     }
 
