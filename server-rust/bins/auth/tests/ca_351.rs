@@ -305,6 +305,7 @@ async fn cleanup_ca(
             "push_devices",
             "push_mfa_challenges",
             "passkey_credentials",
+            "webauthn_login_replays",
             "totp_counter_claims",
             "totp_pending_enrollments",
             "mfa_reauth_step_ups",
@@ -1112,15 +1113,22 @@ async fn ca_351_mfa_completions_and_step_up_hard_block() -> Result<(), Err> {
             json!({}),
         )
         .await?;
+        c.execute("UPDATE users SET last_totp_used_at=NULL WHERE id=$1", &[&a.user])
+            .await?;
+        c.execute(
+            "DELETE FROM totp_counter_claims WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await?;
         let server_blk = AuthServer::load(exec, mk_cfg())
             .await?
             .with_threat_gate(&db.dsn)
             .await?;
-        let totp_code_2 = setjoin_identity::totp::code(STAGED_SECRET, now + 30)
-            .unwrap_or_else(|| setjoin_identity::totp::code(STAGED_SECRET, now).unwrap());
+        let now_e = now_secs();
+        let totp_code_2 = setjoin_identity::totp::code(STAGED_SECRET, now_e).unwrap();
         let step_pending = setjoin_authz::legacy_jwt::sign_hs256(
             secret.as_bytes(),
-            &json!({"uid":a.user,"email":email,"typ":"mfa_pending","amr":["pwd"],"iss":"mailserver","aud":["mailserver-gateway"],"iat":now,"exp":now+300,"jti":"ca351-blk-totp"}).to_string(),
+            &json!({"uid":a.user,"email":email,"typ":"mfa_pending","amr":["pwd"],"iss":"mailserver","aud":["mailserver-gateway"],"iat":now_e,"exp":now_e+300,"jti":"ca351-blk-totp"}).to_string(),
         );
         let sess_before: i64 = c.query_one("SELECT count(*) FROM sessions WHERE user_id=$1", &[&a.user]).await?.get(0);
         let before_blk = ca_log_count(&c, a.user).await?;
@@ -1255,6 +1263,11 @@ async fn ca_351_webauthn_gate_none_before_mfa_and_device_claim() -> Result<(), E
             &[&a.user],
         )
         .await?;
+        c.execute(
+            "DELETE FROM webauthn_login_replays WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await?;
         delete_policies(&c, &mut policy_ids).await?;
         insert_policy(
             &c,
@@ -1295,6 +1308,11 @@ async fn ca_351_webauthn_gate_none_before_mfa_and_device_claim() -> Result<(), E
         .await?;
         c.execute(
             "UPDATE passkey_credentials SET sign_count=7 WHERE user_id=$1",
+            &[&a.user],
+        )
+        .await?;
+        c.execute(
+            "DELETE FROM webauthn_login_replays WHERE user_id=$1",
             &[&a.user],
         )
         .await?;
@@ -1436,8 +1454,10 @@ async fn ca_351_oidc_rp_settled_groups_step_up_and_block() -> Result<(), Err> {
             json!({}),
         )
         .await?;
-        let server =
-            AuthServer::load_with_rp_http(exec.clone(), mk_cfg(), fake_idp.clone()).await?;
+        let server = AuthServer::load_with_rp_http(exec.clone(), mk_cfg(), fake_idp.clone())
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?;
         // Pre-warm cache with empty roles for a.user via valid password login before SSO settlement.
         let (st_warm, _, raw_warm) = read_body(
             server
@@ -1719,10 +1739,62 @@ async fn ca_351_foreign_fingerprint_isolation_and_fail_closed_faults() -> Result
         .await?
         .get(0);
 
+    struct SchemaGuard {
+        dsn: String,
+        schema: Option<String>,
+    }
+    impl SchemaGuard {
+        async fn cleanup(&mut self, c: &Client) {
+            if let Some(schema) = self.schema.take() {
+                let _ = c
+                    .batch_execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+                    .await;
+            }
+        }
+    }
+    impl Drop for SchemaGuard {
+        fn drop(&mut self) {
+            let Some(schema) = self.schema.take() else {
+                return;
+            };
+            let dsn = self.dsn.clone();
+            let _ = std::thread::spawn(move || {
+                if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    rt.block_on(async move {
+                        if let Ok(Ok((client, conn))) = tokio::time::timeout(
+                            std::time::Duration::from_secs(10),
+                            tokio_postgres::connect(&dsn, tokio_postgres::NoTls),
+                        )
+                        .await
+                        {
+                            let task = tokio::spawn(conn);
+                            let _ = tokio::time::timeout(
+                                std::time::Duration::from_secs(10),
+                                client.batch_execute(&format!(
+                                    "DROP SCHEMA IF EXISTS {schema} CASCADE"
+                                )),
+                            )
+                            .await;
+                            drop(client);
+                            let _ =
+                                tokio::time::timeout(std::time::Duration::from_secs(5), task).await;
+                        }
+                    });
+                }
+            })
+            .join();
+        }
+    }
     let ip = "127.0.51.60";
     let mut device_hashes = Vec::new();
     let mut policy_ids = Vec::new();
-    let mut mdm_guard: Option<revoke::Revoked> = None;
+    let mut mdm_fault = SchemaGuard {
+        dsn: db.dsn.clone(),
+        schema: None,
+    };
     let mut flag_guard: Option<revoke::Revoked> = None;
     let secret = master_secret();
     let mk_cfg = || load_config(secret.clone(), &db.dsn);
@@ -1753,21 +1825,45 @@ async fn ca_351_foreign_fingerprint_isolation_and_fail_closed_faults() -> Result
         check_eq!(jwt_claims(serde_json::from_str::<Value>(&raw_a)?["access_token"].as_str().unwrap())?["device"]["trust_tier"], json!("compliant"));
         check!(jwt_claims(serde_json::from_str::<Value>(&raw_b)?["access_token"].as_str().unwrap())?.get("device").is_none(), "foreign user sharing fingerprint must not get device claim");
 
-        if let Some(app_dsn) = db.app.as_deref() {
-            let probe = setjoin_pg::ScopedExecutor::from_dsn(app_dsn, 1).map_err(|e| e.0)?;
+        let base_dsn = db.app.as_deref().unwrap_or(&db.dsn);
+        check!(
+            !base_dsn.contains("options="),
+            "fault DSN already has options"
+        );
+        {
             // 2. managed_devices lookup fault fails open for device claim (still 200, no device claim).
-            mdm_guard = Some(revoke::table(&db.dsn, &c, &probe, "managed_devices").await?);
+            let schema_id: String = c
+                .query_one("SELECT replace(gen_random_uuid()::text,'-','')", &[])
+                .await?
+                .get(0);
+            check!(
+                schema_id.len() == 32 && schema_id.bytes().all(|b| b.is_ascii_hexdigit()),
+                "invalid fault schema ID"
+            );
+            let schema = format!("ca351_mdm_fault_{schema_id}");
+            c.batch_execute(&format!(
+                "CREATE SCHEMA {schema}; CREATE TABLE {schema}.managed_devices (broken int); GRANT USAGE ON SCHEMA {schema} TO PUBLIC; GRANT SELECT ON {schema}.managed_devices TO PUBLIC;"
+            ))
+            .await?;
+            mdm_fault.schema = Some(schema.clone());
+            let sep = if base_dsn.contains('?') { '&' } else { '?' };
+            let fault_dsn = format!("{base_dsn}{sep}options=-csearch_path%3D{schema}%2Cpublic");
+            let fault_exec = setjoin_pg::ScopedExecutor::from_dsn(&fault_dsn, 2).map_err(|e| e.0)?;
+            let server_mdm = AuthServer::load(fault_exec, mk_cfg())
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?;
             let (st_mdm, _, raw_mdm) = read_body(
-                server
+                server_mdm
                     .handle(build_request("POST", "/auth/login", ip, UA, json!({"email":email_a,"password":PASSWORD}).to_string().into_bytes(), &[])?)
                     .await,
             )
             .await?;
             check_eq!(st_mdm, 200, "managed_devices read fault should omit claim cleanly: {raw_mdm}");
-            check!(jwt_claims(serde_json::from_str::<Value>(&raw_mdm)?["access_token"].as_str().unwrap())?.get("device").is_none());
-            if let Some(g) = mdm_guard.take() {
-                g.restore(&c).await?;
-            }
+            let mdm_json: Value = serde_json::from_str(&raw_mdm)?;
+            let mdm_token = mdm_json["access_token"].as_str().ok_or("missing access_token in mdm fault reply")?;
+            check!(jwt_claims(mdm_token)?.get("device").is_none());
+            mdm_fault.cleanup(&c).await;
         }
 
         // 3. Matched-policy policy_session_view failure fails closed: sif = 3600, persistent_session = 'never'.
@@ -1845,9 +1941,7 @@ async fn ca_351_foreign_fingerprint_isolation_and_fail_closed_faults() -> Result
 
     let _ = c.batch_execute(&orig_session_view).await;
     let _ = c.batch_execute(&orig_guest_fn).await;
-    if let Some(g) = mdm_guard {
-        let _ = g.restore(&c).await;
-    }
+    mdm_fault.cleanup(&c).await;
     if let Some(g) = flag_guard {
         let _ = g.restore(&c).await;
     }
