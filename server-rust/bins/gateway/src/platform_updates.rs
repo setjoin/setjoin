@@ -5,13 +5,13 @@
 //! Gates mirror Go's `requireSystemPerm` / `requireSystemUpgrade` / `requireSystemConfig` /
 //! `requireSystemRecovery`: a refusal writes Go's durable `console.denied` row and answers
 //! the bare 403; a failed authority read or a missing token forwards the request to Go.
-use crate::platform_upgrades::{self as upgrades, Kind};
 use crate::mailboxes::{bare, language, render, unknown_outcome};
+use crate::platform_upgrades::{self as upgrades, Kind};
 use crate::problem::Problem;
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use hyper::{Method, Request, Response};
-use setjoin_authz::token::KeySource;
 use serde::de::{MapAccess, Visitor};
+use setjoin_authz::token::KeySource;
 use setjoin_pg::{CommandOutcome, ScopedExecutor};
 use setjoin_platform::updates;
 use std::sync::Arc;
@@ -27,12 +27,37 @@ pub struct PlatformUpdatesRoute<K: KeySource + 'static> {
 
 impl<K: KeySource + 'static> PlatformUpdatesRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
-        Self { exec, keys, issuer, recovery: None, airgap: None, deploy: None }
+        Self {
+            exec,
+            keys,
+            issuer,
+            recovery: None,
+            airgap: None,
+            deploy: None,
+        }
     }
-    pub async fn with_deploy(mut self,worker:ScopedExecutor,config:setjoin_platform::deploy::Config)->Self {self.deploy=Some(Arc::new(setjoin_platform::deploy::Wizard::load(worker,config).await));self}
-    pub fn with_airgap(mut self,store:Option<Arc<setjoin_platform::airgap::Store>>)->Self {self.airgap=store;self}
-    pub async fn with_recovery(mut self, worker: ScopedExecutor, ready: bool, direct: Option<String>) -> Self {
-        self.recovery = Some(crate::platform_recovery_admin::RecoveryAdmin::new(worker, ready, direct).await);
+    pub async fn with_deploy(
+        mut self,
+        worker: ScopedExecutor,
+        config: setjoin_platform::deploy::Config,
+    ) -> Self {
+        self.deploy = Some(Arc::new(
+            setjoin_platform::deploy::Wizard::load(worker, config).await,
+        ));
+        self
+    }
+    pub fn with_airgap(mut self, store: Option<Arc<setjoin_platform::airgap::Store>>) -> Self {
+        self.airgap = store;
+        self
+    }
+    pub async fn with_recovery(
+        mut self,
+        worker: ScopedExecutor,
+        ready: bool,
+        direct: Option<String>,
+    ) -> Self {
+        self.recovery =
+            Some(crate::platform_recovery_admin::RecoveryAdmin::new(worker, ready, direct).await);
         self
     }
 }
@@ -68,10 +93,18 @@ pub(crate) fn action(method: &Method, path: &str) -> Option<Action> {
         (post, "/api/admin/deploy/start", Action::DeployStart),
         (post, "/api/admin/deploy/cancel", Action::DeployCancel),
         (reads, "/api/admin/deploy/status", Action::DeployStatus),
-        (post, "/api/admin/updates/airgap/upload", Action::AirgapUpload),
+        (
+            post,
+            "/api/admin/updates/airgap/upload",
+            Action::AirgapUpload,
+        ),
         (reads, "/api/updates/appcast", Action::Appcast),
         (reads, "/api/updates/{slug}/{filename}", Action::AirgapFile),
-        (reads, "/api/admin/system/auto-update", Action::AutoUpdateGet),
+        (
+            reads,
+            "/api/admin/system/auto-update",
+            Action::AutoUpdateGet,
+        ),
         (put, "/api/admin/system/auto-update", Action::AutoUpdatePut),
         (
             reads,
@@ -83,8 +116,16 @@ pub(crate) fn action(method: &Method, path: &str) -> Option<Action> {
             "/api/admin/system/maintenance-window",
             Action::MaintenancePut,
         ),
-        (post, "/api/admin/system/upgrade/check", Action::UpgradeCheck),
-        (post, "/api/admin/system/upgrade/apply", Action::UpgradeApply),
+        (
+            post,
+            "/api/admin/system/upgrade/check",
+            Action::UpgradeCheck,
+        ),
+        (
+            post,
+            "/api/admin/system/upgrade/apply",
+            Action::UpgradeApply,
+        ),
         (
             post,
             "/api/admin/system/upgrade/rollback",
@@ -95,13 +136,41 @@ pub(crate) fn action(method: &Method, path: &str) -> Option<Action> {
             "/api/admin/system/upgrade/status",
             Action::UpgradeHistory,
         ),
-        (reads, "/api/admin/system/recovery/incidents", Action::Recovery(crate::platform_recovery_admin::Kind::List)),
-        (reads, "/api/admin/system/recovery/signals", Action::Recovery(crate::platform_recovery_admin::Kind::Signals)),
-        (reads, "/api/admin/system/recovery/incidents/{id}/artifacts", Action::Recovery(crate::platform_recovery_admin::Kind::Artifacts)),
-        (post, "/api/admin/system/recovery/incidents/{id}/approve", Action::Recovery(crate::platform_recovery_admin::Kind::Approve)),
-        (post, "/api/admin/system/recovery/incidents/{id}/close", Action::Recovery(crate::platform_recovery_admin::Kind::Close)),
-        (post, "/api/admin/system/recovery/artifacts/{id}/accept", Action::Recovery(crate::platform_recovery_admin::Kind::Accept)),
-        (post, "/api/admin/system/recovery/incidents", Action::Recovery(crate::platform_recovery_admin::Kind::Open)),
+        (
+            reads,
+            "/api/admin/system/recovery/incidents",
+            Action::Recovery(crate::platform_recovery_admin::Kind::List),
+        ),
+        (
+            reads,
+            "/api/admin/system/recovery/signals",
+            Action::Recovery(crate::platform_recovery_admin::Kind::Signals),
+        ),
+        (
+            reads,
+            "/api/admin/system/recovery/incidents/{id}/artifacts",
+            Action::Recovery(crate::platform_recovery_admin::Kind::Artifacts),
+        ),
+        (
+            post,
+            "/api/admin/system/recovery/incidents/{id}/approve",
+            Action::Recovery(crate::platform_recovery_admin::Kind::Approve),
+        ),
+        (
+            post,
+            "/api/admin/system/recovery/incidents/{id}/close",
+            Action::Recovery(crate::platform_recovery_admin::Kind::Close),
+        ),
+        (
+            post,
+            "/api/admin/system/recovery/artifacts/{id}/accept",
+            Action::Recovery(crate::platform_recovery_admin::Kind::Accept),
+        ),
+        (
+            post,
+            "/api/admin/system/recovery/incidents",
+            Action::Recovery(crate::platform_recovery_admin::Kind::Open),
+        ),
         (reads, "/api/admin/updates/summary", Action::UpdatesSummary),
         (reads, "/api/admin/updates/devices", Action::UpdatesDevices),
         (post, "/api/admin/updates/push", Action::UpdatesPush),
@@ -150,8 +219,20 @@ fn gate(what: Action) -> &'static [&'static str] {
 }
 
 impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
-    fn shutdown(&self) {if let Some(service)=&self.recovery {service.shutdown();}if let Some(wizard)=&self.deploy{wizard.shutdown();}}
-    fn requires_session(&self, req: &Request<Body>) -> bool { !matches!(action(req.method(),req.uri().path()),Some(Action::Appcast|Action::AirgapFile)) }
+    fn shutdown(&self) {
+        if let Some(service) = &self.recovery {
+            service.shutdown();
+        }
+        if let Some(wizard) = &self.deploy {
+            wizard.shutdown();
+        }
+    }
+    fn requires_session(&self, req: &Request<Body>) -> bool {
+        !matches!(
+            action(req.method(), req.uri().path()),
+            Some(Action::Appcast | Action::AirgapFile)
+        )
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -169,49 +250,50 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
         let airgap = self.airgap.clone();
         let deploy = self.deploy.clone();
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            if matches!(what,Action::Appcast|Action::AirgapFile) {
-                let Some(operation)=crate::jmap::random()else{return bare(503,"service unavailable",&c,"");};
-                let id=crate::jmap::reply::request_id(r.headers().get("x-request-id"),operation);
-                if r.method()!=Method::GET{return crate::platform_airgap::plain(405,"method not allowed",&c,&id);}
-                let Some(store)=airgap else{return crate::platform_airgap::plain(404,"404 page not found",&c,&id);};
-                if what==Action::AirgapFile{return crate::platform_airgap::file(&store,&r,&c,&id).await;}
-                return crate::jmap::reply::response(store.appcast(),c.identity.proto,id);
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            if matches!(what, Action::Appcast | Action::AirgapFile) {
+                let Some(operation) = crate::jmap::random() else {
+                    return bare(503, "service unavailable", &c, "");
+                };
+                let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+                if r.method() != Method::GET {
+                    return crate::platform_airgap::plain(405, "method not allowed", &c, &id);
+                }
+                let Some(store) = airgap else {
+                    return crate::platform_airgap::plain(404, "404 page not found", &c, &id);
+                };
+                if what == Action::AirgapFile {
+                    return crate::platform_airgap::file(&store, &r, &c, &id).await;
+                }
+                return crate::jmap::reply::response(store.appcast(), c.identity.proto, id);
             }
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let Ok(authority) = setjoin_platform::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            if !authority.allows_any(required) {
-                let _ = setjoin_platform::console_denied(
-                    &exec,
-                    actor,
-                    &go_path,
-                    &required.join("|"),
-                    operation,
-                )
-                .await;
-                return bare(403, "Forbidden", &c, &id);
-            }
+            let authority = match setjoin_platform::authority(&exec, actor).await {
+                Ok(authority) if authority.allows_any(required) => authority,
+                _ => {
+                    let _ = setjoin_platform::console_denied(
+                        &exec,
+                        actor,
+                        &go_path,
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                }
+            };
             if authority.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
@@ -233,33 +315,87 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                 _ => None,
             };
             if let Some(route) = org_wide_route {
-                if !matches!(setjoin_platform::upgrade_org_wide(&exec, actor, route).await, Ok(true)) {
-                    let detail = format!("{} (organization-wide grant required)", required.join("|"));
-                    let _ = setjoin_platform::console_denied(&exec, actor, &go_path, &detail, operation).await;
+                if !matches!(
+                    setjoin_platform::upgrade_org_wide(&exec, actor, route).await,
+                    Ok(true)
+                ) {
+                    let detail =
+                        format!("{} (organization-wide grant required)", required.join("|"));
+                    let _ = setjoin_platform::console_denied(
+                        &exec, actor, &go_path, &detail, operation,
+                    )
+                    .await;
                     return bare(403, "Forbidden", &c, &id);
                 }
             }
-            if matches!(what,Action::DeployStart|Action::DeployCancel) {
-                let Some(wizard)=deploy else{return bare(500,"Deploy failed. Check the server logs for details.",&c,&id);};
-                return crate::platform_deploy::serve(what==Action::DeployStart,&wizard,&mut r,&auth,&c,&id).await;
+            if matches!(what, Action::DeployStart | Action::DeployCancel) {
+                let Some(wizard) = deploy else {
+                    return bare(
+                        500,
+                        "Deploy failed. Check the server logs for details.",
+                        &c,
+                        &id,
+                    );
+                };
+                return crate::platform_deploy::serve(
+                    what == Action::DeployStart,
+                    &wizard,
+                    &mut r,
+                    &auth,
+                    &c,
+                    &id,
+                )
+                .await;
             }
-            if what==Action::DeployStatus {
-                let Some(wizard)=deploy else{return bare(500,"Deploy failed. Check the server logs for details.",&c,&id);};
-                return crate::jmap::reply::response(wizard.status().await,c.identity.proto,id);
+            if what == Action::DeployStatus {
+                let Some(wizard) = deploy else {
+                    return bare(
+                        500,
+                        "Deploy failed. Check the server logs for details.",
+                        &c,
+                        &id,
+                    );
+                };
+                return crate::jmap::reply::response(wizard.status().await, c.identity.proto, id);
             }
-            if what==Action::AirgapUpload {
-                let Some(store)=airgap else{return crate::platform_airgap::plain(404,"404 page not found",&c,&id);};
-                return crate::platform_airgap::upload(store,&mut r,&c,&id).await;
+            if what == Action::AirgapUpload {
+                let Some(store) = airgap else {
+                    return crate::platform_airgap::plain(404, "404 page not found", &c, &id);
+                };
+                return crate::platform_airgap::upload(store, &mut r, &c, &id).await;
             }
             if let Action::Recovery(kind) = what {
-                if matches!(kind, crate::platform_recovery_admin::Kind::Approve | crate::platform_recovery_admin::Kind::Close | crate::platform_recovery_admin::Kind::Open | crate::platform_recovery_admin::Kind::Accept)
-                    && setjoin_platform::upgrades::reason_required(&exec, "system").await
-                    && r.headers().get("x-audit-reason").is_none_or(|v| v.as_bytes().is_empty())
+                if matches!(
+                    kind,
+                    crate::platform_recovery_admin::Kind::Approve
+                        | crate::platform_recovery_admin::Kind::Close
+                        | crate::platform_recovery_admin::Kind::Open
+                        | crate::platform_recovery_admin::Kind::Accept
+                ) && setjoin_platform::upgrades::reason_required(&exec, "system").await
+                    && r.headers()
+                        .get("x-audit-reason")
+                        .is_none_or(|v| v.as_bytes().is_empty())
                 {
-                    setjoin_platform::upgrades::missing_reason(&exec, actor, &c.identity.client_ip.to_string(), "system.recovery", operation).await;
+                    setjoin_platform::upgrades::missing_reason(
+                        &exec,
+                        actor,
+                        &c.identity.client_ip.to_string(),
+                        "system.recovery",
+                        operation,
+                    )
+                    .await;
                     return bare(400, "reason_required", &c, &id);
                 }
-                return crate::platform_recovery_admin::serve(kind, recovery.as_ref(), &mut r, &auth, &c, operation, &id).await;
+                return crate::platform_recovery_admin::serve(
+                    kind,
+                    recovery.as_ref(),
+                    &mut r,
+                    &auth,
+                    &c,
+                    operation,
+                    &id,
+                )
+                .await;
             }
             if let Action::Upgrade(kind) = what {
                 // `requireReason(system.upgrade)`: a reason-required area demands the header.
@@ -283,7 +419,11 @@ impl<K: KeySource + 'static> Intercept for PlatformUpdatesRoute<K> {
                 return upgrades::serve(kind, r, &c, &exec, &auth, operation, &id, &go_path).await;
             }
             // #456: a domain-scoped caller sees only the devices of users inside its reach.
-            let reach = if authority.domain_scope() > 0 { actor.user_id() } else { 0 };
+            let reach = if authority.domain_scope() > 0 {
+                actor.user_id()
+            } else {
+                0
+            };
             let head = r.method() == Method::HEAD;
             let reply = |body: String, status: u16| {
                 // net/http buffers 2 KiB of a handler's output; a larger single write

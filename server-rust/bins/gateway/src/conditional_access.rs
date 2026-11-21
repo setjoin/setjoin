@@ -264,7 +264,9 @@ impl<'de> serde::Deserialize<'de> for Ids {
 }
 
 impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -280,19 +282,12 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         let worker = self.worker.clone();
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
@@ -300,20 +295,20 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
             let required = gate(what);
-            let Ok(authority) = setjoin_conditional_access::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
+            let authority = match setjoin_conditional_access::authority(&exec, actor).await {
+                Ok(authority) if authority.allows_any(required) => authority,
+                _ => {
+                    let _ = setjoin_conditional_access::console_denied(
+                        &exec,
+                        actor,
+                        &segment_path(r.uri().path()),
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                }
             };
-            if !authority.allows_any(required) {
-                let _ = setjoin_conditional_access::console_denied(
-                    &exec,
-                    actor,
-                    &segment_path(r.uri().path()),
-                    &required.join("|"),
-                    operation,
-                )
-                .await;
-                return bare(403, "Forbidden", &c, &id);
-            }
             if authority.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
@@ -450,7 +445,12 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                         Ok(db::Gate::Allowed) => {}
                         Ok(db::Gate::NotFound) => return failed(db::not_found()),
                         Ok(db::Gate::Forbidden) => {
-                            return bare(403, "policy scope is outside your administrative scope", &c, &id)
+                            return bare(
+                                403,
+                                "policy scope is outside your administrative scope",
+                                &c,
+                                &id,
+                            )
                         }
                         Err(_) => return bare(500, "database error", &c, &id),
                     }
@@ -585,7 +585,8 @@ impl<K: KeySource + 'static> Intercept for ConditionalAccessRoute<K> {
                     if !body.confirm {
                         // Preview only: a read, never a mutation.
                         if would_block > 0 {
-                            let list = match db::impact(&exec, actor, target, Some("blocked_users")).await
+                            let list = match db::impact(&exec, actor, target, Some("blocked_users"))
+                                .await
                             {
                                 Ok(text) => text,
                                 Err(e) => return failed(db::project(&e)),
