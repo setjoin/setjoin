@@ -83,6 +83,9 @@ for g in "$ROOT"/scripts/check-*.sh; do
   case "$g" in *-selftest.sh) continue ;; esac
   name="$(basename "$g" .sh)"
   [[ "$name" == "check-route-inventory" ]] && continue
+  # Release-signing workflow gate (requires GITHUB_REPOSITORY and BUILD_RUN_ID;
+  # exercised by scripts/test-check-server-release-build.sh, not a repo-tree guard).
+  [[ "$name" == "check-server-release-build" ]] && continue
 
   if [ "$NO_DB" = 1 ] && grep -q '^# guard-requires: db' "$g"; then
     skipped+=("$name")
