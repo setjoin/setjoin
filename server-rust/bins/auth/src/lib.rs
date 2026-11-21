@@ -1491,6 +1491,9 @@ pub async fn serve_until(
     tls: Option<tokio_rustls::TlsAcceptor>,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
+    // These subscriptions keep the native SSO registries current for this server.
+    let _saml_listener = server.start_saml_listener().await;
+    let _rp_listener = server.start_rp_listener().await;
     let mut tasks = tokio::task::JoinSet::new();
     tokio::pin!(shutdown);
     loop {
