@@ -574,7 +574,7 @@ mod tests {
                 })
             })
         }
-        let set_method = Method {
+        static SET_METHOD: Method = Method {
             run: run_set,
             ..TESTS[2]
         };
@@ -595,7 +595,7 @@ mod tests {
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/get\",{\"a\":1},\"c1\"]]}\n"
         );
-        let cx = Cx::new(&exec, None, &auth, 1, 2, &set_method, "null");
+        let cx = Cx::new(&exec, None, &auth, 1, 2, &SET_METHOD, "null");
         assert_eq!(
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/set\",{\"created\":{\"c1\":{\"id\":\"19000001\"}}},\"c1\"]],\"createdIds\":{\"c1\":\"19000001\"}}\n"
