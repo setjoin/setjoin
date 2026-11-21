@@ -589,9 +589,7 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
     }
 
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let Some(kind) = classify(r.method(), r.uri().path()) else {
-            return Box::pin(async move { c.upstream.forward(r, &c.identity).await });
-        };
+        let kind = classify(r.method(), r.uri().path()).expect("matched route");
         let this = Self {
             exec: self.exec.clone(),
             keys: self.keys.clone(),
@@ -604,7 +602,8 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
         Box::pin(async move {
             let mut nonce = [0; 16];
             if getrandom::getrandom(&mut nonce).is_err() {
-                return c.upstream.forward(r, &c.identity).await;
+                return problem_status(503, "Service Unavailable", "service unavailable")
+                    .build(&c, String::new());
             }
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), nonce);
             if kind == Kind::Telemetry {

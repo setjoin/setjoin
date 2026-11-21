@@ -267,16 +267,24 @@ impl AdminAuthority {
         self.domain_scope
     }
 }
+fn signed_admin_authority(permissions: &[String], domain_scope: Option<i64>) -> AdminAuthority {
+    let manage = permissions.iter().any(|p| p == "approvals.manage");
+    let view = manage || permissions.iter().any(|p| p == "approvals.view");
+    AdminAuthority {
+        manage,
+        view,
+        domain_scope,
+    }
+}
 pub async fn admin_authority(
     exec: &ScopedExecutor,
     actor: &AuthContext,
 ) -> Result<AdminAuthority, StatementFailure> {
     if !actor.signed_admin() {
-        return Ok(AdminAuthority {
-            manage: false,
-            view: false,
-            domain_scope: None,
-        });
+        return Ok(signed_admin_authority(
+            actor.signed_permissions(),
+            actor.signed_domain_scope(),
+        ));
     }
     let user = actor.user_id();
     let rows=exec.read("SELECT COALESCE(bool_or('approvals.manage'=ANY(g.permissions)),false), COALESCE(bool_or(g.permissions && ARRAY['approvals.view','approvals.manage']::text[]),false), MIN(COALESCE(a.domain_override,g.domain_scope)) FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$1 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until)",&[(&user,Type::INT8)]).await?;
@@ -668,4 +676,32 @@ pub async fn decide_drive_access(
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"drive_access_approval_decide"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
  "SELECT (drive_access_approval_decide($4,$2,$5,$6,COALESCE($7::text[],d.requested_capabilities),COALESCE($8,d.requested_propagation),COALESCE($9::text::timestamptz,d.requested_expires_at),COALESCE($10::bigint::integer,d.requested_max_uses),$11))->>'status' FROM drive_access_request_details d WHERE d.request_id=$4 AND EXISTS(SELECT 1 FROM approval_requests r WHERE r.id=d.request_id AND (r.requester_user_id=$2 OR (r.approver_kind='user' AND r.approver_ref=$2) OR (r.approver_kind='role_group' AND EXISTS(SELECT 1 FROM public.admin_role_assignments a WHERE a.user_id=$2 AND a.role_group_id=r.approver_ref AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until))) OR EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$2 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND g.permissions && ARRAY['approvals.view','approvals.manage']::text[]))) AND $1::bigint>0 AND $3::text<>''",
  &[(&request,Type::INT8),(&decision,Type::TEXT),(&comment,Type::TEXT),(&body.capabilities,Type::TEXT_ARRAY),(&body.propagation,Type::TEXT),(&body.expires_at,Type::TEXT),(&body.max_uses,Type::INT8),(&body.expected_epoch,Type::INT8)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::signed_admin_authority;
+
+    #[test]
+    fn non_admin_authority_reads_signed_permissions_and_domain_scope() {
+        let none = signed_admin_authority(&[], None);
+        assert!(!none.can_view());
+        assert!(!none.can_manage());
+        assert_eq!(none.domain_scope(), None);
+
+        let unrelated = signed_admin_authority(&["users.read".into()], Some(7));
+        assert!(!unrelated.can_view());
+        assert!(!unrelated.can_manage());
+        assert_eq!(unrelated.domain_scope(), Some(7));
+
+        let view = signed_admin_authority(&["approvals.view".into()], Some(42));
+        assert!(view.can_view());
+        assert!(!view.can_manage());
+        assert_eq!(view.domain_scope(), Some(42));
+
+        let manage = signed_admin_authority(&["approvals.manage".into()], None);
+        assert!(manage.can_view());
+        assert!(manage.can_manage());
+        assert_eq!(manage.domain_scope(), None);
+    }
 }
