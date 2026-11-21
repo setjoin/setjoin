@@ -12,13 +12,55 @@ pub struct GuestsRoute<K: KeySource + 'static> {
     pub delivery: Option<Arc<dyn crate::recovery_worker::ObjectStore>>,
     pub lifecycle: Option<Arc<crate::guest_worker::GuestLifecycle>>,
 }
+fn matches_guest_route(method: &hyper::Method, path: &str) -> bool {
+    use hyper::Method;
+    let single = |prefix: &str| {
+        path.strip_prefix(prefix)
+            .is_some_and(|s| !s.is_empty() && !s.contains('/'))
+    };
+    let child = |suffix: &str| {
+        path.strip_prefix("/api/admin/guests/")
+            .and_then(|s| s.strip_suffix(suffix))
+            .is_some_and(|s| !s.is_empty() && !s.contains('/'))
+    };
+    (*method == Method::POST && path == "/api/me/guest-invites")
+        || (matches!(*method, Method::GET | Method::HEAD | Method::POST)
+            && path == "/api/admin/guests")
+        || (matches!(*method, Method::GET | Method::HEAD) && single("/api/admin/guests/"))
+        || (*method == Method::POST
+            && path
+                .strip_prefix("/api/admin/guests/")
+                .and_then(|s| s.rsplit_once('/'))
+                .is_some_and(|(target, action)| {
+                    !target.is_empty()
+                        && !target.contains('/')
+                        && matches!(
+                            action,
+                            "reinvite" | "transfer" | "disable" | "enable" | "extend"
+                        )
+                }))
+        || (matches!(*method, Method::GET | Method::HEAD) && child("/sponsor-options"))
+        || (*method == Method::PUT && child("/profile"))
+        || (*method == Method::DELETE && child("/invite"))
+        || (*method == Method::POST && path == "/api/admin/guest-invite-domains")
+        || (*method == Method::DELETE && single("/api/admin/guest-invite-domains/"))
+        || (matches!(*method, Method::GET | Method::HEAD | Method::POST)
+            && path == "/api/admin/guest-profiles")
+        || (matches!(*method, Method::GET | Method::HEAD)
+            && path == "/api/admin/guest-profile-domains")
+        || (matches!(
+            *method,
+            Method::GET | Method::HEAD | Method::PUT | Method::DELETE
+        ) && single("/api/admin/guest-profiles/"))
+}
+
 impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
     fn requires_session(&self, _req: &Request<Body>) -> bool {
         true
     }
     fn matches(&self, r: &Request<Body>) -> bool {
         let path = canonical_path(r.uri().path());
-        path.starts_with("/api/admin/guest") || path == "/api/me/guest-invites"
+        matches_guest_route(r.method(), &path)
     }
     fn admits_member(&self, h: hyper::HeaderMap, s: &'static str) -> BoxFuture<bool> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
@@ -48,7 +90,6 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                 r.headers().get("x-request-id"),
                 crate::jmap::random().unwrap_or([0; 16]),
             );
-            let original_uri = r.uri().clone();
             if r.uri()
                 .path()
                 .split('/')
@@ -756,7 +797,9 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     };
                 }
             }
-            if r.uri().path() == "/api/admin/guest-profile-domains" {
+            if matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD)
+                && r.uri().path() == "/api/admin/guest-profile-domains"
+            {
                 return match setjoin_guests::profile_domains(&worker, auth.context()).await {
                     Ok(body) => crate::jmap::reply::response(
                         crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
@@ -767,7 +810,11 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                 };
             }
             if (r.uri().path() == "/api/admin/guest-profiles" && r.method() == hyper::Method::POST)
-                || (r.uri().path().starts_with("/api/admin/guest-profiles/")
+                || (r
+                    .uri()
+                    .path()
+                    .strip_prefix("/api/admin/guest-profiles/")
+                    .is_some_and(|s| !s.is_empty() && !s.contains('/'))
                     && r.method() == hyper::Method::PUT)
             {
                 let profile_id = if r.method() == hyper::Method::PUT {
@@ -831,7 +878,9 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     }
                 };
             }
-            if r.uri().path() == "/api/admin/guest-profiles" {
+            if matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD)
+                && r.uri().path() == "/api/admin/guest-profiles"
+            {
                 return match setjoin_guests::profiles(&worker, auth.context()).await {
                     Ok(body) => crate::jmap::reply::response(
                         crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
@@ -842,7 +891,10 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                 };
             }
             if r.method() == hyper::Method::DELETE
-                && r.uri().path().starts_with("/api/admin/guest-profiles/")
+                && r.uri()
+                    .path()
+                    .strip_prefix("/api/admin/guest-profiles/")
+                    .is_some_and(|s| !s.is_empty() && !s.contains('/'))
             {
                 let Some(target) = r
                     .uri()
@@ -873,22 +925,36 @@ impl<K: KeySource + 'static> Intercept for GuestsRoute<K> {
                     }
                 };
             }
-            if let Some(target) = r.uri().path().strip_prefix("/api/admin/guest-profiles/") {
-                if let Ok(target) = target.parse::<i64>() {
-                    return match setjoin_guests::profile(&worker, auth.context(), target).await {
-                        Ok(body) => crate::jmap::reply::response(
-                            crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
-                            c.identity.proto,
-                            id,
-                        ),
-                        Err(error) => db_error(&error, r.uri().path(), &c, id),
-                    };
-                } else {
-                    return problem(400, "invalid id", r.uri().path(), &c, id, None);
+            if matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD) {
+                if let Some(target) = r
+                    .uri()
+                    .path()
+                    .strip_prefix("/api/admin/guest-profiles/")
+                    .filter(|s| !s.is_empty() && !s.contains('/'))
+                {
+                    if let Ok(target) = target.parse::<i64>() {
+                        return match setjoin_guests::profile(&worker, auth.context(), target).await
+                        {
+                            Ok(body) => crate::jmap::reply::response(
+                                crate::jmap::reply::go_compact(&body).unwrap_or_default() + "\n",
+                                c.identity.proto,
+                                id,
+                            ),
+                            Err(error) => db_error(&error, r.uri().path(), &c, id),
+                        };
+                    } else {
+                        return problem(400, "invalid id", r.uri().path(), &c, id, None);
+                    }
                 }
             }
-            *r.uri_mut() = original_uri;
-            c.upstream.forward(r, &c.identity).await
+            let mut response =
+                crate::jmap::reply::response("404 page not found\n".into(), c.identity.proto, id);
+            *response.status_mut() = hyper::StatusCode::NOT_FOUND;
+            response.headers_mut().insert(
+                "content-type",
+                hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+            );
+            response
         })
     }
 }

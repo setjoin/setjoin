@@ -174,18 +174,18 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                 || policy_target(r.uri().path()).is_some()
             {
                 let actor = auth.context();
-                if !actor.signed_admin() && !actor.signed_permissions().is_empty() {
-                    return c.upstream.forward(r, &c.identity).await;
-                }
-                let Ok(authority) = setjoin_approvals::admin_authority(&exec, actor).await else {
-                    return c.upstream.forward(r, &c.identity).await;
-                };
                 let manage = !matches!(*r.method(), hyper::Method::GET | hyper::Method::HEAD);
-                if !(if manage {
-                    authority.can_manage()
-                } else {
-                    authority.can_view()
-                }) {
+                let authority = setjoin_approvals::admin_authority(&exec, actor)
+                    .await
+                    .ok()
+                    .filter(|authority| {
+                        if manage {
+                            authority.can_manage()
+                        } else {
+                            authority.can_view()
+                        }
+                    });
+                let Some(authority) = authority else {
                     let path = r
                         .uri()
                         .path()
@@ -206,7 +206,7 @@ impl<K: KeySource + 'static> Intercept for ApprovalsRoute<K> {
                     let mut response = problem(403, "Forbidden", "", &c, request_id);
                     response.headers_mut().remove("content-language");
                     return response;
-                }
+                };
                 if r.uri().path() == "/api/admin/approval-requests/audit" {
                     let limit = query_value(r.uri(), "limit")
                         .and_then(|s| s.parse::<i64>().ok())

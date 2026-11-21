@@ -646,9 +646,9 @@ impl Intercept for LinkProtectRoute {
             let Some(claims) = verify_token(&token, &keys, now) else {
                 return text_error(400, "link_protect: invalid or expired token", &c, &id);
             };
-            let Ok(strict) = setjoin_mail_security::dlp::strict_mode(&worker).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let strict = setjoin_mail_security::dlp::strict_mode(&worker)
+                .await
+                .unwrap_or(false);
             let (base, results, all_errors) = scan(&scanners, &claims.url).await;
             let scanner_json = format!(
                 "{{{}}}",
@@ -675,9 +675,10 @@ impl Intercept for LinkProtectRoute {
             use setjoin_mail_security::dlp::Click;
             let verdict = match decided {
                 Click::Verdict(v) => v,
-                Click::Unscoped => return c.upstream.forward(r, &c.identity).await,
-                // FAIL CLOSED: no durable audit row means no redirect.
-                Click::Failed => return page(warn_page(&claims.url, &token), head, &c, &id),
+                // FAIL CLOSED: unscoped tokens and failed audits never redirect.
+                Click::Failed | Click::Unscoped => {
+                    return page(warn_page(&claims.url, &token), head, &c, &id)
+                }
             };
             match verdict.as_str() {
                 "safe" => redirect(&claims.url, head, false, &c, &id),

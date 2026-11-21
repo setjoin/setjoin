@@ -126,7 +126,9 @@ fn action(method: &Method, path: &str) -> Option<Action> {
     .map(|(_, action)| action)
 }
 impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -147,7 +149,8 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
         );
         let artifacts = self.artifacts.clone();
         Box::pin(async move {
-            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
@@ -156,9 +159,6 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                 return crate::mailboxes::bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
-            let Ok(authority) = setjoin_mailboxes::authority(&exec, auth.context()).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
             let what = action(r.method(), r.uri().path()).expect("matched route");
             let permission = if what == Action::Publish {
                 "exchange.assessment.publish"
@@ -178,7 +178,11 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
             } else {
                 "exchange.assessment.read"
             };
-            if !authority.allows_any(&[permission]) {
+            let Some(authority) = setjoin_mailboxes::authority(&exec, auth.context())
+                .await
+                .ok()
+                .filter(|authority| authority.allows_any(&[permission]))
+            else {
                 let _ = setjoin_mailboxes::console_denied(
                     &exec,
                     auth.context(),
@@ -191,7 +195,7 @@ impl<K: KeySource + 'static> Intercept for ExchangeRoute<K> {
                 )
                 .await;
                 return crate::mailboxes::bare(403, "Forbidden", &c, &id);
-            }
+            };
             if !matches!(
                 what,
                 Action::Registry | Action::Projects | Action::Runs | Action::Audit
@@ -542,7 +546,7 @@ fn json_reply(raw: &str, head: bool, c: &RequestContext, id: String) -> Response
         *response.body_mut() = http_body_util::StreamBody::new(futures_util::stream::empty::<
             Result<hyper::body::Frame<bytes::Bytes>, std::convert::Infallible>,
         >())
-        .map_err(|never|match never {})
+        .map_err(|never| match never {})
         .boxed();
     }
     if chunked {

@@ -44,8 +44,7 @@ impl Intercept for OfficeRoute {
             let flags=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false) AND coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.office_editing'),false)",&[]).await;
             match flags {
                 Ok(rows) if rows.first().is_some_and(|r| r.get::<_, bool>(0)) => {}
-                Ok(_) => return problem(404, "not found", &c, request_id.clone()),
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
+                _ => return problem(404, "not found", &c, request_id.clone()),
             }
             // Go's PathValue decodes one segment, never a path separator.
             let segments: Vec<_> = r.uri().path().split('/').collect();
@@ -79,9 +78,6 @@ impl Intercept for OfficeRoute {
                         .await)
             {
                 return problem(404, "file not found", &c, request_id.clone());
-            }
-            if contents && store.is_none() {
-                return c.upstream.forward(r, &c.identity).await;
             }
             if r.method() == Method::POST && contents {
                 let token = token.to_owned();
@@ -672,7 +668,7 @@ impl<K: setjoin_authz::token::KeySource + 'static> Intercept for OfficeAdminRout
                 "office.manage"
             };
             let permission = if actor.signed_admin() {
-                match exec.read("SELECT drive_has_admin_perm($1,'office.manage') OR ($2 AND drive_has_admin_perm($1,'office.view'))",&[(&user,setjoin_pg::Type::INT8),(&(perm.contains('|')),setjoin_pg::Type::BOOL)]).await{Ok(rows)=>rows[0].get(0),Err(_)=>return c.upstream.forward(r,&c.identity).await}
+                exec.read("SELECT drive_has_admin_perm($1,'office.manage') OR ($2 AND drive_has_admin_perm($1,'office.view'))",&[(&user,setjoin_pg::Type::INT8),(&(perm.contains('|')),setjoin_pg::Type::BOOL)]).await.is_ok_and(|rows|rows.first().is_some_and(|row|row.get(0)))
             } else {
                 false
             };

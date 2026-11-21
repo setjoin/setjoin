@@ -396,7 +396,9 @@ const UNCAPPED: usize = 16 << 20;
 const SIGNATURE_BODY: usize = 128 << 10;
 
 impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -411,10 +413,9 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
@@ -710,7 +711,7 @@ impl<K: KeySource + 'static> Intercept for UserSettingsRoute<K> {
                     };
                     let user = actor.user_id();
                     let Ok(flags) = sync::toggles(&exec).await else {
-                        return c.upstream.forward(r, &c.identity).await;
+                        return absent();
                     };
                     if !flags[0] || !flags[1] {
                         return absent();
