@@ -1,0 +1,13 @@
+{
+  "case": "quick-step-set-destroy-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[{\"id\": <seed.0>, \"icon\": \"Zap\", \"name\": \"Remove Me\", \"actions\": [{\"type\": \"mark_read\"}], \"position\": 0, \"mailbox_id\": <a.mailbox>}]",
+      "name": "quick_steps"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap QuickStep/set"
+}
