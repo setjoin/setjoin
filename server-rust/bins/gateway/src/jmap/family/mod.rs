@@ -210,7 +210,7 @@ pub(crate) fn classify(
     classify_with(body, services, find)
 }
 
-pub(in crate::jmap) fn classify_call(
+pub(super) fn classify_call(
     name: &str,
     raw: &str,
     client_id: &str,
@@ -312,7 +312,7 @@ pub(crate) fn go_map(entries: Vec<(&str, Value)>) -> String {
 }
 
 /// Go's `dispatchInvocation` (handler.go:1527), returning `(name, compacted_args)`.
-pub(in crate::jmap) async fn serve_call(cx: &Cx<'_>) -> (&'static str, String) {
+pub(super) async fn serve_call(cx: &Cx<'_>) -> (&'static str, String) {
     let method = cx.method();
     let handled = if !matches!(
         serde_json::from_str::<Value>(cx.args()),

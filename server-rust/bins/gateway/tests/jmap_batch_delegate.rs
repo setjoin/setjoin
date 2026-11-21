@@ -524,8 +524,8 @@ wave1_case!(http_multicall_batch_result_ref_and_created_ids, |e| {
     assert_eq!(resps[4][0], "Email/set");
     assert!(
         resps[4][1]["updated"]
-            .as_object()
-            .is_some_and(|m| m.contains_key(&e.a.two_labels.to_string())),
+            .as_array()
+            .is_some_and(|a| a.contains(&json!(e.a.two_labels))),
         "second mutator in batch must commit with its own OperationId: {body}"
     );
     assert_eq!(resps[5][0], "Core/echo");
