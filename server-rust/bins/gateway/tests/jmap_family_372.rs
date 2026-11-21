@@ -15,10 +15,10 @@ const COMMENT_SET_TOGGLES: &[(&str, bool)] = &[
 
 const SEED_SHARED_MAILBOX_A: &str =
     "INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary) \
-    SELECT NULL, domain_id, 'shared-' || {a.mailbox} || '@oracle.test', 'Shared', 'shared', FALSE \
+    SELECT NULL, domain_id, 'shared-' || {a.mailbox} || '@oracle.test', 'Shared', 'personal', FALSE \
     FROM mailboxes WHERE id = {a.mailbox} RETURNING id";
 const SEED_SHARED_MAILBOX_F: &str = "INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary) \
-    SELECT NULL, domain_id, 'shared-' || {f.mailbox} || '@oracle.test', 'Shared Foreign', 'shared', FALSE \
+    SELECT NULL, domain_id, 'shared-' || {f.mailbox} || '@oracle.test', 'Shared Foreign', 'personal', FALSE \
     FROM mailboxes WHERE id = {f.mailbox} RETURNING id";
 const GRANT_A_FULL: &str =
     "INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by) \
