@@ -257,7 +257,7 @@ jobs:
             (cd "$d" && GOWORK=off go mod download) || echo "::warning::go mod download failed outside the workspace in $d"
           done
           du -sh "$GOMODCACHE"
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.ref == 'refs/heads/main' && steps.gomod.outputs.cache-hit != 'true'
         with:
           path: ~/.cache/setjoin-server-rust-lane/go-mod
@@ -485,7 +485,7 @@ jobs:
           LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
             bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
       # one shard saves the Go module cache, and only from main (a pull request never writes a cache)
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: always() && github.ref == 'refs/heads/main' && matrix.shard == 1 && steps.gomod.outputs.cache-hit != 'true'
         with:
           path: ~/.cache/setjoin-server-rust-lane/go-mod
