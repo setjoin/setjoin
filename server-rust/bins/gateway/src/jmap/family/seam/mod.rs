@@ -143,7 +143,7 @@ impl ContinuitySigner {
         Self { key_id, key }
     }
 
-    pub(crate) fn key_id(&self) -> &str {
+    pub fn key_id(&self) -> &str {
         &self.key_id
     }
 
@@ -151,7 +151,7 @@ impl ContinuitySigner {
         self.key.sign(message).as_ref().to_vec()
     }
 
-    pub(crate) fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
+    pub fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
         use ring::signature::KeyPair;
         ring::signature::UnparsedPublicKey::new(
             &ring::signature::ED25519,

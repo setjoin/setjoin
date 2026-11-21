@@ -22,10 +22,9 @@ impl<K: KeySource + 'static> Intercept for PresenceRoute<K> {
             if super::push::unported_identity(r.headers()) {
                 return c.upstream.forward(r, &c.identity).await;
             }
-            // The shared HTTP conditional-access/device interceptor is #420's
-            // unported shape. No request writes before this whole-request handoff.
+            // Fail closed natively with 503 if HTTP admission gate is closed.
             if !setjoin_authz::push::http_admission_allowed(&commands.exec).await {
-                return c.upstream.forward(r, &c.identity).await;
+                return super::push::problem_response(&r, &c, 503, "service unavailable", "");
             }
             let Some(token) = setjoin_authz::token::extract(r.headers()) else {
                 return super::push::problem_response(&r, &c, 401, "Unauthorized", "");

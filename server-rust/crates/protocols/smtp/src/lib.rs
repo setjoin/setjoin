@@ -7,6 +7,7 @@ pub mod mail_auth;
 mod mutants;
 pub mod outbound;
 mod reducer_reply;
+pub mod smime;
 pub mod submission;
 mod tls;
 pub use delivery::{DeliveryEvents, DeliveryFeatures, RawBlobs};

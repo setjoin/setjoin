@@ -57,7 +57,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 12,  # lowered from 44 when #352 retired DPoP admission & token_binding_handoff (ratchet)
-    ("gateway", "forward"): 41,  # lowered after #354 batches 1-3, #201 F16/blobs/recovery, #355a DAV Basic auth
+    ("gateway", "forward"): 35,  # lowered after #354, #201, #355a, #356 wave 1+2a+2b
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,

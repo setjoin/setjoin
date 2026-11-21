@@ -57,9 +57,9 @@ pub mod workers;
 
 pub use auth::MailboxAuthContext;
 pub use command::{
-    lookup_command, lookup_operation, operation_hex, run_command, run_receipted_command,
-    run_receipted_command_capped, run_receipted_effect,
-    OperationLookup, ReceiptCommand,
+    lookup_command, lookup_operation, operation_hex, run_command, run_locked_tx,
+    run_receipted_command, run_receipted_command_capped, run_receipted_effect, OperationLookup,
+    ReceiptCommand,
 };
 pub use executor::{
     ConfigError, Param, ProvenStatement, ScopedExecutor, ScopedTx, Timeouts, DEADLINE_ENV,

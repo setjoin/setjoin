@@ -18,6 +18,7 @@ impl Failure {
             detail: detail.into(),
         }
     }
+    #[allow(dead_code)]
     pub fn account(detail: &str) -> Self {
         Self {
             kind: "accountNotFound",
@@ -146,50 +147,4 @@ pub(super) fn decode(method: &str, raw: &str) -> Result<Input, Failure> {
         }
     }
     Ok(input)
-}
-
-/// Mirror Go's separate encrypt probe and sign+email probe before claiming a
-/// plain creation. Typed probe failures leave that pass to the reducer in Go;
-/// null bools preserve prior values, and duplicate case-folded keys keep order.
-pub(super) fn smime_requested(raw: &str) -> bool {
-    let Ok(Fields(fields)) = serde_json::from_str::<Fields>(raw) else {
-        return false;
-    };
-    let (mut encrypt, mut sign) = (false, false);
-    let (mut valid_encrypt, mut valid_sign) = (true, true);
-    for (key, value) in fields {
-        let raw = value.get();
-        match crate::guests_input::fold(&key).as_str() {
-            "encryptsmime" if raw != "null" => match serde_json::from_str::<bool>(raw) {
-                Ok(v) => encrypt = v,
-                Err(_) => valid_encrypt = false,
-            },
-            "signsmime" if raw != "null" => match serde_json::from_str::<bool>(raw) {
-                Ok(v) => sign = v,
-                Err(_) => valid_sign = false,
-            },
-            "emailid" => {
-                if string(raw, "emailId").is_err() {
-                    valid_sign = false;
-                }
-            }
-            _ => {}
-        }
-    }
-    (valid_encrypt && encrypt) || (valid_sign && sign)
-}
-
-/// The attachment pass decodes only emailId; unrelated typed fields cannot
-/// make that pass skip a creation. A decode failure leaves it to the reducer.
-pub(super) fn attachment_email_id(raw: &str) -> Option<String> {
-    let Fields(fields) = serde_json::from_str::<Fields>(raw).ok()?;
-    let mut email = String::new();
-    for (key, raw) in fields {
-        if crate::guests_input::fold(&key) == "emailid" {
-            if let Some(value) = string(raw.get(), "emailId").ok()? {
-                email = value;
-            }
-        }
-    }
-    Some(email)
 }

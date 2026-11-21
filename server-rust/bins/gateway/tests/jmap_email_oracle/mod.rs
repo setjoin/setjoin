@@ -74,7 +74,7 @@ pub const RULES: &[&str] = &[
 pub enum Mutation {
     None,
     WrongStatus,
-    PreprocessingOwner,
+    NativeSubmission,
     NoNotify,
     NoRecallAudit,
     CommitBefore,
@@ -1053,7 +1053,8 @@ async fn execute(
                     };
                     tokio::spawn(async move {
                         if let Ok(mut outbound) = tokio::net::TcpStream::connect(target).await {
-                            let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                            let _ =
+                                tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
                         }
                     });
                 }
@@ -1065,26 +1066,7 @@ async fn execute(
         .as_ref()
         .map(|go| format!("http://{}", go.address))
         .or(recording);
-    let forwarded = Arc::new(std::sync::Mutex::new(None::<Vec<u8>>));
-    let preprocessing_upstream = if mutation == Mutation::PreprocessingOwner {
-        let capture = forwarded.clone();
-        let addr = common::fake_upstream(move |req| {
-            let capture = capture.clone();
-            async move {
-                let bytes = req.into_body().collect().await.unwrap().to_bytes();
-                *capture.lock().unwrap() = Some(bytes.to_vec());
-                hyper::Response::builder()
-                    .status(202)
-                    .body(common::full("submission-preprocessing-owner-328"))
-                    .unwrap()
-            }
-        })
-        .await;
-        Some(format!("http://{addr}").parse()?)
-    } else {
-        None
-    };
-    let upstream = preprocessing_upstream.or(recording.as_deref().map(str::parse).transpose()?);
+    let upstream = recording.as_deref().map(str::parse).transpose()?;
     let gateway = Gateway::new(
         Config {
             upstream,
@@ -1209,7 +1191,10 @@ async fn execute(
             headers.get("content-type").and_then(|v| v.to_str().ok()),
             &bytes,
         );
-        let text = if headers.get("content-type").is_some_and(|v| v == "application/zip") {
+        let text = if headers
+            .get("content-type")
+            .is_some_and(|v| v == "application/zip")
+        {
             // A zip is observed as its verified entry listing (names, sizes, digests).
             if let Some(length) = headers.get("content-length") {
                 if length.to_str()?.parse::<usize>()? != bytes.len() {
@@ -1237,11 +1222,7 @@ async fn execute(
             .await?;
         let bytes = metrics.into_body().collect().await?.to_bytes();
         let metrics = std::str::from_utf8(&bytes)?;
-        let expected = if mutation == Mutation::PreprocessingOwner {
-            1
-        } else {
-            0
-        };
+        let expected = 0;
         if !metrics
             .lines()
             .any(|line| line == format!("setjoin_gateway_proxied_to_go_total {expected}"))
@@ -1344,18 +1325,47 @@ async fn execute(
         relay.abort();
     }
 
-    if mutation == Mutation::PreprocessingOwner {
+    if mutation == Mutation::NativeSubmission {
         let (status, _, raw) = raw_responses.last().ok_or("missing response")?;
-        if *status != 202 || raw != "submission-preprocessing-owner-328" {
-            return Err("mixed preprocessing map did not reach its unported #328 owner".into());
+        if *status != 200 {
+            return Err(format!("native submission returned status {status}: {raw}").into());
         }
-        if forwarded.lock().unwrap().as_deref() != Some(body.as_bytes()) {
-            return Err("preprocessing body changed in forwarding".into());
+        let doc: Value = serde_json::from_str(raw)?;
+        let res = &doc["methodResponses"][0][1];
+        match spec.case {
+            "submission-smime-deferred" => {
+                if !res["created"].get("plain").is_some()
+                    || res["notCreated"]["encrypted"]["type"] != "smime_encrypt_no_cert"
+                {
+                    return Err(
+                        format!("unexpected submission-smime-deferred result: {raw}").into(),
+                    );
+                }
+            }
+            "submission-smime-unicode" => {
+                if res["notCreated"]["encrypted"]["type"] != "smime_encrypt_no_cert" {
+                    return Err(format!("unexpected submission-smime-unicode result: {raw}").into());
+                }
+            }
+            "submission-attachment-deferred" => {
+                if !res["created"].get("plain").is_some()
+                    || !res["created"].get("attached").is_some()
+                {
+                    return Err(
+                        format!("unexpected submission-attachment-deferred result: {raw}").into(),
+                    );
+                }
+            }
+            "submission-attachment-invalid-id" => {
+                if res["notCreated"]["attached"]["type"] != "invalidArguments" {
+                    return Err(format!(
+                        "unexpected submission-attachment-invalid-id result: {raw}"
+                    )
+                    .into());
+                }
+            }
+            other => return Err(format!("unhandled NativeSubmission case: {other}").into()),
         }
-        if before != after || row_effects != json!([]) || !notify.is_empty() || audit != json!([]) {
-            return Err("preprocessing forwarding wrote native effects".into());
-        }
-        println!("DEFERRED-OWNER: EmailSubmission/set MIME/S/MIME :: #328");
         return Ok(());
     }
     let names = &fx.names;

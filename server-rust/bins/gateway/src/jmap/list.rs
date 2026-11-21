@@ -46,9 +46,18 @@ const MAX_LIMIT: i64 = 256;
 
 pub fn classify(body: &[u8]) -> Option<ListRequest> {
     let call = single_call(body, "Email/query")?;
-    let client_id = call.client_id.as_str();
+    let raw = serde_json::to_string(&call.args).ok()?;
+    classify_call("Email/query", &raw, &call.client_id)
+}
+
+/// Call-level classifier for the webmail fast `Email/query` path inside a batch.
+pub fn classify_call(method: &str, raw_args: &str, client_id: &str) -> Option<ListRequest> {
+    if method != "Email/query" {
+        return None;
+    }
+    let parsed: Value = serde_json::from_str(raw_args).ok()?;
     let args = exact_keys(
-        &call.args,
+        &parsed,
         &["accountId", "filter"],
         &["sort", "position", "limit"],
     )?;
@@ -118,6 +127,17 @@ pub fn classify(body: &[u8]) -> Option<ListRequest> {
     })
 }
 
+/// Go's method response object JSON for a served list request.
+pub fn result_json(mailbox: i64, position: i32, page: &EmailListPage) -> String {
+    let ids: Vec<String> = page.ids.iter().map(|id| format!("\"{id}\"")).collect();
+    format!(
+        r#"{{"ids":[{}],"state":"{}","total":{},"position":{position},"accountId":"{mailbox}","canCalculateChanges":false}}"#,
+        ids.join(","),
+        page.email_state,
+        page.total,
+    )
+}
+
 /// Go's response body for a served list request.
 pub fn body(
     session_state: &str,
@@ -126,12 +146,9 @@ pub fn body(
     client_id: &str,
     page: &EmailListPage,
 ) -> String {
-    let ids: Vec<String> = page.ids.iter().map(|id| format!("\"{id}\"")).collect();
     format!(
-        r#"{{"sessionState":"{session_state}","methodResponses":[["Email/query",{{"ids":[{}],"state":"{}","total":{},"position":{position},"accountId":"{mailbox}","canCalculateChanges":false}},"{client_id}"]]}}"#,
-        ids.join(","),
-        page.email_state,
-        page.total,
+        r#"{{"sessionState":"{session_state}","methodResponses":[["Email/query",{result},"{client_id}"]]}}"#,
+        result = result_json(mailbox, position, page),
     ) + "\n"
 }
 

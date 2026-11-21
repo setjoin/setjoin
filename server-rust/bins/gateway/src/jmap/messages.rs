@@ -228,87 +228,70 @@ impl<K: KeySource> JmapCommands<K> {
         req: Request<Body>,
         ctx: RequestContext,
     ) -> Response<Body> {
+        let (req, authorized) = match self.admit_http(req, &ctx, crate::deny::Scope::Member).await {
+            Ok(ok) => ok,
+            Err(response) => return response,
+        };
         let (parts, body) = req.into_parts();
-        let body = if route == Route::Focus {
-            match super::buffer(body).await {
-                super::Buffered::Whole(bytes) => Ok(bytes),
-                super::Buffered::Forward(rest) => Err(rest),
-            }
-        } else {
-            Ok(Bytes::new())
+        let Ok(rand_bytes) = super::random_bytes() else {
+            let fallback_id = reply::request_id(parts.headers.get("x-request-id"), [0; 16]);
+            return crate::mailboxes::bare(500, "internal error", &ctx, &fallback_id);
         };
-        let bytes = match body {
-            Ok(bytes) => bytes,
-            Err(rest) => {
-                return ctx
-                    .upstream
-                    .forward(Request::from_parts(parts, rest), &ctx.identity)
-                    .await
-            }
-        };
-        match self.try_message(route, &raw_id, &parts, &bytes, &ctx).await {
-            Ok(response) => response,
-            Err(_) => {
-                let body = http_body_util::BodyExt::boxed(http_body_util::Full::new(bytes).map_err(|n| match n {}));
-                ctx.upstream
-                    .forward(Request::from_parts(parts, body), &ctx.identity)
-                    .await
-            }
-        }
-    }
-
-    async fn admit(
-        &self,
-        parts: &hyper::http::request::Parts,
-        ctx: &RequestContext,
-    ) -> Result<Admitted, &'static str> {
-        let authorized = setjoin_authz::authorize_request(
-            &self.exec,
-            &self.keys,
-            &self.issuer,
-            &parts.headers,
-            ctx.identity.proto,
-        )
-        .await
-        .ok_or("unported identity admission (#331)")?;
+        let request_id = reply::request_id(parts.headers.get("x-request-id"), rand_bytes);
         let identity = authorized.context();
-        if let Some(denylist) = &self.denylist {
-            let issued =
-                chrono::DateTime::from_timestamp(authorized.issued_at(), 0).ok_or("token iat")?;
-            if !denylist.loaded()
-                || denylist.is_revoked(
-                    identity.user_id(),
-                    authorized.token_id(),
-                    authorized.token_family(),
-                    issued,
-                )
-            {
-                return Err("unported identity admission (#331)");
-            }
-        }
-        let request_id = reply::request_id(
-            parts.headers.get("x-request-id"),
-            super::random().ok_or("rng unavailable")?,
-        );
-        Ok(Admitted {
+        let (Ok(actor_id), Ok(mailbox_id)) = (
+            ActorId::new(identity.user_id()),
+            MailboxId::new(identity.mailbox_id()),
+        ) else {
+            return crate::mailboxes::bare(500, "internal error", &ctx, &request_id);
+        };
+        let a = Admitted {
             user: identity.user_id(),
             mailbox: identity.mailbox_id(),
             auth: MailboxAuthContext::from_authenticated_session(
-                ActorId::new(identity.user_id()).map_err(|_| "actor")?,
-                MailboxId::new(identity.mailbox_id()).map_err(|_| "mailbox")?,
+                actor_id,
+                mailbox_id,
                 super::REQUEST_AUTHORITY_GENERATION,
             ),
             request_id,
-        })
+        };
+        let bytes = if route == Route::Focus {
+            if positive_id(&raw_id).is_none() {
+                return crate::mailboxes::bare(400, "invalid message id", &ctx, &a.request_id);
+            }
+            match super::buffer_focus(body).await {
+                Ok(bytes) => bytes,
+                Err(super::FocusBodyError::TooLarge) => {
+                    return crate::mailboxes::bare(
+                        413,
+                        "request body too large",
+                        &ctx,
+                        &a.request_id,
+                    );
+                }
+                Err(super::FocusBodyError::Invalid) => {
+                    return crate::mailboxes::bare(
+                        400,
+                        "invalid request body",
+                        &ctx,
+                        &a.request_id,
+                    );
+                }
+            }
+        } else {
+            Bytes::new()
+        };
+        self.try_message(route, &raw_id, &parts, &bytes, &ctx, &a)
+            .await
     }
 
     fn envelope(
         &self,
         auth: &MailboxAuthContext,
         digest_of: &[u8],
-    ) -> Result<CommandEnvelope<()>, &'static str> {
+    ) -> Result<CommandEnvelope<()>, ()> {
         Ok(CommandEnvelope {
-            operation: OperationId(super::random().ok_or("rng unavailable")?),
+            operation: OperationId(super::random_bytes()?),
             authority: auth.authority(),
             binding: setjoin_db::lifecycle::accepted_contract(),
             payload_digest: Digest(Sha256::digest(digest_of).into()),
@@ -323,28 +306,33 @@ impl<K: KeySource> JmapCommands<K> {
         parts: &hyper::http::request::Parts,
         body: &Bytes,
         ctx: &RequestContext,
-    ) -> Result<Response<Body>, &'static str> {
-        let a = self.admit(parts, ctx).await?;
+        a: &Admitted,
+    ) -> Response<Body> {
         let rid = a.request_id.as_str();
         let worker = self.worker.as_ref().unwrap_or(&self.exec);
-        Ok(match route {
+        match route {
             Route::Focus => {
                 let Some(id) = positive_id(raw_id) else {
-                    return Ok(crate::mailboxes::bare(400, "invalid message id", ctx, rid));
+                    return crate::mailboxes::bare(400, "invalid message id", ctx, rid);
                 };
                 let Ok(focused) = decode_focus(body) else {
-                    return Ok(crate::mailboxes::bare(400, "invalid request body", ctx, rid));
+                    return crate::mailboxes::bare(400, "invalid request body", ctx, rid);
                 };
                 let owned = match setjoin_jmap::messages::owned_message(worker, a.user, id).await {
                     Ok(Some(owned)) => owned,
-                    _ => return Ok(crate::mailboxes::bare(404, "message not found", ctx, rid)),
+                    _ => return crate::mailboxes::bare(404, "message not found", ctx, rid),
+                };
+                let Ok(mailbox_id) = MailboxId::new(owned.mailbox) else {
+                    return crate::mailboxes::bare(500, "internal error", ctx, rid);
                 };
                 let scope = MailboxAuthContext::from_authenticated_session(
                     a.auth.actor(),
-                    MailboxId::new(owned.mailbox).map_err(|_| "mailbox")?,
+                    mailbox_id,
                     super::REQUEST_AUTHORITY_GENERATION,
                 );
-                let envelope = self.envelope(&scope, parts.uri.to_string().as_bytes())?;
+                let Ok(envelope) = self.envelope(&scope, parts.uri.to_string().as_bytes()) else {
+                    return crate::mailboxes::bare(500, "internal error", ctx, rid);
+                };
                 match setjoin_jmap::messages::set_focus(
                     worker,
                     &scope,
@@ -376,20 +364,20 @@ impl<K: KeySource> JmapCommands<K> {
                     }
                 }
             }
-            Route::Download => self.raw_download(raw_id, parts, ctx, &a).await?,
+            Route::Download => self.raw_download(raw_id, parts, ctx, a).await,
             Route::Zip => {
                 let Some(id) = positive_id(raw_id) else {
-                    return Ok(crate::mailboxes::bare(400, "invalid message id", ctx, rid));
+                    return crate::mailboxes::bare(400, "invalid message id", ctx, rid);
                 };
                 let source = match setjoin_jmap::messages::zip_source(worker, a.user, id).await {
                     Ok(source) => source,
-                    Err(_) => return Ok(crate::mailboxes::bare(500, "database error", ctx, rid)),
+                    Err(_) => return crate::mailboxes::bare(500, "database error", ctx, rid),
                 };
                 if source.entries.is_empty() {
-                    return Ok(crate::mailboxes::bare(404, "no attachments", ctx, rid));
+                    return crate::mailboxes::bare(404, "no attachments", ctx, rid);
                 }
                 if !super::messages_zip::entries_allowed(source.entries.len()) {
-                    return Ok(crate::mailboxes::bare(413, "too many attachments", ctx, rid));
+                    return crate::mailboxes::bare(413, "too many attachments", ctx, rid);
                 }
                 let store = self.services.as_ref().and_then(|s| s.store.clone());
                 super::messages_zip::response(
@@ -401,8 +389,8 @@ impl<K: KeySource> JmapCommands<K> {
                 )
                 .await
             }
-            Route::Unsubscribe => self.unsubscribe(raw_id, worker, ctx, &a).await?,
-        })
+            Route::Unsubscribe => self.unsubscribe(raw_id, worker, ctx, a).await,
+        }
     }
 
     async fn raw_download(
@@ -411,19 +399,19 @@ impl<K: KeySource> JmapCommands<K> {
         parts: &hyper::http::request::Parts,
         ctx: &RequestContext,
         a: &Admitted,
-    ) -> Result<Response<Body>, &'static str> {
+    ) -> Response<Body> {
         let rid = a.request_id.as_str();
         if self.services.is_none() {
-            return Err("download needs the JMAP services");
+            return crate::mailboxes::bare(500, "internal error", ctx, rid);
         }
         let Ok(id) = raw_id.parse::<i64>() else {
-            return Ok(crate::mailboxes::bare(400, "invalid email ID", ctx, rid));
+            return crate::mailboxes::bare(400, "invalid email ID", ctx, rid);
         };
         let worker = self.worker.as_ref().unwrap_or(&self.exec);
         let owned = match setjoin_jmap::messages::owned_message(worker, a.user, id).await {
             Ok(Some(owned)) => owned,
-            Ok(None) => return Ok(crate::mailboxes::bare(404, "email not found", ctx, rid)),
-            Err(_) => return Ok(crate::mailboxes::bare(500, "database error", ctx, rid)),
+            Ok(None) => return crate::mailboxes::bare(404, "email not found", ctx, rid),
+            Err(_) => return crate::mailboxes::bare(500, "database error", ctx, rid),
         };
         let filename = format!("{}.eml", sanitize_filename(&owned.subject));
         // Go builds `<jmap>/<mailbox>/<rawRef>/<filename>` by formatting and lets
@@ -433,7 +421,7 @@ impl<K: KeySource> JmapCommands<K> {
         // three-segment download route (404).
         let raw = owned.raw_ref.as_bytes();
         if raw.iter().any(|b| *b < 0x20 || *b == 0x7f) || bad_escape(raw) {
-            return Ok(crate::mailboxes::bare(500, "internal error", ctx, rid));
+            return crate::mailboxes::bare(500, "internal error", ctx, rid);
         }
         let mut reference = String::new();
         for b in raw {
@@ -446,11 +434,11 @@ impl<K: KeySource> JmapCommands<K> {
         // `/`, `?`, `#` were escaped above; the URL the proxy would build had them
         // raw and so never reaches a three-segment route.
         if raw.iter().any(|b| matches!(b, b'/' | b'?' | b'#')) {
-            return Ok(crate::mailboxes::bare(404, "email not found", ctx, rid));
+            return crate::mailboxes::bare(404, "email not found", ctx, rid);
         }
         let uri = format!("/jmap/download/{}/{reference}/{filename}", owned.mailbox);
         let Ok(uri) = uri.parse::<hyper::Uri>() else {
-            return Ok(crate::mailboxes::bare(500, "internal error", ctx, rid));
+            return crate::mailboxes::bare(500, "internal error", ctx, rid);
         };
         // Only the Authorization header is forwarded; ranges and validators of the
         // outer request never reach the inner download.
@@ -458,18 +446,20 @@ impl<K: KeySource> JmapCommands<K> {
         if let Some(value) = parts.headers.get("authorization") {
             inner = inner.header("authorization", value);
         }
-        let inner = inner
-            .body(http_body_util::BodyExt::boxed(http_body_util::Empty::<Bytes>::new().map_err(|n| match n {})))
-            .map_err(|_| "inner request")?;
+        let Ok(inner) = inner.body(http_body_util::BodyExt::boxed(
+            http_body_util::Empty::<Bytes>::new().map_err(|n| match n {}),
+        )) else {
+            return crate::mailboxes::bare(500, "internal error", ctx, rid);
+        };
         let response = self.download(&inner, ctx, &a.auth, rid).await;
         if response.status() != hyper::StatusCode::OK {
-            return Ok(crate::mailboxes::bare(404, "email not found", ctx, rid));
+            return crate::mailboxes::bare(404, "email not found", ctx, rid);
         }
         // Go copies the inner body through its own writer: a short body leaves
         // with a Content-Length, a longer one is chunked (2 KiB framing). The
         // inner validators, ranges and cache headers do not travel.
         let mut inner_body = response.into_body();
-        Ok(crate::compliance_export::stream(
+        crate::compliance_export::stream(
             parts.method == Method::HEAD,
             "message/rfc822",
             format!("attachment; filename=\"{filename}\""),
@@ -486,7 +476,7 @@ impl<K: KeySource> JmapCommands<K> {
                 out.finish();
             },
         )
-        .await)
+        .await
     }
 
     async fn unsubscribe(
@@ -495,32 +485,28 @@ impl<K: KeySource> JmapCommands<K> {
         worker: &setjoin_pg::ScopedExecutor,
         ctx: &RequestContext,
         a: &Admitted,
-    ) -> Result<Response<Body>, &'static str> {
+    ) -> Response<Body> {
         let rid = a.request_id.as_str();
-        let (header, from) = match setjoin_jmap::messages::unsubscribe_source(worker, a.user, raw_id).await {
-            Ok(Some(found)) => found,
-            _ => return Ok(crate::mailboxes::bare(404, "message not found", ctx, rid)),
-        };
+        let (header, from) =
+            match setjoin_jmap::messages::unsubscribe_source(worker, a.user, raw_id).await {
+                Ok(Some(found)) => found,
+                _ => return crate::mailboxes::bare(404, "message not found", ctx, rid),
+            };
         if header.is_empty() {
-            return Ok(crate::mailboxes::bare(
+            return crate::mailboxes::bare(
                 400,
                 "no unsubscribe URL available for this message",
                 ctx,
                 rid,
-            ));
+            );
         }
         let url = extract_unsubscribe_url(&header);
         if url.is_empty() {
-            return Ok(crate::mailboxes::bare(400, "invalid List-Unsubscribe header", ctx, rid));
+            return crate::mailboxes::bare(400, "invalid List-Unsubscribe header", ctx, rid);
         }
         if !url.starts_with("mailto:") {
             if !go_validate_url(url) {
-                return Ok(crate::mailboxes::bare(
-                    400,
-                    "unsubscribe URL is not allowed",
-                    ctx,
-                    rid,
-                ));
+                return crate::mailboxes::bare(400, "unsubscribe URL is not allowed", ctx, rid);
             }
             // A failed POST still records the intent: the request may have arrived.
             if let Err(error) = post_one_click(&self.unsubscribe_client(), url).await {
@@ -528,7 +514,9 @@ impl<K: KeySource> JmapCommands<K> {
             }
         }
         let target = raw_id.parse::<i64>().ok();
-        let envelope = self.envelope(&a.auth, raw_id.as_bytes())?;
+        let Ok(envelope) = self.envelope(&a.auth, raw_id.as_bytes()) else {
+            return crate::mailboxes::bare(500, "internal error", ctx, rid);
+        };
         let _ = a.mailbox;
         match setjoin_jmap::messages::record_unsubscribe(
             worker,
@@ -541,7 +529,7 @@ impl<K: KeySource> JmapCommands<K> {
         .await
         {
             CommandOutcome::Unknown { operation } => {
-                return Ok(crate::mailboxes::unknown_outcome(operation, ctx, rid))
+                return crate::mailboxes::unknown_outcome(operation, ctx, rid)
             }
             CommandOutcome::Committed(()) => {}
             // Go logs and answers 200 when its audit or block write fails.
@@ -556,7 +544,7 @@ impl<K: KeySource> JmapCommands<K> {
         response
             .headers_mut()
             .insert("content-type", "text/plain; charset=utf-8".parse().unwrap());
-        Ok(response)
+        response
     }
 
     fn unsubscribe_client(&self) -> reqwest::Client {
@@ -589,15 +577,28 @@ mod tests {
         assert_eq!(ok(r#"{"x":1e999,"focused":true} trailing"#), Ok(true));
         assert_eq!(ok("null"), Ok(false));
         assert_eq!(ok("{}"), Ok(false));
-        for bad in ["", "  ", "[]", "5", "\"x\"", r#"{"focused":"true"}"#, r#"{"focused":1}"#,
-            r#"{"focused":true"#, r#"{"focused":}"#, "{focused:true}"] {
+        for bad in [
+            "",
+            "  ",
+            "[]",
+            "5",
+            "\"x\"",
+            r#"{"focused":"true"}"#,
+            r#"{"focused":1}"#,
+            r#"{"focused":true"#,
+            r#"{"focused":}"#,
+            "{focused:true}",
+        ] {
             assert_eq!(ok(bad), Err(()), "{bad:?}");
         }
     }
 
     #[test]
     fn unsubscribe_url_prefers_http_over_mailto() {
-        assert_eq!(extract_unsubscribe_url("<mailto:a@b>, <https://x/y>"), "https://x/y");
+        assert_eq!(
+            extract_unsubscribe_url("<mailto:a@b>, <https://x/y>"),
+            "https://x/y"
+        );
         assert_eq!(extract_unsubscribe_url("<http://x>"), "http://x");
         assert_eq!(extract_unsubscribe_url(" <mailto:a@b> "), "mailto:a@b");
         assert_eq!(extract_unsubscribe_url("<ftp://x>"), "");
@@ -607,19 +608,41 @@ mod tests {
 
     #[test]
     fn validate_matches_go() {
-        for ok in ["https://example.com/u", "http://example.com:8080/u?x=1", "http://2130706433/", "https://[2606:4700::1]/"] {
+        for ok in [
+            "https://example.com/u",
+            "http://example.com:8080/u?x=1",
+            "http://2130706433/",
+            "https://[2606:4700::1]/",
+        ] {
             assert!(go_validate_url(ok), "{ok}");
         }
-        for bad in ["http://127.0.0.1/", "http://10.1.2.3/u", "http://[::1]/", "http://169.254.169.254/", "ftp://example.com/",
-            "https:foo", "http:///x", "http://:80/", "http://a b/", "http://exa\tmple.com/", "http://[::ffff:127.0.0.1]/"] {
+        for bad in [
+            "http://127.0.0.1/",
+            "http://10.1.2.3/u",
+            "http://[::1]/",
+            "http://169.254.169.254/",
+            "ftp://example.com/",
+            "https:foo",
+            "http:///x",
+            "http://:80/",
+            "http://a b/",
+            "http://exa\tmple.com/",
+            "http://[::ffff:127.0.0.1]/",
+        ] {
             assert!(!go_validate_url(bad), "{bad}");
         }
     }
 
     #[test]
     fn literal_addresses_in_any_form_are_refused_before_dialing() {
-        for raw in ["http://127.0.0.1/", "http://2130706433/", "http://0x7f.1/", "http://[::1]/", "http://169.254.169.254/latest",
-            "http://[::ffff:10.0.0.1]/"] {
+        for raw in [
+            "http://127.0.0.1/",
+            "http://2130706433/",
+            "http://0x7f.1/",
+            "http://[::1]/",
+            "http://169.254.169.254/latest",
+            "http://[::ffff:10.0.0.1]/",
+        ] {
             assert!(one_click_target(raw).is_err(), "{raw}");
         }
         assert!(one_click_target("https://203.0.114.7/u").is_ok());
@@ -654,7 +677,11 @@ mod tests {
         send_one_click(&client, url).await.unwrap();
         let seen = server.await.unwrap();
         let request = seen[0].to_ascii_lowercase();
-        assert!(seen[0].starts_with("POST /unsub?t=1 HTTP/1.1"), "{}", seen[0]);
+        assert!(
+            seen[0].starts_with("POST /unsub?t=1 HTTP/1.1"),
+            "{}",
+            seen[0]
+        );
         assert!(request.contains("content-type: application/x-www-form-urlencoded"));
         assert!(seen[0].ends_with("List-Unsubscribe=One-Click"));
     }
@@ -671,16 +698,31 @@ mod tests {
             .into_iter()
             .map(|n| dedupe(&mut seen, n.to_owned()))
             .collect();
-        assert_eq!(names, ["a.txt", "a-2.txt", "a-3.txt", "b", "b-2", ".h", "-2.h"]);
+        assert_eq!(
+            names,
+            ["a.txt", "a-2.txt", "a-3.txt", "b", "b-2", ".h", "-2.h"]
+        );
     }
 
     #[test]
     fn targets_are_the_four_routes_with_their_methods() {
         use hyper::Method;
-        assert_eq!(target(&Method::POST, "/api/messages/5/focus").map(|t| t.0), Some(Route::Focus));
-        assert_eq!(target(&Method::GET, "/api/messages/5/download").map(|t| t.0), Some(Route::Download));
-        assert_eq!(target(&Method::HEAD, "/api/messages/5/attachments.zip").map(|t| t.0), Some(Route::Zip));
-        assert_eq!(target(&Method::POST, "/api/messages/5/unsubscribe").map(|t| t.0), Some(Route::Unsubscribe));
+        assert_eq!(
+            target(&Method::POST, "/api/messages/5/focus").map(|t| t.0),
+            Some(Route::Focus)
+        );
+        assert_eq!(
+            target(&Method::GET, "/api/messages/5/download").map(|t| t.0),
+            Some(Route::Download)
+        );
+        assert_eq!(
+            target(&Method::HEAD, "/api/messages/5/attachments.zip").map(|t| t.0),
+            Some(Route::Zip)
+        );
+        assert_eq!(
+            target(&Method::POST, "/api/messages/5/unsubscribe").map(|t| t.0),
+            Some(Route::Unsubscribe)
+        );
         assert!(target(&Method::GET, "/api/messages/5/focus").is_none());
         assert!(target(&Method::POST, "/api/messages//focus").is_none());
         assert!(target(&Method::POST, "/messages/5/focus").is_none());

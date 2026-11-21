@@ -1,8 +1,8 @@
 //! JMAP HTTP peripherals (#316), sharing the verified request admission chain.
-use super::{JmapCommands, reply, token::KeySource};
+use super::{reply, token::KeySource, JmapCommands};
 use crate::{Body, RequestContext};
 use hyper::{Method, Request, Response};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
 use setjoin_pg::MailboxAuthContext;
 
@@ -29,44 +29,55 @@ pub fn matches(method: &Method, path: &str) -> bool {
 impl<K: KeySource> JmapCommands<K> {
     pub(super) async fn try_http(
         &self,
-        req: &mut Request<Body>,
+        req: Request<Body>,
         ctx: &RequestContext,
-    ) -> Option<Response<Body>> {
-        let services = self.services.as_ref()?;
-        let authorized = setjoin_authz::authorize_user_request(
-            &self.exec,
-            &self.keys,
-            &self.issuer,
-            req.headers(),
-            ctx.identity.proto,
-        )
-        .await?;
+    ) -> Response<Body> {
+        let scope = if req.uri().path() == "/.well-known/jmap" {
+            crate::deny::Scope::User
+        } else {
+            crate::deny::Scope::Member
+        };
+        let (mut req, authorized) = match self.admit_http(req, ctx, scope).await {
+            Ok(ok) => ok,
+            Err(response) => return response,
+        };
+        let Ok(rand_bytes) = super::random_bytes() else {
+            let fallback_id = reply::request_id(req.headers().get("x-request-id"), [0; 16]);
+            return problem(500, "serverFail", "internal error", ctx, &fallback_id);
+        };
+        let id = reply::request_id(req.headers().get("x-request-id"), rand_bytes);
+        let Some(services) = self.services.as_ref() else {
+            return problem(500, "serverFail", "internal error", ctx, &id);
+        };
         let actor = authorized.context();
         if actor.mailbox_id() == 0 && req.uri().path() == "/.well-known/jmap" {
-            let id=reply::request_id(req.headers().get("x-request-id"),super::random()?);
-            return Some(guest_session(&self.exec,actor.user_id(),ctx,id).await);
+            return guest_session(&self.exec, actor.user_id(), ctx, id).await;
         }
-        let auth = MailboxAuthContext::from_authenticated_session(
-            ActorId::new(actor.user_id()).ok()?,
-            MailboxId::new(actor.mailbox_id()).ok()?,
-            Generation(1),
-        );
-        let id = reply::request_id(req.headers().get("x-request-id"), super::random()?);
+        let (Ok(actor_id), Ok(mailbox_id)) = (
+            ActorId::new(actor.user_id()),
+            MailboxId::new(actor.mailbox_id()),
+        ) else {
+            return problem(500, "serverFail", "internal error", ctx, &id);
+        };
+        let auth =
+            MailboxAuthContext::from_authenticated_session(actor_id, mailbox_id, Generation(1));
         if req
             .uri()
             .path()
             .ends_with("/mail/attachment-transfer-token")
         {
-            return Some(self.mint_transfer(req, ctx, &auth, &authorized, &id).await);
+            return self
+                .mint_transfer(&mut req, ctx, &auth, &authorized, &id)
+                .await;
         }
         if req.uri().path().starts_with("/jmap/upload/") {
-            return Some(self.upload(req, ctx, &auth, &id).await);
+            return self.upload(&mut req, ctx, &auth, &id).await;
         }
         if req.uri().path().starts_with("/jmap/download/") {
-            return Some(self.download(req, ctx, &auth, &id).await);
+            return self.download(&mut req, ctx, &auth, &id).await;
         }
         if req.uri().path().starts_with("/jmap/recovery-raw/") {
-            let mut response = self.recovery_raw(req, ctx, &auth, &id).await;
+            let mut response = self.recovery_raw(&mut req, ctx, &auth, &id).await;
             let cache = if response.status().is_success() {
                 "private, no-store"
             } else {
@@ -75,7 +86,7 @@ impl<K: KeySource> JmapCommands<K> {
             response
                 .headers_mut()
                 .insert("cache-control", cache.parse().unwrap());
-            return Some(response);
+            return response;
         }
         let s = setjoin_jmap::session::settings(&self.exec, &auth).await;
         let enabled = |key: &str| s.flags.get(key).copied().unwrap_or(false);
@@ -92,7 +103,9 @@ impl<K: KeySource> JmapCommands<K> {
         let caps = if !authorized.device_id().is_empty()
             && matches!(platform, "desktop" | "ios" | "android")
         {
-            let operation = super::random()?;
+            let Ok(operation) = super::random_bytes() else {
+                return problem(500, "serverFail", "internal error", ctx, &id);
+            };
             let envelope = setjoin_contracts::command::CommandEnvelope {
                 operation: setjoin_contracts::ids::OperationId(operation),
                 authority: auth.authority(),
@@ -125,24 +138,24 @@ impl<K: KeySource> JmapCommands<K> {
                         id,
                     );
                     *response.status_mut() = hyper::StatusCode::SERVICE_UNAVAILABLE;
-                    response.headers_mut().insert(
-                        "x-operation-id",
-                        setjoin_pg::operation_hex(operation).parse().ok()?,
-                    );
-                    return Some(response);
+                    if let Ok(val) = setjoin_pg::operation_hex(operation).parse() {
+                        response.headers_mut().insert("x-operation-id", val);
+                    }
+                    return response;
                 }
                 _ => setjoin_jmap::session::effective_caps(&self.exec, &auth).await,
             }
         } else {
             setjoin_jmap::session::effective_caps(&self.exec, &auth).await
         };
+        let default_effective = || {
+            json!({"apps":{"mail":false,"calendar":false,"contacts":false,"tasks":false,"approvals":false,"drive":false,"chat":false,"meet":false},
+            "features":{"assist":false,"bundles":false,"external_labels":false,"guest_accounts":false,"guest_invite":false,"mail_search_builder":false,"sender_control_center":false,"shared_mail_work":false,"shared_mail_comments":false},
+            "offline":{"allowed":false,"approvalState":"pending","maxOfflineDays":0,"wipeOnLogout":"admin_default","requireApproval":true,"biometricUnlock":false,"windowsSsoUnlock":false}})
+        };
         let mut effective: Value = match caps {
-            Ok(raw) => serde_json::from_str(&raw).ok()?,
-            Err(_) => {
-                json!({"apps":{"mail":false,"calendar":false,"contacts":false,"tasks":false,"approvals":false,"drive":false,"chat":false,"meet":false},
-                "features":{"assist":false,"bundles":false,"external_labels":false,"guest_accounts":false,"guest_invite":false,"mail_search_builder":false,"sender_control_center":false,"shared_mail_work":false,"shared_mail_comments":false},
-                "offline":{"allowed":false,"approvalState":"pending","maxOfflineDays":0,"wipeOnLogout":"admin_default","requireApproval":true,"biometricUnlock":false,"windowsSsoUnlock":false}})
-            }
+            Ok(raw) => serde_json::from_str(&raw).unwrap_or_else(|_| default_effective()),
+            Err(_) => default_effective(),
         };
         if let Some(offline) = effective.get_mut("offline").and_then(Value::as_object_mut) {
             offline.insert(
@@ -205,8 +218,9 @@ impl<K: KeySource> JmapCommands<K> {
         if !s.help_email.is_empty() {
             body["helpEmail"] = json!(s.help_email);
         }
-        let body = reply::go_compact(&body.to_string())? + "\n";
-        Some(reply::response(body, ctx.identity.proto, id))
+        let serialized = body.to_string();
+        let body = reply::go_compact(&serialized).unwrap_or(serialized) + "\n";
+        reply::response(body, ctx.identity.proto, id)
     }
 }
 
@@ -307,7 +321,7 @@ fn consoles(perms: &[String]) -> Option<Vec<&'static str>> {
 }
 
 pub(super) fn uuid() -> Option<String> {
-    let mut b = super::random()?;
+    let mut b = super::random_bytes().ok()?;
     b[6] = (b[6] & 15) | 64;
     b[8] = (b[8] & 63) | 128;
     let h = reply::hex(&b);
@@ -321,23 +335,32 @@ pub(super) fn uuid() -> Option<String> {
     ))
 }
 
-async fn guest_session(exec:&setjoin_pg::ScopedExecutor,user:i64,ctx:&RequestContext,id:String)->Response<Body>{
+async fn guest_session(
+    exec: &setjoin_pg::ScopedExecutor,
+    user: i64,
+    ctx: &RequestContext,
+    id: String,
+) -> Response<Body> {
     use setjoin_pg::Type;
-    let mut chat=false;let mut meet=false;let mut drive=false;
+    let mut chat = false;
+    let mut meet = false;
+    let mut drive = false;
     if let Ok(rows)=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.chat'),false) AND check_user_app_entitlement($1,'chat'), coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.meet'),false) AND coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'),false) AND check_user_app_entitlement($1,'meet'),coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false) AND coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'),false) AND check_user_app_entitlement($1,'drive')",&[(&user,Type::INT8)]).await {
         if let Some(r)=rows.first(){chat=r.get(0);meet=r.get(1);drive=r.get(2);}
     }
-    let mut create=false;let mut host=false;let mut download=false;
-    if meet||drive {
+    let mut create = false;
+    let mut host = false;
+    let mut download = false;
+    if meet || drive {
         if let Ok(rows)=exec.read_user_scoped(ActorId::new(user).expect("verified guest"),
             "SELECT guest_profile_flag($1,'allow_meet_create'),guest_profile_flag($1,'allow_meet_host'),guest_profile_flag($1,'allow_download')",&[(&user,Type::INT8)]).await {
             if let Some(r)=rows.first(){if meet{create=r.get(0);host=r.get(1);}if drive{download=r.get(2);}}
         }
     }
-    let value=json!({"accounts":{},"capabilities":{},"isGuest":true,"effectiveCapabilities":{
+    let value = json!({"accounts":{},"capabilities":{},"isGuest":true,"effectiveCapabilities":{
         "apps":{"mail":false,"calendar":false,"contacts":false,"tasks":false,"approvals":false,"drive":false,"chat":chat,"meet":meet},
         "features":{"assist":false,"bundles":false,"external_labels":false,"guest_accounts":false,"guest_invite":false,"mail_search_builder":false,"sender_control_center":false,"shared_mail_work":false,"shared_mail_comments":false},
         "guest":{"allowMeetCreate":create,"allowMeetHost":host,"allowDownload":download},
         "offline":{"allowed":false,"approvalState":"pending","maxOfflineDays":0,"wipeOnLogout":"admin_default","requireApproval":true,"biometricUnlock":false,"windowsSsoUnlock":false}}});
-    reply::response(value.to_string()+"\n",ctx.identity.proto,id)
+    reply::response(value.to_string() + "\n", ctx.identity.proto, id)
 }

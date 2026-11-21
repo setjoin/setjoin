@@ -1,5 +1,5 @@
-use crate::common::boot::CommandBootExt;
 use super::*;
+use crate::common::boot::CommandBootExt;
 use http_body_util::BodyExt;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
@@ -85,9 +85,8 @@ async fn deferred_batch_forwards_whole_before_any_native_write() -> Result<(), B
     let owner = db.connect().await?;
     let a = fixture::account(&owner, "jmap4-deferred").await?;
     let result=async {
-        owner.execute("UPDATE messages SET has_attachments=true WHERE mailbox_id=$1 AND id=$2", &[&a.mailbox, &a.two_labels]).await?;
         let before=snapshot(&owner,&a).await?;
-        let batch=json!({"@type":"Request","id":"deferred","using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["Email/set",{"accountId":a.mailbox.to_string(),"update":{a.two_labels.to_string():{"keywords":{"$seen":true}}}},"write"],["EmailSubmission/set",{"accountId":a.mailbox.to_string(),"create":{"attachment":{"emailId":a.two_labels.to_string()}}},"later"]]}).to_string();
+        let batch=json!({"@type":"Request","id":"deferred","using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["Email/set",{"accountId":a.mailbox.to_string(),"update":{a.two_labels.to_string():{"keywords":{"$seen":true}}}},"write"],["EmailSubmission/set",{"accountId":a.mailbox.to_string(),"#create":{"resultOf":"write","name":"Email/set","path":"/created"}},"later"]]}).to_string();
         let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let upstream=listener.local_addr()?;
         let expected=batch.clone();let go=tokio::spawn(async move{
             let (stream,_)=listener.accept().await?;

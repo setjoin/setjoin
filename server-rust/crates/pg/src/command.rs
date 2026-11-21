@@ -284,6 +284,26 @@ pub async fn lookup_command(
     .await
 }
 
+/// Run a multi-statement command body in one locked, scoped transaction
+/// without inserting into `rust_operation_receipts`. Use only when the family
+/// writes its own durable operation receipt (such as `mailbox_audit_log` with
+/// `details.operation`) inside the same transaction.
+pub async fn run_locked_tx<C, T, F>(
+    exec: &ScopedExecutor,
+    envelope: &CommandEnvelope<C>,
+    auth: &MailboxAuthContext,
+    deadline: Instant,
+    body: F,
+) -> CommandOutcome<T, StatementFailure>
+where
+    F: AsyncFnOnce(&mut ScopedTx) -> Result<T, StatementFailure>,
+{
+    let operation = operation_hex(envelope.operation);
+    let lock = operation_lock(auth, &operation);
+    exec.run_with_lock(envelope, auth, deadline, Some(&lock), body)
+        .await
+}
+
 /// Receipted transaction with a peripheral effect between authorization/lock
 /// acquisition and the family's atomic reducer. The effect must be idempotent
 /// (e.g. content-addressed copy). Unknown retains bytes and requires lookup.

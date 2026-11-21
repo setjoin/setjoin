@@ -6,11 +6,17 @@ mod common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use common::{body_bytes, fake_upstream, full, send};
 use hyper::{Request, Response};
-use setjoin_gateway::jmap::jwks::Jwks;
+use p256::ecdsa::signature::Signer as _;
+use p256::ecdsa::SigningKey;
+use serde_json::json;
+use setjoin_gateway::jmap::jwks::{jwk, Jwks};
+use setjoin_gateway::jmap::token::VerifyingKey;
 use setjoin_gateway::jmap::{JmapCommands, JmapRoute};
 use setjoin_gateway::RouteTable;
 use setjoin_pg::ScopedExecutor;
@@ -55,17 +61,43 @@ async fn a_stalled_database_forwards_to_go_within_the_bound() {
         2,
     )
     .unwrap();
+    let key = SigningKey::from_slice(&[0x11; 32]).unwrap();
+    let pub_key =
+        VerifyingKey::from_sec1(key.verifying_key().to_sec1_point(false).as_bytes()).unwrap();
+    let jwks_doc = json!({ "keys": [jwk("stalled-1", &pub_key)] })
+        .to_string()
+        .into_bytes();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let h = URL_SAFE_NO_PAD
+        .encode(json!({"alg": "ES256", "kid": "stalled-1", "typ": "JWT"}).to_string());
+    let p = URL_SAFE_NO_PAD.encode(
+        json!({
+            "uid": 1, "email": "x@test", "typ": "access", "jti": "stalled-jti",
+            "fam": "stalled-fam", "iss": "mailserver", "aud": ["mailserver-gateway"],
+            "iat": now - 10, "exp": now + 600,
+        })
+        .to_string(),
+    );
+    let sig: p256::ecdsa::Signature = key.sign(format!("{h}.{p}").as_bytes());
+    let token = format!("{h}.{p}.{}", URL_SAFE_NO_PAD.encode(sig.to_bytes()));
+
     let route = JmapRoute(Arc::new(JmapCommands {
         services: None,
         worker: None,
         denylist: None,
         exec,
-        keys: Jwks::with_fetch(Box::new(|| Box::pin(async { Err("unused".to_string()) }))),
+        keys: Jwks::with_fetch(Box::new(move || {
+            let doc = jwks_doc.clone();
+            Box::pin(async move { Ok(doc) })
+        })),
         issuer: "mailserver".into(),
     }));
     let gw = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
 
-    // A claimed shape: the security read stalls, fails closed, and Go answers.
+    // Unauthenticated POST /jmap denies natively with 401 before hitting the DB or Go.
     let t = Instant::now();
     let resp = send(
         gw,
@@ -75,34 +107,41 @@ async fn a_stalled_database_forwards_to_go_within_the_bound() {
             .unwrap(),
     )
     .await;
+    assert_eq!(resp.status().as_u16(), 401);
+    assert!(t.elapsed() < Duration::from_millis(500));
+
+    // Authenticated claimed shape: security read stalls, fails closed natively (503) within bound.
+    let t = Instant::now();
+    let resp = send(
+        gw,
+        Request::post("/jmap")
+            .header("host", "mail.test")
+            .header("origin", "http://mail.test")
+            .header("authorization", format!("Bearer {token}"))
+            .body(full(SEEN))
+            .unwrap(),
+    )
+    .await;
     let took = t.elapsed();
-    assert_eq!(resp.status().as_u16(), 299);
-    assert_eq!(&body_bytes(resp).await[..], b"from go");
+    assert_eq!(resp.status().as_u16(), 503);
     assert!(
         took < Duration::from_secs(3),
         "claimed request took {took:?}"
     );
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
 
-    // Not claimed (another method, another path): no database wait at all.
-    for (path, body) in [
-        ("/jmap", r#"{"using":[],"methodCalls":[]}"#),
-        ("/api/other", ""),
-    ] {
-        let t = Instant::now();
-        let resp = send(
-            gw,
-            Request::post(path)
-                .header("host", "mail.test")
-                .body(full(body))
-                .unwrap(),
-        )
-        .await;
-        assert_eq!(resp.status().as_u16(), 299, "{path}");
-        assert!(
-            t.elapsed() < Duration::from_millis(500),
-            "{path} {:?}",
-            t.elapsed()
-        );
-    }
-    assert_eq!(hits.load(Ordering::SeqCst), 3);
+    // Non-JMAP path: no database wait at all, forwards directly to Go.
+    let t = Instant::now();
+    let resp = send(
+        gw,
+        Request::post("/api/other")
+            .header("host", "mail.test")
+            .body(full(""))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(resp.status().as_u16(), 299);
+    assert_eq!(&body_bytes(resp).await[..], b"from go");
+    assert!(t.elapsed() < Duration::from_millis(500));
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
 }

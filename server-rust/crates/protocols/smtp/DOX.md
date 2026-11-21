@@ -278,6 +278,19 @@ auth corpus uses, so what the auth recording captures is unchanged and re-pinnin
 such change, checking every entry against the files.
 Test files that share the fixed fixtures take a per-file `SERIAL` lock (do not re-enter it).
 
+## S/MIME outbound and decrypt-on-read primitives (`src/smime.rs`, #328/#356)
+
+`setjoin_smtp::smime` reuses the crate's pinned `openssl` dependency (`#![forbid(unsafe_code)]`)
+for gateway JMAP Wave 2b:
+- Outbound `resolve_and_sign` / `sign_message` (`CMSOptions::DETACHED | CMSOptions::BINARY`
+  `multipart/signed`) and `encrypt_message` (AES-256-GCM default / AES-256-CBC via
+  `SMIME_ENCRYPT_ALGORITHM`), plus `is_encryption_capable` (RSA + KeyUsage `keyEncipherment`
+  or absent) and `cert_matches_email`.
+- Inbound `decode_enveloped_der` + `decrypt_multi` collapsing unmatched recipients, wrong keys,
+  invalid PKCS#1 v1.5 padding, and AEAD/CBC failures into `DecryptError::WrongKey` alongside
+  OpenSSL 3.x implicit rejection (no Bleichenbacher padding oracle), distinct from structural
+  `DecryptError::MalformedCms`.
+
 ## Trust bundle (#333)
 
 `src/inbound/cacert.pem` is the S/MIME trust bundle: curl's extract of Mozilla NSS data

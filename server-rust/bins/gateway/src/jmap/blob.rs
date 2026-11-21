@@ -52,58 +52,66 @@ pub fn classify(body: &[u8]) -> Option<Request> {
         if let Some(call) =
             envelope::single_call_with_capability(body, method, "urn:ietf:params:jmap:blob")
         {
-            let known: &[&str] = match method {
-                "Blob/get" => &["accountId", "ids", "properties"],
-                "Blob/copy" => &["fromAccountId", "toAccountId", "ids"],
-                _ => &["accountId", "hashes", "typeNames"],
-            };
-            let raw = if call.args.is_object() || call.args.is_null() {
-                serde_json::to_string(&envelope::struct_arguments(&call.raw_args, known)?).ok()?
-            } else {
-                call.raw_args
-            };
-            let args = match method {
-                "Blob/get" => decode::<Get>(&raw).map(|a| Args {
-                    account: a.account_id.unwrap_or_default(),
-                    to: String::new(),
-                    ids: strings(a.ids),
-                }),
-                "Blob/copy" => decode::<Copy>(&raw).map(|a| Args {
-                    account: a.from_account_id.unwrap_or_default(),
-                    to: a.to_account_id.unwrap_or_default(),
-                    ids: strings(a.ids),
-                }),
-                _ => decode::<Lookup>(&raw).map(|a| Args {
-                    account: a.account_id.unwrap_or_default(),
-                    to: String::new(),
-                    ids: strings(a.hashes),
-                }),
-            };
-            return Some(Request {
-                method,
-                client_id: call.client_id,
-                args,
-            });
+            return classify_call(method, &call.raw_args, &call.client_id);
         }
     }
     None
 }
-pub async fn response(
+
+pub fn classify_call(method: &str, raw_args: &str, client_id: &str) -> Option<Request> {
+    let method: &'static str = match method {
+        "Blob/get" => "Blob/get",
+        "Blob/copy" => "Blob/copy",
+        "Blob/lookup" => "Blob/lookup",
+        _ => return None,
+    };
+    let known: &[&str] = match method {
+        "Blob/get" => &["accountId", "ids", "properties"],
+        "Blob/copy" => &["fromAccountId", "toAccountId", "ids"],
+        _ => &["accountId", "hashes", "typeNames"],
+    };
+    let val: serde_json::Value = serde_json::from_str(raw_args).ok()?;
+    let raw = if val.is_object() || val.is_null() {
+        serde_json::to_string(&envelope::struct_arguments(raw_args, known)?).ok()?
+    } else {
+        raw_args.to_owned()
+    };
+    let args = match method {
+        "Blob/get" => decode::<Get>(&raw).map(|a| Args {
+            account: a.account_id.unwrap_or_default(),
+            to: String::new(),
+            ids: strings(a.ids),
+        }),
+        "Blob/copy" => decode::<Copy>(&raw).map(|a| Args {
+            account: a.from_account_id.unwrap_or_default(),
+            to: a.to_account_id.unwrap_or_default(),
+            ids: strings(a.ids),
+        }),
+        _ => decode::<Lookup>(&raw).map(|a| Args {
+            account: a.account_id.unwrap_or_default(),
+            to: String::new(),
+            ids: strings(a.hashes),
+        }),
+    };
+    Some(Request {
+        method,
+        client_id: client_id.to_owned(),
+        args,
+    })
+}
+
+pub async fn response_call(
     exec: &ScopedExecutor,
     auth: &MailboxAuthContext,
-    session: &str,
     request: &Request,
-) -> Option<String> {
+) -> (&'static str, String) {
     let a = match &request.args {
         Ok(a) => a,
         Err(()) => {
-            return Some(reply::method_error(
-                session,
-                "invalidArguments",
-                400,
-                "",
-                &request.client_id,
-            ))
+            return (
+                "error",
+                reply::jmap_error_json("invalidArguments", 400, ""),
+            )
         }
     };
     let empty = a.ids.is_empty() || (request.method != "Blob/lookup" && a.ids.len() > 256);
@@ -113,13 +121,7 @@ pub async fn response(
         match setjoin_jmap::blob::owned(exec, auth, &a.ids).await {
             Ok(found) => found,
             Err(_) => {
-                return Some(reply::method_error(
-                    session,
-                    "serverFail",
-                    500,
-                    "",
-                    &request.client_id,
-                ))
+                return ("error", reply::jmap_error_json("serverFail", 500, ""))
             }
         }
     };
@@ -148,7 +150,7 @@ pub async fn response(
                 r#"{{"accountId":{},"list":[{}],"notFound":{},"state":"0"}}"#,
                 crate::problem::go_string(&a.account),
                 list.join(","),
-                serde_json::to_string(&missing).ok()?
+                serde_json::to_string(&missing).unwrap_or_else(|_| "[]".to_owned())
             )
         }
         "Blob/copy" => {
@@ -178,5 +180,15 @@ pub async fn response(
             json!({"accountId":a.account,"list":list}).to_string()
         }
     };
-    reply::method_response(session, request.method, &raw, &request.client_id)
+    (request.method, raw)
+}
+
+pub async fn response(
+    exec: &ScopedExecutor,
+    auth: &MailboxAuthContext,
+    session: &str,
+    request: &Request,
+) -> Option<String> {
+    let (name, body) = response_call(exec, auth, request).await;
+    reply::method_response(session, name, &body, &request.client_id)
 }
