@@ -331,7 +331,10 @@ impl Inventory {
                                 || route.path.starts_with("/drive")))
                         || route.target == Target::LocalRust);
                 let both = route.listener == "gateway"
-                    && matches!(route.target, Target::LocalRust | Target::RustAuth)
+                    && matches!(
+                        route.target,
+                        Target::LocalRust | Target::RustAuth | Target::GoMail
+                    )
                     && PINNED_AND_MOUNTED.contains(&route.path.as_str());
                 let external = (mounted_api && !both).then(|| format!("/api{}", route.path));
                 let pattern = external.as_deref().unwrap_or(&route.path);
@@ -558,5 +561,27 @@ mod tests {
                 .map(|r| r.path.as_str()),
             Some("/")
         );
+        let mut rolled_back: Value = serde_json::from_str(BUNDLED).expect("bundled json");
+        for r in rolled_back["routes"].as_array_mut().expect("routes") {
+            if r["listener"] == "gateway" && r["path"] == "/auth/admin/" {
+                r["state"] = serde_json::json!("OFF");
+                r["upstream"] = serde_json::json!("go-mail");
+            }
+        }
+        let off_inv = Inventory::parse(&rolled_back.to_string()).expect("rolled back inventory");
+        for (method, path) in [
+            (Method::GET, "/auth/admin"),
+            (Method::POST, "/auth/admin"),
+            (Method::GET, "/api/auth/admin"),
+        ] {
+            let route = off_inv
+                .find(&method, path)
+                .unwrap_or_else(|| panic!("no route for {method} {path}"));
+            assert_eq!(
+                (route.path.as_str(), route.target),
+                ("/auth/admin/", Target::GoMail),
+                "{method} {path} rolled back"
+            );
+        }
     }
 }
