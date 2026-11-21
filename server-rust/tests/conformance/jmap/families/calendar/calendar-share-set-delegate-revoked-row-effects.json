@@ -1,0 +1,28 @@
+{
+  "case": "calendar-share-set-delegate-revoked-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Foreign\", \"color\": null, \"timezone\": \"UTC\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <f.mailbox>, \"description\": null}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Foreign\", \"color\": null, \"timezone\": \"UTC\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <f.mailbox>, \"description\": null}]",
+      "name": "calendars"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "calendar_acls"
+    },
+    {
+      "after": "[{\"seq\": 1, \"datatype\": \"Calendar\", \"mailbox_id\": <f.mailbox>}]",
+      "before": "[{\"seq\": 1, \"datatype\": \"Calendar\", \"mailbox_id\": <f.mailbox>}]",
+      "name": "entity_state"
+    },
+    {
+      "after": "[{\"op\": \"created\", \"datatype\": \"Calendar\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <f.mailbox>}]",
+      "before": "[{\"op\": \"created\", \"datatype\": \"Calendar\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <f.mailbox>}]",
+      "name": "changes_journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "63b6242b5518c2b050639897e2ecf995c69a4d34",
+  "route": "POST /jmap Calendar/shareSet"
+}

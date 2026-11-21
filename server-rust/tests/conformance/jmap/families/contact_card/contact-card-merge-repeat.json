@@ -1,0 +1,81 @@
+{
+  "case": "contact-card-merge-repeat",
+  "format": 1,
+  "go_source": "63b6242b5518c2b050639897e2ecf995c69a4d34",
+  "kind": "repeat",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [],
+    "effects": {
+      "addressbooks": {
+        "after": "[{\"id\": <seed.0>, \"name\": \"Contacts\", \"is_default\": true, \"jmap_state\": 2, \"mailbox_id\": <a.mailbox>}]",
+        "before": "[{\"id\": <seed.0>, \"name\": \"Contacts\", \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>}]"
+      },
+      "contact_group_members": {
+        "after": "[]",
+        "before": "[]"
+      },
+      "contacts": {
+        "after": "[{\"id\": <seed.1>, \"notes\": null, \"emails\": [{\"type\": \"work\", \"address\": \"k@example.test\", \"is_primary\": true}, {\"type\": \"home\", \"address\": \"d@example.test\", \"is_primary\": false}], \"phones\": [], \"company\": null, \"job_title\": null, \"last_name\": null, \"vcard_uid\": \"uid-mr1\", \"categories\": [], \"department\": null, \"first_name\": null, \"jmap_state\": 0, \"display_name\": \"Keep\", \"addressbook_id\": <seed.0>}]",
+        "before": "[{\"id\": <seed.1>, \"notes\": null, \"emails\": [{\"type\": \"work\", \"address\": \"k@example.test\", \"is_primary\": true}], \"phones\": [], \"company\": null, \"job_title\": null, \"last_name\": null, \"vcard_uid\": \"uid-mr1\", \"categories\": [], \"department\": null, \"first_name\": null, \"jmap_state\": 0, \"display_name\": \"Keep\", \"addressbook_id\": <seed.0>}, {\"id\": <seed.2>, \"notes\": null, \"emails\": [{\"type\": \"home\", \"address\": \"d@example.test\", \"is_primary\": true}], \"phones\": [], \"company\": null, \"job_title\": null, \"last_name\": null, \"vcard_uid\": \"uid-mr2\", \"categories\": [], \"department\": null, \"first_name\": null, \"jmap_state\": 0, \"display_name\": \"Drop\", \"addressbook_id\": <seed.0>}]"
+      },
+      "entity_state": {
+        "after": "[{\"seq\": 3, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 4, \"datatype\": \"ContactCard\", \"mailbox_id\": <a.mailbox>}]",
+        "before": "[{\"seq\": 1, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 2, \"datatype\": \"ContactCard\", \"mailbox_id\": <a.mailbox>}]"
+      },
+      "journal": {
+        "after": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 3, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.2>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 3, \"mailbox_id\": <a.mailbox>}, {\"op\": \"destroyed\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.2>, \"state_seq\": 4, \"mailbox_id\": <a.mailbox>}]",
+        "before": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.2>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}]"
+      }
+    },
+    "notify": [
+      "contact:<a.mailbox> {\"event\": \"contact_updated\", \"contact_id\": <seed.1>}",
+      "contact:<a.mailbox> {\"event\": \"contact_destroyed\", \"contact_id\": <seed.2>}"
+    ],
+    "repeat": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-2-0-<timestamp>\",\"methodResponses\":[[\"error\",{\"type\":\"urn:ietf:params:jmap:error:notFound\",\"status\":500,\"detail\":\"notFound\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:ietf:params:jmap:contacts\"],\"methodCalls\":[[\"ContactCard/merge\",{\"accountId\":\"<a.mailbox>\",\"keepId\":\"<seed.1>\",\"dropId\":\"<seed.2>\"},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"ContactCard/merge\",{\"merged\":<seed.1>},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap ContactCard/merge"
+}

@@ -35,6 +35,12 @@ pub(crate) use crate::jmap::get::parse_id;
 pub use seam::ContinuitySigner;
 pub(crate) use seam::Cx;
 
+/// Go's `parseArg` (`parse.go:32`): positive int64 id, or `invalidArguments`
+/// `"invalid <property>"`.
+pub(crate) fn parse_arg(id: &str, property: &str) -> Result<i64, MethodError> {
+    parse_id(id).ok_or_else(|| MethodError::new("invalidArguments", &format!("invalid {property}")))
+}
+
 /// Every family's registry rows. Names are unique across families.
 const REGISTRY: &[&[Method]] = &[
     address_book::METHODS,
@@ -286,6 +292,41 @@ pub(crate) fn go_map(entries: Vec<(&str, Value)>) -> String {
     go_compact(&serde_json::to_string(&map).expect("map JSON")).expect("map JSON")
 }
 
+/// Go's `extractCreatedIDs` (`handler.go:742`) for `/set` responses.
+fn created_ids(method: &str, args: &str) -> Option<String> {
+    if !method.ends_with("/set") {
+        return None;
+    }
+    #[derive(serde::Deserialize)]
+    struct Created {
+        #[serde(default)]
+        id: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct SetResult {
+        created: Option<std::collections::BTreeMap<String, Option<Created>>>,
+    }
+    let SetResult {
+        created: Some(created),
+    } = serde_json::from_str(args).ok()?
+    else {
+        return None;
+    };
+    if created.is_empty() {
+        return None;
+    }
+    let entries: Vec<(&str, Value)> = created
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.as_str(),
+                Value::String(v.as_ref().map_or_else(String::new, |c| c.id.clone())),
+            )
+        })
+        .collect();
+    Some(go_map(entries))
+}
+
 /// Go's `dispatchInvocation` (handler.go:1527) and the HTTP envelope.
 pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String {
     let method = cx.method();
@@ -312,8 +353,12 @@ pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String
         },
         Err(error) => ("error", error.json()),
     };
+    let tail = match created_ids(name, &args) {
+        Some(ids) => format!(",\"createdIds\":{ids}"),
+        None => String::new(),
+    };
     format!(
-        "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]]}}\n",
+        "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]]{tail}}}\n",
         crate::problem::go_string(session),
         crate::problem::go_string(name),
         args,
@@ -542,6 +587,35 @@ mod tests {
         assert_eq!(
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/get\",{\"a\":1},\"c1\"]]}\n"
+        );
+        fn run_created<'a>(_: &'a Cx<'a>) -> Reply<'a> {
+            Box::pin(async {
+                Ok(Answer {
+                    name: "Test/set",
+                    args: r#"{"created":{"b<":{"id":"2"},"a":{"id":"1"}}}"#.into(),
+                })
+            })
+        }
+        static CREATED: Method = Method {
+            name: "Test/set",
+            capability: "urn:test",
+            app: "",
+            gate: Gate::Personal,
+            account: true,
+            mutator: true,
+            state: false,
+            ready: always,
+            run: run_created,
+        };
+        let cx = Cx::new(&exec, None, &auth, 1, 2, &CREATED, "{}");
+        assert_eq!(
+            serve(&cx, "c1", "s").await,
+            "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/set\",{\"created\":{\"b\\u003c\":{\"id\":\"2\"},\"a\":{\"id\":\"1\"}}},\"c1\"]],\"createdIds\":{\"a\":\"1\",\"b\\u003c\":\"2\"}}\n"
+        );
+        assert_eq!(created_ids("Test/set", r#"{"created":{}}"#), None);
+        assert_eq!(
+            created_ids("Test/get", r#"{"created":{"a":{"id":"1"}}}"#),
+            None
         );
     }
 
