@@ -1,5 +1,7 @@
 # F07 MDM HTTP oracle (#310)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 Eleven routes (`mdm` inventory slice) run through the HTTP front door. The case
 table is `bins/gateway/tests/devices.rs`; `devices_oracle/plan.rs` defines requests
 and fixtures. Two identities have distinct user/mailbox IDs and domains. Every

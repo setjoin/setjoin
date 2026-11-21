@@ -46,5 +46,27 @@
     "reason": "owner-approved security fix 2026-11-05 (#498): a TOTP time-step counter is single-use per user and factor; Go re-accepts a still-valid code once its rolling 30-second guard elapses. Rust claims the counter atomically under FORCE RLS (V278 totp_counter_claims), so the replay is refused with 401 and counts as a failure.",
     "reviewer": "owner 2026-11-05",
     "reviewed": true
+  },
+  {
+    "case": "failclosed-empty-totp-key",
+    "issue": "#455",
+    "reviewed": true,
+    "reviewer": "owner, 2026-11-18",
+    "review": "security Go bug fixed in Rust",
+    "review_reference": "owner security-bug policy; PR #457",
+    "reason": "Frozen Go's TOTP generator accepts an empty decoded secret (totp-secret-vectors.json records '' -> 812658), so a stored secret that decrypts to empty or blank verifies against an HMAC key anyone can compute. Rust's counter_proof refuses an empty key on every verifier (login cycle, confirm, bootstrap confirm, possession grant): the attempt is an evaluated wrong code. A ready reducer row without a string secret is a statement failure (500, rollback), as Go's failed Scan.",
+    "go_source": "authserver/internal/authn/totp.go:42-58; authserver/internal/authn/totp.go:104-122; server-rust/tests/conformance/identity-mfa/totp_secret_vectors.go.txt",
+    "secure_test": "crates/domains/identity/src/totp.rs::fail_closed::empty_key_proves_nothing, bins/auth/tests/fail_closed.rs::empty_totp_secret_proves_no_possession"
+  },
+  {
+    "case": "failclosed-completion-risk-read-error",
+    "issue": "#454",
+    "reviewed": true,
+    "reviewer": "owner, 2026-11-18",
+    "review": "security Go bug fixed in Rust",
+    "review_reference": "owner security-bug policy; PR #457",
+    "reason": "Frozen Go drops the risk claim when the risk read fails. Rust's TOTP, backup-code, push-status and bootstrap completions read the risk from the pending token before the second factor is consumed and answer 500 'token issue failed' on a failed read (flag lookup included): the factor stays unspent and no token is signed or stored. Push status reads the risk on every poll, so under a fault a poll that is not yet approved answers 500 instead of {\"approved\":false}.",
+    "go_source": "authserver/internal/handlers/auth.go:2663-2683; authserver/internal/handlers/auth.go:2005",
+    "secure_test": "bins/auth/tests/guest_scope.rs::failclosed_454_risk_fault_spends_no_factor_and_issues_no_token, bins/auth/tests/fail_closed.rs::risk_lookup_errors_fail_closed_in_every_issuer"
   }
 ]

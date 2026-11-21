@@ -362,13 +362,22 @@ pub(super) async fn callback_guard(kind: &str) -> Result<(), Err> {
 
 pub(super) async fn token_claims(kind: &str) -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
-    let env = Env::start(false).await?;
+    // Configuration that changes provider rows must be written before the registry loads and the
+    // listener starts: a live `configure()` queues reloads that can still be running (each one
+    // fetching discovery) after the observation below clears the IdP call log.
+    let extra = if kind == "client-secret" {
+        use base64::Engine;
+        let sealed = setjoin_config_secret::seal_column(
+            b"rp secret+&/340",
+            fixture()["secret"].as_str().unwrap().as_bytes(),
+            setjoin_config_secret::CryptoProfile::Standard,
+        )?;
+        json!({"client_secret":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed)})
+    } else {
+        json!({})
+    };
+    let env = Env::configured(false, idp::ISSUER, extra).await?;
     let result=async{
-        if kind=="client-secret"{
-            use base64::Engine;
-            let sealed=setjoin_config_secret::seal_column(b"rp secret+&/340",fixture()["secret"].as_str().unwrap().as_bytes(),setjoin_config_secret::CryptoProfile::Standard)?;
-            env.configure(json!({"client_secret":base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sealed)})).await?;
-        }
         let response=request(env.gw.addr,"GET","/auth/oidc/login?provider=idfed2",String::new(),&[]).await?;
         let (_,flow)=normalize_flow(response)?;
         let mut sent=flow.clone();

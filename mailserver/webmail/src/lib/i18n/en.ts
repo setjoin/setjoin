@@ -3463,7 +3463,7 @@ const en: Record<string, string> = {
   "admin.conditional_access.coverage.load_error":
     "Couldn't load the coverage report. Retry.",
   "admin.conditional_access.coverage.gap_protocol":
-    "No policy covers {protocol} sign-ins — a high-blast-radius gap.",
+    "No policy covers {protocol} sign-ins.",
   "admin.conditional_access.coverage.gap_scope":
     "No policy targets the {scope} scope.",
   "admin.conditional_access.coverage.severity_danger": "High risk",

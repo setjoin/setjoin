@@ -457,6 +457,37 @@ impl ScopedExecutor {
         }
     }
 
+    /// Best-effort authentication-time statement; returns the rows affected.
+    /// The count comes from the command tag. Same pool, deadline and error mapping as
+    /// `protocol_query`; fixed SQL only.
+    pub async fn protocol_statement_count(
+        &self,
+        sql: &'static str,
+        params: &[Param<'_>],
+    ) -> Result<u64, StatementFailure> {
+        let object = self
+            .pool
+            .get()
+            .await
+            .map_err(|_| StatementFailure::refused("pool unavailable"))?;
+        let object = ReadLease(Some(object));
+        let typed: Vec<_> = params.iter().map(|(v, t)| (*v, t.clone())).collect();
+        match tokio::time::timeout(self.timeouts.statement, object.execute_typed(sql, &typed)).await
+        {
+            Ok(Ok(count)) => {
+                object.keep();
+                Ok(count)
+            }
+            Ok(Err(error)) => {
+                if error.as_db_error().is_some() && !object.is_closed() {
+                    object.keep();
+                }
+                Err(StatementFailure::from_db(&error))
+            }
+            Err(_) => Err(StatementFailure::refused("protocol write timed out")),
+        }
+    }
+
     /// Frozen Go list handlers which ignore `Rows.Err` retain rows delivered
     /// before an iteration error. Errors before RowDescription remain errors.
     /// This opt-in read must never be used for admission or command authority.
@@ -611,6 +642,19 @@ impl ScopedExecutor {
                 (&ip, Type::TEXT),
                 (&app, Type::TEXT),
             ],
+        )
+        .await
+    }
+
+    /// Go's JMAP dispatch app-denial audit (`audit.Entry` without IP, handler.go:1550).
+    pub async fn audit_app_blocked_without_ip(
+        &self,
+        actor: setjoin_contracts::ids::ActorId,
+        app: &str,
+    ) -> Result<(), StatementFailure> {
+        self.protocol_write(
+            "SELECT audit_write($1,'app_blocked','app',NULL,NULL,NULL,NULL::inet,$2,'routine')",
+            &[(&actor.get(), Type::INT8), (&app, Type::TEXT)],
         )
         .await
     }

@@ -379,7 +379,12 @@ impl Out<'_> {
 }
 
 impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
-    fn requires_session(&self, r: &Request<Body>) -> bool { !matches!(action(r.method(), r.uri().path()), Some(Action::Meta | Action::Slots | Action::Book | Action::Confirm | Action::Cancel)) }
+    fn requires_session(&self, r: &Request<Body>) -> bool {
+        !matches!(
+            action(r.method(), r.uri().path()),
+            Some(Action::Meta | Action::Slots | Action::Book | Action::Confirm | Action::Cancel)
+        )
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -414,17 +419,17 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
             let auth = if public {
                 None
             } else {
-                match setjoin_authz::authorize_request(
+                let verdict = crate::deny::admit(
                     &this.exec,
                     &this.keys,
                     &this.issuer,
-                    r.headers(),
-                    c.identity.proto,
+                    &r,
+                    crate::deny::Scope::Member,
                 )
-                .await
-                {
-                    Some(auth) => Some(auth),
-                    None => return c.upstream.forward(r, &c.identity).await,
+                .await;
+                match verdict {
+                    Ok(auth) => Some(auth),
+                    Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
                 }
             };
             let Some(operation) = crate::jmap::random() else {
@@ -895,13 +900,15 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         // `perUserResourceCap`: runs before the handler reads the body.
         match setjoin_calendar::subscription_count(&self.exec, actor).await {
             Err(_) => return out.bare(503, "unable to verify calendar subscription budget"),
-            Ok(n) if n >= setjoin_calendar::MAX_SUBSCRIPTIONS_PER_USER => return out.bare(
-                409,
-                &format!(
+            Ok(n) if n >= setjoin_calendar::MAX_SUBSCRIPTIONS_PER_USER => {
+                return out.bare(
+                    409,
+                    &format!(
                     "calendar subscription limit reached ({}); remove one before creating another",
                     setjoin_calendar::MAX_SUBSCRIPTIONS_PER_USER
                 ),
-            ),
+                )
+            }
             Ok(_) => {}
         }
         let body = match read_unbounded::<SubscribeBody>(&mut r).await {

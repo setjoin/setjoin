@@ -568,8 +568,11 @@ impl AuthServer {
     ) -> (Response<Body>, Option<i64>) {
         let path = req.uri().path();
         // Completion that Rust cannot yet finish natively stays with its owners.
-        if self.rp_completion_unported(req).await {
-            return (Self::failure(503, "SAML authentication unavailable", path), None);
+        match self.rp_completion_route(req).await {
+            Ok(false) => {}
+            Ok(true) => return (Self::failure(503, "SAML authentication unavailable", path), None),
+            // F2 (#454 Codex r1): SAML keeps its 503 on a flag-lookup error; only OIDC changes.
+            Err(()) => return (Self::failure(503, "SAML authentication unavailable", path), None),
         }
         let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
         let resolution = match assertion.resolve(&self.exec, worker).await {

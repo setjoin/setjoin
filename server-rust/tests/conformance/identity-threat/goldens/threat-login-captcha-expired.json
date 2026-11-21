@@ -1,0 +1,48 @@
+{
+  "case": "threat-login-captcha-expired",
+  "format": 1,
+  "go_source": "9b1b37304a76a3e81f8aef7e5a5daf90c7da8a44",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "captcha_needed",
+          "protocol": "http",
+          "source_ip": "127.0.0.71",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Password1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test",
+            "x-captcha-answer": "7",
+            "x-captcha-token": "<captcha-token>"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"CAPTCHA verification failed\",\"error\":\"captcha\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "captcha"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "threat",
+  "route": "POST /auth/login"
+}

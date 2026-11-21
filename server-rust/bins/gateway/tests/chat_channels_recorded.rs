@@ -1069,8 +1069,64 @@ async fn wait_url_preview(
     }
     Ok(false)
 }
+#[derive(Debug)]
+struct UrlBudgetWindowExpired {
+    first: i64,
+    last: i64,
+    elapsed: std::time::Duration,
+}
+
+impl std::fmt::Display for UrlBudgetWindowExpired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "URL-budget fixture window expired: {} -> {}, elapsed {:?}",
+            self.first, self.last, self.elapsed
+        )
+    }
+}
+
+impl std::error::Error for UrlBudgetWindowExpired {}
+
+async fn counter_window(owner: &tokio_postgres::Client, user: i64) -> Result<i64, BoxError> {
+    Ok(owner
+        .query_one(
+            "SELECT EXTRACT(EPOCH FROM window_start)::bigint \
+             FROM chat_send_counters WHERE user_id=$1",
+            &[&user],
+        )
+        .await?
+        .get(0))
+}
+
+async fn align_budget_window(owner: &tokio_postgres::Client) -> Result<(), BoxError> {
+    loop {
+        let remaining: f64 = owner
+            .query_one(
+                "SELECT (60-EXTRACT(SECOND FROM clock_timestamp()))::float8",
+                &[],
+            )
+            .await?
+            .get(0);
+        // Scheduling aid only; the stored-window check establishes validity.
+        if remaining > 58.0 {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_secs_f64(remaining + 0.3)).await;
+    }
+}
+
 async fn run(route: &str, case: &str, mutant: bool) -> Result<(), BoxError> {
-    run_inner(route, case, mutant, false).await
+    match run_inner(route, case, mutant, false).await {
+        Err(error)
+            if case == "url_budget" && error.downcast_ref::<UrlBudgetWindowExpired>().is_some() =>
+        {
+            // run_inner has completed its fixture cleanup before returning.
+            eprintln!("Retrying URL-budget fixture once: {error}");
+            run_inner(route, case, mutant, false).await
+        }
+        result => result,
+    }
 }
 async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Result<(), BoxError> {
     let canonical = match route {
@@ -1494,13 +1550,16 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
         let mut drive_listener=if route=="space"{Some(db.listen("drive").await?)}else{None};
         let audit_start:i64=owner.query_one("SELECT coalesce(max(id),0) FROM admin_audit_log",&[]).await?.get(0);
         let mut other_listener=db.listen(&format!("chat:{}",foreign.user)).await?;
+        let mut budget_start=None;
+        let mut budget_window=None;
         if case=="url_budget" {
-            let start=std::time::Instant::now();
-            for _ in 0..30 {
+            align_budget_window(&owner).await?;
+            budget_start=Some(std::time::Instant::now());
+            for index in 0..30 {
                 let response=common::send(address,Request::post(&request_path).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {}",token(account.user))).body(common::full(r#"{"body":"budget primer"}"#))?).await;
                 assert_eq!(response.status(),201);common::body_bytes(response).await;
+                if index==0 {budget_window=Some(counter_window(&owner,account.user).await?);}
             }
-            assert!(start.elapsed()<std::time::Duration::from_secs(45),"priming must fit inside Go's minute window");
         }
         let first=if matches!(case,"repeat"|"url_repeat"){
             let response=common::send(address,Request::builder().method(method).uri(&request_path).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {}",token(account.user))).header("x-request-id","chat2-oracle").body(common::full(request_body.clone()))?).await;
@@ -1513,6 +1572,7 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
         if !recording && status==502{return Err("native Chat route must answer without Go (got 502)".into());}
         let mut headers=serde_json::Map::new();for(k,v)in response.headers(){if !matches!(k.as_str(),"date"|"content-length"){headers.insert(k.as_str().into(),v.to_str()?.into());}}
         let bytes=common::body_bytes(response).await;
+        let budget_elapsed=budget_start.map(|start|start.elapsed());
         let second_actor=if case=="url_budget" {
             let response=common::send(address,Request::post(&request_path).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("x-request-id","chat2-oracle").header("authorization",format!("Bearer {}",token(foreign.user))).body(common::full(request_body.clone()))?).await;
             let status=response.status().as_u16();assert_eq!(status,201);
@@ -1548,6 +1608,12 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
         }
         let notifications=listener.drain(&owner).await?.into_iter().map(|p|serde_json::from_str::<Value>(&p)).collect::<Result<Vec<_>,_>>()?;
         let mut after=snapshot(&owner,account.user,foreign.user).await?;if route.starts_with("federation_"){after["federation"]=federation_snapshot(&owner,account.user,foreign.user).await?;}if route=="schedule"{after["scheduled_actions"]=scheduled_snapshot(&owner,account.user,foreign.user).await?;}if matches!(route,"send"|"poll"){after["message_details"]=message_snapshot(&owner,account.user,foreign.user).await?;}if route=="space"{after["drive"]=space_snapshot(&owner,account.user,foreign.user).await?;}
+        if let (Some(first),Some(elapsed))=(budget_window,budget_elapsed) {
+            let last=counter_window(&owner,account.user).await?;
+            if last!=first||elapsed>=std::time::Duration::from_secs(60) {
+                return Err(Box::new(UrlBudgetWindowExpired{first,last,elapsed}) as BoxError);
+            }
+        }
         let mut observed=json!({"request":{"method":method,"path":canonical,"body":if case=="body_cap"{json!({"oversizedBytes":request_body.len()})}else if writing{serde_json::from_str::<Value>(&request_body).unwrap_or(json!(request_body))}else{json!("")}},"response":{"status":status,"headers":headers,"body":body},"effects":{"before":before,"after":after},"audit":[],"notify":notifications});
         if matches!(case,"url_claim"|"url_malformed"|"url_raw_query") {
             let cache:Option<String>=owner.query_one("SELECT (SELECT jsonb_build_object('status',status,'title',title,'description',description,'image',image_blob_sha256)::text FROM chat_link_previews WHERE url_hash=$1)",&[&unfurl_previous.as_ref().unwrap().1]).await?.get(0);

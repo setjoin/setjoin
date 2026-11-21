@@ -1,5 +1,7 @@
 # Identity MFA TOTP (#334)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `setjoin-auth --test mfa_oracle` records the actual front door against covered
 frozen Go, then replays with both Go upstreams unset and zero Go-hop counters.
 Use the assigned disposable DB, REQUIRE_DB=1 and `--test-threads=1`. Hold the
@@ -65,3 +67,7 @@ Rust claims the counter in V278 `totp_counter_claims` (FORCE RLS), so the replay
 legacy rolling replay get 401. Mutants `mutant_elapsed_totp_replay_restores_go_bug` and
 `mutant_legacy_totp_counter_gap_restores_go_bug` remove the `SECURITY-COUNTER` blocks,
 reproduce Go's bytes and fail the secure expectation.
+
+#353 guest completion cases (`guest*` kinds in `mfa_oracle`: verify, bootstrap-confirm and login-totp)
+replay recorded goldens. A new capture stamps `go_source` from `GOFREE_GO_SOURCE`. Every `guest*` run first
+proves `is_guest_account` pristine (`guest_function_pristine`) and restores it after any fault.

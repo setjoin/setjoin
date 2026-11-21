@@ -1,0 +1,47 @@
+{
+  "case": "geo-login-trusted-xff",
+  "format": 1,
+  "go_source": "79a0f3220b59b7b1c78b7ae1d49ff82f8415be54",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "US",
+          "fingerprint": "GOFREE349A oracle|203.0.113.0",
+          "outcome": "geo_blocked",
+          "protocol": "http",
+          "source_ip": "203.0.113.5",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Wrong-password-1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test",
+            "x-forwarded-for": "203.0.113.5"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "trusted-proxy"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"geo_blocked\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "geo_blocked"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "geo",
+  "route": "POST /auth/login"
+}

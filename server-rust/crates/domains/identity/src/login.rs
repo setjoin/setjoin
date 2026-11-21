@@ -36,6 +36,17 @@ pub fn dummy_hash(profile: setjoin_config_secret::CryptoProfile) -> &'static str
     }
 }
 
+// Keep absent, disabled and unreadable credentials on the same password-cost path (#487).
+async fn verify_dummy(password: &str, profile: setjoin_config_secret::CryptoProfile) {
+    if !setjoin_contracts::mutants::on("login-no-dummy-hash") {
+        let password = password.to_owned();
+        let _ = tokio::task::spawn_blocking(move || {
+            setjoin_authz::password::verify(dummy_hash(profile), &password)
+        })
+        .await;
+    }
+}
+
 pub async fn verify(
     exec: &ScopedExecutor,
     email: &str,
@@ -44,19 +55,21 @@ pub async fn verify(
 ) -> Result<Option<PasswordProof>, StatementFailure> {
     let rows=exec.read("SELECT id,email,password_hash,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=users.id AND (ara.expires_at IS NULL OR ara.expires_at>now())), COALESCE(totp_enabled,false),COALESCE(push_mfa_enabled,false),COALESCE(must_change_password,false) FROM users WHERE lower(email)=lower($1) AND enabled=true",&[(&email,Type::TEXT)]).await?;
     let Some(r) = rows.first() else {
-        // Owner-approved security fix 2026-11-05 (#487): an unknown or disabled
-        // email costs the same password hash as a known one, so response timing
-        // does not reveal which accounts exist.
-        if !setjoin_contracts::mutants::on("login-no-dummy-hash") {
-            let password = password.to_owned();
-            let _ = tokio::task::spawn_blocking(move || {
-                setjoin_authz::password::verify(dummy_hash(profile), &password)
-            })
-            .await;
-        }
+        verify_dummy(password, profile).await;
         return Ok(None);
     };
-    let hash: String = r.get(2);
+    let invalid_proof = |_| StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "invalid password proof row".into(),
+    };
+    let hash: String = match r.try_get(2) {
+        Ok(hash) => hash,
+        Err(err) => {
+            verify_dummy(password, profile).await;
+            return Err(invalid_proof(err));
+        }
+    };
     let password = password.to_owned();
     let stored = hash.clone();
     let valid =
@@ -67,13 +80,13 @@ pub async fn verify(
         return Ok(None);
     }
     Ok(Some(PasswordProof {
-        user: r.get(0),
-        email: r.get(1),
+        user: r.try_get(0).map_err(invalid_proof)?,
+        email: r.try_get(1).map_err(invalid_proof)?,
         hash,
-        admin: r.get(3),
-        totp: r.get(4),
-        push: r.get(5),
-        force_change: r.get(6),
+        admin: r.try_get(3).map_err(invalid_proof)?,
+        totp: r.try_get(4).map_err(invalid_proof)?,
+        push: r.try_get(5).map_err(invalid_proof)?,
+        force_change: r.try_get(6).map_err(invalid_proof)?,
     }))
 }
 pub async fn mfa_status(exec:&ScopedExecutor,p:&PasswordProof)->Result<String,StatementFailure>{
@@ -81,7 +94,8 @@ pub async fn mfa_status(exec:&ScopedExecutor,p:&PasswordProof)->Result<String,St
 }
 pub async fn mfa_policy(exec:&ScopedExecutor,p:&PasswordProof)->Result<Value,StatementFailure>{
     let rows=exec.read("SELECT mfa_status($1)::text",&[(&p.user,Type::INT8)]).await?;
-    let v:Value=serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|invalid())?;
+    let raw:String=rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)?;
+    let v:Value=serde_json::from_str(&raw).map_err(|_|invalid())?;
     if v.get("message").is_some_and(|v|!v.is_null()&&!v.is_string()){return Err(invalid())}
     match v["status"].as_str(){Some("exempt"|"enrolled"|"enrollment_required"|"optional")=>Ok(v),_=>Err(invalid())}
 }
@@ -96,7 +110,7 @@ pub async fn bootstrap_mfa_grant(exec:&ScopedExecutor,p:&PasswordProof,token:&st
     let hash=format!("{:x}",Sha256::digest(token.as_bytes()));
     exec.run_user_command(setjoin_contracts::ids::ActorId::new(p.user).expect("password proof"),setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
         "SELECT rust_identity_mfa_bootstrap_grant($1,$2,$3,$4)",
-        &[(&p.user,Type::INT8),(&p.hash,Type::TEXT),(&hash,Type::TEXT),(&jti,Type::TEXT)],|rows|Ok(rows[0].get(0))).await
+        &[(&p.user,Type::INT8),(&p.hash,Type::TEXT),(&hash,Type::TEXT),(&jti,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get::<_,bool>(0).ok()).ok_or_else(invalid)).await
 }
 pub async fn guest_scope(
     exec: &ScopedExecutor,
@@ -105,7 +119,9 @@ pub async fn guest_scope(
     let rows = exec
         .read("SELECT is_guest_account($1)", &[(&p.user, Type::INT8)])
         .await?;
-    Ok(rows[0].get(0))
+    rows.first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
 }
 #[derive(Debug)]
 pub enum AdmissionFailure {
@@ -123,7 +139,12 @@ pub async fn admission(
         )
         .await
         .map_err(AdmissionFailure::Transition)?;
-    if !rows[0].get::<_, bool>(0) {
+    let allowed = rows
+        .first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
+        .map_err(AdmissionFailure::Transition)?;
+    if !allowed {
         return Ok((false, false));
     }
     Ok((
@@ -141,7 +162,10 @@ pub async fn domain_scope(
         return Ok(None);
     }
     let rows=exec.read("SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&p.user,Type::INT8)]).await?;
-    Ok(rows[0].get(0))
+    rows.first()
+        .ok_or_else(invalid)?
+        .try_get::<_, Option<i64>>(0)
+        .map_err(|_| invalid())
 }
 pub async fn mint(
     exec: &ScopedExecutor,
@@ -224,7 +248,7 @@ pub async fn record_failure(exec: &ScopedExecutor, email: &str, ip: &str) {
             &[(&email, Type::TEXT)],
         )
         .await;
-    let user: Option<i64> = rows.as_ref().ok().and_then(|r| r.first()).map(|r| r.get(0));
+    let user: Option<i64> = rows.ok().and_then(|rows| rows.first()?.try_get(0).ok());
     // verifyPassword logs no user id, even for a known user's wrong password.
     let details = if user.is_none() {
         Some(r#"{"reason":"user_not_found"}"#)
@@ -247,7 +271,9 @@ pub async fn enabled(exec: &ScopedExecutor, key: &str) -> Result<bool, Statement
             &[(&key, Type::TEXT)],
         )
         .await?;
-    Ok(rows[0].get(0))
+    rows.first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .ok_or_else(invalid)
 }
 pub fn claims(
     p: &PasswordProof,
@@ -278,7 +304,7 @@ pub fn claims(
     }
     c
 }
-fn invalid() -> StatementFailure {
+pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
         sqlstate: None,
         hint: None,
@@ -294,25 +320,59 @@ pub fn random_jti() -> Result<String, String> {
         .map_err(|_| "random jti failed")?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
-pub async fn risk(exec: &ScopedExecutor, p: &PasswordProof) -> Option<Value> {
-    if !enabled(exec, "feature.user_risk").await.unwrap_or(false) {
-        return None;
+/// #454: a feature-flag or risk query error (also with the flag off), an invalid actor and
+/// an unreadable or unparsable stored value fail closed (no panicking decode); only a missing
+/// row or level none/empty is "no risk claim". `user_risk.score` is smallint, read as int4.
+pub async fn risk(exec: &ScopedExecutor, p: &PasswordProof) -> Result<Option<Value>, StatementFailure> {
+    let bad = || StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "user risk row".into(),
+    };
+    if !enabled(exec, "feature.user_risk").await? {
+        return Ok(None);
     }
+    let actor = setjoin_contracts::ids::ActorId::new(p.user).map_err(|_| bad())?;
     let rows = exec
         .read_user_scoped(
-            setjoin_contracts::ids::ActorId::new(p.user).ok()?,
-            "SELECT score,level,signals::text FROM user_risk WHERE user_id=$1",
+            actor,
+            "SELECT score::int4,level,signals::text FROM user_risk WHERE user_id=$1",
             &[(&p.user, Type::INT8)],
         )
-        .await
-        .ok()?;
-    let r = rows.first()?;
-    let level: String = r.get(1);
+        .await?;
+    let Some(r) = rows.first() else {
+        return Ok(None);
+    };
+    let level: String = r.try_get(1).map_err(|_| bad())?;
     if level.is_empty() || level == "none" {
-        return None;
+        return Ok(None);
     }
-    let signals: Value = serde_json::from_str(&r.get::<_, String>(2)).unwrap_or(Value::Null);
-    Some(
-        json!({"user_score":r.get::<_,i32>(0),"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
-    )
+    let score: i32 = r.try_get(0).map_err(|_| bad())?;
+    let raw: String = r.try_get(2).map_err(|_| bad())?;
+    let signals: Vec<String> = serde_json::from_str(&raw).map_err(|_| bad())?;
+    Ok(Some(
+        json!({"user_score":score,"level":level,"requires_mfa":level=="medium"||level=="high","signals":signals}),
+    ))
+}
+
+#[cfg(test)]
+mod fail_closed_454 {
+    //! #454: a failed feature-flag or risk read is an error, never "no risk claim".
+    #[test]
+    fn password_login_risk_lookup_error_is_an_error() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
+            let proof = super::PasswordProof {
+                user: 7,
+                email: String::new(),
+                hash: String::new(),
+                admin: false,
+                totp: false,
+                push: false,
+                force_change: false,
+            };
+            assert!(super::risk(&exec, &proof).await.is_err());
+        });
+    }
 }

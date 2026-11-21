@@ -18,7 +18,10 @@ async fn browser_login_uses_direct_tls_and_sanitizes_forwarded_host() {
     .unwrap();
     let flags: String = c.query_one("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key=ANY($1::text[])", &[&vec!["feature.rate_limit","feature.conditional_access","feature.device_trust_enforcement"]]).await.unwrap().get(0);
     c.batch_execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.conditional_access',false),('feature.device_trust_enforcement',false) ON CONFLICT(key) DO UPDATE SET enabled=false").await.unwrap();
-    let server = AuthServer::new(setjoin_pg::ScopedExecutor::from_dsn(&dsn, 2).unwrap());
+    let server = AuthServer::new(setjoin_pg::ScopedExecutor::from_dsn(&dsn, 2).unwrap())
+        .with_threat_gate(&dsn)
+        .await
+        .unwrap();
     let mut results = Vec::new();
     let golden: serde_json::Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/identity-login/security/csrf.json"
@@ -117,6 +120,9 @@ async fn browser_login_credentials_over_direct_tls_and_malformed_forwarded_host(
         setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4).unwrap(),
         setjoin_auth::Config::for_secret(f["secret"].as_str().unwrap().into()),
     )
+    .await
+    .unwrap()
+    .with_threat_gate(&db.dsn)
     .await
     .unwrap();
     let record = std::env::var_os("GOFREE_RECORD_CSRF_SUCCESS").is_some();

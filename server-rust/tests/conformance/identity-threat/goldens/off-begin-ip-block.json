@@ -1,0 +1,37 @@
+{
+  "case": "off-begin-ip-block",
+  "format": 1,
+  "go_source": "98672436dfb1a5d89dde012840fad709f85a3d9c",
+  "observation": {
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"nobody-349a@gofree349a.test\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/forgot-password/begin",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"ip_blocked\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "ip_blocked"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "off",
+  "route": "POST /auth/forgot-password/begin"
+}

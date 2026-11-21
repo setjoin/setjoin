@@ -4,68 +4,143 @@ Binding rules for delegating work to subagents. The latest owner instruction win
 
 ## Roles
 
-- **Coordinator** (main session): picks, sizes, plans, routes, briefs, reads receipts, runs
-  merge gates, merges, closes issues and owns owner questions. It does not implement,
-  except a decided edit of at most 5 lines (for example a CI or config fix inside a
-  fix-push-watch loop). Log each inline edit.
-- **Workers** implement, commit and push their own ticket branch. They never push `main`,
-  the integration branch or anyone else's branch, never use `--no-verify`, and stop and
-  report when a hook refuses. The coordinator reviews the pushed diff before any PR or merge.
-- **Reviews never write. Gates never change product code or tests.**
-- Set `model` explicitly on every agent call. Never use Opus or Fable as an implementer.
-- No fixed cap on parallel editing agents. Limits: disjoint files (serialize tickets that
-  touch the same code), one agent per worktree (stop the previous one before a fix round),
-  and coordinator attention.
+- The **coordinator** is the Claude Code main session. It picks and sizes tickets,
+  writes briefs and launches Codex. It commits Codex's work and pushes an explicit
+  SHA to the ticket branch. Never push `main` or force-push. It opens PRs, waits for
+  CI through the shared poller, runs gates, merges, closes issues and owns owner
+  questions. It only orchestrates (owner, 2026-11-20): it edits no files itself, including
+  merge-conflict resolution, and runs no Claude subagents. Every change goes through Codex.
+- The **implementer** runs Codex CLI (`codex exec`) in a workspace-write sandbox through
+  `codex-work.sh <worktree> <out.md> <sol|astra> <effort> <brief-file> [session-id]`.
+  The sandbox confines edits to the worktree and blocks network access. Git metadata
+  lives outside the worktree, so the implementer cannot commit. A PATH stub refuses
+  `cargo`, `rustc`, `go`, `npm`, `npx`, `pnpm`, `yarn`, `make` and `docker`.
+  `rustfmt` is allowed. The final report is at most 20 lines and covers files changed,
+  what was done, guard results, stop reasons and open questions.
+- `gpt-6.2-sol` is the main model for implementation, plans and reviews (medium effort by
+  default, high for plans and gates). `gpt-6.2-astra` (high effort) is the fallback only:
+  unknown causes, escalation after sol hits the same CI failure twice or stops on
+  capability, and gate tie-breaks.
+- Fix rounds resume the same Codex session. Pass its session ID and point the brief
+  to a file with the failing log excerpt or review findings. The coordinator reads
+  CI logs only to pick the excerpt.
+- No Claude model implements or reviews. A dispute astra cannot settle goes to the owner.
+- Reviews never write. Gates never change product code or tests. Run one Codex
+  session per worktree at a time. Run tickets that touch the same files serially.
 
 ## Sizing
 
-Record the size on the ticket. Ask: is the change decided, what is the blast radius
-(grep the symbol), how long is the loop, is it a risk area?
+Record the size on the ticket. Check the approach, callers, loop time and risk area.
 
 **Risk areas:** auth/tokens, tenant isolation/ACL, crypto/keys/signing, user-data delete or
 move, migrations, data egress, production. Auth or a migration means size M or larger.
 
 | Size | Signals | Route |
 |---|---|---|
-| XS | decided, 1-2 files, one fast check | Haiku with the exact edit |
-| S | up to ~4 files in one module, short loop, small design call | Sonnet, tasks capped at ~30 min (slice larger ones) |
-| M/L | several modules, long loop or real design | Opus planner (read-only) produces an exact plan, Haiku executes; gaps go back to the planner, never to Sonnet |
-| ? | cause or approach unknown | investigate (Sonnet, Opus if hard), then size the resulting plan |
+| XS | Decided, 1-2 files | sol, low effort, with the exact edit |
+| S | Up to ~4 files in one module | sol, medium effort, with the decided approach |
+| M | Several modules | sol, medium effort |
+| L | Large change | sol, high effort |
+| ? | Cause unknown | astra investigates read-only. Size the result again |
+
+For XS/S/M or a decided design, one Codex sol session implements end to end
+without a separate plan unless the work touches a risk area or involves
+concurrency/protocol design. In those cases, the
+implementer uses sol at high effort, writes a short `PLAN.md` in the worktree,
+and stops before coding. Keep `PLAN.md` out of the commit. Cover threats, the
+invariant, failure cases and tests. A fresh read-only sol session reviews only
+the plan. Then resume the same implementer session to write the code. The
+reviewer's cases become required tests.
+
+Resuming preserves the implementer's context from files it already read, saving
+~0.5–0.9M input tokens per ticket compared with a separate planner. The review
+gives risky designs an independent check before code.
+
+Cap runs at ~30 min, including investigations. At the cap, write `PROGRESS.md` and
+stop. The coordinator decides whether to continue, split the ticket or re-plan.
+A stop is an escalation, not a failure.
 
 If the diff exceeds the prediction, upgrade the review and re-record the size.
 
 ## Briefs
 
-- One shared common brief plus a short per-ticket brief: paths, exact steps, verify
-  commands, stop conditions, report format.
-- Plan format: root cause or goal with evidence (file:line, output); exact change per
-  file (find, replace, base commit); the first failing test.
-- Risk-area planners list threats, failure cases (full quota, old or large data, restart
-  midway, concurrency), abusable inputs and the upgrade path. The plan gets a Fable review
-  before any code; its cases become required tests.
-- A case a worker calls "bounded" or "unlikely" is a finding: fix it or file a follow-up.
+- Use a shared common brief and a short per-ticket brief. Name the files, symbols,
+  approach, exact steps, verification commands, stop conditions and report format.
+  Codex stays within that scope except to follow a named caller or callee.
+- Give the root cause or goal with evidence (file and line, or output). Give the
+  exact change per file (find, replace, base commit) and the first failing test.
+- For tickets that require `PLAN.md`, include relevant failure cases (full quota,
+  old or large data, restart midway, concurrency), abusable inputs and the upgrade path.
+- A case the implementer calls "bounded" or "unlikely" is a finding. Fix it or file a follow-up.
 - Before a "delete X" ticket the coordinator checks X's callers itself.
-- Workers keep a `PROGRESS.md` so a cut-off run resumes (SendMessage to the same agent).
+- Keep `PROGRESS.md` so work can continue after a cut-off run.
 - Any export, copy or squash step must verify that its output file list equals
   `git ls-tree -r` of the source commit.
+- Include the coordinator's recurring-findings list in every implementer brief.
+  Check the diff for cleanup leaks, stale docs, pinned counts, weakened assertions,
+  Go-only checks skipped by a native route, transaction error paths, wrong-scope
+  code and merge-resolution loss before reporting.
+- Before a Rust commit, the coordinator runs `bash scripts/fmt-added.sh`.
 
 ## Builds and tests
 
-- CI-first: heavy builds and tests run on GitHub-hosted runners (the `server-rust lane`).
-  Locally run only `cargo check -p <crate>` and `cargo fmt`.
-- Local cargo runs one at a time under a host-wide lock (for example `flock`).
+- CI-first: builds and tests run on GitHub-hosted runners (the PR pre-check per pull-request
+  update, the `server-rust lane` per merge-queue entry). Local Rust work is limited to `rustfmt`
+  on files you add.
+- Do not compile Rust locally. The implementer never builds. The coordinator commits and
+  pushes, then reads the PR's required
+  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests,
+  plus the selected integration tests on the lane Postgres; ~10-25 min) through the shared poller.
+  With no PR yet, the coordinator dispatches the light part only:
+  `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push;
+  no integration tests: open a draft PR for those).
+- Before hand-back, the implementer runs and reports the standalone guards relevant
+  to the change. They need no cargo or DB. Examples:
+  - Reducers or their callers: `bash scripts/check-audit-coverage.sh` and
+    `bash scripts/check-app-notify.sh`.
+  - Route flips: `python3 scripts/test-check-gofree-rehearsal.py`.
+  - New SQL functions: `bash scripts/check-xinchuang-matrix.sh`.
+  - Conformance READMEs: `bash scripts/check-recorder-docs.sh`.
+  - Oracle or catalog changes: `python3 scripts/check-gofree-oracle-adequacy.py --preflight-only`.
+  - AGENTS/DOX edits: `bash scripts/check-agent-context-budget.sh`.
+  The merge-queue lane runs the guards job and the PR pre-check omits it. A queue
+  ejection costs ~1 h of lane time plus rebuilds of the entries behind it.
 - Before fixing a failing test, search open issues and other branches for its name.
+- Before committing Rust changes: `git add`, run `bash scripts/fmt-added.sh` (formats added files through stdin, the same set the pre-check checks), then `git add` the reformatted files and commit.
 
 ## Review
 
-- Codex merge gate: `codex exec -m gpt-6-astra`, reasoning `high`, read-only. At most 3
-  rounds per ticket; a 4th means re-plan.
-- Fable reviews risk areas (plan review before code, code review after Codex is clean).
-  Opus reviews other M/L work. No Claude review for XS or for S outside risk areas.
-- Never review with the planner or the implementer.
-- Verify each finding in the code before requiring a fix. One fix round carries all open
-  findings. Non-blocking findings become follow-up issues; do not widen the ticket.
-- Gate the integration tip itself after several merges.
+- Run the Codex merge gate in a fresh read-only session (`codex exec -s read-only`).
+  Use sol at high effort for every PR; astra only as the tie-break fallback.
+  Normal PRs get at most 3 rounds per ticket. A 4th means re-plan. Risk-area PRs
+  get one full round and one delta round. If the delta still fails, go to an astra
+  tie-break instead of a third sol round.
+  - Name the diff range, files and callers to read. Paste greps the coordinator
+    already ran. Codex stays within that scope and runs no builds.
+  - Fix rounds get a delta review of the fix commits only.
+  - Small PRs that queue together may share one call, with one verdict per PR.
+  - No Codex for PRs that change no code and weaken no check: docs only, deleting
+    unreferenced files (coordinator greps for references), Dependabot version bumps
+    (CI is the gate). Changes to CI, guards, `deny.toml` or other checks keep Codex.
+- The coordinator reads Codex's final report and the diffstat, and opens diff hunks only
+  to verify a finding or a report it doubts.
+- Verify each finding in the code before requiring a fix. Label each finding
+  INTRODUCED or PRE-EXISTING and IN-SCOPE or OUT-OF-SCOPE. Only INTRODUCED or
+  IN-SCOPE defects can FAIL a gate. File follow-up issues for non-blocking
+  findings, including PRE-EXISTING and OUT-OF-SCOPE defects. One fix round carries
+  all open blocking findings.
+- Auto-mode protection requires the owner's approval to record an astra overrule
+  in the gate ledger. The coordinator asks for approval or the owner queues the PR.
+- Gate the integration tip after several merges.
+- Reviewers apply docs/standards/AI_ASSISTED_TESTING.md (time windows, normalisation) to every test diff.
+
+## Merge queue
+
+- Before queuing, the coordinator's enqueue tool merges `origin/main` into each
+  ticket branch with a merge commit. Never force-push. If the merge conflicts,
+  resume the ticket's Codex session to resolve it, then rerun CI on the updated branch.
+- Queue green PRs as a group. The enqueue tool waits for all PRs in the group to
+  turn green, then enqueues them together so the queue builds them in parallel.
 
 ## GitHub API usage
 
@@ -96,6 +171,7 @@ Re-run a failing test alone. Passes alone: flake, file it, re-gate once. Fails t
 
 ## Cost log
 
-Log one line per run: ticket, size, model, tokens, minutes, review rounds, outcome. After
-the merge compare prediction with actual and adjust the size borders. Token counts are a
-mis-size alarm, not a cap. Review cost per merged ticket periodically.
+Log one row per Codex or Claude run. Record the ticket, size, model, effort,
+input/cached/output tokens, minutes, review rounds and outcome. The wrapper prints
+the token counts. After the merge, compare prediction with actual and adjust the
+size borders and the sol/astra split.

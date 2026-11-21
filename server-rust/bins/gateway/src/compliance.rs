@@ -84,16 +84,10 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
             {
                 return c.upstream.forward(r, &c.identity).await;
             }
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let actor = auth.context();
             let Ok(authority) = db::authority(&exec, actor).await else {

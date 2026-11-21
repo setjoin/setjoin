@@ -6,9 +6,19 @@ use setjoin_pg::{ScopedExecutor, StatementFailure};
 /// Public org policy (no user data); frozen Go's pwhash.LoadPasswordPolicy query.
 pub async fn password_policy(exec: &ScopedExecutor) -> Result<Value, StatementFailure> {
     let rows=exec.read("SELECT COALESCE((SELECT (value->>0)::INT FROM system_config WHERE key='password_min_length'),8), COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key='password_require_uppercase'),true), COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key='password_require_lowercase'),true), COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key='password_require_digit'),true), COALESCE((SELECT (value->>0)::BOOL FROM system_config WHERE key='password_require_special'),true)",&[]).await?;
-    let r = &rows[0];
+    let bad = || StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "invalid password policy row".into(),
+    };
+    let r = rows.first().ok_or_else(bad)?;
+    let min_length: i32 = r.try_get(0).map_err(|_| bad())?;
+    let require_uppercase: bool = r.try_get(1).map_err(|_| bad())?;
+    let require_lowercase: bool = r.try_get(2).map_err(|_| bad())?;
+    let require_digit: bool = r.try_get(3).map_err(|_| bad())?;
+    let require_special: bool = r.try_get(4).map_err(|_| bad())?;
     Ok(
-        json!({"minLength":r.get::<_,i32>(0),"maxBytes":72,"requireUppercase":r.get::<_,bool>(1),"requireLowercase":r.get::<_,bool>(2),"requireDigit":r.get::<_,bool>(3),"requireSpecial":r.get::<_,bool>(4)}),
+        json!({"minLength":min_length,"maxBytes":72,"requireUppercase":require_uppercase,"requireLowercase":require_lowercase,"requireDigit":require_digit,"requireSpecial":require_special}),
     )
 }
 pub mod login;
@@ -43,3 +53,5 @@ pub mod saml_acs;
 pub mod identity_links;
 
 pub mod self_service;
+
+pub mod guest_invite;

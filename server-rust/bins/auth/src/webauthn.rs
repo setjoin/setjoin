@@ -161,8 +161,10 @@ impl AuthServer {
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
         };
-        if self.totp_completion_unported(&req).await {
-            return self.forward(req).await;
+        match self.totp_completion_route(&req).await {
+            Ok(false) => {}
+            Ok(true) => return self.forward(req).await,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
         }
         let path = req.uri().path().to_owned();
         let Some(session_cookie) = cookie_value(req.headers(), "wa_login_sess") else {
@@ -175,10 +177,6 @@ impl AuthServer {
             Ok(t) => t,
             Err(detail) => return Self::failure(400, detail, &path),
         };
-        // Named unported completion owners are selected before a handle/counter write.
-        if let Ok(rows)=self.exec.read("SELECT is_guest_account($1),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1",&[(&transport.user(),setjoin_pg::Type::INT8)]).await {
-            if rows.first().is_some_and(|r|r.get::<_,bool>(0)){return self.forward(req).await;}// #406.
-        }
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
         let agent = req
@@ -197,12 +195,12 @@ impl AuthServer {
             .and_then(|v| v.get("dpop_jwk").cloned())
             .and_then(|v| v.as_object().cloned())
             .is_some_and(|m| !m.is_empty())
-            && !matches!(
-                login::enabled(&self.exec, "feature.token_binding").await,
-                Ok(false)
-            )
         {
-            return self.forward(Request::from_parts(parts, body(raw))).await;
+            match self.token_binding_handoff(&path).await {
+                Ok(false) => {}
+                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
+                Err(reply) => return reply,
+            }
         } // #405.
         let proof = match rp.finish_login(&self.exec, &transport, &raw).await {
             Ok(p) => p,
@@ -216,9 +214,18 @@ impl AuthServer {
         };
         let user = match proof.completion(&self.exec).await {
             Ok(Some(u)) => u,
-            _ => return Self::failure(401, "user not found", &path),
+            Ok(None) => return Self::failure(401, "user not found", &path),
+            Err(_) => return Self::failure(500, "internal error", &path),
         };
-        let (totp, push) = proof.factors(&self.exec).await;
+        let (totp, push) = match proof.factors(&self.exec).await {
+            Ok(factors) => factors,
+            Err(_) => return Self::failure(500, "internal error", &path),
+        };
+        // Go webauthn.go:446 (MFA branch) and issueTokensWithFactors (direct):
+        // guest scope after the assertion and credential snapshot, before any token.
+        if let Err(reply) = self.completion_guest_scope(user.user(), &path).await {
+            return reply;
+        }
         if totp || push {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -264,13 +271,16 @@ impl AuthServer {
             Ok(s) => s,
             Err(_) => return Self::failure(500, "authorization scope resolution failed", &path),
         };
-        match user.admission(&self.exec).await{
-            Ok((true,false))=>{},
-            Ok((false,_))=>return Response::builder().status(409).header("content-type","application/problem+json").header("cache-control","no-store").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
-            Ok((_,true))=>return Self::failure(503,"conditional access context unavailable",&path),
-            Err(login::AdmissionFailure::AccountType(_))=>return Self::failure(500,"account type resolution failed",&path),
-            _=>return Self::failure(500,"identity transition admission resolution failed",&path),
-        }
+        let guest = match user.admission(&self.exec).await {
+            Ok((true, guest)) => guest,
+            Ok((false, _)) => return Response::builder().status(409).header("content-type","application/problem+json").header("cache-control","no-store").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
+            Err(login::AdmissionFailure::AccountType(_)) => {
+                return Self::failure(500, "account type resolution failed", &path)
+            }
+            Err(_) => {
+                return Self::failure(500, "identity transition admission resolution failed", &path)
+            }
+        };
         let family = uuid::Uuid::new_v4().to_string();
         let (Ok(jti), Ok(refresh_jti)) = (login::random_jti(), login::random_jti()) else {
             return Self::failure(500, "token issue failed", &path);
@@ -290,8 +300,13 @@ impl AuthServer {
             scope,
             &factors,
         );
-        if let Some(risk) = user.risk(&self.exec).await {
-            claims["risk"] = risk;
+        match user.risk(&self.exec).await {
+            Ok(Some(risk)) => claims["risk"] = risk,
+            Ok(None) => {}
+            Err(_) => return Self::failure(500, "token issue failed", &path),
+        }
+        if guest {
+            claims["acct"] = Value::from("guest");
         }
         let refresh_claims = user.claims(
             "refresh",

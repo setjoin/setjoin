@@ -3,6 +3,23 @@ use crate::session::Session;
 use serde_json::{json, Value};
 use setjoin_config_secret::CryptoProfile;
 use setjoin_pg::{CommandOutcome, ScopedExecutor, Type};
+use sha2::{Digest, Sha256};
+
+pub(crate) const COMMON_PASSWORD_ERROR: &str =
+    "This password is too common and easily guessed. Please choose a stronger password.";
+pub(crate) const REUSED_PASSWORD_ERROR: &str =
+    "This password was used recently. Please choose a new one.";
+
+pub(crate) fn common_password_digest(password: &str) -> Vec<u8> {
+    Sha256::digest(setjoin_authz::address::lower(password.trim()).as_bytes()).to_vec()
+}
+
+pub(crate) fn password_was_used(hashes: &[String], candidate: &str) -> bool {
+    hashes
+        .iter()
+        .any(|hash| setjoin_authz::password::verify(hash, candidate))
+}
+
 #[derive(Debug)]
 pub enum Failure {
     Reply(u16, String),
@@ -19,7 +36,11 @@ async fn check_policy(exec: &ScopedExecutor, new: &str, admin: bool) -> Result<(
         )
         .await
         .map_err(|_| reply(500, "internal error"))?;
-    let value: Value = serde_json::from_str(&rows[0].get::<_, String>(0)).unwrap_or(Value::Null);
+    let raw: String = rows
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(|| reply(500, "internal error"))?;
+    let value: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
     if value["valid"] == true {
         Ok(())
     } else {
@@ -55,7 +76,14 @@ async fn write(
                 (&reset, Type::BOOL),
             ],
             |rows| {
-                let raw: String = rows[0].get(0);
+                let raw: String = rows
+                    .first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(|| setjoin_pg::StatementFailure {
+                        sqlstate: None,
+                        hint: None,
+                        message: "password result row".into(),
+                    })?;
                 serde_json::from_str::<Value>(&raw).map_err(|_| setjoin_pg::StatementFailure {
                     sqlstate: None,
                     hint: None,
@@ -91,20 +119,24 @@ pub async fn change(
             .unwrap_or(false),
     )
     .await?;
-    use sha2::{Digest, Sha256};
-    let hash = Sha256::digest(setjoin_authz::address::lower(new.trim()).as_bytes()).to_vec();
-    if exec
+    let hash = common_password_digest(new);
+    // #454: a query error, an unreadable or a missing flag fails closed as an internal
+    // fault, never as "not common" (frozen Go proceeds on a failed lookup).
+    let common = match exec
         .read(
             "SELECT EXISTS(SELECT 1 FROM common_passwords WHERE password_hash=$1)",
             &[(&hash, Type::BYTEA)],
         )
         .await
-        .is_ok_and(|r| r[0].get::<_, bool>(0))
     {
-        return Err(reply(
-            400,
-            "This password is too common and easily guessed. Please choose a stronger password.",
-        ));
+        Ok(rows) => match rows.first().map(|r| r.try_get::<_, bool>(0)) {
+            Some(Ok(flag)) => flag,
+            _ => return Err(reply(500, "internal error")),
+        },
+        Err(_) => return Err(reply(500, "internal error")),
+    };
+    if common {
+        return Err(reply(400, COMMON_PASSWORD_ERROR));
     }
     let raw_email = setjoin_authz::address::lower(proof.text("email"));
     let lower = setjoin_authz::address::lower(new);
@@ -120,7 +152,16 @@ pub async fn change(
     }
     let canonical = setjoin_authz::address::canonical(proof.text("email"));
     let email = canonical.as_str();
-    let depth=exec.read("SELECT COALESCE((SELECT (value->>0)::INT FROM system_config WHERE key='password_history_depth'),5)",&[]).await.ok().and_then(|r|r[0].try_get::<_,i32>(0).ok()).filter(|n|*n>0).unwrap_or(5);
+    // A query error, a missing row or an unreadable depth is the 500 internal fault; the
+    // SQL already COALESCEs an absent setting to 5, so a decode error never falls back to 5.
+    let depth = match exec.read("SELECT COALESCE((SELECT (value->>0)::INT FROM system_config WHERE key='password_history_depth'),5)",&[]).await {
+        Ok(rows) => match rows.first().map(|r| r.try_get::<_, i32>(0)) {
+            Some(Ok(n)) => n,
+            _ => return Err(reply(500, "internal error")),
+        },
+        Err(_) => return Err(reply(500, "internal error")),
+    };
+    let depth = if depth > 0 { depth } else { 5 };
     for _ in 0..4 {
         if exec
             .read(
@@ -149,7 +190,8 @@ pub async fn change(
         let stored: String = rows
             .first()
             .ok_or_else(|| reply(403, "invalid current password"))?
-            .get(0);
+            .try_get(0)
+            .map_err(|_| reply(500, "internal error"))?;
         let candidate = old.to_owned();
         let compare = stored.clone();
         if !tokio::task::spawn_blocking(move || {
@@ -160,22 +202,17 @@ pub async fn change(
         {
             return Err(reply(403, "invalid current password"));
         }
-        let hashes:Vec<String>=exec.read("SELECT password_hash FROM password_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2",&[(&proof.user(),Type::INT8),(&depth,Type::INT4)]).await.map_err(|_|reply(500,"token revocation failed"))?.iter().map(|r|r.get(0)).collect();
+        let hashes:Vec<String>=exec.read("SELECT password_hash FROM password_history WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2",&[(&proof.user(),Type::INT8),(&depth,Type::INT4)]).await.map_err(|_|reply(500,"token revocation failed"))?.iter().map(|r|r.try_get(0)).collect::<Result<Vec<String>,_>>().map_err(|_|reply(500,"token revocation failed"))?;
         let history = json!(hashes);
         let candidate = new.to_owned();
         let (reused, new_hash) = tokio::task::spawn_blocking(move || {
-            let reused = hashes
-                .iter()
-                .any(|h| setjoin_authz::password::verify(h, &candidate));
+            let reused = password_was_used(&hashes, &candidate);
             (reused, setjoin_authz::password::hash(&candidate, profile))
         })
         .await
         .map_err(|_| reply(500, "internal error"))?;
         if reused {
-            return Err(reply(
-                400,
-                "This password was used recently. Please choose a new one.",
-            ));
+            return Err(reply(400, REUSED_PASSWORD_ERROR));
         }
         let new_hash = new_hash.map_err(|_| reply(500, "internal error"))?;
         match write(
@@ -218,7 +255,8 @@ pub async fn reset(
     let admin = rows
         .first()
         .ok_or_else(|| reply(401, "user not found"))?
-        .get::<_, bool>(0);
+        .try_get::<_, bool>(0)
+        .map_err(|_| reply(500, "internal error"))?;
     check_policy(exec, new, admin).await?;
     // Preserve Go's fence error priority before hashing, then recheck in SQL.
     if exec

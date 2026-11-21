@@ -1,0 +1,63 @@
+{
+  "case": "threat-login-spray",
+  "format": 1,
+  "go_source": "9b1b37304a76a3e81f8aef7e5a5daf90c7da8a44",
+  "observation": {
+    "effects": {
+      "attempts": [
+        {
+          "country": "",
+          "fingerprint": "GOFREE349A oracle|127.0.0.0",
+          "outcome": "spray_detected",
+          "protocol": "http",
+          "source_ip": "127.0.0.67",
+          "username": "<actor>"
+        }
+      ],
+      "audit": [
+        {
+          "event": "spray_detected",
+          "metadata": {
+            "unique_usernames": 3,
+            "window": 300
+          },
+          "source_ip": "127.0.0.67",
+          "user": false
+        }
+      ],
+      "devices": [],
+      "lockouts": [
+        {
+          "failed_count": 1,
+          "key": "ip:127.0.0.67",
+          "level": 1,
+          "locked": true
+        }
+      ],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Wrong-password-1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"spray_detected\"}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-reason": "spray_detected"
+          },
+          "status": 403
+        }
+      }
+    ]
+  },
+  "preset": "threat",
+  "route": "POST /auth/login"
+}

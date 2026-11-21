@@ -346,6 +346,8 @@ failure remains best effort and never grants access or changes the denial.
 unnamed statement, deadline/cancellation behavior; callers supply verified
 principal IDs. Threat rate counters and the scoped device reducer consume its
 result. It grants no request-derived identity or success after query loss.
+`protocol_statement_count` is the same seam returning the rows affected (the
+command tag), used by the threat refusal budget to detect a suppressed row.
 
 Revocation snapshot cancellation (#420): `active_session_revocations` owns its
 PostgreSQL driver with a drop guard. A cancelled/timed-out snapshot sends a

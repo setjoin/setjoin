@@ -1,0 +1,38 @@
+{
+  "case": "tarpit-login-high-risk",
+  "format": 1,
+  "go_source": "bbd7782d2debfe70818a9326e3a1a4fad5a87e8e",
+  "observation": {
+    "effects": {
+      "attempts": [],
+      "audit": [],
+      "devices": [],
+      "lockouts": [],
+      "rate": []
+    },
+    "steps": [
+      {
+        "request": {
+          "body": "{\"email\":\"<actor>\",\"password\":\"Wrong-password-1!\"}",
+          "headers": {
+            "origin": "http://auth.gofree349a.test"
+          },
+          "method": "POST",
+          "path": "/auth/login",
+          "source": "case"
+        },
+        "response": {
+          "body": "{\"captcha_prompt\":\"Request throttled\",\"error\":\"tarpit_applied\",\"retry_after\":0}\n",
+          "headers": {
+            "content-type": "application/json",
+            "x-threat-delay": "500ms",
+            "x-threat-reason": "tarpit_applied"
+          },
+          "status": 429
+        }
+      }
+    ]
+  },
+  "preset": "tarpit",
+  "route": "POST /auth/login"
+}

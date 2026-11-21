@@ -1,7 +1,15 @@
 //! #333 first-party token and discovery authority; HTTP framing stays in auth.
 use serde_json::{json, Value};
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
 use std::collections::BTreeMap;
+
+fn invalid_row(message: &str) -> StatementFailure {
+    StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: message.into(),
+    }
+}
 
 /// encoding/json struct declaration order, unlike its sorted map encoding.
 pub fn object(fields: &[(&str, Value)]) -> String {
@@ -67,11 +75,15 @@ pub async fn version(exec: &ScopedExecutor, raw: &str, host: &str) -> String {
     let Some(r) = rows.first() else {
         return default.into();
     };
-    let latest: String = r.get(0);
-    let hash: String = r.get(1);
-    let notes: String = r.get(2);
-    let file: String = r.get(3);
-    let date: std::time::SystemTime = r.get(4);
+    let (Ok(latest), Ok(hash), Ok(notes), Ok(file), Ok(date)) = (
+        r.try_get::<_, String>(0),
+        r.try_get::<_, String>(1),
+        r.try_get::<_, String>(2),
+        r.try_get::<_, String>(3),
+        r.try_get::<_, std::time::SystemTime>(4),
+    ) else {
+        return default.into();
+    };
     let date: chrono::DateTime<chrono::Utc> = date.into();
     let c = semver(client);
     let l = semver(&latest);
@@ -131,7 +143,7 @@ impl ClientProof {
             .await;
         let hash = rows
             .ok()
-            .and_then(|r| r.first().map(|r| r.get::<_, String>(0)));
+            .and_then(|rows| rows.first()?.try_get::<_, String>(0).ok());
         let exists = hash.is_some();
         let hash = hash.unwrap_or_else(|| {
             "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy".into()
@@ -157,18 +169,20 @@ pub async fn introspect(
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(token.as_bytes()).to_vec();
     let rows=exec.read("SELECT o.user_id,u.email,o.client_id,COALESCE(o.scope,'{}'),extract(epoch FROM o.issued_at)::bigint,extract(epoch FROM o.expires_at)::bigint FROM oauth_tokens o JOIN users u ON u.id=o.user_id AND u.enabled=true WHERE o.token_hash=$1 AND o.revoked_at IS NULL AND (o.expires_at IS NULL OR o.expires_at>now())",&[(&hash,Type::BYTEA)]).await;
-    let Ok(rows) = rows else {
-        return "{\"active\":false}\n".into();
+    let inactive = "{\"active\":false}\n";
+    let Some(r) = rows.as_ref().ok().and_then(|rows| rows.first()) else {
+        return inactive.into();
     };
-    let Some(r) = rows.first() else {
-        return "{\"active\":false}\n".into();
+    let (Ok(user), Ok(email), Ok(client), Ok(scope), Ok(issued), Ok(expiry)) = (
+        r.try_get::<_, i64>(0),
+        r.try_get::<_, String>(1),
+        r.try_get::<_, Option<String>>(2),
+        r.try_get::<_, Vec<String>>(3),
+        r.try_get::<_, Option<i64>>(4),
+        r.try_get::<_, Option<i64>>(5),
+    ) else {
+        return inactive.into();
     };
-    let user: i64 = r.get(0);
-    let email: String = r.get(1);
-    let client: Option<String> = r.get(2);
-    let scope: Vec<String> = r.get(3);
-    let issued: Option<i64> = r.get(4);
-    let expiry: Option<i64> = r.get(5);
     let mut fields = vec![("active", json!(true))];
     let scope = scope.join(" ");
     if !scope.is_empty() {
@@ -225,7 +239,11 @@ pub async fn revoke(
     let Some(row) = rows.first() else {
         return CommandOutcome::Committed(());
     };
-    let user: i64 = row.get(0);
+    let Ok(user) = row.try_get::<_, i64>(0) else {
+        return CommandOutcome::RolledBack(Rejection::Statement(invalid_row(
+            "invalid revocation row",
+        )));
+    };
     let Ok(actor) = ActorId::new(user) else {
         return CommandOutcome::RolledBack(Rejection::Unavailable);
     };
@@ -273,15 +291,22 @@ impl SessionProof {
         let docs = rows
             .iter()
             .map(|r| {
-                object(&[
-                    ("id", json!(r.get::<_, i64>(0))),
-                    ("name", json!(r.get::<_, String>(1))),
-                    ("version", json!(r.get::<_, i32>(2))),
-                    ("body_md", json!(r.get::<_, String>(3))),
-                    ("require_scroll", json!(r.get::<_, bool>(4))),
-                ])
+                let invalid = |_| invalid_row("invalid pending terms row");
+                Ok(object(&[
+                    ("id", json!(r.try_get::<_, i64>(0).map_err(invalid)?)),
+                    ("name", json!(r.try_get::<_, String>(1).map_err(invalid)?)),
+                    ("version", json!(r.try_get::<_, i32>(2).map_err(invalid)?)),
+                    (
+                        "body_md",
+                        json!(r.try_get::<_, String>(3).map_err(invalid)?),
+                    ),
+                    (
+                        "require_scroll",
+                        json!(r.try_get::<_, bool>(4).map_err(invalid)?),
+                    ),
+                ]))
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, StatementFailure>>()?
             .join(",");
         Ok(format!("[{docs}]\n"))
     }
@@ -328,19 +353,25 @@ pub async fn disable(
     let user = if requested_user != 0 {
         requested_user
     } else {
-        match exec
+        let rows = match exec
             .read(
                 "SELECT id FROM users WHERE scim_external_id=$1",
                 &[(&external, Type::TEXT)],
             )
             .await
         {
-            Ok(r) => match r.first() {
-                Some(row) => row.get::<_, i64>(0),
-                None => return CommandOutcome::Committed(false),
-            },
-            Err(_) => return CommandOutcome::Committed(false),
-        }
+            Ok(rows) => rows,
+            Err(err) => return CommandOutcome::RolledBack(Rejection::Statement(err)),
+        };
+        let Some(row) = rows.first() else {
+            return CommandOutcome::Committed(false);
+        };
+        let Ok(user) = row.try_get::<_, i64>(0) else {
+            return CommandOutcome::RolledBack(Rejection::Statement(invalid_row(
+                "invalid SCIM user row",
+            )));
+        };
+        user
     };
     let Ok(actor) = ActorId::new(user) else {
         return CommandOutcome::RolledBack(Rejection::Unavailable);

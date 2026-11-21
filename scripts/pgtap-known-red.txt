@@ -1,0 +1,3 @@
+# pgTAP suites red on the public tree, reviewed in #386. run-pgtap-lane.sh still RUNS each one and warns;
+# only these suites may fail without failing the lane, and a listed suite that passes fails the ratchet.
+# Fix the stale test, then delete its line. Never add a suite here without an issue reference.

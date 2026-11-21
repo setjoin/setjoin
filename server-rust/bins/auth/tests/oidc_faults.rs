@@ -1,4 +1,4 @@
-//! HTTP publication under actual PostgreSQL COMMIT wire loss.
+//! OIDC publication under PostgreSQL COMMIT wire loss and refusal on unreadable rows.
 mod common;
 include!("oidc_oracle/harness.rs");
 #[path = "oidc_oracle/grants.rs"]
@@ -99,3 +99,124 @@ cut!(revoke_before_commit, "revoke", BeforeCommit);
 cut!(revoke_after_commit, "revoke", AfterCommit);
 cut!(end_before_commit, "end", BeforeCommit);
 cut!(end_after_commit, "end", AfterCommit);
+
+async fn decode_db() -> Result<(tokio_postgres::Client, setjoin_pg::ScopedExecutor), Err> {
+    let db = Db::for_case("IDFED1-row-decode").ok_or("assigned DB required")?;
+    let c = db.connect().await?;
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await?;
+    let app = setjoin_pg::ScopedExecutor::from_dsn(
+        db.app.as_deref().ok_or("DB_APP_DSN required")?,
+        2,
+    )
+    .map_err(|e| e.0)?;
+    Ok((c, app))
+}
+
+#[tokio::test]
+async fn client_rejects_arrays_with_null_elements() -> Result<(), Err> {
+    let _serial = SERIAL.lock().await;
+    let (c, app) = decode_db().await?;
+    let id = format!("oidc-decode-{}", uuid::Uuid::new_v4());
+    c.execute(
+        "INSERT INTO oidc_clients(id,name,secret,redirect_uris) VALUES($1,$1,'',ARRAY[$2])",
+        &[&id, &grants::REDIRECT],
+    )
+    .await?;
+    let result: Result<(), Err> = async {
+        for column in ["redirect_uris", "grant_types", "scopes"] {
+            c.execute(
+                &format!("UPDATE oidc_clients SET {column}=array_append({column}, NULL) WHERE id=$1"),
+                &[&id],
+            )
+            .await?;
+            // A decode panic fails this case after teardown.
+            let (app, lookup_id) = (app.clone(), id.clone());
+            let error = tokio::spawn(async move {
+                setjoin_identity::oidc::client(&app, &lookup_id).await.err()
+            })
+            .await?;
+            if error.as_deref() != Some("invalid client row") {
+                return Err(format!("{column} decode returned {error:?}").into());
+            }
+            c.execute(
+                &format!("UPDATE oidc_clients SET {column}=array_remove({column}, NULL) WHERE id=$1"),
+                &[&id],
+            )
+            .await?;
+        }
+        Ok(())
+    }
+    .await;
+    c.execute("DELETE FROM oidc_clients WHERE id=$1", &[&id]).await?;
+    result
+}
+
+#[tokio::test]
+async fn unreadable_token_scopes_refuse_userinfo_and_introspection() -> Result<(), Err> {
+    use setjoin_conformance::fixture;
+    use setjoin_identity::oidc;
+
+    let _serial = SERIAL.lock().await;
+    let (c, app) = decode_db().await?;
+    let key = oidc::SigningKey::load(
+        corpus().join("op-private.pem").to_str().unwrap(),
+        corpus().join("op-public.pem").to_str().unwrap(),
+    )?;
+    let cipher = oidc::CodeCipher::new(b"OIDC scope decode fixture")?;
+    let client = format!("oidc-decode-{}", uuid::Uuid::new_v4());
+    let token = uuid::Uuid::new_v4().to_string();
+    let a = fixture::account(&c, "oidc-scope-decode").await?;
+    let result: Result<(), Err> = async {
+        let subject = a.user.to_string();
+        let encoded = cipher.encrypt(&format!("{token}:{subject}"))?;
+        let access = oidc::access(&key, &cipher, "", &encoded).ok_or("fixture access token invalid")?;
+        c.execute(
+            "INSERT INTO oidc_clients(id,name,secret,redirect_uris) VALUES($1,$1,'',ARRAY[$2])",
+            &[&client, &grants::REDIRECT],
+        )
+        .await?;
+        c.execute(
+            "INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at) VALUES($1,$2,$3,$4,ARRAY['openid'],now()+interval '5 minutes')",
+            &[&token, &client, &a.user, &subject],
+        )
+        .await?;
+        if oidc::userinfo(&app, &access).await.is_none()
+            || !oidc::introspect(&app, Some(&access), &client).await.contains("\"active\":true")
+        {
+            return Err("valid control token was refused".into());
+        }
+        c.execute(
+            "UPDATE oidc_tokens SET scopes=ARRAY['openid',NULL] WHERE id=$1 AND user_id=$2",
+            &[&token, &a.user],
+        )
+        .await?;
+        let client = client.clone();
+        let (info, introspection) = tokio::spawn(async move {
+            (
+                oidc::userinfo(&app, &access).await,
+                oidc::introspect(&app, Some(&access), &client).await,
+            )
+        })
+        .await?;
+        if info.is_some() || introspection != "{\"active\":false}\n" {
+            return Err("unreadable scopes did not refuse the token".into());
+        }
+        Ok(())
+    }
+    .await;
+    let removed_token = c.execute(
+        "DELETE FROM oidc_tokens WHERE id=$1 AND user_id=$2",
+        &[&token, &a.user],
+    )
+    .await;
+    let removed_client = c.execute("DELETE FROM oidc_clients WHERE id=$1", &[&client]).await;
+    let removed_account = fixture::remove(&c, &a).await;
+    removed_token?;
+    removed_client?;
+    removed_account?;
+    result
+}

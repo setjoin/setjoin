@@ -71,7 +71,17 @@ impl Proof {
                 (&fp, Type::TEXT),
                 (&enc, Type::BYTEA),
             ],
-            |rows| Ok((rows[0].get(0), rows[0].get(1))),
+            |rows| {
+                let bad = || setjoin_pg::StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "invalid device registration result".into(),
+                };
+                let r = rows.first().ok_or_else(bad)?;
+                let id: i64 = r.try_get(0).map_err(|_| bad())?;
+                let flag: bool = r.try_get(1).map_err(|_| bad())?;
+                Ok((id, flag))
+            },
         )
         .await
     }

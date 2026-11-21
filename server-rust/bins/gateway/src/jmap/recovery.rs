@@ -147,7 +147,7 @@ impl<K: KeySource> JmapCommands<K> {
 }
 
 /// Go disables this surface when loading fails; it does not generate a key.
-pub(super) fn boot_from_env() -> Option<String> {
+pub(super) fn continuity_from_env() -> Option<(String, super::family::ContinuitySigner)> {
     let path = std::env::var_os("CONTINUITY_SIGNING_KEY_FILE")
         .unwrap_or_else(|| "/etc/setjoin/continuity-signing-key.pem".into());
     let path = std::path::Path::new(&path);
@@ -183,6 +183,9 @@ pub(super) fn boot_from_env() -> Option<String> {
     use tokio_rustls::rustls::pki_types::{PrivateKeyDer, pem::PemObject};
     let key = PrivateKeyDer::from_pem_slice(&pem).ok()?;
     let der = zeroize::Zeroizing::new(key.secret_der().to_vec());
-    ring::signature::Ed25519KeyPair::from_pkcs8_maybe_unchecked(&der).ok()?;
-    super::http::uuid()
+    let key = ring::signature::Ed25519KeyPair::from_pkcs8_maybe_unchecked(&der).ok()?;
+    Some((
+        super::http::uuid()?,
+        super::family::ContinuitySigner::new(id, key),
+    ))
 }

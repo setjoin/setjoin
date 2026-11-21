@@ -65,3 +65,99 @@ describe('parseRrule', () => {
 		expect(p?.end).toEqual({ type: 'never' });
 	});
 });
+
+// Adapted from https://github.com/jkbrzt/rrule, commit 9f2061febeeb, test/rrule.test.ts.
+// BSD-3-style license. See mailserver/sql/tests/THIRD_PARTY-calendar_rrule_vectors.md.
+// Copyright 2010, Jakub Roztocil <jakub@roztocil.name> and Lars Schöning
+// rrule.ts only builds and parses RRULE strings; occurrence semantics are covered by mailserver/sql/tests/calendar_rrule_vectors.pg.
+describe('rrule.js rule strings: build/parse round-trip', () => {
+	const cases: {
+		name: string;
+		rule: string;
+		parts: Parameters<typeof buildRrule>[0];
+	}[] = [
+		{
+			name: 'testBefore',
+			rule: 'FREQ=DAILY',
+			parts: { freq: 'DAILY', interval: 1, end: { type: 'never' } }
+		},
+		{
+			name: 'testDaily',
+			rule: 'FREQ=DAILY;COUNT=3',
+			parts: { freq: 'DAILY', interval: 1, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testDailyInterval',
+			rule: 'FREQ=DAILY;INTERVAL=2;COUNT=3',
+			parts: { freq: 'DAILY', interval: 2, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testDailyIntervalLarge',
+			rule: 'FREQ=DAILY;INTERVAL=92;COUNT=3',
+			parts: { freq: 'DAILY', interval: 92, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testWeekly',
+			rule: 'FREQ=WEEKLY;COUNT=3',
+			parts: { freq: 'WEEKLY', interval: 1, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testWeeklyInterval',
+			rule: 'FREQ=WEEKLY;INTERVAL=2;COUNT=3',
+			parts: { freq: 'WEEKLY', interval: 2, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testWeeklyByWeekDay',
+			rule: 'FREQ=WEEKLY;BYDAY=TU,TH;COUNT=3',
+			parts: { freq: 'WEEKLY', interval: 1, byDay: ['TU', 'TH'], end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testMonthly',
+			rule: 'FREQ=MONTHLY;COUNT=3',
+			parts: { freq: 'MONTHLY', interval: 1, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testMonthlyIntervalLarge',
+			rule: 'FREQ=MONTHLY;INTERVAL=18;COUNT=3',
+			parts: { freq: 'MONTHLY', interval: 18, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testMonthlyByNWeekDay',
+			rule: 'FREQ=MONTHLY;BYDAY=1TU,-1TH;COUNT=3',
+			parts: {
+				freq: 'MONTHLY',
+				interval: 1,
+				byDay: ['1TU', '-1TH'],
+				end: { type: 'count', count: 3 }
+			}
+		},
+		{
+			name: 'testYearly',
+			rule: 'FREQ=YEARLY;COUNT=3',
+			parts: { freq: 'YEARLY', interval: 1, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testYearlyIntervalLarge',
+			rule: 'FREQ=YEARLY;INTERVAL=100;COUNT=3',
+			parts: { freq: 'YEARLY', interval: 100, end: { type: 'count', count: 3 } }
+		},
+		{
+			name: 'testYearlyByNWeekDay',
+			rule: 'FREQ=YEARLY;BYDAY=1TU,-1TH;COUNT=3',
+			parts: {
+				freq: 'YEARLY',
+				interval: 1,
+				byDay: ['1TU', '-1TH'],
+				end: { type: 'count', count: 3 }
+			}
+		}
+	];
+
+	it.each(cases)('$name', ({ rule, parts }) => {
+		expect(parseRrule(rule)).toEqual(parts);
+
+		const rebuilt = buildRrule(parts);
+		expect(rebuilt).toBe(rule);
+		expect(parseRrule(rebuilt)).toEqual(parts);
+	});
+});

@@ -15,6 +15,19 @@ pub fn vapid_public_key(private: &str) -> Option<String> {
     Some(URL_SAFE_NO_PAD.encode(secret.public_key().to_sec1_point(false).as_bytes()))
 }
 
+/// Reducer JSON is the first row's text column. A missing row, NULL, wrong type or bad JSON
+/// rejects the statement instead of panicking.
+fn reducer_json(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, setjoin_pg::StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "reducer JSON row".into(),
+        })
+}
+
 /// Password proof and the grant write share one retained transaction and user fence.
 pub async fn password_grant(
     exec: &setjoin_pg::ScopedExecutor,
@@ -48,7 +61,7 @@ pub async fn password_grant(
         &[(&user, Type::INT8), (&claims, Type::TEXT)],
         |rows| {
             let value: serde_json::Value =
-                serde_json::from_str(&rows[0].get::<_, String>(0)).expect("reducer JSON");
+                reducer_json(rows)?;
             if value["status"] != "ready" {
                 return Ok(
                     ProvenStatement::new("SELECT $1::text").bind(value.to_string(), Type::TEXT)
@@ -68,7 +81,7 @@ pub async fn password_grant(
         },
         |rows| {
             let mut value: serde_json::Value =
-                serde_json::from_str(&rows[0].get::<_, String>(0)).expect("reducer JSON");
+                reducer_json(rows)?;
             if value["status"] == "issued" {
                 value["token"] = serde_json::json!(token);
             }
@@ -111,7 +124,7 @@ pub async fn totp_grant(
         &[(&user, Type::INT8), (&claims, Type::TEXT)],
         |rows| {
             let value: serde_json::Value =
-                serde_json::from_str(&rows[0].get::<_, String>(0)).expect("reducer JSON");
+                reducer_json(rows)?;
             if value["status"] != "ready" {
                 return Ok(
                     ProvenStatement::new("SELECT $1::text").bind(value.to_string(), Type::TEXT)
@@ -121,7 +134,7 @@ pub async fn totp_grant(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let proof=crate::totp::counter_proof(code,value["secret"].as_str().unwrap_or(""),now);
+            let proof=crate::totp::counter_proof(code,crate::totp::ready_secret(&value)?,now);
             let counter=proof.as_ref().map(|p|p.0);let factor=proof.map(|p|p.1);let valid=counter.is_some();
             Ok(ProvenStatement::new(
                 "SELECT rust_identity_possession_totp_issue($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8)::text",
@@ -135,7 +148,7 @@ pub async fn totp_grant(
         },
         |rows| {
             let mut value: serde_json::Value =
-                serde_json::from_str(&rows[0].get::<_, String>(0)).expect("reducer JSON");
+                reducer_json(rows)?;
             if value["status"] == "issued" {
                 value["token"] = serde_json::json!(token);
             }
@@ -177,7 +190,7 @@ pub async fn generate_backups(
     let outcome=exec.run_user_async_proof_command_with_tail(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),
   "SELECT rust_identity_possession_consume($1,$2::text::jsonb,$3,'recovery.regenerate',false,NULL)::text",
   &[(&user,Type::INT8),(&claims,Type::TEXT),(&hash,Type::TEXT)],
-  |rows|{let value:serde_json::Value=serde_json::from_str(&rows[0].get::<_,String>(0)).expect("reducer JSON");async move{
+  |rows|{let parsed=reducer_json(rows);async move{let value:serde_json::Value=parsed?;
    if value["status"]!="ready"{return Ok(ProvenStatement::new("SELECT $1::text").bind(value.to_string(),Type::TEXT));}
    stage.store(true,std::sync::atomic::Ordering::Relaxed);
    let (codes,hashes)=tokio::task::spawn_blocking(||->Result<_,()>{
@@ -190,7 +203,7 @@ pub async fn generate_backups(
    *slot.lock().unwrap()=codes;
    Ok(ProvenStatement::new("SELECT rust_identity_backup_generate($1,$2,$3)::text").bind(user,Type::INT8).bind(hashes,Type::TEXT_ARRAY).bind(ip.to_owned(),Type::TEXT))
   }},
-  |rows|{let mut value:serde_json::Value=serde_json::from_str(&rows[0].get::<_,String>(0)).expect("reducer JSON");
+  |rows|{let mut value:serde_json::Value=reducer_json(rows)?;
    if value["status"]=="generated"{value["codes"]=serde_json::json!(*generated.lock().unwrap());}Ok(value)
   },|_|async{}).await;
     match outcome {
@@ -226,7 +239,16 @@ pub async fn consume_backup(
     let Some(row) = rows.first() else {
         return CommandOutcome::RolledBack(Rejection::Unavailable);
     };
-    let hashes: Option<Vec<String>> = row.get(0);
+    let hashes: Option<Vec<String>> = match row.try_get(0) {
+        Ok(hashes) => hashes,
+        Err(_) => {
+            return CommandOutcome::RolledBack(Rejection::Statement(StatementFailure {
+                sqlstate: None,
+                hint: None,
+                message: "backup codes row".into(),
+            }))
+        }
+    };
     let code = code.to_owned();
     let matched = tokio::task::spawn_blocking(move || {
         hashes
@@ -308,8 +330,7 @@ pub async fn register_native(
             ],
             |rows| {
                 Ok(
-                    serde_json::from_str::<serde_json::Value>(&rows[0].get::<_, String>(0))
-                        .expect("reducer JSON"),
+                    reducer_json(rows)?,
                 )
             },
         )
@@ -339,10 +360,25 @@ pub async fn harvest(
     token: &str,
 ) -> setjoin_pg::CommandOutcome<bool, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
-    use setjoin_pg::{CommandOutcome, Type};
+    use setjoin_pg::{CommandOutcome, Rejection, StatementFailure, Type};
     let user = pending.user();
     let approved=exec.read("SELECT approved_at IS NOT NULL FROM push_mfa_challenges WHERE nonce=decode($1,'hex') AND user_id=$2 ORDER BY created_at DESC LIMIT 1",&[(&nonce,Type::TEXT),(&user,Type::INT8)]).await;
-    if !approved.is_ok_and(|rows| rows.first().is_some_and(|r| r.get::<_, bool>(0))) {
+    // A query error or no row is not approved; an unreadable flag is a statement failure.
+    let approved = match approved {
+        Ok(rows) => match rows.first().map(|r| r.try_get::<_, bool>(0)) {
+            Some(Ok(flag)) => flag,
+            Some(Err(_)) => {
+                return CommandOutcome::RolledBack(Rejection::Statement(StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "push approval row".into(),
+                }))
+            }
+            None => false,
+        },
+        Err(_) => false,
+    };
+    if !approved {
         return CommandOutcome::Committed(false);
     }
     let exec = exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand {
@@ -417,6 +453,46 @@ pub fn verify_approval(key: &[u8], canonical: &[u8], signature: &str) -> bool {
             .verify(canonical, &raw)
             .is_ok()
 }
+/// Go's MFAApprove decision (device.go:307-345) over the locked reducer row. A missing or
+/// mistyped `failures`, `expires`, `code`, `session` or hex `key` is Go's failed Scan: a uniform
+/// "invalid" with no burn, failure count or approval, never zero failures (#455).
+fn approval_result(value: &serde_json::Value, assertion: &Approval, user: i64, now: i64) -> &'static str {
+    use subtle::ConstantTimeEq;
+    let (Some(failures), Some(expires), Some(code), Some(session), Some(key)) = (
+        value["failures"].as_i64(),
+        value["expires"].as_i64(),
+        value["code"].as_str(),
+        value["session"].as_str(),
+        value["key"]
+            .as_str()
+            .and_then(|k| data_encoding::HEXLOWER_PERMISSIVE.decode(k.as_bytes()).ok()),
+    ) else {
+        return "invalid";
+    };
+    // A negative count would grant extra guesses before the burn: uniform invalid, unevaluated.
+    if failures < 0 {
+        return "invalid";
+    }
+    if failures >= 3 {
+        "burn"
+    } else if assertion.issued < now - 120
+        || assertion.issued > now + 30
+        || assertion.expires <= now
+        || assertion.expires > expires
+        || assertion
+            .expires
+            .checked_sub(assertion.issued)
+            .is_none_or(|d| d > 120)
+        || !verify_approval(&key, &assertion.canonical(user, session), &assertion.signature)
+    {
+        "invalid"
+    } else if !bool::from(code.as_bytes().ct_eq(assertion.code.as_bytes())) {
+        "wrong"
+    } else {
+        "accepted"
+    }
+}
+
 /// Preauth capability lookup resolves a possible owner only; the locked callback
 /// authenticates the device signature before the reducer can approve any row.
 pub async fn approve(
@@ -425,7 +501,6 @@ pub async fn approve(
 ) -> setjoin_pg::CommandOutcome<String, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
     use setjoin_pg::{CommandOutcome, ProvenStatement, Type};
-    use subtle::ConstantTimeEq;
     let invalid = || CommandOutcome::Committed("invalid".to_owned());
     let Some(nonce) = assertion.nonce_bytes() else {
         return invalid();
@@ -433,7 +508,7 @@ pub async fn approve(
     let rows=exec.read("SELECT c.user_id FROM push_mfa_challenges c JOIN push_devices d ON d.user_id=c.user_id AND d.id=$2 WHERE c.nonce=$1 AND c.verified_at IS NULL AND c.expires_at>now() AND d.revoked_at IS NULL AND d.device_public_key IS NOT NULL ORDER BY c.created_at DESC LIMIT 1",&[(&nonce,Type::BYTEA),(&assertion.device,Type::INT8)]).await;
     let Some(user) = rows
         .ok()
-        .and_then(|r| r.first().map(|r| r.get::<_, i64>(0)))
+        .and_then(|r| r.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
     else {
         return invalid();
     };
@@ -455,46 +530,16 @@ pub async fn approve(
         ],
         |rows| {
             let value: serde_json::Value =
-                serde_json::from_str(&rows[0].get::<_, String>(0)).expect("reducer JSON");
+                reducer_json(rows)?;
             if value["status"] != "ready" {
                 return Ok(ProvenStatement::new("SELECT 'invalid'::text"));
             }
-            let id = value["id"].as_i64().expect("challenge id");
+            let id = value["id"].as_i64().ok_or_else(|| setjoin_pg::StatementFailure { sqlstate: None, hint: None, message: "reducer challenge id".into() })?;
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let key = data_encoding::HEXLOWER_PERMISSIVE
-                .decode(value["key"].as_str().unwrap_or("").as_bytes())
-                .unwrap_or_default();
-            let result = if value["failures"].as_i64().unwrap_or(0) >= 3 {
-                "burn"
-            } else if assertion.issued < now - 120
-                || assertion.issued > now + 30
-                || assertion.expires <= now
-                || assertion.expires > value["expires"].as_i64().unwrap_or(0)
-                || assertion
-                    .expires
-                    .checked_sub(assertion.issued)
-                    .is_none_or(|d| d > 120)
-                || !verify_approval(
-                    &key,
-                    &assertion.canonical(user, value["session"].as_str().unwrap_or("")),
-                    &assertion.signature,
-                )
-            {
-                "invalid"
-            } else if !bool::from(
-                value["code"]
-                    .as_str()
-                    .unwrap_or("")
-                    .as_bytes()
-                    .ct_eq(assertion.code.as_bytes()),
-            ) {
-                "wrong"
-            } else {
-                "accepted"
-            };
+            let result = approval_result(&value, assertion, user, now);
             Ok(
                 ProvenStatement::new("SELECT rust_identity_push_approval_finish($1,$2,$3)")
                     .bind(user, Type::INT8)
@@ -502,7 +547,15 @@ pub async fn approve(
                     .bind(result.to_owned(), Type::TEXT),
             )
         },
-        |rows| Ok(rows[0].get::<_, String>(0)),
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get::<_, String>(0).ok())
+                .ok_or_else(|| setjoin_pg::StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "push approval finish row".into(),
+                })
+        },
     )
     .await
 }
@@ -574,7 +627,18 @@ pub(super) async fn generate_for(
     // These are separate transactions in frozen Go; do not invent serialization.
     let count=exec.read("SELECT count(*) FROM push_mfa_challenges WHERE user_id=$1 AND created_at>now()-interval '5 minutes'",&[(&user,Type::INT8)]).await;
     let count = match count {
-        Ok(rows) => rows[0].get::<_, i64>(0),
+        Ok(rows) => match rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) {
+            Some(count) => count,
+            None => {
+                return CommandOutcome::RolledBack(Rejection::Statement(
+                    setjoin_pg::StatementFailure {
+                        sqlstate: None,
+                        hint: None,
+                        message: "push challenge count row".into(),
+                    },
+                ))
+            }
+        },
         Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
     };
     if count >= 3 {
@@ -610,5 +674,80 @@ pub(super) async fn generate_for(
         })),
         CommandOutcome::Unknown { operation } => CommandOutcome::Unknown { operation },
         CommandOutcome::RolledBack(e) => CommandOutcome::RolledBack(e),
+    }
+}
+
+#[cfg(test)]
+mod fail_closed_455 {
+    //! #455: an unreadable failure count, key, code, session or expiry is Go's failed Scan
+    //! ("invalid"), never zero failures; the three-strike burn holds at the boundary.
+    use super::{approval_result, Approval};
+    use base64::Engine;
+    use ring::signature::{EcdsaKeyPair, KeyPair, ECDSA_P256_SHA256_FIXED_SIGNING};
+    use serde_json::{json, Value};
+    const NOW: i64 = 1_800_000_000;
+    const USER: i64 = 7;
+
+    fn signed() -> (Approval, String) {
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+        let mut a = Approval {
+            nonce: "11".repeat(32),
+            code: "42".into(),
+            device: 9,
+            decision: "approve".into(),
+            issued: NOW,
+            expires: NOW + 60,
+            signature: String::new(),
+        };
+        let signature = pair.sign(&rng, &a.canonical(USER, "session")).unwrap();
+        a.signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.as_ref());
+        (a, data_encoding::HEXLOWER.encode(pair.public_key().as_ref()))
+    }
+    fn row(key: &str) -> Value {
+        json!({"status":"ready","id":1,"user":USER,"code":"42","session":"session","expires":NOW+120,"failures":0,"key":key})
+    }
+
+    #[test]
+    fn three_strike_boundary() {
+        let (a, key) = signed();
+        let mut r = row(&key);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "accepted");
+        r["failures"] = json!(2);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "accepted", "two strikes still allow the right code");
+        r["code"] = json!("43");
+        assert_eq!(approval_result(&r, &a, USER, NOW), "wrong", "the third wrong answer is counted (the reducer burns at 3)");
+        r["code"] = json!("42");
+        r["failures"] = json!(3);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "burn", "three strikes burn even the right code");
+        r["failures"] = json!(-1);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "a negative count is never a fresh challenge");
+    }
+
+    #[test]
+    fn unreadable_values_are_invalid_never_zero_failures() {
+        let (a, key) = signed();
+        for (field, bad) in [
+            ("failures", Value::Null),
+            ("failures", json!("0")),
+            ("failures", json!(0.5)),
+            ("expires", Value::Null),
+            ("code", Value::Null),
+            ("session", Value::Null),
+            ("key", Value::Null),
+            ("key", json!("zz")),
+            ("key", json!(7)),
+        ] {
+            let mut r = row(&key);
+            r[field] = bad.clone();
+            assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "{field}={bad}");
+            r.as_object_mut().unwrap().remove(field);
+            assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "{field} missing");
+        }
+        let mut r = row("");
+        assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "an empty key verifies nothing");
+        r["failures"] = json!(3);
+        assert_eq!(approval_result(&r, &a, USER, NOW), "burn", "Go order: the burn precedes the signature check");
     }
 }

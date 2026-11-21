@@ -270,19 +270,35 @@ impl RelyingParty {
         id: i64,
         initialize: bool,
     ) -> Result<User, String> {
+        self.load_user_opt(exec, id, initialize)
+            .await?
+            .ok_or_else(|| "no rows in result set".to_owned())
+    }
+    /// Ok(None) only when the enabled user row is absent; every other failure is Err.
+    async fn load_user_opt(
+        &self,
+        exec: &ScopedExecutor,
+        id: i64,
+        initialize: bool,
+    ) -> Result<Option<User>, String> {
         use ring::rand::{SecureRandom, SystemRandom};
         use setjoin_contracts::ids::{ActorId, OperationId};
         use setjoin_pg::CommandOutcome;
         let actor = ActorId::new(id).map_err(|_| "no rows in result set".to_owned())?;
         let rows=exec.read_user_scoped(actor,"SELECT email,display_name,webauthn_user_handle FROM users WHERE id=$1 AND enabled=TRUE",&[(&id,Type::INT8)]).await.map_err(|e|e.message)?;
-        let r = rows.first().ok_or("no rows in result set")?;
-        let mut handle = r.get::<_, Option<Vec<u8>>>(2).unwrap_or_default();
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let mut handle = r
+            .try_get::<_, Option<Vec<u8>>>(2)
+            .map_err(|_| "no rows in result set")?
+            .unwrap_or_default();
         if handle.is_empty() && initialize {
             let mut candidate = [0; 32];
             SystemRandom::new()
                 .fill(&mut candidate)
                 .map_err(|_| "webauthn: generate user handle")?;
-            match exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"UPDATE users SET webauthn_user_handle=COALESCE(webauthn_user_handle,$1) WHERE id=$2 RETURNING webauthn_user_handle",&[(&candidate.as_slice(),Type::BYTEA),(&id,Type::INT8)],|rows|Ok(rows[0].get::<_,Vec<u8>>(0))).await {
+            match exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"UPDATE users SET webauthn_user_handle=COALESCE(webauthn_user_handle,$1) WHERE id=$2 RETURNING webauthn_user_handle",&[(&candidate.as_slice(),Type::BYTEA),(&id,Type::INT8)],|rows|rows.first().and_then(|r|r.try_get::<_,Vec<u8>>(0).ok()).ok_or_else(bad_result)).await {
                 CommandOutcome::Committed(h)=>handle=h,
                 _=>return Err("webauthn: persist user handle".into()),
             }
@@ -295,21 +311,24 @@ impl RelyingParty {
             .iter()
             .map(|r| {
                 Ok(StoredCredential {
-                    id: r.get(0),
-                    key: r.get(1),
-                    _attestation: r.get(2),
-                    _count: u32::try_from(r.get::<_, i32>(3))
-                        .map_err(|_| "invalid credential counter")?,
+                    id: r.try_get(0).map_err(|_| "no rows in result set")?,
+                    key: r.try_get(1).map_err(|_| "no rows in result set")?,
+                    _attestation: r.try_get(2).map_err(|_| "no rows in result set")?,
+                    _count: u32::try_from(
+                        r.try_get::<_, i32>(3)
+                            .map_err(|_| "no rows in result set")?,
+                    )
+                    .map_err(|_| "invalid credential counter")?,
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        Ok(User {
+        Ok(Some(User {
             id,
-            _email: r.get(0),
-            _display: r.get(1),
+            _email: r.try_get(0).map_err(|_| "no rows in result set")?,
+            _display: r.try_get(1).map_err(|_| "no rows in result set")?,
             handle,
             credentials,
-        })
+        }))
     }
     pub async fn begin_login(
         &self,
@@ -323,16 +342,23 @@ impl RelyingParty {
                 &[(&email.as_str(), Type::TEXT)],
             )
             .await;
-        let user = match rows
-            .ok()
-            .and_then(|r| r.first().map(|r| r.get::<_, i64>(0)))
-        {
-            Some(id) => self
-                .load_user(exec, id, true)
-                .await
-                .ok()
-                .filter(|u| !u.credentials.is_empty()),
-            None => None,
+        // Every failure (query error, absent, disabled or vanished user, undecodable row,
+        // handle persist failure, no credentials) takes the decoy path: a distinct response
+        // here would reveal that the account exists.
+        let user = match rows {
+            Err(_) => None,
+            Ok(rows) => match rows.first() {
+                None => None,
+                Some(r) => match r.try_get::<_, i64>(0) {
+                    Ok(id) => self
+                        .load_user_opt(exec, id, true)
+                        .await
+                        .ok()
+                        .flatten()
+                        .filter(|u| !u.credentials.is_empty()),
+                    Err(_) => None,
+                },
+            },
         };
         let (uid, handle, ids) = if let Some(u) = user {
             (
@@ -505,7 +531,7 @@ impl RelyingParty {
         let actor = setjoin_contracts::ids::ActorId::new(user.id)
             .map_err(|_| refuse("no rows in result set"))?;
         let op = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
-        match exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-counter"}).run_user_command(actor,op,"SELECT rust_identity_webauthn_login_claim($1,$2,$3,$4,$5)",&[(&user.id,Type::INT8),(&credential.id,Type::BYTEA),(&credential.key,Type::BYTEA),(&count,Type::INT4),(&Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes()).to_vec(),Type::BYTEA)],|rows|Ok(rows[0].get::<_,String>(0))).await{
+        match exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-counter"}).run_user_command(actor,op,"SELECT rust_identity_webauthn_login_claim($1,$2,$3,$4,$5)",&[(&user.id,Type::INT8),(&credential.id,Type::BYTEA),(&credential.key,Type::BYTEA),(&count,Type::INT4),(&Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes()).to_vec(),Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(|| StatementFailure{sqlstate:None,hint:None,message:"database error".into()})).await{
             setjoin_pg::CommandOutcome::Committed(status) if status=="accepted"=>Ok(LoginProof{user:user.id}),
             setjoin_pg::CommandOutcome::Committed(detail)=>Err(refuse(&detail)),
             setjoin_pg::CommandOutcome::Unknown{operation}=>Err(LoginFailure::Unknown(operation)),
@@ -675,14 +701,34 @@ impl LoginProof {
         exec: &ScopedExecutor,
     ) -> Result<Option<crate::totp::CompletionUser>, StatementFailure> {
         let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&self.user,Type::INT8)]).await?;
-        Ok(rows.first().map(|r| crate::totp::CompletionUser {
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "completion user row".into(),
+        };
+        Ok(Some(crate::totp::CompletionUser {
             user: self.user,
-            email: r.get(0),
-            admin: r.get(1),
+            email: r.try_get(0).map_err(|_| bad())?,
+            admin: r.try_get(1).map_err(|_| bad())?,
         }))
     }
-    pub async fn factors(&self, exec: &ScopedExecutor) -> (bool, bool) {
-        exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await.ok().and_then(|r|r.first().map(|r|(r.get(0),r.get(1)))).unwrap_or((false,false))
+    /// #454: a query error, a missing row (the user was disabled or deleted after
+    /// `completion`) or an unreadable factor column fails closed, never "no MFA enrolled".
+    pub async fn factors(&self, exec: &ScopedExecutor) -> Result<(bool, bool), StatementFailure> {
+        let bad = || StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "MFA factor row".into(),
+        };
+        let rows = exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await?;
+        let r = rows.first().ok_or_else(bad)?;
+        Ok((
+            r.try_get::<_, bool>(0).map_err(|_| bad())?,
+            r.try_get::<_, bool>(1).map_err(|_| bad())?,
+        ))
     }
     pub async fn mint(
         &self,
@@ -715,13 +761,14 @@ impl LoginProof {
                     (&family, Type::TEXT),
                 ],
                 |rows| {
-                    serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| {
-                        StatementFailure {
+                    rows.first()
+                        .and_then(|r| r.try_get::<_, String>(0).ok())
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                        .ok_or_else(|| StatementFailure {
                             sqlstate: None,
                             hint: None,
                             message: "invalid mint result".into(),
-                        }
-                    })
+                        })
                 },
             )
             .await
@@ -759,7 +806,7 @@ impl RelyingParty {
             return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
         };
         exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-register-begin"}).run_user_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT rust_identity_webauthn_begin($1,$2::text::jsonb,$3,$4,$5)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT),(&token_hash,Type::TEXT),(&challenge_hash,Type::TEXT),(&candidate.as_slice(),Type::BYTEA)],|rows|{
-            let outcome:serde_json::Value=serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|bad_result())?;
+            let outcome:serde_json::Value=reducer_json(rows)?;
             if outcome["status"]!="created"{return Ok(RegistrationBegin{outcome,options:None,session:None});}
             let handle=hex_bytes(outcome["handle"].as_str().unwrap_or("")).ok_or_else(bad_result)?;
             let params=credential_parameters();
@@ -775,6 +822,14 @@ fn bad_result() -> StatementFailure {
         hint: None,
         message: "invalid WebAuthn reducer result".into(),
     }
+}
+/// Reducer JSON is the first row's text column; a missing row, NULL, wrong type or bad JSON
+/// is the reducer-result rejection.
+fn reducer_json(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, StatementFailure> {
+    rows.first()
+        .and_then(|r| r.try_get::<_, String>(0).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .ok_or_else(bad_result)
 }
 fn credential_parameters() -> String {
     format!(
@@ -988,14 +1043,14 @@ impl RelyingParty {
             return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
         };
         exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-register-finish"}).run_user_proof_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT rust_identity_webauthn_registration_read($1,$2::text::jsonb)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT)],|rows|{
-            let result:serde_json::Value=serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|bad_result())?;
+            let result:serde_json::Value=reducer_json(rows)?;
             if result["status"]!="ready"{return Ok(ProvenStatement::new("SELECT $1::text").bind(result.to_string(),Type::TEXT));}
             let handle=hex_bytes(result["handle"].as_str().unwrap_or("")).ok_or_else(bad_result)?;
             let credential=self.verify_registration(&handle,&transport,raw).map_err(|detail|StatementFailure{sqlstate:None,hint:Some("webauthn-verification".into()),message:detail})?;
             Ok(ProvenStatement::new("SELECT rust_identity_webauthn_finish($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8,$9,$10)::text")
                 .bind(session.user(),Type::INT8).bind(claims.clone(),Type::TEXT).bind(token_hash,Type::TEXT).bind(challenge_hash,Type::TEXT)
                 .bind(credential.id,Type::BYTEA).bind(credential.key,Type::BYTEA).bind(credential.attestation,Type::TEXT).bind(credential.count,Type::INT4).bind(credential.uv,Type::BOOL).bind(ip.to_owned(),Type::TEXT))
-        },|rows|serde_json::from_str(&rows[0].get::<_,String>(0)).map_err(|_|bad_result())).await
+        },|rows|reducer_json(rows)).await
     }
 }
 
@@ -1030,7 +1085,7 @@ pub async fn revoke(
                 (&id, Type::BYTEA),
                 (&ip, Type::TEXT),
             ],
-            |rows| serde_json::from_str(&rows[0].get::<_, String>(0)).map_err(|_| bad_result()),
+            |rows| reducer_json(rows),
         )
         .await
 }
@@ -1309,14 +1364,20 @@ pub fn decode_credential_id(text: &str) -> Option<Vec<u8>> {
 
 impl RelyingParty {
     pub(crate) fn management_challenge(&self)->Result<String,&'static str>{random_challenge()}
-    pub(crate) fn management_options(&self,snapshot:&serde_json::Value,challenge:&str)->String{
-        let ids=snapshot["keys"].as_array().expect("owned keys").iter().map(|key|{
-            let raw=key["id"].as_str().expect("credential hex");
-            let bytes=data_encoding::HEXLOWER.decode(raw.as_bytes()).expect("database hex");
-            format!("{{\"type\":\"public-key\",\"id\":{}}}",serde_json::json!(URL_SAFE_NO_PAD.encode(bytes)))
-        }).collect::<Vec<_>>().join(",");
-        let allowed=if ids.is_empty(){String::new()}else{format!(",\"allowCredentials\":[{ids}]")};
-        format!("{{\"publicKey\":{{\"challenge\":{},\"timeout\":300000,\"rpId\":{}{allowed},\"userVerification\":\"required\"}}}}",serde_json::json!(challenge),serde_json::json!(self.rp_id))
+    pub(crate) fn management_options(
+        &self,
+        snapshot: &serde_json::Value,
+        challenge: &str,
+    ) -> Result<String, StatementFailure> {
+        let keys = snapshot["keys"].as_array().ok_or_else(bad_result)?;
+        let ids = keys.iter().map(|key| {
+            let raw = key["id"].as_str().ok_or_else(bad_result)?;
+            let bytes = data_encoding::HEXLOWER.decode(raw.as_bytes()).map_err(|_| bad_result())?;
+            Ok(format!("{{\"type\":\"public-key\",\"id\":{}}}", serde_json::json!(URL_SAFE_NO_PAD.encode(bytes))))
+        }).collect::<Result<Vec<_>, StatementFailure>>()?.join(",");
+        let allowed = if ids.is_empty() { String::new() } else { format!(",\"allowCredentials\":[{ids}]") };
+        Ok(format!("{{\"publicKey\":{{\"challenge\":{},\"timeout\":300000,\"rpId\":{}{allowed},\"userVerification\":\"required\"}}}}",
+            serde_json::json!(challenge), serde_json::json!(self.rp_id)))
     }
 }
 
@@ -1344,6 +1405,30 @@ impl RelyingParty {
         let mut message=parsed.auth.clone();message.extend_from_slice(&Sha256::digest(&parsed.client));
         if !verify_stored_signature(&public,&message,&parsed.signature){return ManagementResult::Rejected;}
         ManagementResult::Accepted(parsed.id)
+    }
+}
+
+#[cfg(test)]
+mod fail_closed_management_options {
+    use super::RelyingParty;
+    use serde_json::json;
+
+    #[test]
+    fn rejects_malformed_snapshot() {
+        let rp = RelyingParty::new(&[0; 32], "example.com", "Example", "https://example.com").unwrap();
+        for snapshot in [
+            json!({}),
+            json!({"keys": {}}),
+            json!({"keys": [{}]}),
+            json!({"keys": [{"id": 42}]}),
+            json!({"keys": [{"id": "01"}, {"id": "not hex"}]}),
+        ] {
+            let error = rp.management_options(&snapshot, "challenge").unwrap_err();
+            assert_eq!(error.message, "invalid WebAuthn reducer result");
+        }
+        let empty = rp.management_options(&json!({"keys": []}), "challenge").unwrap();
+        let options: serde_json::Value = serde_json::from_str(&empty).unwrap();
+        assert!(options["publicKey"].get("allowCredentials").is_none());
     }
 }
 
@@ -1389,5 +1474,36 @@ mod secfix3_safetynet {
     #[test]
     fn a_stale_response_is_refused() {
         assert!(safetynet_policy(Some(&statement(&[CHAINED, CA], 120_000, AUTH, CLIENT)), AUTH, CLIENT).is_err());
+    }
+}
+
+#[cfg(test)]
+mod fail_closed_454 {
+    //! #454: a failed or empty MFA factor read is an error, never "no MFA enrolled".
+    use super::LoginProof;
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+    }
+    #[test]
+    fn factor_query_error_is_an_error() {
+        runtime().block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
+            assert!(LoginProof { user: 7 }.factors(&exec).await.is_err());
+        });
+    }
+    #[test]
+    fn absent_user_row_is_an_error() {
+        let Some(dsn) = std::env::var("TEST_DB_DSN").ok().filter(|v| !v.is_empty()) else {
+            assert!(
+                std::env::var("REQUIRE_DB").unwrap_or_default().is_empty(),
+                "TEST_DB_DSN (REQUIRE_DB lane)"
+            );
+            eprintln!("IDENTITY-DB-SKIP (reason=no-dsn) test=absent_user_row_is_an_error");
+            return;
+        };
+        runtime().block_on(async {
+            let exec = setjoin_pg::ScopedExecutor::from_dsn(&dsn, 1).unwrap();
+            assert!(LoginProof { user: i64::MAX }.factors(&exec).await.is_err());
+        });
     }
 }

@@ -1,5 +1,5 @@
 # Linux CI toolchain for the Xinchuang unit-test lanes, built and cached on the
-# Mac runner by .github/workflows/xinchuang-ci.yml (build-once, reuse). The
+# Mac runner by the retired .github/workflows/xinchuang-ci.yml (removed; see webmail.yml, rust-floor.yml) (build-once, reuse). The
 # unit-tests and tagged-lane jobs run INSIDE this image: ubuntu 24.04 + Go
 # 1.26.6 + Node 26 + PostgreSQL 17 (server, pgtap, pg_prove) + Rust stable +
 # libopus + python3. No docker inside — postgres runs locally in
@@ -55,7 +55,7 @@ ENV PATH="/usr/local/go/bin:/root/go/bin:${PATH}"
 ARG RUST_MIN_VERSION=1.99.0
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rustup component add llvm-tools
+RUN rustup component add llvm-tools rustfmt clippy
 RUN have="$(rustc --version | awk '{print $2}')" \
   && if [ "$(printf '%s\n%s\n' "$RUST_MIN_VERSION" "$have" | sort -V | head -1)" != "$RUST_MIN_VERSION" ]; then \
        echo "rustc $have is older than the server-rust floor $RUST_MIN_VERSION" >&2; exit 1; \

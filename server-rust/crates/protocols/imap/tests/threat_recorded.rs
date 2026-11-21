@@ -69,7 +69,7 @@ async fn replay(corpus_name: &str, mutant: bool) {
             .insert("feature.conditional_access".into(), name == "policy");
         let gate = Gate::load(
             executor(&db),
-            setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap(),
+            setjoin_threat::WorkerPools::from_dsn(&db.dsn).unwrap(),
             config,
             None,
         )

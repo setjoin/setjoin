@@ -18,7 +18,7 @@ Status column:
 
 | Item | Path | License (SPDX) | Status | Source |
 |---|---|---|---|---|
-| Mozilla CA certificate bundle (curl `cacert.pem`, Mozilla data as of 2026-05-14) | `mailserver/internal/smime/cacert.pem`, `server-rust/crates/protocols/smtp/src/inbound/cacert.pem` | MPL-2.0 | upstream | https://curl.se/docs/caextract.html (from Mozilla NSS `certdata.txt`) |
+| Mozilla CA certificate bundle (curl `cacert.pem`, Mozilla data as of 2026-11-05) | `mailserver/internal/smime/cacert.pem`, `server-rust/crates/protocols/smtp/src/inbound/cacert.pem` | MPL-2.0 | upstream | https://curl.se/docs/caextract.html (from Mozilla NSS `certdata.txt`) |
 | Excalidraw 0.18.1 (npm package, built into the webmail bundle; only its fonts are vendored) | `mailserver/webmail/package.json` dependency | MIT | in tree (npm `package.json`) | https://github.com/excalidraw/excalidraw |
 | Assistant font (4 files) | `mailserver/webmail/static/excalidraw/fonts/Assistant/` | OFL-1.1 | in tree | https://github.com/hafontia/Assistant |
 | Cascadia Code font (1 file) | `mailserver/webmail/static/excalidraw/fonts/Cascadia/` | OFL-1.1 | in tree | https://github.com/microsoft/cascadia-code |
@@ -36,6 +36,8 @@ Status column:
 | OpenHarmony docs, curated English security-kit subset at upstream commit `ea48936`, images removed | `clients/harmonyos/refs/openharmony-docs/` | CC-BY-4.0 (expected) | to verify | https://gitcode.com/openharmony/docs |
 | rust-security-framework at `df2c535` (reference copy) | `clients/rust/refs/ios-security-framework/` | MIT OR Apache-2.0 | in tree (`Cargo.toml`) | https://github.com/kornelski/rust-security-framework |
 | tauri-plugin-biometric 2.3.2 (reference copy) | `clients/rust/refs/tauri-plugin-biometric/` | MIT OR Apache-2.0 (expected) | to verify | https://github.com/tauri-apps/plugins-workspace/tree/v2/plugins/biometric |
+| python-dateutil RRULE test vectors (translated) | `mailserver/sql/tests/calendar_rrule_vectors.pg` | Apache-2.0 AND BSD-3-Clause | in tree (`mailserver/sql/tests/THIRD_PARTY-calendar_rrule_vectors.md`) | https://github.com/dateutil/dateutil/blob/261e29139618/tests/test_rrule.py |
+| rrule.js RRULE test vectors (adapted) | `mailserver/webmail/src/lib/calendar/rrule.test.ts` | BSD-3-Clause | in tree (`mailserver/sql/tests/THIRD_PARTY-calendar_rrule_vectors.md`) | https://github.com/jkbrzt/rrule/blob/9f2061febeeb/test/rrule.test.ts |
 
 ## Copyright notices
 

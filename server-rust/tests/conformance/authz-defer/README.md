@@ -1,5 +1,7 @@
 # Shared terminal admission (#406)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `bins/gateway/tests/authz_defer_recorded.rs` records frozen `mailserverd` through
 the Rust front door, then replays the immutable JSON against the actual Rust
 executable with GATEWAY_UPSTREAM unset. Denial cases retain raw body text; successful full-spec documents retain SHA-256. Only

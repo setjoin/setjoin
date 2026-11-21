@@ -2201,6 +2201,8 @@ async fn run_push_login(kind: &str, mutant: bool) -> Result<(), Err> {
                     .unwrap(),
                 cfg,
             )
+            .await?
+            .with_threat_gate(&db.dsn)
             .await?,
         ),
         mutant,
@@ -2445,6 +2447,8 @@ async fn run_recovery(kind: &str, verify: bool, mutant: bool) -> Result<(), Err>
                 executor,
                 cfg,
             )
+            .await?
+            .with_threat_gate(&db.dsn)
             .await?,
         ),
         mutant,

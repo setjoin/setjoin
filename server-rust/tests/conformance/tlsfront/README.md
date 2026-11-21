@@ -1,5 +1,7 @@
 # TLS front door oracle (#413)
 
+Recorder rules (skipped cases, presets, client IP): `server-rust/DOX.md#frozen-go-recording-workflow`.
+
 `build-peer.py` builds `test-results/gofree-tlsfront/gofree-tlsfront-peer` in the CI image,
 with the shared module cache. It lifts the complete TLS config expression unchanged from
 frozen `mailserverd/main.go` into a recording overlay (no tracked Go edits). It records the

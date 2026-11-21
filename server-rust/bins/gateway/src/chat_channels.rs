@@ -14,7 +14,9 @@ pub struct ChannelRoute<K: KeySource + 'static> {
     pub federation_typing: Option<Arc<crate::federation_typing::Typing>>,
 }
 impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         matches!(*r.method(), Method::GET | Method::HEAD)
             && [
@@ -138,16 +140,11 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 );
                 return reply;
             }
-            let Some(auth) = setjoin_authz::authorize_user_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::User).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             match setjoin_chat::channels::enabled(&exec).await {
                 Ok(true) => {}
@@ -408,14 +405,17 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                     Some(v) => v,
                     None => return problem(400, "invalid channel id", &path, &c, id, &language),
                 };
-                let debounced = federation_typing.as_ref().is_some_and(|typing|typing.debounced(channel));
+                let debounced = federation_typing
+                    .as_ref()
+                    .is_some_and(|typing| typing.debounced(channel));
                 let Some(operation) = crate::jmap::random() else {
                     return problem(500, "request failed", &path, &c, id, &language);
                 };
-                let outcome = setjoin_chat::channels::typing(&exec, auth.context(), channel, operation).await;
-                if matches!(&outcome,setjoin_pg::CommandOutcome::Committed(())) && !debounced {
-                    if let Some(typing)=federation_typing {
-                        typing.send(exec.clone(),auth.context().clone(),channel);
+                let outcome =
+                    setjoin_chat::channels::typing(&exec, auth.context(), channel, operation).await;
+                if matches!(&outcome, setjoin_pg::CommandOutcome::Committed(())) && !debounced {
+                    if let Some(typing) = federation_typing {
+                        typing.send(exec.clone(), auth.context().clone(), channel);
                     }
                 }
                 return void_response(outcome, &path, &c, id, &language);
@@ -1147,7 +1147,10 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             match result {
                 Ok(raw) => {
                     let raw = if conversation {
-                        format!("{{\"attachmentsEnabled\":{},\"conversations\":{raw}}}",drive && !auth.context().is_guest())
+                        format!(
+                            "{{\"attachmentsEnabled\":{},\"conversations\":{raw}}}",
+                            drive && !auth.context().is_guest()
+                        )
                     } else {
                         raw
                     };

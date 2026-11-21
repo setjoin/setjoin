@@ -241,7 +241,10 @@ fn random_nonce_round_trip_both_profiles_and_unique_nonces() {
         let record: Value = serde_json::from_slice(&a).unwrap();
         assert_eq!(record["keyVersion"], 2);
         assert_eq!(record["sourceKey"], "legacy:ad");
-        assert!(!String::from_utf8(a).unwrap().contains("pw\""));
+        // The plaintext `"pw"` would leak as a raw JSON value or an escaped string; base64
+        // ciphertext can end in `pw` right before its closing quote, so `pw"` alone is not a leak.
+        let text = String::from_utf8(a).unwrap();
+        assert!(!text.contains(r#""pw""#) && !text.contains(r#"\"pw\""#));
     }
 }
 

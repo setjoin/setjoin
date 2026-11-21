@@ -14,7 +14,9 @@ pub struct ChatRoute<K: KeySource + 'static> {
     pub issuer: String,
 }
 impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         if matches!(*r.method(), Method::GET | Method::HEAD)
             && (crate::inventory::path_score("/api/admin/chat-channels", r.uri().path()).is_some()
@@ -94,16 +96,11 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                 .strip_prefix("/api")
                 .unwrap_or(&decoded_path)
                 .to_owned();
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let scope = match setjoin_chat::authority(
                 &exec,
