@@ -624,18 +624,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if [
-            "x-device-id",
-            "x-device-hmac",
-            "x-device-timestamp",
-            "x-device-nonce",
-            "x-device-body-sha256",
-        ]
-        .iter()
-        .any(|h| staged.headers().contains_key(*h))
-        {
-            return self.forward(staged.into_request()).await;
-        }
         for control in [
             "feature.conditional_access",
             "feature.device_trust_enforcement",

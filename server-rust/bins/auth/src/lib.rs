@@ -57,6 +57,7 @@ pub struct AuthServer {
     internal_key: std::sync::RwLock<String>,
     client: Client,
     pub exec: setjoin_pg::ScopedExecutor,
+    device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
     legacy: Option<setjoin_authz::legacy_jwt::LegacyKeys>,
     config: Config,
@@ -161,6 +162,11 @@ impl AuthServer {
         reply
     }
     pub fn new(exec: setjoin_pg::ScopedExecutor) -> Self {
+        let device_resolver = setjoin_authz::device::DeviceResolver::new(
+            exec.clone(),
+            Vec::new(),
+            setjoin_config_secret::CryptoProfile::Standard,
+        );
         Self {
             saml: None,
             rp: None,
@@ -170,6 +176,7 @@ impl AuthServer {
             internal_key: std::sync::RwLock::new(String::new()),
             client: client(),
             exec,
+            device_resolver,
             keys: None,
             legacy: None,
             config: Config::for_secret(String::new()),
@@ -211,6 +218,11 @@ impl AuthServer {
         } else {
             exec
         };
+        let device_resolver = setjoin_authz::device::DeviceResolver::new(
+            exec.clone(),
+            config.secret.as_bytes().to_vec(),
+            config.profile,
+        );
         let pem = if matches!(
             config.profile,
             setjoin_config_secret::CryptoProfile::Smx
@@ -360,6 +372,7 @@ impl AuthServer {
             captcha_used: Default::default(),
             client: client(),
             exec,
+            device_resolver,
             keys: Some(Arc::new(keys)),
             legacy: Some(legacy),
             config,
@@ -1477,22 +1490,31 @@ impl AuthServer {
         };
         (headers, scheme)
     }
+    async fn resolve_device(
+        &self,
+        user_id: i64,
+        method: &str,
+        uri: &str,
+        headers: &hyper::HeaderMap,
+        body: &[u8],
+    ) -> setjoin_authz::device::Binding {
+        self.device_resolver
+            .resolve_for_user(
+                user_id,
+                setjoin_authz::device::DeviceRequest {
+                    headers,
+                    method,
+                    uri,
+                    body,
+                },
+            )
+            .await
+    }
     async fn login(&self, req: Request<Body>) -> Response<Body> {
-        // #349 F7: every forward that headers or toggles decide runs first, on the
+        // #349 F7: every forward that toggles decide runs first, on the
         // raw request, so frozen Go never admits a request Rust already admitted.
-        // Device proof (#350) consumes replay state even when CA permits the request.
-        if [
-            "x-device-id",
-            "x-device-hmac",
-            "x-device-timestamp",
-            "x-device-nonce",
-            "x-device-body-sha256",
-        ]
-        .iter()
-        .any(|h| req.headers().contains_key(*h))
-        {
-            return self.forward(req).await;
-        }
+        // Device proof (#350) runs natively after principal verification; CA (#351)
+        // still forwards whole while enabled so the nonce is never consumed twice.
         match self.login_ca_route().await {
             Ok(false) => {}
             Ok(true) => return self.forward(req).await,
@@ -1543,7 +1565,8 @@ impl AuthServer {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -1578,6 +1601,15 @@ impl AuthServer {
         if login::guest_scope(&self.exec, &proof).await.is_err() {
             return Self::failure(503, "conditional access context unavailable", &path);
         }
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
+        self.resolve_device(
+            proof.user(),
+            parts.method.as_str(),
+            uri,
+            &parts.headers,
+            &raw,
+        )
+        .await;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

@@ -98,9 +98,9 @@ impl AuthServer {
         if self.rp.is_none() {
             return Self::not_found();
         }
-        // Login-time CA/device completion remains with #405/#420. Decide
-        // before token exchange or any identity/profile write.
-        match self.rp_completion_route(&req).await {
+        // Login-time CA completion remains with #405/#351. Decide
+        // before token exchange or any identity/profile write. Device proof (#350) is native.
+        match self.rp_completion_route().await {
             Ok(false) => {}
             Ok(true) => return self.forward(req).await,
             Err(()) => return Self::failure(500, "internal error", req.uri().path()),
@@ -130,6 +130,13 @@ impl AuthServer {
         {
             return Self::failure(400, "redirect_uri mismatch", req.uri().path());
         }
+        let (parts, incoming) = req.into_parts();
+        let raw_body = Limited::new(incoming, 1 << 20)
+            .collect()
+            .await
+            .ok()
+            .map(|b| b.to_bytes());
+        let req = Request::from_parts(parts, body(raw_body.clone().unwrap_or_default()));
         let code = query.get("code").map_or("", String::as_str);
         let claims = match provider.exchange(code, &verifier).await {
             Ok(claims) => claims,
@@ -209,8 +216,15 @@ impl AuthServer {
                 if provider.jit() || self.config.jit_enabled {
                     match miss.create(&self.exec, worker).await {
                         Ok(resolution) => {
-                            self.rp_complete(&req, &assertion, &*provider, &resolution, worker)
-                                .await
+                            self.rp_complete(
+                                &req,
+                                raw_body.as_deref(),
+                                &assertion,
+                                &*provider,
+                                &resolution,
+                                worker,
+                            )
+                            .await
                         }
                         // identity_auth_jit's soft address collision is a conflict, not a fault (#547).
                         Err(error) if error.message == "explicit account linking is required" => {
@@ -233,8 +247,15 @@ impl AuthServer {
                 req.uri().path(),
             ),
             Ok(setjoin_identity::rp::Lookup::Existing(resolution)) => {
-                self.rp_complete(&req, &assertion, &*provider, &resolution, worker)
-                    .await
+                self.rp_complete(
+                    &req,
+                    raw_body.as_deref(),
+                    &assertion,
+                    &*provider,
+                    &resolution,
+                    worker,
+                )
+                .await
             }
         };
         self.rp_clear(response, &req, true)
@@ -297,6 +318,7 @@ impl AuthServer {
     pub(super) async fn rp_complete(
         &self,
         req: &Request<Body>,
+        raw_body: Option<&[u8]>,
         assertion: &setjoin_identity::rp::Assertion,
         provider: &dyn setjoin_identity::rp::Federated,
         resolution: &setjoin_identity::rp::Resolution,
@@ -342,6 +364,11 @@ impl AuthServer {
         };
         if resolution.guest_scope(&self.exec).await.is_err() {
             return Self::failure(503, "conditional access context unavailable", path);
+        }
+        if let Some(raw) = raw_body {
+            let uri = req.uri().path_and_query().map_or("/", |p| p.as_str());
+            self.resolve_device(user.user(), req.method().as_str(), uri, req.headers(), raw)
+                .await;
         }
         let ip = self.client_ip(req).to_string();
         let agent = req
@@ -705,30 +732,10 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    /// Ok(true) hands the completion off, Ok(false) stays native, a flag-lookup error refuses
-    /// (#454 Codex r1).
-    pub(super) async fn rp_completion_route(&self, req: &Request<Body>) -> Result<bool, ()> {
-        if [
-            "x-device-id",
-            "x-device-hmac",
-            "x-device-timestamp",
-            "x-device-nonce",
-            "x-device-body-sha256",
-        ]
-        .iter()
-        .any(|h| req.headers().contains_key(*h))
-        {
-            return Ok(true);
-        } // #420 native device completion.
-        for flag in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if login::enabled(&self.exec, flag).await.map_err(|_| ())? {
-                return Ok(true);
-            }
-        } // #405/#420, before all effects.
-        Ok(false)
+    /// Ok(true) hands the completion off (#405/#351), Ok(false) stays native, a flag-lookup error
+    /// refuses (#454 Codex r1). Device proof (#350) is native.
+    pub(super) async fn rp_completion_route(&self) -> Result<bool, ()> {
+        self.login_ca_route().await
     }
 }
 

@@ -1,5 +1,5 @@
-//! Whole-request handoff only to explicitly unported owners: device proof (#350)
-//! and CA policy (#351). Threat admission (#349) and DPoP (#352) are native.
+//! Whole-request handoff only to explicitly unported owners: CA policy (#351).
+//! Threat admission (#349), device proof (#350), and DPoP (#352) are native.
 mod common;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http_body_util::BodyExt;
@@ -7,14 +7,10 @@ use hyper::{Request, Response};
 use serde_json::{json, Value};
 use setjoin_auth::{body, AuthServer, Config};
 use setjoin_conformance::{fixture, harness::Db};
+use sha2::{Digest, Sha256};
 use tokio::{net::TcpListener, sync::mpsc};
-#[derive(Clone, Copy)]
-enum Mode {
-    Device,
-    Policy,
-}
 type Error = Box<dyn std::error::Error + Send + Sync>;
-async fn check(mode: Mode) -> Result<(), Error> {
+async fn check_policy() -> Result<(), Error> {
     let db = Db::for_case("IDLOGIN1-handoff").unwrap();
     let c = db.connect().await?;
     c.query_one(
@@ -24,7 +20,7 @@ async fn check(mode: Mode) -> Result<(), Error> {
     .await?;
     common::signing_key(&c).await;
     let flags:String=c.query_one("SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.token_binding')",&[]).await?.get(0);
-    c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.conditional_access',false),('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",&[]).await?;
+    c.execute("INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.conditional_access',true),('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",&[]).await?;
     let a = fixture::account(&c, "idlogin1-handoff").await?;
     c.execute(
         "UPDATE users SET password_hash=$1,mfa_exempt=true,totp_enabled=false,push_mfa_enabled=$2 WHERE id=$3",
@@ -39,23 +35,15 @@ async fn check(mode: Mode) -> Result<(), Error> {
         .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
         .await?
         .get(0);
-    if matches!(mode, Mode::Policy) {
-        c.execute(
-            "UPDATE feature_toggles SET enabled=true WHERE key='feature.conditional_access'",
-            &[],
-        )
-        .await?;
-    }
     let (listener_addr, mut seen, spy) = spy().await?;
     let result=async{
   let f:Value=serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
   let mut cfg=Config::for_secret(f["secret"].as_str().unwrap().into());cfg.go_upstream=Some(format!("http://{listener_addr}"));
   let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),2).map_err(|e|e.0)?;
   let server=AuthServer::load(exec,cfg).await?.with_threat_gate(&db.dsn).await?;
-  let raw=if matches!(mode,Mode::Policy|Mode::Device){"{deliberately-not-decoded".to_owned()}else{json!({"email":email,"password":"Password1!","ignored":"\\ud800"}).to_string()+" {}"};
+  let raw="{deliberately-not-decoded".to_owned();
   let path="/auth/login?next=%2F";
-  let mut request=Request::post(path).header("host","auth.idlogin1.test");
-  if matches!(mode,Mode::Device){request=request.header("x-device-hmac","unported-proof");}
+  let request=Request::post(path).header("host","auth.idlogin1.test");
   let response=server.handle(request.body(body(raw.clone()))?).await;
   let status=response.status().as_u16();let returned=response.into_body().collect().await?.to_bytes();
   let event=tokio::time::timeout(std::time::Duration::from_secs(10),seen.recv()).await?.ok_or("no handoff request")?;
@@ -139,11 +127,153 @@ async fn spy() -> Result<
 }
 #[tokio::test]
 async fn policy_owner_405_receives_the_original_undecoded_request() {
-    check(Mode::Policy).await.unwrap();
+    check_policy().await.unwrap();
 }
 #[tokio::test]
-async fn device_proof_owner_420_receives_the_original_undecoded_request() {
-    check(Mode::Device).await.unwrap();
+async fn device_proof_login_resolves_natively_without_forwarding() {
+    let db = Db::for_case("IDLOGIN1-handoff-device").unwrap();
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let flags: String = c
+        .query_one(
+            "SELECT coalesce(jsonb_agg(to_jsonb(t)),'[]')::text FROM feature_toggles t WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding')",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.conditional_access',false),('feature.device_trust_enforcement',false),('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+        &[],
+    )
+    .await
+    .unwrap();
+    let a = fixture::account(&c, "idlogin1-handoff-device")
+        .await
+        .unwrap();
+    c.execute(
+        "UPDATE users SET password_hash=$1,mfa_exempt=true,totp_enabled=false,push_mfa_enabled=false WHERE id=$2",
+        &[&bcrypt::hash("Password1!", 4).unwrap(), &a.user],
+    )
+    .await
+    .unwrap();
+    let email: String = c
+        .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+        .await
+        .unwrap()
+        .get(0);
+    let f: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let device_secret = "handoff-device-secret-350";
+    let sealed = setjoin_config_secret::seal_column(
+        device_secret.as_bytes(),
+        f["secret"].as_str().unwrap().as_bytes(),
+        setjoin_config_secret::CryptoProfile::Standard,
+    )
+    .unwrap();
+    let device_id: i64 = c
+        .query_one(
+            "INSERT INTO devices(user_id,fingerprint,hmac_secret_enc,hmac_secret_key_id,enroll_state) VALUES($1,'handoff-device-350',$2,'v1','approved') RETURNING id",
+            &[&a.user, &sealed],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    let (listener_addr, mut seen, spy) = spy().await.unwrap();
+    let result: Result<(), Error> = async {
+        let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+        cfg.go_upstream = Some(format!("http://{listener_addr}"));
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
+            .map_err(|e| e.0)?;
+        let server = AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?;
+        let path = "/auth/login?next=%2F";
+        let raw = json!({"email": email, "password": "Password1!"}).to_string();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs()
+            .to_string();
+        let nonce = format!("handoff-nonce-{}", uuid::Uuid::new_v4());
+        let hash = format!("{:x}", Sha256::digest(raw.as_bytes()));
+        let challenge = format!("{device_id}:{ts}:POST:{path}:{hash}:{nonce}");
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, device_secret.as_bytes());
+        let mac: String = ring::hmac::sign(&key, challenge.as_bytes())
+            .as_ref()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let response = server
+            .handle(
+                Request::post(path)
+                    .header("host", "auth.idlogin1.test")
+                    .header("x-device-id", device_id.to_string())
+                    .header("x-device-timestamp", ts)
+                    .header("x-device-nonce", nonce.as_str())
+                    .header("x-device-body-sha256", hash)
+                    .header("x-device-hmac", mac)
+                    .body(body(raw))?,
+            )
+            .await;
+        let status = response.status().as_u16();
+        let returned = response.into_body().collect().await?.to_bytes();
+        let claimed: i64 = c
+            .query_one(
+                "SELECT count(*) FROM device_auth_nonces WHERE device_id=$1 AND nonce=$2",
+                &[&device_id, &nonce],
+            )
+            .await?
+            .get(0);
+        drop(server);
+        assert!(seen.try_recv().is_err(), "device proof must not forward");
+        assert_eq!(status, 200, "body={}", String::from_utf8_lossy(&returned));
+        assert_eq!(claimed, 1, "device proof nonce must be consumed natively");
+        Ok(())
+    }
+    .await;
+    spy.abort();
+    let _ = spy.await;
+    let _ = c
+        .execute(
+            "DELETE FROM device_auth_nonces WHERE device_id=$1",
+            &[&device_id],
+        )
+        .await;
+    let _ = c
+        .execute("DELETE FROM devices WHERE id=$1", &[&device_id])
+        .await;
+    let _ = c
+        .execute("DELETE FROM sessions WHERE user_id=$1", &[&a.user])
+        .await;
+    let _ = c
+        .execute("DELETE FROM auth_event_log WHERE email=$1", &[&email])
+        .await;
+    let _ = c
+        .execute("DELETE FROM login_events WHERE user_id=$1", &[&a.user])
+        .await;
+    let _ = fixture::remove(&c, &a).await;
+    c.execute(
+        "DELETE FROM feature_toggles WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.device_trust_enforcement','feature.token_binding')",
+        &[],
+    )
+    .await
+    .unwrap();
+    c.execute(
+        "INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)",
+        &[&flags],
+    )
+    .await
+    .unwrap();
+    result.unwrap();
 }
 
 fn jwt_cnf_jkt(token: &str) -> Option<String> {
@@ -199,7 +329,10 @@ async fn duplicate_dpop_map_binds_natively_without_forwarding() {
         cfg.go_upstream = Some(format!("http://{listener_addr}"));
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
             .map_err(|e| e.0)?;
-        let server = AuthServer::load(exec, cfg).await?.with_threat_gate(&db.dsn).await?;
+        let server = AuthServer::load(exec, cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?;
         let jwk = &f["jwks"]["keys"][0];
         let expected_jkt = setjoin_authz::dpop::thumbprint(jwk).unwrap();
         let raw = format!(

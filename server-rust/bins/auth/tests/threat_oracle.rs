@@ -2213,10 +2213,48 @@ async fn native_ca_preflight_forwards_before_any_admission_effect() {
 }
 
 #[tokio::test]
-async fn native_device_proof_preflight_forwards_before_any_admission_effect() {
-    preflight("GOFREE349A-device", &[], Some(("x-device-id", "7")))
-        .await
-        .unwrap();
+async fn native_device_proof_login_handles_natively_without_forwarding() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349A-device", true, &[]).await.unwrap() else {
+        return;
+    };
+    let ips = vec!["127.0.0.90".to_owned()];
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
+        let spy = spy().await?;
+        let cfg = rust_config(&n.db, Preset::Off, Some(format!("http://{}", spy.server.addr)))?;
+        let server = native_server(&n.db, cfg).await?;
+        let raw = json!({"email": n.fx.email, "password": PASSWORD}).to_string();
+        let mut req = Request::post(LOGIN)
+            .header("host", HOST)
+            .header("origin", ORIGIN)
+            .header("x-device-id", "7")
+            .body(body(raw))?;
+        req.extensions_mut().insert(setjoin_auth::ConnectionMeta {
+            peer: "127.0.0.90:40000".parse()?,
+            tls: false,
+        });
+        let status = server.handle(req).await.status().as_u16();
+        let hits = spy.hits.lock().unwrap().clone();
+        spy.server.close().await;
+        if status != 200 || !hits.is_empty() {
+            return Err(format!(
+                "expected native 200 without forward, got {status} and {} hits",
+                hits.len()
+            )
+            .into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let _ = n
+        .c
+        .execute("DELETE FROM sessions WHERE user_id=$1", &[&n.fx.a.user])
+        .await;
+    let audits = purge_native_audits(&n.c, &ips, &n.fx.email).await;
+    let closed = native_close(n, &ips).await;
+    result.and(audits).and(closed).unwrap();
 }
 
 /// F5 (#454 Codex r1): a routing-toggle read error refuses before admission. Login CA
@@ -4116,7 +4154,7 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
     else {
         return;
     };
-    let ips: Vec<String> = (156u8..=164).map(|o| format!("127.0.0.{o}")).collect();
+    let ips: Vec<String> = (156u8..=166).map(|o| format!("127.0.0.{o}")).collect();
     let result = async {
         clear_state(&n.c, &ips, &n.fx.email).await?;
         let spy = spy().await?;
@@ -4174,33 +4212,57 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
             return Err(format!("totp_verify rate_limit mismatch: {}", r_rate.status).into());
         }
 
-        // C. Preflight forwards run BEFORE threat_admit (Go sees raw request; zero attempts/rate counters written).
+        // C. Native device headers on completions do not forward; CA preflight forwards run BEFORE
+        // threat_admit (Go sees raw request; zero attempts/rate counters written).
         let secret = fixture_secret();
         let now = unix_now() as u64;
         let bound_claims = json!({"uid":n.fx.a.user,"email":n.fx.email,"typ":"access","cnf":{"jkt":"bound-thumbprint"},"iss":"mailserver","aud":["mailserver-gateway"],"iat":now,"exp":now+3600,"jti":"349b-bound"});
         let bound_access =
             setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &bound_claims.to_string());
-        let preflights: [(&str, u8, &str, &str, Vec<u8>, (&str, &str)); 2] = [
+        for (label, octet, path, payload_bytes) in [
             (
                 "x-device on totp/verify",
+                165,
+                "/auth/totp/verify",
+                b"{\"mfa_token\":\"m\",\"code\":\"123456\"}".to_vec(),
+            ),
+            (
+                "x-device on backup-codes/verify",
+                166,
+                "/auth/backup-codes/verify",
+                b"{\"mfa_token\":\"m\",\"code\":\"backup\"}".to_vec(),
+            ),
+        ] {
+            let mut hdrs = origin();
+            hdrs.push(("x-device-id".into(), "7".into()));
+            let r = send_method(server.addr, ip(octet), "POST", path, payload_bytes, &hdrs).await?;
+            if r.status != 401 {
+                return Err(format!("{label}: expected native 401, got {}", r.status).into());
+            }
+        }
+        n.c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.conditional_access'",
+            &[],
+        )
+        .await?;
+        let preflights: [(&str, u8, &str, &str, Vec<u8>); 2] = [
+            (
+                "CA on totp/verify",
                 161,
                 "POST",
                 "/auth/totp/verify",
                 b"{\"mfa_token\":\"m\",\"code\":\"123456\"}".to_vec(),
-                ("x-device-id", "7"),
             ),
             (
-                "x-device on backup-codes/verify",
+                "CA on backup-codes/verify",
                 162,
                 "POST",
                 "/auth/backup-codes/verify",
                 b"{\"mfa_token\":\"m\",\"code\":\"backup\"}".to_vec(),
-                ("x-device-id", "7"),
             ),
         ];
-        for (label, octet, method, path, payload_bytes, (k, v)) in preflights {
-            let mut hdrs = origin();
-            hdrs.push((k.into(), v.into()));
+        for (label, octet, method, path, payload_bytes) in preflights {
+            let hdrs = origin();
             let r = send_method(server.addr, ip(octet), method, path, payload_bytes, &hdrs).await?;
             if r.status != 418 {
                 return Err(format!("{label}: expected 418 forward, got {}", r.status).into());
@@ -4218,6 +4280,11 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
                 return Err(format!("{label}: preflight ran threat_admit first ({rows} rows)").into());
             }
         }
+        n.c.execute(
+            "UPDATE feature_toggles SET enabled=false WHERE key='feature.conditional_access'",
+            &[],
+        )
+        .await?;
         for (label, octet, method, path, payload_bytes) in [
             (
                 "bound session on totp/setup",
