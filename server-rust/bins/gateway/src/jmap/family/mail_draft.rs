@@ -6,7 +6,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::args::{decode, Kind};
 use super::seam::{read, read_sql, resolve, write, write_sql, Type};
-use super::{always, Answer, Cx, Gate, Handled, Method, MethodError, Reply};
+use super::{always, Answer, Cx, Gate, Method, MethodError, Reply};
 
 const DRAFT_TOGGLE: &str = "feature.shared_mail_drafts";
 const DRAFT_DISABLED: &str = "shared mail drafts are not enabled";
