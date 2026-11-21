@@ -474,7 +474,9 @@ pub(crate) fn unknown_outcome(
 }
 
 impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -494,10 +496,9 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
             self.issuer.clone(),
         );
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
@@ -507,9 +508,6 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let Ok(authority) = setjoin_mailboxes::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let required: &[&str] = match what {
@@ -524,7 +522,11 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                 | Action::PurgeCancel => &setjoin_mailboxes::USERS_DELETE,
                 _ => &setjoin_mailboxes::USERS_CREATE,
             };
-            if !authority.allows_any(required) {
+            let Some(authority) = setjoin_mailboxes::authority(&exec, actor)
+                .await
+                .ok()
+                .filter(|authority| authority.allows_any(required))
+            else {
                 let _ = setjoin_mailboxes::console_denied(
                     &exec,
                     actor,
@@ -534,7 +536,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
-            }
+            };
             let scope = authority.domain_scope();
             let head = r.method() == Method::HEAD;
             let lang = language(&r);
