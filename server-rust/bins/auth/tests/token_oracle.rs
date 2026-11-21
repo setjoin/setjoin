@@ -2234,7 +2234,7 @@ async fn terms_gateway_guest_admission() -> Result<(), Err> {
 }
 
 #[tokio::test]
-async fn terms_gateway_dpop_bound_forwards() -> Result<(), Err> {
+async fn terms_gateway_dpop_bound_handled_natively() -> Result<(), Err> {
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("GW363-terms-dpop").expect("database required");
     let c = db.connect().await?;
@@ -2259,17 +2259,10 @@ async fn terms_gateway_dpop_bound_forwards() -> Result<(), Err> {
                             async move {
                                 let method = req.method().as_str().to_owned();
                                 let uri = req.uri().path_and_query().map(|pq| pq.as_str()).unwrap_or("").to_owned();
-                                seen_req.lock().unwrap().push((method.clone(), uri));
-                                let resp = if method == "POST" {
-                                    hyper::Response::builder().status(204).body(body("")).unwrap()
-                                } else {
-                                    hyper::Response::builder()
-                                        .status(200)
-                                        .header("content-type", "application/json")
-                                        .body(body(r#"{"proxied":"go"}"#))
-                                        .unwrap()
-                                };
-                                Ok::<_, std::convert::Infallible>(resp)
+                                seen_req.lock().unwrap().push((method, uri));
+                                Ok::<_, std::convert::Infallible>(
+                                    hyper::Response::builder().status(599).body(body("")).unwrap()
+                                )
                             }
                         });
                         let _ = hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
@@ -2290,48 +2283,34 @@ async fn terms_gateway_dpop_bound_forwards() -> Result<(), Err> {
 
     let (secret, seed, tou, auth, gw, receipts) =
         setup_terms_gateway_fixture(&c, &db, Some(mock_go.addr)).await?;
+    let key = common::dpop::key(71);
+    let (_, jkt) = common::dpop::jwk_and_jkt(&key);
     let bound = sign_member_token(
         &secret,
         seed.a.user,
         &seed.email,
-        Some(("cnf", json!({"jkt": "gw363-dpop-jkt"}))),
+        Some(("cnf", json!({"jkt": jkt}))),
         3600,
         "access",
     );
+    let raw_token = bound.strip_prefix("Bearer ").unwrap();
 
     let res = async {
-        for (method, path, payload, want_status, want_forwarded_path) in [
-            (
-                "GET",
-                "/terms/pending",
-                String::new(),
-                200,
-                "/terms/pending",
-            ),
-            (
-                "GET",
-                "/api/terms/pending",
-                String::new(),
-                200,
-                "/terms/pending",
-            ),
+        for (method, path, payload) in [
+            ("GET", "/terms/pending", String::new()),
+            ("GET", "/api/terms/pending", String::new()),
             (
                 "POST",
                 "/terms/accept",
                 json!({"tou_id": tou, "version": 1}).to_string(),
-                204,
-                "/terms/accept",
             ),
             (
                 "POST",
                 "/api/terms/accept",
                 json!({"tou_id": tou, "version": 1}).to_string(),
-                204,
-                "/terms/accept",
             ),
         ] {
-            let before = seen.lock().unwrap().len();
-            let (st, _, raw) = request(
+            let (st, hs, raw) = request(
                 gw.addr,
                 method,
                 path,
@@ -2343,19 +2322,64 @@ async fn terms_gateway_dpop_bound_forwards() -> Result<(), Err> {
                 ],
             )
             .await?;
-            assert_eq!(st, want_status, "{method} {path}: {raw}");
-            let guard = seen.lock().unwrap();
-            assert_eq!(
-                guard.len(),
-                before + 1,
-                "{method} {path} should forward via auth"
+            common::dpop::assert_dpop_401(
+                st,
+                hs.get("www-authenticate").and_then(|v| v.as_str()),
+                &raw,
             );
-            assert_eq!(
-                guard[before],
-                (method.to_owned(), want_forwarded_path.to_owned()),
-                "gateway must strip /api before rust-auth handles cnf forward"
+            assert!(
+                seen.lock().unwrap().is_empty(),
+                "{method} {path} without DPoP proof must fail natively without forwarding to Go"
             );
         }
+
+        let (get_proof, _) = common::dpop::proof(
+            &key,
+            "GET",
+            "http://mail.test/terms/pending",
+            Some(raw_token),
+            "gw363-pending-1",
+        );
+        let (st, _, raw) = request(
+            gw.addr,
+            "GET",
+            "/terms/pending",
+            String::new(),
+            &[
+                ("authorization", &bound),
+                ("dpop", &get_proof),
+                ("host", "mail.test"),
+                ("origin", "http://mail.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 200, "GET /terms/pending with valid DPoP: {raw}");
+
+        let (post_proof, _) = common::dpop::proof(
+            &key,
+            "POST",
+            "http://mail.test/terms/accept",
+            Some(raw_token),
+            "gw363-accept-1",
+        );
+        let (st, _, raw) = request(
+            gw.addr,
+            "POST",
+            "/terms/accept",
+            json!({"tou_id": tou, "version": 1}).to_string(),
+            &[
+                ("authorization", &bound),
+                ("dpop", &post_proof),
+                ("host", "mail.test"),
+                ("origin", "http://mail.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 204, "POST /terms/accept with valid DPoP: {raw}");
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "DPoP terms routes must execute natively with zero Go hops"
+        );
         assert_zero_go_hops(gw.addr).await?;
         Ok::<(), Err>(())
     }
