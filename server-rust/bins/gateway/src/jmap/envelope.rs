@@ -179,7 +179,9 @@ pub(crate) fn go_i64_field(raw: &str) -> Result<Option<i64>, String> {
     if trimmed == "null" {
         return Ok(None);
     }
-    serde_json::from_str::<i64>(trimmed).map(Some).map_err(|_| "invalid integer argument".to_owned())
+    serde_json::from_str::<i64>(trimmed)
+        .map(Some)
+        .map_err(|_| "invalid integer argument".to_owned())
 }
 
 /// Replace top-level `#foo` reference keys with `"foo": <dummy>` solely for
@@ -200,7 +202,10 @@ pub(crate) fn dummy_stripped_args(raw: &str) -> Option<String> {
     }
     for k in map.keys().filter(|k| k.starts_with('#')) {
         let name = &k[1..];
-        if out.keys().any(|existing| existing.eq_ignore_ascii_case(name)) {
+        if out
+            .keys()
+            .any(|existing| existing.eq_ignore_ascii_case(name))
+        {
             continue;
         }
         let dummy = match name.to_ascii_lowercase().as_str() {
