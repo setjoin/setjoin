@@ -1062,5 +1062,10 @@ Catalog entries are per-issue fragments in
 gate. Each fragment suite declares gate/app/account/mutator/state, and the
 gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
+`CalendarEvent/*` (#369, `calendar_event.rs`, 13 methods) owns event reads/mutations, ICS import,
+free/busy & slot queries, recurrence occurrence edits, resource booking finalization, iMIP egress
+via `seam::send_imip` (`set`, `counter`, `setOccurrence`, `sendUpdate`), and self/delegate RSVP
+(self omits `p_on_behalf_of`; delegate runs `rsvp_on_behalf`); oracle & mutants live in
+`tests/jmap_family_369.rs` and `tests/conformance/route-catalog.d/jmap-369.json`.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).

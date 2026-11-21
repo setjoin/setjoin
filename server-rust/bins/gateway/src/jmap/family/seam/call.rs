@@ -1687,8 +1687,40 @@ mod db {
         (
             "jmap_calendar_event_rsvp",
             "p_attendee_email",
-            "calendar_itip.sql:12: CalendarEvent/rsvp delegate arm; rsvp_on_behalf builds the \
-             manager scope only from a full_access/manage_calendar grant and $2 is p_on_behalf_of",
+            "calendar_itip.sql:13,54: self-RSVP passes cx.email() via write(); delegate arm passes \
+             p_on_behalf_of via rsvp_on_behalf only after verifying a full_access/manage_calendar grant",
+        ),
+        (
+            "jmap_calendar_event_set_create",
+            "p_actor_email",
+            "jmap_calendar.sql:55: bound caller email from cx.email() alongside $2 actor id",
+        ),
+        (
+            "calendar_finalize_create_invites",
+            "p_organizer_email",
+            "calendar_finalize_create_invites.sql:50: created events scoped to p_mailbox_id ($1); \
+             organizer email is caller email or validated delegate",
+        ),
+        (
+            "calendar_import_ics",
+            "p_actor_email",
+            "calendar_import_ics.sql:23,85: bound caller email from cx.email() alongside $2 actor id",
+        ),
+        (
+            "calendar_free_busy",
+            "p_user_ids",
+            "calendar_freebusy.sql:548: scoped to caller mailbox ($1); peer availability filtered by \
+             sharing ACLs/defaults inside calendar_free_busy",
+        ),
+        (
+            "calendar_find_free_slots",
+            "p_user_ids",
+            "calendar_freebusy.sql:643,686: delegates to calendar_free_busy under caller mailbox ($1)",
+        ),
+        (
+            "jmap_calendar_event_counter",
+            "p_attendee_email",
+            "calendar_itip.sql:437,465: bound caller email from cx.email(); event must exist in p_mailbox_id ($1)",
         ),
         (
             "mail_work_set",
@@ -1715,6 +1747,30 @@ mod db {
     /// placeholder, a scope mailbox on `$1`, a reviewed pair, or listed here.
     /// The `seam_probe_*` rows are the #427 test reducers.
     const REVIEWED_NEUTRAL_ARGUMENTS: &[(&str, &str, &str)] = &[
+        ("jmap_calendar_event_get", "p_ids", "jmap_calendar.sql:340: row ids filtered WHERE mailbox_id = p_mailbox_id"),
+        ("jmap_calendar_event_query", "p_filter", "jmap_calendar.sql:459: JSON query filter under p_mailbox_id"),
+        ("jmap_calendar_event_query", "p_sort", "jmap_calendar.sql:459: JSON sort spec under p_mailbox_id"),
+        ("jmap_calendar_event_query", "p_position", "jmap_calendar.sql:459: pagination offset"),
+        ("jmap_calendar_event_query", "p_limit", "jmap_calendar.sql:459: pagination limit"),
+        ("jmap_calendar_event_changes", "p_since_state", "jmap_calendar.sql:529: state cursor under p_mailbox_id"),
+        ("jmap_calendar_event_set_create", "p_creates", "jmap_calendar.sql:52: JSON creates payload"),
+        ("calendar_finalize_create_bookings", "p_created_event_ids", "calendar_finalize_create_bookings.sql:28: created event ids under p_mailbox_id"),
+        ("calendar_finalize_create_invites", "p_created_event_ids", "calendar_finalize_create_invites.sql:47: created event ids under p_mailbox_id"),
+        ("calendar_finalize_create_invites", "p_organizer_name", "calendar_finalize_create_invites.sql:47: organizer display name"),
+        ("jmap_calendar_event_set_update", "p_updates", "jmap_calendar.sql:537: JSON updates payload"),
+        ("jmap_calendar_event_set_destroy", "p_ids", "jmap_calendar.sql:208: row ids filtered WHERE mailbox_id = p_mailbox_id"),
+        ("calendar_import_ics", "p_calendar_id", "calendar_import_ics.sql:20: target calendar resolved under p_mailbox_id"),
+        ("calendar_import_ics", "p_events", "calendar_import_ics.sql:20: parsed ICS JSONB events payload"),
+        ("calendar_import_ics", "p_strategy", "calendar_import_ics.sql:20: conflict strategy enum payload"),
+        ("calendar_free_busy", "p_start", "calendar_freebusy.sql:548: time bound"),
+        ("calendar_free_busy", "p_end", "calendar_freebusy.sql:548: time bound"),
+        ("calendar_find_free_slots", "p_start", "calendar_freebusy.sql:643: time bound"),
+        ("calendar_find_free_slots", "p_end", "calendar_freebusy.sql:643: time bound"),
+        ("calendar_find_free_slots", "p_duration_minutes", "calendar_freebusy.sql:643: slot duration"),
+        ("calendar_find_free_slots", "p_slot_interval_min", "calendar_freebusy.sql:643: slot step interval"),
+        ("calendar_find_free_slots", "p_working_start", "calendar_freebusy.sql:643: working window start time"),
+        ("calendar_find_free_slots", "p_working_end", "calendar_freebusy.sql:643: working window end time"),
+        ("calendar_find_free_slots", "p_max_slots", "calendar_freebusy.sql:643: result count limit"),
         ("jmap_calendar_event_get_shared", "p_after", "time bound"),
         ("jmap_calendar_event_get_shared", "p_before", "time bound"),
         (
@@ -1722,6 +1778,20 @@ mod db {
             "p_status",
             "RSVP status payload",
         ),
+        (
+            "jmap_calendar_event_rsvp",
+            "p_on_behalf_of",
+            "calendar_itip.sql:15,38: self-RSVP omits p_on_behalf_of (NULL); only rsvp_on_behalf binds it to $2",
+        ),
+        ("jmap_calendar_event_counter", "p_event_id", "calendar_itip.sql:437,452: event id resolved WHERE c.mailbox_id = p_mailbox_id"),
+        ("jmap_calendar_event_counter", "p_start", "calendar_itip.sql:437: counter-proposal start time"),
+        ("jmap_calendar_event_counter", "p_end", "calendar_itip.sql:437: counter-proposal end time"),
+        ("jmap_calendar_event_counter", "p_attendee_name", "calendar_itip.sql:437: attendee display name"),
+        ("jmap_calendar_event_set_occurrence", "p_master_id", "calendar_recurrence.sql:28: master event id resolved under p_mailbox_id"),
+        ("jmap_calendar_event_set_occurrence", "p_recurrence_id", "calendar_recurrence.sql:28: occurrence timestamp"),
+        ("jmap_calendar_event_set_occurrence", "p_scope", "calendar_recurrence.sql:28: recurrence edit scope enum"),
+        ("jmap_calendar_event_set_occurrence", "p_patch", "calendar_recurrence.sql:28: JSON patch payload"),
+        ("jmap_calendar_event_send_update", "p_event_id", "calendar_itip.sql:377,388: event id resolved WHERE c.mailbox_id = p_mailbox_id"),
         (
             "quick_step_apply",
             "p_id",
@@ -1864,6 +1934,11 @@ mod db {
             return Some(format!("{function}: unnamed parameter"));
         }
         if ACTOR_ARGUMENTS.contains(&name) {
+            if argument.is_none()
+                && (reviewed_pair(function, name) || reviewed_neutral(function, name))
+            {
+                return None;
+            }
             return (argument != Some(actor)).then(|| {
                 format!("{function}: actor parameter {name} is {argument:?}, not ${actor}")
             });
@@ -1919,6 +1994,10 @@ mod db {
         (
             "CalendarEvent/rsvp",
             "SELECT jmap_calendar_event_rsvp($1,$4,$5,$6,$2)::text WHERE $2::bigint>0 AND $3::text<>''",
+        ),
+        (
+            "calendar_event.rs",
+            "SELECT jmap_calendar_event_rsvp($1,$4,$5,$6)::text WHERE $2::bigint>0 AND $3::text<>''",
         ),
         ("TaskList/tasks", "SELECT task_list_tasks($1,$2)::text"),
         ("TaskListMember/set", "SELECT task_list_add_member($1,$2,$3)::text"),
