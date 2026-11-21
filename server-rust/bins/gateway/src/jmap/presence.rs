@@ -19,15 +19,12 @@ impl<K: KeySource + 'static> Intercept for PresenceRoute<K> {
         let commands = self.commands.clone();
         let registry = self.registry.clone();
         Box::pin(async move {
-            if super::push::unported_identity(r.headers()) {
-                return c.upstream.forward(r, &c.identity).await;
-            }
             // Fail closed natively with 503 if HTTP admission gate is closed.
             if !setjoin_authz::push::http_admission_allowed(&commands.exec).await {
                 return super::push::problem_response(&r, &c, 503, "service unavailable", "");
             }
             let Some(token) = setjoin_authz::token::extract(r.headers()) else {
-                return super::push::problem_response(&r, &c, 401, "Unauthorized", "");
+                return crate::deny::unauthorized(r.headers(), &c);
             };
             let identity = match setjoin_authz::push::authenticate_detailed(
                 &commands.exec,
@@ -41,7 +38,12 @@ impl<K: KeySource + 'static> Intercept for PresenceRoute<K> {
                 Err(setjoin_authz::push::PushAuthError::GuestUnavailable) => {
                     return super::push::problem_response(&r, &c, 503, "service unavailable", "")
                 }
-                Err(_) => return super::push::problem_response(&r, &c, 401, "Unauthorized", ""),
+                Err(setjoin_authz::push::PushAuthError::GuestInactive) => {
+                    return super::push::problem_response(&r, &c, 401, "Unauthorized", "")
+                }
+                Err(setjoin_authz::push::PushAuthError::Invalid) => {
+                    return crate::deny::unauthorized(r.headers(), &c)
+                }
             };
             if setjoin_authz::push::revoked(&commands.exec, &identity).await {
                 return super::push::problem_response(&r, &c, 401, "Unauthorized", "");
@@ -53,7 +55,7 @@ impl<K: KeySource + 'static> Intercept for PresenceRoute<K> {
             }
             let user = identity.user_id();
             let Ok(actor) = ActorId::new(user) else {
-                return super::push::problem_response(&r, &c, 401, "Unauthorized", "");
+                return crate::deny::unauthorized(r.headers(), &c);
             };
             let mut nonce = [0; 16];
             let _ = getrandom::getrandom(&mut nonce);

@@ -73,15 +73,8 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                     "missing access_token\n",
                 );
             };
-            // Only the selected credential chooses the unported #331 profile.
-            // An unused ambient cookie must not redirect a verified Bearer request.
-            let mut selected = hyper::HeaderMap::new();
-            if let Ok(value) = format!("Bearer {token}").parse() {
-                selected.insert("authorization", value);
-                if super::push::unported_identity(&selected) {
-                    return c.upstream.forward(r, &c.identity).await;
-                }
-            }
+            // #356a: only the selected credential is verified (ES256, HS256 or
+            // SM2); an unused ambient cookie never influences a Bearer request.
             let authenticated = setjoin_authz::push::authenticate_detailed(
                 &commands.exec,
                 &commands.keys,

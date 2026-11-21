@@ -1,4 +1,4 @@
-//! Public connection-registry lifecycle and named unported Identity ownership.
+//! Public connection-registry lifecycle and native legacy-profile refusal (#356a).
 use crate::common::boot::CommandBootExt;
 use crate::{common, rows, BoxError, Frames, SERIAL};
 use http_body_util::BodyExt;
@@ -179,31 +179,13 @@ pub async fn legacy() -> Result<(), BoxError> {
     let a = fixture::account(&owner, "sse-identity").await?;
     let b = fixture::account(&owner, "sse-identity-other").await?;
     let result = async {
-        // Shape inspection grants no authority; #331's upstream verifies this key profile.
+        // #356a: an HS256-shaped header grants nothing and selects no Go handoff;
+        // the shared legacy key seam verifies it and this forgery fails.
         let legacy = "eyJhbGciOiJIUzI1NiJ9.e30.unverified";
-        let upstream = common::fake_upstream(move |request| async move {
-            let uri = request.uri().to_string();
-            let auth = request
-                .headers()
-                .get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_owned();
-            let cookie = request.headers().get("cookie").cloned();
-            let body = request.into_body().collect().await.unwrap().to_bytes();
-            if uri != "/jmap/eventsource?types=Email&opaque=%ZZ"
-                || auth != format!("Bearer {legacy}")
-                || cookie.is_none()
-                || body.as_ref() != b"unmodified-body"
-            {
-                return Response::builder()
-                    .status(400)
-                    .body(common::full("handoff changed request"))
-                    .unwrap();
-            }
+        let upstream = common::fake_upstream(|_| async {
             Response::builder()
-                .status(202)
-                .body(common::full("Identity #331 owns this profile"))
+                .status(502)
+                .body(common::full("Go must not be reached"))
                 .unwrap()
         })
         .await;
@@ -224,24 +206,24 @@ pub async fn legacy() -> Result<(), BoxError> {
         let server = tokio::spawn(gateway.serve(listener));
         let observed = async {
             let before = rows(&owner, &a, &b).await?;
+            // A forged legacy Bearer takes precedence over a valid cookie (Go's
+            // Bearer-first selection) and is refused natively.
             let response = common::send(
                 address,
                 Request::builder()
-                    .uri(format!(
-                        "http://{address}/jmap/eventsource?types=Email&opaque=%ZZ"
-                    ))
+                    .uri(format!("http://{address}/jmap/eventsource?closeafter=state"))
                     .header("authorization", format!("Bearer {legacy}"))
                     .header(
                         "cookie",
                         format!("access_token={}", common::recovery_token(a.user)),
                     )
-                    .body(common::full("unmodified-body"))?,
+                    .body(common::full(""))?,
             )
             .await;
             let status = response.status();
-            let body = common::body_bytes(response).await;
-            if status != 202 || body.as_ref() != b"Identity #331 owns this profile" {
-                return Err(format!("named profile not forwarded intact: {status}").into());
+            let body = response.into_body().collect().await?.to_bytes();
+            if status != 401 || body.as_ref() != b"invalid token\n" {
+                return Err(format!("forged legacy Bearer was not refused natively: {status}").into());
             }
             // An unused legacy cookie cannot redirect an ordinary verified Bearer stream.
             let response = common::send(
@@ -263,7 +245,7 @@ pub async fn legacy() -> Result<(), BoxError> {
             }
             let _ = common::body_bytes(response).await;
             if rows(&owner, &a, &b).await? != before {
-                return Err("deferred profile wrote data".into());
+                return Err("refused legacy profile wrote data".into());
             }
             let response = common::send(
                 address,
@@ -273,8 +255,8 @@ pub async fn legacy() -> Result<(), BoxError> {
             )
             .await;
             let metrics = String::from_utf8(common::body_bytes(response).await.to_vec())?;
-            if !metrics.contains("setjoin_gateway_proxied_to_go_total 1\n") {
-                return Err(format!("wrong profile proxy attribution {metrics}").into());
+            if !metrics.contains("setjoin_gateway_proxied_to_go_total 0\n") {
+                return Err(format!("legacy profile reached Go: {metrics}").into());
             }
             Ok::<_, BoxError>(())
         }
