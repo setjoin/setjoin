@@ -120,7 +120,9 @@ fn revoke_sessions(url: &str, key: &str, user: i64) {
 }
 
 impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -142,9 +144,7 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
         let (revoke_url, revoke_key) = (self.authserver_url.clone(), self.internal_key.clone());
         let dispatcher = self.dispatcher.clone();
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let what = action(r.method(), r.uri().path()).expect("matched route");
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -156,9 +156,6 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let Ok(authority) = setjoin_admin_identity::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let required: &[&str] = match what {
@@ -170,17 +167,20 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                 Action::Password | Action::Secure => &db::USERS_PASSWORD_RESET,
                 Action::SignIns => &setjoin_admin_identity::SIGN_IN,
             };
-            if !authority.allows_any(required) {
-                let _ = setjoin_admin_identity::console_denied(
-                    &exec,
-                    actor,
-                    &go_path,
-                    &required.join("|"),
-                    operation,
-                )
-                .await;
-                return bare(403, "Forbidden", &c, &id);
-            }
+            let authority = match setjoin_admin_identity::authority(&exec, actor).await {
+                Ok(authority) if authority.allows_any(required) => authority,
+                _ => {
+                    let _ = setjoin_admin_identity::console_denied(
+                        &exec,
+                        actor,
+                        &go_path,
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                }
+            };
             if authority.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
@@ -263,8 +263,17 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                         return full(400, "invalid JSON");
                     };
                     create(
-                        &exec, &worker, actor, scope, req, operation, &dispatcher, &full, &reply,
-                        &created, &unknown,
+                        &exec,
+                        &worker,
+                        actor,
+                        scope,
+                        req,
+                        operation,
+                        &dispatcher,
+                        &full,
+                        &reply,
+                        &created,
+                        &unknown,
                     )
                     .await
                 }

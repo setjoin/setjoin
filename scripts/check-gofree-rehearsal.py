@@ -61,7 +61,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 12,  # lowered from 44 when #352 retired DPoP admission & token_binding_handoff (ratchet)
-    ("gateway", "forward"): 160,  # lowered from 167 (#194, admin-identity leftovers)
+    ("gateway", "forward"): 123,  # lowered from 160 by #354 Batch 1 (F01/F02/F03/F07/F08)
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,

@@ -161,7 +161,9 @@ pub(crate) fn classified(
     Some(crate::mailboxes::render(p, Some("en"), c, id))
 }
 impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -181,19 +183,12 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
             self.issuer.clone(),
         );
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
@@ -201,9 +196,6 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
             if !matches!(what, Action::Size | Action::Ack) {
-                let Ok(authority) = setjoin_devices::authority(&exec, actor).await else {
-                    return c.upstream.forward(r, &c.identity).await;
-                };
                 let permission = if matches!(what, Action::Device(_)) {
                     "mam.write"
                 } else if matches!(what, Action::Pending) {
@@ -211,7 +203,10 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                 } else {
                     "mail.offline_policy"
                 };
-                if !authority.allows_any(&[permission]) {
+                if !matches!(
+                    setjoin_devices::authority(&exec, actor).await,
+                    Ok(authority) if authority.allows_any(&[permission])
+                ) {
                     let _ = setjoin_devices::console_denied(
                         &exec,
                         actor,

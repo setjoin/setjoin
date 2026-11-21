@@ -181,7 +181,8 @@ pub(crate) fn segment_path(path: &str) -> String {
 fn gate(what: Action) -> &'static [&'static str] {
     match what {
         Action::BackupEnqueue | Action::BackupDelete => &setjoin_platform::BACKUP_WRITE,
-        Action::Reload | Action::ConfigSet
+        Action::Reload
+        | Action::ConfigSet
         | Action::ConfigImport
         | Action::FeatureMode
         | Action::FeatureSet
@@ -918,9 +919,12 @@ async fn serve_b(
 }
 
 impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
-        action(r.method(), r.uri().path()).is_some_and(|a| a != Action::Reload || self.configuration.is_some())
+        action(r.method(), r.uri().path())
+            .is_some_and(|a| a != Action::Reload || self.configuration.is_some())
     }
     fn admits_member(&self, headers: hyper::HeaderMap, scheme: &'static str) -> BoxFuture<bool> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
@@ -937,41 +941,34 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
         let (overrides, livekit, health_state) =
             (self.overrides, self.livekit.clone(), self.health.clone());
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return bare(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let Ok(authority) = setjoin_platform::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            if !authority.allows_any(required) {
-                let _ = setjoin_platform::console_denied(
-                    &exec,
-                    actor,
-                    &go_path,
-                    &required.join("|"),
-                    operation,
-                )
-                .await;
-                return bare(403, "Forbidden", &c, &id);
-            }
+            let authority = match setjoin_platform::authority(&exec, actor).await {
+                Ok(authority) if authority.allows_any(required) => authority,
+                _ => {
+                    let _ = setjoin_platform::console_denied(
+                        &exec,
+                        actor,
+                        &go_path,
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                }
+            };
             if authority.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
@@ -984,11 +981,19 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
                 return bare(403, "Forbidden", &c, &id);
             }
             if what == Action::Reload {
-                let configuration = configuration
-                    .expect("reload is matched only with a configuration runtime");
+                let configuration =
+                    configuration.expect("reload is matched only with a configuration runtime");
                 let (status, body) = match configuration.reload(Some(&exec)).await {
                     Ok(()) => (200, "{\"status\":\"reloaded\"}\n".to_owned()),
-                    Err(error) => (500, format!("{{\"error\":{}}}\n", setjoin_static::wellknown::go_json_string(&format!("config reload failed: {error}")))),
+                    Err(error) => (
+                        500,
+                        format!(
+                            "{{\"error\":{}}}\n",
+                            setjoin_static::wellknown::go_json_string(&format!(
+                                "config reload failed: {error}"
+                            ))
+                        ),
+                    ),
                 };
                 let mut response = crate::jmap::reply::response(body, c.identity.proto, id);
                 *response.status_mut() = hyper::StatusCode::from_u16(status).unwrap();
