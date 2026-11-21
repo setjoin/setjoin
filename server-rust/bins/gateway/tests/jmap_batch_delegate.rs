@@ -607,7 +607,22 @@ wave1_case!(
         );
         assert_eq!(e.audit_rows(e.a.mailbox).await, audit);
 
-        // Case B: Email/set followed by EmailSubmission/set targeting message with attachments.
+        // Case A2: Email/set followed by EmailSubmission/set with #create ref -> defers before Call 0.
+        let req_sub_ref = json!({
+            "using": ["urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
+            "methodCalls": [
+                ["Email/set", {"accountId": mb, "update": {e.a.inbox_only.to_string(): {"keywords": {"$seen": true}}}}, "c0"],
+                ["EmailSubmission/set", {"accountId": mb, "#create": {"resultOf": "c0", "name": "Email/set", "path": "/created"}}, "c1"]
+            ]
+        })
+        .to_string();
+        let (status, _, hit) = e.post(&token, &req_sub_ref).await;
+        assert_eq!((status, hit), (299, true));
+        assert!(!e.is_read(e.a.inbox_only).await);
+        assert_eq!(e.audit_rows(e.a.mailbox).await, audit);
+
+        // Case B (#328 Wave 2b): Email/set followed by EmailSubmission/set targeting message with
+        // has_attachments=true runs NATIVELY without deferring to Go.
         e.owner
             .execute(
                 "UPDATE messages SET has_attachments = TRUE WHERE id = $1 AND mailbox_id = $2",
@@ -624,11 +639,19 @@ wave1_case!(
     })
     .to_string();
         let (status, _, hit) = e.post(&token, &req_attach).await;
-        assert_eq!((status, hit), (299, true));
-        assert!(!e.is_read(e.a.inbox_only).await);
-        assert_eq!(e.audit_rows(e.a.mailbox).await, audit);
+        assert_eq!((status, hit), (200, false));
+        assert!(e.is_read(e.a.inbox_only).await);
 
-        // Case C: Email/set followed by Email/get (#ids) in mailbox with smime-encrypted message.
+        // Reset inbox_only $seen, then Case C (#328 Wave 2b): Email/set followed by Email/get (#ids)
+        // in mailbox with smime-encrypted message runs NATIVELY and returns decryptState='no_key'.
+        e.owner
+            .execute(
+                "UPDATE messages SET is_read = FALSE WHERE id = $1 AND mailbox_id = $2",
+                &[&e.a.inbox_only, &e.a.mailbox],
+            )
+            .await
+            .unwrap();
+        let audit_before_c = e.audit_rows(e.a.mailbox).await;
         e.owner
         .execute(
             "UPDATE messages SET crypto_type = 'smime-encrypted' WHERE id = $1 AND mailbox_id = $2",
@@ -645,10 +668,17 @@ wave1_case!(
         ]
     })
     .to_string();
-        let (status, _, hit) = e.post(&token, &req_enc_ref).await;
-        assert_eq!((status, hit), (299, true));
-        assert!(!e.is_read(e.a.inbox_only).await);
-        assert_eq!(e.audit_rows(e.a.mailbox).await, audit);
+        let (status, body_c, hit) = e.post(&token, &req_enc_ref).await;
+        assert_eq!((status, hit), (200, false));
+        assert!(e.is_read(e.a.inbox_only).await);
+        assert!(e.audit_rows(e.a.mailbox).await > audit_before_c);
+        let doc_c: Value = serde_json::from_str(&body_c).unwrap();
+        let list_c = doc_c["methodResponses"][2][1]["list"].as_array().unwrap();
+        let enc_entry = list_c
+            .iter()
+            .find(|item| item["id"] == e.a.two_labels.to_string())
+            .expect("encrypted email present in Email/get");
+        assert_eq!(enc_entry["decryptState"], "no_key");
     }
 );
 
@@ -876,7 +906,8 @@ wave1_case!(non_family_delegated_matrix_under_force_rls, |e| {
         "urn:ietf:params:jmap:error:forbidden"
     );
 
-    // 6. Delegated Email/get on smime-encrypted message uses target_auth & defers before Call 0.
+    // 6. Delegated Email/get on smime-encrypted message executes natively under target_auth,
+    // using the delegate's ($actor) keystore -> no_key (never borrows target owner's keys).
     e.owner
         .execute(
             "UPDATE messages SET crypto_type = 'smime-encrypted' WHERE id = $1 AND mailbox_id = $2",
@@ -884,7 +915,7 @@ wave1_case!(non_family_delegated_matrix_under_force_rls, |e| {
         )
         .await
         .unwrap();
-    let (status, _, hit) = e
+    let (status, body6, hit) = e
         .post(
             &delegate_token,
             &call(
@@ -894,7 +925,12 @@ wave1_case!(non_family_delegated_matrix_under_force_rls, |e| {
             ),
         )
         .await;
-    assert_eq!((status, hit), (299, true));
+    assert_eq!((status, hit), (200, false));
+    let doc6: Value = serde_json::from_str(&body6).unwrap();
+    assert_eq!(
+        doc6["methodResponses"][0][1]["list"][0]["decryptState"],
+        "no_key"
+    );
 
     // 7. Suspended target mailbox -> forbidden (500).
     e.set_suspended(e.b.mailbox, true).await;
@@ -1627,6 +1663,478 @@ wave1_case!(wave2a_email_recovery_receipt_end_to_end, |e| {
         .query_typed(
             "DELETE FROM blobs WHERE sha256 = $1",
             &[(&att_sha, Type::TEXT)],
+        )
+        .await;
+});
+
+wave1_case!(wave2b_smime_attachments_and_decrypt_on_read, |e| {
+    use sha2::{Digest as _, Sha256};
+    use std::collections::BTreeMap;
+
+    const ENC_KEY: &str = "wave2b-smime-audit-key-32-bytes!";
+
+    let objects: Arc<std::sync::Mutex<BTreeMap<String, Vec<u8>>>> =
+        Arc::new(std::sync::Mutex::new(BTreeMap::new()));
+    let s3_state = objects.clone();
+    let s3_addr = common::fake_upstream(move |req| {
+        let s3_state = s3_state.clone();
+        async move {
+            if req.uri().query() == Some("location=") {
+                return hyper::Response::builder()
+                    .header("content-type", "application/xml")
+                    .body(full("<LocationConstraint>us-east-1</LocationConstraint>"))
+                    .unwrap();
+            }
+            let key = req
+                .uri()
+                .path()
+                .strip_prefix("/mailblobs/")
+                .unwrap_or(req.uri().path())
+                .to_owned();
+            if *req.method() == hyper::Method::PUT {
+                let bytes = req.into_body().collect().await.unwrap().to_bytes();
+                s3_state.lock().unwrap().insert(key, bytes.to_vec());
+                return hyper::Response::builder()
+                    .status(200)
+                    .body(full(""))
+                    .unwrap();
+            }
+            let map = s3_state.lock().unwrap();
+            match map.get(&key) {
+                Some(bytes) => hyper::Response::builder()
+                    .status(200)
+                    .header("content-length", bytes.len().to_string())
+                    .body(full(bytes.clone()))
+                    .unwrap(),
+                None => hyper::Response::builder()
+                    .status(404)
+                    .body(full("NoSuchKey"))
+                    .unwrap(),
+            }
+        }
+    })
+    .await;
+
+    let doc = json!({ "keys": [jwk(KID, &public(&e.key))] })
+        .to_string()
+        .into_bytes();
+    let jwks = Arc::new(Jwks::with_fetch(Box::new(move || {
+        let doc = doc.clone();
+        Box::pin(async move { Ok(doc) })
+    })));
+    let exec = ScopedExecutor::from_dsn(e.app_dsn.as_deref().unwrap_or(&e.dsn), 4).unwrap();
+    // Pool size 1 forces connection reuse across actor transitions, verifying
+    // transaction-local AUDIT_SCOPE and actor-scoped key isolation.
+    let worker_dsn = std::env::var("DB_WORKER_DSN").unwrap_or_else(|_| e.dsn.clone());
+    let worker = ScopedExecutor::from_dsn(&worker_dsn, 1)
+        .unwrap()
+        .with_audit_keys(ENC_KEY.into(), String::new());
+    let store = Arc::new(
+        setjoin_gateway::recovery_worker::S3Store::new(
+            &format!("http://{s3_addr}"),
+            "mailblobs",
+            "test-access",
+            "test-secret",
+        )
+        .unwrap(),
+    );
+
+    let mut services_no_store = JmapServices::new(worker.clone(), "mail.test".into(), 52_428_800);
+    services_no_store.store = None;
+    let route_no_store = JmapRoute(Arc::new(JmapCommands {
+        services: Some(Arc::new(services_no_store)),
+        exec: exec.clone(),
+        worker: Some(worker.clone()),
+        denylist: None,
+        keys: jwks.clone(),
+        issuer: "mailserver".into(),
+    }));
+    let unused_upstream_1 = common::fake_upstream(|_| async {
+        hyper::Response::builder()
+            .status(299)
+            .body(full("unused"))
+            .unwrap()
+    })
+    .await;
+    let gw_no_store = common::gateway(
+        unused_upstream_1,
+        "",
+        RouteTable::proxy_all().with(route_no_store),
+    )
+    .await;
+
+    // 1. Fail-closed signSMIME: missing S3Store rejects creation into notCreated (never unsigned).
+    let token_a = e.token(e.a.user);
+    let token_b = e.token(e.b.user);
+    let post_gw = |addr: std::net::SocketAddr, tok: String, body: String| async move {
+        let req = Request::post("/jmap")
+            .header("host", "mail.test")
+            .header("origin", "http://mail.test")
+            .header("content-type", "application/json")
+            .header("x-requested-with", "XMLHttpRequest")
+            .header("authorization", format!("Bearer {tok}"))
+            .body(full(body))
+            .unwrap();
+        let resp = common::send(addr, req).await;
+        let status = resp.status().as_u16();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        (status, String::from_utf8_lossy(&bytes).into_owned())
+    };
+
+    let sign_req = json!({
+        "using": ["urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
+        "methodCalls": [[
+            "EmailSubmission/set",
+            {
+                "accountId": e.a.mailbox.to_string(),
+                "create": {"s1": {"emailId": e.a.inbox_only.to_string(), "signSMIME": true}}
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (st, raw) = post_gw(gw_no_store, token_a.clone(), sign_req.clone()).await;
+    assert_eq!(st, 200);
+    let doc: Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(
+        doc["methodResponses"][0][1]["notCreated"]["s1"]["type"],
+        "smime_sign_failed"
+    );
+    assert!(doc["methodResponses"][0][1]["created"]["s1"].is_null());
+
+    // 2. Wire full S3 + tight decrypt limiter (limit = 2) gateway.
+    let mut services = JmapServices::new(worker.clone(), "mail.test".into(), 52_428_800);
+    services.store = Some(store);
+    services.decrypt_limiter = Some(Arc::new(Limiter::new(2, 60)));
+    let route = JmapRoute(Arc::new(JmapCommands {
+        services: Some(Arc::new(services)),
+        exec,
+        worker: Some(worker),
+        denylist: None,
+        keys: jwks,
+        issuer: "mailserver".into(),
+    }));
+    let unused_upstream_2 = common::fake_upstream(|_| async {
+        hyper::Response::builder()
+            .status(299)
+            .body(full("unused"))
+            .unwrap()
+    })
+    .await;
+    let gw = common::gateway(unused_upstream_2, "", RouteTable::proxy_all().with(route)).await;
+
+    // Resolve emails of fixture users a and b.
+    let email_a: String = e
+        .owner
+        .query_one("SELECT email FROM users WHERE id = $1", &[&e.a.user])
+        .await
+        .unwrap()
+        .get(0);
+    let email_b: String = e
+        .owner
+        .query_one("SELECT email FROM users WHERE id = $1", &[&e.b.user])
+        .await
+        .unwrap()
+        .get(0);
+
+    let (cert_a_pem, key_a_pem) =
+        setjoin_smtp::smime::generate_rsa_smime_identity(&email_a, Some(true));
+    let (cert_b_pem, key_b_pem) =
+        setjoin_smtp::smime::generate_rsa_smime_identity(&email_b, Some(true));
+
+    // Seed cert+key for a and b encrypted under ENC_KEY.
+    for (uid, cpem, kpem) in [
+        (e.a.user, &cert_a_pem, &key_a_pem),
+        (e.b.user, &cert_b_pem, &key_b_pem),
+    ] {
+        e.owner
+            .query_typed(
+                "INSERT INTO user_smime_certs (user_id, label, cert_pem, private_key_enc, issued_at, expires_at, is_default) \
+                 VALUES ($1, 'w2b', $2, pgp_sym_encrypt($3, $4), now() - interval '1 hour', now() + interval '24 hours', TRUE)",
+                &[(&uid, Type::INT8), (cpem, Type::TEXT), (kpem, Type::TEXT), (&ENC_KEY, Type::TEXT)],
+            )
+            .await
+            .unwrap();
+    }
+
+    // Grant delegate b full access on a's mailbox.
+    e.owner
+        .execute(
+            "INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by) \
+             VALUES ($1, $2, 'full_access', $3) ON CONFLICT (mailbox_id, user_id, permission) DO NOTHING",
+            &[&e.a.mailbox, &e.b.user, &e.a.user],
+        )
+        .await
+        .unwrap();
+
+    // Seed attachment + inline draft body for a's inbox_only message.
+    let att_bytes = b"WAVE2B-ATTACHMENT-PAYLOAD";
+    let att_sha = format!("{:x}", Sha256::digest(att_bytes));
+    objects
+        .lock()
+        .unwrap()
+        .insert(att_sha.clone(), att_bytes.to_vec());
+    let inline_draft = format!(
+        "From: {email_a}\r\nTo: {email_b}\r\nSubject: Wave2b S/MIME Attach\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nConfidential attachment body\r\n"
+    );
+    let to_addrs_json = json!([{"email": email_b}]).to_string();
+    let msg_recv: std::time::SystemTime = e
+        .owner
+        .query_one(
+            "UPDATE messages SET from_addr = $1, to_addrs = $2::text::jsonb, raw_ref = $3, has_attachments = TRUE, is_read = FALSE \
+             WHERE id = $4 AND mailbox_id = $5 RETURNING received_at",
+            &[&email_a, &to_addrs_json, &inline_draft, &e.a.inbox_only, &e.a.mailbox],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    e.owner
+        .execute(
+            "INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count) VALUES ($1, $1, $2, 'application/pdf', 1) ON CONFLICT DO NOTHING",
+            &[&att_sha, &(att_bytes.len() as i64)],
+        )
+        .await
+        .unwrap();
+    e.owner
+        .execute(
+            "INSERT INTO message_attachments (message_id, received_at, blob_sha256, filename, content_type, disposition, size_bytes) \
+             VALUES ($1, $2, $3, 'secret.pdf', 'application/pdf', 'attachment', $4)",
+            &[&e.a.inbox_only, &msg_recv, &att_sha, &(att_bytes.len() as i64)],
+        )
+        .await
+        .unwrap();
+
+    // 3. Attachment-bearing EmailSubmission/set with signSMIME + encryptSMIME.
+    let sign_enc_req = json!({
+        "using": ["urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
+        "methodCalls": [[
+            "EmailSubmission/set",
+            {
+                "accountId": e.a.mailbox.to_string(),
+                "create": {"s1": {"emailId": e.a.inbox_only.to_string(), "signSMIME": true, "encryptSMIME": true}}
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (st, raw) = post_gw(gw, token_a.clone(), sign_enc_req).await;
+    assert_eq!(st, 200);
+    let doc: Value = serde_json::from_str(&raw).unwrap();
+    assert!(
+        doc["methodResponses"][0][1]["created"]["s1"].is_object(),
+        "expected sign+encrypt attachment submission created: {doc}"
+    );
+
+    let sent_id: i64 = doc["methodResponses"][0][1]["created"]["s1"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    // Fetch Sent copy raw_ref + verify size_bytes updated & independently decrypt + verify CMS signature.
+    let sent_row = e
+        .owner
+        .query_one(
+            "SELECT raw_ref, size_bytes FROM messages WHERE id = $1 AND mailbox_id = $2",
+            &[&sent_id, &e.a.mailbox],
+        )
+        .await
+        .unwrap();
+    let q_raw_ref: String = sent_row.get(0);
+    let updated_size: i64 = sent_row.get(1);
+    let uploaded_wire = objects
+        .lock()
+        .unwrap()
+        .get(&q_raw_ref)
+        .expect("encrypted S3 blob uploaded")
+        .clone();
+    assert_eq!(updated_size, uploaded_wire.len() as i64);
+
+    let dk_a = setjoin_smtp::smime::parse_decrypt_candidate(&cert_a_pem, &key_a_pem).unwrap();
+    let dk_b = setjoin_smtp::smime::parse_decrypt_candidate(&cert_b_pem, &key_b_pem).unwrap();
+    let der = setjoin_smtp::smime::decode_enveloped_der(&uploaded_wire).unwrap();
+    let inner_signed_a = setjoin_smtp::smime::decrypt_multi(&der, &[dk_a]).unwrap();
+    let inner_signed = setjoin_smtp::smime::decrypt_multi(&der, &[dk_b]).unwrap();
+    assert_eq!(inner_signed_a, inner_signed);
+    let verified_entity =
+        setjoin_smtp::smime::verify_multipart_signed_with_cert(&inner_signed, &cert_a_pem)
+            .expect("detached CMS signature must verify with sender cert");
+    let verified_str = String::from_utf8_lossy(&verified_entity);
+    assert!(verified_str.contains("multipart/mixed"), "{verified_str}");
+    assert!(verified_str.contains("Confidential attachment body"));
+    assert!(verified_str.contains("secret.pdf"), "{verified_str}");
+    let att_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, att_bytes);
+    assert!(verified_str.contains(&att_b64), "{verified_str}");
+
+    // 3b. Fail-closed numeric emailId + soft notCreated lease rejection restores draft size_bytes.
+    let bad_email_id_req = json!({
+        "using": ["urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
+        "methodCalls": [[
+            "EmailSubmission/set",
+            {
+                "accountId": e.a.mailbox.to_string(),
+                "create": {"s1": {"emailId": 123, "signSMIME": true}}
+            },
+            "c_num"
+        ]]
+    })
+    .to_string();
+    let (st, raw_num) = post_gw(gw, token_a.clone(), bad_email_id_req).await;
+    assert_eq!(st, 200);
+    let doc_num: Value = serde_json::from_str(&raw_num).unwrap();
+    assert!(doc_num["methodResponses"][0][1]["notCreated"]["s1"].is_object());
+    assert!(doc_num["methodResponses"][0][1]["created"]["s1"].is_null());
+
+    e.owner
+        .execute(
+            "UPDATE messages SET from_addr = $1, to_addrs = $2::text::jsonb, raw_ref = $3, size_bytes = 42 WHERE id = $4 AND mailbox_id = $5",
+            &[&email_a, &to_addrs_json, &inline_draft, &e.a.two_labels, &e.a.mailbox],
+        )
+        .await
+        .unwrap();
+    let lease_fail_req = json!({
+        "using": ["urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
+        "methodCalls": [[
+            "EmailSubmission/set",
+            {
+                "accountId": e.a.mailbox.to_string(),
+                "create": {
+                    "s1": {
+                        "emailId": e.a.two_labels.to_string(),
+                        "signSMIME": true,
+                        "draftSessionId": "00000000-0000-0000-0000-000000000001",
+                        "draftLeaseEpoch": 1,
+                        "draftRevision": 1
+                    }
+                }
+            },
+            "c_lease"
+        ]]
+    })
+    .to_string();
+    let (st, raw_lease) = post_gw(gw, token_a.clone(), lease_fail_req).await;
+    assert_eq!(st, 200);
+    let doc_lease: Value = serde_json::from_str(&raw_lease).unwrap();
+    assert!(doc_lease["methodResponses"][0][1]["notCreated"]["s1"].is_object());
+    assert!(doc_lease["methodResponses"][0][1]["created"]["s1"].is_null());
+    let preserved_size: i64 = e
+        .owner
+        .query_one(
+            "SELECT size_bytes FROM messages WHERE id = $1 AND mailbox_id = $2",
+            &[&e.a.two_labels, &e.a.mailbox],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(preserved_size, 42);
+
+    // 4. Email/get decrypt-on-read: encrypt multi-byte payload straddling 256-byte boundary ONLY for owner `a`.
+    let mut pt_256 = vec![b'x'; 255];
+    pt_256.extend_from_slice("😀after-boundary".as_bytes());
+    let cert_a = setjoin_smtp::smime::parse_cert_pem(&cert_a_pem).unwrap();
+    let enc_for_a = setjoin_smtp::smime::encrypt_message(
+        &pt_256,
+        &[cert_a],
+        setjoin_smtp::smime::EncryptAlgorithm::Aes256Gcm,
+    )
+    .unwrap();
+    let enc_key = format!("{:x}", Sha256::digest(&enc_for_a));
+    objects.lock().unwrap().insert(enc_key.clone(), enc_for_a);
+    e.owner
+        .execute(
+            "UPDATE messages SET crypto_type = 'smime-encrypted', raw_ref = $1, body_text = NULL, body_html = '<p>keep</p>' WHERE id = $2 AND mailbox_id = $3",
+            &[&enc_key, &e.a.two_labels, &e.a.mailbox],
+        )
+        .await
+        .unwrap();
+
+    // 4a. Delegate `b` (holding `b`'s own cert/key + write grant on `a`'s mailbox) calls Email/get ->
+    //     MUST use $actor (b)'s key (yielding wrong_key) and NEVER borrow owner a's key!
+    let get_enc_req = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [["Email/get", {"accountId": e.a.mailbox.to_string(), "ids": [e.a.two_labels.to_string()]}, "g0"]]
+    })
+    .to_string();
+    let (st, raw_del) = post_gw(gw, token_b, get_enc_req.clone()).await;
+    assert_eq!(st, 200);
+    let doc_del: Value = serde_json::from_str(&raw_del).unwrap();
+    let del_item = &doc_del["methodResponses"][0][1]["list"][0];
+    assert_eq!(del_item["decryptState"], "wrong_key");
+    assert!(del_item["bodyText"].is_null());
+
+    // 4b. Owner `a` calls Email/get on the reused size-1 worker connection (charges 1 of 2 budget):
+    //     decryptState=decrypted, 256-byte preview sliced pre-lossy, bodyHTML preserved,
+    //     email_decrypt_read audit row recorded with real mailbox_id + actor_user_id + message_id.
+    let (st, raw_a1) = post_gw(gw, token_a.clone(), get_enc_req.clone()).await;
+    assert_eq!(st, 200);
+    let doc_a1: Value = serde_json::from_str(&raw_a1).unwrap();
+    let a1_item = &doc_a1["methodResponses"][0][1]["list"][0];
+    assert_eq!(a1_item["decryptState"], "decrypted");
+    assert_eq!(a1_item["bodyHTML"], "<p>keep</p>");
+    assert_eq!(a1_item["preview"], format!("{}\u{FFFD}", "x".repeat(255)));
+    assert!(a1_item["bodyText"]
+        .as_str()
+        .unwrap()
+        .ends_with("😀after-boundary"));
+    let dec_audits: i64 = e
+        .owner
+        .query_one(
+            "SELECT count(*) FROM mailbox_audit_log WHERE mailbox_id = $1 AND actor_user_id = $2 AND action = 'email_decrypt_read' AND message_id = $3",
+            &[&e.a.mailbox, &e.a.user, &e.a.two_labels],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(dec_audits, 1);
+
+    // 4c. 2nd decrypt for `a` succeeds, 3rd hits per-user decrypt budget -> decryptState=error without S3 read.
+    let (st, raw_a2) = post_gw(gw, token_a.clone(), get_enc_req.clone()).await;
+    assert_eq!(st, 200);
+    let doc_a2: Value = serde_json::from_str(&raw_a2).unwrap();
+    assert_eq!(
+        doc_a2["methodResponses"][0][1]["list"][0]["decryptState"],
+        "decrypted"
+    );
+
+    let (st, raw_a3) = post_gw(gw, token_a, get_enc_req).await;
+    assert_eq!(st, 200);
+    let doc_a3: Value = serde_json::from_str(&raw_a3).unwrap();
+    assert_eq!(
+        doc_a3["methodResponses"][0][1]["list"][0]["decryptState"],
+        "error"
+    );
+    assert!(doc_a3["methodResponses"][0][1]["list"][0]["bodyText"].is_null());
+
+    // Cleanup extra seeded rows so fixture::remove tears down cleanly.
+    let _ = e
+        .owner
+        .execute(
+            "DELETE FROM mailbox_delegates WHERE mailbox_id = $1",
+            &[&e.a.mailbox],
+        )
+        .await;
+    let _ = e
+        .owner
+        .execute(
+            "DELETE FROM message_attachments WHERE blob_sha256 = $1",
+            &[&att_sha],
+        )
+        .await;
+    let _ = e
+        .owner
+        .execute("DELETE FROM blobs WHERE sha256 = $1", &[&att_sha])
+        .await;
+    let _ = e
+        .owner
+        .execute(
+            "DELETE FROM outbound_queue WHERE mailbox_id = $1",
+            &[&e.a.mailbox],
+        )
+        .await;
+    let _ = e
+        .owner
+        .execute(
+            "DELETE FROM user_smime_certs WHERE user_id IN ($1, $2)",
+            &[&e.a.user, &e.b.user],
         )
         .await;
 });

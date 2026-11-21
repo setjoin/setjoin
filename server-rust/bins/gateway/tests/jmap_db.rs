@@ -1560,10 +1560,11 @@ db_case!(list_flag_on_answers_with_the_go_path_bytes, |e| {
     assert_eq!(e.audit_rows(mb).await, audit);
 });
 
-// The S/MIME decrypt-on-read helper belongs to #328. This unported shape,
-// rather than general query filters or ordinary patches, still forwards whole.
+// #328 Wave 2b: Email/get decrypt-on-read runs natively in Rust (never
+// forwarded to Go), sets decryptState='no_key' when the actor holds no keys,
+// and writes the email_get audit row.
 db_case!(
-    encrypted_email_get_forwards_without_effects_for_either_pilot_flag,
+    encrypted_email_get_runs_natively_and_reports_no_key_for_either_pilot_flag,
     |e| {
         let token = e.token(e.a.user, |_| {});
         let (mb, msg) = (e.a.mailbox, e.a.inbox_only);
@@ -1574,23 +1575,32 @@ db_case!(
         let request = format!(
             r#"{{"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{{"accountId":"{mb}","ids":["{msg}"]}},"0"]]}}"#
         );
-        let before = fixture::snapshot(&e.owner, mb).await.unwrap();
-        let audit = e.audit_rows(mb).await;
-        for enabled in [false, true] {
+        let audit_before = e.audit_rows(mb).await;
+        for (idx, enabled) in [false, true].into_iter().enumerate() {
             e.toggle("feature.rust_mark_read", enabled).await;
             e.toggle("feature.rust_inbox_list", enabled).await;
             let (status, body, hit) = e.post(&token, &request).await;
+            assert_eq!((status, hit), (200, false), "flag={enabled}");
+            let doc: Value = serde_json::from_str(&body).unwrap();
+            let item = &doc["methodResponses"][0][1]["list"][0];
+            assert_eq!(item["decryptState"], "no_key", "{doc}");
+            assert!(item["bodyText"].is_null(), "{doc}");
+            let audits = e.audit_rows(mb).await;
             assert_eq!(
-                (status, body.as_str(), hit),
-                (299, "from go", true),
-                "flag={enabled}"
+                audits,
+                audit_before + idx as i64 + 1,
+                "native Email/get commits its email_get audit row without Go"
             );
-            assert_eq!(fixture::snapshot(&e.owner, mb).await.unwrap(), before);
-            assert_eq!(
-                e.audit_rows(mb).await,
-                audit,
-                "no Rust email_get audit before forwarding"
-            );
+            let last_action: String = e
+                .owner
+                .query_one(
+                    "SELECT action FROM mailbox_audit_log WHERE mailbox_id = $1 ORDER BY id DESC LIMIT 1",
+                    &[&mb],
+                )
+                .await
+                .unwrap()
+                .get(0);
+            assert_eq!(last_action, "email_get");
         }
     }
 );

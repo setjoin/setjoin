@@ -73,9 +73,11 @@ implementation or a Go fallback. Mark-read and inbox-list retain their qualified
 specialized adapters; general update/destroy and query shapes use the JMAP1
 adapters. Every command uses `authorize_request` once after global CSRF: security gates,
 ES256/JWKS, guest/session checks and mailbox scope still apply. Security reads
-are bounded; a stalled admission read gets one precheck bound. Deferred shapes
-retain whole-request forwarding before writes; encrypted `Email/get` awaits
-the S/MIME decrypt-on-read helper (#328). See the JMAP1 details below and
+are bounded; a stalled admission read gets one precheck bound. Wave 2b (#328/#356)
+serves encrypted `Email/get` decrypt-on-read and `EmailSubmission/set` S/MIME +
+attachment preprocessing natively (`src/jmap/smime_decrypt.rs`,
+`src/jmap/smime_outbound.rs`); remaining unported shapes retain whole-request
+forwarding before writes. See the JMAP1 details below and
 [family contract](../../crates/domains/jmap/DOX.md).
 
 F05 (#292): every registration is an `/admin` console route, so the inventory matcher mounts the
@@ -396,8 +398,12 @@ reducer. Goldens: `email-changes*` in `tests/conformance/jmap/goldens`.
 `Email/get` (#315, `src/jmap/get.rs`): one call, `accountId` + 1..=256 string `ids`
 (+ optional `properties`); malformed ids fold into `notFound` as Go's `addNotFound`
 (sorted-key re-marshal). Read plus `email_get` audit row in one `exec.run`
-statement; any email with `cryptoType = smime-encrypted` writes nothing and forwards
-(S/MIME decrypt-on-read stays Go's). Oracle: `tests/jmap_email.rs` +
+statement; `smime-encrypted` entries run native decrypt-on-read
+(`src/jmap/smime_decrypt.rs`: `120/min` per-user budget before key/S3 work,
+`$actor`-scoped `worker.read_scoped` with `AUDIT_SCOPE` `app.encryption_key`,
+OpenSSL CMS unwrap via `setjoin_smtp::smime`, `email_decrypt_read` audit-gated
+release of transient `bodyText` and 256-byte pre-lossy `preview`). Oracle:
+`tests/jmap_email.rs` +
 `tests/jmap_email_oracle/` (one case table, recorded with
 `tmp/gofree/jmap1-rec.sh`; fixture IDs are named per table, timestamps scrubbed).
 General `Email/query` (#315, `src/jmap/query.rs`): `accountId` + optional `filter`/`sort`
@@ -496,13 +502,13 @@ See the [family contract](../../crates/domains/jmap/DOX.md) and HTTP oracle
 
 F18 submission REST (#317): `src/jmap/submission_actions.rs` serves the mounted
 `/api/messages/{id}/undo|recall` actions. The inventory mounts F18 `/messages/*`
-registrations at `/api`, preserving pinned `/jmap` paths. Typed submission input
-and S/MIME ownership probes live in `src/jmap/submission_input.rs`; the entire
-mixed map defers to #328 when its Go-style sign/encrypt probe requests processing.
-
-#317's same #328 MIME boundary includes attachment-only submissions: an
-owner-scoped draft preflight runs before writes, and any map needing assembly
-forwards whole. Go error-branch reachability is recorded in the
+registrations at `/api`, preserving pinned `/jmap` paths. `src/jmap/submission_input.rs`
+mirrors Go's folded submission request structs, and `src/jmap/smime_outbound.rs`
+handles native Wave 2b (#328/#356) attachment `multipart/mixed` assembly,
+fail-closed `signSMIME` (security divergence in `divergences.json`), and
+`encryptSMIME` (with `$actor`-scoped signing keys, domain journaling, and
+mailbox-scoped `size_bytes` update) before `jmap_email_submission_set`. Go
+error-branch reachability is recorded in the
 [JMAP harness](../../tests/conformance/jmap/README.md).
 
 F09 Rules (#329): `src/rules.rs` mounts rules and template handlers at `/api`;

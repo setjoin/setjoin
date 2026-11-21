@@ -26,10 +26,10 @@ reducer owns the journal collapse and cap. SQLSTATE `BZ011`/`BZ006` map to
 `ChangesError`, anything else is `Other` (the gateway forwards to Go).
 Writes nothing. Contract: `src/email_changes.rs`.
 
-`email_get` (#315): `jmap_email_get` plus the `email_get` audit row (details NULL as
-Go) in one statement inside `exec.run` (no receipt row: a read that is not served
-forwards to Go). Encrypted mail (`cryptoType = smime-encrypted`) writes nothing and
-returns `Encrypted` so Go decrypts. Contract: `src/email_get.rs`.
+`email_get` (#315, #328): `jmap_email_get` plus the `email_get` audit row (details
+NULL as Go) in one statement inside `exec.run` (no receipt row: a read that is
+not served forwards to Go). Gateway handles `smime-encrypted` decrypt-on-read
+and `email_decrypt_read` auditing post-read. Contract: `src/email_get.rs`.
 
 `email_query`/`email_set`/`failure` (#315, #356 Wave 2a): `Email/query` passes filter/sort JSON to
 `jmap_email_query` in a `READ ONLY` read; `email_set` runs single-phase update/destroy in `run_command`,
@@ -66,7 +66,7 @@ JMAP1 admission (#315, 2026-11-04): `feature.rust_mark_read` and
 not change native Email/set or Email/query service. The gateway authorizes
 once through `authorize_request`, retaining security gates and bounded reads.
 `tests/jmap_db.rs` compares both flag values against frozen-Go reply templates
-and exercises deferred encrypted Email/get (#328) without Rust audit or writes.
+and verifies native encrypted `Email/get` (`no_key` when keys absent).
 The gateway's coarse budget likewise uses `EdgeLimit::for_front_door` and
 Go's captured 429 bytes under every flag value; the legacy flag-reading
 constructor is removed. Recording explicitly uses a proxy-only route table
@@ -89,12 +89,12 @@ The immutable live-socket oracle is [push/README.md](../../../tests/conformance/
 The WS batch envelope uses the qualified HTTP command executor with sealed
 push authorization; Go's push seam has no HTTP CSRF or lifecycle middleware.
 Core/echo, typed request errors and ordered result references are native.
-Methods/shapes not claimed by the merged command adapters, encrypted reads
-and submission MIME preprocessing (#328), delegated invocation policy (#316)
-and continuity helpers (#316) forward as a whole WS application frame **before any Rust command runs**. The handoff
-uses Go's WS seam, not HTTP POST, and counts as an F18 Go proxy. The shared classifier includes the Mailbox, Identity, Blob and
-submission adapters. Preflight checks submission draft attachments before any call writes;
-WebSocket responses accumulate createdIds across set methods. Never retry a partly
+Methods/shapes not claimed by the merged command adapters, delegated invocation
+policy (#316) and continuity helpers (#316) forward as a whole WS application
+frame **before any Rust command runs**. The handoff uses Go's WS seam, not
+HTTP POST, and counts as an F18 Go proxy. The shared classifier includes the
+Mailbox, Identity, Blob and submission adapters (which handle S/MIME and
+attachments natively via #328/#356). WebSocket responses accumulate createdIds across set methods. Never retry a partly
 executed batch. Qualified Email commands retain their existing reducer,
 receipt and audit contracts; the transport adds no business-data writer.
 
@@ -199,11 +199,13 @@ credential for local recipient fan-out. Each mutation uses
 reducer-owned state/journal/notify, and writes no extra mailbox audit row.
 Unknown commits return the operation ID for scoped `lookup_command`; they never
 report success or retry through Go. The gateway mirrors Go's top-level
-`createdIds` accumulation. Signing/encryption preprocessing stays with #328;
-a mixed map needing it forwards whole before any write. The generic JMAP
-multi-call/reference and delegated-account policy remains the #318 boundary.
-HTTP/effect recordings: gateway `tests/jmap_submission.rs`, shared runner
-`jmap_email_oracle`; full `scheduled_actions` rows join the mailbox row diff.
+`createdIds` accumulation. The gateway's `smime_outbound` pass handles
+attachments, fail-closed `signSMIME`, and `encryptSMIME`, passing
+`p_processed_raw_ref` and `p_is_encrypted` into `jmap_email_submission_set`.
+The generic JMAP multi-call/reference and delegated-account policy remains
+the #318 boundary. HTTP/effect recordings: gateway `tests/jmap_submission.rs`,
+shared runner `jmap_email_oracle`; full `scheduled_actions` rows join the
+mailbox row diff.
 
 REST submission actions (#317): `undo` calls `undo_send` on the request pool;
 `recall_source` reads only mailboxes owned by the verified actor, checks Go's
@@ -219,10 +221,8 @@ The REST adapter is `src/jmap/submission_actions.rs` in the gateway, mounted at
 `/api/messages/{id}/undo|recall`; inventory/golden paths retain Go's registration
 paths without `/api`. Problems use the gateway's shared Go-ordered encoder.
 `submission_input.rs` mirrors the anonymous Go request structs (ordered folded
-keys, nulls and typed errors). Its separate raw encrypt/sign probes decline a
-whole mixed map requiring #328, including Unicode-folded flag spellings, before
-any write. Generic envelope/reference/delegate handling remains #318 and shared
-identity admission remains #331.
+keys, nulls and typed errors). Generic envelope/reference/delegate handling
+remains #318 and shared identity admission remains #331.
 
 Qualification (#317): all four submission commands and both REST registrations
 are ON in the bundled inventory and catalog, with success, tenant denial, invalid
@@ -235,13 +235,11 @@ its acknowledgement: both replies stay Unknown, scoped lookup resolves the
 receipt, and effects are absent or equal one Go request. No rollback tests or
 new kill switches were added (owner decision 2026-11-04).
 
-Submission MIME boundary (#317): the same #328 preprocessing pass also assembles
-plain attachments, independently of S/MIME flags. Before any write, the gateway
-extracts Go's ordered/folded emailId probe and `has_attachments` checks only the
-authenticated mailbox in `read_scoped`. A draft requiring assembly or an ID that
-would fail the helper's draft load forwards the entire map to #328 unchanged.
-Typed probe failures remain reducer-owned as Go does. The helper fake tests both
-attachment-only mixed maps and invalid load IDs, with zero native effects.
+Submission MIME & S/MIME (#328/#356 Wave 2b): gateway `smime_outbound.rs`
+assembles `multipart/mixed` attachments, signs fail-closed (`signSMIME`), and
+encrypts (`encryptSMIME`) with `$actor`-scoped keys before `submission::create`
+writes `p_processed_raw_ref`/`p_is_encrypted`. Invalid/missing draft IDs pass
+to the reducer or fail closed on requested `signSMIME`.
 SSE (#319) is ON in gateway `src/jmap/sse.rs`, cloning the configured WebSocket
 service's commands, hub, registry and client budget. The executable installs it
 beside WS and presence. Oracle: [SSE recordings](../../../tests/conformance/jmap/sse/README.md).

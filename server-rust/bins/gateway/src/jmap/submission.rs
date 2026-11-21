@@ -1,10 +1,8 @@
-//! EmailSubmission request translation (#317), using the submission capability.
+//! EmailSubmission request translation (#317, #328), using the submission capability.
 use super::envelope::single_call_with_capability;
 use super::get::parse_id;
 use super::submission_input::{self, Failure};
-use serde_json::value::RawValue;
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 pub const CAPABILITY: &str = "urn:ietf:params:jmap:submission";
 pub(crate) struct SubmissionRequest {
@@ -43,36 +41,6 @@ impl Arguments {
     }
 }
 impl SubmissionRequest {
-    pub(super) async fn needs_preprocessing(
-        &self,
-        exec: &setjoin_pg::ScopedExecutor,
-        auth: &setjoin_pg::MailboxAuthContext,
-    ) -> Result<bool, setjoin_pg::StatementFailure> {
-        let Arguments::Set(Ok(Some(raw))) = &self.args else {
-            return Ok(false);
-        };
-        // Already validated by classify, retaining raw nested Go key semantics.
-        let map: BTreeMap<String, Box<RawValue>> =
-            serde_json::from_str(raw).expect("classified creation map");
-        let mut ids = Vec::new();
-        for raw in map.values() {
-            let Some(email) = submission_input::attachment_email_id(raw.get()) else {
-                continue;
-            };
-            if email.is_empty() {
-                continue;
-            }
-            let Ok(id) = email.parse::<i64>() else {
-                // Go's MIME helper owns load-draft failures as notCreated too.
-                return Ok(true);
-            };
-            ids.push(id);
-        }
-        if ids.is_empty() {
-            return Ok(false);
-        }
-        setjoin_jmap::submission::has_attachments(exec, auth, &ids).await
-    }
     pub(super) fn early_error(&self) -> Option<&Failure> {
         match &self.args {
             Arguments::Rejected {
@@ -169,19 +137,7 @@ pub(crate) fn classify_call(
                 None => Ok(None),
                 Some(raw) if raw == "null" => Ok(Some("{}".into())),
                 Some(raw) => match serde_json::from_str::<Value>(&raw).ok()? {
-                    Value::Object(_) => {
-                        // Preserve duplicate nested fields and Go's folded
-                        // probe semantics before the whole-map #328 boundary.
-                        let map: BTreeMap<String, Box<RawValue>> =
-                            serde_json::from_str(&raw).ok()?;
-                        if map
-                            .values()
-                            .any(|v| submission_input::smime_requested(v.get()))
-                        {
-                            return None;
-                        }
-                        Ok(Some(raw))
-                    }
+                    Value::Object(_) => Ok(Some(raw)),
                     value => {
                         let kind = match value {
                             Value::Array(_) => "array",
@@ -211,6 +167,7 @@ pub(crate) async fn response_call(
     exec: &setjoin_pg::ScopedExecutor,
     auth: &setjoin_pg::MailboxAuthContext,
     worker: &setjoin_pg::ScopedExecutor,
+    services: Option<&super::JmapServices>,
     request: SubmissionRequest,
     operation: [u8; 16],
     digest: [u8; 32],
@@ -239,6 +196,33 @@ pub(crate) async fn response_call(
             )
         }
         Arguments::Set(Ok(create)) => {
+            let processed = match create.as_deref() {
+                Some(raw_create) => {
+                    let key_worker = services.map(|s| &s.worker).unwrap_or(worker);
+                    let store = services.and_then(|s| s.store.as_deref());
+                    let algorithm = services
+                        .map_or_else(setjoin_smtp::smime::EncryptAlgorithm::from_env, |s| {
+                            s.encrypt_algorithm
+                        });
+                    Some(
+                        super::smime_outbound::process_submissions(
+                            key_worker, store, algorithm, auth, raw_create,
+                        )
+                        .await,
+                    )
+                }
+                None => None,
+            };
+            let modified_create = processed.as_ref().map(|p| p.modified_create_json.as_str());
+            let processed_refs = processed
+                .as_ref()
+                .and_then(|p| p.processed_refs_json.as_deref());
+            let is_encrypted = processed
+                .as_ref()
+                .and_then(|p| p.is_encrypted_json.as_deref());
+            let processed_sizes: &[setjoin_jmap::submission::ProcessedSize] = processed
+                .as_ref()
+                .map_or(&[], |p| p.processed_sizes.as_slice());
             let envelope = setjoin_contracts::command::CommandEnvelope {
                 operation: setjoin_contracts::ids::OperationId(operation),
                 authority: auth.authority(),
@@ -251,11 +235,19 @@ pub(crate) async fn response_call(
                 auth,
                 &envelope,
                 std::time::Instant::now() + super::COMMAND_DEADLINE,
-                create.as_deref(),
+                modified_create,
+                processed_refs,
+                is_encrypted,
+                processed_sizes,
             )
             .await
             {
-                setjoin_pg::CommandOutcome::Committed(raw) => Ok(raw),
+                setjoin_pg::CommandOutcome::Committed(raw) => Ok(match &processed {
+                    Some(p) if !p.not_created.is_empty() => {
+                        super::smime_outbound::merge_not_created(&raw, &p.not_created)
+                    }
+                    _ => raw,
+                }),
                 setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(
                     failure,
                 )) => Err(failure),
@@ -331,15 +323,13 @@ pub(crate) async fn response_call(
     };
     match raw {
         Ok(raw) => (method, raw),
-        Err(failure) if failure.sqlstate.as_deref() == Some("BZ020") => (
-            "error",
-            reply::jmap_error_json("notFound", 500, "notFound"),
-        ),
+        Err(failure) if failure.sqlstate.as_deref() == Some("BZ020") => {
+            ("error", reply::jmap_error_json("notFound", 500, "notFound"))
+        }
         Err(failure) => (
             "error",
-            reply::failure_json(setjoin_jmap::classify_failure(&failure)).unwrap_or_else(|| {
-                reply::jmap_error_json("serverFail", 500, "database error")
-            }),
+            reply::failure_json(setjoin_jmap::classify_failure(&failure))
+                .unwrap_or_else(|| reply::jmap_error_json("serverFail", 500, "database error")),
         ),
     }
 }

@@ -338,7 +338,7 @@ impl Limiter {
         self.allow_key(ip.to_string().as_bytes(), now_unix)
     }
 
-    fn allow_key(&self, key: &[u8], now_unix: u64) -> bool {
+    pub(crate) fn allow_key(&self, key: &[u8], now_unix: u64) -> bool {
         let window = now_unix - now_unix % self.window_secs;
         let mut counts = self.counts.lock().unwrap_or_else(PoisonError::into_inner);
         if counts.len() > 100_000 {

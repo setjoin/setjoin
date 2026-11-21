@@ -39,6 +39,8 @@ mod recovery;
 pub mod reply;
 pub mod seen;
 pub mod set;
+mod smime_decrypt;
+mod smime_outbound;
 pub mod sse;
 pub mod submission;
 mod submission_actions;
@@ -66,7 +68,7 @@ use setjoin_jmap::{
     ChangesError, EmailBatch, EmailGet, EmailSet, EmptySeen, GetOutcome, Paged, SeenEffect,
     SetBatch, SetBatchOutcome, SetOutcome, SnoozeOutcome,
 };
-use setjoin_pg::{MailboxAuthContext, ScopedExecutor, Type};
+use setjoin_pg::{MailboxAuthContext, ScopedExecutor};
 use sha2::{Digest as _, Sha256};
 
 use crate::routes::{BoxFuture, Intercept, RequestContext};
@@ -107,6 +109,8 @@ pub struct JmapServices {
     pub quota: i64,
     pub hostname: String,
     pub max_upload: i64,
+    pub decrypt_limiter: Option<Arc<limit::Limiter>>,
+    pub encrypt_algorithm: setjoin_smtp::smime::EncryptAlgorithm,
 }
 impl JmapServices {
     pub fn new(worker: ScopedExecutor, hostname: String, max_upload: i64) -> Self {
@@ -120,6 +124,8 @@ impl JmapServices {
             attachment_signer: None,
             grace: 1440,
             quota: 0,
+            decrypt_limiter: Some(Arc::new(limit::Limiter::new(120, 60))),
+            encrypt_algorithm: setjoin_smtp::smime::EncryptAlgorithm::from_env(),
         }
     }
     pub fn from_env(worker: ScopedExecutor) -> Self {
@@ -346,45 +352,6 @@ fn has_top_ref(val: &serde_json::Value, key: &str) -> bool {
         map.keys()
             .any(|k| k.starts_with('#') && k[1..].eq_ignore_ascii_case(key))
     })
-}
-
-fn is_mutator_or_audited(claimed: &Claimed) -> bool {
-    match claimed {
-        Claimed::Seen(_)
-        | Claimed::Set(_)
-        | Claimed::Batch(_)
-        | Claimed::Receipt(_)
-        | Claimed::Dismiss(_)
-        | Claimed::MailboxSet(_)
-        | Claimed::Get(_) => true,
-        Claimed::Submission(req) => matches!(
-            req.args,
-            submission::Arguments::Set(Ok(_)) | submission::Arguments::Cancel(Ok(_))
-        ),
-        Claimed::Family(req) => !matches!(
-            req.method.name.rsplit('/').next(),
-            Some(
-                "get"
-                    | "query"
-                    | "changes"
-                    | "queryChanges"
-                    | "list"
-                    | "lookup"
-                    | "freeBusy"
-                    | "queryFreeSlots"
-                    | "galSearch"
-                    | "directoryTree"
-                    | "directoryMembers"
-                    | "directorySearch"
-                    | "findDuplicates"
-                    | "expand"
-                    | "present"
-                    | "delegateList"
-                    | "resourceList"
-            )
-        ),
-        _ => false,
-    }
 }
 
 /// Either the buffered body, an oversized 10 MB rejection, or a stream to forward.
@@ -645,17 +612,11 @@ impl<K: KeySource> JmapCommands<K> {
 
     async fn preflight_batch(
         &self,
-        user_id: i64,
-        primary_mailbox: i64,
+        _user_id: i64,
+        _primary_mailbox: i64,
         using: &[String],
         calls: &[ws_request::Call],
     ) -> Result<(), &'static str> {
-        let primary_auth = MailboxAuthContext::from_authenticated_session(
-            ActorId::new(user_id).map_err(|_| "ids")?,
-            MailboxId::new(primary_mailbox).map_err(|_| "ids")?,
-            REQUEST_AUTHORITY_GENERATION,
-        );
-        let mut saw_mutator = false;
         for call in calls {
             // Go validates in order and exits on size/capability errors before later calls.
             if call.args.get().len() > 2_000_000
@@ -715,104 +676,7 @@ impl<K: KeySource> JmapCommands<K> {
                         return Err("paged #position deferred to Go");
                     }
                 }
-                Claimed::Submission(req) => {
-                    if req.early_error().is_none()
-                        && matches!(req.args, submission::Arguments::Set(Ok(_)))
-                    {
-                        if let Ok(resolved) = account::resolve_account(
-                            &self.exec,
-                            user_id,
-                            &req.raw_account_id,
-                            family::Gate::Submit,
-                        )
-                        .await
-                        {
-                            let pre = tokio::time::timeout(
-                                PRECHECK_TIMEOUT,
-                                req.needs_preprocessing(&self.exec, &resolved.auth),
-                            )
-                            .await;
-                            if !matches!(pre, Ok(Ok(false))) {
-                                return Err("unported MIME preprocessing (#328)");
-                            }
-                        }
-                    }
-                }
-                Claimed::Get(get_req) => {
-                    if let get::GetArgs::Valid {
-                        raw_account_id,
-                        ids,
-                        bad,
-                        properties,
-                        too_many,
-                    } = &get_req.args
-                    {
-                        if !*too_many {
-                            let has_acct_ref = has_top_ref(&val, "accountId");
-                            let has_ids_ref = has_top_ref(&val, "ids");
-                            let has_props_ref = has_top_ref(&val, "properties");
-                            if has_acct_ref && saw_mutator {
-                                return Err("Email/get #accountId after mutator deferred to Go");
-                            }
-                            let target = if has_acct_ref {
-                                Some((primary_mailbox, primary_auth.clone()))
-                            } else {
-                                match account::resolve_account(
-                                    &self.exec,
-                                    user_id,
-                                    raw_account_id,
-                                    family::Gate::Read,
-                                )
-                                .await
-                                {
-                                    Ok(resolved) => Some((resolved.mailbox, resolved.auth)),
-                                    Err(_) => None,
-                                }
-                            };
-                            if let Some((target_mailbox, target_auth)) = target {
-                                if has_ids_ref || has_acct_ref || has_props_ref {
-                                    let encrypted = tokio::time::timeout(
-                                        PRECHECK_TIMEOUT,
-                                        self.exec.read_scoped(
-                                            &target_auth,
-                                            "SELECT EXISTS(SELECT 1 FROM messages WHERE mailbox_id=$1 AND NOT is_deleted AND crypto_type='smime-encrypted')",
-                                            &[(&target_mailbox, Type::INT8)],
-                                        ),
-                                    )
-                                    .await;
-                                    if !matches!(encrypted, Ok(Ok(ref rows)) if rows.first().is_some_and(|r| !r.get::<_, bool>(0)))
-                                    {
-                                        return Err("encrypted mail or precheck failed");
-                                    }
-                                } else {
-                                    let ids_param: Option<Vec<i64>> =
-                                        (!ids.is_empty() || !bad.is_empty()).then(|| ids.clone());
-                                    let encrypted = tokio::time::timeout(
-                                        PRECHECK_TIMEOUT,
-                                        self.exec.read_scoped(
-                                            &target_auth,
-                                            "SELECT EXISTS(SELECT 1 FROM jsonb_array_elements(jmap_email_get($1,$2::bigint[],$3::text[])->'list') e WHERE e->>'cryptoType'='smime-encrypted')",
-                                            &[
-                                                (&target_mailbox, Type::INT8),
-                                                (&ids_param, Type::INT8_ARRAY),
-                                                (properties, Type::TEXT_ARRAY),
-                                            ],
-                                        ),
-                                    )
-                                    .await;
-                                    if !matches!(encrypted, Ok(Ok(ref rows)) if rows.first().is_some_and(|r| !r.get::<_, bool>(0)))
-                                    {
-                                        return Err("encrypted mail: Go decrypts on read");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
                 _ => {}
-            }
-            if is_mutator_or_audited(&claimed) {
-                saw_mutator = true;
             }
         }
         Ok(())
@@ -1176,18 +1040,6 @@ impl<K: KeySource> JmapCommands<K> {
                     Ok(r) => r,
                     Err(e) => return Ok(("error".into(), e.json())),
                 };
-                if matches!(request.args, submission::Arguments::Set(Ok(_))) {
-                    let pre = tokio::time::timeout(
-                        PRECHECK_TIMEOUT,
-                        request.needs_preprocessing(&self.exec, &resolved.auth),
-                    )
-                    .await
-                    .map_err(|_| "MIME preprocessing lookup timed out (#328)")?
-                    .map_err(|_| "MIME preprocessing lookup failed (#328)")?;
-                    if pre {
-                        return Err("unported MIME preprocessing (#328)");
-                    }
-                }
                 if matches!(
                     request.args,
                     submission::Arguments::Set(Ok(_)) | submission::Arguments::Cancel(Ok(_))
@@ -1198,6 +1050,7 @@ impl<K: KeySource> JmapCommands<K> {
                     &self.exec,
                     &resolved.auth,
                     self.worker.as_ref().unwrap_or(&self.exec),
+                    self.services.as_deref(),
                     request,
                     operation,
                     digest_bytes,
@@ -1691,9 +1544,25 @@ impl<K: KeySource> JmapCommands<K> {
                         *mutated = true;
                         return Ok(("error".into(), reply::failure_or_server_fail(failure)));
                     }
-                    GetOutcome::Encrypted => return Err("encrypted mail: Go decrypts on read"),
                     GetOutcome::Forward => return Ok(("error".into(), ws_request::server_fail())),
                 };
+                let key_worker = self
+                    .services
+                    .as_ref()
+                    .map(|s| &s.worker)
+                    .or(self.worker.as_ref())
+                    .unwrap_or(&self.exec);
+                let raw = smime_decrypt::decrypt_email_result(
+                    &self.exec,
+                    key_worker,
+                    self.services.as_ref().and_then(|s| s.store.as_deref()),
+                    self.services
+                        .as_ref()
+                        .and_then(|s| s.decrypt_limiter.as_deref()),
+                    &resolved.auth,
+                    &raw,
+                )
+                .await;
                 let Some(result) = get::add_not_found(&raw, &bad) else {
                     return Ok(("error".into(), ws_request::server_fail()));
                 };
