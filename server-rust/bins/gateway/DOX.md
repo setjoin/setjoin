@@ -1064,3 +1064,11 @@ gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
+
+`Calendar/*` (#371): `calendar.rs` (`Calendar/get`, `Calendar/changes`,
+`Calendar/set`, `Calendar/getShared`, `Calendar/shareGet`, `Calendar/shareSet`)
+and `calendar_delegate.rs` (`Calendar/delegateList` via `WORKER_METHODS` and
+`WorkerRead::CalendarDelegates`) run natively with `Gate::Personal` and app
+`"calendar"`, using `CALENDAR_A3_METHODS` (`project_calendar`) on the A3 methods;
+catalog fragment `tests/conformance/route-catalog.d/jmap-371.json`, oracle
+`tests/jmap_family_371.rs`.

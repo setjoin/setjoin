@@ -1715,6 +1715,41 @@ mod db {
     /// placeholder, a scope mailbox on `$1`, a reviewed pair, or listed here.
     /// The `seam_probe_*` rows are the #427 test reducers.
     const REVIEWED_NEUTRAL_ARGUMENTS: &[(&str, &str, &str)] = &[
+        (
+            "jmap_calendar_get",
+            "p_ids",
+            "jmap_calendar.sql:19-20: row ids filtered under c.mailbox_id = p_mailbox_id (the bound scope)",
+        ),
+        (
+            "jmap_calendar_changes",
+            "p_since_state",
+            "jmap_calendar.sql:283-288: state cursor passed to jmap_entity_changes scoped to p_mailbox_id",
+        ),
+        (
+            "jmap_calendar_set_update",
+            "p_updates",
+            "jmap_calendar.sql:291-318: JSONB patch map updating only WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_calendar_share_get",
+            "p_calendar_id",
+            "calendar_sharing.sql:201-214: verifies calendars.mailbox_id = p_mailbox_id (the bound scope) before reading calendar_acls",
+        ),
+        (
+            "jmap_calendar_share_set",
+            "p_calendar_id",
+            "calendar_sharing.sql:251-276: verifies calendar owner (mailbox_id = p_mailbox_id) or admin grant in calendar_acls for account_scope(p_mailbox_id).user_id before mutating",
+        ),
+        (
+            "jmap_calendar_share_set",
+            "p_grants",
+            "calendar_sharing.sql:279-296: JSONB array of {userEmail, level} grants applied after owner/admin authorization",
+        ),
+        (
+            "jmap_calendar_share_set",
+            "p_revokes",
+            "calendar_sharing.sql:299-308: JSONB array of {userEmail} revokes applied after owner/admin authorization",
+        ),
         ("jmap_calendar_event_get_shared", "p_after", "time bound"),
         ("jmap_calendar_event_get_shared", "p_before", "time bound"),
         (
