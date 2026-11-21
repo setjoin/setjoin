@@ -12,7 +12,7 @@ use base64::Engine as _;
 use chrono::{Duration, SecondsFormat, Utc};
 use http_body_util::BodyExt;
 use hyper::Request;
-use jmap_family_oracle::{run, Case, Mutation, Transport, CONTINUITY_KEY_ID, CONTINUITY_SEED};
+use jmap_family_oracle::{run, Case, Mutation, CONTINUITY_KEY_ID, CONTINUITY_SEED};
 use ring::signature::Ed25519KeyPair;
 use serde_json::{json, Value};
 use setjoin_conformance::harness::{BoxError, Db};
