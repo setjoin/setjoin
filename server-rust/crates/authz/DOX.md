@@ -110,7 +110,11 @@ upgrade effects. `tests/password_formats.rs` also replays frozen format vectors.
 `basic::verify` ports `pwhash.CheckAppPassword` and `auth.CheckPassword` once
 for every protocol. Each caller passes an explicit `Policy`: accepted kinds
 (`Accept`), guest app passwords, and TOTP account passwords. IMAP uses
-app-then-account; DAV Basic (#355a) will use `AppPassword` only. By owner
+app-then-account; DAV/Drive Basic (#355a) uses `DAV_POLICY` (`Accept::AppPassword`,
+`GuestAppPasswords::Refuse`, `TotpAccountPassword::Refuse`), plus
+`authorize_basic_member` for primary-mailbox/revocation checks,
+`PushIdentity::from_basic` (paired with `Option<i64>` `expires_at()`), and
+`Proof::basic(user_id)`. By owner
 ruling (2026-11-14) both refuse a TOTP user's account password, a recorded
 divergence from frozen Go; the flag is read by the per-call account SELECT
 before the cache. The account lookup, the enabled filter and the fail-closed

@@ -361,7 +361,7 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                         _=tokio::time::sleep_until(pong+Duration::from_secs(70))=>break,
                         _=ping.tick()=>{if socket.send(Message::Ping(Vec::new().into())).await.is_err(){break}continue},
                         _=revalidate.tick()=>{
-                            let mut allowed=chrono::Utc::now().timestamp()<identity.expires_at();
+                            let mut allowed=identity.expires_at().is_some_and(|exp|chrono::Utc::now().timestamp()<exp);
                             for channel in &admitted {
                                 let app=if channel.starts_with("chat:"){Some("chat")}else if channel.starts_with("meet:"){Some("meet")}else if channel.starts_with("drive-"){Some("drive")}else{None};
                                 if let Some(app)=app {allowed &=app_allowed(&commands.exec,&identity,app).await;}

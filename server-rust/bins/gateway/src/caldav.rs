@@ -16,6 +16,7 @@ pub struct CalDavRoute<K: KeySource + 'static> {
     pub keys: Arc<K>,
     pub issuer: String,
     timezones: Arc<timezone::Timezones>,
+    basic: crate::dav_auth::DavBasicAuth,
 }
 impl<K: KeySource + 'static> CalDavRoute<K> {
     pub async fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
@@ -25,7 +26,12 @@ impl<K: KeySource + 'static> CalDavRoute<K> {
             keys,
             issuer,
             timezones,
+            basic: crate::dav_auth::DavBasicAuth::default(),
         }
+    }
+    pub fn with_basic_auth(mut self, basic: crate::dav_auth::DavBasicAuth) -> Self {
+        self.basic = basic;
+        self
     }
     pub fn start_timezone_listener(&self, direct: String) {
         self.timezones.start(self.exec.clone(), direct);
@@ -54,24 +60,37 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, timezones) = (
+        let (exec, keys, issuer, timezones, basic) = (
             self.exec.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.timezones.clone(),
+            self.basic.clone(),
         );
         Box::pin(async move {
-            let Some(auth) = setjoin_authz::authorize_user_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                // Shared Basic/Negotiate proof is owned by #420/#339.
+            let auth = if crate::dav_auth::has_scheme(r.headers(), b"Negotiate ") {
+                // Kerberos/SPNEGO proof remains owned by #355b.
                 return c.upstream.forward(r, &c.identity).await;
+            } else if crate::dav_auth::has_scheme(r.headers(), b"Basic ") {
+                let user = match basic.authenticate(&exec, &mut r, &c).await {
+                    Ok(user) => user,
+                    Err(response) => return response,
+                };
+                match setjoin_authz::authorize_basic_member(&exec, user.user_id, user.email).await {
+                    Ok(auth) => auth,
+                    Err(refusal) => {
+                        return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+                    }
+                }
+            } else {
+                match crate::deny::admit(&exec, &*keys, &issuer, &r, crate::deny::Scope::User)
+                    .await
+                {
+                    Ok(auth) => auth,
+                    Err(refusal) => {
+                        return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+                    }
+                }
             };
             if !setjoin_calendar::entitled(&exec, auth.context())
                 .await

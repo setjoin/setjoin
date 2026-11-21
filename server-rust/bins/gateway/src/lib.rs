@@ -28,6 +28,7 @@ pub mod chat_b;
 pub mod chat_unfurl;
 pub mod chat_workers;
 pub mod cron_catalog;
+pub mod dav_auth;
 pub mod notify_drain;
 pub mod push_drain;
 pub mod secevents;

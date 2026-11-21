@@ -172,12 +172,51 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         }).transpose()?
     } else { None };
     if let Some(storage)=&platform_storage { storage.recover().await; }
+    let imap_on = activated.imap.is_some() || activated.imaps.is_some();
+    let smtp_off = setjoin_gateway::smtp_runtime::required_off(
+        activated.smtp.is_some(),
+        activated.smtps.is_some(),
+        activated.submission.is_some(),
+    );
+    if imap_on && !listed("GO_LISTENERS_OFF", "imap") {
+        return Err("imap sockets require GO_LISTENERS_OFF=imap before Rust activation".into());
+    }
+    let mut security_protocols = Vec::new();
+    if imap_on {
+        security_protocols.push("imap");
+    }
+    security_protocols.extend(smtp_off);
+    let protocol_security =
+        if !security_protocols.is_empty() || (enabled && !settings.string("db.dsn").is_empty()) {
+            let label = if security_protocols.is_empty() {
+                "http".to_owned()
+            } else {
+                security_protocols.join("-")
+            };
+            match setjoin_gateway::imap_runtime::load_security(&settings, &label).await {
+                Ok(security) => Some(security),
+                // IMAP keeps its refuse-to-start guard; an SMTP/HTTP failure must not
+                // take the HTTPS front door down.
+                Err(error) if !imap_on => {
+                    eprintln!("threat gate unavailable: {error}");
+                    None
+                }
+                Err(error) => return Err(error),
+            }
+        } else {
+            None
+        };
+    let (threat_gate, _threat_watchers) = match protocol_security {
+        Some((gate, watchers)) => (Some(gate), Some(watchers)),
+        None => (None, None),
+    };
     let (routes, edge_limit) = if enabled {
         routes(
             &settings,
             configuration.clone(),
             worker.as_ref().map(|(denylist, _)| denylist.clone()),
             chain_config.as_ref().map(|_|chain.clone()),
+            threat_gate.clone(),
             guests.clone(),
             ldap.clone(),
             ad.clone(),
@@ -368,36 +407,11 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         ));
         (stop, task)
     });
-    let imap_on = activated.imap.is_some() || activated.imaps.is_some();
-    let smtp_off = setjoin_gateway::smtp_runtime::required_off(
-        activated.smtp.is_some(),
-        activated.smtps.is_some(),
-        activated.submission.is_some(),
-    );
-    let protocol_security = if imap_on || !smtp_off.is_empty() {
-        let mut protocols = Vec::new();
-        if imap_on {
-            protocols.push("imap");
-        }
-        protocols.extend(smtp_off);
-        match setjoin_gateway::imap_runtime::shared_security(&settings, &protocols).await {
-            Ok(security) => Some(security),
-            // IMAP keeps its refuse-to-start guard; an SMTP-only failure must not
-            // take the HTTPS front door down.
-            Err(error) if !imap_on => {
-                eprintln!("SMTP not started: {error}");
-                None
-            }
-            Err(error) => return Err(error),
-        }
-    } else {
-        None
-    };
     let imap = setjoin_gateway::imap_runtime::start(
         activated.imap,
         activated.imaps,
         &|name| std::env::var(name).ok(),
-        protocol_security.as_ref().map(|(gate,_)|gate.clone() as Arc<dyn setjoin_imap::ThreatGate>),
+        threat_gate.clone().map(|gate| gate as Arc<dyn setjoin_imap::ThreatGate>),
         webhook.clone(),
     )?;
     let smtp = setjoin_gateway::smtp_runtime::start_or_log(setjoin_gateway::smtp_runtime::start_with_trust_cache(
@@ -405,7 +419,7 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         activated.smtps,
         activated.submission,
         &|name| std::env::var(name).ok(),
-        protocol_security.as_ref().map(|(gate,_)|gate.clone()),
+        threat_gate,
         webhook.clone(),
         smime_cache,
     ));
@@ -1005,6 +1019,7 @@ async fn routes(
     configuration: Arc<setjoin_gateway::configuration::Runtime>,
     denylist: Option<Arc<SessionDenylist>>,
     chain:Option<Arc<setjoin_authz::auth_chain::Chain>>,
+    threat: Option<Arc<setjoin_threat::Gate>>,
     lifecycle: Option<Arc<setjoin_gateway::guest_worker::GuestLifecycle>>,
     ldap: Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>,
     ad: Option<Arc<setjoin_directory_sync::ad::AdRuntime>>,
@@ -1107,6 +1122,40 @@ async fn routes(
         )),
         keys: keys.clone(),
         issuer: issuer.clone(),
+    };
+    let runtime = Arc::new(
+        setjoin_gateway::runtime_access::RuntimeAccess::new(
+            exec.clone(),
+            keys.clone(),
+            issuer.clone(),
+        )
+        .with_attachment_secrets(
+            env("JWT_MAIL_ATTACHMENT_SECRET")
+                .or_else(|| env("JWT_SECRET"))
+                .unwrap_or_default()
+                .into_bytes(),
+            env("JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET").map(String::into_bytes),
+        )
+        .with_workers(
+            compliance.worker.clone(),
+            WorkerDatabase::from_dsns(&dsn, env("DB_WORKER_DSN").as_deref())
+                .map_err(|e| e.to_string())?,
+        )
+        .with_sessions(denylist.clone())
+        .with_direct(env("DB_DIRECT_DSN").ok_or("DB_DIRECT_DSN required for runtime gates")?)
+        .with_device_secret(
+            env("JWT_SECRET").unwrap_or_default().into_bytes(),
+            setjoin_config_secret::CryptoProfile::parse(
+                &env("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default(),
+            ),
+        ),
+    );
+    let denylist = runtime.session_cache();
+    let dav_basic = setjoin_gateway::dav_auth::DavBasicAuth {
+        chain,
+        password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+        threat: threat.map(|gate| gate as Arc<dyn setjoin_threat::ThreatGate>),
+        runtime: Some(runtime.clone() as Arc<dyn setjoin_gateway::runtime_access::RuntimeGate>),
     };
     let chat_compliance = setjoin_gateway::chat_compliance::ChatComplianceRoute {
         exec: exec.clone(),
@@ -1260,7 +1309,8 @@ async fn routes(
             keys.clone(),
             issuer.clone(),
         )
-        .await;
+        .await
+        .with_basic_auth(dav_basic.clone());
         if let Some(direct) = env("DB_DIRECT_DSN") {
             route.start_timezone_listener(direct);
         }
@@ -1273,11 +1323,14 @@ async fn routes(
         .await
         .map_err(|_| "CardDAV boot feature unavailable".to_owned())?
     {
-        Some(setjoin_gateway::carddav::CardDavRoute {
-            exec: exec.clone(),
-            keys: keys.clone(),
-            issuer: issuer.clone(),
-        })
+        Some(
+            setjoin_gateway::carddav::CardDavRoute::new(
+                exec.clone(),
+                keys.clone(),
+                issuer.clone(),
+            )
+            .with_basic_auth(dav_basic.clone()),
+        )
     } else {
         None
     };
@@ -1551,20 +1604,7 @@ async fn routes(
             .unwrap_or_else(|| "http://localhost:8443".into()),
         internal_key: env("INTERNAL_API_KEY").unwrap_or_default(),
     };
-    let runtime=setjoin_gateway::runtime_access::RuntimeAccess::new(exec.clone(),keys.clone(),issuer.clone())
-        .with_attachment_secrets(
-            env("JWT_MAIL_ATTACHMENT_SECRET")
-                .or_else(|| env("JWT_SECRET"))
-                .unwrap_or_default()
-                .into_bytes(),
-            env("JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET").map(String::into_bytes),
-        )
-        .with_workers(compliance.worker.clone(),WorkerDatabase::from_dsns(&dsn,env("DB_WORKER_DSN").as_deref()).map_err(|e|e.to_string())?)
-        .with_sessions(denylist.clone())
-        .with_direct(env("DB_DIRECT_DSN").ok_or("DB_DIRECT_DSN required for runtime gates")?)
-        .with_device_secret(env("JWT_SECRET").unwrap_or_default().into_bytes(),setjoin_config_secret::CryptoProfile::parse(&env("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default()));
-    let denylist=runtime.session_cache();
-    let drive_native=setjoin_gateway::drive_native::NativeTokenRoute::new(exec.clone(),keys.clone(),issuer.clone(),env("JWT_SECRET").as_deref()).with_chain(chain);
+    let drive_native=setjoin_gateway::drive_native::NativeTokenRoute::new(exec.clone(),keys.clone(),issuer.clone(),env("JWT_SECRET").as_deref()).with_basic_auth(dav_basic);
     let drive = setjoin_gateway::drive::DriveRoute {
         exec: exec.clone(),
         worker: ScopedExecutor::from_dsn(

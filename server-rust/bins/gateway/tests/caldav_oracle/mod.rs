@@ -10,7 +10,7 @@ use std::sync::Arc;
 mod session;
 mod wire;
 
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const CAL: i64 = 994261;
 const OTHER: i64 = 994262;
 

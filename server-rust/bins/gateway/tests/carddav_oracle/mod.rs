@@ -42,7 +42,7 @@ impl setjoin_gateway::Intercept for Probe {
         })
     }
 }
-static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const BOOK: i64 = 994271;
 const OTHER: i64 = 994272;
 
@@ -183,7 +183,7 @@ pub async fn run(route: &str, label: &str, mutant: Option<&'static str>) -> Resu
         let mut commit_wire=if let Some(cut)=cut{Some(common::commit::commit_cut_proxy(app,cut).await)}else{None};
         let wire=if mutant==Some("no-tenant-filter"){Some(wire::no_tenant_filter(app).await?)}else{None};
         let target=wire.as_ref().map(|w|w.dsn.as_str()).or_else(||commit_wire.as_ref().map(|(dsn,_)|dsn.as_str())).unwrap_or(app);
-        let table=RouteTable::proxy_all().with(Probe{inner:setjoin_gateway::carddav::CardDavRoute {exec:common::patient_exec(target,if cut.is_some(){1}else{4})?,keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into()},mutant}).with_catchall(setjoin_gateway::catchall::CatchallRoute::new());
+        let table=RouteTable::proxy_all().with(Probe{inner:setjoin_gateway::carddav::CardDavRoute::new(common::patient_exec(target,if cut.is_some(){1}else{4})?,std::sync::Arc::new(common::recovery_keys()),"mailserver".into()),mutant}).with_catchall(setjoin_gateway::catchall::CatchallRoute::new());
         let table=if recording {RouteTable::proxy_all()}else{table};
         let mut inventory:Value=serde_json::from_str(include_str!("../../route-inventory.json"))?;
         for row in inventory["routes"].as_array_mut().ok_or("routes")? {if row["path"]=="/carddav/" {row["state"]=json!(if recording {"OFF"}else{"ON"});row["upstream"]=json!(if recording {"go-mail"}else{"local-rust"});}}

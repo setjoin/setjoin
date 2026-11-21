@@ -285,7 +285,7 @@ impl<K: KeySource + 'static> Intercept for EventSourceRoute<K> {
                         _=output.send.closed()=>break,
                         _=closed.changed()=>break,
                         _=revalidate.tick()=>{
-                            if chrono::Utc::now().timestamp()>=auth.expires_at(){break}
+                            if auth.expires_at().is_none_or(|exp|chrono::Utc::now().timestamp()>=exp){break}
                             let mut allowed=true;
                             for channel in &channels {
                                 let app=if channel.starts_with("chat:"){Some("chat")}else if channel.starts_with("meet:"){Some("meet")}else if channel.starts_with("drive-"){Some("drive")}else{None};
