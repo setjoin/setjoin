@@ -3871,7 +3871,7 @@ async fn native_349b_with_user_id_and_unwrapped_rate_limit_parity() {
         )
         .await?;
         n.c.execute(
-            "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),totp_enabled_at=now(),totp_backup_codes_enc=$4,factor_generation=2 WHERE id=$1",
+            "UPDATE users SET totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($2,$3),totp_enabled_at=now(),totp_backup_codes_enc=$4,last_totp_used_at=NULL,totp_failed_attempts=0,totp_locked_until=NULL,factor_generation=2 WHERE id=$1",
             &[&n.fx.a.user, &totp_secret, &ENC, &backup_hashes],
         )
         .await?;
