@@ -118,7 +118,7 @@ const CALENDAR_GET_IDS_NOT_FOUND: Case = Case {
         "INSERT INTO calendars (mailbox_id, name, color, timezone, is_default) \
          VALUES ({f.mailbox}, 'Foreign', '#445566', 'UTC', TRUE) RETURNING id",
     ],
-    absent: &["{seed.1}"],
+    absent: &["Foreign"],
     ..case(
         "calendar-get-ids-not-found",
         "success",

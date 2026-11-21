@@ -1342,9 +1342,34 @@ async fn cleanup(
             break;
         }
     }
-    // A calendar journals into its mailbox when deleted (trg_journal_calendar),
-    // so calendars go while their mailbox exists, then that journal; a sharing
-    // default pins its creator (no cascade) (#371).
+    // Calendars, contacts, and addressbooks journal into their mailbox when
+    // deleted (trg_journal_calendar / V096 contact/addressbook triggers), so they
+    // must go while their mailbox still exists, then that journal; a sharing
+    // default pins its creator (no cascade) (#370, #371, #375).
+    owner
+        .query_typed(
+            "DELETE FROM contact_group_members m USING contact_groups g WHERE m.group_id = g.id AND g.mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM contact_groups WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM contacts c USING addressbooks ab WHERE c.addressbook_id = ab.id AND ab.mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM addressbooks WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
     owner
         .query_typed(
             "DELETE FROM calendars WHERE mailbox_id = ANY($1)",
