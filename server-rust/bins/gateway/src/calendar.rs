@@ -18,9 +18,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-/// The first fetch of a new subscription runs detached from the request. The
-/// calendar-subscription-sync worker (a later slice) provides it; while none is
-/// installed the create route stays with Go.
+/// The first fetch of a new subscription runs detached from the request when
+/// the calendar-subscription-sync worker is installed.
 pub trait SubscriptionKick: Send + Sync + 'static {
     fn kick(&self, subscription: i64, calendar: i64, url: String);
 }
@@ -408,9 +407,7 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
             kick: self.kick.clone(),
         };
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let what = action(r.method(), r.uri().path()).expect("matched route");
             let path = r.uri().path().to_owned();
             let public = matches!(
                 what,
@@ -452,8 +449,7 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                     let auth = auth.expect("authenticated");
                     match setjoin_calendar::booking_enabled(&this.exec).await {
                         Ok(true) => {}
-                        Ok(false) => return out.bare(404, "not found"),
-                        Err(_) => return c.upstream.forward(r, &c.identity).await,
+                        Ok(false) | Err(_) => return out.bare(404, "not found"),
                     }
                     let actor = auth.context();
                     match what {
@@ -539,7 +535,7 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                 }
                 Action::SubscriptionCreate => {
                     let auth = auth.expect("authenticated");
-                    this.subscribe(r, &c, &out, auth.context(), operation).await
+                    this.subscribe(r, &out, auth.context(), operation).await
                 }
             }
         })
@@ -579,8 +575,7 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
     ) -> Response<Body> {
         match setjoin_calendar::booking_enabled(&self.exec).await {
             Ok(true) => {}
-            Ok(false) => return out.bare(404, "not found"),
-            Err(_) => return c.upstream.forward(r, &c.identity).await,
+            Ok(false) | Err(_) => return out.bare(404, "not found"),
         }
         let decoded = decode(path);
         let slug = decode(path.split('/').nth(4).unwrap_or(""));
@@ -746,14 +741,31 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         auth: setjoin_authz::Authorized,
     ) -> Response<Body> {
         // Go mounts the route only while CalDAV is on and gates it by the
-        // calendar entitlement; a refusal and its audit stay with Go.
+        // calendar entitlement.
         match setjoin_calendar::caldav_enabled(&self.exec).await {
             Ok(true) => {}
-            _ => return c.upstream.forward(r, &c.identity).await,
+            _ => return crate::surface::unregistered(&r, c.identity.proto),
         }
-        match setjoin_calendar::entitled(&self.exec, auth.context()).await {
-            Ok(true) => {}
-            _ => return c.upstream.forward(r, &c.identity).await,
+        let entitled = tokio::time::timeout(
+            setjoin_authz::precheck_timeout(),
+            setjoin_calendar::entitled(&self.exec, auth.context()),
+        )
+        .await;
+        if !matches!(entitled, Ok(Ok(true))) {
+            let actor = setjoin_contracts::ids::ActorId::new(auth.context().user_id())
+                .expect("verified actor");
+            let ip = c.identity.client_ip.to_string();
+            let _ = tokio::time::timeout(
+                setjoin_authz::precheck_timeout(),
+                self.exec.audit_app_blocked(actor, "calendar", &ip),
+            )
+            .await;
+            let detail = "Access to this application is not permitted for your account.";
+            let body = Problem::new(403, detail)
+                .kind("https://setjoin.com/errors/forbidden")
+                .instance(&out.path)
+                .body();
+            return out.problem_response(403, body, true);
         }
         let error = |status: u16, text: &str| {
             out.json(
@@ -889,14 +901,10 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
     async fn subscribe(
         &self,
         mut r: Request<Body>,
-        c: &RequestContext,
         out: &Out<'_>,
         actor: &setjoin_authz::AuthContext,
         operation: [u8; 16],
     ) -> Response<Body> {
-        let Some(kick) = self.kick.clone() else {
-            return c.upstream.forward(r, &c.identity).await;
-        };
         // `perUserResourceCap`: runs before the handler reads the body.
         match setjoin_calendar::subscription_count(&self.exec, actor).await {
             Err(_) => return out.bare(503, "unable to verify calendar subscription budget"),
@@ -939,7 +947,9 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         };
         match setjoin_calendar::subscribe(&self.exec, actor, &name, &feed, operation).await {
             CommandOutcome::Committed((subscription, calendar)) => {
-                kick.kick(subscription, calendar, feed.clone());
+                if let Some(kick) = &self.kick {
+                    kick.kick(subscription, calendar, feed.clone());
+                }
                 out.json(
                     201,
                     format!(

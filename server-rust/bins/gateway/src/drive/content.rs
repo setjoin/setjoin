@@ -24,7 +24,7 @@ pub(super) async fn serve(
     let consuming =
         crate::inventory::path_score("/api/drive/export/{token}", r.uri().path()).is_some();
     let Some(store) = store else {
-        return c.upstream.forward(r, &c.identity).await;
+        return problem(503, "storage unavailable", None, &c, id);
     };
     let version = if consuming {
         use sha2::Digest;

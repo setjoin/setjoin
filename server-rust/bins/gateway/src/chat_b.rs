@@ -97,7 +97,8 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
         let work = async move {
             let mut nonce = [0; 16];
             if getrandom::getrandom(&mut nonce).is_err() {
-                return c.upstream.forward(r, &c.identity).await;
+                let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+                return crate::mailboxes::bare(503, "service unavailable", &c, &id);
             }
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), nonce);
             // Go StripPrefix checks the raw API mount spelling too.
@@ -126,8 +127,7 @@ impl<K: KeySource + 'static> Intercept for ChatBRoute<K> {
             let feature=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.chat'),false)",&[]).await;
             match feature {
                 Ok(rows) if rows[0].get::<_, bool>(0) => {}
-                Ok(_) => return opaque_not_found(&c, id),
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
+                Ok(_) | Err(_) => return opaque_not_found(&c, id),
             }
             let user = auth.context().user_id();
             if !exec

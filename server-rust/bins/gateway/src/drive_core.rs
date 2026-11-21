@@ -78,14 +78,14 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
-                return c.upstream.forward(r, &c.identity).await;
+                let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+                return problem(503, "service unavailable", None, &c, id);
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let flag=exec.read("SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.drive'),false)",&[]).await;
             match flag {
                 Ok(rows) if rows[0].get::<_, bool>(0) => {}
-                Ok(_) => return problem(404, "not found", None, &c, id),
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
+                Ok(_) | Err(_) => return problem(404, "not found", None, &c, id),
             }
             let path = go_utf8(&crate::inventory::unescape(r.uri().path()))
                 .strip_prefix("/api")
@@ -134,7 +134,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                     );
                 }
                 let Some(store) = store else {
-                    return c.upstream.forward(r, &c.identity).await;
+                    return problem(503, "storage unavailable", None, &c, id);
                 };
                 if p["classification"]!="regular" || p["auditReads"]==true {
                     let Some(audit)=crate::jmap::random() else{return problem(500,"database error",None,&c,id)};
@@ -165,7 +165,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 };
                 if r.method() == hyper::Method::PUT {
                     let Some(store) = store else {
-                        return c.upstream.forward(r, &c.identity).await;
+                        return problem(503, "storage unavailable", None, &c, id);
                     };
                     let Some(preflight) = crate::jmap::random() else {
                         return problem(500, "upload failed", None, &c, id);

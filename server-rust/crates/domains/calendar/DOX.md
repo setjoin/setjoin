@@ -23,8 +23,9 @@ batch free/busy query and the webcal subscription list/delete/create; slice 2
   fold it into a canonical calendar reducer. Unsubscribe is Go's single `DELETE`.
 - Free/busy calls `calendar_free_busy_multi` on the request credential without a
   tenant GUC (as Go) with the caller's primary mailbox. Go mounts it only while
-  `feature.caldav` is on and behind the calendar entitlement; both refusals (and
-  the entitlement audit) stay with Go (the request is forwarded).
+  `feature.caldav` is on and behind the calendar entitlement; when `feature.caldav`
+  is off (or its lookup fails) the adapter returns Go's unregistered 404, and an
+  entitlement denial returns Go's 403 plus `audit_app_blocked`.
 - Mail: the verification link, owner heads-up and the confirm iMIP invite are
   built byte-for-byte like Go (`booking_mail.rs`), stored as content-addressed
   objects and queued with one plain `INSERT` on the worker credential. Confirm
@@ -32,8 +33,8 @@ batch free/busy query and the webcal subscription list/delete/create; slice 2
   as Go does.
 - `POST /calendar/subscriptions` (#298) is ON: the detached first fetch is the
   calendar-subscription-sync worker's `SyncKick` (`subscription_sync.rs`), which the
-  gateway installs only when that worker runs in Rust; without it the route keeps
-  forwarding to Go.
+  gateway installs only when that worker runs in Rust; without it the route still
+  commits the subscription row and returns 201 without an immediate worker kick.
 - The `calendar-subscription-sync` worker (`subscription_sync.rs`, parser in
   `ics.rs`) ports Go's `calendarsync.Worker`: 15 min + up to 3 min jitter, claim 20
   due rows (`FOR UPDATE SKIP LOCKED`, stamped in the claim), conditional GET, 5
@@ -57,8 +58,8 @@ batch free/busy query and the webcal subscription list/delete/create; slice 2
   `encoding/csv` reader/writer, column mapping and row-to-vCard projection are in
   `contacts_csv.rs`, vCard parse/split/serialize in `contacts_vcard.rs`; statements
   in `src/contacts.rs` of this crate.
-- Authentication and the `contacts` entitlement stay with Go (refusal and its audit
-  are forwarded). The address-book gate (`mailboxes.user_id` = verified user) is a
+- The `contacts` entitlement check runs locally (403 plus `audit_app_blocked`
+  on denial or lookup failure). The address-book gate (`mailboxes.user_id` = verified user) is a
   separate read as in Go; the verified owner mailbox is then in every write's WHERE.
 - Every row is one autocommit reducer call (`rust_contacts_import_write`/`_remove`)
   on the request credential with no tenant GUC and no receipt, like Go's pool:

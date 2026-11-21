@@ -13,7 +13,9 @@ pub struct ChatComplianceRoute<K: KeySource + 'static> {
     pub store: Option<Arc<crate::recovery_worker::S3Store>>,
 }
 impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         let method = if r.method() == hyper::Method::HEAD {
             "GET"
@@ -57,7 +59,8 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
         Box::pin(async move {
             let mut nonce = [0; 16];
             if getrandom::getrandom(&mut nonce).is_err() {
-                return c.upstream.forward(r, &c.identity).await;
+                let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+                return crate::mailboxes::bare(503, "service unavailable", &c, &id);
             }
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), nonce);
             let mount = r.uri().path().split('/').nth(1).unwrap_or("");
@@ -76,14 +79,11 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
             }
             let decoded = crate::chat::go_utf8(&crate::inventory::unescape(r.uri().path()));
             let path = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
-            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
-            };
-            let authority = match setjoin_compliance::authority(&exec, auth.context()).await {
-                Ok(v) => v,
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
             };
             let write = !matches!(r.method().as_str(), "GET" | "HEAD");
             let required: &[&str] = if path == "/admin/chat-ediscovery/export"
@@ -96,7 +96,11 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
             } else {
                 &["chat.compliance_view", "chat.compliance_manage"]
             };
-            if !authority.allows_any(required) {
+            let allowed = match setjoin_compliance::authority(&exec, auth.context()).await {
+                Ok(v) => v.allows_any(required),
+                Err(_) => false,
+            };
+            if !allowed {
                 let _ = setjoin_compliance::console_denied(
                     &exec,
                     auth.context(),
@@ -109,7 +113,7 @@ impl<K: KeySource + 'static> Intercept for ChatComplianceRoute<K> {
                 reply.headers_mut().remove("content-language");
                 return reply;
             }
-            match exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.chat_compliance'),false)",&[]).await{Ok(v)if v[0].get::<_,bool>(0)=>{},Ok(_)=>{let mut reply=crate::chat::problem(404,"not found","",&c,id);reply.headers_mut().remove("content-language");return reply;},Err(_)=>return c.upstream.forward(r,&c.identity).await}
+            match exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.chat_compliance'),false)",&[]).await{Ok(v)if v[0].get::<_,bool>(0)=>{},Ok(_)|Err(_)=>{let mut reply=crate::chat::problem(404,"not found","",&c,id);reply.headers_mut().remove("content-language");return reply;}}
             let language = crate::chat_channels::problem_language(r.headers());
             let mut response=async {
             if path == "/admin/chat-ediscovery/export" {

@@ -66,7 +66,8 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
             };
             let mut nonce = [0; 16];
             if getrandom::getrandom(&mut nonce).is_err() {
-                return c.upstream.forward(r, &c.identity).await;
+                let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+                return crate::mailboxes::bare(503, "service unavailable", &c, &id);
             }
             let request_id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), nonce);
             let encoded_mount = r
@@ -110,7 +111,7 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
             .await
             {
                 Ok(Some(s)) => s,
-                Ok(None) => {
+                Ok(None) | Err(_) => {
                     let mut operation = [0; 16];
                     if getrandom::getrandom(&mut operation).is_ok() {
                         setjoin_chat::denied(
@@ -126,16 +127,14 @@ impl<K: KeySource + 'static> Intercept for ChatRoute<K> {
                     response.headers_mut().remove("content-language");
                     return response;
                 }
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
             };
             match setjoin_chat::enabled(&exec).await {
                 Ok(true) => {}
-                Ok(false) => {
+                Ok(false) | Err(_) => {
                     let mut response = problem(404, "not found", "", &c, request_id);
                     response.headers_mut().remove("content-language");
                     return response;
                 }
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
             }
             if is_list {
                 let user = match query(&r, "userId")
