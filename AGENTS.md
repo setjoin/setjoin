@@ -62,6 +62,9 @@ Read `docs/standards/DATABASE_SECURITY.md` before touching a user-data query.
   or `bash scripts/verify-all.sh list`. Missing, skipped or flaky-after-retry cases are
   failures. Fix failures you caused; keep tests strict.
 - CI: GitHub-hosted runners only; workflows and lanes are listed in `.github/CI-RUNNERS.md`.
+  Only the merge-queue lane runs `scripts/run-guards.sh`, so run the standalone guards for
+  the area you touched before opening a PR. A known-red guard that starts passing blocks
+  until its entry is removed from `scripts/guards-known-red.txt`.
 
 ## Execution environment and task cleanup
 
@@ -74,8 +77,10 @@ Record temporary resources before launch and clean only what you own.
 - Status: [program directory](docs/agents/PROGRAM_STATUS.md); queue: GitHub issues. Read only
   the owning plan; behavior stays OFF until its rollout decision admits it.
 - Agent workflows: `docs/agents/`. Delegated work follows the
-  [subagent workflow](docs/agents/subagent-workflow.md): Claude Code coordinates, Codex
-  implements, and review gates decide merges.
+  [subagent workflow](docs/agents/subagent-workflow.md): Claude Code coordinates; Codex
+  `gpt-6.2-sol` implements, plans and gates, with `gpt-6.2-astra` as the fallback and
+  tie-break; review gates decide merges. When Codex is unavailable, Claude Code does the
+  work itself under the same gates. Risk-area designs get a plan review before code.
 
 ## Agent skills
 

@@ -16,11 +16,11 @@ Binding rules for delegating work to subagents. The latest owner instruction win
   lives outside the worktree, so the implementer cannot commit. A PATH stub refuses
   `cargo`, `rustc`, `go`, `npm`, `npx`, `pnpm`, `yarn`, `make` and `docker`.
   `rustfmt` is allowed. The final report is at most 20 lines and covers files changed,
-  what was done, stop reasons and open questions.
+  what was done, guard results, stop reasons and open questions.
 - `gpt-6.2-sol` is the main model for implementation, plans and reviews (medium effort by
   default, high for plans and gates). `gpt-6.2-astra` (high effort) is the fallback only:
   unknown causes, escalation after sol hits the same CI failure twice or stops on
-  capability, and tie-breaks when the coordinator disputes a sol finding.
+  capability, and gate tie-breaks.
 - Fix rounds resume the same Codex session. Pass its session ID and point the brief
   to a file with the failing log excerpt or review findings. The coordinator reads
   CI logs only to pick the excerpt.
@@ -39,9 +39,22 @@ move, migrations, data egress, production. Auth or a migration means size M or l
 |---|---|---|
 | XS | Decided, 1-2 files | sol, low effort, with the exact edit |
 | S | Up to ~4 files in one module | sol, medium effort, with the decided approach |
-| M | Several modules | sol, medium effort, after a short coordinator plan in the brief. astra plans first if the approach is undecided |
-| L or risk area | Large change or any risk area | sol (high effort) writes a read-only plan (`-s read-only`). A fresh read-only sol session reviews risk-area plans before code. sol implements the plan |
+| M | Several modules | sol, medium effort |
+| L | Large change | sol, high effort |
 | ? | Cause unknown | astra investigates read-only. Size the result again |
+
+For XS/S/M or a decided design, one Codex sol session implements end to end
+without a separate plan unless the work touches a risk area or involves
+concurrency/protocol design. In those cases, the
+implementer uses sol at high effort, writes a short `PLAN.md` in the worktree,
+and stops before coding. Keep `PLAN.md` out of the commit. Cover threats, the
+invariant, failure cases and tests. A fresh read-only sol session reviews only
+the plan. Then resume the same implementer session to write the code. The
+reviewer's cases become required tests.
+
+Resuming preserves the implementer's context from files it already read, saving
+~0.5–0.9M input tokens per ticket compared with a separate planner. The review
+gives risky designs an independent check before code.
 
 Cap runs at ~30 min, including investigations. At the cap, write `PROGRESS.md` and
 stop. The coordinator decides whether to continue, split the ticket or re-plan.
@@ -56,9 +69,8 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
   Codex stays within that scope except to follow a named caller or callee.
 - Give the root cause or goal with evidence (file and line, or output). Give the
   exact change per file (find, replace, base commit) and the first failing test.
-- Risk-area planners list threats, failure cases (full quota, old or large data,
-  restart midway, concurrency), abusable inputs and the upgrade path. The plan
-  reviewer's cases become required tests.
+- For tickets that require `PLAN.md`, include relevant failure cases (full quota,
+  old or large data, restart midway, concurrency), abusable inputs and the upgrade path.
 - A case the implementer calls "bounded" or "unlikely" is a finding. Fix it or file a follow-up.
 - Before a "delete X" ticket the coordinator checks X's callers itself.
 - Keep `PROGRESS.md` so work can continue after a cut-off run.
@@ -77,11 +89,22 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
   on files you add.
 - Do not compile Rust locally. The implementer never builds. The coordinator commits and
   pushes, then reads the PR's required
-  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests, cheap guards,
+  `aggregate` check (`pr-precheck.yml`: changed packages' clippy and `--lib` tests,
   plus the selected integration tests on the lane Postgres; ~10-25 min) through the shared poller.
   With no PR yet, the coordinator dispatches the light part only:
   `gh workflow run quick-check.yml -R setjoin/setjoin --ref <branch>` (it no longer runs on push;
   no integration tests: open a draft PR for those).
+- Before hand-back, the implementer runs and reports the standalone guards relevant
+  to the change. They need no cargo or DB. Examples:
+  - Reducers or their callers: `bash scripts/check-audit-coverage.sh` and
+    `bash scripts/check-app-notify.sh`.
+  - Route flips: `python3 scripts/test-check-gofree-rehearsal.py`.
+  - New SQL functions: `bash scripts/check-xinchuang-matrix.sh`.
+  - Conformance READMEs: `bash scripts/check-recorder-docs.sh`.
+  - Oracle or catalog changes: `python3 scripts/check-gofree-oracle-adequacy.py --preflight-only`.
+  - AGENTS/DOX edits: `bash scripts/check-agent-context-budget.sh`.
+  The merge-queue lane runs the guards job and the PR pre-check omits it. A queue
+  ejection costs ~1 h of lane time plus rebuilds of the entries behind it.
 - Before fixing a failing test, search open issues and other branches for its name.
 - Before committing Rust changes: `git add`, run `bash scripts/fmt-added.sh` (formats added files through stdin, the same set the pre-check checks), then `git add` the reformatted files and commit.
 
@@ -89,7 +112,9 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
 
 - Run the Codex merge gate in a fresh read-only session (`codex exec -s read-only`).
   Use sol at high effort for every PR; astra only as the tie-break fallback.
-  At most 3 rounds per ticket. A 4th means re-plan.
+  Normal PRs get at most 3 rounds per ticket. A 4th means re-plan. Risk-area PRs
+  get one full round and one delta round. If the delta still fails, go to an astra
+  tie-break instead of a third sol round.
   - Name the diff range, files and callers to read. Paste greps the coordinator
     already ran. Codex stays within that scope and runs no builds.
   - Fix rounds get a delta review of the fix commits only.
@@ -99,10 +124,23 @@ If the diff exceeds the prediction, upgrade the review and re-record the size.
     (CI is the gate). Changes to CI, guards, `deny.toml` or other checks keep Codex.
 - The coordinator reads Codex's final report and the diffstat, and opens diff hunks only
   to verify a finding or a report it doubts.
-- Verify each finding in the code before requiring a fix. One fix round carries
-  all open findings. File follow-up issues for non-blocking findings.
+- Verify each finding in the code before requiring a fix. Label each finding
+  INTRODUCED or PRE-EXISTING and IN-SCOPE or OUT-OF-SCOPE. Only INTRODUCED or
+  IN-SCOPE defects can FAIL a gate. File follow-up issues for non-blocking
+  findings, including PRE-EXISTING and OUT-OF-SCOPE defects. One fix round carries
+  all open blocking findings.
+- Auto-mode protection requires the owner's approval to record an astra overrule
+  in the gate ledger. The coordinator asks for approval or the owner queues the PR.
 - Gate the integration tip after several merges.
 - Reviewers apply docs/standards/AI_ASSISTED_TESTING.md (time windows, normalisation) to every test diff.
+
+## Merge queue
+
+- Before queuing, the coordinator's enqueue tool merges `origin/main` into each
+  ticket branch with a merge commit. Never force-push. If the merge conflicts,
+  resume the ticket's Codex session to resolve it, then rerun CI on the updated branch.
+- Queue green PRs as a group. The enqueue tool waits for all PRs in the group to
+  turn green, then enqueues them together so the queue builds them in parallel.
 
 ## GitHub API usage
 

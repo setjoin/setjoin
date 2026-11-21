@@ -464,6 +464,9 @@ profile hashing and one token-bound `rust_guest_invite_accept_finish` write
 acknowledged rollback or discarded connection, zero partial writes; lost COMMIT:
 500 plus X-Operation-ID. No notify (frozen Go emits none). `readiness` reports
 BYPASSRLS/reducer posture.
+Owner-approved security divergence from frozen Go (#347) blocks common and
+recently used passwords with the change-password messages. Accept records the
+new hash in password history in the same transaction as guest activation.
 
 ## Device trust accept side (#341)
 

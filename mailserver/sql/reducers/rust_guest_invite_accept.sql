@@ -1,16 +1,18 @@
 -- #342: frozen Go GuestInviteAcceptPost (guest_invite.go:265). The read reducer takes
--- Go's canonical guest -> user -> invite locks and returns every verdict; Rust
--- hashes under those locks; finish is the one consuming write, audited in-commit.
--- Retire the pre-release four-argument overload so defaulted calls stay unambiguous.
+-- Go's canonical guest -> user -> invite locks and checks lifecycle and policy;
+-- Rust verifies history and hashes under those locks before the audited write.
+-- #347 security divergence: reject common and recently used passwords, and record
+-- the accepted credential in history in the same transaction.
 DROP FUNCTION IF EXISTS rust_guest_invite_accept_read(bigint, text, text, boolean);
+DROP FUNCTION IF EXISTS rust_guest_invite_accept_read(bigint, text, text, boolean, boolean);
 CREATE OR REPLACE FUNCTION rust_guest_invite_accept_read(
-  p_guest_user_id bigint, p_token_hash text, p_new_password text DEFAULT NULL,
-  p_password_too_long boolean DEFAULT false, p_password_invalid_text boolean DEFAULT false
+  p_guest_user_id bigint, p_token_hash text, p_new_password text,
+  p_password_too_long boolean, p_password_invalid_text boolean, p_common_password_digest bytea
 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 DECLARE
   v_invite_id bigint; v_email text; v_status text; v_guest_expires timestamptz;
   v_federated boolean; v_invite_expires timestamptz; v_used_at timestamptz;
-  v_now timestamptz; v_policy jsonb;
+  v_now timestamptz; v_policy jsonb; v_history_depth integer; v_history jsonb;
 BEGIN
   SELECT gi.id INTO v_invite_id FROM guest_invites gi
    WHERE gi.token_hash = p_token_hash AND gi.guest_user_id = p_guest_user_id;
@@ -53,8 +55,22 @@ BEGIN
     RETURN jsonb_build_object('status', 'invalid', 'error',
       COALESCE(NULLIF(v_policy ->> 'error', ''), 'password does not meet policy requirements'));
   END IF;
+  IF p_common_password_digest IS NULL THEN
+    RAISE EXCEPTION 'guest invite acceptance: missing common password digest';
+  END IF;
+  IF EXISTS (SELECT 1 FROM common_passwords WHERE password_hash = p_common_password_digest) THEN
+    RETURN jsonb_build_object('status', 'common');
+  END IF;
+  SELECT COALESCE((SELECT (value ->> 0)::integer FROM system_config
+                    WHERE key = 'password_history_depth'), 5) INTO v_history_depth;
+  IF v_history_depth <= 0 THEN v_history_depth := 5; END IF;
+  SELECT COALESCE(jsonb_agg(h.password_hash ORDER BY h.created_at DESC), '[]'::jsonb)
+    INTO v_history
+    FROM (SELECT password_hash, created_at FROM password_history
+           WHERE user_id = p_guest_user_id ORDER BY created_at DESC LIMIT v_history_depth) h;
   RETURN jsonb_build_object('status', 'ready', 'invite_id', v_invite_id,
-                            'guest_user_id', p_guest_user_id, 'invited_email', v_email);
+                            'guest_user_id', p_guest_user_id, 'invited_email', v_email,
+                            'history', v_history);
 END;
 $$;
 
@@ -79,6 +95,7 @@ BEGIN
      AND oidc_issuer IS NULL AND saml_name_id IS NULL AND saml_idp_entity_id IS NULL
   RETURNING email INTO v_email;
   IF NOT FOUND THEN RAISE EXCEPTION 'guest invite acceptance: identity not local'; END IF;
+  INSERT INTO password_history(user_id, password_hash) VALUES (p_guest_user_id, p_password_hash);
   PERFORM audit_write(p_guest_user_id, 'guest.invite_accept', 'guest_invite', p_invite_id, NULL,
     jsonb_build_object('status', 'active', 'guestUserId', p_guest_user_id::text),
     p_ip, 'guest invite accepted', 'core');
