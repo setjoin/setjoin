@@ -106,8 +106,7 @@ impl AuthServer {
     pub(super) async fn saml_links(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if !login::enabled(&self.exec, "feature.identity_model_v2")
             .await
@@ -128,8 +127,7 @@ impl AuthServer {
     async fn saml_link(&self, req: Request<Body>, idp: &str) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {
@@ -215,8 +213,7 @@ impl AuthServer {
     pub(super) async fn identity_unlink(&self, mut req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {

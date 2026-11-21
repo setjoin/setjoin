@@ -423,14 +423,6 @@ impl AuthServer {
         let bypass = (staged.method() == &Method::OPTIONS
             && setjoin_identity::mutants::on("oidc-callback-options-bypass"))
             || setjoin_identity::mutants::on("oidc-callback-anonymous");
-        if !bypass
-            && matches!(
-                self.totp_session_headers(staged.headers()),
-                Err(crate::totp::Admission::Forward)
-            )
-        {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -449,10 +441,7 @@ impl AuthServer {
         } else {
             match self.totp_session(&req) {
                 Ok(s) => Some(s),
-                Err(crate::totp::Admission::Forward) => {
-                    return Self::failure(500, "internal error", req.uri().path())
-                }
-                Err(crate::totp::Admission::Denied(r)) => return r,
+                Err(r) => return r,
             }
         };
         let fields = setjoin_identity::issuance::query(req.uri().query().unwrap_or(""));
@@ -510,11 +499,8 @@ impl AuthServer {
         };
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(crate::totp::Admission::Forward) => return self.forward(req).await,
-            Err(crate::totp::Admission::Denied(r)) if r.status() == 401 && browse => {
-                return login()
-            }
-            Err(crate::totp::Admission::Denied(r)) => return r,
+            Err(r) if r.status() == 401 && browse => return login(),
+            Err(r) => return r,
         };
         // Go decodes these into typed Claims before middleware accepts them.
         if session

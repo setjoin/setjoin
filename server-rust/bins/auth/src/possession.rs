@@ -6,15 +6,8 @@ impl AuthServer {
         &self,
         req: &Request<Body>,
         pending: &str,
-    ) -> Result<Session, totp::Admission> {
-        self.possession_token_headers(req.headers(), req.uri().path(), pending)
-    }
-    fn possession_token_headers(
-        &self,
-        headers: &hyper::HeaderMap,
-        path: &str,
-        pending: &str,
-    ) -> Result<Session, totp::Admission> {
+    ) -> Result<Session, Response<Body>> {
+        let headers = req.headers();
         let mut cookies = headers.clone();
         cookies.remove("authorization");
         let header = headers
@@ -26,26 +19,19 @@ impl AuthServer {
             .into_iter()
             .flatten()
         {
-            if let Some(session) = self.legacy.as_ref().and_then(|legacy| {
-                Session::verify(&token, self.keys.as_deref(), legacy, &self.config.issuer)
-            }) {
-                if session.text("typ") == "access" && !self.revocations.contains(&session) {
-                    if session.bound() {
-                        return Err(totp::Admission::Forward);
-                    }
-                    return Ok(session);
-                }
+            if let Ok(session) = self.verify_presented_access(req, &token, true) {
+                return Ok(session);
             }
         }
         if let Some(session) = self.totp_pending(pending) {
             return Ok(session);
         }
-        Err(totp::Admission::Denied(Self::push_problem(
+        Err(Self::push_problem(
             401,
             "invalid MFA token",
             Some("dpop_admission"),
-            path,
-        )))
+            req.uri().path(),
+        ))
     }
     fn possession_media(req: &Request<Body>) -> Result<(), Response<Body>> {
         let (headers, scheme) = Self::csrf_context(req);
@@ -129,12 +115,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if matches!(
-            self.possession_token_headers(staged.headers(), staged.path(), ""),
-            Err(totp::Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -163,8 +143,7 @@ impl AuthServer {
         let get = |key| fields.get(key).map_or("", String::as_str);
         let session = match self.possession_token(&req, get("mfa_token")) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(reply)) => return reply,
-            Err(totp::Admission::Forward) => return Self::failure(500, "internal error", &path),
+            Err(reply) => return reply,
         };
         if session.claims().get("act").is_some_and(|v| !v.is_null()) {
             return Self::push_problem(
@@ -243,12 +222,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if matches!(
-            self.possession_token_headers(staged.headers(), staged.path(), ""),
-            Err(totp::Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -280,8 +253,7 @@ impl AuthServer {
         let get = |key| fields.get(key).map_or("", String::as_str);
         let session = match self.possession_token(&req, get("mfa_token")) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(reply)) => return reply,
-            Err(totp::Admission::Forward) => return Self::failure(500, "internal error", &path),
+            Err(reply) => return reply,
         };
         let ceremony = match possession::peek(&self.exec, &session).await {
             Ok(Some(c)) => c,

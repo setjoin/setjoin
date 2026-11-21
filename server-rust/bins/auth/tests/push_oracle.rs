@@ -2,6 +2,8 @@
 #[path = "common/webauthn_commit.rs"]
 mod commit;
 mod common;
+#[path = "common/revoke.rs"]
+mod revoke;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};
@@ -3853,4 +3855,646 @@ async fn commit_recovery_push() {
     for kind in ["push-commit-before", "push-commit-after"] {
         run_recovery(kind, true, false).await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn dpop_push_bound_routes_and_possession_fallthrough() {
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDMFA3-dpop-poss").expect("assigned DB required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let receipts = common::receipt_ids(&c).await;
+    let a = fixture::account(&c, "idmfa3-dpop-actor").await.unwrap();
+    let b = fixture::account(&c, "idmfa3-dpop-foreign").await.unwrap();
+    let rate = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false) ON CONFLICT(key) DO UPDATE SET enabled=false",
+        &[],
+    )
+    .await
+    .unwrap();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        let actor_secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        c.execute(
+            "UPDATE users SET password_hash=$2,factor_generation=2,totp_enabled=true,totp_secret_enc=pgp_sym_encrypt($3,$4) WHERE id=$1",
+            &[&a.user, &bcrypt::hash("Password1!", 4)?, &actor_secret, &"2".repeat(64)],
+        )
+        .await?;
+
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../tests/conformance/identity-webauthn/vectors.json"
+        ))?;
+        let vector = &vectors["cases"][0];
+        let cred_id = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(vector["id"].as_str().unwrap())?;
+        let handle = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(vector["handle"].as_str().unwrap())?;
+        let hex = vector["key"].as_str().unwrap();
+        let cred_key: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        c.execute(
+            "UPDATE users SET webauthn_user_handle=$2 WHERE id=$1",
+            &[&a.user, &handle],
+        )
+        .await?;
+        c.execute(
+            "INSERT INTO passkey_credentials(id,user_id,public_key,attestation_type,sign_count,uv_capable) VALUES($1,$2,$3,'none',7,true)",
+            &[&cred_id, &a.user, &cred_key],
+        )
+        .await?;
+
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.dsn = db.dsn.clone();
+        cfg.worker_dsn = Some(db.dsn.clone());
+        cfg.signing_alg = "ES256".into();
+        cfg.db_encryption_key = "2".repeat(64);
+        cfg.vapid_private_key = VAPID.into();
+        cfg.go_upstream = None;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = auth_server(
+            Arc::new(
+                AuthServer::load(exec, cfg)
+                    .await?
+                    .with_threat_gate(&db.dsn)
+                    .await?,
+            ),
+            false,
+        )
+        .await;
+
+        let dkey = common::dpop::key(61);
+        let (_, jkt) = common::dpop::jwk_and_jkt(&dkey);
+        let email: String = c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+        let bound_tok =
+            common::dpop::bound_access_jwt(secret, a.user, &email, "idmfa3-dpop-actor", &jkt);
+        let bound_auth = format!("Bearer {bound_tok}");
+        let unbound_tok =
+            common::dpop::unbound_access_jwt(secret, a.user, &email, "idmfa3-dpop-actor");
+        let unbound_cookie = format!("access_token={unbound_tok}");
+        let bound_cookie = format!("access_token={bound_tok}");
+
+        // 1. Bound totp_session routes in push.rs: /auth/mfa/reauth, /auth/mfa/possession/totp, /auth/backup-codes/generate.
+        let reauth_body = json!({"password": "Password1!", "operation": "totp.enroll"}).to_string();
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/reauth",
+            reauth_body.clone(),
+            &[("authorization", &bound_auth)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa3.test/auth/mfa/reauth",
+            Some(&bound_tok),
+            "j-reauth",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/reauth",
+            reauth_body,
+            &[("authorization", &bound_auth), ("dpop", &p)],
+        )
+        .await?;
+        assert_eq!(st, 200, "mfa/reauth with DPoP: {raw}");
+
+        let totp_code = setjoin_identity::totp::code(actor_secret, common::dpop::now()).unwrap();
+        let poss_totp_body = json!({"code": totp_code, "operation": "recovery.regenerate"}).to_string();
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/totp",
+            poss_totp_body.clone(),
+            &[("authorization", &bound_auth)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa3.test/auth/mfa/possession/totp",
+            Some(&bound_tok),
+            "j-poss-totp",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/totp",
+            poss_totp_body,
+            &[("authorization", &bound_auth), ("dpop", &p)],
+        )
+        .await?;
+        assert_eq!(st, 200, "mfa/possession/totp with DPoP: {raw}");
+
+        c.execute(
+            "INSERT INTO mfa_reauth_step_ups(token_hash,user_id,session_jti,operation,proof_method,bound_factor_generation,token_scope,expires_at) VALUES(encode(digest('idmfa3-dpop-backup-proof','sha256'),'hex'),$1,'idmfa3-dpop-actor','recovery.regenerate','totp',2,'session',now()+interval '5 minutes')",
+            &[&a.user],
+        )
+        .await?;
+        let gen_body = json!({"reauth_token": "idmfa3-dpop-backup-proof"}).to_string();
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/backup-codes/generate",
+            gen_body.clone(),
+            &[("authorization", &bound_auth)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa3.test/auth/backup-codes/generate",
+            Some(&bound_tok),
+            "j-gen-backup",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/backup-codes/generate",
+            gen_body,
+            &[("authorization", &bound_auth), ("dpop", &p)],
+        )
+        .await?;
+        assert_eq!(st, 200, "backup-codes/generate with DPoP: {raw}");
+
+        // 2. possession.rs fallthrough on /auth/mfa/possession/webauthn/begin:
+        // Case A: Bound Bearer failing DPoP falls through to ambient unbound cookie -> 200.
+        let begin_body = json!({"operation": "recovery.regenerate"}).to_string();
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/webauthn/begin",
+            begin_body.clone(),
+            &[
+                ("authorization", &bound_auth),
+                ("cookie", &unbound_cookie),
+                ("origin", "http://auth.idmfa3.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 200, "possession fallthrough Bearer->cookie: {raw}");
+
+        // Case B: Bound Bearer + bound Cookie both failing DPoP fall through to body mfa_token -> 200.
+        let mfa_tok =
+            common::dpop::mfa_pending_jwt(secret, a.user, &email, "idmfa3-dpop-actor");
+        let begin_pending =
+            json!({"operation": "bootstrap.totp.enroll", "mfa_token": mfa_tok}).to_string();
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/webauthn/begin",
+            begin_pending,
+            &[
+                ("authorization", &bound_auth),
+                ("cookie", &bound_cookie),
+                ("origin", "http://auth.idmfa3.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 200, "possession fallthrough Bearer->cookie->mfa_token: {raw}");
+
+        // Case C: Valid Bound Bearer WITH DPoP wins over body foreign mfa_token -> 200.
+        let foreign_mfa =
+            common::dpop::mfa_pending_jwt(secret, b.user, "foreign@idmfa3.test", "foreign-jti");
+        let begin_access_wins =
+            json!({"operation": "recovery.regenerate", "mfa_token": foreign_mfa}).to_string();
+        let (p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa3.test/auth/mfa/possession/webauthn/begin",
+            Some(&bound_tok),
+            "j-poss-begin-ok",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/webauthn/begin",
+            begin_access_wins,
+            &[("authorization", &bound_auth), ("dpop", &p)],
+        )
+        .await?;
+        assert_eq!(st, 200, "possession valid bound Bearer wins over mfa_token: {raw}");
+
+        // Case D: Bound Bearer failing DPoP with no valid fallback -> 401 dpop_admission "invalid MFA token".
+        let (bad_p, _) = common::dpop::proof(
+            &dkey,
+            "POST",
+            "http://auth.idmfa3.test/auth/mfa/possession/webauthn/begin",
+            Some("wrong-access-token"),
+            "j-poss-begin-badath",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/webauthn/begin",
+            begin_body,
+            &[("authorization", &bound_auth), ("dpop", &bad_p)],
+        )
+        .await?;
+        assert_eq!(st, 401, "possession all-fail: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(v["code"], "dpop_admission", "{v}");
+        assert_eq!(v["detail"], "invalid MFA token", "{v}");
+
+        // 3. possession.rs /auth/mfa/possession/webauthn/finish: Bearer DPoP fail -> cookie succeeds, all fail -> 401 dpop_admission.
+        c.execute("DELETE FROM webauthn_ceremonies WHERE user_id=$1", &[&a.user])
+            .await?;
+        let ch_hash = format!(
+            "{:x}",
+            Sha256::digest(vector["challenge"].as_str().unwrap().as_bytes())
+        );
+        c.execute(
+            "INSERT INTO webauthn_ceremonies(challenge_hash,user_id,kind,operation,session_jti,token_scope,expires_at) VALUES($1,$2,'management_assertion','recovery.regenerate','idmfa3-dpop-actor','session',now()+interval '5 minutes')",
+            &[&ch_hash, &a.user],
+        )
+        .await?;
+        let mut finish_val = vector["assertions"]["success"]["request"].clone();
+        finish_val["operation"] = json!("recovery.regenerate");
+        let finish_body = finish_val.to_string();
+
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/webauthn/finish",
+            finish_body.clone(),
+            &[("authorization", &bound_auth)],
+        )
+        .await?;
+        assert_eq!(st, 401, "possession finish all-fail: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(v["code"], "dpop_admission", "{v}");
+        assert_eq!(v["detail"], "invalid MFA token", "{v}");
+
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/mfa/possession/webauthn/finish",
+            finish_body,
+            &[
+                ("authorization", &bound_auth),
+                ("cookie", &unbound_cookie),
+                ("origin", "http://auth.idmfa3.test"),
+            ],
+        )
+        .await?;
+        assert_eq!(st, 200, "possession finish Bearer->cookie fallthrough: {raw}");
+
+        srv.close().await;
+        Ok(())
+    }
+    .await;
+
+    for uid in [a.user, b.user] {
+        let _ = c
+            .batch_execute(&format!(
+                "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={uid};COMMIT"
+            ))
+            .await;
+        for tbl in [
+            "webauthn_ceremonies",
+            "passkey_credentials",
+            "mfa_reauth_step_ups",
+            "auth_event_log",
+            "login_events",
+            "sessions",
+            "oauth_tokens",
+            "session_revocations",
+        ] {
+            let _ = c
+                .execute(&format!("DELETE FROM {tbl} WHERE user_id=$1"), &[&uid])
+                .await;
+        }
+    }
+    common::restore_receipts(&c, &receipts).await;
+    let _ = fixture::remove(&c, &a).await;
+    let _ = fixture::remove(&c, &b).await;
+    if let Some(prev) = rate {
+        let _ = c
+            .execute(
+                "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',$1) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+                &[&prev],
+            )
+            .await;
+    } else {
+        let _ = c
+            .execute(
+                "DELETE FROM feature_toggles WHERE key='feature.rate_limit'",
+                &[],
+            )
+            .await;
+    }
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn dpop_backup_verify_and_push_status_issuance() {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDMFA3-dpop-issue").expect("assigned DB required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    common::signing_key(&c).await;
+    let receipts = common::receipt_ids(&c).await;
+    let a = fixture::account(&c, "idmfa3-dpop-issue").await.unwrap();
+    let saved_rate = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    let saved_tb = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    c.execute(
+        "INSERT INTO feature_toggles(key,enabled) VALUES('feature.rate_limit',false),('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+        &[],
+    )
+    .await
+    .unwrap();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        let email: String = c
+            .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
+            .await?
+            .get(0);
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.dsn = db.dsn.clone();
+        cfg.signing_alg = "ES256".into();
+        cfg.db_encryption_key = "2".repeat(64);
+        cfg.vapid_private_key = VAPID.into();
+        cfg.go_upstream = None;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = auth_server(
+            Arc::new(
+                AuthServer::load(exec.clone(), cfg)
+                    .await?
+                    .with_threat_gate(&db.dsn)
+                    .await?,
+            ),
+            false,
+        )
+        .await;
+
+        let dkey = common::dpop::key(62);
+        let (jwk, jkt) = common::dpop::jwk_and_jkt(&dkey);
+        let mfa_tok =
+            common::dpop::mfa_pending_jwt(secret, a.user, &email, "idmfa3-dpop-issue");
+        let backup_hash = bcrypt::hash("fixture-backup", 4)?;
+
+        // 1. POST /auth/backup-codes/verify: OFF / ON / malformed / DB fault.
+        let reseed_backup = || async {
+            c.execute(
+                "UPDATE users SET totp_backup_codes_enc=$2 WHERE id=$1",
+                &[&a.user, &vec![backup_hash.clone()]],
+            )
+            .await?;
+            Ok::<_, Err>(())
+        };
+        let bv_valid =
+            json!({"mfa_token": mfa_tok, "code": "fixture-backup", "dpop_jwk": jwk}).to_string();
+
+        reseed_backup().await?;
+        let (st, _, raw) =
+            request(srv.addr, "POST", "/auth/backup-codes/verify", bv_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "backup-codes/verify toggle OFF: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await?;
+        reseed_backup().await?;
+        let (st, _, raw) =
+            request(srv.addr, "POST", "/auth/backup-codes/verify", bv_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "backup-codes/verify toggle ON: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(
+            common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+        assert_eq!(
+            common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+
+        reseed_backup().await?;
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/backup-codes/verify",
+            json!({"mfa_token": mfa_tok, "code": "fixture-backup", "dpop_jwk": {"kty": "EC"}})
+                .to_string(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 200, "backup-codes/verify malformed dpop_jwk: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        if db.app.is_some() {
+            reseed_backup().await?;
+            let guard = revoke::table(&db.dsn, &c, &exec, "feature_toggles").await?;
+            let call =
+                request(srv.addr, "POST", "/auth/backup-codes/verify", bv_valid, &[]).await;
+            guard.restore(&c).await?;
+            let (st, _, raw) = call?;
+            assert_eq!(st, 500, "backup-codes/verify token_binding DB fault: {raw}");
+            let codes: Vec<String> = c
+                .query_one(
+                    "SELECT totp_backup_codes_enc FROM users WHERE id=$1",
+                    &[&a.user],
+                )
+                .await?
+                .get(0);
+            assert_eq!(codes.len(), 1, "DB fault must abort before consume_backup");
+        }
+
+        // 2. POST /auth/push/status: OFF / ON / malformed / DB fault.
+        let nonce_hex = "11".repeat(32);
+        let reseed_push = || async {
+            c.execute(
+                "DELETE FROM push_mfa_challenges WHERE user_id=$1",
+                &[&a.user],
+            )
+            .await?;
+            c.execute(
+                "INSERT INTO push_mfa_challenges(user_id,challenge_code,nonce,session_id,expires_at,verified_at,approved_at) VALUES($1,'42',decode($2,'hex'),$3,now()+interval '120 seconds',now(),now())",
+                &[&a.user, &nonce_hex, &mfa_tok],
+            )
+            .await?;
+            Ok::<_, Err>(())
+        };
+        let ps_valid =
+            json!({"mfa_token": mfa_tok, "nonce": nonce_hex, "dpop_jwk": jwk}).to_string();
+
+        c.execute(
+            "UPDATE feature_toggles SET enabled=false WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await?;
+        reseed_push().await?;
+        let (st, _, raw) =
+            request(srv.addr, "POST", "/auth/push/status", ps_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "push/status toggle OFF: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await?;
+        reseed_push().await?;
+        let (st, _, raw) =
+            request(srv.addr, "POST", "/auth/push/status", ps_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "push/status toggle ON: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(
+            common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+        assert_eq!(
+            common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()).as_deref(),
+            Some(jkt.as_str())
+        );
+
+        reseed_push().await?;
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/push/status",
+            json!({"mfa_token": mfa_tok, "nonce": nonce_hex, "dpop_jwk": {"kty": "RSA"}})
+                .to_string(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 200, "push/status malformed dpop_jwk: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        if db.app.is_some() {
+            reseed_push().await?;
+            let snap_before: String = c
+                .query_one(
+                    "SELECT to_jsonb(p)::text FROM push_mfa_challenges p WHERE user_id=$1",
+                    &[&a.user],
+                )
+                .await?
+                .get(0);
+            let guard = revoke::table(&db.dsn, &c, &exec, "feature_toggles").await?;
+            let call = request(srv.addr, "POST", "/auth/push/status", ps_valid, &[]).await;
+            guard.restore(&c).await?;
+            let (st, _, raw) = call?;
+            assert_eq!(st, 500, "push/status token_binding DB fault: {raw}");
+            let snap_after: String = c
+                .query_one(
+                    "SELECT to_jsonb(p)::text FROM push_mfa_challenges p WHERE user_id=$1",
+                    &[&a.user],
+                )
+                .await?
+                .get(0);
+            assert_eq!(snap_after, snap_before, "DB fault must abort before push::harvest");
+        }
+
+        srv.close().await;
+        Ok(())
+    }
+    .await;
+
+    let _ = c
+        .batch_execute(&format!(
+            "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT",
+            a.user
+        ))
+        .await;
+    for tbl in [
+        "push_mfa_challenges",
+        "mfa_reauth_step_ups",
+        "auth_event_log",
+        "login_events",
+        "sessions",
+        "oauth_tokens",
+        "session_revocations",
+    ] {
+        let _ = c
+            .execute(&format!("DELETE FROM {tbl} WHERE user_id=$1"), &[&a.user])
+            .await;
+    }
+    common::restore_receipts(&c, &receipts).await;
+    let _ = fixture::remove(&c, &a).await;
+    for (key, saved) in [
+        ("feature.rate_limit", saved_rate),
+        ("feature.token_binding", saved_tb),
+    ] {
+        if let Some(prev) = saved {
+            let _ = c
+                .execute(
+                    "INSERT INTO feature_toggles(key,enabled) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+                    &[&key, &prev],
+                )
+                .await;
+        } else {
+            let _ = c
+                .execute("DELETE FROM feature_toggles WHERE key=$1", &[&key])
+                .await;
+        }
+    }
+    result.unwrap();
 }

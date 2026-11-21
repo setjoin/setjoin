@@ -357,7 +357,7 @@ impl AuthServer {
                     worker,
                     |family| async {
                         match self
-                            .completion_tokens(&user, path, Some(family), vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone())
+                            .completion_tokens(&user, path, Some(family), vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone(), None)
                             .await
                         {
                             Ok(tokens) => {
@@ -398,7 +398,7 @@ impl AuthServer {
                 .await
         } else {
             let tokens = match self
-                .completion_tokens(&user, path, None, vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone())
+                .completion_tokens(&user, path, None, vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone(), None)
                 .await
             {
                 Ok(t) => t,
@@ -492,8 +492,7 @@ impl AuthServer {
     pub(super) async fn rp_link(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(super::totp::Admission::Denied(r)) => return r,
-            Err(super::totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let (headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&headers, scheme) {

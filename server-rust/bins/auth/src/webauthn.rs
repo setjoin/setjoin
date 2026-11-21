@@ -5,8 +5,7 @@ impl AuthServer {
     pub(super) async fn webauthn_list(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let mut response = match webauthn::list(&self.exec, &session).await {
             Ok(raw) => Response::builder()
@@ -37,8 +36,7 @@ impl AuthServer {
     pub(super) async fn webauthn_name(&self, req: Request<Body>, id: String) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         let path = req.uri().path().to_owned();
         let (headers, scheme) = Self::csrf_context(&req);
@@ -185,23 +183,18 @@ impl AuthServer {
             .and_then(|h| h.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let (parts, b) = req.into_parts();
-        let raw = match Limited::new(b, 1 << 20).collect().await {
+        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => return Self::failure(400, "invalid request body", &path),
         };
-        if serde_json::from_slice::<Value>(&raw)
+        let dpop_jwk = ingress::typed_fields(&raw, &[("dpop_jwk", ingress::Field::Object)])
             .ok()
-            .and_then(|v| v.get("dpop_jwk").cloned())
-            .and_then(|v| v.as_object().cloned())
-            .is_some_and(|m| !m.is_empty())
-        {
-            match self.token_binding_handoff(&path).await {
-                Ok(false) => {}
-                Ok(true) => return self.forward(Request::from_parts(parts, body(raw))).await,
-                Err(reply) => return reply,
-            }
-        } // #405.
+            .and_then(|mut m| m.remove("dpop_jwk"))
+            .filter(Value::is_object);
+        let dpop_jkt = match self.resolve_dpop_cnf(dpop_jwk.as_ref(), &path).await {
+            Ok(jkt) => jkt,
+            Err(reply) => return reply,
+        };
         let proof = match rp.finish_login(&self.exec, &transport, &raw).await {
             Ok(p) => p,
             Err(webauthn::LoginFailure::Refused(detail)) => {
@@ -317,7 +310,7 @@ impl AuthServer {
         if guest {
             claims["acct"] = Value::from("guest");
         }
-        let refresh_claims = user.claims(
+        let mut refresh_claims = user.claims(
             "refresh",
             &refresh_jti,
             &family,
@@ -327,6 +320,10 @@ impl AuthServer {
             None,
             &[],
         );
+        if let Some(jkt) = &dpop_jkt {
+            claims["cnf"] = json!({"jkt": jkt});
+            refresh_claims["cnf"] = json!({"jkt": jkt});
+        }
         let (Ok(access), Ok(refresh)) = (self.sign(&claims), self.sign(&refresh_claims)) else {
             return Self::failure(500, "token issue failed", &path);
         };
@@ -408,12 +405,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if matches!(
-            self.totp_session_headers(staged.headers()),
-            Err(totp::Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -424,10 +415,7 @@ impl AuthServer {
     async fn webauthn_register_begin_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => {
-                return Self::failure(500, "internal error", req.uri().path())
-            }
+            Err(r) => return r,
         };
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
@@ -554,12 +542,6 @@ impl AuthServer {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if matches!(
-            self.totp_session_headers(staged.headers()),
-            Err(totp::Admission::Forward)
-        ) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
@@ -570,10 +552,7 @@ impl AuthServer {
     async fn webauthn_register_finish_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => {
-                return Self::failure(500, "internal error", req.uri().path())
-            }
+            Err(r) => return r,
         };
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
@@ -674,8 +653,7 @@ impl AuthServer {
     pub(super) async fn webauthn_revoke(&self, req: Request<Body>, id: String) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if self.webauthn.is_none() {
             return Self::not_found();
