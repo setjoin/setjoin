@@ -732,8 +732,11 @@ shared-effect workers: `RUST_WORKERS_ON=<name>` starts one, and the gateway refu
 start unless `GO_WORKERS_OFF` lists that exact name (`tests/admin_job_workers_startup.rs`).
 They run on `DB_WORKER_DSN` with the deployment audit keys set per session
 (`WorkerDatabase::connect_session`, Go's `AfterConnect`), call Go's reducers and
-statements unchanged and keep Go's cadence (3 s, 3 s, 2 s with an immediate first tick,
-5 s with an immediate first tick). `identity-transitions` takes `LIVEKIT_API_KEY`,
+statements unchanged (`bulk-role-jobs` leaves the job `'queued'` on PostgreSQL
+SQLSTATE `57014` instead of stamping `'error'`, matching Go's
+`applyFailureIsCancellation`, #194) and keep Go's cadence (3 s, 3 s, 2 s with
+an immediate first tick, 5 s with an immediate first tick). `identity-transitions`
+takes `LIVEKIT_API_KEY`,
 `LIVEKIT_API_SECRET` and `LIVEKIT_URL` (all three, else it has no SFU, as Go's nil
 `meetRooms`) and reuses `guest_worker::remove_participant`.
 Oracle: `tests/admin_job_workers_recorded.rs` runs one iteration of frozen Go's real worker

@@ -1508,8 +1508,8 @@ async fn auth_only_paths_reach_auth_without_overriding_gateway_routes() {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(gateway.serve(listener));
     for (method, path, expected) in [
-        ("GET", "/device/policy?device_id=1", "auth"),
-        ("POST", "/device/checkin", "auth"),
+        ("GET", "/device/policy?device_id=1", "rust auth"),
+        ("POST", "/device/checkin", "rust auth"),
         ("GET", "/api/v1/version", "rust auth"),
         ("GET", "/health", "mail"),
         ("GET", "/.well-known/setjoin", "mail"),
