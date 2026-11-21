@@ -1,8 +1,9 @@
-//! Native HTTP threat admission (#349a): frozen Go `shared/threat` Middleware for
-//! POST /auth/login, /auth/refresh and /auth/forgot-password/{begin,verify,reset},
-//! plus the #342 guest-invite ingress helpers that #349b retires. Security
-//! divergences: tests/conformance/identity-threat/divergences.json.
+//! Native HTTP threat admission (#349a, #349b): frozen Go `shared/threat`
+//! Middleware for credential, factor-management, MFA completion, guest-invite,
+//! webpush and OIDC OP routes. Security divergences:
+//! tests/conformance/identity-threat/divergences.json.
 use super::*;
+#[cfg(test)]
 use setjoin_pg::Type;
 use setjoin_threat::{CaptchaStep, Decision, Gate, ThreatAction};
 use std::time::Duration;
@@ -24,7 +25,7 @@ const CONTROLS: [&str; 6] = [
     "feature.rate_limit",
 ];
 
-/// The admitted credential routes.
+/// The admitted credential and factor-management routes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Route {
     Login,
@@ -32,11 +33,13 @@ pub(super) enum Route {
     Reset,
     Begin,
     Verify,
+    /// Unconditional route whose threat username is always empty (`""`).
+    Anonymous,
 }
 
 impl Route {
     /// Go mounts (#349 F1/F2): login and refresh run the middleware only while one
-    /// of [`CONTROLS`] is on (`dynamicCredentialHandler`); forgot-password routes
+    /// of [`CONTROLS`] is on (`dynamicCredentialHandler`); all other wrapped routes
     /// are always wrapped (authserverd always installs the policy engine).
     fn dynamic(self) -> bool {
         matches!(self, Route::Login | Route::Refresh)
@@ -75,6 +78,21 @@ enum Stage {
 pub(super) struct Admitted(Option<(Arc<Gate>, Box<setjoin_threat::ConnectionMeta>)>);
 
 impl Staged {
+    /// Request method, for preflight routing decisions.
+    pub(super) fn method(&self) -> &Method {
+        &self.parts.method
+    }
+
+    /// Request path, for preflight error responses.
+    pub(super) fn path(&self) -> &str {
+        self.parts.uri.path()
+    }
+
+    /// Request headers, for preflight session/header forwarding before admission.
+    pub(super) fn headers(&self) -> &hyper::HeaderMap {
+        &self.parts.headers
+    }
+
     /// The buffered body when admission is mounted.
     pub(super) fn raw(&self) -> Option<&[u8]> {
         match &self.stage {
@@ -178,6 +196,7 @@ impl AuthServer {
             Route::Login => login_username(raw),
             Route::Refresh => self.refresh_username(raw),
             Route::Reset | Route::Begin | Route::Verify => field_username(raw),
+            Route::Anonymous => String::new(),
         }
     }
 
@@ -387,32 +406,7 @@ impl AuthServer {
             .is_ok_and(|input| input.dpop.as_object().is_some_and(|v| !v.is_empty()))
     }
 
-    /// Guest-invite's existing #420/#405 boundary (#349b removes it).
-    pub(super) async fn http_threat_pending(&self) -> bool {
-        let rate = self
-            .exec
-            .read(
-                "SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'),true)",
-                &[],
-            )
-            .await;
-        if self.config.threat_controls.iter().any(|v| *v)
-            || rate.is_err()
-            || rate.as_ref().is_ok_and(|r| r[0].get::<_, bool>(0))
-        {
-            return true;
-        }
-        for control in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if !matches!(login::enabled(&self.exec, control).await, Ok(false)) {
-                return true;
-            }
-        }
-        false
-    }
-
+    #[cfg(test)]
     fn http_country(&self, ip: &str) -> String {
         ip.parse()
             .ok()
@@ -420,31 +414,10 @@ impl AuthServer {
             .unwrap_or_default()
     }
 
-    /// Go recordAttempt/recordOutcome: best-effort row; errors are ignored as in Go
-    /// (an 'ip_blocked' outcome violates auth_attempts_outcome_check, so no row).
-    pub(super) async fn http_attempt(&self, ip: &str, agent: &str, username: &str, outcome: &str) {
-        let bounded = setjoin_threat::bounded_name(username);
-        let username: &str = &bounded;
-        let country = self.http_country(ip);
-        let fp = setjoin_threat::stored_fingerprint(agent, ip);
-        let _ = self
-            .exec
-            .protocol_statement(
-                "INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,$2,'http',$3,$4,$5)",
-                &[
-                    (&ip, Type::TEXT),
-                    (&username, Type::TEXT),
-                    (&outcome, Type::TEXT),
-                    (&country, Type::TEXT),
-                    (&fp, Type::TEXT),
-                ],
-            )
-            .await;
-    }
-
     /// A refused request's bounded row (divergence `http-refusal-rows-bounded`): the shared
     /// per-source, per-outcome budget of `Gate::refusal`, on this process's request pool.
     /// `refusal_budget` is `None` outside auth_attempts_outcome_check, so nothing is sent.
+    #[cfg(test)]
     pub(super) async fn http_refusal(&self, ip: &str, agent: &str, username: &str, outcome: &str) {
         let Some((window, max)) = setjoin_threat::refusal_budget(outcome, &self.config.threat)
         else {
@@ -476,8 +449,9 @@ impl AuthServer {
         }
     }
 
-    /// Guest-invite stepIPRules (#342): an unanswered lookup rejects, as the
-    /// protocol gate does (#367 `ip-rules-fail-closed`).
+    /// An unanswered IP-rule lookup rejects, as the protocol gate does (#367
+    /// `ip-rules-fail-closed`). Retained in tests for the divergence-named unit test.
+    #[cfg(test)]
     pub(super) async fn http_ip_rules(
         &self,
         ip: &str,

@@ -252,16 +252,25 @@ impl AuthServer {
             };
             if push && !self.config.vapid_private_key.is_empty() {
                 match proof.push_challenge(&self.exec).await {
-                    setjoin_pg::CommandOutcome::Committed(setjoin_identity::push::Generated::Created(challenge))=>{
-                        let nonce=challenge.nonce().to_owned();
-                        self.native_push.enqueue(self.exec.clone(),challenge);
-                        return Self::json(200,json!({"mfa_required":true,"mfa_method":"push","mfa_token":token,"nonce":nonce,"ttl_seconds":120,"fallback":["totp","backup_codes"]}));
+                    setjoin_pg::CommandOutcome::Committed(
+                        setjoin_identity::push::Generated::Created(challenge),
+                    ) => {
+                        let nonce = challenge.nonce().to_owned();
+                        self.native_push.enqueue(self.exec.clone(), challenge);
+                        return Self::json(
+                            200,
+                            json!({"mfa_required":true,"mfa_method":"push","mfa_token":token,"nonce":nonce,"ttl_seconds":120,"fallback":["totp","backup_codes"]}),
+                        );
                     }
-                    setjoin_pg::CommandOutcome::Unknown{operation}=>return Self::webauthn_unknown(operation,"Push challenge",&path),
-                    _=>{}
+                    setjoin_pg::CommandOutcome::Unknown { operation } => {
+                        return Self::webauthn_unknown(operation, "Push challenge", &path)
+                    }
+                    _ => {}
                 }
             }
-            if !totp {return Self::failure(500,"MFA required but no method available",&path);}
+            if !totp {
+                return Self::failure(500, "MFA required but no method available", &path);
+            }
             return Self::json(
                 200,
                 json!({"mfa_required":true,"mfa_method":"totp","mfa_token":token,"fallback":["backup_codes"]}),
@@ -395,13 +404,30 @@ fn cookie_value(headers: &hyper::HeaderMap, name: &str) -> Option<String> {
 }
 impl AuthServer {
     pub(super) async fn webauthn_register_begin(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_threat_pending().await {
-            return self.forward(req).await;
-        } // #420.
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        if matches!(
+            self.totp_session_headers(staged.headers()),
+            Err(totp::Admission::Forward)
+        ) {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.webauthn_register_begin_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn webauthn_register_begin_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
             Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(totp::Admission::Forward) => {
+                return Self::failure(500, "internal error", req.uri().path())
+            }
         };
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
@@ -524,13 +550,30 @@ impl AuthServer {
 }
 impl AuthServer {
     pub(super) async fn webauthn_register_finish(&self, req: Request<Body>) -> Response<Body> {
-        if self.totp_threat_pending().await {
-            return self.forward(req).await;
-        } // #420.
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
+        if matches!(
+            self.totp_session_headers(staged.headers()),
+            Err(totp::Admission::Forward)
+        ) {
+            return self.forward(staged.into_request()).await;
+        }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.webauthn_register_finish_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn webauthn_register_finish_admitted(&self, req: Request<Body>) -> Response<Body> {
         let session = match self.totp_session(&req) {
             Ok(s) => s,
             Err(totp::Admission::Denied(r)) => return r,
-            Err(totp::Admission::Forward) => return self.forward(req).await,
+            Err(totp::Admission::Forward) => {
+                return Self::failure(500, "internal error", req.uri().path())
+            }
         };
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
