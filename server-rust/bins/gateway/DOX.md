@@ -52,7 +52,17 @@ auth routes fail closed with 503 when that upstream is absent. Proxy tests
 assert native refresh/version dispatch and no Go-counter contribution;
 unported SAML (#341) preserves the separate Go-auth transport check. Native RP
 login/callback/link and its mixed namespace are ON (#340); the gateway GET-link
-alias retains the auth server's POST-only405. Optional
+alias retains the auth server's POST-only405. Gateway `GET /terms/pending` and
+`POST /terms/accept` are ON -> `rust-auth` (#363); `inventory.rs` `PINNED_AND_MOUNTED`
+mounts `/setup/status`, `/terms/pending`, `/terms/accept`, `/auth/admin/`, and
+`/auth/admin/users/{id}/impersonate` on both root and `/api/...` (stripping `/api` on
+`Target::RustAuth` forward), so `POST /api/auth/admin/users/{id}/impersonate` outscores
+the wildcard subtree. `src/auth_admin.rs` (#365) owns `gateway * /auth/admin/`
+(`local-rust` ON, zero `.forward(` calls): bare `/auth/admin` and `/api/auth/admin` redirect
+`307` -> `/auth/admin/` before auth; subtree requests authenticate as `Scope::Member` via
+`deny::admit` + `deny::native_or_unauthorized`, require live `IDENTITY_WRITE` via
+`setjoin_platform::authority` (writing durable `console.denied` on 403), and return
+Go's bare `404 page not found\n` when authorized. Optional
 `GATEWAY_ROUTE_INVENTORY` loads reviewed JSON instead of the bundled file;
 the executable rejects ON entries absent or OFF in the bundled inventory,
 but accepts turning a bundled ON entry OFF for rollback.

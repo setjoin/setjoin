@@ -944,7 +944,7 @@ fn request(case: &Case, uri: &str, user: i64, body: String) -> Result<Request<Bo
 
 /// `{token}` is the persona's admin token; the other markers are forgeries Go must refuse,
 /// or claims it must ignore.
-fn expand(value: &str, user: i64) -> String {
+pub(super) fn expand(value: &str, user: i64) -> String {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     let signed = |edit: &dyn Fn(&mut Value)| {
         format!("Bearer {}", super::admin_token_with(user, &[0x11; 32], edit))
@@ -992,7 +992,7 @@ fn native_mux(action: &str) -> bool {
 }
 
 /// Waits out a window that would end during a burst (Go's buckets are epoch aligned).
-async fn whole_window(window_secs: u64) -> Result<(), BoxError> {
+pub(super) async fn whole_window(window_secs: u64) -> Result<(), BoxError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
