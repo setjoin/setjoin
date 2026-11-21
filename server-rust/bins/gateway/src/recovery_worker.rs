@@ -326,10 +326,7 @@ impl S3Store {
     ) -> Result<BlobDownload, BlobReadError> {
         use futures_util::StreamExt;
         {
-            let cache = self
-                .small_cache
-                .lock()
-                .map_err(|_| BlobReadError::Incomplete)?;
+            let cache = self.small_cache.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(blob) = cache
                 .entries
                 .get(key)
@@ -357,37 +354,43 @@ impl S3Store {
             .content_length
             .filter(|size| *size >= 0)
             .ok_or(BlobReadError::Unavailable)?;
+        let content_type = head.content_type.unwrap_or_default();
+        let modified = head.last_modified;
         if !buffer || size == 0 || size >= 10 << 20 {
             return Ok(BlobDownload::Streaming {
                 size: size as u64,
-                content_type: head.content_type.unwrap_or_default(),
-                modified: head.last_modified,
+                content_type,
+                modified,
             });
         }
-        let mut response = bucket
-            .get_object_stream(key)
-            .await
-            .map_err(|_| BlobReadError::Incomplete)?;
-        if response.status_code != 200 {
-            return Err(BlobReadError::Incomplete);
-        }
-        let mut bytes = Vec::with_capacity(size as usize);
-        while let Some(chunk) = response.bytes.next().await {
-            let chunk = chunk.map_err(|_| BlobReadError::Incomplete)?;
-            if bytes.len() + chunk.len() > size as usize {
-                return Err(BlobReadError::Incomplete);
+        // If buffering the small object fails mid-read, fall back to Streaming:
+        // head succeeded and 0 body bytes were written, so serve_ranges -> stream_blob
+        // opens a fresh stream from byte 0.
+        let buffered = async {
+            let mut response = bucket.get_object_stream(key).await.ok()?;
+            if response.status_code != 200 {
+                return None;
             }
-            bytes.extend_from_slice(&chunk);
+            let mut bytes = Vec::with_capacity(size as usize);
+            while let Some(chunk) = response.bytes.next().await {
+                let chunk = chunk.ok()?;
+                if bytes.len() + chunk.len() > size as usize {
+                    return None;
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            (bytes.len() == size as usize).then_some(bytes)
         }
-        if bytes.len() != size as usize {
-            return Err(BlobReadError::Incomplete);
-        }
-        let content_type = head.content_type.unwrap_or_default();
+        .await;
+        let Some(bytes) = buffered else {
+            return Ok(BlobDownload::Streaming {
+                size: size as u64,
+                content_type,
+                modified,
+            });
+        };
         {
-            let mut cache = self
-                .small_cache
-                .lock()
-                .map_err(|_| BlobReadError::Incomplete)?;
+            let mut cache = self.small_cache.lock().unwrap_or_else(|e| e.into_inner());
             while cache.bytes + bytes.len() > 512 << 20 && !cache.entries.is_empty() {
                 let oldest = cache
                     .entries

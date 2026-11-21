@@ -42,55 +42,127 @@ impl<K: KeySource + 'static> Intercept for RecoveryRoute<K> {
             || (req.method() == Method::PUT && chunk_target(req.uri().path()).is_some())
     }
 
-    fn admits_member(&self, headers: hyper::HeaderMap, scheme: &'static str) -> BoxFuture<bool> {
-        let commands = self.0.clone();
-        Box::pin(async move { commands.authorize(&headers, scheme).await.is_some() })
-    }
-
-    fn handle(&self, mut req: Request<Body>, ctx: RequestContext) -> BoxFuture<Response<Body>> {
+    fn admits_member(&self, headers: hyper::HeaderMap, _scheme: &'static str) -> BoxFuture<bool> {
         let commands = self.0.clone();
         Box::pin(async move {
-            if let Some(response) = commands.try_serve(&mut req, &ctx).await {
-                return response;
-            }
-            ctx.upstream.forward(req, &ctx.identity).await
+            commands
+                .admits_member(&headers, "GET", "/api/recovery")
+                .await
         })
+    }
+
+    fn handle(&self, req: Request<Body>, ctx: RequestContext) -> BoxFuture<Response<Body>> {
+        let commands = self.0.clone();
+        Box::pin(async move { commands.try_serve(req, &ctx).await })
     }
 }
 
 impl<K: KeySource> RecoveryCommands<K> {
-    pub(crate) async fn authorize(
+    pub(crate) async fn admits_member(
         &self,
         headers: &hyper::HeaderMap,
-        scheme: &str,
-    ) -> Option<setjoin_authz::Authorized> {
-        if !self.control_plane_ready {
-            return None;
-        }
-        let authorized = setjoin_authz::authorize(
+        method: &str,
+        path: &str,
+    ) -> bool {
+        setjoin_authz::admit(
             &self.exec,
             &self.keys,
             &self.issuer,
             headers,
-            scheme,
-            FEATURE,
+            method,
+            path,
+            setjoin_authz::Scope::Member,
         )
-        .await?;
-        let identity = authorized.context();
+        .await
+        .is_ok()
+    }
+
+    /// Auth -> Denylist -> Enabled(404) admission shared by recovery routes.
+    /// `extra_ready` lets `GET /api/recovery/incidents` run with `store: None`
+    /// while storage-backed endpoints require `store.is_some()` (and `BeginRoute`
+    /// requires `keys.is_some()`).
+    pub(crate) async fn admit_route(
+        &self,
+        req: Request<Body>,
+        ctx: &RequestContext,
+        extra_ready: bool,
+    ) -> Result<(Request<Body>, setjoin_authz::Authorized), Response<Body>> {
+        let authorized = match crate::deny::admit(
+            &self.exec,
+            &self.keys,
+            &self.issuer,
+            &req,
+            crate::deny::Scope::Member,
+        )
+        .await
+        {
+            Ok(authorized) => authorized,
+            Err(refusal) => return Err(crate::deny::answer(refusal, req, ctx).await),
+        };
         if let Some(denylist) = &self.denylist {
-            let issued = chrono::DateTime::from_timestamp(authorized.issued_at(), 0)?;
-            if !denylist.loaded()
-                || denylist.is_revoked(
-                    identity.user_id(),
-                    authorized.token_id(),
-                    authorized.token_family(),
-                    issued,
+            let identity = authorized.context();
+            let issued = chrono::DateTime::from_timestamp(authorized.issued_at(), 0)
+                .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC);
+            if denylist.is_revoked(
+                identity.user_id(),
+                authorized.token_id(),
+                authorized.token_family(),
+                issued,
+            ) {
+                return Err(crate::admission::revoked_problem(
+                    req.headers(),
+                    &ctx.identity,
+                    "Session has been revoked. Sign in again.",
+                ));
+            }
+            if !denylist.loaded() {
+                let cae = tokio::time::timeout(
+                    setjoin_authz::precheck_timeout(),
+                    self.exec.read(
+                        "SELECT coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.cae_runtime'),false)",
+                        &[],
+                    ),
                 )
-            {
-                return None;
+                .await;
+                match cae {
+                    Ok(Ok(rows)) if rows.first().is_some_and(|r| r.get::<_, bool>(0)) => {
+                        return Err(crate::admission::revoked_problem(
+                            req.headers(),
+                            &ctx.identity,
+                            "Session verification unavailable — re-authenticate.",
+                        ));
+                    }
+                    Ok(Ok(_)) => {}
+                    _ => {
+                        return Err(crate::admission::problem(
+                            req.headers(),
+                            &ctx.identity,
+                            503,
+                            "service unavailable",
+                        ));
+                    }
+                }
             }
         }
-        Some(authorized)
+        let feature_on = tokio::time::timeout(
+            setjoin_authz::precheck_timeout(),
+            setjoin_authz::route_enabled(&self.exec, FEATURE),
+        )
+        .await
+        .unwrap_or(false);
+        if !self.control_plane_ready || !extra_ready || !feature_on {
+            let request_id = crate::jmap::reply::request_id(
+                req.headers().get("x-request-id"),
+                crate::jmap::random().unwrap_or([0; 16]),
+            );
+            return Err(problem(
+                404,
+                "client-assisted recovery is disabled",
+                ctx.identity.proto,
+                request_id,
+            ));
+        }
+        Ok((req, authorized))
     }
 
     async fn try_commit(
@@ -98,20 +170,41 @@ impl<K: KeySource> RecoveryCommands<K> {
         req: &mut Request<Body>,
         ctx: &RequestContext,
         actor: &setjoin_authz::AuthContext,
-    ) -> Option<Response<Body>> {
+    ) -> Response<Body> {
         use tokio::io::AsyncWriteExt;
-        let store = self.store.as_ref()?;
-        let operation = crate::jmap::random()?;
+        let Some(store) = self.store.as_ref() else {
+            let id = crate::jmap::reply::request_id(
+                req.headers().get("x-request-id"),
+                crate::jmap::random().unwrap_or([0; 16]),
+            );
+            return problem(
+                404,
+                "client-assisted recovery is disabled",
+                ctx.identity.proto,
+                id,
+            );
+        };
+        let Some(operation) = crate::jmap::random() else {
+            let id = crate::jmap::reply::request_id(req.headers().get("x-request-id"), [0; 16]);
+            return problem(
+                400,
+                "mail recovery operation failed",
+                ctx.identity.proto,
+                id,
+            );
+        };
         let request_id =
             crate::jmap::reply::request_id(req.headers().get("x-request-id"), operation);
-        let (raw_session, raw_item) = commit_target(req.uri().path())?;
+        let Some((raw_session, raw_item)) = commit_target(req.uri().path()) else {
+            return problem(404, "not found", ctx.identity.proto, request_id);
+        };
         let Some(session) = decoded_uuid(raw_session) else {
-            return Some(problem(
+            return problem(
                 400,
                 "invalid recovery identifier",
                 ctx.identity.proto,
                 request_id,
-            ));
+            );
         };
         let item = String::from_utf8(crate::inventory::unescape(raw_item)).unwrap_or_default();
         let failed = || {
@@ -123,25 +216,21 @@ impl<K: KeySource> RecoveryCommands<K> {
             )
         };
         if item.is_empty() || item.len() > 256 || item.contains(['/', '\0', '\r', '\n']) {
-            return Some(failed());
+            return failed();
         }
         let Ok(Some(meta)) =
             setjoin_blobs::item_for_commit(&self.worker_exec, actor, &session, &item).await
         else {
-            return Some(failed());
+            return failed();
         };
         if meta.status == "verified" {
             let value = serde_json::json!({"itemId":item,"status":"verified","objectRef":meta.object_ref,"replayed":true});
-            return Some(crate::jmap::reply::response(
-                go_json(&value),
-                ctx.identity.proto,
-                request_id,
-            ));
+            return crate::jmap::reply::response(go_json(&value), ctx.identity.proto, request_id);
         }
         let Ok(chunks) =
             setjoin_blobs::item_chunks(&self.worker_exec, actor, &session, &item).await
         else {
-            return Some(failed());
+            return failed();
         };
         let path = std::env::temp_dir().join(format!(
             "setjoin-recovery-item-{}",
@@ -150,34 +239,34 @@ impl<K: KeySource> RecoveryCommands<K> {
         let mut options = tokio::fs::OpenOptions::new();
         options.write(true).create_new(true).mode(0o600);
         let Ok(mut file) = options.open(&path).await else {
-            return Some(failed());
+            return failed();
         };
         let temporary = OwnedTemporary(path);
         let mut full = Sha256::new();
         let mut offset = 0i64;
         for chunk in &chunks {
             if chunk.start != offset || chunk.size <= 0 || chunk.size > 256 << 10 {
-                return Some(failed());
+                return failed();
             }
             let Ok(bytes) = store.read(&chunk.key, chunk.size as usize + 1).await else {
-                return Some(failed());
+                return failed();
             };
             if bytes.len() != chunk.size as usize
                 || format!("{:x}", Sha256::digest(&bytes)) != chunk.digest
             {
-                return Some(failed());
+                return failed();
             }
             if file.write_all(&bytes).await.is_err() {
-                return Some(failed());
+                return failed();
             }
             full.update(&bytes);
             offset += i64::from(chunk.size);
         }
         if offset != meta.size || format!("{:x}", full.finalize()) != meta.digest {
-            return Some(failed());
+            return failed();
         }
         if file.flush().await.is_err() {
-            return Some(failed());
+            return failed();
         }
         let content_type = if meta.role == "raw" {
             "message/rfc822"
@@ -189,68 +278,66 @@ impl<K: KeySource> RecoveryCommands<K> {
             .await
             .is_err()
         {
-            return Some(failed());
+            return failed();
         }
-        Some(
-            match setjoin_blobs::verify_item(
-                &self.worker_exec,
-                actor,
-                &session,
-                &item,
-                &meta.digest,
-                operation,
-            )
-            .await
-            {
-                setjoin_pg::CommandOutcome::Committed(raw) => {
-                    for chunk in chunks {
-                        if store.remove(&chunk.key).await.is_err() {
-                            eprintln!("verified recovery chunk cleanup deferred");
-                        }
-                    }
-                    match serde_json::from_str::<serde_json::Value>(&raw) {
-                        Ok(mut value) => {
-                            value["objectRef"] = meta.digest.into();
-                            crate::jmap::reply::response(
-                                go_json(&value),
-                                ctx.identity.proto,
-                                request_id,
-                            )
-                        }
-                        Err(_) => failed(),
-                    }
-                }
-                setjoin_pg::CommandOutcome::RolledBack(rejection) => {
-                    eprintln!(
-                        "recovery item verification rejected: {}",
-                        rejection.log_summary()
-                    );
-                    rejection_response(
-                        &rejection,
-                        req,
-                        ctx,
-                        request_id,
-                        "mail recovery operation failed",
-                        400,
-                    )
-                }
-                setjoin_pg::CommandOutcome::Unknown { operation } => {
-                    let mut response = problem(
-                        503,
-                        "recovery upload outcome unknown",
-                        ctx.identity.proto,
-                        request_id,
-                    );
-                    response.headers_mut().insert(
-                        "x-operation-id",
-                        setjoin_pg::operation_hex(operation)
-                            .parse()
-                            .expect("operation hex"),
-                    );
-                    response
-                }
-            },
+        match setjoin_blobs::verify_item(
+            &self.worker_exec,
+            actor,
+            &session,
+            &item,
+            &meta.digest,
+            operation,
         )
+        .await
+        {
+            setjoin_pg::CommandOutcome::Committed(raw) => {
+                for chunk in chunks {
+                    if store.remove(&chunk.key).await.is_err() {
+                        eprintln!("verified recovery chunk cleanup deferred");
+                    }
+                }
+                match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Ok(mut value) => {
+                        value["objectRef"] = meta.digest.into();
+                        crate::jmap::reply::response(
+                            go_json(&value),
+                            ctx.identity.proto,
+                            request_id,
+                        )
+                    }
+                    Err(_) => failed(),
+                }
+            }
+            setjoin_pg::CommandOutcome::RolledBack(rejection) => {
+                eprintln!(
+                    "recovery item verification rejected: {}",
+                    rejection.log_summary()
+                );
+                rejection_response(
+                    &rejection,
+                    req,
+                    ctx,
+                    request_id,
+                    "mail recovery operation failed",
+                    400,
+                )
+            }
+            setjoin_pg::CommandOutcome::Unknown { operation } => {
+                let mut response = problem(
+                    503,
+                    "recovery upload outcome unknown",
+                    ctx.identity.proto,
+                    request_id,
+                );
+                response.headers_mut().insert(
+                    "x-operation-id",
+                    setjoin_pg::operation_hex(operation)
+                        .parse()
+                        .expect("operation hex"),
+                );
+                response
+            }
+        }
     }
 
     async fn try_chunk(
@@ -258,19 +345,40 @@ impl<K: KeySource> RecoveryCommands<K> {
         req: &mut Request<Body>,
         ctx: &RequestContext,
         actor: &setjoin_authz::AuthContext,
-    ) -> Option<Response<Body>> {
-        let store = self.store.as_ref()?;
-        let operation = crate::jmap::random()?;
+    ) -> Response<Body> {
+        let Some(store) = self.store.as_ref() else {
+            let id = crate::jmap::reply::request_id(
+                req.headers().get("x-request-id"),
+                crate::jmap::random().unwrap_or([0; 16]),
+            );
+            return problem(
+                404,
+                "client-assisted recovery is disabled",
+                ctx.identity.proto,
+                id,
+            );
+        };
+        let Some(operation) = crate::jmap::random() else {
+            let id = crate::jmap::reply::request_id(req.headers().get("x-request-id"), [0; 16]);
+            return problem(
+                400,
+                "mail recovery operation failed",
+                ctx.identity.proto,
+                id,
+            );
+        };
         let request_id =
             crate::jmap::reply::request_id(req.headers().get("x-request-id"), operation);
-        let (raw_session, raw_item) = chunk_target(req.uri().path())?;
+        let Some((raw_session, raw_item)) = chunk_target(req.uri().path()) else {
+            return problem(404, "not found", ctx.identity.proto, request_id);
+        };
         let Some(session) = decoded_uuid(raw_session) else {
-            return Some(problem(
+            return problem(
                 400,
                 "invalid recovery identifier",
                 ctx.identity.proto,
                 request_id,
-            ));
+            );
         };
         let item = String::from_utf8(crate::inventory::unescape(raw_item)).unwrap_or_default();
         let failed = || {
@@ -282,7 +390,7 @@ impl<K: KeySource> RecoveryCommands<K> {
             )
         };
         if item.is_empty() || item.len() > 256 || item.contains(['/', '\0', '\r', '\n']) {
-            return Some(failed());
+            return failed();
         }
         let Some(range) = req
             .headers()
@@ -291,48 +399,46 @@ impl<K: KeySource> RecoveryCommands<K> {
             .and_then(setjoin_blobs::parse_chunk_range)
             .filter(|range| range.fits_chunk_limit())
         else {
-            return Some(failed());
+            return failed();
         };
         let mut bytes = Vec::new();
         while let Some(frame) = req.body_mut().frame().await {
             let Ok(frame) = frame else {
-                return Some(failed());
+                return failed();
             };
             if let Some(data) = frame.data_ref() {
                 if bytes.len() + data.len() > 256 << 10 {
-                    return Some(failed());
+                    return failed();
                 }
                 bytes.extend_from_slice(data);
             }
         }
         if bytes.len() as i64 != range.end - range.start + 1 {
-            return Some(failed());
+            return failed();
         }
         let digest = format!("{:x}", Sha256::digest(&bytes));
         let Ok(Some(upload)) =
             setjoin_blobs::upload_item(&self.worker_exec, actor, &session, &item).await
         else {
-            return Some(failed());
+            return failed();
         };
         if range.total != upload.size || !upload.available {
-            return Some(failed());
+            return failed();
         }
         match setjoin_blobs::chunk_at(&self.worker_exec, actor, &session, &item, range.start).await
         {
             Ok(Some(existing)) => {
-                return Some(
-                    if existing.size as usize == bytes.len() && existing.digest == digest {
-                        empty_204(ctx, request_id)
-                    } else {
-                        failed()
-                    },
-                )
+                return if existing.size as usize == bytes.len() && existing.digest == digest {
+                    empty_204(ctx, request_id)
+                } else {
+                    failed()
+                };
             }
-            Err(_) => return Some(failed()),
+            Err(_) => return failed(),
             Ok(None) => {}
         }
         if range.start != upload.next_offset {
-            return Some(failed());
+            return failed();
         }
         let key = format!(
             "recovery-quarantine/{}/{session}/{:x}/{}-{digest}",
@@ -345,7 +451,7 @@ impl<K: KeySource> RecoveryCommands<K> {
             .await
             .is_err()
         {
-            return Some(failed());
+            return failed();
         }
         // From the first storage write onward no outcome can forward to Go.
         let record = setjoin_blobs::ChunkRecord {
@@ -356,36 +462,170 @@ impl<K: KeySource> RecoveryCommands<K> {
             digest: &digest,
             key: &key,
         };
-        Some(
-            match setjoin_blobs::record_chunk(&self.worker_exec, actor, record, operation).await {
-                setjoin_pg::CommandOutcome::Committed(_) => empty_204(ctx, request_id),
-                setjoin_pg::CommandOutcome::RolledBack(rejection) => {
-                    // Go keeps the content-addressed object if any raced row exists;
-                    // failed probes also retain it. Delete only a proven orphan.
-                    if matches!(
-                        setjoin_blobs::chunk_at(
-                            &self.worker_exec,
-                            actor,
-                            &session,
-                            &item,
-                            range.start
-                        )
+        match setjoin_blobs::record_chunk(&self.worker_exec, actor, record, operation).await {
+            setjoin_pg::CommandOutcome::Committed(_) => empty_204(ctx, request_id),
+            setjoin_pg::CommandOutcome::RolledBack(rejection) => {
+                // Go keeps the content-addressed object if any raced row exists;
+                // failed probes also retain it. Delete only a proven orphan.
+                if matches!(
+                    setjoin_blobs::chunk_at(&self.worker_exec, actor, &session, &item, range.start)
                         .await,
-                        Ok(None)
-                    ) {
-                        let _ = store.remove(&key).await;
+                    Ok(None)
+                ) {
+                    let _ = store.remove(&key).await;
+                }
+                eprintln!(
+                    "recovery chunk record rejected: {}",
+                    rejection.log_summary()
+                );
+                rejection_response(
+                    &rejection,
+                    req,
+                    ctx,
+                    request_id,
+                    "mail recovery operation failed",
+                    400,
+                )
+            }
+            setjoin_pg::CommandOutcome::Unknown { operation } => {
+                let mut response = problem(
+                    503,
+                    "recovery upload outcome unknown",
+                    ctx.identity.proto,
+                    request_id,
+                );
+                response.headers_mut().insert(
+                    "x-operation-id",
+                    setjoin_pg::operation_hex(operation)
+                        .parse()
+                        .expect("operation hex"),
+                );
+                response
+            }
+        }
+    }
+
+    async fn try_serve(&self, req: Request<Body>, ctx: &RequestContext) -> Response<Body> {
+        let is_incidents = matches!(*req.method(), Method::GET | Method::HEAD)
+            && req.uri().path() == "/api/recovery/incidents";
+        let (mut req, authorized) = match self
+            .admit_route(req, ctx, is_incidents || self.store.is_some())
+            .await
+        {
+            Ok(ok) => ok,
+            Err(response) => return response,
+        };
+        let identity = authorized.context();
+        if req.method() == Method::POST && commit_target(req.uri().path()).is_some() {
+            return self.try_commit(&mut req, ctx, identity).await;
+        }
+        if req.method() == Method::PUT {
+            return self.try_chunk(&mut req, ctx, identity).await;
+        }
+        if req.method() == Method::POST {
+            if self.store.is_none() {
+                let id = crate::jmap::reply::request_id(
+                    req.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                return problem(
+                    404,
+                    "client-assisted recovery is disabled",
+                    ctx.identity.proto,
+                    id,
+                );
+            }
+            let Some(operation) = crate::jmap::random() else {
+                let id = crate::jmap::reply::request_id(req.headers().get("x-request-id"), [0; 16]);
+                return problem(
+                    500,
+                    "recovery control operation failed",
+                    ctx.identity.proto,
+                    id,
+                );
+            };
+            let request_id =
+                crate::jmap::reply::request_id(req.headers().get("x-request-id"), operation);
+            let Some(raw_artifact) = fork_target(req.uri().path()) else {
+                return problem(404, "not found", ctx.identity.proto, request_id);
+            };
+            let Some(artifact) = setjoin_blobs::recovery_uuid(raw_artifact) else {
+                return problem(
+                    400,
+                    "invalid recovery identifier",
+                    ctx.identity.proto,
+                    request_id,
+                );
+            };
+            let mut bytes = Vec::new();
+            let mut oversized = false;
+            while let Some(frame) = req.body_mut().frame().await {
+                let Ok(frame) = frame else {
+                    return problem(
+                        400,
+                        "invalid recovery request",
+                        ctx.identity.proto,
+                        request_id,
+                    );
+                };
+                if let Some(data) = frame.data_ref() {
+                    let remaining = (1 << 20usize) - bytes.len();
+                    bytes.extend_from_slice(&data[..data.len().min(remaining)]);
+                    if data.len() > remaining {
+                        oversized = true;
+                        break;
                     }
+                }
+            }
+            let mut decoder = serde_json::Deserializer::from_slice(&bytes);
+            let Ok(value) = ForkRequest::deserialize(&mut decoder) else {
+                return problem(
+                    400,
+                    "invalid recovery request",
+                    ctx.identity.proto,
+                    request_id,
+                );
+            };
+            if oversized || decoder.end().is_err() {
+                return problem(
+                    400,
+                    "recovery request must contain exactly one JSON object",
+                    ctx.identity.proto,
+                    request_id,
+                );
+            }
+            let Some(device) = setjoin_blobs::recovery_uuid(&value.device_id) else {
+                return problem(
+                    400,
+                    "invalid recovery device id",
+                    ctx.identity.proto,
+                    request_id,
+                );
+            };
+            return match setjoin_blobs::fork_consent(
+                &self.worker_exec,
+                identity,
+                &artifact,
+                &device,
+                operation,
+            )
+            .await
+            {
+                setjoin_pg::CommandOutcome::Committed(json) => {
+                    crate::jmap::reply::response(json, ctx.identity.proto, request_id)
+                }
+                setjoin_pg::CommandOutcome::RolledBack(rejection) => {
                     eprintln!(
-                        "recovery chunk record rejected: {}",
+                        "recovery fork consent rejected: {}",
                         rejection.log_summary()
                     );
                     rejection_response(
                         &rejection,
-                        req,
+                        &req,
                         ctx,
                         request_id,
-                        "mail recovery operation failed",
-                        400,
+                        "recovery control operation failed",
+                        500,
                     )
                 }
                 setjoin_pg::CommandOutcome::Unknown { operation } => {
@@ -403,145 +643,42 @@ impl<K: KeySource> RecoveryCommands<K> {
                     );
                     response
                 }
-            },
-        )
-    }
-
-    async fn try_serve(
-        &self,
-        req: &mut Request<Body>,
-        ctx: &RequestContext,
-    ) -> Option<Response<Body>> {
-        let authorized = self.authorize(req.headers(), ctx.identity.proto).await?;
-        let identity = authorized.context();
-        if req.method() == Method::POST && commit_target(req.uri().path()).is_some() {
-            return self.try_commit(req, ctx, identity).await;
-        }
-        if req.method() == Method::PUT {
-            return self.try_chunk(req, ctx, identity).await;
-        }
-        if req.method() == Method::POST {
-            self.store.as_ref()?;
-            let operation = crate::jmap::random()?;
-            let request_id =
-                crate::jmap::reply::request_id(req.headers().get("x-request-id"), operation);
-            let Some(artifact) = setjoin_blobs::recovery_uuid(fork_target(req.uri().path())?)
-            else {
-                return Some(problem(
-                    400,
-                    "invalid recovery identifier",
-                    ctx.identity.proto,
-                    request_id,
-                ));
             };
-            let mut bytes = Vec::new();
-            let mut oversized = false;
-            while let Some(frame) = req.body_mut().frame().await {
-                let Ok(frame) = frame else {
-                    return Some(problem(
-                        400,
-                        "invalid recovery request",
-                        ctx.identity.proto,
-                        request_id,
-                    ));
-                };
-                if let Some(data) = frame.data_ref() {
-                    let remaining = (1 << 20usize) - bytes.len();
-                    bytes.extend_from_slice(&data[..data.len().min(remaining)]);
-                    if data.len() > remaining {
-                        oversized = true;
-                        break;
-                    }
-                }
-            }
-            let mut decoder = serde_json::Deserializer::from_slice(&bytes);
-            let Ok(value) = ForkRequest::deserialize(&mut decoder) else {
-                return Some(problem(
-                    400,
-                    "invalid recovery request",
-                    ctx.identity.proto,
-                    request_id,
-                ));
-            };
-            if oversized || decoder.end().is_err() {
-                return Some(problem(
-                    400,
-                    "recovery request must contain exactly one JSON object",
-                    ctx.identity.proto,
-                    request_id,
-                ));
-            }
-            let Some(device) = setjoin_blobs::recovery_uuid(&value.device_id) else {
-                return Some(problem(
-                    400,
-                    "invalid recovery device id",
-                    ctx.identity.proto,
-                    request_id,
-                ));
-            };
-            return Some(
-                match setjoin_blobs::fork_consent(
-                    &self.worker_exec,
-                    identity,
-                    &artifact,
-                    &device,
-                    operation,
-                )
-                .await
-                {
-                    setjoin_pg::CommandOutcome::Committed(json) => {
-                        crate::jmap::reply::response(json, ctx.identity.proto, request_id)
-                    }
-                    setjoin_pg::CommandOutcome::RolledBack(rejection) => {
-                        eprintln!(
-                            "recovery fork consent rejected: {}",
-                            rejection.log_summary()
-                        );
-                        rejection_response(
-                            &rejection,
-                            req,
-                            ctx,
-                            request_id,
-                            "recovery control operation failed",
-                            500,
-                        )
-                    }
-                    setjoin_pg::CommandOutcome::Unknown { operation } => {
-                        let mut response = problem(
-                            503,
-                            "recovery upload outcome unknown",
-                            ctx.identity.proto,
-                            request_id,
-                        );
-                        response.headers_mut().insert(
-                            "x-operation-id",
-                            setjoin_pg::operation_hex(operation)
-                                .parse()
-                                .expect("operation hex"),
-                        );
-                        response
-                    }
-                },
-            );
         }
         if req.method() == Method::DELETE {
-            let store = self.store.as_ref()?;
+            let Some(store) = self.store.as_ref() else {
+                let id = crate::jmap::reply::request_id(
+                    req.headers().get("x-request-id"),
+                    crate::jmap::random().unwrap_or([0; 16]),
+                );
+                return problem(
+                    404,
+                    "client-assisted recovery is disabled",
+                    ctx.identity.proto,
+                    id,
+                );
+            };
             // All fallible prerequisites finish before issuing the command.
-            let operation = crate::jmap::random()?;
+            let Some(operation) = crate::jmap::random() else {
+                let id = crate::jmap::reply::request_id(req.headers().get("x-request-id"), [0; 16]);
+                return problem(500, "recovery upload abort failed", ctx.identity.proto, id);
+            };
             let request_id =
                 crate::jmap::reply::request_id(req.headers().get("x-request-id"), operation);
-            let Some(session) = setjoin_blobs::recovery_uuid(abort_target(req.uri().path())?)
-            else {
-                return Some(problem(
+            let Some(raw_session) = abort_target(req.uri().path()) else {
+                return problem(404, "not found", ctx.identity.proto, request_id);
+            };
+            let Some(session) = setjoin_blobs::recovery_uuid(raw_session) else {
+                return problem(
                     400,
                     "invalid recovery identifier",
                     ctx.identity.proto,
                     request_id,
-                ));
+                );
             };
             let result =
                 setjoin_blobs::abort_upload(&self.worker_exec, identity, &session, operation).await;
-            return Some(match result {
+            return match result {
                 setjoin_pg::CommandOutcome::Committed(keys) => {
                     for key in keys {
                         if store.remove(&key).await.is_err() {
@@ -558,7 +695,7 @@ impl<K: KeySource> RecoveryCommands<K> {
                     eprintln!("recovery abort rejected: {}", rejection.log_summary());
                     rejection_response(
                         &rejection,
-                        req,
+                        &req,
                         ctx,
                         request_id,
                         "recovery upload abort failed",
@@ -580,20 +717,23 @@ impl<K: KeySource> RecoveryCommands<K> {
                     );
                     response
                 }
-            });
+            };
         }
-        let json = setjoin_blobs::user_incidents(&self.worker_exec, identity)
-            .await
-            .ok()?;
         let request_id = crate::jmap::reply::request_id(
             req.headers().get("x-request-id"),
-            crate::jmap::random()?,
+            crate::jmap::random().unwrap_or([0; 16]),
         );
-        Some(crate::jmap::reply::response(
-            json,
-            ctx.identity.proto,
-            request_id,
-        ))
+        match setjoin_blobs::user_incidents(&self.worker_exec, identity).await {
+            Ok(json) => crate::jmap::reply::response(json, ctx.identity.proto, request_id),
+            Err(err) => rejection_response(
+                &setjoin_pg::Rejection::Statement(err),
+                &req,
+                ctx,
+                request_id,
+                "recovery control operation failed",
+                500,
+            ),
+        }
     }
 }
 
