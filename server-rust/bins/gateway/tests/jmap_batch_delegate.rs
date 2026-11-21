@@ -65,6 +65,9 @@ fn sign(key: &SigningKey, header: &Value, claims: &Value) -> String {
 
 struct Env {
     owner: Client,
+    exec: ScopedExecutor,
+    dsn: String,
+    app_dsn: Option<String>,
     gateway: std::net::SocketAddr,
     upstream_hits: Arc<AtomicUsize>,
     key: SigningKey,
@@ -134,10 +137,13 @@ async fn env(db: &Db) -> Env {
         issuer: "mailserver".into(),
     }));
     let worker_db = setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap();
-    let runtime =
-        setjoin_gateway::runtime_access::RuntimeAccess::new(exec, jwks, "mailserver".into())
-            .with_workers(ScopedExecutor::from_dsn(&db.dsn, 2).unwrap(), worker_db)
-            .with_direct(db.direct.clone());
+    let runtime = setjoin_gateway::runtime_access::RuntimeAccess::new(
+        exec.clone(),
+        jwks,
+        "mailserver".into(),
+    )
+    .with_workers(ScopedExecutor::from_dsn(&db.dsn, 2).unwrap(), worker_db)
+    .with_direct(db.direct.clone());
     let routes = RouteTable::proxy_all().with(route).with_runtime(runtime);
     let gateway = common::gateway_limited(
         upstream,
@@ -147,6 +153,9 @@ async fn env(db: &Db) -> Env {
     .await;
     Env {
         owner,
+        exec,
+        dsn: db.dsn.clone(),
+        app_dsn: db.app.clone(),
         gateway,
         upstream_hits: hits,
         key,
@@ -371,7 +380,8 @@ macro_rules! wave1_case {
 }
 
 wave1_case!(http_transport_errors_and_auth_first_forwarding, |e| {
-    // 1. Auth-first: unauthenticated or unsupported tokens forward malformed bodies to Go untouched.
+    // 1. Auth-first: unauthenticated or unsupported JWTs answer native 401 before body parsing,
+    // while Basic credentials still forward untouched (#355).
     let vectors: Value =
         serde_json::from_str(include_str!("golden/go-unsupported-tokens.json")).unwrap();
     let hs256 = vectors["hs256"].as_str().unwrap();
@@ -380,13 +390,20 @@ wave1_case!(http_transport_errors_and_auth_first_forwarding, |e| {
         ("garbage token + bad json", Some("a.b.c"), "{"),
         ("hs256 token + null", Some(hs256), "null"),
     ] {
-        let (status, _, text, hit) = e.post_raw(auth, body).await;
-        assert_eq!(
-            (status, text.as_str(), hit),
-            (299, "from go", true),
-            "{label}"
-        );
+        let (status, _, _, hit) = e.post_raw(auth, body).await;
+        assert_eq!((status, hit), (401, false), "{label}");
     }
+    let before = e.upstream_hits.load(Ordering::SeqCst);
+    let basic_req = Request::post("/jmap")
+        .header("host", "mail.test")
+        .header("origin", "http://mail.test")
+        .header("content-type", "application/json")
+        .header("authorization", "Basic dXNlcjpwYXNz")
+        .body(full("{".to_owned()))
+        .unwrap();
+    let basic_resp = common::send(e.gateway, basic_req).await;
+    assert_eq!(basic_resp.status().as_u16(), 299);
+    assert!(e.upstream_hits.load(Ordering::SeqCst) > before);
 
     let token = e.token(e.a.user);
 
@@ -570,14 +587,14 @@ wave1_case!(
         let token = e.token(e.a.user);
         let mb = e.a.mailbox.to_string();
 
-        // Case A: Email/set (seen) followed by Email/set with create -> defers before Call 0.
+        // Case A: Email/set (seen) followed by Email/set with #create ref -> defers before Call 0.
         let before = fixture::snapshot(&e.owner, e.a.mailbox).await.unwrap();
         let audit = e.audit_rows(e.a.mailbox).await;
         let req_create = json!({
         "using": ["urn:ietf:params:jmap:mail"],
         "methodCalls": [
             ["Email/set", {"accountId": mb, "update": {e.a.inbox_only.to_string(): {"keywords": {"$seen": true}}}}, "c0"],
-            ["Email/set", {"accountId": mb, "create": {"draft": {"subject": "hi"}}}, "c1"]
+            ["Email/set", {"accountId": mb, "#create": {"resultOf": "c0", "name": "Email/set", "path": "/created"}}, "c1"]
         ]
     })
     .to_string();
@@ -917,4 +934,699 @@ wave1_case!(non_family_delegated_matrix_under_force_rls, |e| {
         serde_json::from_str::<Value>(&body).unwrap()["methodResponses"][0][1]["type"],
         "urn:ietf:params:jmap:error:accountNotFound"
     );
+});
+
+fn parse_op_hex(hex: &str) -> setjoin_contracts::ids::OperationId {
+    assert_eq!(hex.len(), 32, "operation hex length");
+    let mut bytes = [0u8; 16];
+    for (i, slot) in bytes.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).expect("hex byte");
+    }
+    setjoin_contracts::ids::OperationId(bytes)
+}
+
+wave1_case!(wave2a_email_set_multiphase_and_ownership_gate, |e| {
+    let token = e.token(e.a.user);
+    let mb = e.a.mailbox.to_string();
+    let inbox_tag = e.a.inbox.to_string();
+    let auth = setjoin_pg::MailboxAuthContext::from_authenticated_session(
+        setjoin_contracts::ids::ActorId::new(e.a.user).unwrap(),
+        setjoin_contracts::ids::MailboxId::new(e.a.mailbox).unwrap(),
+        setjoin_contracts::ids::Generation(1),
+    );
+
+    // Seed an owned blob (via blob_user_charges for user A) and a foreign blob (user B).
+    let own_sha = "a1".repeat(32);
+    let foreign_sha = "b2".repeat(32);
+    for (sha, user) in [(&own_sha, e.a.user), (&foreign_sha, e.b.user)] {
+        e.owner
+            .query_typed(
+                "INSERT INTO blobs(sha256, minio_ref, size_bytes, content_type, ref_count) \
+                 VALUES ($1, $1, 5, 'text/plain', 0) ON CONFLICT DO NOTHING",
+                &[(&sha, Type::TEXT)],
+            )
+            .await
+            .unwrap();
+        e.owner
+            .query_typed(
+                "INSERT INTO blob_user_charges(blob_sha256, user_id, size_bytes) \
+                 VALUES ($1, $2, 5) ON CONFLICT (blob_sha256) DO UPDATE SET user_id = EXCLUDED.user_id",
+                &[(&sha, Type::TEXT), (&user, Type::INT8)],
+            )
+            .await
+            .unwrap();
+    }
+
+    // 1. Create with owned + foreign attachments -> owned succeeds + createdIds, foreign forbidden.
+    let audit0 = e.audit_rows(e.a.mailbox).await;
+    let create_req = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [[
+            "Email/set",
+            {
+                "accountId": mb,
+                "ifInState": "0",
+                "create": {
+                    "c_own": {
+                        "mailboxIds": { inbox_tag.clone(): true },
+                        "subject": "Owned attach",
+                        "bodyValues": { "text": { "value": "hi" } },
+                        "attachments": [{ "blobId": own_sha, "type": "text/plain", "size": 5 }]
+                    },
+                    "c_foreign": {
+                        "mailboxIds": { inbox_tag.clone(): true },
+                        "subject": "Foreign attach",
+                        "bodyValues": { "text": { "value": "no" } },
+                        "attachments": [{ "blobId": foreign_sha, "type": "text/plain", "size": 5 }]
+                    }
+                }
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &create_req).await;
+    assert_eq!((status, hit), (200, false));
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    let res = &doc["methodResponses"][0][1];
+    assert!(res["created"]["c_own"]["id"].as_str().is_some(), "{doc}");
+    assert_eq!(res["notCreated"]["c_foreign"]["type"], "forbidden", "{doc}");
+    assert!(doc["createdIds"]["c_own"].is_string(), "{doc}");
+    assert_eq!(e.audit_rows(e.a.mailbox).await, audit0 + 1);
+
+    // 2. All-stripped create STILL executes jmap_email_set_create("{}") and writes audit row.
+    let all_denied_req = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [[
+            "Email/set",
+            {
+                "accountId": mb,
+                "create": {
+                    "c_bad": {
+                        "mailboxIds": { inbox_tag.clone(): true },
+                        "subject": "Denied",
+                        "attachments": [{ "blobId": foreign_sha }]
+                    }
+                }
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &all_denied_req).await;
+    assert_eq!((status, hit), (200, false));
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        doc["methodResponses"][0][1]["notCreated"]["c_bad"]["type"], "forbidden",
+        "{doc}"
+    );
+    assert!(
+        doc["methodResponses"][0][1]["newState"].is_string(),
+        "{doc}"
+    );
+    assert_eq!(e.audit_rows(e.a.mailbox).await, audit0 + 2);
+
+    // 3. Q1 updated shapes:
+    // 3a. Pure ordinary update -> updated array.
+    let pure_ord_req = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [[
+            "Email/set",
+            {
+                "accountId": mb,
+                "update": { e.a.inbox_only.to_string(): { "keywords": { "$flagged": true } } }
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &pure_ord_req).await;
+    assert_eq!((status, hit), (200, false));
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    assert!(doc["methodResponses"][0][1]["updated"].is_array(), "{doc}");
+
+    // 3b. Ordinary + all-failed snooze -> updated remains array + notUpdated has failed snooze.
+    let future = (chrono::Utc::now() + chrono::Duration::hours(2))
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let ord_plus_bad_snooze = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [[
+            "Email/set",
+            {
+                "accountId": mb,
+                "update": {
+                    e.a.inbox_only.to_string(): { "keywords": { "$flagged": false } },
+                    "not-an-id": { "snoozeUntil": future }
+                }
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &ord_plus_bad_snooze).await;
+    assert_eq!((status, hit), (200, false));
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    assert!(doc["methodResponses"][0][1]["updated"].is_array(), "{doc}");
+    assert_eq!(
+        doc["methodResponses"][0][1]["notUpdated"]["not-an-id"]["type"], "invalidArguments",
+        "{doc}"
+    );
+
+    // 3c. Pure snooze -> updated object {"<id>": null}.
+    let pure_snooze = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [[
+            "Email/set",
+            {
+                "accountId": mb,
+                "update": { e.a.two_labels.to_string(): { "snoozeUntil": future } }
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &pure_snooze).await;
+    assert_eq!((status, hit), (200, false));
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        doc["methodResponses"][0][1]["updated"],
+        json!({ e.a.two_labels.to_string(): Value::Null }),
+        "{doc}"
+    );
+
+    // 3d. Mixed ordinary + successful snooze -> RFC 8620 object preserving both IDs.
+    let mixed_ord_snooze = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [[
+            "Email/set",
+            {
+                "accountId": mb,
+                "update": {
+                    e.a.inbox_only.to_string(): { "keywords": { "$flagged": true } },
+                    e.a.two_labels.to_string(): { "snoozeUntil": future }
+                }
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &mixed_ord_snooze).await;
+    assert_eq!((status, hit), (200, false));
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        doc["methodResponses"][0][1]["updated"],
+        json!({
+            e.a.inbox_only.to_string(): Value::Null,
+            e.a.two_labels.to_string(): Value::Null,
+        }),
+        "{doc}"
+    );
+
+    // 4. Mixed create + update + destroy (with malformed destroy ID) in one locked tx.
+    let created_id = res["created"]["c_own"]["id"].as_str().unwrap().to_owned();
+    let audit_before_mixed = e.audit_rows(e.a.mailbox).await;
+    let mixed_cud = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [[
+            "Email/set",
+            {
+                "accountId": mb,
+                "create": {
+                    "c2": {
+                        "mailboxIds": { inbox_tag: true },
+                        "subject": "Batch C2",
+                        "bodyValues": { "text": { "value": "c2" } }
+                    }
+                },
+                "update": { e.a.inbox_only.to_string(): { "keywords": { "$flagged": false } } },
+                "destroy": [created_id, "bad-destroy"]
+            },
+            "c0"
+        ]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &mixed_cud).await;
+    assert_eq!((status, hit), (200, false));
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    let mres = &doc["methodResponses"][0][1];
+    assert!(mres["created"]["c2"]["id"].is_string(), "{doc}");
+    assert!(mres["updated"].is_array(), "{doc}");
+    assert_eq!(
+        mres["notDestroyed"]["bad-destroy"]["type"], "notFound",
+        "{doc}"
+    );
+    assert_eq!(e.audit_rows(e.a.mailbox).await, audit_before_mixed + 1);
+
+    // 5. Zero-phase {accountId} and destroy: [] both record email_set audit rows with operation,
+    // and lookup_set_seen recovers Committed for them.
+    let audit_before_zero = e.audit_rows(e.a.mailbox).await;
+    for req_body in [
+        json!({"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{"accountId":mb},"c0"]]}).to_string(),
+        json!({"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{"accountId":mb,"destroy":[]},"c0"]]}).to_string(),
+    ] {
+        let (status, _, hit) = e.post(&token, &req_body).await;
+        assert_eq!((status, hit), (200, false));
+    }
+    assert_eq!(e.audit_rows(e.a.mailbox).await, audit_before_zero + 2);
+    let op_rows = e
+        .owner
+        .query_typed(
+            "SELECT details->>'operation' FROM mailbox_audit_log \
+             WHERE mailbox_id = $1 AND action = 'email_set' AND details ? 'operation' \
+             ORDER BY id DESC LIMIT 3",
+            &[(&e.a.mailbox, Type::INT8)],
+        )
+        .await
+        .unwrap();
+    assert_eq!(op_rows.len(), 3);
+    for row in op_rows {
+        let op = parse_op_hex(row.get::<_, &str>(0));
+        let found = setjoin_jmap::lookup_set_seen(&e.exec, &auth, op)
+            .await
+            .unwrap();
+        assert_eq!(found, setjoin_jmap::OperationLookup::Committed);
+    }
+
+    // Cleanup test-only rows created in this test.
+    let _ = e
+        .owner
+        .query_typed(
+            "DELETE FROM scheduled_actions WHERE mailbox_id = $1",
+            &[(&e.a.mailbox, Type::INT8)],
+        )
+        .await;
+    let _ = e
+        .owner
+        .execute(
+            "DELETE FROM blobs WHERE sha256 = ANY($1)",
+            &[&vec![own_sha, foreign_sha]],
+        )
+        .await;
+});
+
+wave1_case!(wave2a_email_recovery_receipt_end_to_end, |e| {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+    use std::collections::BTreeMap;
+
+    // 1. Feature toggle OFF -> forbidden before arg decode.
+    let token = e.token(e.a.user);
+    let req_invalid = json!({
+        "using": ["urn:ietf:params:jmap:mail"],
+        "methodCalls": [["Email/recoveryReceipt", {"accountId": "not-an-id", "ids": []}, "r0"]]
+    })
+    .to_string();
+    let (status, body, hit) = e.post(&token, &req_invalid).await;
+    assert_eq!((status, hit), (200, false));
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["methodResponses"][0][1]["type"],
+        "urn:ietf:params:jmap:error:forbidden"
+    );
+
+    // 2. Toggle ON without continuity_signer/continuity_boot -> still forbidden.
+    e.owner
+        .execute(
+            "UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.client_recovery_receipts'",
+            &[],
+        )
+        .await
+        .unwrap();
+    let (status, body, hit) = e.post(&token, &req_invalid).await;
+    assert_eq!((status, hit), (200, false));
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["methodResponses"][0][1]["type"],
+        "urn:ietf:params:jmap:error:forbidden"
+    );
+
+    // 3. Spin up local JmapCommands with ContinuitySigner + fake streaming S3 backend.
+    let objects: Arc<std::sync::Mutex<BTreeMap<String, Vec<u8>>>> =
+        Arc::new(std::sync::Mutex::new(BTreeMap::new()));
+    let s3_state = objects.clone();
+    let s3_addr = common::fake_upstream(move |req| {
+        let s3_state = s3_state.clone();
+        async move {
+            if req.uri().query() == Some("location=") {
+                return hyper::Response::builder()
+                    .header("content-type", "application/xml")
+                    .body(full("<LocationConstraint>us-east-1</LocationConstraint>"))
+                    .unwrap();
+            }
+            let key = req
+                .uri()
+                .path()
+                .strip_prefix("/mailblobs/")
+                .unwrap_or(req.uri().path());
+            let map = s3_state.lock().unwrap();
+            match map.get(key) {
+                Some(bytes) => hyper::Response::builder()
+                    .status(200)
+                    .header("content-length", bytes.len().to_string())
+                    .body(full(bytes.clone()))
+                    .unwrap(),
+                None => hyper::Response::builder()
+                    .status(404)
+                    .body(full("NoSuchKey"))
+                    .unwrap(),
+            }
+        }
+    })
+    .await;
+
+    let boot = "bba31885-d8f1-4c47-8753-56bf86e59807";
+    let seed = [0x42u8; 32];
+    let signer = Arc::new(setjoin_gateway::jmap::family::ContinuitySigner::new(
+        "cont-k1".to_owned(),
+        ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap(),
+    ));
+    let doc = json!({ "keys": [jwk(KID, &public(&e.key))] })
+        .to_string()
+        .into_bytes();
+    let jwks = Arc::new(Jwks::with_fetch(Box::new(move || {
+        let doc = doc.clone();
+        Box::pin(async move { Ok(doc) })
+    })));
+    let exec = ScopedExecutor::from_dsn(e.app_dsn.as_deref().unwrap_or(&e.dsn), 4).unwrap();
+    let worker = ScopedExecutor::from_dsn(&e.dsn, 2).unwrap();
+    let mut services = JmapServices::new(worker.clone(), "mail.test".into(), 64);
+    services.continuity_boot = Some(boot.to_owned());
+    services.continuity_signer = Some(signer.clone());
+    services.store = Some(Arc::new(
+        setjoin_gateway::recovery_worker::S3Store::new(
+            &format!("http://{s3_addr}"),
+            "mailblobs",
+            "test-access",
+            "test-secret",
+        )
+        .unwrap(),
+    ));
+    let route = JmapRoute(Arc::new(JmapCommands {
+        services: Some(Arc::new(services)),
+        exec,
+        worker: Some(worker),
+        denylist: None,
+        keys: jwks,
+        issuer: "mailserver".into(),
+    }));
+    let unused_upstream = common::fake_upstream(|_| async {
+        hyper::Response::builder()
+            .status(299)
+            .body(full("unused"))
+            .unwrap()
+    })
+    .await;
+    let gw = common::gateway(unused_upstream, "", RouteTable::proxy_all().with(route)).await;
+
+    let call_receipt = |args: Value| {
+        let token = token.clone();
+        async move {
+            let body = json!({
+                "using": ["urn:ietf:params:jmap:mail"],
+                "methodCalls": [["Email/recoveryReceipt", args, "r0"]]
+            })
+            .to_string();
+            let req = Request::post("/jmap")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
+                .body(full(body))
+                .unwrap();
+            let resp = common::send(gw, req).await;
+            let status = resp.status().as_u16();
+            let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+            let doc: Value = serde_json::from_slice(&bytes).unwrap();
+            (status, doc)
+        }
+    };
+
+    // Seed S3 raw MIME + attachment for e.a.inbox_only.
+    let raw_mime = b"From: alice@test\r\nSubject: Receipt\r\n\r\nRecoverable body\r\n";
+    let raw_sha: String = Sha256::digest(raw_mime)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let att_bytes = b"attachment-data";
+    let att_sha: String = Sha256::digest(att_bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let raw_ref_key: String = e
+        .owner
+        .query_typed(
+            "SELECT raw_ref FROM messages WHERE id = $1 AND mailbox_id = $2",
+            &[(&e.a.inbox_only, Type::INT8), (&e.a.mailbox, Type::INT8)],
+        )
+        .await
+        .unwrap()[0]
+        .get(0);
+    {
+        let mut map = objects.lock().unwrap();
+        if !raw_ref_key.contains('\n') {
+            map.insert(raw_ref_key.clone(), raw_mime.to_vec());
+        }
+        map.insert(att_sha.clone(), att_bytes.to_vec());
+    }
+    e.owner
+        .query_typed(
+            "INSERT INTO blobs(sha256, minio_ref, size_bytes, content_type, ref_count) \
+             VALUES ($1, $1, $2, 'application/octet-stream', 1) ON CONFLICT DO NOTHING",
+            &[
+                (&att_sha, Type::TEXT),
+                (&(att_bytes.len() as i64), Type::INT8),
+            ],
+        )
+        .await
+        .unwrap();
+    e.owner
+        .query_typed(
+            "INSERT INTO message_attachments(message_id, received_at, blob_sha256, filename, content_type, disposition, size_bytes) \
+             SELECT id, received_at, $2, 'doc.bin', 'application/octet-stream', 'attachment', $3 \
+             FROM messages WHERE id = $1 AND mailbox_id = $4",
+            &[
+                (&e.a.inbox_only, Type::INT8),
+                (&att_sha, Type::TEXT),
+                (&(att_bytes.len() as i64), Type::INT8),
+                (&e.a.mailbox, Type::INT8),
+            ],
+        )
+        .await
+        .unwrap();
+
+    // 3a. Invalid args (unknown field, empty ids, bad msg id).
+    let (status, doc) = call_receipt(json!({"accountId": e.a.mailbox.to_string(), "ids": [e.a.inbox_only.to_string()], "extra": 1})).await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        doc["methodResponses"][0][1]["type"],
+        "urn:ietf:params:jmap:error:invalidArguments"
+    );
+    let (_, doc) = call_receipt(json!({"accountId": e.a.mailbox.to_string(), "ids": ["0"]})).await;
+    assert_eq!(
+        doc["methodResponses"][0][1]["type"],
+        "urn:ietf:params:jmap:error:invalidArguments"
+    );
+
+    // 3b. Enabled success + cross-tenant duplicate preserved in notFound + signature verify.
+    let mb_str = e.a.mailbox.to_string();
+    let msg_str = e.a.inbox_only.to_string();
+    let foreign_str = e.b.inbox_only.to_string();
+    let (status, doc) = call_receipt(json!({
+        "accountId": mb_str,
+        "ids": [foreign_str, msg_str, foreign_str, "999999999"]
+    }))
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        doc["methodResponses"][0][0], "Email/recoveryReceipt",
+        "{doc}"
+    );
+    let res = &doc["methodResponses"][0][1];
+    assert_eq!(
+        res["notFound"],
+        json!([foreign_str, foreign_str, "999999999"]),
+        "{doc}"
+    );
+    let item = &res["list"][0];
+    assert_eq!(item["id"], msg_str);
+    let claims = &item["receipt"]["claims"];
+    assert_eq!(claims["v"], 1);
+    assert_eq!(claims["bootEpoch"], boot);
+    assert_eq!(claims["keyId"], "cont-k1");
+    if !raw_ref_key.contains('\n') {
+        assert_eq!(claims["rawMimeSha256"], raw_sha);
+    }
+    let expected_identity_input = format!(
+        "v1\0{}\0{}\0{}\0{}",
+        claims["installationId"].as_str().unwrap(),
+        claims["accountId"].as_str().unwrap(),
+        claims["originalMessageId"].as_str().unwrap(),
+        claims["rawMimeSha256"].as_str().unwrap(),
+    );
+    let expected_identity: String = Sha256::digest(expected_identity_input.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_eq!(item["artifactIdentity"], expected_identity);
+
+    #[derive(serde::Serialize)]
+    struct WireBlob<'a> {
+        #[serde(rename = "blobId")]
+        blob_id: &'a str,
+        sha256: &'a str,
+        size: &'a str,
+    }
+    #[derive(serde::Serialize)]
+    struct WireClaims<'a> {
+        v: i64,
+        #[serde(rename = "installationId")]
+        installation_id: &'a str,
+        #[serde(rename = "accountId")]
+        account_id: &'a str,
+        #[serde(rename = "originalMessageId")]
+        original_message_id: &'a str,
+        eligibility: &'a str,
+        #[serde(rename = "rawMimeSha256")]
+        raw_mime_sha256: &'a str,
+        #[serde(rename = "rawMimeSize")]
+        raw_mime_size: &'a str,
+        blobs: Option<Vec<WireBlob<'a>>>,
+        #[serde(rename = "timelineGeneration")]
+        timeline_generation: &'a str,
+        #[serde(rename = "stateWatermark")]
+        state_watermark: &'a str,
+        #[serde(rename = "bootEpoch")]
+        boot_epoch: &'a str,
+        #[serde(rename = "issuedAt")]
+        issued_at: &'a str,
+        #[serde(rename = "keyId")]
+        key_id: &'a str,
+    }
+    let wire_blobs: Vec<WireBlob<'_>> = claims["blobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| WireBlob {
+            blob_id: b["blobId"].as_str().unwrap(),
+            sha256: b["sha256"].as_str().unwrap(),
+            size: b["size"].as_str().unwrap(),
+        })
+        .collect();
+    let wire_claims = WireClaims {
+        v: claims["v"].as_i64().unwrap(),
+        installation_id: claims["installationId"].as_str().unwrap(),
+        account_id: claims["accountId"].as_str().unwrap(),
+        original_message_id: claims["originalMessageId"].as_str().unwrap(),
+        eligibility: claims["eligibility"].as_str().unwrap(),
+        raw_mime_sha256: claims["rawMimeSha256"].as_str().unwrap(),
+        raw_mime_size: claims["rawMimeSize"].as_str().unwrap(),
+        blobs: (!wire_blobs.is_empty()).then_some(wire_blobs),
+        timeline_generation: claims["timelineGeneration"].as_str().unwrap(),
+        state_watermark: claims["stateWatermark"].as_str().unwrap(),
+        boot_epoch: claims["bootEpoch"].as_str().unwrap(),
+        issued_at: claims["issuedAt"].as_str().unwrap(),
+        key_id: claims["keyId"].as_str().unwrap(),
+    };
+    let canonical =
+        setjoin_gateway::jmap::reply::go_compact(&serde_json::to_string(&wire_claims).unwrap())
+            .unwrap();
+    let sig_bytes = URL_SAFE_NO_PAD
+        .decode(item["receipt"]["signature"].as_str().unwrap())
+        .unwrap();
+    assert!(signer.verify(canonical.as_bytes(), &sig_bytes));
+
+    // Attachment-free receipt verifies canonical `"blobs": null` signature while preserving wire `"blobs": []`.
+    let two_raw_ref: String = e
+        .owner
+        .query_typed(
+            "SELECT raw_ref FROM messages WHERE id = $1 AND mailbox_id = $2",
+            &[(&e.a.two_labels, Type::INT8), (&e.a.mailbox, Type::INT8)],
+        )
+        .await
+        .unwrap()[0]
+        .get(0);
+    let two_mime = b"From: bob@test\r\nSubject: NoAttach\r\n\r\nPlain body\r\n";
+    let two_sha: String = Sha256::digest(two_mime)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if !two_raw_ref.contains('\n') {
+        objects
+            .lock()
+            .unwrap()
+            .insert(two_raw_ref.clone(), two_mime.to_vec());
+    }
+    let two_str = e.a.two_labels.to_string();
+    let (status, empty_doc) = call_receipt(json!({
+        "accountId": mb_str,
+        "ids": [two_str]
+    }))
+    .await;
+    assert_eq!(status, 200);
+    let empty_item = &empty_doc["methodResponses"][0][1]["list"][0];
+    let empty_claims = &empty_item["receipt"]["claims"];
+    assert_eq!(empty_claims["blobs"], json!([]));
+    if !two_raw_ref.contains('\n') {
+        assert_eq!(empty_claims["rawMimeSha256"], two_sha);
+    }
+    let empty_wire_claims = WireClaims {
+        v: empty_claims["v"].as_i64().unwrap(),
+        installation_id: empty_claims["installationId"].as_str().unwrap(),
+        account_id: empty_claims["accountId"].as_str().unwrap(),
+        original_message_id: empty_claims["originalMessageId"].as_str().unwrap(),
+        eligibility: empty_claims["eligibility"].as_str().unwrap(),
+        raw_mime_sha256: empty_claims["rawMimeSha256"].as_str().unwrap(),
+        raw_mime_size: empty_claims["rawMimeSize"].as_str().unwrap(),
+        blobs: None,
+        timeline_generation: empty_claims["timelineGeneration"].as_str().unwrap(),
+        state_watermark: empty_claims["stateWatermark"].as_str().unwrap(),
+        boot_epoch: empty_claims["bootEpoch"].as_str().unwrap(),
+        issued_at: empty_claims["issuedAt"].as_str().unwrap(),
+        key_id: empty_claims["keyId"].as_str().unwrap(),
+    };
+    let empty_canonical = setjoin_gateway::jmap::reply::go_compact(
+        &serde_json::to_string(&empty_wire_claims).unwrap(),
+    )
+    .unwrap();
+    let empty_sig = URL_SAFE_NO_PAD
+        .decode(empty_item["receipt"]["signature"].as_str().unwrap())
+        .unwrap();
+    assert!(signer.verify(empty_canonical.as_bytes(), &empty_sig));
+
+    // 3c. Corrupt / truncated S3 blob -> serverFail.
+    objects
+        .lock()
+        .unwrap()
+        .insert(att_sha.clone(), b"short".to_vec());
+    let (_, doc) = call_receipt(json!({"accountId": mb_str, "ids": [msg_str]})).await;
+    assert_eq!(
+        doc["methodResponses"][0][1]["type"],
+        "urn:ietf:params:jmap:error:serverFail"
+    );
+
+    // 3d. Oversized S3 blob (> max_upload 64 bytes) -> aborted & serverFail.
+    objects
+        .lock()
+        .unwrap()
+        .insert(att_sha.clone(), vec![b'x'; 128]);
+    let (_, doc) = call_receipt(json!({"accountId": mb_str, "ids": [msg_str]})).await;
+    assert_eq!(
+        doc["methodResponses"][0][1]["type"],
+        "urn:ietf:params:jmap:error:serverFail"
+    );
+
+    // Cleanup test-only attachment & blob rows.
+    let _ = e
+        .owner
+        .query_typed(
+            "DELETE FROM message_attachments WHERE message_id = $1 AND blob_sha256 = $2",
+            &[(&e.a.inbox_only, Type::INT8), (&att_sha, Type::TEXT)],
+        )
+        .await;
+    let _ = e
+        .owner
+        .query_typed(
+            "DELETE FROM blobs WHERE sha256 = $1",
+            &[(&att_sha, Type::TEXT)],
+        )
+        .await;
 });

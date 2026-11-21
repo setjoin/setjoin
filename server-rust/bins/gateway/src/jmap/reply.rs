@@ -243,6 +243,10 @@ pub(super) fn failure_json(failure: setjoin_jmap::Failure) -> Option<String> {
     Some(jmap_error_json(kind, status, detail))
 }
 
+pub(super) fn failure_or_server_fail(failure: setjoin_jmap::Failure) -> String {
+    failure_json(failure).unwrap_or_else(|| jmap_error_json("serverFail", 500, "database error"))
+}
+
 pub(super) fn collect_created_ids(
     calls: &[super::ws_request::Call],
 ) -> std::collections::BTreeMap<String, String> {

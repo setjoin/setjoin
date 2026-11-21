@@ -299,7 +299,7 @@ pub fn rate_limited(inbound_request_id: Option<&HeaderValue>) -> Response<Body> 
         "content-type",
         HeaderValue::from_static("application/problem+json"),
     );
-    if let Some(random) = super::random() {
+    if let Ok(random) = super::random_bytes() {
         if let Ok(v) = HeaderValue::from_str(&super::reply::request_id(inbound_request_id, random))
         {
             h.insert("x-request-id", v);

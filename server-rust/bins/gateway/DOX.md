@@ -408,14 +408,18 @@ SQLSTATE 22/23/42/P0001 as Go's `serverFail`/`database error`); anything else fo
 The specialized inbox-list adapter serves its shape regardless of either retired
 pilot flag; other supported queries use this general path. Cases of commands whose catalog suite also holds `jmap_recorded` cases
 live in that binary (`mod jmap_email_oracle`): one suite replays from one test binary.
-General `Email/set` (#315, `src/jmap/set.rs`): exactly one phase, `update` (canonical ids,
-object patches, no `snoozeUntil`) or `destroy` (<=256 strings); `create`, snooze,
-mixed phases and `ifInState` forward to Go (attachment-blob gate, per-message snooze and
-the multi-reducer batch are not one statement). One statement: the existing
-`jmap_email_set_update`/`_destroy` reducer plus the `email_set` audit row (owner
-decision 2026-10-29: `details.operation`, reviewed divergences per case); a rolled-back
-command answers as `classify_failure` or forwards. The retired mark-read/inbox-list
-flags do not affect dispatch. Goldens `email-set-*` with row effects.
+General `Email/set` (#315, #356 Wave 2a, `src/jmap/set.rs`): handles `create`
+(with R1 `owned_blob_set` attachment ownership gate on `BYPASSRLS` worker, calling
+`jmap_email_set_create(..., "{}")` even when all items are denied), `snoozeUntil`
+entries (RFC3339Nano parsed -> per-message `message_snooze`), ordinary `update`,
+`destroy` (folding malformed IDs into `notDestroyed`, passing empty typed array if
+all malformed), `ifInState`, and zero-phase `{accountId}` / `destroy: []` — running
+present `[create, ordinary update, destroy]` + one `email_set` audit row (`details.operation`)
+inside `run_locked_tx`. Per Wave 2a Q1, `updated` stays an array for pure ordinary or
+ordinary + all-failed snoozes, becomes a `{"<id>": null}` map for pure snooze, and
+merges both ordinary and snooze IDs into an RFC 8620 map when ordinary updates and
+>=1 snooze succeed. Only `#create`/`#update`/`#destroy`
+result-references preflight-defer to Go. Goldens `email-set-*` with row effects; Wave 2a cases in `tests/jmap_batch_delegate.rs`.
 `Email/recover`/`Email/purge` (#315, `src/jmap/batch.rs`): `ids` 1..=256, one reducer call in
 `run_receipted_command` (Go writes no audit row, so the receipt is a `rust_operation_receipts`
 row, family `jmap`); malformed ids fold into `notRecovered`/`notPurged`. `Email/deletedQuery`
@@ -427,9 +431,12 @@ from the toggle row (`gates::toggle_state`; process-env overrides are Go's alone
 inert empty list / `dismissed: []` natively; ON calls `stale_thread_nudges_list` or the receipted
 `nudge_dismiss` reducer (writes `users.view_prefs`; Go writes no audit row). The recorder sleeps
 500 ms after toggling so Go's notification-fed flag cache catches up.
-`Email/recoveryReceipt` (#315): `feature.client_recovery_receipts` OFF is Go's `forbidden` answer, given
-before Go reads arguments or account (so the account is not compared here); ON forwards (the signing
-key and raw-MIME fetch stay Go's until the continuity port).
+`Email/recoveryReceipt` (#315, #356 Wave 2a, `src/jmap/recovery.rs`): checks `feature.client_recovery_receipts == true`,
+`services.continuity_signer.is_some()` and `services.continuity_boot.is_some()` before arg decode
+(else `forbidden`; unreadable toggle -> `serverFail`), strictly decodes `1..=64` IDs, runs
+`continuity_recovery_receipt_context` via `run_receipted_command` and releases the tx before streaming
+S3 verification (`S3Store::digest_object`, `50 MiB` abort limit), then signs `ReceiptClaims` (`v: 1`)
+with `ContinuitySigner` and returns order-preserving `notFound`.
 
 ## JMAP WebSocket and Chat presence (#318/#418)
 
@@ -1124,7 +1131,7 @@ and oracle cases/catalog entries live in `tests/jmap_family_373.rs` and
 
 `POST /jmap` and `/jmap/ws` share one preflight/execution engine (`jmap/mod.rs`
 `execute_batch_verified`, `preflight_batch`, `execute_batch`, `execute_call`):
-- **Auth-first HTTP:** `preauth_http` (`authorize_request` + `SessionDenylist` checks) runs before buffering the body. Unauthenticated or revoked callers forward untouched without buffering or Rust `400` replies. Verified callers buffer up to `JMAP_BODY_CAP` (10 MB; over-cap returns HTTP `400` `notJSON`), while Focus retains `FOCUS_BODY_CAP` (64 KiB, forwarding >64 KiB streams).
-- **Ordered preflight & `!mutated` guard:** Before Call 0 (and before drawing `calls.len()` `OperationId`s + `request_random`), `preflight_batch` walks `calls` in order up to the first >2 MB / undeclared-capability stop, stripping top-level `#ref` keys only for static shape classification, checking `Email/get` `smime-encrypted` via `read_scoped(&target_auth, ...)` (for static `ids` and `#ids`/`#accountId`), `EmailSubmission/set` `#`/S/MIME/`needs_preprocessing(&target_auth)`, and `Email/recoveryReceipt` feature state. Any unsupported call or precheck error defers whole (`DeferToGo` -> HTTP forwards `bytes` or WS calls `forward_unported`). Once `mutated` becomes true, later call failures never re-send to Go and emit `("error", server_fail)`.
+- **Auth-first HTTP:** `admit_http` (`deny::admit` + `deny::answer` + `SessionDenylist` checks) runs before buffering the body on `/jmap`, `/jmap/*` peripherals, `/api/messages/*/undo|recall`, and `/api/messages/*/{focus,download,attachments.zip,unsubscribe}`. Native refusals (`401`/`503`) answer directly without forwarding; only owner-deferred credential classes (`Basic`/`Negotiate`/guests/impersonation/no-mailbox/blocked) forward untouched. Verified callers buffer up to `JMAP_BODY_CAP` (10 MB; over-cap returns HTTP `400` `notJSON`), while Focus enforces `FOCUS_BODY_CAP` (64 KiB, returning `413` on overflow and `400` on invalid streams/JSON).
+- **Ordered preflight & `!mutated` guard:** Before Call 0 (and before drawing `calls.len()` `OperationId`s + `request_random` via fallible `getrandom`), `preflight_batch` walks `calls` in order up to the first >2 MB / undeclared-capability stop, stripping top-level `#ref` keys only for static shape classification and checking `#`-ref deferrals, `Email/get` `smime-encrypted` via `read_scoped(&target_auth, ...)`, and `EmailSubmission/set` `#`/S/MIME/`needs_preprocessing(&target_auth)`. Non-S/MIME runtime DB/internal failures and missing `services` emit native `serverFail` instead of `DeferToGo`. Once `mutated` becomes true, later call failures never re-send to Go and emit `("error", server_fail)`.
 - **Non-Family delegated accounts:** `jmap/account.rs` (`resolve_account`, shared by `family::seam::account::resolve`) re-reads the primary mailbox, queries `mailbox_delegates` under `exec.read_user_scoped(ActorId(user_id), ...)` (V090 FORCE-RLS), enforces `Gate` (`Personal` on `Identity/set`, `Read`/`Mutate`/`Submit` per method; `Identity/{get,changes}`, `Core/echo`, `Blob/*` keep primary-only `Gate::Personal` without `resolve_account`; `Email/recoveryReceipt` checks its toggle first), checks `mailbox_lifecycle_access_allowed`, and scopes domain calls by `target_auth`.
 - **Widened classifiers:** `struct_arguments`, `go_string`-escaped arbitrary `client_id`s, `raw_account_id` echoing, removed 256-item destroy/recover/purge caps, and shared HTTP/WS `createdIds` envelope collection (`reply::http_batch_response` always includes `methodResponses`). Tests: `tests/jmap_batch_delegate.rs`.

@@ -31,10 +31,12 @@ Go) in one statement inside `exec.run` (no receipt row: a read that is not serve
 forwards to Go). Encrypted mail (`cryptoType = smime-encrypted`) writes nothing and
 returns `Encrypted` so Go decrypts. Contract: `src/email_get.rs`.
 
-`email_query`/`email_set`/`failure` (#315): `Email/query` passes filter/sort JSON to
-`jmap_email_query` in a `READ ONLY` read; `email_set` is one update-or-destroy reducer
-statement plus the `email_set` audit row (`run_command`, audit receipt as set_seen);
-`failure::classify` is Go's `mapReducerErr` for deterministic database answers.
+`email_query`/`email_set`/`failure` (#315, #356 Wave 2a): `Email/query` passes filter/sort JSON to
+`jmap_email_query` in a `READ ONLY` read; `email_set` runs single-phase update/destroy in `run_command`,
+while `email_set_batch` runs present `[create, ordinary update, destroy]` in one `run_locked_tx`
+plus one `email_set` audit row (`details.operation`), `owned_blob_set` gates attachment `blobId`s
+on `BYPASSRLS` worker (`blob_user_charges` OR owned `message_attachments`), and `snooze_message`
+calls `message_snooze` per snooze entry; `failure::classify` is Go's `mapReducerErr` for deterministic database answers.
 
 `email_batch` (#315): `Email/recover`/`Email/purge` as one reducer call each in
 `run_receipted_command` (`jmap`/`email.recover`, `jmap`/`email.purge`; no mailbox audit
@@ -156,9 +158,9 @@ Download reads immutable metadata and actor/delegate attachment ownership on
 the explicit worker pool; invalid account selectors retain Go's own-blob path.
 The gateway supplies Go's untrusted-content headers, range framing and ETags.
 
-Raw recovery is a GET mutator: `continuity_recovery_receipt_context` commits
-server-global wall-clock/boot metadata under `jmap` / `recovery.raw`, then the
-handler serves eligible exact MIME bytes (inline reference or bounded S3 read).
+Raw recovery and `Email/recoveryReceipt` (#356 Wave 2a): `recovery_receipt_contexts` commits
+server-global wall-clock/boot metadata via `continuity_recovery_receipt_context` under `jmap` / `recovery.raw`
+or `jmap` / `recovery.receipt` and releases its transaction before bounded streaming S3 verification (`digest_object`) and Ed25519 receipt signing (`ContinuitySigner`).
 Account admission mirrors Go's primary/delegate precheck and scoped reducer;
 the global continuity row has no tenant owner. Unknown never retries or returns
 success. Recovery is hidden without the existing product feature and a valid

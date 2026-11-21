@@ -327,11 +327,12 @@ impl DismissRequest {
     }
 }
 
-/// `Email/recoveryReceipt` with `feature.client_recovery_receipts` OFF: Go checks the
-/// toggle before it reads the arguments or the account, so any object-argument call
-/// gets the same `forbidden` answer.
+/// `Email/recoveryReceipt`: checks `feature.client_recovery_receipts` and
+/// continuity signer readiness before decoding arguments so disabled receipts
+/// still match Go's `forbidden` response regardless of arguments/account.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReceiptRequest {
+    pub raw_args: String,
     pub client_id: String,
 }
 
@@ -352,7 +353,8 @@ pub fn classify_receipt_call(
         return None;
     }
     let val: Value = serde_json::from_str(raw_args).ok()?;
-    val.is_object().then_some(ReceiptRequest {
+    (val.is_object() || val.is_null()).then(|| ReceiptRequest {
+        raw_args: raw_args.to_owned(),
         client_id: client_id.to_owned(),
     })
 }

@@ -29,6 +29,8 @@ mod imip;
 pub mod limit;
 pub mod list;
 pub mod mailbox_set;
+mod messages;
+pub mod messages_zip;
 pub mod other;
 pub mod presence;
 pub mod push;
@@ -37,10 +39,8 @@ mod recovery;
 pub mod reply;
 pub mod seen;
 pub mod set;
-pub mod submission;
 pub mod sse;
-mod messages;
-pub mod messages_zip;
+pub mod submission;
 mod submission_actions;
 mod submission_input;
 pub mod transfer;
@@ -61,9 +61,10 @@ use serde_json::value::RawValue;
 use setjoin_contracts::command::{CommandEnvelope, OperationResult, SetMessageSeen};
 use setjoin_contracts::ids::{ActorId, Digest, Generation, MailboxId, MessageId, OperationId};
 use setjoin_jmap::{
-    email_batch, email_changes, email_get, email_set, nudge_dismiss, query_email, query_email_list,
-    read_paged, set_message_seen, set_message_seen_empty, ChangesError, EmailBatch, EmailGet,
-    EmailSet, EmptySeen, GetOutcome, Paged, SeenEffect, SetOutcome, SetPhase,
+    email_batch, email_changes, email_get, email_set_batch, nudge_dismiss, query_email,
+    query_email_list, read_paged, set_message_seen, set_message_seen_empty, snooze_message,
+    ChangesError, EmailBatch, EmailGet, EmailSet, EmptySeen, GetOutcome, Paged, SeenEffect,
+    SetBatch, SetBatchOutcome, SetOutcome, SnoozeOutcome,
 };
 use setjoin_pg::{MailboxAuthContext, ScopedExecutor, Type};
 use sha2::{Digest as _, Sha256};
@@ -176,7 +177,9 @@ pub struct JmapCommands<K: KeySource = jwks::Jwks> {
 pub struct JmapRoute<K: KeySource + 'static = jwks::Jwks>(pub Arc<JmapCommands<K>>);
 
 impl<K: KeySource + 'static> Intercept for JmapRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, req: &Request<Body>) -> bool {
         (req.method() == Method::POST
             && (req.uri().path() == "/jmap"
@@ -257,7 +260,9 @@ impl<'de> serde::Deserialize<'de> for HttpBatchRequest {
 
 /// The command a single JMAP call is expressible as.
 enum Claimed {
-    Echo { raw_args: String },
+    Echo {
+        raw_args: String,
+    },
     Identity(identity::Request),
     Blob(blob::Request),
     Other(other::OtherRequest),
@@ -348,6 +353,7 @@ fn is_mutator_or_audited(claimed: &Claimed) -> bool {
         Claimed::Seen(_)
         | Claimed::Set(_)
         | Claimed::Batch(_)
+        | Claimed::Receipt(_)
         | Claimed::Dismiss(_)
         | Claimed::MailboxSet(_)
         | Claimed::Get(_) => true,
@@ -389,12 +395,9 @@ enum Buffered {
 }
 
 impl<K: KeySource> JmapCommands<K> {
-    async fn serve(&self, mut req: Request<Body>, ctx: RequestContext) -> Response<Body> {
+    async fn serve(&self, req: Request<Body>, ctx: RequestContext) -> Response<Body> {
         if http::matches(req.method(), req.uri().path()) {
-            if let Some(response) = self.try_http(&mut req, &ctx).await {
-                return response;
-            }
-            return ctx.upstream.forward(req, &ctx.identity).await;
+            return self.try_http(req, &ctx).await;
         }
         if submission_actions::target(req.uri().path()).is_some() {
             return self.serve_action(req, ctx).await;
@@ -402,30 +405,28 @@ impl<K: KeySource> JmapCommands<K> {
         if let Some((route, id)) = messages::target(req.method(), req.uri().path()) {
             return self.serve_message(route, id, req, ctx).await;
         }
-        let (parts, body) = req.into_parts();
-        // Auth-first: unauthenticated or revoked requests forward untouched
-        // without buffering up to 10 MB or returning Rust HTTP 400 errors.
-        let Some(authorized) = self.preauth_http(&parts.headers, ctx.identity.proto).await else {
-            return ctx
-                .upstream
-                .forward(Request::from_parts(parts, body), &ctx.identity)
-                .await;
+        // Auth-first: admit via shared deny policy before reading/buffering body.
+        let (req, authorized) = match self.admit_http(req, &ctx, crate::deny::Scope::Member).await {
+            Ok(ok) => ok,
+            Err(response) => return response,
         };
+        let (parts, body) = req.into_parts();
         let forward_body = match buffer_with_cap(body, JMAP_BODY_CAP, false).await {
-            Buffered::Whole(bytes) => match self.execute_http(&parts, &bytes, &ctx, &authorized).await
-            {
-                Ok(resp) => return resp,
-                Err(reason) => {
-                    if log_served() && reason != NOT_CLAIMED {
-                        eprintln!("setjoin-gateway: /jmap route deferred to Go: {reason}");
+            Buffered::Whole(bytes) => {
+                match self.execute_http(&parts, &bytes, &ctx, &authorized).await {
+                    Ok(resp) => return resp,
+                    Err(reason) => {
+                        if log_served() && reason != NOT_CLAIMED {
+                            eprintln!("setjoin-gateway: /jmap route deferred to Go: {reason}");
+                        }
+                        Full::new(bytes).map_err(|n| match n {}).boxed()
                     }
-                    Full::new(bytes).map_err(|n| match n {}).boxed()
                 }
-            },
+            }
             Buffered::TooLarge => {
                 let req_id = reply::request_id(
                     parts.headers.get("x-request-id"),
-                    random().unwrap_or([0; 16]),
+                    random_bytes().unwrap_or([0; 16]),
                 );
                 return reply::problem_response(
                     400,
@@ -442,29 +443,38 @@ impl<K: KeySource> JmapCommands<K> {
             .await
     }
 
-    async fn preauth_http(
+    pub(super) async fn admit_http(
         &self,
-        headers: &hyper::http::HeaderMap,
-        proto: &str,
-    ) -> Option<setjoin_authz::Authorized> {
-        let authorized = setjoin_authz::authorize_request(
-            &self.exec,
-            &self.keys,
-            &self.issuer,
-            headers,
-            proto,
-        )
-        .await?;
+        req: Request<Body>,
+        ctx: &RequestContext,
+        scope: crate::deny::Scope,
+    ) -> Result<(Request<Body>, setjoin_authz::Authorized), Response<Body>> {
+        let authorized =
+            match crate::deny::admit(&self.exec, &self.keys, &self.issuer, &req, scope).await {
+                Ok(authorized) => authorized,
+                Err(refusal) => return Err(crate::deny::answer(refusal, req, ctx).await),
+            };
         let identity = authorized.context();
         if let Some(denylist) = &self.denylist {
-            let issued = chrono::DateTime::from_timestamp(authorized.issued_at(), 0)?;
+            let Some(issued) = chrono::DateTime::from_timestamp(authorized.issued_at(), 0) else {
+                return Err(crate::admission::problem(
+                    req.headers(),
+                    &ctx.identity,
+                    503,
+                    "service unavailable",
+                ));
+            };
             if denylist.is_revoked(
                 identity.user_id(),
                 authorized.token_id(),
                 authorized.token_family(),
                 issued,
             ) {
-                return None;
+                return Err(crate::deny::native_or_unauthorized(
+                    crate::deny::Refusal::Revoked,
+                    req.headers(),
+                    ctx,
+                ));
             }
             if !denylist.loaded() {
                 let cae = tokio::time::timeout(
@@ -474,15 +484,28 @@ impl<K: KeySource> JmapCommands<K> {
                         &[],
                     ),
                 )
-                .await
-                .ok()?
-                .ok()?;
-                if cae[0].get::<_, bool>(0) {
-                    return None;
+                .await;
+                match cae {
+                    Ok(Ok(rows)) if rows.first().is_some_and(|r| r.get::<_, bool>(0)) => {
+                        return Err(crate::admission::revoked_problem(
+                            req.headers(),
+                            &ctx.identity,
+                            "Session verification unavailable — re-authenticate.",
+                        ));
+                    }
+                    Ok(Ok(_)) => {}
+                    _ => {
+                        return Err(crate::admission::problem(
+                            req.headers(),
+                            &ctx.identity,
+                            503,
+                            "service unavailable",
+                        ));
+                    }
                 }
             }
         }
-        Some(authorized)
+        Ok((req, authorized))
     }
 
     async fn execute_http(
@@ -498,7 +521,7 @@ impl<K: KeySource> JmapCommands<K> {
             Err(_) => {
                 let req_id = reply::request_id(
                     parts.headers.get("x-request-id"),
-                    random().ok_or("rng unavailable")?,
+                    random_bytes().unwrap_or([0; 16]),
                 );
                 return Ok(reply::problem_response(
                     400,
@@ -555,9 +578,17 @@ impl<K: KeySource> JmapCommands<K> {
         calls: &[ws_request::Call],
         need_request_random: bool,
     ) -> Result<(Option<[u8; 16]>, BatchOutcome), DeferToGo> {
+        let server_fail = || BatchOutcome::Problem {
+            status: 500,
+            kind: "serverFail",
+            detail: "internal error".into(),
+        };
         if using.is_empty() {
             let req_rand = if need_request_random {
-                Some(random().ok_or(DeferToGo("rng unavailable"))?)
+                let Ok(r) = random_bytes() else {
+                    return Ok((None, server_fail()));
+                };
+                Some(r)
             } else {
                 None
             };
@@ -572,7 +603,10 @@ impl<K: KeySource> JmapCommands<K> {
         }
         if calls.len() > 32 {
             let req_rand = if need_request_random {
-                Some(random().ok_or(DeferToGo("rng unavailable"))?)
+                let Ok(r) = random_bytes() else {
+                    return Ok((None, server_fail()));
+                };
+                Some(r)
             } else {
                 None
             };
@@ -589,13 +623,19 @@ impl<K: KeySource> JmapCommands<K> {
             .await
             .map_err(DeferToGo)?;
         let request_random = if need_request_random {
-            Some(random().ok_or(DeferToGo("rng unavailable"))?)
+            let Ok(r) = random_bytes() else {
+                return Ok((None, server_fail()));
+            };
+            Some(r)
         } else {
             None
         };
         let mut operations = Vec::with_capacity(calls.len());
         for _ in 0..calls.len() {
-            operations.push(random().ok_or(DeferToGo("rng unavailable"))?);
+            let Ok(op) = random_bytes() else {
+                return Ok((request_random, server_fail()));
+            };
+            operations.push(op);
         }
         let outcome = self
             .execute_batch(user_id, primary_mailbox, email, using, calls, &operations)
@@ -647,11 +687,6 @@ impl<K: KeySource> JmapCommands<K> {
             let claimed = claim_call(&call.name, check_args, &call.id, self.services.as_deref())
                 .ok_or(NOT_CLAIMED)?;
             match &claimed {
-                Claimed::Identity(_) | Claimed::Blob(_) => {
-                    if self.services.is_none() {
-                        return Err("JMAP services unavailable");
-                    }
-                }
                 Claimed::Set(_) => {
                     if has_top_ref(&val, "create")
                         || has_top_ref(&val, "update")
@@ -678,11 +713,6 @@ impl<K: KeySource> JmapCommands<K> {
                 Claimed::Paged(_) => {
                     if has_top_ref(&val, "position") {
                         return Err("paged #position deferred to Go");
-                    }
-                }
-                Claimed::Receipt(_) => {
-                    if gates::toggle_state(&self.exec, batch::RECEIPTS_FLAG).await != Some(false) {
-                        return Err("client recovery receipts are Go's while enabled");
                     }
                 }
                 Claimed::Submission(req) => {
@@ -756,8 +786,7 @@ impl<K: KeySource> JmapCommands<K> {
                                     }
                                 } else {
                                     let ids_param: Option<Vec<i64>> =
-                                        (!ids.is_empty() || !bad.is_empty())
-                                            .then(|| ids.clone());
+                                        (!ids.is_empty() || !bad.is_empty()).then(|| ids.clone());
                                     let encrypted = tokio::time::timeout(
                                         PRECHECK_TIMEOUT,
                                         self.exec.read_scoped(
@@ -817,7 +846,9 @@ impl<K: KeySource> JmapCommands<K> {
                 });
             }
             let (name, args) = match ws_request::references(call.args.get(), &responses) {
-                Err((kind, detail)) => ("error".to_owned(), ws_request::method_error(kind, &detail)),
+                Err((kind, detail)) => {
+                    ("error".to_owned(), ws_request::method_error(kind, &detail))
+                }
                 Ok(resolved_args) => {
                     if call.name.is_empty() || call.name.len() > 128 {
                         (
@@ -825,7 +856,10 @@ impl<K: KeySource> JmapCommands<K> {
                             ws_request::method_error("unknownMethod", "invalid method name"),
                         )
                     } else if call.name != "Core/echo" && !ws_request::registered(&call.name) {
-                        ("error".into(), ws_request::method_error("unknownMethod", ""))
+                        (
+                            "error".into(),
+                            ws_request::method_error("unknownMethod", ""),
+                        )
                     } else if !matches!(
                         serde_json::from_str::<serde_json::Value>(&resolved_args),
                         Ok(serde_json::Value::Object(_) | serde_json::Value::Null)
@@ -889,12 +923,16 @@ impl<K: KeySource> JmapCommands<K> {
         operation: [u8; 16],
         mutated: &mut bool,
     ) -> Result<(String, String), &'static str> {
-        let claimed =
-            claim_call(method_name, raw_args, client_id, self.services.as_deref())
-                .ok_or(NOT_CLAIMED)?;
+        let claimed = claim_call(method_name, raw_args, client_id, self.services.as_deref())
+            .ok_or(NOT_CLAIMED)?;
+        let (Ok(actor_id), Ok(primary_mailbox_id)) =
+            (ActorId::new(user_id), MailboxId::new(primary_mailbox))
+        else {
+            return Ok(("error".into(), ws_request::server_fail()));
+        };
         let primary_auth = MailboxAuthContext::from_authenticated_session(
-            ActorId::new(user_id).map_err(|_| "ids")?,
-            MailboxId::new(primary_mailbox).map_err(|_| "ids")?,
+            actor_id,
+            primary_mailbox_id,
             REQUEST_AUTHORITY_GENERATION,
         );
         let digest_bytes: [u8; 32] = Sha256::digest(raw_args.as_bytes()).into();
@@ -902,23 +940,24 @@ impl<K: KeySource> JmapCommands<K> {
 
         let seen = match claimed {
             Claimed::Identity(request) => {
-                let services = self.services.as_ref().ok_or("JMAP services")?;
+                let Some(services) = self.services.as_ref() else {
+                    return Ok(("error".into(), ws_request::server_fail()));
+                };
                 let (m, json) =
                     identity::response_call(&self.exec, &services.worker, &primary_auth, &request)
                         .await;
                 return Ok((m.into(), json));
             }
             Claimed::Blob(request) => {
-                let services = self
-                    .services
-                    .as_ref()
-                    .ok_or("JMAP worker credential unavailable")?;
+                let Some(services) = self.services.as_ref() else {
+                    return Ok(("error".into(), ws_request::server_fail()));
+                };
                 let (m, json) =
                     blob::response_call(&services.worker, &primary_auth, &request).await;
                 return Ok((m.into(), json));
             }
             Claimed::Echo { raw_args } => {
-                let compact = reply::go_compact(&raw_args).ok_or("echo JSON")?;
+                let compact = reply::go_compact(&raw_args).unwrap_or(raw_args);
                 return Ok(("Core/echo".into(), compact));
             }
             Claimed::Family(request) => {
@@ -959,18 +998,16 @@ impl<K: KeySource> JmapCommands<K> {
                 let (m, json) = family::serve_call(&cx).await;
                 return Ok((m.into(), json));
             }
-            Claimed::Receipt(_) => {
-                // Check toggle BEFORE resolve_account, matching recovery_receipt.go:97.
-                let enabled = gates::toggle_state(&self.exec, batch::RECEIPTS_FLAG)
-                    .await
-                    .ok_or("toggle unreadable")?;
-                if enabled {
-                    return Err("client recovery receipts are Go's while enabled");
-                }
-                return Ok((
-                    "error".into(),
-                    reply::jmap_error_json("forbidden", 500, "client recovery receipts are disabled"),
-                ));
+            Claimed::Receipt(request) => {
+                return Ok(self
+                    .execute_recovery_receipt(
+                        user_id,
+                        &request.raw_args,
+                        operation,
+                        digest_bytes,
+                        mutated,
+                    )
+                    .await);
             }
             Claimed::MailboxSet(request) => {
                 let (create, update, destroy, bad) = match request.args {
@@ -1035,17 +1072,15 @@ impl<K: KeySource> JmapCommands<K> {
                 };
                 return match outcome {
                     SetOutcome::Done(raw) => {
-                        let result = set::add_not_destroyed(
-                            &set::merged(&raw).ok_or("mailbox set object")?,
-                            &bad,
-                        )
-                        .ok_or("mailbox destroy errors")?;
+                        let Some(merged) = set::merged(&raw) else {
+                            return Ok(("error".into(), ws_request::server_fail()));
+                        };
+                        let Some(result) = set::add_not_destroyed(&merged, &bad) else {
+                            return Ok(("error".into(), ws_request::server_fail()));
+                        };
                         Ok((request.method.into(), result))
                     }
-                    SetOutcome::Failed(f) => Ok((
-                        "error".into(),
-                        reply::failure_json(f).ok_or("mailbox set failed")?,
-                    )),
+                    SetOutcome::Failed(f) => Ok(("error".into(), reply::failure_or_server_fail(f))),
                     SetOutcome::Forward => Ok((
                         "error".into(),
                         reply::jmap_error_json("serverFail", 500, "database error"),
@@ -1109,21 +1144,18 @@ impl<K: KeySource> JmapCommands<K> {
                 }
                 let raw = setjoin_jmap::mailbox::read(&self.exec, &resolved.auth, &read).await;
                 return match raw {
-                    Ok(raw) => Ok((
-                        request.method.into(),
-                        get::add_not_found(&raw, &bad).ok_or("mailbox get result")?,
-                    )),
+                    Ok(raw) => match get::add_not_found(&raw, &bad) {
+                        Some(result) => Ok((request.method.into(), result)),
+                        None => Ok(("error".into(), ws_request::server_fail())),
+                    },
                     Err(e) if e.sqlstate.as_deref() == Some("BZ040") => Ok((
                         "error".into(),
                         reply::jmap_error_json("invalidArguments", 400, &e.message),
                     )),
-                    Err(e) => {
-                        let f = match setjoin_jmap::classify_failure(&e) {
-                            setjoin_jmap::Failure::Forward => setjoin_jmap::Failure::ServerFail,
-                            f => f,
-                        };
-                        Ok(("error".into(), reply::failure_json(f).ok_or("mailbox read")?))
-                    }
+                    Err(e) => Ok((
+                        "error".into(),
+                        reply::failure_or_server_fail(setjoin_jmap::classify_failure(&e)),
+                    )),
                 };
             }
             Claimed::Submission(request) => {
@@ -1228,22 +1260,32 @@ impl<K: KeySource> JmapCommands<K> {
                             "accountId does not match an existing account",
                         ),
                     )),
-                    Err(ChangesError::Other) => Err("changes read failed"),
+                    Err(ChangesError::Other) => Ok(("error".into(), ws_request::server_fail())),
                 };
             }
             Claimed::Set(request) => {
-                let (raw_account_id, phase) = match request.args {
-                    set::SetArgs::Invalid(msg) => {
-                        return Ok((
-                            "error".into(),
-                            reply::jmap_error_json("invalidArguments", 400, &msg),
-                        ));
-                    }
-                    set::SetArgs::Valid {
-                        raw_account_id,
-                        phase,
-                    } => (raw_account_id, phase),
-                };
+                let (raw_account_id, create, ordinary_update, snooze_updates, destroy) =
+                    match request.args {
+                        set::SetArgs::Invalid(msg) => {
+                            return Ok((
+                                "error".into(),
+                                reply::jmap_error_json("invalidArguments", 400, &msg),
+                            ));
+                        }
+                        set::SetArgs::Valid {
+                            raw_account_id,
+                            create,
+                            ordinary_update,
+                            snooze_updates,
+                            destroy,
+                        } => (
+                            raw_account_id,
+                            create,
+                            ordinary_update,
+                            snooze_updates,
+                            destroy,
+                        ),
+                    };
                 let resolved = match account::resolve_account(
                     &self.exec,
                     user_id,
@@ -1255,7 +1297,19 @@ impl<K: KeySource> JmapCommands<K> {
                     Ok(r) => r,
                     Err(e) => return Ok(("error".into(), e.json())),
                 };
-                *mutated = true;
+                let gated_create = if let Some(raw_create) = create.as_deref() {
+                    let worker = self
+                        .services
+                        .as_ref()
+                        .map(|s| &s.worker)
+                        .or(self.worker.as_ref());
+                    match set::gate_attachment_blob_ownership(worker, user_id, raw_create).await {
+                        Ok(gated) => Some(gated),
+                        Err(()) => return Ok(("error".into(), ws_request::server_fail())),
+                    }
+                } else {
+                    None
+                };
                 let envelope = CommandEnvelope {
                     operation: OperationId(operation),
                     authority: resolved.auth.authority(),
@@ -1263,39 +1317,84 @@ impl<K: KeySource> JmapCommands<K> {
                     payload_digest: digest,
                     command: EmailSet,
                 };
-                let patches;
-                let set_phase = match &phase {
-                    set::Phase::Update(json) => {
-                        patches = json.as_str();
-                        SetPhase::Update(patches)
+                *mutated = true;
+                let mut snooze_updated = Vec::new();
+                let mut snooze_not_updated = Vec::new();
+                let deadline = Instant::now() + COMMAND_DEADLINE;
+                for (id_str, until) in &snooze_updates {
+                    let Ok(msg_id) = id_str.parse::<i64>() else {
+                        snooze_not_updated.push((
+                            id_str.clone(),
+                            r#"{"description":"invalid message id","type":"invalidArguments"}"#
+                                .to_owned(),
+                        ));
+                        continue;
+                    };
+                    match snooze_message(
+                        &self.exec,
+                        &envelope,
+                        &resolved.auth,
+                        deadline,
+                        msg_id,
+                        until,
+                    )
+                    .await
+                    {
+                        SnoozeOutcome::Committed => snooze_updated.push(id_str.clone()),
+                        SnoozeOutcome::Failed(_) => snooze_not_updated.push((
+                            id_str.clone(),
+                            r#"{"description":"snooze failed","type":"invalidArguments"}"#
+                                .to_owned(),
+                        )),
+                        SnoozeOutcome::Unknown => {
+                            return Ok((
+                                "error".into(),
+                                reply::jmap_error_json(
+                                    "serverFail",
+                                    500,
+                                    &format!(
+                                        "commit outcome unknown; look up operation {}",
+                                        reply::hex(&envelope.operation.0)
+                                    ),
+                                ),
+                            ));
+                        }
                     }
-                    set::Phase::Destroy { ids, .. } => SetPhase::Destroy(ids),
+                }
+                let batch = SetBatch {
+                    create: gated_create.as_ref().map(|g| g.filtered_json.as_str()),
+                    update: ordinary_update.as_deref(),
+                    destroy: destroy.as_ref().map(|(ids, _)| ids.as_slice()),
                 };
-                let outcome = email_set(
+                let outcome = email_set_batch(
                     &self.exec,
                     &envelope,
                     &resolved.auth,
                     Instant::now() + COMMAND_DEADLINE,
-                    set_phase,
+                    batch,
                 )
                 .await;
                 return match outcome {
-                    SetOutcome::Done(raw) => {
-                        let merged = set::merged(&raw).ok_or("set reply not JSON")?;
-                        let result = match &phase {
-                            set::Phase::Destroy { bad, .. } => {
-                                set::add_not_destroyed(&merged, bad).ok_or("set reply not JSON")?
-                            }
-                            set::Phase::Update(_) => merged,
+                    SetBatchOutcome::Done(parts) => {
+                        let empty_denied = std::collections::BTreeMap::new();
+                        let denied = gated_create.as_ref().map_or(&empty_denied, |g| &g.denied);
+                        let bad = destroy.as_ref().map_or(&[][..], |(_, b)| b.as_slice());
+                        let Some(result) = set::merge_response(
+                            &parts,
+                            denied,
+                            bad,
+                            ordinary_update.is_some(),
+                            &snooze_updated,
+                            &snooze_not_updated,
+                        ) else {
+                            return Ok(("error".into(), ws_request::server_fail()));
                         };
                         Ok(("Email/set".into(), result))
                     }
-                    SetOutcome::Failed(failure) => Ok((
-                        "error".into(),
-                        reply::failure_json(failure).ok_or("email set failed")?,
-                    )),
-                    SetOutcome::Forward => Err("email set rolled back"),
-                    SetOutcome::Unknown { operation } => Ok((
+                    SetBatchOutcome::Failed(failure) => {
+                        Ok(("error".into(), reply::failure_or_server_fail(failure)))
+                    }
+                    SetBatchOutcome::Unknown { operation } => Ok((
                         "error".into(),
                         reply::jmap_error_json(
                             "serverFail",
@@ -1348,14 +1447,15 @@ impl<K: KeySource> JmapCommands<K> {
                 .await;
                 return match outcome {
                     SetOutcome::Done(raw) => {
-                        let result = request.result(&raw, &bad).ok_or("batch reply not JSON")?;
+                        let Some(result) = request.result(&raw, &bad) else {
+                            return Ok(("error".into(), ws_request::server_fail()));
+                        };
                         Ok((request.method().into(), result))
                     }
-                    SetOutcome::Failed(failure) => Ok((
-                        "error".into(),
-                        reply::failure_json(failure).ok_or("email batch failed")?,
-                    )),
-                    SetOutcome::Forward => Err("email batch rolled back"),
+                    SetOutcome::Failed(failure) => {
+                        Ok(("error".into(), reply::failure_or_server_fail(failure)))
+                    }
+                    SetOutcome::Forward => Ok(("error".into(), ws_request::server_fail())),
                     SetOutcome::Unknown { operation } => Ok((
                         "error".into(),
                         reply::jmap_error_json(
@@ -1390,9 +1490,10 @@ impl<K: KeySource> JmapCommands<K> {
                     Ok(r) => r,
                     Err(e) => return Ok(("error".into(), e.json())),
                 };
-                let enabled = gates::toggle_state(&self.exec, gates::NUDGES_FLAG)
-                    .await
-                    .ok_or("toggle unreadable")?;
+                let Some(enabled) = gates::toggle_state(&self.exec, gates::NUDGES_FLAG).await
+                else {
+                    return Ok(("error".into(), ws_request::server_fail()));
+                };
                 if !enabled {
                     return Ok(("Email/nudgeDismiss".into(), request.off()));
                 }
@@ -1414,14 +1515,15 @@ impl<K: KeySource> JmapCommands<K> {
                 .await
                 {
                     SetOutcome::Done(raw) => {
-                        let result = request.result(&raw).ok_or("dismiss reply not JSON")?;
+                        let Some(result) = request.result(&raw) else {
+                            return Ok(("error".into(), ws_request::server_fail()));
+                        };
                         Ok(("Email/nudgeDismiss".into(), result))
                     }
-                    SetOutcome::Failed(failure) => Ok((
-                        "error".into(),
-                        reply::failure_json(failure).ok_or("dismiss failed")?,
-                    )),
-                    SetOutcome::Forward => Err("dismiss rolled back"),
+                    SetOutcome::Failed(failure) => {
+                        Ok(("error".into(), reply::failure_or_server_fail(failure)))
+                    }
+                    SetOutcome::Forward => Ok(("error".into(), ws_request::server_fail())),
                     SetOutcome::Unknown { operation } => Ok((
                         "error".into(),
                         reply::jmap_error_json(
@@ -1457,32 +1559,26 @@ impl<K: KeySource> JmapCommands<K> {
                     Err(e) => return Ok(("error".into(), e.json())),
                 };
                 if request.which == Paged::Nudges {
-                    let enabled = gates::toggle_state(&self.exec, gates::NUDGES_FLAG)
-                        .await
-                        .ok_or("toggle unreadable")?;
+                    let Some(enabled) = gates::toggle_state(&self.exec, gates::NUDGES_FLAG).await
+                    else {
+                        return Ok(("error".into(), ws_request::server_fail()));
+                    };
                     if !enabled {
                         return Ok(("Email/nudges".into(), request.nudges_off()));
                     }
                 }
-                return match read_paged(
-                    &self.exec,
-                    &resolved.auth,
-                    request.which,
-                    limit,
-                    position,
-                )
-                .await
+                return match read_paged(&self.exec, &resolved.auth, request.which, limit, position)
+                    .await
                 {
                     Ok(raw) => {
-                        let result = request
-                            .result(&raw, position)
-                            .ok_or("paged reply not JSON")?;
+                        let Some(result) = request.result(&raw, position) else {
+                            return Ok(("error".into(), ws_request::server_fail()));
+                        };
                         Ok((request.method().into(), result))
                     }
                     Err(failure) => Ok((
                         "error".into(),
-                        reply::failure_json(setjoin_jmap::classify_failure(&failure))
-                            .ok_or("paged read failed")?,
+                        reply::failure_or_server_fail(setjoin_jmap::classify_failure(&failure)),
                     )),
                 };
             }
@@ -1532,8 +1628,7 @@ impl<K: KeySource> JmapCommands<K> {
                     Ok(raw) => Ok(("Email/query".into(), raw)),
                     Err(failure) => Ok((
                         "error".into(),
-                        reply::failure_json(setjoin_jmap::classify_failure(&failure))
-                            .ok_or("email query read failed")?,
+                        reply::failure_or_server_fail(setjoin_jmap::classify_failure(&failure)),
                     )),
                 };
             }
@@ -1594,15 +1689,14 @@ impl<K: KeySource> JmapCommands<K> {
                     }
                     GetOutcome::Failed(failure) => {
                         *mutated = true;
-                        return Ok((
-                            "error".into(),
-                            reply::failure_json(failure).ok_or("email get failed")?,
-                        ));
+                        return Ok(("error".into(), reply::failure_or_server_fail(failure)));
                     }
                     GetOutcome::Encrypted => return Err("encrypted mail: Go decrypts on read"),
-                    GetOutcome::Forward => return Err("email get not served"),
+                    GetOutcome::Forward => return Ok(("error".into(), ws_request::server_fail())),
                 };
-                let result = get::add_not_found(&raw, &bad).ok_or("get reply not JSON")?;
+                let Some(result) = get::add_not_found(&raw, &bad) else {
+                    return Ok(("error".into(), ws_request::server_fail()));
+                };
                 return Ok(("Email/get".into(), result));
             }
             Claimed::List(list) => {
@@ -1618,9 +1712,10 @@ impl<K: KeySource> JmapCommands<K> {
                     Ok(r) => r,
                     Err(e) => return Ok(("error".into(), e.json())),
                 };
-                let page = query_email_list(&self.exec, &resolved.auth, &list.query)
-                    .await
-                    .map_err(|_| "inbox list read failed")?;
+                let Ok(page) = query_email_list(&self.exec, &resolved.auth, &list.query).await
+                else {
+                    return Ok(("error".into(), ws_request::server_fail()));
+                };
                 if log_served() {
                     eprintln!(
                         "setjoin-gateway: inbox list served by Rust mailbox={} tag={} position={} ids={}",
@@ -1639,21 +1734,20 @@ impl<K: KeySource> JmapCommands<K> {
         };
 
         let raw_acct = seen.account_id.to_string();
-        let resolved = match account::resolve_account(
-            &self.exec,
-            user_id,
-            &raw_acct,
-            family::Gate::Mutate,
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => return Ok(("error".into(), e.json())),
-        };
+        let resolved =
+            match account::resolve_account(&self.exec, user_id, &raw_acct, family::Gate::Mutate)
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => return Ok(("error".into(), e.json())),
+            };
         *mutated = true;
         let mailbox = resolved.mailbox;
-        let mailbox_id = MailboxId::new(mailbox).map_err(|_| "ids")?;
-        let message_id = MessageId::new(seen.message_id).map_err(|_| "ids")?;
+        let (Ok(mailbox_id), Ok(message_id)) =
+            (MailboxId::new(mailbox), MessageId::new(seen.message_id))
+        else {
+            return Ok(("error".into(), ws_request::server_fail()));
+        };
         let deadline = Instant::now() + COMMAND_DEADLINE;
         let reply = match seen.seen {
             seen::SeenValue::Flag(value) => {
@@ -1728,12 +1822,28 @@ impl<K: KeySource> JmapCommands<K> {
     }
 }
 
-/// Focus body reader: forwards >64 KiB bodies untouched.
-pub(super) async fn buffer_focus(body: Body) -> Result<Bytes, Body> {
-    match buffer_with_cap(body, FOCUS_BODY_CAP, true).await {
-        Buffered::Whole(bytes) => Ok(bytes),
-        Buffered::Forward(rest) => Err(rest),
-        Buffered::TooLarge => unreachable!("forward_on_limit is true"),
+pub(super) enum FocusBodyError {
+    TooLarge,
+    Invalid,
+}
+
+/// Focus body reader: enforces 64 KiB cap (`413`) and rejects unreadable streams (`400`).
+pub(super) async fn buffer_focus(mut body: Body) -> Result<Bytes, FocusBodyError> {
+    let mut buf = BytesMut::new();
+    loop {
+        match body.frame().await {
+            None => return Ok(buf.freeze()),
+            Some(Err(_)) => return Err(FocusBodyError::Invalid),
+            Some(Ok(frame)) => match frame.into_data() {
+                Ok(data) => {
+                    buf.extend_from_slice(&data);
+                    if buf.len() > FOCUS_BODY_CAP {
+                        return Err(FocusBodyError::TooLarge);
+                    }
+                }
+                Err(_) => return Err(FocusBodyError::Invalid),
+            },
+        }
     }
 }
 
@@ -1834,31 +1944,26 @@ fn rolled_back_line(
     )
 }
 
-/// 16 bytes from the OS RNG; `None` (never a panic) when it cannot be read.
-pub(crate) fn random() -> Option<[u8; 16]> {
-    random_from("/dev/urandom")
+/// 16 bytes from the OS RNG; `Err(())` (never a panic) when unavailable.
+pub(super) fn random_bytes() -> Result<[u8; 16], ()> {
+    let mut b = [0u8; 16];
+    getrandom::getrandom(&mut b).map_err(|_| ())?;
+    Ok(b)
 }
 
-fn random_from(path: &str) -> Option<[u8; 16]> {
-    use std::io::Read;
-    let mut b = [0u8; 16];
-    std::fs::File::open(path)
-        .and_then(|mut f| f.read_exact(&mut b))
-        .ok()?;
-    Some(b)
+/// 16 bytes from the OS RNG; `None` (never a panic) when it cannot be read.
+pub(crate) fn random() -> Option<[u8; 16]> {
+    random_bytes().ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// An unreadable entropy source is an answer, not a panic (review item
-    /// 2): the route then forwards the request to Go.
     #[test]
-    fn an_unreadable_rng_is_none_not_a_panic() {
-        assert_eq!(random_from("/nonexistent/setjoin-rng"), None);
-        let a = random_from("/dev/urandom").expect("urandom");
-        let b = random_from("/dev/urandom").expect("urandom");
+    fn random_bytes_produces_unique_tokens() {
+        let a = random_bytes().expect("getrandom");
+        let b = random_bytes().expect("getrandom");
         assert_ne!(a, b);
     }
 }

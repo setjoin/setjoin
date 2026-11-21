@@ -41,7 +41,7 @@ impl<K: KeySource> JmapCommands<K> {
             .filter(|s| !s.is_empty())
             .unwrap_or("application/octet-stream")
             .to_owned();
-        let Some(operation) = super::random() else {
+        let Ok(operation) = super::random_bytes() else {
             return fail(500, "serverFail", "upload failed");
         };
         let temp = format!("tmp/upload/{}", &reply::hex(&operation)[..16]);

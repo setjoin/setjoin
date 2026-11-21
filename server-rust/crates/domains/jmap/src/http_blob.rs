@@ -1,8 +1,8 @@
 //! JMAP HTTP blob authority. Account selectors never supply the actor identity.
 use setjoin_contracts::command::CommandEnvelope;
 use setjoin_pg::{
-    CommandOutcome, MailboxAuthContext, ReceiptCommand, ScopedExecutor, StatementFailure, Type,
-    run_receipted_command,
+    run_receipted_command, CommandOutcome, MailboxAuthContext, ReceiptCommand, ScopedExecutor,
+    StatementFailure, Type,
 };
 
 pub async fn account_read(
@@ -72,6 +72,40 @@ pub async fn recovery_context(
     run_receipted_command(exec,ReceiptCommand{family:"jmap",command:"recovery.raw"},envelope,auth,std::time::Instant::now()+std::time::Duration::from_secs(10),
         "SELECT continuity_recovery_receipt_context($1,ARRAY[$4],$5::text::uuid)::text WHERE $2::bigint>0 AND $3::text<>''",
         &[(&message,Type::INT8),(&boot,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint:None,sqlstate:None,message:"missing recovery context".into()})).await
+}
+
+/// Issue continuity receipt context for `Email/recoveryReceipt` (`1..=64` IDs).
+/// Commits and releases the database transaction before callers read S3 or sign.
+pub async fn recovery_receipt_contexts(
+    exec: &ScopedExecutor,
+    auth: &MailboxAuthContext,
+    envelope: &CommandEnvelope<()>,
+    ids: &[i64],
+    boot: &str,
+) -> CommandOutcome<String, StatementFailure> {
+    let ids = ids.to_vec();
+    run_receipted_command(
+        exec,
+        ReceiptCommand {
+            family: "jmap",
+            command: "recovery.receipt",
+        },
+        envelope,
+        auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(10),
+        "SELECT continuity_recovery_receipt_context($1,$4,$5::text::uuid)::text WHERE $2::bigint>0 AND $3::text<>''",
+        &[(&ids, Type::INT8_ARRAY), (&boot, Type::TEXT)],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "missing recovery receipt context".into(),
+                })
+        },
+    )
+    .await
 }
 
 pub async fn transfer_device(

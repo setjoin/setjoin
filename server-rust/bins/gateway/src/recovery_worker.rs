@@ -202,6 +202,40 @@ impl S3Store {
         *self.region.get_mut() = Some(region);
         self
     }
+    /// Stream `key` from S3 and compute its SHA-256 hex digest and byte length
+    /// without buffering the object body, aborting immediately if it exceeds `max_bytes`.
+    pub async fn digest_object(&self, key: &str, max_bytes: u64) -> Result<(u64, String), String> {
+        use futures_util::StreamExt;
+        use sha2::{Digest, Sha256};
+        if key.is_empty() {
+            return Err("recovery object unavailable".into());
+        }
+        let bucket = self.bucket().await?;
+        let mut response = bucket
+            .get_object_stream(key)
+            .await
+            .map_err(|error| error.to_string())?;
+        if response.status_code != 200 {
+            return Err(format!("S3 get returned HTTP {}", response.status_code));
+        }
+        let mut total = 0u64;
+        let mut hasher = Sha256::new();
+        while let Some(chunk) = response.bytes.next().await {
+            let chunk = chunk.map_err(|error| error.to_string())?;
+            total = total
+                .checked_add(chunk.len() as u64)
+                .filter(|n| *n <= max_bytes)
+                .ok_or_else(|| "recovery object exceeds limit".to_owned())?;
+            hasher.update(&chunk);
+        }
+        let digest = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        Ok((total, digest))
+    }
+
     /// Frozen outbound GetObject + ReadAll. A missing object's XML Message is
     /// retained in the queue error, rather than replaced by an HTTP status.
     pub(crate) async fn smtp_raw(&self, key: &str) -> Result<Vec<u8>, String> {
