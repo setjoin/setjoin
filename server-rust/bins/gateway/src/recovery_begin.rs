@@ -207,26 +207,44 @@ impl Claims {
             .map_err(|_| ())
     }
 }
-pub struct BeginRoute<K: KeySource + 'static>(pub Arc<RecoveryCommands<K>>, pub Arc<ReceiptKeys>);
+pub struct BeginRoute<K: KeySource + 'static>(
+    pub Arc<RecoveryCommands<K>>,
+    pub Option<Arc<ReceiptKeys>>,
+);
 impl<K: KeySource + 'static> Intercept for BeginRoute<K> {
     fn requires_session(&self, _req: &Request<Body>) -> bool { true }
     fn matches(&self, r: &Request<Body>) -> bool {
         r.method() == Method::POST && r.uri().path() == "/api/recovery/uploads"
     }
-    fn admits_member(&self, h: hyper::HeaderMap, s: &'static str) -> BoxFuture<bool> {
+    fn admits_member(&self, h: hyper::HeaderMap, _s: &'static str) -> BoxFuture<bool> {
         let c = self.0.clone();
-        Box::pin(async move { c.authorize(&h, s).await.is_some() })
+        Box::pin(async move { c.admits_member(&h, "POST", "/api/recovery/uploads").await })
     }
-    fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
+    fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let commands = self.0.clone();
         let keys = self.1.clone();
         Box::pin(async move {
-            let Some(a) = commands.authorize(r.headers(), c.identity.proto).await else {
-                return c.upstream.forward(r, &c.identity).await;
+            let (mut r, a) = match commands
+                .admit_route(r, &c, commands.store.is_some() && keys.is_some())
+                .await
+            {
+                Ok(ok) => ok,
+                Err(response) => return response,
             };
-            let operation = crate::jmap::random().expect("OS randomness");
+            let Some(operation) = crate::jmap::random() else {
+                let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+                return problem(
+                    500,
+                    "recovery control operation failed",
+                    c.identity.proto,
+                    id,
+                );
+            };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let fail = |status, detail| problem(status, detail, c.identity.proto, id.clone());
+            let Some(keys) = keys else {
+                return fail(404, "client-assisted recovery is disabled");
+            };
             let mut bytes = Vec::new();
             while let Some(frame) = r.body_mut().frame().await {
                 let Ok(frame) = frame else {
