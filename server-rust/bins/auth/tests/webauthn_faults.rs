@@ -180,6 +180,9 @@ async fn lost_reply(kind: &str, cut: commit::CommitCut) {
         Config::for_secret(f["secret"].as_str().unwrap().into()),
     )
     .await
+    .unwrap()
+    .with_threat_gate(&db.dsn)
+    .await
     .unwrap();
     let response = server
         .handle(

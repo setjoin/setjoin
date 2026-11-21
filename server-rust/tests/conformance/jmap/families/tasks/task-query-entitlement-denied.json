@@ -1,0 +1,50 @@
+{
+  "case": "task-query-entitlement-denied",
+  "format": 1,
+  "go_source": "ea21f63581d6aabd1a7a96e6b5a533402d6351b9",
+  "kind": "entitlement-denied",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [
+      "<seed.0>"
+    ],
+    "audit": [],
+    "effects": {
+      "tasks": {
+        "after": "[{\"id\": <seed.0>, \"rrule\": null, \"title\": \"Own task\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": null, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"sort_order\": 0, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}]",
+        "before": "[{\"id\": <seed.0>, \"rrule\": null, \"title\": \"Own task\", \"due_at\": null, \"status\": \"needs-action\", \"list_id\": null, \"priority\": 0, \"start_at\": null, \"checklist\": [], \"parent_id\": null, \"categories\": [], \"created_at\": \"<timestamp>+00:00\", \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"sort_order\": 0, \"updated_at\": \"<timestamp>+00:00\", \"description\": null, \"reminder_at\": null, \"completed_at\": null, \"linked_event_id\": null, \"assignee_user_id\": null, \"linked_message_id\": null, \"linked_message_received_at\": null}]"
+      }
+    },
+    "notify": [],
+    "repeat": null,
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:tasks\"],\"methodCalls\":[[\"Task/query\",{\"accountId\":\"<a.mailbox>\"},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"error\",{\"type\":\"urn:ietf:params:jmap:error:forbidden\",\"status\":500,\"detail\":\"access to this app is not permitted\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap Task/query"
+}

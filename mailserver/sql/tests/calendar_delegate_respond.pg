@@ -1,6 +1,6 @@
 -- pgTAP: calendar_itip.sql — delegate respond (on-behalf RSVP, delegate-gated).
 BEGIN;
-SELECT plan(5);
+SELECT plan(8);
 
 INSERT INTO domains (name, is_local) VALUES ('deleg.test', TRUE);
 
@@ -42,6 +42,24 @@ SELECT is(
   'accepted',
   'on-behalf RSVP flips the manager attendee status'
 );
+
+-- A locking SELECT leaves a relation intent lock visible in this session.
+-- The grant row's FOR SHARE conflicts with a concurrent DELETE or UPDATE.
+SELECT ok(EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailbox_delegates'::regclass
+    AND mode = 'RowShareLock'
+), 'delegate RSVP holds a revocation-conflicting grant lock');
+
+SAVEPOINT revoked_grant;
+DELETE FROM mailbox_delegates WHERE mailbox_id = 9101 AND user_id = 7102;
+SELECT (jmap_calendar_event_rsvp(9101, 9101, 'm@deleg.test', 'declined', 7102))->>'type' AS revoked_type \gset
+SELECT status AS revoked_status FROM event_attendees
+WHERE event_id = 9101 AND email = 'm@deleg.test' \gset
+ROLLBACK TO SAVEPOINT revoked_grant;
+RELEASE SAVEPOINT revoked_grant;
+SELECT is(:'revoked_type'::TEXT, 'forbidden'::TEXT, 'a revoked delegate cannot respond');
+SELECT is(:'revoked_status'::TEXT, 'accepted'::TEXT, 'a revoked delegate leaves the attendee status intact');
 
 -- (2) Stranger S (no delegate grant) is forbidden — no flip.
 -- reset status first

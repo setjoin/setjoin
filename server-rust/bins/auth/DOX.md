@@ -19,8 +19,8 @@ SIGINT/SIGTERM drain owned connections with Go's 30-second bound.
 
 The front door selects `rust-auth` for qualified entries using
 GATEWAY_RUST_AUTH_UPSTREAM. AUTHSERVER_GO_UPSTREAM is only for shapes not yet
-ported: device proof/trust (#420; HTTP threat admission is native, #349a), conditional
-access/DPoP controls (#405), or federation (#339–#341).
+ported: device proof/trust (#420; HTTP threat admission #349a/#349b and DPoP
+admission/token binding #352 are native), conditional access (#405), or federation (#339–#341).
 Forwarding happens before any effect and preserves the whole request/body. An
 unset upstream fails closed. Completed shapes have no return-to-Go flag.
 
@@ -54,7 +54,7 @@ The DB test common fixture installs the recorded synthetic Go key under the
 family advisory lock before listeners load, including fresh-schema runs. It
 never changes runtime key custody or the immutable recorded public key.
 Duplicate JSON map fields merge as in Go (null resets); an empty later
-DPoP map cannot erase an earlier key before the #405 handoff.
+`dpop_jwk` map cannot erase an earlier key during native #352 binding.
 
 #333 token-slice wire recordings start in `tests/conformance/identity-token`;
 `token_oracle` replays the real front door with Go upstreams unset and checks
@@ -78,8 +78,8 @@ no form token here and is not the introspection legacy contract. COMMIT wire
 loss returns 503 with x-operation-id; `token_faults` proves before/after outcomes.
 
 `GET/HEAD /terms/pending` and `POST /terms/accept` (#333) are native. They use
-Go authserver's signature/access/revocation guard, without gateway mailbox or
-guest gates; non-empty cnf.jkt still forwards whole to #405 before effects.
+Go authserver's signature/access/revocation guard and native DPoP admission (#352),
+without gateway mailbox or guest gates.
 Mutations retain CSRF and authenticated source IP. Pending JSON preserves struct
 order and no added cache policy; HEAD preserves representation length. Terms
 acceptance ignores request identity, maps stale/missing/disabled documents to
@@ -122,9 +122,28 @@ owned device upsert and event together; unknown COMMIT returns 503/operation ID.
 Only first creation returns the secret. The oracle opens complete row envelopes
 and checks them against the returned secret before masking random ciphertext.
 
+`GET /device/policy` and `POST /device/checkin` (#341) are ON through the
+`rust-auth` upstream and take no JWT. Frozen `RequireDeviceHMAC` order: device_id
+(query `%d` scan, or one JSON value in a 64KiB body prefix) else 400; proof
+headers, then a body that is
+read and, when empty, provably empty, then `DeviceResolver::verify_request`
+(HMAC over id:ts:method:URI:body-SHA256:nonce, ±5 min, revoked rows excluded,
+JWT-secret EK01 codec, nonce committed in its own statement) else 401 with
+one `device proof refused route= device_id= reason=` warn line (never proof
+material); then the handler (valid-proof HEAD → Go's JSON 405; decode error →
+400 after the nonce). Owner-approved security fix: more than 100 events → 400
+before any proof work. Policy reads `mdm_effective_policy`; check-in runs
+`rust_device_checkin` in one acknowledged protocol transaction (no late commit;
+lost COMMIT → 500 + `x-operation-id`). ETag is Go's FNV policy version; equal
+If-None-Match → bare 304 after effects; 200s `private, max-age=300`, errors
+`no-store`. Tests: `device_oracle`, `device_faults`
+([corpus](../../tests/conformance/identity-device/README.md)).
+Owner-approved security fix (#341): Rust refuses empty plaintext and decrypted
+device secrets before re-sealing or verifying the HMAC, while Go uses them as keys.
+
 WebPush-only `POST /auth/device/register` (#333) keeps outer 64KiB buffering,
 full session/CSRF, provider/subscription bounds and shared Go URL admission.
-Device proof shapes remain #420 (threat and rate admission is native, #349a); native push providers
+Device proof shapes remain #420 (threat admission is native, #349b); native push providers
 use #336’s possession-gated transaction below. DB_ENCRYPTION_KEY and AUDIT_HMAC_KEY are startup-bound
 pool configuration and use the executor's protected transaction-local context.
 Configured DB encryption keys keep Go's profile-specific strength floor before
@@ -190,7 +209,9 @@ and process-local revocation snapshot. It does not query revocations per request
 `token_recorded::token_and_session_routes_share_the_process_revocation_snapshot`
 proves both routes retain admission before reconciliation and reject after a
 fresh startup snapshot, matching Go's shared bearerAuth registration. The sealed
-identity SessionProof retains access-type, positive-user and DPoP checks.
+identity `SessionProof` retains access-type and positive-user checks, while
+`src/dpop.rs` enforces transport DPoP verification once per bound request (`ath`
+required everywhere except `GET/HEAD /auth/session/token`, #281).
 
 TOTP MFA slice (#334): [domain contract](../../crates/domains/identity/TOTP.md).
 The native removal adapter uses the same verified Session and process revocation
@@ -203,9 +224,9 @@ verify, enroll/setup, enroll/confirm, remove/begin and remove. Pending endpoints
 validate the signed mfa_pending type directly; authenticated management shares
 the existing revocation snapshot, CSRF and impersonation rejection. Go's verify
 endpoint has its distinct admission, preserved by the oracle. Completion bodies
-retain Go duplicate-map merging and null reset for dpop_jwk. Only unported
-device, CA/DPoP and guest shapes forward to their
-named owners before effects. The MFA corpus checks the real front door with
+retain Go duplicate-map merging and null reset for `dpop_jwk`. Only unported
+device and CA shapes forward to their named owners before effects (DPoP and
+guest are native, #352/#353). The MFA corpus checks the real front door with
 Go unset, raw JSON/cookie bytes, audited factor state and signed anchor links.
 
 Password-login MFA branches are native for push preference, TOTP fallback and
@@ -295,7 +316,8 @@ person/users fence. Unknown commits return an actor-bound opaque operation ID.
 Owner-approved security fix 2026-11-05 rejects counter regression and repeated
 login challenges through the atomic live-key claim reducer (including zero counters).
 Immutable Go captures and reviewed security expectations retain the divergence trail.
-DPoP/CA completion (#405) shapes retain their named upstream owner before writes.
+CA completion (#405) shapes retain their named upstream owner before writes;
+DPoP admission and `cnf.jkt` binding at issuance are native (#352).
 
 Public recovery begin (#336) snapshots the same startup feature mount as reset.
 Its process-local enumeration budget is separate from push-send's budget;
@@ -404,22 +426,21 @@ Native OP handoff (#339) owns authorization, authenticated completion and callba
 transport; the detailed [profile](../../crates/domains/identity/OIDC.md) defines
 its sealed capabilities, one-shot digest binding and commit publication. These
 qualified mounts have no completed-shape return-to-Go switch. Shared HTTP threat
-and DPoP shapes retain their existing named #420/#405 handoffs before effects.
+and DPoP admission are native (#349b/#352).
 
 OIDC RP startup (#340): `OIDC_ENABLED` (YAML `oidc.enabled`, default false)
 is independent of the OP switch. Login, callback, authenticated link and the
 mixed gateway namespace are ON in the bundled inventory. GET/HEAD gateway link
 aliases retain Go's 405 because auth registers POST only. Completed RP shapes
-have no return-to-Go switch. Login-time CA/device and bound-session prerequisites
-retain their existing #405/#420 owners before token exchange or any write.
+have no return-to-Go switch. Login-time CA/device prerequisites retain their
+existing #405/#420 owners before token exchange or any write.
 The [RP contract](../../crates/domains/identity/RP.md) owns the guarded HTTPS,
 sealed assertion, profile/JIT/mapping, normalized fence and link semantics.
 
-RP callback account/JIT/group settlement and `oidc_rp` task are native (#340).
-The [RP contract](../../crates/domains/identity/RP.md) owns the sealed assertion,
-normalized fence and explicit link transaction details. Library embeddings start
-the listener explicitly; main requires both named transfer attestations. The
-listener uses DB_DIRECT_DSN, while normalized reducers use DB_WORKER_DSN.
+RP callback account/JIT/group settlement is native (#340). The
+[RP contract](../../crates/domains/identity/RP.md) owns the sealed assertion,
+normalized fence and explicit link transaction details. Normalized reducers use
+DB_WORKER_DSN.
 
 RP secret migration failure warns and retains the healthy sealed-provider subset;
 it does not stop the process, matching frozen authserver main.go:693. Provider
@@ -445,11 +466,23 @@ the encrypted flow and signed request. List no-store, link cookie order,
 HTTP corpus validates ciphertext contents against the committed row before
 normalizing randomness. `rust_identity_saml.pg` covers the SQL transaction.
 
-Shared unlink and SAML worker (#341): `DELETE /auth/identity-links/{id}` uses
-fresh token-owned authority and the canonical reducer/receipt transaction;
-COMMIT ambiguity publishes no success. `start_saml_listener` and process startup
-require both named transfer attestations; the retained task uses DB_DIRECT_DSN.
-Detailed contracts and oracle evidence are in the identity SAML profile above.
+Shared unlink (#341): `DELETE /auth/identity-links/{id}` uses fresh token-owned
+authority and the canonical reducer/receipt transaction. COMMIT ambiguity
+publishes no success. Detailed contracts and oracle evidence are in the identity
+SAML profile above.
+
+SSO revocation (#394, following #359): auth starts the SAML and OIDC RP
+`config_changed` listeners for their loaded registries before serving requests,
+independent of `RUST_WORKERS_ON` and `GO_WORKERS_OFF`. These process-local caches
+subscribe over DB_DIRECT_DSN, reload on change and reconcile after reconnect.
+A failed subscription, detected disconnect, or reload error clears cached trust
+until a fully successful reload. Both registries use the cache lock to serialize
+detection of connection loss with snapshot publication. A reload captures the
+subscription generation when requested, before queuing. After loss, only a reload
+requested after the next confirmed LISTEN can restore trust. Library embeddings
+with their own HTTP serving loop start and retain the corresponding listener.
+`saml_worker` deletes an IdP while the real binary runs with empty worker flags.
+`rp_oracle` checks live provider deletion through the gateway.
 
 Verified ACS (#546, owner-approved feature 2026-11-08, decision on #534):
 `POST /auth/saml/{idp}/acs` verifies a SAMLResponse against the registration's pinned
@@ -486,7 +519,7 @@ cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test 
 A failed MFA-factor, risk or `feature.user_risk` read, or a failed common-password lookup, refuses
 before any token is signed or stored: WebAuthn finish 500 `internal error` (factors), password
 login, WebAuthn, SSO and MFA completions 500 `token issue failed`, refresh 503 with
-`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A routing-flag lookup error (`feature.rate_limit`, conditional access, device trust, token binding) refuses locally and never forwards on the completions that mint: TOTP verify (`/auth/totp/verify`), enroll confirm (`/auth/totp/enroll/confirm`), backup-codes verify, push status and WebAuthn login finish answer 500 `internal error` before the body is read (an enabled flag forwards only after the 1 MiB bound on verify, enroll confirm and backup); password login and the token-binding handoff answer 500 `internal error`; the OIDC callback answers 500 `internal error` and SAML ACS 503 `SAML authentication unavailable`. `totp_ingress` still forwards on a flag error for setup, confirm and enroll setup, which mint nothing. Routing decided by `config.threat_controls` or an `x-device-*` header still hands off to Go before any flag is read (by design, #420), so Go's fail-open risk read stays reachable that way while an upstream is configured. Stored risk `signals` must be an array of strings. TOTP, backup-code,
+`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A routing-flag lookup error (conditional access, device trust, token binding) refuses locally and never forwards on the completions that mint: login, TOTP verify (`/auth/totp/verify`), enroll confirm (`/auth/totp/enroll/confirm`), backup-codes verify, push status and WebAuthn login finish answer 500 `internal error` before minting or factor consumption (`feature.rate_limit` and `feature.token_binding` are handled natively via `http_threat` and `src/dpop.rs`, and malformed `dpop_jwk` degrades to unbound when `feature.token_binding` is ON). An enabled CA/device-trust flag forwards before `threat_admit` (verify, enroll confirm, backup, webpush) or before body read (`push_status`, `webauthn_login_finish`); the OIDC callback answers 500 `internal error` and SAML ACS 503 `SAML authentication unavailable`. An `x-device-*` header on `totp_completion_route` or `webpush` still hands off to Go before any flag is read (#420). Stored risk `signals` must be an array of strings. TOTP, backup-code,
 push-status and bootstrap completions read the risk from the pending token before consuming
 the factor, so the factor stays unspent. Push status reads the risk on every poll, so under a
 fault a poll that is not yet approved answers 500 instead of `{"approved":false}`. Frozen Go fails
@@ -500,37 +533,36 @@ faults on the request role through `tests/common/revoke.rs`, undone on every pat
 `src/guest_invite.rs` mirrors frozen Go GET/HEAD/POST `/auth/guest-invite/accept`.
 The gateway alias adds its global CSRF gate and authLimit; the handler has no CSRF
 (the single-use token authorizes). Both methods share recovery's enumeration
-budget. POST: login's shared pending boundary (`src/http_threat.rs`, #420/#405,
-resolved by DELETE #142 together with login), Go's outer 1 MiB cap, native
-always-on `ip_rules` (Go's 403 shape; lookup failures reject with
-`ip_rules_unavailable`, an approved divergence, native path only: a failed earlier
-threat read still forwards to Go, which fails open until Go is removed), strict closed JSON, and the `auth_attempts`
-postAuth tail with GeoIP country. Terminal rejects sleep Go's fixed 100 ms after
-the transaction settled (additive; per-class timing differs as in Go). Own
+budget. POST keeps Go's outer 1 MiB cap and runs native unconditional `http_threat`
+(`src/http_threat.rs`, `Route::Anonymous`: empty `""` username, GeoIP country, `ip_rules`,
+rate limit, captcha, tarpit and `auth_attempts` tail; lookup failures reject closed,
+`ip_rules_unavailable`, divergence `threat-username-handler-decode`), strict closed JSON,
+and sleeps Go's fixed 100 ms on terminal rejects after the transaction settles; a 429
+`recovery_ip` limit sets `threat_no_outcome` so no attempt row is written
+(divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-bounded`). Own
 two-connection worker pool; startup logs a degraded posture (no BYPASSRLS,
-missing reducers). A present `X-Captcha-Token` is verified like Go's middleware (403 `captcha` plus a `captcha_needed` row on failure, within the source's shared refusal budget, divergence `http-refusal-rows-bounded`; bound and single-use). The recorded and captcha-bound username is always "" (divergence `threat-username-handler-decode`), and a 429 writes no attempt row (divergences `guest-invite-no-row-on-rate-limit`, `attempt-username-bounded`: attempt rows persist a bounded, distinct-preserving name on every protocol, identities stay whole). Residual: no username lockout key exists for guest-invite (the body has no username), so only the ip rules, rate limit and captcha apply (#346).
+missing reducers). Residual: no username lockout key exists for guest-invite, so only
+ip rules, rate limit and captcha apply (#346).
 
-Rollout: the four guest-invite registrations (auth and gateway listener, GET and POST) stay
-OFF/go-auth in the bundled inventory until a separate activation PR qualifies them (captcha
-parity landed with the #349a threat admission; see Residual above) (test
-`guest_invite_bundled_registrations_stay_off_go_auth`). Inventory OFF protects gateway
-dispatch only: the standalone auth listener mounts the handler unconditionally, so a direct
-request to the Rust auth process takes the native path; no direct-auth process switch exists
-yet, as for every native auth route: the gateway is the only supported entry before activation. Fault cases
+Rollout (#342): all four guest-invite registrations (auth and gateway listener, GET and
+POST) are ON/`rust-auth` in the bundled inventory (`guest_invite_oracle`). Fault cases
 (`guest_post_fault_*`) are native rollback tests (strict 500, unchanged rows, audit and
-receipts, and exactly one `failure` attempt); the Go recorder skips `fault` cases, so they have no goldens. A missing golden
-stays fatal for every other case.
+receipts, and one `failure` attempt); the Go recorder skips `fault` cases, so they have no goldens. A missing golden stays fatal for every other case.
 
-## Native HTTP threat admission (#349a)
+## Native HTTP threat admission (#349a, #349b)
 
-`src/http_threat.rs` is Go's `threat.Middleware` for POST /auth/login, /auth/refresh and
-/auth/forgot-password/{begin,verify,reset}. It runs in three stages:
+`src/http_threat.rs` is Go's `threat.Middleware`. It runs in three stages:
 - `threat_stage`: mount check, OPTIONS, the 1 MiB / 15 s body read, and the username.
 - `threat_admit`: `Gate::decide_with`, Go's response bytes and the bounded refusal row (`Gate::refusal`).
 - `threat_tail`: `Gate::record` and `ThreatOutcome`.
-Login and refresh are admitted only while one of the six gate toggles is on (env overrides
-included). The forgot-password routes are always admitted. Forwards decided by headers or
-toggles run before admission: device proof, CA/device trust, and `dpop_jwk` plus token binding.
+Login and refresh are dynamic (`dynamic() == true`, admitted while one of the six gate
+toggles is on); forgot-password (`{begin,verify,reset}`) and all 21 `#349b` routes
+(`Route::Anonymous`, empty `""` username: `guest_invite_post`, `webpush`, `totp_{setup,confirm,enroll/setup,verify,enroll/confirm}`, `generate_backups`, `backup_verify`, `webauthn_register_{begin,finish}`, `push_{verify,approve,send}`, `password_grant`, `possession_{totp,webauthn_begin,webauthn_finish}`, and OIDC OP `/authorize`, `/authorize/callback`, `/oauth/`, `/userinfo`, `/revoke`, `/end_session` after CORS preflight) are always admitted (`dynamic() == false`).
+Preflight Go forwards (`x-device-*`, CA/device trust) run between `threat_stage` and `threat_admit` so forwarded requests cause zero double admission. `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`). `feature.rate_limit` and DPoP are no longer forwarded on any route.
+
+## Native DPoP admission and token binding at issuance (#352)
+
+`src/dpop.rs` owns client-facing URI reconstruction (`AuthServer::dpop_client_facing_uri`: TLS vs HTTP scheme overridden only by single `http`/`https` `X-Forwarded-Proto`, sanitized single `X-Forwarded-Host` with `Host` fallback matching Go's port/IPv6/whitespace/delimiter checks, raw escaped path defaulting to `/`, no query string; shared with bootstrap `/device/register`), once-per-request proof admission (`AuthServer::verify_presented_access`: `setjoin_authz::dpop::verify` with `ath` required everywhere except `GET/HEAD /auth/session/token`, which uses `verify_without_ath` #281 and omits `WWW-Authenticate` and `dpop_admission` on 401; all other bound-session DPoP rejections return 401 `dpop_admission` + `WWW-Authenticate: Bearer realm="authserver"`, while `possession_token` disqualifies failed Bearer/cookie DPoP and falls through to `mfa_token` before returning `dpop_admission` "invalid MFA token"), and `AuthServer::resolve_dpop_cnf` (reads `feature.token_binding` once before minting or factor consumption across all 6 mint paths: `login`, `totp_verify`, `totp_bootstrap_confirm`, `backup_verify`, `push_status`, `webauthn_login_finish`, embedding `cnf.jkt` in both access and refresh JWTs; `/auth/refresh` already preserves `cnf`).
 A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests use
 `with_threat_gate`. Security divergences
 ([identity-threat](../../tests/conformance/identity-threat/divergences.json)):

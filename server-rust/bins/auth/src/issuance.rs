@@ -138,12 +138,8 @@ impl setjoin_authz::token::KeySource for VerifyKeys<'_> {
         Some(self.legacy)
     }
 }
-enum Admission {
-    Denied(Response<Body>),
-    Forward,
-}
 impl AuthServer {
-    async fn session(&self, req: &Request<Body>) -> Result<issuance::SessionProof, Admission> {
+    async fn session(&self, req: &Request<Body>) -> Result<issuance::SessionProof, Response<Body>> {
         let deny = |status, detail| {
             let mut r = Self::failure(status, detail, "");
             if status == 401 {
@@ -152,40 +148,27 @@ impl AuthServer {
                     hyper::header::HeaderValue::from_static("Bearer realm=\"authserver\""),
                 );
             }
-            Admission::Denied(r)
+            r
         };
         let Some(token) = Self::presented_access_token(req.headers()) else {
             return Err(deny(401, "Unauthorized"));
         };
-        let (Some(keys), Some(legacy)) = (&self.keys, &self.legacy) else {
-            return Err(deny(401, "Unauthorized"));
-        };
-        let Some(session) = setjoin_identity::session::Session::verify(
-            &token,
-            Some(keys.as_ref()),
-            legacy,
-            &self.config.issuer,
-        ) else {
-            return Err(deny(401, "Unauthorized"));
-        };
-        if session.text("typ") != "access" {
-            return Err(deny(403, "Invalid token type"));
-        }
-        if self.revocations.contains(&session) {
-            return Err(deny(401, "Unauthorized"));
-        }
-        match issuance::SessionProof::from_session(&session) {
-            Ok(p) => Ok(p),
-            Err(issuance::SessionError::WrongType) => Err(deny(403, "Invalid token type")),
-            Err(issuance::SessionError::Bound) => Err(Admission::Forward),
-            Err(issuance::SessionError::Invalid) => Err(deny(401, "Unauthorized")),
-        }
+        let session = self
+            .verify_presented_access(req, &token, true)
+            .map_err(|e| match e {
+                dpop::AccessError::Unauthorized => deny(401, "Unauthorized"),
+                dpop::AccessError::WrongType => deny(403, "Invalid token type"),
+                dpop::AccessError::TokenBinding => Self::dpop_admission_denied(req.uri().path()),
+            })?;
+        issuance::SessionProof::from_session(&session).map_err(|e| match e {
+            issuance::SessionError::WrongType => deny(403, "Invalid token type"),
+            issuance::SessionError::Invalid => deny(401, "Unauthorized"),
+        })
     }
     pub(super) async fn pending(&self, req: Request<Body>) -> Response<Body> {
         let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         match proof.pending(&self.exec).await {
             Ok(raw) => {
@@ -233,8 +216,7 @@ impl AuthServer {
         let path = req.uri().path().to_owned();
         let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if let Some(r) = Self::csrf_failure(&req) {
             return r;
@@ -381,8 +363,7 @@ impl AuthServer {
     pub(super) async fn impersonate(&self, req: Request<Body>, target: String) -> Response<Body> {
         let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if let Some(r) = Self::csrf_failure(&req) {
             return r;
@@ -505,15 +486,7 @@ impl AuthServer {
         }
         if let Some(jkt) = proof.bound_jkt() {
             if !setjoin_contracts::mutants::on("bootstrap-bound-no-dpop") {
-                let (headers, _) = Self::csrf_context(&req);
-                let uri = format!(
-                    "https://{}{}",
-                    headers
-                        .get("host")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or(""),
-                    req.uri().path()
-                );
+                let uri = Self::dpop_client_facing_uri(&req);
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_or(0.0, |d| d.as_secs_f64());
@@ -629,25 +602,28 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn webpush(&self, req: Request<Body>) -> Response<Body> {
-        // The unported shared threat interceptor (#420) owns the whole request.
-        if self.config.threat_controls.iter().any(|on| *on) {
-            return self.forward(req).await;
-        }
-        let path = req.uri().path().to_owned();
         let (parts, body) = req.into_parts();
         let raw = match Limited::new(body, 64 << 10).collect().await {
             Ok(b) => b.to_bytes(),
             Err(error) => {
-                let (status,detail)=if error.is::<http_body_util::LengthLimitError>(){(413,"request body too large\n")}else{(400,"invalid request body\n")};
+                let (status, detail) = if error.is::<http_body_util::LengthLimitError>() {
+                    (413, "request body too large\n")
+                } else {
+                    (400, "invalid request body\n")
+                };
                 return Response::builder()
                     .status(status)
                     .header("content-type", "text/plain; charset=utf-8")
                     .header("x-content-type-options", "nosniff")
                     .body(super::body(detail))
-                    .unwrap()
+                    .unwrap();
             }
         };
         let req = Request::from_parts(parts, super::body(raw.clone()));
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
+        };
         if [
             "x-device-id",
             "x-device-hmac",
@@ -656,17 +632,9 @@ impl AuthServer {
             "x-device-body-sha256",
         ]
         .iter()
-        .any(|h| req.headers().contains_key(*h))
+        .any(|h| staged.headers().contains_key(*h))
         {
-            return self.forward(req).await;
-        }
-        let rate=self.exec.read("SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.rate_limit'),true)",&[]).await;
-        if rate
-            .ok()
-            .and_then(|rows| rows.first()?.try_get::<_, bool>(0).ok())
-            != Some(false)
-        {
-            return self.forward(req).await;
+            return self.forward(staged.into_request()).await;
         }
         for control in [
             "feature.conditional_access",
@@ -676,19 +644,28 @@ impl AuthServer {
                 setjoin_identity::login::enabled(&self.exec, control).await,
                 Ok(false)
             ) {
-                return self.forward(req).await;
+                return self.forward(staged.into_request()).await;
             }
         }
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.webpush_admitted(req, &raw).await;
+        self.threat_tail(admitted, reply).await
+    }
+
+    async fn webpush_admitted(&self, req: Request<Body>, raw: &[u8]) -> Response<Body> {
+        let path = req.uri().path().to_owned();
         let proof = match self.session(&req).await {
             Ok(p) => p,
-            Err(Admission::Denied(r)) => return r,
-            Err(Admission::Forward) => return self.forward(req).await,
+            Err(r) => return r,
         };
         if let Some(r) = Self::csrf_failure(&req) {
             return r;
         }
         let fields = match ingress::typed_fields(
-            &raw,
+            raw,
             &[
                 ("provider", ingress::Field::Text),
                 ("push_token", ingress::Field::Text),
@@ -705,7 +682,9 @@ impl AuthServer {
             return Self::failure(400, "provider and push_token are required", &path);
         }
         match get("provider") {
-            "apns" | "fcm" | "hms" => return self.native_push_register(&proof,&req,&fields).await,
+            "apns" | "fcm" | "hms" => {
+                return self.native_push_register(&proof, &req, &fields).await
+            }
             "webpush" => {}
             _ => return Self::failure(400, "provider must be webpush, apns, fcm or hms", &path),
         }

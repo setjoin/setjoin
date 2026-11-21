@@ -1,0 +1,13 @@
+{
+  "case": "saved-search-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <created.id>, \"name\": \"Repeat Search\", \"query\": \"is:unread\", \"position\": 0, \"mailbox_id\": <a.mailbox>}, {\"id\": <created.id>, \"name\": \"Repeat Search\", \"query\": \"is:unread\", \"position\": 1, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[]",
+      "name": "saved_searches"
+    }
+  ],
+  "format": 1,
+  "go_source": "09a1912601657ce920fb9ca908dbec4957273882",
+  "route": "POST /jmap SavedSearch/set"
+}

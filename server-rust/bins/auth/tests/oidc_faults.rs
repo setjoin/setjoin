@@ -43,7 +43,7 @@ async fn lost(kind: &str, cut: wire::CommitCut) -> Result<(), Err> {
   let fixture:Value=serde_json::from_str(include_str!("../../../tests/conformance/identity-login/keys.json"))?;
   let mut cfg=Config::for_secret(fixture["secret"].as_str().unwrap().into());cfg.dsn=db.dsn.clone();cfg.oidc_enabled=true;cfg.oidc_hostname="auth.idfed1.test".into();cfg.oidc_private_key=corpus().join("op-private.pem").to_str().unwrap().into();cfg.oidc_public_key=corpus().join("op-public.pem").to_str().unwrap().into();
   let duration=std::time::Duration::from_secs(3);let exec=setjoin_pg::ScopedExecutor::from_dsn_with(&dsn,4,setjoin_pg::Timeouts{pool_wait:duration,create:duration,statement:duration}).map_err(|e|e.0)?;
-  let auth=auth_server(Arc::new(AuthServer::load(exec,cfg).await?),false).await;let gw=gateway(auth.addr,None).await;
+  let auth=auth_server(Arc::new(AuthServer::load(exec,cfg).await?.with_threat_gate(&db.dsn).await?),false).await;let gw=gateway(auth.addr,None).await;
   let response=request(gw.addr,method,&path,payload,&headers).await;
   gw.close().await;auth.close().await;let response=response?;
   let observed=tokio::time::timeout(std::time::Duration::from_secs(10),&mut proxy.0).await???;if observed!=cut{return Err("wrong COMMIT cut".into());}
@@ -108,11 +108,9 @@ async fn decode_db() -> Result<(tokio_postgres::Client, setjoin_pg::ScopedExecut
         &[],
     )
     .await?;
-    let app = setjoin_pg::ScopedExecutor::from_dsn(
-        db.app.as_deref().ok_or("DB_APP_DSN required")?,
-        2,
-    )
-    .map_err(|e| e.0)?;
+    let app =
+        setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().ok_or("DB_APP_DSN required")?, 2)
+            .map_err(|e| e.0)?;
     Ok((c, app))
 }
 
@@ -129,7 +127,9 @@ async fn client_rejects_arrays_with_null_elements() -> Result<(), Err> {
     let result: Result<(), Err> = async {
         for column in ["redirect_uris", "grant_types", "scopes"] {
             c.execute(
-                &format!("UPDATE oidc_clients SET {column}=array_append({column}, NULL) WHERE id=$1"),
+                &format!(
+                    "UPDATE oidc_clients SET {column}=array_append({column}, NULL) WHERE id=$1"
+                ),
                 &[&id],
             )
             .await?;
@@ -143,7 +143,9 @@ async fn client_rejects_arrays_with_null_elements() -> Result<(), Err> {
                 return Err(format!("{column} decode returned {error:?}").into());
             }
             c.execute(
-                &format!("UPDATE oidc_clients SET {column}=array_remove({column}, NULL) WHERE id=$1"),
+                &format!(
+                    "UPDATE oidc_clients SET {column}=array_remove({column}, NULL) WHERE id=$1"
+                ),
                 &[&id],
             )
             .await?;
@@ -151,7 +153,8 @@ async fn client_rejects_arrays_with_null_elements() -> Result<(), Err> {
         Ok(())
     }
     .await;
-    c.execute("DELETE FROM oidc_clients WHERE id=$1", &[&id]).await?;
+    c.execute("DELETE FROM oidc_clients WHERE id=$1", &[&id])
+        .await?;
     result
 }
 
@@ -208,12 +211,15 @@ async fn unreadable_token_scopes_refuse_userinfo_and_introspection() -> Result<(
         Ok(())
     }
     .await;
-    let removed_token = c.execute(
-        "DELETE FROM oidc_tokens WHERE id=$1 AND user_id=$2",
-        &[&token, &a.user],
-    )
-    .await;
-    let removed_client = c.execute("DELETE FROM oidc_clients WHERE id=$1", &[&client]).await;
+    let removed_token = c
+        .execute(
+            "DELETE FROM oidc_tokens WHERE id=$1 AND user_id=$2",
+            &[&token, &a.user],
+        )
+        .await;
+    let removed_client = c
+        .execute("DELETE FROM oidc_clients WHERE id=$1", &[&client])
+        .await;
     let removed_account = fixture::remove(&c, &a).await;
     removed_token?;
     removed_client?;

@@ -1,5 +1,7 @@
 //! Frozen Go -> actual Rust front door recording; native replay has no Go upstream.
 mod common;
+#[path = "common/revoke.rs"]
+mod revoke;
 use http_body_util::BodyExt;
 use hyper::Request;
 use serde_json::{json, Value};
@@ -1737,3 +1739,442 @@ session_notify_mutant!(
     "refresh-late-reuse",
     "POST /auth/refresh"
 );
+
+#[tokio::test]
+async fn dpop_session_routes_and_session_token_recovery() {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDLOGIN1-dpop-session").expect("database required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    let s = seed(&c, "dpop-session").await.unwrap();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.signing_alg = "ES256".into();
+        cfg.go_upstream = None;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = auth_server(Arc::new(
+            AuthServer::load(exec, cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
+        ))
+        .await;
+
+        let key = common::dpop::key(31);
+        let (_, jkt) = common::dpop::jwk_and_jkt(&key);
+        let other_key = common::dpop::key(32);
+        let tok1 = common::dpop::bound_access_jwt(secret, s.a.user, &s.email, "dpop-sess-1", &jkt);
+        let cookie1 = format!("access_token={tok1}");
+        let auth1 = format!("Bearer {tok1}");
+
+        // #281: GET/HEAD /auth/session/token omit WWW-Authenticate & dpop_admission on 401 and accept proofs without ath.
+        for (method, path) in [
+            ("GET", "/auth/session/token"),
+            ("HEAD", "/auth/session/token"),
+        ] {
+            let (st, hs, raw) = request(
+                srv.addr,
+                method,
+                path,
+                String::new(),
+                &[("cookie", &cookie1)],
+            )
+            .await?;
+            assert_eq!(st, 401, "{method} {path} missing DPoP: {raw}");
+            assert!(
+                hs.get("www-authenticate").is_none(),
+                "session/token must omit WWW-Authenticate: {hs}"
+            );
+            if method == "GET" {
+                let v: Value = serde_json::from_str(&raw)?;
+                assert_ne!(
+                    v["code"], "dpop_admission",
+                    "session/token must omit dpop_admission: {v}"
+                );
+            }
+        }
+
+        let (bad_key_p, _) = common::dpop::proof(
+            &other_key,
+            "GET",
+            &format!("http://{}/auth/session/token", "auth.idlogin1.test"),
+            None,
+            "j-st-badkey",
+        );
+        let (st, hs, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/session/token",
+            String::new(),
+            &[("cookie", &cookie1), ("dpop", &bad_key_p)],
+        )
+        .await?;
+        assert_eq!(st, 401, "{raw}");
+        assert!(hs.get("www-authenticate").is_none());
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_ne!(v["code"], "dpop_admission");
+
+        let (no_ath_get, _) = common::dpop::proof(
+            &key,
+            "GET",
+            "http://auth.idlogin1.test/auth/session/token",
+            None,
+            "j-st-get",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/session/token",
+            String::new(),
+            &[("cookie", &cookie1), ("dpop", &no_ath_get)],
+        )
+        .await?;
+        assert_eq!(st, 200, "GET /auth/session/token without ath: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(v["access_token"], tok1);
+
+        let (no_ath_head, _) = common::dpop::proof(
+            &key,
+            "HEAD",
+            "http://auth.idlogin1.test/auth/session/token",
+            None,
+            "j-st-head",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "HEAD",
+            "/auth/session/token",
+            String::new(),
+            &[("cookie", &cookie1), ("dpop", &no_ath_head)],
+        )
+        .await?;
+        assert_eq!(st, 200, "HEAD /auth/session/token without ath: {raw}");
+        assert!(raw.is_empty());
+
+        // GET /auth/me requires ath.
+        let (st, hs, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/me",
+            String::new(),
+            &[("authorization", &auth1)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (me_no_ath, _) = common::dpop::proof(
+            &key,
+            "GET",
+            "http://auth.idlogin1.test/auth/me",
+            None,
+            "j-me-noath",
+        );
+        let (st, hs, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/me",
+            String::new(),
+            &[("authorization", &auth1), ("dpop", &me_no_ath)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (me_ok, _) = common::dpop::proof(
+            &key,
+            "GET",
+            "http://auth.idlogin1.test/auth/me",
+            Some(&tok1),
+            "j-me-ok",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/me",
+            String::new(),
+            &[("authorization", &auth1), ("dpop", &me_ok)],
+        )
+        .await?;
+        assert_eq!(st, 200, "GET /auth/me with DPoP: {raw}");
+
+        // POST /auth/logout requires DPoP with ath.
+        let (st, hs, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/logout",
+            "{}".into(),
+            &[("authorization", &auth1)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (logout_ok, _) = common::dpop::proof(
+            &key,
+            "POST",
+            "http://auth.idlogin1.test/auth/logout",
+            Some(&tok1),
+            "j-logout-ok",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/logout",
+            "{}".into(),
+            &[("authorization", &auth1), ("dpop", &logout_ok)],
+        )
+        .await?;
+        assert_eq!(st, 204, "POST /auth/logout with DPoP: {raw}");
+
+        // PUT /auth/password requires DPoP with ath (fresh token jti since logout revoked tok1).
+        let tok2 = common::dpop::bound_access_jwt(secret, s.a.user, &s.email, "dpop-sess-2", &jkt);
+        let auth2 = format!("Bearer {tok2}");
+        let pw_body = json!({"old_password": "Password1!", "new_password": "NewPassword2!"}).to_string();
+        let (st, hs, raw) = request(
+            srv.addr,
+            "PUT",
+            "/auth/password",
+            pw_body.clone(),
+            &[("authorization", &auth2)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (pw_ok, _) = common::dpop::proof(
+            &key,
+            "PUT",
+            "http://auth.idlogin1.test/auth/password",
+            Some(&tok2),
+            "j-pw-ok",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "PUT",
+            "/auth/password",
+            pw_body,
+            &[("authorization", &auth2), ("dpop", &pw_ok)],
+        )
+        .await?;
+        assert_eq!(st, 204, "PUT /auth/password with DPoP: {raw}");
+
+        srv.close().await;
+        Ok(())
+    }
+    .await;
+
+    let _ = c
+        .execute("DELETE FROM session_revocations WHERE user_id=$1", &[&s.a.user])
+        .await;
+    let _ = c
+        .execute("DELETE FROM oauth_tokens WHERE user_id=$1", &[&s.a.user])
+        .await;
+    let _ = c
+        .execute("DELETE FROM sessions WHERE user_id=$1", &[&s.a.user])
+        .await;
+    cleanup(&c, &s).await.unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn dpop_login_binding_and_refresh_preservation() {
+    let _serial = SERIAL.lock().await;
+    let db = Db::for_case("IDLOGIN1-dpop-login").expect("database required");
+    let c = db.connect().await.unwrap();
+    c.query_one(
+        "SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",
+        &[],
+    )
+    .await
+    .unwrap();
+    let saved_tb = c
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .map(|r| r.get::<_, bool>(0));
+    let s = seed(&c, "dpop-login").await.unwrap();
+    let keys: Value = serde_json::from_str(include_str!(
+        "../../../tests/conformance/identity-login/keys.json"
+    ))
+    .unwrap();
+    let secret = keys["secret"].as_str().unwrap();
+
+    let result: Result<(), Err> = async {
+        let mut cfg = Config::for_secret(secret.into());
+        cfg.signing_alg = "ES256".into();
+        cfg.go_upstream = None;
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
+            .map_err(|e| e.0)?;
+        let srv = auth_server(Arc::new(
+            AuthServer::load(exec.clone(), cfg)
+                .await?
+                .with_threat_gate(&db.dsn)
+                .await?,
+        ))
+        .await;
+
+        let key = common::dpop::key(33);
+        let (jwk, jkt) = common::dpop::jwk_and_jkt(&key);
+
+        // 1. Toggle OFF: login ignores valid dpop_jwk and leaves both JWTs unbound.
+        c.execute(
+            "INSERT INTO feature_toggles(key,enabled) VALUES('feature.token_binding',false) ON CONFLICT(key) DO UPDATE SET enabled=false",
+            &[],
+        )
+        .await?;
+        let body_valid = json!({"email": s.email, "password": "Password1!", "dpop_jwk": jwk}).to_string();
+        let (st, _, raw) = request(srv.addr, "POST", "/auth/login", body_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "login toggle OFF: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        assert_eq!(common::dpop::cnf_jkt(v["access_token"].as_str().unwrap()), None);
+        assert_eq!(common::dpop::cnf_jkt(v["refresh_token"].as_str().unwrap()), None);
+
+        // 2. Toggle ON + valid dpop_jwk: binds BOTH access_token and refresh_token, refresh preserves cnf.jkt.
+        c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.token_binding'",
+            &[],
+        )
+        .await?;
+        let (st, _, raw) = request(srv.addr, "POST", "/auth/login", body_valid.clone(), &[]).await?;
+        assert_eq!(st, 200, "login toggle ON: {raw}");
+        let v: Value = serde_json::from_str(&raw)?;
+        let acc1 = v["access_token"].as_str().unwrap().to_owned();
+        let ref1 = v["refresh_token"].as_str().unwrap().to_owned();
+        assert_eq!(common::dpop::cnf_jkt(&acc1).as_deref(), Some(jkt.as_str()));
+        assert_eq!(common::dpop::cnf_jkt(&ref1).as_deref(), Some(jkt.as_str()));
+
+        let (st, _, raw) = request(
+            srv.addr,
+            "POST",
+            "/auth/refresh",
+            json!({"refresh_token": ref1}).to_string(),
+            &[],
+        )
+        .await?;
+        assert_eq!(st, 200, "refresh preserving cnf: {raw}");
+        let rv: Value = serde_json::from_str(&raw)?;
+        let acc2 = rv["access_token"].as_str().unwrap().to_owned();
+        let ref2 = rv["refresh_token"].as_str().unwrap().to_owned();
+        assert_eq!(common::dpop::cnf_jkt(&acc2).as_deref(), Some(jkt.as_str()));
+        assert_eq!(common::dpop::cnf_jkt(&ref2).as_deref(), Some(jkt.as_str()));
+
+        // Rotated bound access token requires ath matching acc2 (rejects acc1's ath).
+        let (stale_ath, _) = common::dpop::proof(
+            &key,
+            "GET",
+            "http://auth.idlogin1.test/auth/me",
+            Some(&acc1),
+            "j-ref-stale-ath",
+        );
+        let auth2 = format!("Bearer {acc2}");
+        let (st, hs, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/me",
+            String::new(),
+            &[("authorization", &auth2), ("dpop", &stale_ath)],
+        )
+        .await?;
+        common::dpop::assert_dpop_401(st, hs["www-authenticate"].as_str(), &raw);
+
+        let (fresh_ath, _) = common::dpop::proof(
+            &key,
+            "GET",
+            "http://auth.idlogin1.test/auth/me",
+            Some(&acc2),
+            "j-ref-fresh-ath",
+        );
+        let (st, _, raw) = request(
+            srv.addr,
+            "GET",
+            "/auth/me",
+            String::new(),
+            &[("authorization", &auth2), ("dpop", &fresh_ath)],
+        )
+        .await?;
+        assert_eq!(st, 200, "GET /auth/me with refreshed bound access token: {raw}");
+
+        // 3. Toggle ON + malformed/unsupported dpop_jwk degrades to unbound.
+        for bad_jwk in [json!({"kty": "EC"}), json!({"kty": "RSA"})] {
+            let (st, _, raw) = request(
+                srv.addr,
+                "POST",
+                "/auth/login",
+                json!({"email": s.email, "password": "Password1!", "dpop_jwk": bad_jwk}).to_string(),
+                &[],
+            )
+            .await?;
+            assert_eq!(st, 200, "malformed dpop_jwk degrades: {raw}");
+            let mv: Value = serde_json::from_str(&raw)?;
+            assert_eq!(common::dpop::cnf_jkt(mv["access_token"].as_str().unwrap()), None);
+            assert_eq!(common::dpop::cnf_jkt(mv["refresh_token"].as_str().unwrap()), None);
+        }
+
+        // 4. DB fault reading feature.token_binding returns 500 BEFORE minting.
+        if db.app.is_some() {
+            let sessions_before: i64 = c
+                .query_one("SELECT count(*) FROM sessions WHERE user_id=$1", &[&s.a.user])
+                .await?
+                .get(0);
+            let oauth_before: i64 = c
+                .query_one("SELECT count(*) FROM oauth_tokens WHERE user_id=$1", &[&s.a.user])
+                .await?
+                .get(0);
+            let guard = revoke::table(&db.dsn, &c, &exec, "feature_toggles").await?;
+            let call = request(srv.addr, "POST", "/auth/login", body_valid, &[]).await;
+            guard.restore(&c).await?;
+            let (st, _, raw) = call?;
+            assert_eq!(st, 500, "token_binding DB fault must 500: {raw}");
+            let sessions_after: i64 = c
+                .query_one("SELECT count(*) FROM sessions WHERE user_id=$1", &[&s.a.user])
+                .await?
+                .get(0);
+            let oauth_after: i64 = c
+                .query_one("SELECT count(*) FROM oauth_tokens WHERE user_id=$1", &[&s.a.user])
+                .await?
+                .get(0);
+            assert_eq!(sessions_after, sessions_before, "fault must not mint session");
+            assert_eq!(oauth_after, oauth_before, "fault must not mint refresh token");
+        }
+
+        srv.close().await;
+        Ok(())
+    }
+    .await;
+
+    let _ = c
+        .execute("DELETE FROM oauth_tokens WHERE user_id=$1", &[&s.a.user])
+        .await;
+    let _ = c
+        .execute("DELETE FROM sessions WHERE user_id=$1", &[&s.a.user])
+        .await;
+    if let Some(prev) = saved_tb {
+        let _ = c
+            .execute(
+                "INSERT INTO feature_toggles(key,enabled) VALUES('feature.token_binding',$1) ON CONFLICT(key) DO UPDATE SET enabled=EXCLUDED.enabled",
+                &[&prev],
+            )
+            .await;
+    } else {
+        let _ = c
+            .execute(
+                "DELETE FROM feature_toggles WHERE key='feature.token_binding'",
+                &[],
+            )
+            .await;
+    }
+    cleanup(&c, &s).await.unwrap();
+    result.unwrap();
+}

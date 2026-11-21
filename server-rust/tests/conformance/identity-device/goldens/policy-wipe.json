@@ -1,0 +1,55 @@
+{
+  "case": "policy-wipe",
+  "format": 1,
+  "go_source": "d54ae127ffeb07f2524b01b730ce4dc8af7862d4",
+  "observation": {
+    "audit": [],
+    "effects": {
+      "device_auth_nonces": [
+        {
+          "device": "<device-a>",
+          "nonce": "gofree341-policy-wipe",
+          "window_seconds": 660
+        }
+      ],
+      "device_events": [],
+      "devices": [
+        {
+          "device": "<device-a>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": true
+        },
+        {
+          "device": "<device-b>",
+          "enroll_state": "unenrolled",
+          "last_seen": "seeded",
+          "plaintext_secret": false,
+          "revoked": false,
+          "secret_key": "v1",
+          "wipe_requested": false
+        }
+      ]
+    },
+    "notify": [],
+    "request": {
+      "body": "",
+      "method": "GET",
+      "path": "/device/policy",
+      "query": "device_id=<device-a>"
+    },
+    "response": {
+      "body": "{\"device_id\":\"<device-a>\",\"policies\":{\"copy_paste\":\"allow\",\"encryption\":\"required\",\"gofree341_lock_timeout\":\"300\",\"gofree341_note\":\"\\u003cb\\u003e\\u0026ok\\u003c/b\\u003e\",\"max_offline_days\":\"30\",\"notification_profile\":\"push\",\"screen_capture\":\"allow\",\"watermark\":\"false\"},\"policy_version\":1144166866287859359,\"updated_at\":\"<timestamp>\",\"wipe_requested\":true}\n",
+      "headers": {
+        "cache-control": "private, max-age=300",
+        "content-type": "application/json",
+        "etag": "1144166866287859359"
+      },
+      "status": 200
+    }
+  },
+  "route": "GET /device/policy"
+}

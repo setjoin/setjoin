@@ -8,8 +8,6 @@ async fn main() {
     }
 }
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    setjoin_identity::saml::admit_worker(&std::env::var("RUST_WORKERS_ON").unwrap_or_default(),&std::env::var("GO_WORKERS_OFF").unwrap_or_default())?;
-    setjoin_identity::rp::admit_worker(&std::env::var("RUST_WORKERS_ON").unwrap_or_default(),&std::env::var("GO_WORKERS_OFF").unwrap_or_default())?;
     let config = Config::from_env()?;
     let shared_runtime = setjoin_threat::admit_runtime(
         &std::env::var("RUST_WORKERS_ON").unwrap_or_default(),
@@ -87,8 +85,6 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         None
     };
     let server = Arc::new(AuthServer::load(exec, config).await?.with_gate(gate));
-    let _saml_listener=server.start_saml_listener(&std::env::var("RUST_WORKERS_ON").unwrap_or_default(),&std::env::var("GO_WORKERS_OFF").unwrap_or_default()).await?;
-    let _rp_listener=server.start_rp_listener(&std::env::var("RUST_WORKERS_ON").unwrap_or_default(),&std::env::var("GO_WORKERS_OFF").unwrap_or_default()).await?;
     let reload_server = server.clone();
     setjoin_auth::serve_until(server, listener, tls, async move {
         #[cfg(unix)]

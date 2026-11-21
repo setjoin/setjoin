@@ -2,7 +2,6 @@
 use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use setjoin_identity::oidc;
-use setjoin_pg::Type;
 fn form_error(raw: &str) -> Option<String> {
     for part in raw.split('&') {
         if part.contains(';') {
@@ -36,7 +35,12 @@ fn html_escape(raw: &str) -> String {
         .replace('"', "&#34;")
         .replace('\'', "&#39;")
 }
-fn valid_form(raw:&str)->String{raw.split('&').filter(|part|form_error(part).is_none()).collect::<Vec<_>>().join("&")}
+fn valid_form(raw: &str) -> String {
+    raw.split('&')
+        .filter(|part| form_error(part).is_none())
+        .collect::<Vec<_>>()
+        .join("&")
+}
 fn basic(req: &Request<Body>) -> Result<Option<(String, String)>, ()> {
     let parsed = (|| {
         let auth = req.headers().get("authorization")?.to_str().ok()?;
@@ -97,7 +101,9 @@ impl AuthServer {
     /// RFC 6749 §5.1 (owner-approved security fix 2026-11-05, #523): token
     /// responses, errors included, must never be cached.
     fn oidc_finish(&self, req: &Request<Body>, mut reply: Response<Body>) -> Response<Body> {
-        if req.uri().path() == "/oauth/token" && !setjoin_identity::mutants::on("oidc-token-cacheable") {
+        if req.uri().path() == "/oauth/token"
+            && !setjoin_identity::mutants::on("oidc-token-cacheable")
+        {
             reply
                 .headers_mut()
                 .insert("cache-control", "no-store".parse().unwrap());
@@ -125,22 +131,19 @@ impl AuthServer {
         {
             return self.oidc_cors(&req, Response::new(body("")));
         }
-        let req = if req.method() == Method::OPTIONS {
-            req
-        } else {
-            match self.totp_ingress(req).await {
-                Ok(req) => req,
-                Err(reply) => return reply,
-            }
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
         };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.oidc_oauth_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn oidc_oauth_admitted(&self, req: Request<Body>) -> Response<Body> {
         let method = req.method().clone();
-        let ip = self.client_ip(&req).to_string();
-        let agent = req
-            .headers()
-            .get("user-agent")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned();
         let raw_query = req.uri().query().unwrap_or("").to_owned();
         let url_fields = oidc::form_last(&valid_form(&raw_query));
         let mut form_failure = form_error(&raw_query);
@@ -165,14 +168,27 @@ impl AuthServer {
             if let Some(error) = form_error(&input) {
                 form_failure = Some(error);
             }
-            if let Some(grant) = setjoin_identity::issuance::query(&valid_form(&input)).get("grant_type") {
+            if let Some(grant) =
+                setjoin_identity::issuance::query(&valid_form(&input)).get("grant_type")
+            {
                 dispatch_grant = Some(grant.clone());
             }
             fields.extend(oidc::form_last(&valid_form(&input)));
         }
         fields.extend(url_fields);
         let req = Request::from_parts(parts, body(raw));
-        if let Some(error) = form_failure.filter(|_|req.uri().path()!="/oauth/token" && !(req.uri().path()=="/userinfo"&&req.headers().get("authorization").and_then(|h|h.to_str().ok()).is_some_and(|h|h.get(..7).is_some_and(|p|p.eq_ignore_ascii_case("Bearer "))))) {
+        if let Some(error) = form_failure.filter(|_| {
+            req.uri().path() != "/oauth/token"
+                && !(req.uri().path() == "/userinfo"
+                    && req
+                        .headers()
+                        .get("authorization")
+                        .and_then(|h| h.to_str().ok())
+                        .is_some_and(|h| {
+                            h.get(..7)
+                                .is_some_and(|p| p.eq_ignore_ascii_case("Bearer "))
+                        }))
+        }) {
             let reply = match req.uri().path() {
                 "/userinfo" => Self::oidc_plain(401, "access token missing"),
                 "/oauth/introspect" => Self::oidc_plain(
@@ -196,13 +212,19 @@ impl AuthServer {
                     "error parsing form",
                 )),
             };
-            if method != Method::OPTIONS {
-                self.oidc_attempt(&ip, &agent, reply.status().as_u16())
-                    .await;
-            }
             return self.oidc_finish(&req, reply);
         }
-        let credentials = match if req.uri().path()=="/revoke"||req.uri().path()=="/oauth/introspect"||(req.uri().path()=="/oauth/token"&&dispatch_grant.as_deref().is_some_and(|g|matches!(g,"authorization_code"|"refresh_token"))){basic(&req)}else{Ok(None)} {
+        let credentials = match if req.uri().path() == "/revoke"
+            || req.uri().path() == "/oauth/introspect"
+            || (req.uri().path() == "/oauth/token"
+                && dispatch_grant
+                    .as_deref()
+                    .is_some_and(|g| matches!(g, "authorization_code" | "refresh_token")))
+        {
+            basic(&req)
+        } else {
+            Ok(None)
+        } {
             Ok(c) => c,
             Err(()) => {
                 let reply = if req.uri().path() == "/oauth/introspect" {
@@ -216,10 +238,6 @@ impl AuthServer {
                         "invalid basic auth header",
                     ))
                 };
-                if method != Method::OPTIONS {
-                    self.oidc_attempt(&ip, &agent, reply.status().as_u16())
-                        .await;
-                }
                 return self.oidc_finish(&req, reply);
             }
         };
@@ -305,7 +323,10 @@ impl AuthServer {
         } else {
             let assertion = fields
                 .get("client_assertion")
-                .is_some_and(|s| !s.is_empty()) && fields.get("client_assertion_type").is_some_and(|s|!s.is_empty());
+                .is_some_and(|s| !s.is_empty())
+                && fields
+                    .get("client_assertion_type")
+                    .is_some_and(|s| !s.is_empty());
             let form_secret = fields.get("client_id").is_some_and(|s| !s.is_empty())
                 && fields.get("client_secret").is_some_and(|s| !s.is_empty());
             if (assertion && form_secret) || (credentials.is_some() && (assertion || form_secret)) {
@@ -313,10 +334,6 @@ impl AuthServer {
                     "invalid_request",
                     "client authentication must not use more than one method",
                 ));
-                if method != Method::OPTIONS {
-                    self.oidc_attempt(&ip, &agent, reply.status().as_u16())
-                        .await;
-                }
                 return self.oidc_finish(&req, reply);
             }
             if let Some((id, password)) = credentials.as_ref() {
@@ -369,10 +386,6 @@ impl AuthServer {
                 ))
             }
         };
-        if method != Method::OPTIONS {
-            self.oidc_attempt(&ip, &agent, reply.status().as_u16())
-                .await;
-        }
         self.oidc_finish(&req, reply)
     }
     fn oidc_callback_error(
@@ -403,34 +416,34 @@ impl AuthServer {
         {
             return self.oidc_cors(&req, Response::new(body("")));
         }
-        let req = if req.method() == Method::OPTIONS {
-            req
-        } else {
-            match self.totp_ingress(req).await {
-                Ok(req) => req,
-                Err(reply) => return reply,
-            }
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
         };
+        let bypass = (staged.method() == &Method::OPTIONS
+            && setjoin_identity::mutants::on("oidc-callback-options-bypass"))
+            || setjoin_identity::mutants::on("oidc-callback-anonymous");
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.oidc_callback_admitted(req, bypass).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn oidc_callback_admitted(&self, req: Request<Body>, bypass: bool) -> Response<Body> {
         // Owner-approved security fix 2026-11-05 (#523): the callback mints the
         // code for the browser session that completed the request, never for an
         // anonymous or foreign caller holding only the request id.
         // Only a real CORS preflight (answered above) is sessionless; any other
         // method, OPTIONS included, must present the bound user's session.
-        let session = if (req.method() == Method::OPTIONS && setjoin_identity::mutants::on("oidc-callback-options-bypass")) || setjoin_identity::mutants::on("oidc-callback-anonymous") {
+        let session = if bypass {
             None
         } else {
             match self.totp_session(&req) {
                 Ok(s) => Some(s),
-                Err(crate::totp::Admission::Forward) => return self.forward(req).await,
-                Err(crate::totp::Admission::Denied(r)) => return r,
+                Err(r) => return r,
             }
         };
-        let ip = self.client_ip(&req).to_string();
-        let agent = req
-            .headers()
-            .get("user-agent")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
         let fields = setjoin_identity::issuance::query(req.uri().query().unwrap_or(""));
         let id = fields.get("id").map(String::as_str).unwrap_or("");
         let reply=async {
@@ -453,9 +466,6 @@ impl AuthServer {
                 _=>Self::oidc_callback_error(req.method(),&request,"server_error","authorization request is missing, expired, incomplete, or already has a code"),
             }
         }.await;
-        if req.method() != Method::OPTIONS {
-            self.oidc_attempt(&ip, agent, reply.status().as_u16()).await;
-        }
         self.oidc_cors(&req, reply)
     }
     /// Owner-approved security fix 2026-11-05 (#523): binding an authorization
@@ -489,9 +499,8 @@ impl AuthServer {
         };
         let session = match self.totp_session(&req) {
             Ok(s) => s,
-            Err(crate::totp::Admission::Forward) => return self.forward(req).await,
-            Err(crate::totp::Admission::Denied(r)) if r.status() == 401 && browse => return login(),
-            Err(crate::totp::Admission::Denied(r)) => return r,
+            Err(r) if r.status() == 401 && browse => return login(),
+            Err(r) => return r,
         };
         // Go decodes these into typed Claims before middleware accepts them.
         if session
@@ -506,7 +515,11 @@ impl AuthServer {
                 .get("auth_time")
                 .is_some_and(|v| !v.is_null() && v.as_i64().is_none())
         {
-            return if browse { login() } else { Self::failure(401, "Unauthorized", "") };
+            return if browse {
+                login()
+            } else {
+                Self::failure(401, "Unauthorized", "")
+            };
         }
         if session.user() <= 0 {
             return Self::failure(401, "Unauthorized", "");
@@ -514,7 +527,11 @@ impl AuthServer {
         let cipher = self.oidc_cipher.as_ref().expect("enabled OP cipher");
         // The session family (stable across refreshes) or, failing that, the jti.
         let binding = |id: &str| {
-            let anchor = if session.text("fam").is_empty() { session.text("jti") } else { session.text("fam") };
+            let anchor = if session.text("fam").is_empty() {
+                session.text("jti")
+            } else {
+                session.text("fam")
+            };
             format!("op-complete|{}|{anchor}|{id}", session.user())
         };
         let invalid = || Self::failure(400, "Invalid authorization request", "");
@@ -543,9 +560,16 @@ impl AuthServer {
                 .header("content-type", "text/html; charset=utf-8")
                 .header("cache-control", "no-store")
                 .header("x-frame-options", "DENY")
-                .header("content-security-policy", "frame-ancestors 'none'; form-action 'self'")
+                .header(
+                    "content-security-policy",
+                    "frame-ancestors 'none'; form-action 'self'",
+                )
                 .header("x-content-type-options", "nosniff")
-                .body(body(if method == Method::HEAD { String::new() } else { page }))
+                .body(body(if method == Method::HEAD {
+                    String::new()
+                } else {
+                    page
+                }))
                 .unwrap();
         }
         let skip = setjoin_identity::mutants::on("oidc-complete-no-csrf");
@@ -554,10 +578,17 @@ impl AuthServer {
             return Response::builder()
                 .status(403)
                 .header("content-type", "application/problem+json")
-                .body(body(problem::middleware(403, "csrf_failed", "CSRF validation failed")))
+                .body(body(problem::middleware(
+                    403,
+                    "csrf_failed",
+                    "CSRF validation failed",
+                )))
                 .unwrap();
         }
-        let raw = match http_body_util::Limited::new(req.into_body(), 8192).collect().await {
+        let raw = match http_body_util::Limited::new(req.into_body(), 8192)
+            .collect()
+            .await
+        {
             Ok(b) => b.to_bytes(),
             Err(_) => return invalid(),
         };
@@ -571,12 +602,21 @@ impl AuthServer {
             return Response::builder()
                 .status(403)
                 .header("content-type", "application/problem+json")
-                .body(body(problem::middleware(403, "csrf_failed", "CSRF validation failed")))
+                .body(body(problem::middleware(
+                    403,
+                    "csrf_failed",
+                    "CSRF validation failed",
+                )))
                 .unwrap();
         }
         self.oidc_bind(&method, &session, id).await
     }
-    async fn oidc_bind(&self, method: &Method, session: &setjoin_identity::session::Session, id: &str) -> Response<Body> {
+    async fn oidc_bind(
+        &self,
+        method: &Method,
+        session: &setjoin_identity::session::Session,
+        id: &str,
+    ) -> Response<Body> {
         let operation = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
         match oidc::complete_request(&self.exec, session, id, operation).await {
             setjoin_pg::CommandOutcome::Committed(true) => Self::oidc_redirect(
@@ -624,17 +664,6 @@ impl AuthServer {
             }))
             .unwrap()
     }
-    async fn oidc_attempt(&self, ip: &str, agent: &str, status: u16) {
-        let outcome = if matches!(status, 200 | 204) {
-            "success"
-        } else {
-            "failure"
-        };
-        let fp = setjoin_threat::stored_fingerprint(agent, ip);
-        // Independent Go threat tail. OP does not attach a verified user to
-        // this context; no sign-in/device row is invented for the token subject.
-        let _=self.exec.protocol_statement("INSERT INTO auth_attempts(source_ip,target_username,protocol,outcome,geo_country,device_fingerprint) VALUES($1::inet,'','http',$2,'',$3)",&[(&ip,Type::TEXT),(&outcome,Type::TEXT),(&fp,Type::TEXT)]).await;
-    }
     pub(super) async fn oidc_authorize(&self, req: Request<Body>) -> Response<Body> {
         if !self.config.oidc_enabled {
             return Self::not_found();
@@ -644,22 +673,19 @@ impl AuthServer {
         {
             return self.oidc_cors(&req, Response::new(body("")));
         }
-        let req = if req.method() == Method::OPTIONS {
-            req
-        } else {
-            match self.totp_ingress(req).await {
-                Ok(req) => req,
-                Err(reply) => return reply,
-            }
+        let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
+            Ok(staged) => staged,
+            Err(reply) => return reply,
         };
+        let (req, admitted) = match self.threat_admit(staged).await {
+            Ok(v) => v,
+            Err(reply) => return reply,
+        };
+        let reply = self.oidc_authorize_admitted(req).await;
+        self.threat_tail(admitted, reply).await
+    }
+    async fn oidc_authorize_admitted(&self, req: Request<Body>) -> Response<Body> {
         let method = req.method().clone();
-        let ip = self.client_ip(&req).to_string();
-        let agent = req
-            .headers()
-            .get("user-agent")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned();
         let raw_query = req.uri().query().unwrap_or("").to_owned();
         let url_fields = oidc::form_last(&valid_form(&raw_query));
         let mut form_failure = form_error(&raw_query);
@@ -684,7 +710,9 @@ impl AuthServer {
             if let Some(error) = form_error(&input) {
                 form_failure = Some(error);
             }
-            if let Some(grant) = setjoin_identity::issuance::query(&valid_form(&input)).get("grant_type") {
+            if let Some(grant) =
+                setjoin_identity::issuance::query(&valid_form(&input)).get("grant_type")
+            {
                 dispatch_grant = Some(grant.clone());
             }
             fields.extend(oidc::form_last(&valid_form(&input)));
@@ -720,10 +748,6 @@ impl AuthServer {
                 _=>Self::oidc_plain(500,"unable to save auth request"),
             }
         }.await;
-        if method != Method::OPTIONS {
-            self.oidc_attempt(&ip, &agent, reply.status().as_u16())
-                .await;
-        }
         self.oidc_cors(&req, reply)
     }
 }

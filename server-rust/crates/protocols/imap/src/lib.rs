@@ -49,6 +49,8 @@ pub struct Server {
     pub(crate) webhooks: WebhookPolicy,
     pub(crate) registry: Option<Arc<ProtocolSessionRegistry>>,
     pub(crate) users: tracker::ConnTracker,
+    /// Go's 60 s verification cache, bounded and per listener (#355-0).
+    pub(crate) passwords: setjoin_authz::basic::PasswordCache,
     max_connections: usize,
 }
 
@@ -69,6 +71,7 @@ impl Server {
             webhooks,
             registry: None,
             users: tracker::ConnTracker::default(),
+            passwords: setjoin_authz::basic::PasswordCache::new(),
             max_connections: 0,
         }
     }
@@ -120,6 +123,18 @@ impl Server {
     pub fn with_session_registry(mut self, registry: Arc<ProtocolSessionRegistry>) -> Self {
         self.registry = Some(registry);
         self
+    }
+
+    /// Live verification-cache entries (test observation of the per-listener cache).
+    #[doc(hidden)]
+    pub fn cached_passwords(&self) -> usize {
+        self.passwords.len()
+    }
+
+    /// Verification-cache hits so far (test observation; N2 hit counter).
+    #[doc(hidden)]
+    pub fn cached_password_hits(&self) -> usize {
+        self.passwords.hits()
     }
 
     pub fn threat_enforced(&self) -> bool {

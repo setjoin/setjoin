@@ -2,9 +2,8 @@
 -- (plan 2026-07-08-shared-team-task-lists.md, Phase 1). THE cross-mailbox
 -- surface: any list member may read/create/edit/destroy any task in a list
 -- they belong to (Planner semantics — roles beyond owner/member are Phase 2).
--- Every reducer takes p_user_id + p_list_id and gates on task_list_role
--- (R1); mutations carry `AND list_id = p_list_id` in the same WHERE as the
--- write (R3 — a foreign/personal task id is unreachable through this path).
+-- Scope list and task statements to the authenticated actor through
+-- task_list_role (R1/R3). A foreign/personal task id is unreachable here.
 --
 -- Error codes: BZ132 = caller is not a list member (404-indistinguishable, no
 -- membership oracle); BZ133 = invalid arguments (assignee not a list member,
@@ -20,53 +19,49 @@ CREATE OR REPLACE FUNCTION task_list_tasks(
 ) RETURNS JSONB AS $$
 DECLARE
   v_state  BIGINT;
-  v_result JSONB := '[]'::JSONB;
-  v_row    RECORD;
+  v_result JSONB;
 BEGIN
-  IF task_list_role(p_list_id, p_user_id) IS NULL THEN
-    RAISE EXCEPTION 'task list not found'
-      USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
-  END IF;
-
-  SELECT state_seq INTO v_state FROM task_lists WHERE id = p_list_id;
-
-  FOR v_row IN
-    SELECT t.*,
-      au.email AS assignee_email, au.display_name AS assignee_name,
-      mb.email AS creator_email, mb.display_name AS creator_name
+  -- The worker read transaction is read-only. Authorize the list and fetch
+  -- both its state and its tasks in the same statement snapshot.
+  SELECT l.state_seq, COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'id', t.id::TEXT,
+      'title', t.title,
+      'description', t.description,
+      'status', t.status,
+      'priority', t.priority,
+      'startAt', t.start_at,
+      'dueAt', t.due_at,
+      'reminderAt', t.reminder_at,
+      'completedAt', t.completed_at,
+      'assigneeUserId', t.assignee_user_id::TEXT,
+      'assigneeEmail', au.email,
+      'assigneeName', au.display_name,
+      'parentId', t.parent_id::TEXT,
+      'linkedMessageId', t.linked_message_id::TEXT,
+      'linkedEventId', t.linked_event_id::TEXT,
+      'categories', t.categories,
+      'recurrenceRule', t.rrule,
+      'sortOrder', t.sort_order,
+      'checklist', COALESCE(t.checklist, '[]'::JSONB),
+      'listId', t.list_id::TEXT,
+      'creatorEmail', mb.email,
+      'creatorName', mb.display_name,
+      'createdAt', t.created_at,
+      'updatedAt', t.updated_at
+    ) ORDER BY t.sort_order ASC, t.priority DESC, t.due_at NULLS LAST, t.created_at DESC)
     FROM tasks t
     LEFT JOIN users au ON au.id = t.assignee_user_id
     JOIN mailboxes mb ON mb.id = t.mailbox_id
-    WHERE t.list_id = p_list_id
-    ORDER BY t.sort_order ASC, t.priority DESC, t.due_at NULLS LAST, t.created_at DESC
-  LOOP
-    v_result := v_result || jsonb_build_object(
-      'id', v_row.id::TEXT,
-      'title', v_row.title,
-      'description', v_row.description,
-      'status', v_row.status,
-      'priority', v_row.priority,
-      'startAt', v_row.start_at,
-      'dueAt', v_row.due_at,
-      'reminderAt', v_row.reminder_at,
-      'completedAt', v_row.completed_at,
-      'assigneeUserId', v_row.assignee_user_id::TEXT,
-      'assigneeEmail', v_row.assignee_email,
-      'assigneeName', v_row.assignee_name,
-      'parentId', v_row.parent_id::TEXT,
-      'linkedMessageId', v_row.linked_message_id::TEXT,
-      'linkedEventId', v_row.linked_event_id::TEXT,
-      'categories', v_row.categories,
-      'recurrenceRule', v_row.rrule,
-      'sortOrder', v_row.sort_order,
-      'checklist', COALESCE(v_row.checklist, '[]'::JSONB),
-      'listId', v_row.list_id::TEXT,
-      'creatorEmail', v_row.creator_email,
-      'creatorName', v_row.creator_name,
-      'createdAt', v_row.created_at,
-      'updatedAt', v_row.updated_at
-    );
-  END LOOP;
+    WHERE t.list_id = l.id
+  ), '[]'::JSONB) INTO v_state, v_result
+  FROM task_lists l
+  WHERE l.id = p_list_id AND task_list_role(l.id, p_user_id) IS NOT NULL;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
+  END IF;
 
   RETURN jsonb_build_object('listId', p_list_id::TEXT, 'state', v_state::TEXT, 'list', v_result);
 END;
@@ -74,8 +69,8 @@ $$ LANGUAGE plpgsql;
 
 -- task_list_task_set: the member-scoped mirror of jmap_task_set_{create,
 -- update,destroy} collapsed into one call (a user-scoped surface has no
--- CallScopedBatch to fan out over) — one shared membership gate up front,
--- then per-key create/update/destroy phases, each in its own exception block
+-- CallScopedBatch to fan out over). The per-key create/update/destroy phases
+-- recheck membership, each in its own exception block
 -- (a single bad key never aborts its siblings). Returns the RFC 8620 Set
 -- shape with oldState/newState from task_lists.state_seq (the list's own
 -- sync token — distinct from any member's personal Task/changes cursor).
@@ -114,12 +109,12 @@ DECLARE
   v_rr_count      INT;
   v_new_rrule     TEXT;
 BEGIN
-  IF task_list_role(p_list_id, p_user_id) IS NULL THEN
+  SELECT state_seq INTO v_old_state FROM task_lists
+  WHERE id = p_list_id AND task_list_role(p_list_id, p_user_id) IS NOT NULL;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'task list not found'
       USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
   END IF;
-
-  SELECT state_seq INTO v_old_state FROM task_lists WHERE id = p_list_id;
 
   -- ── create ────────────────────────────────────────────────────────────
   IF p_creates IS NOT NULL THEN
@@ -148,8 +143,8 @@ BEGIN
           start_at, due_at, reminder_at, assignee_user_id,
           linked_message_id, linked_message_received_at, linked_event_id,
           categories, rrule, sort_order, checklist, jmap_state
-        ) VALUES (
-          v_mailbox_id, p_list_id,
+        )
+        SELECT v_mailbox_id, p_list_id,
           (SELECT id FROM tasks WHERE id = (v_obj->>'parentId')::BIGINT AND list_id = p_list_id),
           COALESCE(v_obj->>'title', 'Untitled Task'),
           v_obj->>'description',
@@ -174,9 +169,14 @@ BEGIN
           -- v_mailbox_id automatically, keeping the creator's own personal
           -- Task/changes cursor truthful even though the row is list-owned.
           (SELECT COALESCE(MAX(jmap_state), 0) + 1 FROM tasks WHERE mailbox_id = v_mailbox_id)
-        )
+        WHERE task_list_role(p_list_id, p_user_id) IS NOT NULL
         RETURNING id INTO v_id;
 
+        IF NOT FOUND THEN
+          v_notCreated := v_notCreated || jsonb_build_object(v_client_key,
+            jsonb_build_object('type', 'notFound', 'description', 'task list not found'));
+          CONTINUE;
+        END IF;
         PERFORM notify_task_list_state(p_list_id, 'task_created', v_id);
 
         IF v_assignee_id IS NOT NULL AND v_assignee_id IS DISTINCT FROM p_user_id THEN
@@ -214,7 +214,8 @@ BEGIN
         END IF;
 
         SELECT status, assignee_user_id, due_at INTO v_prev_status, v_prev_assignee, v_prev_due
-        FROM tasks WHERE id = v_id AND list_id = p_list_id;
+        FROM tasks WHERE id = v_id AND list_id = p_list_id
+          AND task_list_role(p_list_id, p_user_id) IS NOT NULL;
 
         UPDATE tasks SET
           title = COALESCE(v_patch->>'title', title),
@@ -245,6 +246,7 @@ BEGIN
           updated_at = now(),
           jmap_state = jmap_state + 1
         WHERE id = v_id AND list_id = p_list_id
+          AND task_list_role(p_list_id, p_user_id) IS NOT NULL
         RETURNING * INTO v_row;
 
         IF FOUND THEN
@@ -304,8 +306,8 @@ BEGIN
                   start_at, due_at, reminder_at, assignee_user_id,
                   linked_message_id, linked_message_received_at, linked_event_id,
                   categories, rrule, sort_order, jmap_state
-                ) VALUES (
-                  v_row.mailbox_id, p_list_id, v_row.parent_id, v_row.title, v_row.description,
+                )
+                SELECT v_row.mailbox_id, p_list_id, v_row.parent_id, v_row.title, v_row.description,
                   'needs-action', v_row.priority,
                   CASE WHEN v_row.start_at    IS NOT NULL THEN v_row.start_at    + v_delta END,
                   CASE WHEN v_row.due_at      IS NOT NULL THEN v_row.due_at      + v_delta END,
@@ -315,10 +317,12 @@ BEGIN
                   v_row.categories, v_new_rrule,
                   (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks WHERE list_id = p_list_id),
                   (SELECT COALESCE(MAX(jmap_state), 0) + 1 FROM tasks WHERE mailbox_id = v_row.mailbox_id)
-                )
+                WHERE task_list_role(p_list_id, p_user_id) IS NOT NULL
                 RETURNING id INTO v_new_id;
 
-                PERFORM notify_task_list_state(p_list_id, 'task_created', v_new_id);
+                IF FOUND THEN
+                  PERFORM notify_task_list_state(p_list_id, 'task_created', v_new_id);
+                END IF;
               END IF;
             END IF;
           END IF;
@@ -338,7 +342,8 @@ BEGIN
     FOR v_id IN SELECT jsonb_array_elements_text(p_destroys)::BIGINT
     LOOP
       BEGIN
-        DELETE FROM tasks WHERE id = v_id AND list_id = p_list_id;
+        DELETE FROM tasks WHERE id = v_id AND list_id = p_list_id
+          AND task_list_role(p_list_id, p_user_id) IS NOT NULL;
         IF FOUND THEN
           v_destroyed := v_destroyed || to_jsonb(v_id);
           PERFORM notify_task_list_state(p_list_id, 'task_destroyed', v_id);
@@ -353,7 +358,13 @@ BEGIN
     END LOOP;
   END IF;
 
-  SELECT state_seq INTO v_new_state FROM task_lists WHERE id = p_list_id;
+  -- A revocation during the batch aborts any earlier mutations and pushes.
+  SELECT state_seq INTO v_new_state FROM task_lists
+  WHERE id = p_list_id AND task_list_role(p_list_id, p_user_id) IS NOT NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
+  END IF;
 
   RETURN jsonb_build_object(
     'listId', p_list_id::TEXT,

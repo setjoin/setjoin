@@ -97,6 +97,17 @@ while IFS= read -r f; do
   fi
   [ "$base" = "provision_account.sql" ] && continue  # the writer choke owns its own table access
   [ "$base" = "guest_invite.sql" ] && continue  # worker-owned mint validates the satellite host+email atomically; no app-executable cross-user helper
+  case "$base" in
+    rust_guest_invite.sql|rust_guest_invite_accept.sql|rust_guest_invite_disclosure.sql|rust_guest_status.sql)
+      # Worker-pool BYPASSRLS composition/acceptance wrappers (#272/#342): must stay
+      # SECURITY INVOKER so any accidental app-pool call fails closed under FORCE-RLS.
+      if grep -qi 'SECURITY DEFINER' "$f"; then
+        echo "GUEST-DOORS: $base must remain SECURITY INVOKER (worker-pool BYPASSRLS wrapper; fail-closed under FORCE-RLS)"
+        fail=1
+      fi
+      continue
+      ;;
+  esac
   echo "GUEST-DOORS: $base reads guest_accounts directly — use is_guest_account()/guest_account_status() (FORCE-RLS makes raw reads fail OPEN)"
   fail=1
 done < <(grep -l 'FROM guest_accounts' "$RED"/*.sql)
