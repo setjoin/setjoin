@@ -135,7 +135,7 @@ fn set<'a>(cx: &'a Cx<'a>) -> Reply<'a> {
         let raw = seam::write(
             cx,
             &scope,
-            "jmap_calendar_set_update",
+            "Calendar/set",
             SET_UPDATE_SQL,
             &[(&update, Type::TEXT)],
         )

@@ -4,7 +4,7 @@ mod common;
 #[allow(dead_code, unused_imports)]
 mod jmap_family_oracle;
 
-use jmap_family_oracle::{run, Case, Mutation};
+use jmap_family_oracle::{run, verify_rust_journal_advances, Case, Mutation};
 use serde_json::Value;
 use setjoin_conformance::harness::BoxError;
 
@@ -49,7 +49,7 @@ const EFFECT_ATTENDEES: (&str, &str) = (
 
 const EFFECT_ENTITY_STATE: (&str, &str) = (
     "entity_state",
-    "SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.datatype), '[]'::jsonb)::text \
+    "SELECT COALESCE(jsonb_agg(to_jsonb(s) ORDER BY s.datatype, CASE WHEN s.mailbox_id = {a.mailbox} THEN 0 ELSE 1 END, s.mailbox_id), '[]'::jsonb)::text \
      FROM jmap_entity_state s WHERE s.mailbox_id IN ({a.mailbox},{f.mailbox})",
 );
 
@@ -284,7 +284,7 @@ const CALENDAR_EVENT_CHANGES_SUCCESS: Case = Case {
         r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/set",{"accountId":"{a.mailbox}","create":{"d1":{"calendarId":"{seed.0}","uid":"uid-changes-delta","title":"Delta event","start":"2026-11-22T12:00:00Z","end":"2026-11-22T13:00:00Z"}}},"s0"]]}"#,
     ],
     absent: &["{seed.2}"],
-    scrub: &[("/methodResponses/0/1/created/0", "created")],
+    scrub: &[("/methodResponses/0/1/created/d1", "created")],
     effects: &[EFFECT_EVENTS_NO_ID, EFFECT_ENTITY_STATE],
     ..Case::new(
         "calendar_event",
@@ -924,12 +924,15 @@ const SEED_OWN_RECURRING_MASTER: &str =
     "INSERT INTO calendar_events (calendar_id, uid, title, start_at, end_at, rrule, status) \
      VALUES ({seed.0}, 'uid-rec-1', 'Daily standup', '2026-11-22T10:00:00Z'::timestamptz, '2026-11-22T10:30:00Z'::timestamptz, 'FREQ=DAILY;COUNT=3', 'confirmed') RETURNING id";
 
+// Frozen Go (`calendar_a3.go:262`) ran unscoped `h.pool.QueryRow(...)`, so V097
+// triggers hit insufficient_privilege and swallowed entity_state/journal bumps;
+// Rust runs via ScopedExecutor and advances entity_state/journal properly.
 const CALENDAR_EVENT_SET_OCCURRENCE_SUCCESS: Case = Case {
     mutator: true,
     seed: &[SEED_OWN_CALENDAR, SEED_OWN_RECURRING_MASTER],
     notify: &["calendar:{a.mailbox}"],
     scrub: &[("/methodResponses/0/1/eventId", "occurrence-event")],
-    effects: &[EFFECT_EVENTS_NO_ID, EFFECT_ENTITY_STATE],
+    effects: &[EFFECT_EVENTS_NO_ID],
     ..Case::new(
         "calendar_event",
         "calendar-event-set-occurrence-success",
@@ -943,7 +946,7 @@ const CALENDAR_EVENT_SET_OCCURRENCE_REPEAT: Case = Case {
     repeat: true,
     seed: &[SEED_OWN_CALENDAR, SEED_OWN_RECURRING_MASTER],
     notify: &["calendar:{a.mailbox}"],
-    effects: &[EFFECT_EVENTS, EFFECT_ENTITY_STATE],
+    effects: &[EFFECT_EVENTS],
     ..Case::new(
         "calendar_event",
         "calendar-event-set-occurrence-repeat",
@@ -1547,3 +1550,13 @@ status_mutant_test!(
     calendar_event_send_update_status_mutant,
     CALENDAR_EVENT_SEND_UPDATE_SUCCESS
 );
+
+#[tokio::test]
+async fn calendar_event_set_occurrence_advances_rust_journal() {
+    verify_rust_journal_advances(
+        &CALENDAR_EVENT_SET_OCCURRENCE_SUCCESS,
+        &["Calendar", "CalendarEvent"],
+    )
+    .await
+    .unwrap();
+}

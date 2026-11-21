@@ -564,7 +564,7 @@ const CONTACT_CARD_MERGE_SUCCESS: Case = Case {
         "INSERT INTO contacts (addressbook_id, vcard_uid, display_name, emails, categories) VALUES ({seed.0}, 'uid-m1', 'Keep Name', '[{\"type\":\"work\",\"address\":\"keep@example.test\",\"is_primary\":true}]'::jsonb, ARRAY['team']) RETURNING id",
         "INSERT INTO contacts (addressbook_id, vcard_uid, display_name, first_name, emails, phones, categories) VALUES ({seed.0}, 'uid-m2', 'Drop Name', 'Alice', '[{\"type\":\"home\",\"address\":\"drop@example.test\",\"is_primary\":true}]'::jsonb, '[{\"type\":\"mobile\",\"number\":\"+15550100\"}]'::jsonb, ARRAY['vip']) RETURNING id",
         "INSERT INTO contact_groups (mailbox_id, name) VALUES ({a.mailbox}, 'Merge Group') RETURNING id",
-        "INSERT INTO contact_group_members (group_id, contact_id) VALUES ({seed.3}, {seed.2}) RETURNING id",
+        "INSERT INTO contact_group_members (group_id, contact_id) VALUES ({seed.3}, {seed.2})",
     ],
     notify: NOTIFY_CONTACT,
     ..base_case(

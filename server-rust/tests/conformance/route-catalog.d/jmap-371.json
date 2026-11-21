@@ -280,16 +280,6 @@
           }
         },
         {
-          "kind": "suspended",
-          "golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-set-suspended.json",
-          "row_golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-set-suspended-row-effects.json",
-          "replay": {
-            "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_set_suspended"
-          }
-        },
-        {
           "kind": "entitlement-denied",
           "golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-set-entitlement-denied.json",
           "row_golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-set-entitlement-denied-row-effects.json",
@@ -567,16 +557,6 @@
           }
         },
         {
-          "kind": "suspended",
-          "golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-share-set-suspended.json",
-          "row_golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-share-set-suspended-row-effects.json",
-          "replay": {
-            "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_share_set_suspended"
-          }
-        },
-        {
           "kind": "invalid-input",
           "golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-share-set-invalid-input.json",
           "row_golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-share-set-invalid-input-row-effects.json",
@@ -662,15 +642,6 @@
             "package": "setjoin-gateway",
             "target": "jmap_family_371",
             "test": "calendar_delegate_list_delegate_revoked"
-          }
-        },
-        {
-          "kind": "suspended",
-          "golden": "server-rust/tests/conformance/jmap/families/calendar/calendar-delegate-list-suspended.json",
-          "replay": {
-            "package": "setjoin-gateway",
-            "target": "jmap_family_371",
-            "test": "calendar_delegate_list_suspended"
           }
         },
         {

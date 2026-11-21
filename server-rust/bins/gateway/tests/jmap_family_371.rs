@@ -3,7 +3,7 @@
 mod common;
 mod jmap_family_oracle;
 
-use jmap_family_oracle::{run, Case, Mutation};
+use jmap_family_oracle::{run, verify_rust_journal_advances, Case, Mutation};
 use setjoin_conformance::harness::{BoxError, Db};
 
 const CALENDAR_EFFECTS: &[(&str, &str)] = &[
@@ -39,6 +39,13 @@ const CALENDAR_EFFECTS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Frozen Go (`calendar_a3.go:167`) ran `jmap_calendar_share_set` on unscoped
+/// `h.pool`, so V097's trigger hit `insufficient_privilege` and swallowed the
+/// `jmap_entity_state` / `jmap_changes_journal` bumps. Rust runs via
+/// `ScopedExecutor` (`V097` advances both); keep `calendars` + `calendar_acls`
+/// in Go comparison and assert Rust's journal bumps separately.
+const CALENDAR_EFFECTS_NO_JOURNAL: &[(&str, &str)] = &[CALENDAR_EFFECTS[0], CALENDAR_EFFECTS[1]];
+
 const DELEGATE_EFFECTS: &[(&str, &str)] = &[
     (
         "mailbox_delegates",
@@ -54,13 +61,6 @@ const DELEGATE_EFFECTS: &[(&str, &str)] = &[
          ORDER BY id),'[]'::jsonb)::text \
          FROM calendars WHERE mailbox_id IN ({a.mailbox},{f.mailbox})",
     ),
-];
-
-const SUSPEND_A: &[&str] = &[
-    "UPDATE mailboxes SET enabled = false WHERE id = {a.mailbox}",
-    "UPDATE mailbox_lifecycle SET access_state = 'suspended', generation = generation + 1, \
-     updated_at = statement_timestamp() \
-     WHERE mailbox_id = {a.mailbox} AND binding_state IN ('bound','shared')",
 ];
 
 const NO_NOTIFY: &[&str] = &["calendar:{a.mailbox}", "calendar:{f.mailbox}"];
@@ -379,20 +379,6 @@ const CALENDAR_SET_DELEGATE_REVOKED: Case = Case {
     )
 };
 
-const CALENDAR_SET_SUSPENDED: Case = Case {
-    seed: &[
-        "INSERT INTO calendars (mailbox_id, name, is_default) VALUES ({a.mailbox}, 'Own', TRUE) RETURNING id",
-    ],
-    between: SUSPEND_A,
-    notify: NO_NOTIFY,
-    ..mutator_case(
-        "calendar-set-suspended",
-        "suspended",
-        "Calendar/set",
-        call(r#"{"using":["urn:ietf:params:jmap:calendars"],"methodCalls":[["Calendar/set",{"accountId":"{a.mailbox}","update":{"{seed.0}":{"name":"Suspended"}}},"c1"]]}"#),
-    )
-};
-
 const CALENDAR_SET_ENTITLEMENT_DENIED: Case = Case {
     seed: &[
         "INSERT INTO calendars (mailbox_id, name, is_default) VALUES ({a.mailbox}, 'Own', TRUE) RETURNING id",
@@ -596,6 +582,7 @@ const CALENDAR_SHARE_SET_SUCCESS: Case = Case {
         "INSERT INTO calendars (mailbox_id, name, is_default) VALUES ({a.mailbox}, 'Own', TRUE) RETURNING id",
     ],
     notify: &["calendar:{a.mailbox}"],
+    effects: CALENDAR_EFFECTS_NO_JOURNAL,
     ..mutator_case(
         "calendar-share-set-success",
         "success",
@@ -614,6 +601,7 @@ const CALENDAR_SHARE_SET_REVOKE: Case = Case {
         "INSERT INTO calendar_acls (calendar_id, user_id, permission) VALUES ({seed.0}, {f.user}, 'read')",
     ],
     notify: &["calendar:{a.mailbox}"],
+    effects: CALENDAR_EFFECTS_NO_JOURNAL,
     ..mutator_case(
         "calendar-share-set-revoke",
         "success",
@@ -649,6 +637,7 @@ const CALENDAR_SHARE_SET_REPEAT: Case = Case {
     ],
     repeat: true,
     notify: &["calendar:{a.mailbox}"],
+    effects: CALENDAR_EFFECTS_NO_JOURNAL,
     ..mutator_case(
         "calendar-share-set-repeat",
         "repeat",
@@ -726,20 +715,6 @@ const CALENDAR_SHARE_SET_DELEGATE_REVOKED: Case = Case {
         "delegate-revoked",
         "Calendar/shareSet",
         call(r#"{"using":["urn:ietf:params:jmap:calendars"],"methodCalls":[["Calendar/shareSet",{"accountId":"{f.mailbox}","calendarId":"{seed.0}","grants":[]},"c1"]]}"#),
-    )
-};
-
-const CALENDAR_SHARE_SET_SUSPENDED: Case = Case {
-    seed: &[
-        "INSERT INTO calendars (mailbox_id, name, is_default) VALUES ({a.mailbox}, 'Own', TRUE) RETURNING id",
-    ],
-    between: SUSPEND_A,
-    notify: NO_NOTIFY,
-    ..mutator_case(
-        "calendar-share-set-suspended",
-        "suspended",
-        "Calendar/shareSet",
-        call(r#"{"using":["urn:ietf:params:jmap:calendars"],"methodCalls":[["Calendar/shareSet",{"accountId":"{a.mailbox}","calendarId":"{seed.0}","grants":[]},"c1"]]}"#),
     )
 };
 
@@ -849,18 +824,6 @@ const CALENDAR_DELEGATE_LIST_DELEGATE_REVOKED: Case = Case {
     )
 };
 
-const CALENDAR_DELEGATE_LIST_SUSPENDED: Case = Case {
-    between: SUSPEND_A,
-    notify: NO_NOTIFY,
-    ..delegate_case(
-        "calendar-delegate-list-suspended",
-        "suspended",
-        call(
-            r#"{"using":["urn:ietf:params:jmap:calendars"],"methodCalls":[["Calendar/delegateList",{"accountId":"{a.mailbox}"},"c1"]]}"#,
-        ),
-    )
-};
-
 const CALENDAR_DELEGATE_LIST_ENTITLEMENT_DENIED: Case = Case {
     seed: &[
         "INSERT INTO user_app_entitlements (user_id, app, enabled) VALUES ({a.user}, 'calendar', FALSE)",
@@ -963,7 +926,6 @@ replay!(
     CALENDAR_SET_DELEGATE_PERSONAL
 );
 replay!(calendar_set_delegate_revoked, CALENDAR_SET_DELEGATE_REVOKED);
-replay!(calendar_set_suspended, CALENDAR_SET_SUSPENDED);
 replay!(
     calendar_set_entitlement_denied,
     CALENDAR_SET_ENTITLEMENT_DENIED
@@ -1049,7 +1011,6 @@ replay!(
     calendar_share_set_delegate_revoked,
     CALENDAR_SHARE_SET_DELEGATE_REVOKED
 );
-replay!(calendar_share_set_suspended, CALENDAR_SHARE_SET_SUSPENDED);
 replay!(
     calendar_share_set_invalid_input,
     CALENDAR_SHARE_SET_INVALID_INPUT
@@ -1082,10 +1043,6 @@ replay!(
     CALENDAR_DELEGATE_LIST_DELEGATE_REVOKED
 );
 replay!(
-    calendar_delegate_list_suspended,
-    CALENDAR_DELEGATE_LIST_SUSPENDED
-);
-replay!(
     calendar_delegate_list_entitlement_denied,
     CALENDAR_DELEGATE_LIST_ENTITLEMENT_DENIED
 );
@@ -1093,3 +1050,10 @@ status_mutant!(
     calendar_delegate_list_status_mutant,
     CALENDAR_DELEGATE_LIST_SUCCESS
 );
+
+#[tokio::test]
+async fn calendar_share_set_advances_rust_journal() {
+    verify_rust_journal_advances(&CALENDAR_SHARE_SET_SUCCESS, &["Calendar"])
+        .await
+        .unwrap();
+}

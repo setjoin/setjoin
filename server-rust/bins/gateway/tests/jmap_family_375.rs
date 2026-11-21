@@ -658,8 +658,8 @@ const CONTACT_GROUP_EXPAND_SUCCESS: Case = Case {
         "INSERT INTO addressbooks (mailbox_id, name, is_default) VALUES ({a.mailbox}, 'Contacts', TRUE) RETURNING id",
         "INSERT INTO contacts (addressbook_id, vcard_uid, display_name, emails) VALUES ({seed.0}, 'uid-ex1', 'Alice Expand', '[{\"type\":\"work\",\"address\":\"alice@example.test\",\"is_primary\":true}]'::jsonb) RETURNING id",
         "INSERT INTO contact_groups (mailbox_id, name) VALUES ({a.mailbox}, 'Expand Team') RETURNING id",
-        "INSERT INTO contact_group_members (group_id, contact_id) VALUES ({seed.2}, {seed.1}) RETURNING id",
-        "INSERT INTO contact_group_members (group_id, email) VALUES ({seed.2}, 'guest@example.test') RETURNING id",
+        "INSERT INTO contact_group_members (group_id, contact_id) VALUES ({seed.2}, {seed.1})",
+        "INSERT INTO contact_group_members (group_id, email) VALUES ({seed.2}, 'guest@example.test')",
     ],
     ..base_case(
         "contact-group-expand-success",

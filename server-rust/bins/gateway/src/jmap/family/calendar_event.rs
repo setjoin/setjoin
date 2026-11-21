@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use chrono::{DateTime, Datelike, FixedOffset, Timelike, Utc};
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 
 use super::args::{decode, Kind};
 use super::seam::{
@@ -12,7 +12,7 @@ use super::seam::{
     send_imip, since_state, write, write_sql, Imip, ScopedQuery, Type,
 };
 use super::{
-    always, go_compact, go_map, parse_id, Answer, Cx, Gate, Handled, Method, MethodError, Reply,
+    always, go_compact, parse_id, Answer, Cx, Gate, Handled, Method, MethodError, Reply,
 };
 
 const CAPABILITY: &str = "urn:ietf:params:jmap:calendars";
@@ -468,23 +468,29 @@ fn merge_set_results(create: Option<&str>, update: Option<&str>, destroy: Option
     if parts.is_empty() {
         return "{}".to_owned();
     }
-    if parts.len() == 1 {
-        return go_compact(parts[0]).unwrap_or_else(|| parts[0].to_owned());
-    }
-    let mut merged: BTreeMap<String, Value> = BTreeMap::new();
+    let mut merged: BTreeMap<String, Box<RawValue>> = BTreeMap::new();
     for part in parts {
-        let Ok(obj) = serde_json::from_str::<BTreeMap<String, Value>>(part) else {
+        let Ok(obj) = serde_json::from_str::<BTreeMap<String, Box<RawValue>>>(part) else {
             continue;
         };
         for (k, v) in obj {
             merged.insert(k, v);
         }
     }
-    let entries: Vec<(&str, Value)> = merged
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.clone()))
-        .collect();
-    go_map(entries)
+    let mut out = String::from("{");
+    for (i, (k, v)) in merged.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        let Ok(encoded_key) = serde_json::to_string(k) else {
+            continue;
+        };
+        out.push_str(&encoded_key);
+        out.push(':');
+        out.push_str(v.get());
+    }
+    out.push('}');
+    go_compact(&out).unwrap_or(out)
 }
 
 fn import_ics<'a>(cx: &'a Cx<'a>) -> Reply<'a> {
