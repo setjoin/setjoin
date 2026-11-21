@@ -545,12 +545,7 @@ async fn the_edge_budget_is_one_budget_with_go_s_429() {
         async { Response::new(full("ok")) }
     })
     .await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(2),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(2)).await;
     for path in ["/jmap", "/api/settings"] {
         let resp = send(gw, Request::get(path).body(full("")).unwrap()).await;
         assert_eq!(resp.status(), StatusCode::OK, "{path}");
@@ -684,12 +679,7 @@ async fn booking_write_budget_is_shared_across_rust_and_go_routes() {
 async fn admin_routes_share_go_s_sixty_per_minute_budget() {
     enough_window_time(60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("ok")) }).await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(600),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
     for i in 0..60 {
         let path = if i % 2 == 0 {
             "/api/admin/users"
@@ -766,12 +756,7 @@ async fn auth_budget_is_shared_between_mail_and_direct_auth_upstreams() {
 async fn meet_guest_write_budget_is_per_ip_and_meeting_slug() {
     enough_window_time(15 * 60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("ok")) }).await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(600),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
     for _ in 0..20 {
         let response = send(
             gw,
@@ -818,12 +803,7 @@ async fn csrf_rejection_precedes_route_limit_after_core_admission() {
         }
     })
     .await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(600),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
     for _ in 0..5 {
         let response = send(
             gw,
@@ -851,12 +831,7 @@ async fn csrf_rejection_precedes_route_limit_after_core_admission() {
 async fn route_limit_response_has_go_s_security_headers() {
     enough_window_time(15 * 60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("ok")) }).await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(600),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
     for _ in 0..5 {
         let response = send(
             gw,
@@ -913,12 +888,7 @@ async fn guest_gate_precedes_route_budget_without_exposing_a_429() {
         }
     })
     .await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(600),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
     for _ in 0..60 {
         let response = send(gw, Request::get("/api/admin/users").body(full("")).unwrap()).await;
         assert_eq!(response.status(), StatusCode::OK);
@@ -931,8 +901,9 @@ async fn guest_gate_precedes_route_budget_without_exposing_a_429() {
             .unwrap(),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    assert_eq!(body_bytes(response).await, "not found\n");
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = String::from_utf8(body_bytes(response).await.to_vec()).unwrap();
+    assert!(body.contains("service unavailable"), "{body}");
     let response = send(
         gw,
         Request::get("/api/admin/users")
@@ -941,8 +912,9 @@ async fn guest_gate_precedes_route_budget_without_exposing_a_429() {
             .unwrap(),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    assert_eq!(body_bytes(response).await, "not found\n");
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = String::from_utf8(body_bytes(response).await.to_vec()).unwrap();
+    assert!(body.contains("service unavailable"), "{body}");
 }
 
 #[tokio::test]
@@ -1090,9 +1062,15 @@ async fn resolved_disabled_scim_is_not_registered_and_never_proxies() {
     let response = send(addr, Request::get("/scim/v2/Users").body(full("")).unwrap()).await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_eq!(body_bytes(response).await, "404 page not found\n");
-    let metrics = send(addr, Request::get("/_gateway/metrics").body(full("")).unwrap()).await;
+    let metrics = send(
+        addr,
+        Request::get("/_gateway/metrics").body(full("")).unwrap(),
+    )
+    .await;
     let metrics = String::from_utf8(body_bytes(metrics).await.to_vec()).unwrap();
-    assert!(metrics.lines().any(|line| line == "setjoin_gateway_proxied_to_go_total 0"));
+    assert!(metrics
+        .lines()
+        .any(|line| line == "setjoin_gateway_proxied_to_go_total 0"));
 }
 
 /// #357: Go's coreLimit answers every over-budget request; with the budget spent
@@ -1108,7 +1086,11 @@ async fn budget_spent_is_go_s_429_without_reaching_go() {
         &body_bytes(resp).await[..],
         include_bytes!("golden/go-rate-limited.json")
     );
-    assert!(t.elapsed() < std::time::Duration::from_secs(3), "{:?}", t.elapsed());
+    assert!(
+        t.elapsed() < std::time::Duration::from_secs(3),
+        "{:?}",
+        t.elapsed()
+    );
 }
 
 #[tokio::test]
@@ -1194,7 +1176,11 @@ async fn inventory_dispatches_to_four_targets_and_keeps_off_routes_in_go() {
         ),
         ("POST", "/auth/refresh", "rust auth /auth/refresh"),
         // SAML is ported (#546): the Rust auth upstream owns it.
-        ("POST", "/auth/saml/idfed2/link", "rust auth /auth/saml/idfed2/link"),
+        (
+            "POST",
+            "/auth/saml/idfed2/link",
+            "rust auth /auth/saml/idfed2/link",
+        ),
         ("GET", "/admin/users", "go mail"),
         ("DELETE", "/auth/login", "go auth"),
     ] {
@@ -1493,12 +1479,7 @@ async fn auth_only_paths_reach_auth_without_overriding_gateway_routes() {
 async fn escaped_pinned_paths_share_the_same_route_budget() {
     enough_window_time(60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("go")) }).await;
-    let gw = common::gateway_limited(
-        upstream,
-        RouteTable::proxy_all(),
-        common::edge(600),
-    )
-    .await;
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
     for _ in 0..60 {
         let response = send(gw, Request::get("/setup/status").body(full("")).unwrap()).await;
         assert_eq!(response.status(), StatusCode::OK);
@@ -1515,31 +1496,49 @@ async fn escaped_pinned_paths_share_the_same_route_budget() {
 async fn unlimited_proxy_transport_preserves_go_oracle_csrf_requests() {
     let upstream = fake_upstream(|request| async move {
         assert_eq!(request.headers()["origin"], "https://foreign.test");
-        Response::builder().status(403).body(full("frozen Go oracle")).unwrap()
-    }).await;
+        Response::builder()
+            .status(403)
+            .body(full("frozen Go oracle"))
+            .unwrap()
+    })
+    .await;
     // The recorder has no local adapter or limiter: Go must see the request.
     let gateway = common::gateway(upstream, "", RouteTable::proxy_all()).await;
-    let response=send(gateway,Request::post("/api/admin/departments")
-        .header("host","mail.test").header("origin","https://foreign.test")
-        .body(full("{}")).unwrap()).await;
-    assert_eq!(response.status(),403);
-    assert_eq!(body_bytes(response).await,"frozen Go oracle");
+    let response = send(
+        gateway,
+        Request::post("/api/admin/departments")
+            .header("host", "mail.test")
+            .header("origin", "https://foreign.test")
+            .body(full("{}"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), 403);
+    assert_eq!(body_bytes(response).await, "frozen Go oracle");
 }
 
 #[tokio::test]
 async fn unlimited_local_adapters_still_enforce_global_csrf() {
     struct Local;
     impl Intercept for Local {
-        fn matches(&self,_:&Request<Body>)->bool{true}
-        fn handle(&self,_:Request<Body>,_:RequestContext)->BoxFuture<Response<Body>>{
-            Box::pin(async {panic!("CSRF denial reached a local adapter")})
+        fn matches(&self, _: &Request<Body>) -> bool {
+            true
+        }
+        fn handle(&self, _: Request<Body>, _: RequestContext) -> BoxFuture<Response<Body>> {
+            Box::pin(async { panic!("CSRF denial reached a local adapter") })
         }
     }
-    let upstream=fake_upstream(|_|async{panic!("CSRF denial reached Go")}).await;
-    let gateway=common::gateway(upstream,"",RouteTable::proxy_all().with(Local)).await;
-    let response=send(gateway,Request::post("/api/admin/departments")
-        .header("host","mail.test").header("origin","https://foreign.test")
-        .body(full("{}")).unwrap()).await;
-    assert_eq!(response.status(),403);
+    let upstream = fake_upstream(|_| async { panic!("CSRF denial reached Go") }).await;
+    let gateway = common::gateway(upstream, "", RouteTable::proxy_all().with(Local)).await;
+    let response = send(
+        gateway,
+        Request::post("/api/admin/departments")
+            .header("host", "mail.test")
+            .header("origin", "https://foreign.test")
+            .body(full("{}"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), 403);
     assert_eq!(body_bytes(response).await,"{\"detail\":\"CSRF validation failed\",\"status\":403,\"title\":\"csrf_failed\",\"type\":\"about:blank\"}\n");
 }

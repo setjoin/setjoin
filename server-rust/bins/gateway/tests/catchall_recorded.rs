@@ -450,6 +450,10 @@ async fn run_inner(name: &str, mutant: bool) -> Result<(), BoxError> {
             if case.fault != Fault::None && std::env::var_os("GOFREE_RECORD_GO_BINARY").is_some() {
                 continue; // native-only: Go reads toggles from memory; its reducer cannot be shadowed
             }
+            let base = db.app.as_deref().unwrap_or(&db.dsn).to_owned();
+            if case.fault != Fault::None && base.contains("options=") {
+                return Err("fault DSN already has options".into());
+            }
             let app = if case.name.starts_with("chat_") {Some("chat")} else if case.name.starts_with("drive_") {Some("drive")} else if case.name.starts_with("meet_") {Some("meet")} else {None};
             let old = if let Some(app)=app {
                 let key=format!("feature.{app}");
@@ -462,37 +466,37 @@ async fn run_inner(name: &str, mutant: bool) -> Result<(), BoxError> {
             if let Some(name) = blocked {
                 owner.execute("INSERT INTO user_app_entitlements(user_id,app,enabled) VALUES($1,$2,false)", &[&user, &name]).await?;
             }
-            let fault_schema = if case.fault == Fault::None {
-                None
-            } else {
-                let id: String = owner.query_one("SELECT replace(gen_random_uuid()::text,'-','')", &[]).await?.get(0);
-                if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) { return Err("invalid fault schema ID".into()); }
-                let schema = format!("gofree_catchall_fault_{id}");
-                let body = match case.fault {
-                    Fault::Toggle => format!("CREATE VIEW {schema}.feature_toggles AS SELECT key, CASE WHEN key='feature.chat' THEN (1/(length(key)-length(key)))::boolean ELSE enabled END AS enabled FROM public.feature_toggles; GRANT SELECT ON {schema}.feature_toggles TO PUBLIC;"),
-                    _ => format!("CREATE FUNCTION {schema}.check_user_app_entitlement(bigint,text) RETURNS boolean LANGUAGE plpgsql AS $f$BEGIN RAISE EXCEPTION 'gofree catchall entitlement fault'; END$f$; GRANT EXECUTE ON FUNCTION {schema}.check_user_app_entitlement(bigint,text) TO PUBLIC;"),
-                };
-                owner.batch_execute(&format!("CREATE SCHEMA {schema}; GRANT USAGE ON SCHEMA {schema} TO PUBLIC; {body}")).await?;
-                Some(schema)
-            };
-            let base = db.app.as_deref().unwrap_or(&db.dsn).to_owned();
-            let dsn = match &fault_schema {
-                Some(schema) => {
-                    if base.contains("options=") { return Err("fault DSN already has options".into()); }
-                    format!("{base}{}options=-csearch_path%3D{schema}%2Cpublic", if base.contains('?') {'&'} else {'?'})
+            let mut fault_schema = None;
+            let observe_result: Result<(), BoxError> = std::panic::AssertUnwindSafe(async {
+                if case.fault != Fault::None {
+                    let id: String = owner.query_one("SELECT replace(gen_random_uuid()::text,'-','')", &[]).await?.get(0);
+                    if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) { return Err("invalid fault schema ID".into()); }
+                    let schema = format!("gofree_catchall_fault_{id}");
+                    let body = match case.fault {
+                        Fault::Toggle => format!("CREATE VIEW {schema}.feature_toggles AS SELECT key, CASE WHEN key='feature.chat' THEN (1/(length(key)-length(key)))::boolean ELSE enabled END AS enabled FROM public.feature_toggles; GRANT SELECT ON {schema}.feature_toggles TO PUBLIC;"),
+                        _ => format!("CREATE FUNCTION {schema}.check_user_app_entitlement(bigint,text) RETURNS boolean LANGUAGE plpgsql AS $f$BEGIN RAISE EXCEPTION 'gofree catchall entitlement fault'; END$f$; GRANT EXECUTE ON FUNCTION {schema}.check_user_app_entitlement(bigint,text) TO PUBLIC;"),
+                    };
+                    owner.batch_execute(&format!("CREATE SCHEMA {schema}; GRANT USAGE ON SCHEMA {schema} TO PUBLIC; {body}")).await?;
+                    fault_schema = Some(schema);
                 }
-                None => base,
-            };
-            let response=observe(case.clone(), &db, &owner, &dsn, user, mutant).await;
+                let dsn = match &fault_schema {
+                    Some(schema) => format!("{base}{}options=-csearch_path%3D{schema}%2Cpublic", if base.contains('?') {'&'} else {'?'}),
+                    None => base,
+                };
+                observe(case.clone(), &db, &owner, &dsn, user, mutant).await
+            })
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| Err("observe panicked".into()));
             if let Some(schema) = fault_schema {
-                owner.batch_execute(&format!("DROP SCHEMA {schema} CASCADE")).await?;
+                let _ = owner.batch_execute(&format!("DROP SCHEMA {schema} CASCADE")).await;
             }
             if let Some(name) = blocked {
-                owner.execute("DELETE FROM user_app_entitlements WHERE user_id=$1 AND app=$2", &[&user, &name]).await?;
-                owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={user} AND action='app_blocked';COMMIT;")).await?;
+                let _ = owner.execute("DELETE FROM user_app_entitlements WHERE user_id=$1 AND app=$2", &[&user, &name]).await;
+                let _ = owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={user} AND action='app_blocked';COMMIT;")).await;
             }
-            if let Some((key,old))=old {match old {Some(v)=>{owner.execute("UPDATE feature_toggles SET enabled=$2 WHERE key=$1",&[&key,&v]).await?;},None=>{owner.execute("DELETE FROM feature_toggles WHERE key=$1",&[&key]).await?;}}}
-            response?;
+            if let Some((key,old))=old {match old {Some(v)=>{let _ = owner.execute("UPDATE feature_toggles SET enabled=$2 WHERE key=$1",&[&key,&v]).await;},None=>{let _ = owner.execute("DELETE FROM feature_toggles WHERE key=$1",&[&key]).await;}}}
+            observe_result?;
         }
         Ok(())
     }).catch_unwind().await;
@@ -507,7 +511,14 @@ async fn run_inner(name: &str, mutant: bool) -> Result<(), BoxError> {
         Err(panic) => std::panic::resume_unwind(panic),
     }
 }
-async fn observe(c: Case, db: &Db, owner: &tokio_postgres::Client, dsn: &str, user: i64, mutant: bool) -> Result<(), BoxError> {
+async fn observe(
+    c: Case,
+    db: &Db,
+    owner: &tokio_postgres::Client,
+    dsn: &str,
+    user: i64,
+    mutant: bool,
+) -> Result<(), BoxError> {
     let s3 = common::fake_upstream(|_| async { Response::builder().body(common::full("<ListMultipartUploadsResult><IsTruncated>false</IsTruncated></ListMultipartUploadsResult>")).unwrap() }).await;
     let mut extra = if c.configured {
         vec![
@@ -533,8 +544,7 @@ async fn observe(c: Case, db: &Db, owner: &tokio_postgres::Client, dsn: &str, us
         ));
     }
     let go = common::go_oracle::start_named_with_env(db, s3, "gofree-catchall", &extra).await?;
-    let exec = setjoin_pg::ScopedExecutor::from_dsn(dsn, 2)
-        .map_err(|e| e.0)?;
+    let exec = setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0)?;
     let mut catchall = setjoin_gateway::catchall::CatchallRoute::new().with_auth(
         exec,
         Arc::new(common::recovery_keys()),
@@ -602,7 +612,11 @@ async fn observe(c: Case, db: &Db, owner: &tokio_postgres::Client, dsn: &str, us
         }
     }
     let mut bytes = common::body_bytes(response).await.to_vec();
-    let audit = if c.entitled { json!([]) } else { app_blocked_rows(owner, audit_floor, user).await? };
+    let audit = if c.entitled {
+        json!([])
+    } else {
+        app_blocked_rows(owner, audit_floor, user).await?
+    };
     if let Some(content_type) = headers.get("content-type").and_then(Value::as_str) {
         if let Some(boundary) = content_type.strip_prefix("multipart/byteranges; boundary=") {
             assert!(
@@ -658,9 +672,14 @@ async fn observe(c: Case, db: &Db, owner: &tokio_postgres::Client, dsn: &str, us
         let text = String::from_utf8_lossy(&bytes);
         if status != 503
             || !text.contains("\"detail\":\"service unavailable\"")
-            || headers.get("content-type").and_then(Value::as_str) != Some("application/problem+json")
+            || headers.get("content-type").and_then(Value::as_str)
+                != Some("application/problem+json")
         {
-            return Err(format!("{}: expected the fail-closed 503, got {status} {text}", c.name).into());
+            return Err(format!(
+                "{}: expected the fail-closed 503, got {status} {text}",
+                c.name
+            )
+            .into());
         }
         println!("FAULT-REPLAY: * /chat/ :: {}", c.name);
         return Ok(());
@@ -833,7 +852,11 @@ case_test!(mux_legacy_absolute);
 case_test!(mux_clean_reserved, mux_inner_encoded_slash);
 
 /// Go writes the app_blocked row after its 403 (best effort): poll briefly for it.
-async fn app_blocked_rows(owner: &tokio_postgres::Client, after: i64, user: i64) -> Result<Value, BoxError> {
+async fn app_blocked_rows(
+    owner: &tokio_postgres::Client,
+    after: i64,
+    user: i64,
+) -> Result<Value, BoxError> {
     for _ in 0..50 {
         let rows = owner
             .query("SELECT jsonb_build_object('action',action,'target_type',target_type,'notes',notes)::text FROM admin_audit_log WHERE id>$1 AND user_id=$2 ORDER BY id", &[&after, &user])

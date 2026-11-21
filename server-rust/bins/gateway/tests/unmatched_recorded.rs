@@ -105,6 +105,13 @@ case!(
     true
 );
 case!(
+    auth_unknown_get_website_bearer,
+    "GET",
+    "/auth/unknown",
+    true,
+    true
+);
+case!(
     auth_unknown_post_website,
     "POST",
     "/auth/unknown",

@@ -207,10 +207,10 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
   removal, upgrade tunnel (first side to end closes both), Go's transport gzip (`Accept-Encoding:
   gzip` added and the answer decoded when the client sent neither it nor `Range`), empty 502 on
   failure, `ServeMux` 307 for unclean paths, and Go's middleware envelope (security headers,
-  `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). Declines to Go when LiveKit
-  is not configured (Go registers no handler then: SPA fallback) and when the request carries a
-  JWT credential the verified-member precheck rejects (Go's guest belt). Kill switch: inventory
-  OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
+  `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). Falls back natively via
+  `CatchallRoute` (SPA fallback with a website, 404 without) when LiveKit is not configured, and
+  declines to Go when the request carries a JWT credential the verified-member precheck rejects (Go's
+  guest belt). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
   never reads it from the environment. `/meet`, `/meet/` catch-alls stay on Go with the generic
   ones (#416).
 - **`meet-reconcile`** (`src/meet_worker.rs`): `RUST_WORKERS_ON=meet-reconcile` with
@@ -889,7 +889,7 @@ F17 CalDAV HTTP method transfer (#426): [Calendar contract](../../crates/domains
 Persisted TLS ticket keys are sealed in the `system_config` secret envelope (`ticket_keys::codec`
 from `identity.deployment_id` plus `IDENTITY_CONFIG_SECRET_KEY`/`DB_ENCRYPTION_KEY`); legacy
 plaintext rows are never trusted and are replaced at startup; without key material the keys
-stay in memory only and a legacy plaintext row is deleted (a sealed row is kept) (#503). The global CSRF gate runs before the over-budget branch (#491). Every over-budget request (core and route buckets) is answered with Go's 429; nothing defers to Go (#357). An /auth spelling no inventory row claims gets the root mux's answer (decoded-segment slash redirect to an F21 subtree row, else the catch-all) after CSRF, budgets and admission (#357, #378, src/unmatched.rs). Adapter-less local rows still fall back to Go until DELETE (#142).
+stay in memory only and a legacy plaintext row is deleted (a sealed row is kept) (#503). The global CSRF gate runs before the over-budget branch (#491). Every over-budget request (core and route buckets) is answered with Go's 429; nothing defers to Go (#357). An `/auth/*` spelling no inventory row claims (matched on decoded first segment, excluding `%2F`) bypasses guest admission when unclaimed and gets the root mux's answer (decoded-segment slash redirect to an F21 subtree row, else `CatchallRoute` SPA/404) (#357, #378, src/unmatched.rs). Adapter-less local rows still fall back to Go until DELETE (#142).
 Failed live authority lookups fail closed in rules, `system.config` and the JMAP session (#484).
 Tests: `secfix3_csrf`, `secfix3_rules`, `ticket_worker`; divergences in `tests/golden/secfix3-divergences.json`.
 OIDC OP public namespace closure (#339): `oidc_namespace::Namespace` is installed

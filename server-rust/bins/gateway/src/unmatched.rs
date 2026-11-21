@@ -7,6 +7,19 @@ use crate::Body;
 use hyper::header::HeaderValue;
 use hyper::{Method, Request, Response, StatusCode};
 
+/// Reports whether `raw` has `"auth"` as its first percent-decoded path segment
+/// followed by a slash, without treating `%2F` as a path separator (matching
+/// Go's `ServeMux` canonical segment matching, e.g. `/%61uth/totp`).
+pub(crate) fn is_auth_path(raw: &str) -> bool {
+    let Some(rest) = raw.strip_prefix('/') else {
+        return false;
+    };
+    let Some((seg, _)) = rest.split_once('/') else {
+        return false;
+    };
+    crate::inventory::unescape(seg) == b"auth"
+}
+
 /// ServeMux's redirect when only `path + "/"` names an F21 subtree registration.
 /// Matching uses decoded segments (Go's `exactMatch`); an escaped `/` stays inside its
 /// segment and never matches. `Location` is the row literal plus the raw query.
@@ -16,7 +29,7 @@ pub(crate) fn slash_redirect(
     proto: &'static str,
 ) -> Option<Response<Body>> {
     let raw = r.uri().path();
-    if !raw.starts_with("/auth/") || raw.ends_with('/') || *r.method() == Method::CONNECT {
+    if !is_auth_path(raw) || raw.ends_with('/') || *r.method() == Method::CONNECT {
         return None;
     }
     let mut decoded = String::new();
@@ -185,6 +198,7 @@ mod tests {
             "/auth/login%2Fx",
             "/auth/totp",
             "/auth/%74otp",
+            "/%61uth/totp",
             "/auth/admin",
             "/auth/me/app-passwords/a/b",
         ] {
@@ -198,5 +212,11 @@ mod tests {
                 }
             }
         }
+        assert!(is_auth_path("/%61uth/totp"));
+        assert!(!is_auth_path("/auth%2Flogin"));
+        assert!(inventory.find(&Method::GET, "/%61uth/totp").is_none());
+        let reply = slash_redirect(&inventory, &request("GET", "/%61uth/totp"), "http")
+            .expect("/%61uth/totp should redirect to /auth/totp/");
+        assert_eq!(reply.headers()["location"], "/auth/totp/");
     }
 }

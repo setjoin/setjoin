@@ -61,7 +61,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 44,  # lowered from 53 when #349b retired threat_pending/threat_controls (ratchet)
-    ("gateway", "forward"): 160,  # lowered from 167 (#194, admin-identity leftovers)
+    ("gateway", "forward"): 150,  # lowered from 160 when gateway fallbacks (#357/#378) went native
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,

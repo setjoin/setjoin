@@ -173,7 +173,10 @@ async fn observe(
     } else {
         let expected: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
         golden::compare(&expected["observation"], &observation)?;
-        println!("GOLDEN-REPLAY: {corpus} :: {}", case.name);
+        println!(
+            "GOLDEN-REPLAY: {} {} :: {}",
+            case.method, case.uri, case.name
+        );
     }
     drop(site);
     Ok(())
