@@ -87,7 +87,8 @@ impl<K: KeySource> BlobCommands<K> {
             .await
         {
             Ok(blob) => blob,
-            // Stat or GET failed before any body: handler.go:574-583 (recorded: storage-get-fails).
+            // Stat or GET failed before any body: handler.go:574-583
+            // (native test: go357_storage_get_failure_is_not_found; Go Stat=HEAD/ReadFull=GET falls through to ServeContent 500 on split HEAD=200/GET=403).
             Err(crate::recovery_worker::BlobReadError::Unavailable) => {
                 return Some(text(req, ctx, 404, "blob not found\n"))
             }

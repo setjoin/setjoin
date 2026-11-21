@@ -1,0 +1,23 @@
+{
+  "case": "mailbox-zero-row-effects",
+  "effects": [
+    {
+      "after": [
+        {
+          "client_ip": "127.0.0.1",
+          "created_recent": true,
+          "mailbox": "0",
+          "message_resolved": false,
+          "scanner": "spamhaus",
+          "url_hash": "95d34a67350b28feff240c8657568074dedad9f0be9cdbfeff6bd5cdb4d2fa16",
+          "verdict": "safe"
+        }
+      ],
+      "before": [],
+      "table": "link_protect_audit"
+    }
+  ],
+  "format": 1,
+  "go_source": "8c89d3e5568f76fb818c95a481e24cd3a9f6354b",
+  "route": "GET /link-protect"
+}

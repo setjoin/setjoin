@@ -121,8 +121,10 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
     let get_fails = matches!(case, Case::StorageGetFails);
     let ownership_fails = matches!(case, Case::OwnershipReadFails);
     let truncated = matches!(case, Case::Truncated);
-    if (ownership_fails || truncated) && std::env::var_os("GOFREE_RECORD_GO_BINARY").is_some() {
-        return Ok(()); // native-only: Go's pool and a mid-body S3 abort cannot be faulted identically
+    if (ownership_fails || truncated || get_fails)
+        && std::env::var_os("GOFREE_RECORD_GO_BINARY").is_some()
+    {
+        return Ok(()); // native-only: Go's pool/S3 GET fallback and mid-body S3 abort cannot be faulted identically
     }
     let Some(db) = Db::for_case("blob-download-owned") else {
         return Ok(());
@@ -344,8 +346,8 @@ async fn run_case(case: Case, status_mutant: bool) -> Result<(), common::BoxErro
             }
         }
         }
-        if ownership_fails { return Ok(()); }
-        let case = if invalid_utf8 { "blob-download-invalid-utf8" } else if get_fails { "blob-download-storage-get-fails" } else if ranged {if repeat {"blob-download-cached-range"} else {"blob-download-cold-range"}} else if large { "blob-download-large" } else if encoded { "blob-download-encoded" } else if missing { "blob-download-missing" } else if head { "blob-download-head" } else if invalid_hash { "blob-download-invalid-hash" } else if foreign_caller { "blob-download-foreign" } else if repeat { "blob-download-repeat" } else { "blob-download-owned" };
+        if ownership_fails || get_fails { return Ok(()); }
+        let case = if invalid_utf8 { "blob-download-invalid-utf8" } else if ranged {if repeat {"blob-download-cached-range"} else {"blob-download-cold-range"}} else if large { "blob-download-large" } else if encoded { "blob-download-encoded" } else if missing { "blob-download-missing" } else if head { "blob-download-head" } else if invalid_hash { "blob-download-invalid-hash" } else if foreign_caller { "blob-download-foreign" } else if repeat { "blob-download-repeat" } else { "blob-download-owned" };
         let observation = serde_json::json!({
             "request": {"method":"GET", "path":"/blobs/{sha256}", "external_path":"/api/blobs/{sha256}", "external_method":if head {"HEAD"} else {"GET"}, "headers":{"host":"mail.test", "origin":"http://mail.test", "authorization":"<fixture-access-token>"}, "body":""},
             "response":responses[0], "responses": responses, "effects":[], "audit":[], "notify":[],
