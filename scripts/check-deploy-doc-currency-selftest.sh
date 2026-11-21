@@ -56,18 +56,31 @@ out_c="$(DOCS_DIR="$DOCS_EMPTY" DEPLOY_SCRIPTS_DIR="$SCRIPTS_C" bash "$GUARD" 2>
 if [ "$rc_c" -eq 0 ]; then bad "(C) dead systemd unit did NOT fire (rc=0)"; else ok "(C) dead systemd unit fails the guard (rc=$rc_c)"; fi
 if printf '%s' "$out_c" | grep -q "names unit 'mailserver'"; then ok "(C) names the offending unit"; else bad "(C) did not name the unit:"$'\n'"$out_c"; fi
 
-# ── Case D: flags between the verb and unit must not become the unit ───────
+# ── Case D: flags between the verb and unit (or without a literal unit) must not become the unit
 SCRIPTS_D="$TMP/scripts_d"; mkdir -p "$SCRIPTS_D"
 cat > "$SCRIPTS_D/upgrade-valid.sh" <<'EOF'
 #!/usr/bin/env bash
 systemctl is-active --quiet setjoin-auth
+systemctl show --property=Version --value >/dev/null 2>&1
+systemctl is-active --quiet "$file"
+systemctl enable setjoin-federation.socket
 EOF
 out_d="$(DOCS_DIR="$DOCS_EMPTY" DEPLOY_SCRIPTS_DIR="$SCRIPTS_D" bash "$GUARD" 2>&1)"; rc_d=$?
 if [ "$rc_d" -eq 0 ]; then
-  ok "(D) a systemctl option is consumed before the valid unit name"
+  ok "(D) systemctl flags and template-backed socket unit pass without false positives"
 else
-  bad "(D) a valid systemctl option was treated as the unit:"$'\n'"$out_d"
+  bad "(D) systemctl flags or socket unit triggered a false positive:"$'\n'"$out_d"
 fi
+
+# ── Case D2: unknown socket unit must still FIRE ─────────────────────────────
+SCRIPTS_D2="$TMP/scripts_d2"; mkdir -p "$SCRIPTS_D2"
+cat > "$SCRIPTS_D2/upgrade-bad-socket.sh" <<'EOF'
+#!/usr/bin/env bash
+systemctl enable setjoin-bogus.socket
+EOF
+out_d2="$(DOCS_DIR="$DOCS_EMPTY" DEPLOY_SCRIPTS_DIR="$SCRIPTS_D2" bash "$GUARD" 2>&1)"; rc_d2=$?
+if [ "$rc_d2" -eq 0 ]; then bad "(D2) unknown socket unit did NOT fire (rc=0)"; else ok "(D2) unknown socket unit fails the guard (rc=$rc_d2)"; fi
+if printf '%s' "$out_d2" | grep -q "names unit 'setjoin-bogus.socket'"; then ok "(D2) names the offending socket unit"; else bad "(D2) did not name the socket unit:"$'\n'"$out_d2"; fi
 
 # ── Case E: prose mentioning systemctl must not become a unit reference ────
 SCRIPTS_E="$TMP/scripts_e"; mkdir -p "$SCRIPTS_E"
