@@ -560,7 +560,7 @@ receipts, and one `failure` attempt); the Go recorder skips `fault` cases, so th
 Login and refresh are dynamic (`dynamic() == true`, admitted while one of the six gate
 toggles is on); forgot-password (`{begin,verify,reset}`) and all 21 `#349b` routes
 (`Route::Anonymous`, empty `""` username: `guest_invite_post`, `webpush`, `totp_{setup,confirm,enroll/setup,verify,enroll/confirm}`, `generate_backups`, `backup_verify`, `webauthn_register_{begin,finish}`, `push_{verify,approve,send}`, `password_grant`, `possession_{totp,webauthn_begin,webauthn_finish}`, and OIDC OP `/authorize`, `/authorize/callback`, `/oauth/`, `/userinfo`, `/revoke`, `/end_session` after CORS preflight) are always admitted (`dynamic() == false`).
-CA, device trust (#351), `feature.rate_limit`, `X-Device-*` proof (#350), and DPoP (#352) all run natively with zero auth forwards across login and completion routes (only the two `#357` Part B unmatched fallbacks remain in `src/lib.rs`). `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`).
+CA, device trust (#351), `feature.rate_limit`, `X-Device-*` proof (#350), and DPoP (#352) all run natively with zero auth forwards across all routes and fallbacks (`0` `.forward(` sites in `bins/auth/src`; unmatched and wrong-method requests answer natively via `AuthServer::mux_fallback` with Go `http.ServeMux` 404/405 + `Allow` + `HEAD` parity, #357 Part B). `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`).
 
 ## Native DPoP admission and token binding at issuance (#352)
 

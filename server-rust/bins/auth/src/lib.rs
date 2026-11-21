@@ -35,8 +35,6 @@ pub fn body(text: impl Into<Bytes>) -> Body {
         .map_err(|never| match never {})
         .boxed()
 }
-type Client =
-    hyper_util::client::legacy::Client<hyper_util::client::legacy::connect::HttpConnector, Body>;
 /// Request-body cap shared by every JSON route (the mutant restores Go's none for
 /// the owner-approved #491 fix test).
 fn body_cap() -> usize {
@@ -46,9 +44,6 @@ fn body_cap() -> usize {
         1 << 20
     }
 }
-fn client() -> Client {
-    hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new()).build_http()
-}
 pub struct AuthServer {
     saml: Option<Arc<setjoin_identity::saml::Registry>>,
     rp: Option<Arc<setjoin_identity::rp::Registry>>,
@@ -56,7 +51,6 @@ pub struct AuthServer {
     oidc_cipher: Option<setjoin_identity::oidc::CodeCipher>,
     webauthn: Option<setjoin_identity::webauthn::RelyingParty>,
     internal_key: std::sync::RwLock<String>,
-    client: Client,
     pub exec: setjoin_pg::ScopedExecutor,
     device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
@@ -178,7 +172,6 @@ impl AuthServer {
             oidc_cipher: None,
             webauthn: None,
             internal_key: std::sync::RwLock::new(String::new()),
-            client: client(),
             exec,
             device_resolver,
             keys: None,
@@ -378,7 +371,6 @@ impl AuthServer {
             gate: None,
             ca_engine,
             captcha_used: Default::default(),
-            client: client(),
             exec,
             device_resolver,
             keys: Some(Arc::new(keys)),
@@ -490,27 +482,88 @@ impl AuthServer {
         };
         setjoin_authz::clientip::resolve(peer, req.headers(), &trusted).client_ip
     }
-    async fn forward(&self, mut req: Request<Body>) -> Response<Body> {
-        let Some(base) = &self.config.go_upstream else {
-            return Response::builder()
-                .status(503)
-                .body(body("auth shape awaits its owner ticket\n"))
-                .unwrap();
+    fn mux_reply(req: &Request<Body>, allow: Option<&'static str>) -> Response<Body> {
+        let text = if allow.is_some() {
+            "Method Not Allowed\n"
+        } else {
+            "404 page not found\n"
         };
-        let suffix = req.uri().path_and_query().map_or("/", |p| p.as_str());
-        let Ok(uri) = format!("{}{suffix}", base.trim_end_matches('/')).parse() else {
-            return Self::failure(503, "auth upstream unavailable", req.uri().path());
-        };
-        let ip = self.client_ip(&req).to_string();
-        req.headers_mut().remove("forwarded");
-        req.headers_mut().remove("x-real-ip");
-        req.headers_mut()
-            .insert("x-forwarded-for", ip.parse().expect("IP header"));
-        *req.uri_mut() = uri;
-        match self.client.request(req).await {
-            Ok(r) => r.map(|b| b.map_err(std::io::Error::other).boxed()),
-            Err(_) => Self::failure(502, "auth upstream unavailable", ""),
+        let mut reply = Response::builder()
+            .status(if allow.is_some() { 405 } else { 404 })
+            .header("content-type", "text/plain; charset=utf-8")
+            .header("x-content-type-options", "nosniff");
+        if let Some(allow) = allow {
+            reply = reply.header("allow", allow);
         }
+        if req.method() == Method::HEAD {
+            reply = reply.header("content-length", text.len());
+        }
+        reply
+            .body(body(if req.method() == Method::HEAD {
+                ""
+            } else {
+                text
+            }))
+            .unwrap()
+    }
+    fn mux_fallback(&self, req: Request<Body>) -> Response<Body> {
+        let path = req.uri().path();
+        let allow = match path {
+            "/api/v1/version"
+            | "/.well-known/setjoin"
+            | "/.well-known/jwks.json"
+            | "/.well-known/oauth-authorization-server"
+            | "/health"
+            | "/ready"
+            | "/auth/password-policy"
+            | "/auth/me"
+            | "/auth/session/token"
+            | "/auth/identity-links"
+            | "/terms/pending" => Some("GET, HEAD"),
+            "/auth/oidc/op/complete" if self.config.oidc_enabled => Some("GET, HEAD"),
+            "/auth/login"
+            | "/auth/refresh"
+            | "/auth/logout"
+            | "/auth/mfa/reauth"
+            | "/auth/mfa/possession/totp"
+            | "/auth/mfa/possession/webauthn/begin"
+            | "/auth/mfa/possession/webauthn/finish"
+            | "/auth/mfa/push/send"
+            | "/auth/mfa/approve"
+            | "/auth/device/register"
+            | "/device/register"
+            | "/terms/accept"
+            | "/auth/introspect"
+            | "/auth/revoke" => Some("POST"),
+            "/auth/forgot-password/begin"
+            | "/auth/forgot-password/verify"
+            | "/auth/forgot-password/reset"
+                if self.forgot_password =>
+            {
+                Some("POST")
+            }
+            "/auth/scim/disable" | "/admin/reload"
+                if !self.config.internal_api_key.is_empty() =>
+            {
+                Some("POST")
+            }
+            "/auth/password" => Some("PUT"),
+            _ if path
+                .strip_prefix("/auth/admin/users/")
+                .and_then(|s| s.strip_suffix("/impersonate"))
+                .is_some_and(|s| !s.is_empty() && !s.contains('/')) =>
+            {
+                Some("POST")
+            }
+            _ if path
+                .strip_prefix("/auth/identity-links/")
+                .is_some_and(|s| !s.is_empty() && !s.contains('/')) =>
+            {
+                Some("DELETE")
+            }
+            _ => None,
+        };
+        Self::mux_reply(&req, allow)
     }
     pub async fn handle(&self, req: Request<Body>) -> Response<Body> {
         if req.uri().path() == "/auth/identity-links"
@@ -834,28 +887,7 @@ impl AuthServer {
                 | "/auth/totp/remove" => Some("POST"),
                 _ => None,
             };
-            let text = if allow.is_some() {
-                "Method Not Allowed\n"
-            } else {
-                "404 page not found\n"
-            };
-            let mut reply = Response::builder()
-                .status(if allow.is_some() { 405 } else { 404 })
-                .header("content-type", "text/plain; charset=utf-8")
-                .header("x-content-type-options", "nosniff");
-            if let Some(allow) = allow {
-                reply = reply.header("allow", allow);
-            }
-            if req.method() == Method::HEAD {
-                reply = reply.header("content-length", text.len());
-            }
-            return reply
-                .body(body(if req.method() == Method::HEAD {
-                    ""
-                } else {
-                    text
-                }))
-                .unwrap();
+            return Self::mux_reply(&req, allow);
         }
         if req.uri().path() == "/auth/guest-invite/accept" {
             return self.guest_invite(req).await;
@@ -961,7 +993,7 @@ impl AuthServer {
                         .body(body("not ready\n"))
                         .unwrap(),
                 },
-                _ => return self.forward(req).await,
+                _ => return self.mux_fallback(req),
             };
             if head {
                 if let Some(length) = response.body().size_hint().exact().filter(|n| *n > 0) {
@@ -980,7 +1012,7 @@ impl AuthServer {
                 Self::not_found()
             };
         }
-        self.forward(req).await
+        self.mux_fallback(req)
     }
     fn not_found() -> Response<Body> {
         Response::builder()

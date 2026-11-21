@@ -1,5 +1,6 @@
-//! Whole-request handoff only to unmatched routes (#357 Part B).
-//! Threat admission (#349), device proof (#350), CA/device-trust (#351), and DPoP (#352) are native.
+//! Native AuthServer routes and Go http.ServeMux fallback parity (#357 Part B).
+//! Threat admission (#349), device proof (#350), CA/device-trust (#351), DPoP (#352),
+//! and unmatched/wrong-method fallbacks (#357 Part B) are all native with zero Go forwards.
 mod common;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use http_body_util::BodyExt;
@@ -63,18 +64,165 @@ async fn check_unmatched_handoff() -> Result<(), Error> {
             "CA login must execute natively without forwarding"
         );
         assert_eq!(ca_status, 200);
-        // #357 Part B: unmatched route still receives original undecoded request.
-        let raw = "{deliberately-not-decoded".to_owned();
-        let path = "/auth/unmatched-owner?next=%2F";
-        let request = Request::post(path).header("host", "auth.idlogin1.test");
-        let response = server.handle(request.body(body(raw.clone()))?).await;
-        let status = response.status().as_u16();
-        let returned = response.into_body().collect().await?.to_bytes();
-        let event = tokio::time::timeout(std::time::Duration::from_secs(10), seen.recv())
-            .await?
-            .ok_or("no handoff request")?;
+        // #357 Part B: unmatched and wrong-method routes answer natively with Go
+        // http.ServeMux 404/405 parity and never forward to Go.
+        for (method, target, want_status, want_allow, want_body) in [
+            (
+                "POST",
+                "/auth/unmatched-owner?next=%2F",
+                404,
+                None,
+                "404 page not found\n",
+            ),
+            (
+                "GET",
+                "/auth/unmatched-owner",
+                404,
+                None,
+                "404 page not found\n",
+            ),
+            ("HEAD", "/auth/unmatched-owner", 404, None, ""),
+            (
+                "GET",
+                "/auth/login",
+                405,
+                Some("POST"),
+                "Method Not Allowed\n",
+            ),
+            ("HEAD", "/auth/login", 405, Some("POST"), ""),
+            (
+                "POST",
+                "/health",
+                405,
+                Some("GET, HEAD"),
+                "Method Not Allowed\n",
+            ),
+            (
+                "POST",
+                "/auth/password",
+                405,
+                Some("PUT"),
+                "Method Not Allowed\n",
+            ),
+            (
+                "GET",
+                "/auth/identity-links/42",
+                405,
+                Some("DELETE"),
+                "Method Not Allowed\n",
+            ),
+            (
+                "GET",
+                "/auth/admin/users/42/impersonate",
+                405,
+                Some("POST"),
+                "Method Not Allowed\n",
+            ),
+            (
+                "GET",
+                "/auth/scim/disable",
+                404,
+                None,
+                "404 page not found\n",
+            ),
+        ] {
+            let response = server
+                .handle(
+                    Request::builder()
+                        .method(method)
+                        .uri(target)
+                        .header("host", "auth.idlogin1.test")
+                        .body(body(if method == "POST" {
+                            "{deliberately-not-decoded".to_owned()
+                        } else {
+                            String::new()
+                        }))?,
+                )
+                .await;
+            assert!(
+                seen.try_recv().is_err(),
+                "{method} {target} must not forward to Go"
+            );
+            assert_eq!(
+                response.status().as_u16(),
+                want_status,
+                "{method} {target} status"
+            );
+            assert_eq!(
+                response
+                    .headers()
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok()),
+                Some("text/plain; charset=utf-8"),
+                "{method} {target} content-type"
+            );
+            assert_eq!(
+                response
+                    .headers()
+                    .get("x-content-type-options")
+                    .and_then(|v| v.to_str().ok()),
+                Some("nosniff"),
+                "{method} {target} nosniff"
+            );
+            assert_eq!(
+                response
+                    .headers()
+                    .get("allow")
+                    .and_then(|v| v.to_str().ok()),
+                want_allow,
+                "{method} {target} allow"
+            );
+            if method == "HEAD" {
+                assert_eq!(
+                    response
+                        .headers()
+                        .get("content-length")
+                        .and_then(|v| v.to_str().ok()),
+                    Some("19"),
+                    "{method} {target} content-length"
+                );
+            }
+            let returned = response.into_body().collect().await?.to_bytes();
+            assert_eq!(
+                &returned[..],
+                want_body.as_bytes(),
+                "{method} {target} body"
+            );
+        }
         drop(server);
-        Ok::<_, Error>((raw, path, status, returned, event))
+
+        let mut internal_cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
+        internal_cfg.internal_api_key = "handoff-internal-key".into();
+        internal_cfg.go_upstream = Some(format!("http://{listener_addr}"));
+        let exec2 = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
+            .map_err(|e| e.0)?;
+        let internal_server = AuthServer::load(exec2, internal_cfg)
+            .await?
+            .with_threat_gate(&db.dsn)
+            .await?;
+        let scim_wrong_method = internal_server
+            .handle(
+                Request::get("/auth/scim/disable")
+                    .header("host", "auth.idlogin1.test")
+                    .body(body(""))?,
+            )
+            .await;
+        assert!(
+            seen.try_recv().is_err(),
+            "GET /auth/scim/disable with internal key must not forward to Go"
+        );
+        assert_eq!(scim_wrong_method.status().as_u16(), 405);
+        assert_eq!(
+            scim_wrong_method
+                .headers()
+                .get("allow")
+                .and_then(|v| v.to_str().ok()),
+            Some("POST")
+        );
+        let scim_body = scim_wrong_method.into_body().collect().await?.to_bytes();
+        assert_eq!(&scim_body[..], b"Method Not Allowed\n");
+        drop(internal_server);
+        Ok::<_, Error>(())
     }
     .await;
     spy.abort();
@@ -89,17 +237,7 @@ async fn check_unmatched_handoff() -> Result<(), Error> {
     fixture::remove(&c, &a).await?;
     c.execute("DELETE FROM feature_toggles WHERE key IN ('feature.rate_limit','feature.conditional_access','feature.token_binding')",&[]).await?;
     c.execute("INSERT INTO feature_toggles SELECT * FROM jsonb_populate_recordset(NULL::feature_toggles,$1::text::jsonb)",&[&flags]).await?;
-    let (raw, path, status, returned, event) = result?;
-    assert_eq!(
-        event,
-        ("POST".to_owned(), path.to_owned(), raw.into_bytes())
-    );
-    assert_eq!(status, 403);
-    assert_eq!(
-        &returned[..],
-        include_bytes!("../../gateway/tests/golden/go-threat-blocked.json")
-    );
-    Ok(())
+    result
 }
 async fn spy() -> Result<
     (
@@ -151,7 +289,7 @@ async fn spy() -> Result<
     Ok((addr, rx, task))
 }
 #[tokio::test]
-async fn unmatched_route_receives_the_original_undecoded_request() {
+async fn unmatched_and_wrong_method_routes_answer_natively_without_forwarding() {
     check_unmatched_handoff().await.unwrap();
 }
 #[tokio::test]
