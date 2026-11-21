@@ -223,8 +223,9 @@ async fn run_case(case: Case) -> Result<(), common::BoxError> {
             }
         }
         if matches!(case, Case::Guest) {
-            if status != 418 || body != "go guest decision" {
-                return Err(format!("guest did not reach Go unchanged: {status} {body:?}").into());
+            let text = String::from_utf8_lossy(&body);
+            if status != 503 || !text.contains("service unavailable") {
+                return Err(format!("guest without admission verifier must fail closed with 503 (D-357a-1): {status} {text}").into());
             }
             return Ok(());
         }

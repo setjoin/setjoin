@@ -20,8 +20,8 @@ async fn over_budget_cross_site_mutation_is_denied_by_csrf() {
         async { Response::new(full("ok")) }
     })
     .await;
-    // A zero budget makes every request over budget; the flag read answers OFF.
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(0, common::Flags::Off)).await;
+    // A zero budget makes every request over budget; CSRF still answers first (#491).
+    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(0)).await;
     let cross = Request::builder()
         .method("POST")
         .uri("/api/settings")

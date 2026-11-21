@@ -23,12 +23,14 @@ impl<K: KeySource + 'static> Intercept for BlobRoute<K> {
         true
     }
     fn matches(&self, req: &Request<Body>) -> bool {
+        // Go's `/blobs/{sha256}` claims exactly one non-empty escaped segment; any other
+        // spelling is the API mux's 404/405 and belongs to the catch-all (#357).
         matches!(*req.method(), Method::GET | Method::HEAD | Method::PUT)
             && req
                 .uri()
                 .path()
                 .strip_prefix("/api/blobs/")
-                .is_some_and(|h| !h.is_empty() && !h.contains('/'))
+                .is_some_and(|hash| !hash.is_empty() && !hash.contains('/'))
     }
 
     fn handle(&self, req: Request<Body>, ctx: RequestContext) -> BoxFuture<Response<Body>> {
@@ -57,33 +59,26 @@ impl<K: KeySource> BlobCommands<K> {
             Ok(authorized) => authorized,
             Err(refusal) => return crate::deny::answer(refusal, req, &ctx).await,
         };
-        let request_id = crate::jmap::reply::request_id(
-            req.headers().get("x-request-id"),
-            crate::jmap::random().unwrap_or([0; 16]),
-        );
-        let text_reply = |status: hyper::StatusCode, body: &'static str| {
-            let mut response =
-                crate::jmap::reply::response(body.into(), ctx.identity.proto, request_id.clone());
-            *response.status_mut() = status;
-            response.headers_mut().insert(
-                "content-type",
-                hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
-            );
-            response
+        let raw = req
+            .uri()
+            .path()
+            .strip_prefix("/api/blobs/")
+            .unwrap_or_default();
+        if raw.is_empty() || raw.contains('/') {
+            // `matches` excludes these spellings; never reached through the route table.
+            return crate::surface::unregistered(&req, ctx.identity.proto);
+        }
+        // Go ServeMux keeps escaped segment boundaries, then PathValue decodes the selected
+        // hash. A hash that is not UTF-8 fails Go's ownership query (Postgres rejects the
+        // parameter): handler.go:541-544 `internal error` (recorded: invalid-utf8).
+        let Ok(hash) = String::from_utf8(crate::inventory::unescape(raw)) else {
+            return text(&req, &ctx, 500, "internal error\n");
         };
-        let hash = req.uri().path().strip_prefix("/api/blobs/").unwrap_or("");
-        // Go ServeMux keeps escaped segment boundaries, then PathValue decodes
-        // the selected hash. Decode only after matching the single segment.
-        let Ok(hash) = String::from_utf8(crate::inventory::unescape(hash)) else {
-            return text_reply(hyper::StatusCode::INTERNAL_SERVER_ERROR, "internal error\n");
-        };
-        let Ok(owned) =
-            setjoin_blobs::blob_owned(&self.worker_exec, authorized.context(), &hash).await
-        else {
-            return text_reply(hyper::StatusCode::INTERNAL_SERVER_ERROR, "internal error\n");
-        };
-        if !owned {
-            return text_reply(hyper::StatusCode::NOT_FOUND, "blob not found\n");
+        match setjoin_blobs::blob_owned(&self.worker_exec, authorized.context(), &hash).await {
+            Ok(true) => {}
+            Ok(false) => return text(&req, &ctx, 404, "blob not found\n"),
+            // handler.go:541-544: the ownership read failed.
+            Err(_) => return text(&req, &ctx, 500, "internal error\n"),
         }
         let object = match self
             .store
@@ -96,13 +91,20 @@ impl<K: KeySource> BlobCommands<K> {
             .await
         {
             Ok(blob) => blob,
-            Err(crate::recovery_worker::BlobReadError::Incomplete) => {
-                return text_reply(hyper::StatusCode::INTERNAL_SERVER_ERROR, "internal error\n");
-            }
+            // Stat or GET failed before any body: handler.go:574-583
+            // (native test: go357_storage_get_failure_is_not_found; Go Stat=HEAD/ReadFull=GET falls through to ServeContent 500 on split HEAD=200/GET=403).
             Err(crate::recovery_worker::BlobReadError::Unavailable) => {
-                return text_reply(hyper::StatusCode::NOT_FOUND, "blob not found\n");
+                return text(&req, &ctx, 404, "blob not found\n")
+            }
+            // `download` never yields this (short bodies fall back to streaming).
+            Err(crate::recovery_worker::BlobReadError::Incomplete) => {
+                return text(&req, &ctx, 500, "internal error\n")
             }
         };
+        let request_id = crate::jmap::reply::request_id(
+            req.headers().get("x-request-id"),
+            crate::jmap::random().unwrap_or([0; 16]),
+        );
         let mut response =
             crate::jmap::reply::response(String::new(), ctx.identity.proto, request_id.clone());
         response.headers_mut().insert(
@@ -116,12 +118,9 @@ impl<K: KeySource> BlobCommands<K> {
                 cached,
             } => {
                 let total = bytes.len() as u64;
-                response.headers_mut().insert(
-                    "content-type",
-                    content_type.parse().unwrap_or_else(|_| {
-                        hyper::header::HeaderValue::from_static("application/octet-stream")
-                    }),
-                );
+                if let Ok(value) = hyper::header::HeaderValue::from_bytes(content_type.as_bytes()) {
+                    response.headers_mut().insert("content-type", value);
+                }
                 let bytes = bytes::Bytes::from(bytes);
                 // Frozen Go's first small non-ranged read writes directly,
                 // bypassing ServeContent and all conditional headers.
@@ -145,22 +144,18 @@ impl<K: KeySource> BlobCommands<K> {
                 content_type,
                 modified,
             } => {
-                response.headers_mut().insert(
-                    "content-type",
-                    content_type.parse().unwrap_or_else(|_| {
-                        hyper::header::HeaderValue::from_static("application/octet-stream")
-                    }),
-                );
+                if let Ok(value) = hyper::header::HeaderValue::from_bytes(content_type.as_bytes()) {
+                    response.headers_mut().insert("content-type", value);
+                }
                 if let Some(modified) = modified
                     .and_then(|v| chrono::DateTime::parse_from_rfc2822(&v).ok())
                     .filter(|v| v.timestamp() != 0)
                 {
-                    if let Ok(value) = modified
+                    let stamp = modified
                         .with_timezone(&chrono::Utc)
                         .format("%a, %d %b %Y %H:%M:%S GMT")
-                        .to_string()
-                        .parse()
-                    {
+                        .to_string();
+                    if let Ok(value) = hyper::header::HeaderValue::from_str(&stamp) {
                         response.headers_mut().insert("last-modified", value);
                     }
                 }
@@ -176,9 +171,7 @@ impl<K: KeySource> BlobCommands<K> {
             buffered,
         )
         .await
-        .unwrap_or_else(|_| {
-            text_reply(hyper::StatusCode::INTERNAL_SERVER_ERROR, "internal error\n")
-        })
+        .unwrap_or_else(|_| text(&req, &ctx, 500, "internal error\n"))
     }
 }
 
@@ -199,29 +192,19 @@ impl<K: KeySource> BlobCommands<K> {
             Ok(actor) => actor,
             Err(refusal) => return crate::deny::answer(refusal, req, &ctx).await,
         };
-        // Go's retention registry (#301): applied after the upload when `WORM_MODE` is
-        // set; a configuration Go would refuse to start with stays with Go (#415).
+        // Go's retention registry (#301): applied after the upload when `WORM_MODE` is set.
         let worm = match crate::blob_retention::config() {
             crate::blob_retention::Config::Off => None,
             crate::blob_retention::Config::On(worm) => Some(worm),
+            // Go refuses to start with this configuration, so no Go answer exists:
+            // fail closed without storing (owner decision D-357f-2).
             crate::blob_retention::Config::Invalid => {
-                return ctx.upstream.forward(req, &ctx.identity).await;
+                return text(&req, &ctx, 500, "upload failed\n");
             }
         };
+        // A failed OS RNG leaves no idempotency key: Go's generic upload failure.
         let Some(operation) = crate::jmap::random() else {
-            let request_id =
-                crate::jmap::reply::request_id(req.headers().get("x-request-id"), [0; 16]);
-            let mut response = crate::jmap::reply::response(
-                "upload failed\n".into(),
-                ctx.identity.proto,
-                request_id,
-            );
-            *response.status_mut() = hyper::StatusCode::INTERNAL_SERVER_ERROR;
-            response.headers_mut().insert(
-                "content-type",
-                hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
-            );
-            return response;
+            return text(&req, &ctx, 500, "upload failed\n");
         };
         let request_id =
             crate::jmap::reply::request_id(req.headers().get("x-request-id"), operation);
@@ -238,7 +221,15 @@ impl<K: KeySource> BlobCommands<K> {
             }
             response
         };
-        let hash = req.uri().path().strip_prefix("/api/blobs/").unwrap_or("");
+        let hash = req
+            .uri()
+            .path()
+            .strip_prefix("/api/blobs/")
+            .unwrap_or_default();
+        if hash.is_empty() || hash.contains('/') {
+            // `matches` excludes these spellings; never reached through the route table.
+            return crate::surface::unregistered(&req, ctx.identity.proto);
+        }
         let hash = String::from_utf8(crate::inventory::unescape(hash)).unwrap_or_default();
         if hash.len() != 64
             || !hash
@@ -314,12 +305,11 @@ impl<K: KeySource> BlobCommands<K> {
             }
             setjoin_pg::CommandOutcome::Unknown { operation } => {
                 let mut response = reply(503, "upload outcome unknown\n");
-                response.headers_mut().insert(
-                    "x-operation-id",
-                    setjoin_pg::operation_hex(operation)
-                        .parse()
-                        .expect("operation hex"),
-                );
+                if let Ok(value) =
+                    setjoin_pg::operation_hex(operation).parse::<hyper::header::HeaderValue>()
+                {
+                    response.headers_mut().insert("x-operation-id", value);
+                }
                 return response;
             }
         }
@@ -337,6 +327,21 @@ impl<K: KeySource> BlobCommands<K> {
         }
         reply(201, "")
     }
+}
+
+/// `http.Error`: the text and newline as text/plain under Go's middleware envelope.
+fn text(req: &Request<Body>, ctx: &RequestContext, status: u16, body: &str) -> Response<Body> {
+    let request_id = crate::jmap::reply::request_id(
+        req.headers().get("x-request-id"),
+        crate::jmap::random().unwrap_or([0; 16]),
+    );
+    let mut response = crate::jmap::reply::response(body.into(), ctx.identity.proto, request_id);
+    *response.status_mut() = hyper::StatusCode::from_u16(status).expect("static status");
+    response.headers_mut().insert(
+        "content-type",
+        hyper::header::HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    response
 }
 
 struct UploadTemporary(std::path::PathBuf);

@@ -145,13 +145,21 @@ impl Inventory {
     /// `GET /meet` and `POST /meet` are concrete rows and are not subtree rows.
     pub(crate) fn is_subtree_row(route: &Route) -> bool {
         route.method == "*"
-            && matches!(route.path.as_str(), "/" | "/api/" | "/chat/" | "/drive/" | "/meet" | "/meet/")
+            && matches!(
+                route.path.as_str(),
+                "/" | "/api/" | "/chat/" | "/drive/" | "/meet" | "/meet/"
+            )
     }
 
     /// Go-proxy attribution for a forwarded request. A rolled-back F15/F16 route is
     /// registered at its bare path but Go mounts it under `/api`, so the mounted request
     /// is claimed only by the F22 `/api/` row; count it under the owning family instead.
-    pub(crate) fn proxy_family(&self, method: &Method, path: &str, route: Option<&Route>) -> Option<usize> {
+    pub(crate) fn proxy_family(
+        &self,
+        method: &Method,
+        path: &str,
+        route: Option<&Route>,
+    ) -> Option<usize> {
         let route = route?;
         if route.path != "/api/" || route.family != 22 {
             return Some(route.family);
@@ -246,7 +254,7 @@ impl Inventory {
         self.0
             .iter()
             .filter_map(|route| {
-                if path.starts_with("/auth/") && route.family != 21 {
+                if crate::unmatched::is_auth_path(path) && route.family != 21 {
                     return None;
                 }
                 if route.listener != "gateway" && route.listener != "auth" {
@@ -363,7 +371,7 @@ impl Inventory {
                 // Auth's real /auth route wins over a proxy stub. On shared
                 // paths (health, discovery, admin reload), preserve gateway
                 // ownership; exclusive auth paths still beat its SPA subtree.
-                let preferred = if path.starts_with("/auth/") {
+                let preferred = if crate::unmatched::is_auth_path(path) {
                     "auth"
                 } else {
                     "gateway"

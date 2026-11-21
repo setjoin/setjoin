@@ -484,7 +484,9 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         activated.imap,
         activated.imaps,
         &|name| std::env::var(name).ok(),
-        threat_gate.clone().map(|gate| gate as Arc<dyn setjoin_imap::ThreatGate>),
+        threat_gate
+            .clone()
+            .map(|gate| gate as Arc<dyn setjoin_imap::ThreatGate>),
         webhook.clone(),
     )?;
     let smtp = setjoin_gateway::smtp_runtime::start_or_log(
@@ -1409,13 +1411,10 @@ async fn routes(
         .await
         .map_err(|_| "CalDAV boot feature unavailable".to_owned())?
     {
-        let route = setjoin_gateway::caldav::CalDavRoute::new(
-            exec.clone(),
-            keys.clone(),
-            issuer.clone(),
-        )
-        .await
-        .with_basic_auth(dav_basic.clone());
+        let route =
+            setjoin_gateway::caldav::CalDavRoute::new(exec.clone(), keys.clone(), issuer.clone())
+                .await
+                .with_basic_auth(dav_basic.clone());
         if let Some(direct) = env("DB_DIRECT_DSN") {
             route.start_timezone_listener(direct);
         }
@@ -1429,12 +1428,8 @@ async fn routes(
         .map_err(|_| "CardDAV boot feature unavailable".to_owned())?
     {
         Some(
-            setjoin_gateway::carddav::CardDavRoute::new(
-                exec.clone(),
-                keys.clone(),
-                issuer.clone(),
-            )
-            .with_basic_auth(dav_basic.clone()),
+            setjoin_gateway::carddav::CardDavRoute::new(exec.clone(), keys.clone(), issuer.clone())
+                .with_basic_auth(dav_basic.clone()),
         )
     } else {
         None
@@ -1887,8 +1882,7 @@ async fn routes(
         .with(drive_native)
         .with(drive_core)
         .with(drive)
-        .with(meet)
-        .with(rtc);
+        .with(meet);
     if let Some(caldav) = caldav {
         table = table.with(caldav);
     }
@@ -1899,6 +1893,7 @@ async fn routes(
     );
     catchall.meet_configured = setjoin_gateway::meet_livekit::LiveKit::from_env().configured();
     catchall.website = website;
+    table = table.with(rtc.with_fallback(Arc::new(catchall.clone())));
     table = match carddav {
         Some(route) => table.with(route),
         None => table.with(setjoin_gateway::carddav::Unregistered {

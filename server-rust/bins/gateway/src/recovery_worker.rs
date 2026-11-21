@@ -104,7 +104,7 @@ pub struct S3Store {
 pub(crate) enum BlobReadError {
     /// Bucket discovery or object stat failed before consuming object data.
     Unavailable,
-    /// The staged reader cannot reproduce Go's seek/error path yet.
+    /// A streamed or ranged read failed after headers (surfaces as a body error, as in Go).
     Incomplete,
 }
 
@@ -360,7 +360,10 @@ impl S3Store {
     ) -> Result<BlobDownload, BlobReadError> {
         use futures_util::StreamExt;
         {
-            let cache = self.small_cache.lock().unwrap_or_else(|e| e.into_inner());
+            let cache = self
+                .small_cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(blob) = cache
                 .entries
                 .get(key)
@@ -397,34 +400,37 @@ impl S3Store {
                 modified,
             });
         }
-        // If buffering the small object fails mid-read, fall back to Streaming:
-        // head succeeded and 0 body bytes were written, so serve_ranges -> stream_blob
-        // opens a fresh stream from byte 0.
-        let buffered = async {
-            let mut response = bucket.get_object_stream(key).await.ok()?;
-            if response.status_code != 200 {
-                return None;
-            }
-            let mut bytes = Vec::with_capacity(size as usize);
-            while let Some(chunk) = response.bytes.next().await {
-                let chunk = chunk.ok()?;
-                if bytes.len() + chunk.len() > size as usize {
-                    return None;
-                }
-                bytes.extend_from_slice(&chunk);
-            }
-            (bytes.len() == size as usize).then_some(bytes)
-        }
-        .await;
-        let Some(bytes) = buffered else {
-            return Ok(BlobDownload::Streaming {
-                size: size as u64,
-                content_type,
-                modified,
-            });
+        // Go's first S3 call is minio-go's lazy GET (`obj.Stat()`): a failed or non-200
+        // GET is Go's `blob not found` (handler.go:574-583).
+        let Ok(mut response) = bucket.get_object_stream(key).await else {
+            return Err(BlobReadError::Unavailable);
         };
+        if response.status_code != 200 {
+            return Err(BlobReadError::Unavailable);
+        }
+        // Go's io.ReadFull fills exactly `size` bytes; a short or failed body falls
+        // through to http.ServeContent, which streams the object again (writeBlobContent).
+        let mut bytes = Vec::with_capacity(size as usize);
+        while bytes.len() < size as usize {
+            match response.bytes.next().await {
+                Some(Ok(chunk)) => {
+                    let take = chunk.len().min(size as usize - bytes.len());
+                    bytes.extend_from_slice(&chunk[..take]);
+                }
+                Some(Err(_)) | None => {
+                    return Ok(BlobDownload::Streaming {
+                        size: size as u64,
+                        content_type,
+                        modified,
+                    });
+                }
+            }
+        }
         {
-            let mut cache = self.small_cache.lock().unwrap_or_else(|e| e.into_inner());
+            let mut cache = self
+                .small_cache
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             while cache.bytes + bytes.len() > 512 << 20 && !cache.entries.is_empty() {
                 let oldest = cache
                     .entries
