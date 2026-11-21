@@ -3654,6 +3654,7 @@ fn native_349b_wiring_and_with_user_id_are_pinned() {
 fn oidc_test_cfg(db: &Db, preset: Preset, upstream: Option<String>) -> Result<Config, Err> {
     let mut cfg = rust_config(db, preset, upstream)?;
     cfg.db_encryption_key = ENC.into();
+    cfg.vapid_private_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE".into();
     let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/conformance/identity-oidc");
     cfg.oidc_enabled = true;
