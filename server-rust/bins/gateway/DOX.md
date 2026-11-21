@@ -1052,8 +1052,8 @@ errors map through `reducer_error` (a port of `shared/reducererr`, drift-tested)
 Oracles share `tests/jmap_family_oracle/mod.rs`. It owns one sequence floor
 per table (`FLOORS`, distinct by test; families never set floors) and its
 cleanup removes comment edit chains, calendars (then their journal),
-creator-pinned sharing defaults and seeded shared mailboxes before the
-fixtures. Goldens live in
+creator-pinned sharing defaults, department test hierarchies (`path LIKE '/jmap370-%'`),
+and seeded shared mailboxes before the fixtures. Goldens live in
 `tests/conformance/jmap/families/<family>/` and are recorded only by the
 dispatch-only `gofree-record.yml` (gateway mode,
 `-f test=jmap_family_<file> -f go_upstream=none -f go_source=<branch head>`).
@@ -1064,3 +1064,5 @@ gate enforces denial kinds (delegate, suspended, entitlement, foreign-object)
 with unchanged effects and exactly one `no-tenant-filter` mutant per fragment.
 Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
+- `#370` (`contact_card.rs`, `tests/jmap_family_370.rs`, `jmap-370.json`): `ContactCard/*` (10 methods, `personal` gate, `contacts` app, `accountId`). `ContactCard/set` mirrors frozen Go G1 (`jmap_contactcard_set_{create,update,destroy}` remain in `seam/call.rs::KNOWN_MISSING` -> `serverFail` when populated).
+- `#375` (`address_book.rs`, `tests/jmap_family_375.rs`, `jmap-375.json`): `AddressBook/*` and `ContactGroup/*` (7 methods, `personal` gate, `contacts` app, `accountId`). `family/mod.rs::serve` aggregates `/set` `created` maps into top-level `createdIds` to match Go `ExecuteBatch`.
