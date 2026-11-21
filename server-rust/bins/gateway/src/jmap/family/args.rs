@@ -151,7 +151,7 @@ pub(crate) fn decode(
         let (name, kind) = fields[index];
         match field(value.get(), kind) {
             Ok(Some(decoded)) => values[index] = Some(decoded),
-            Ok(None) => {}
+            Ok(None) => values[index] = None,
             Err((what, ty)) => {
                 if first_error.is_none() {
                     first_error = Some(format!(
@@ -343,8 +343,10 @@ mod tests {
         assert!(args.strings("d").is_none());
         assert_eq!(args.raw("e"), Some("null"));
         assert_eq!(args.ints("f"), Some(&[1, 0][..]));
-        let empty = decode(r#"{"a":""}"#, "", ALL).expect("decoded empty");
-        assert_eq!(empty.opt_str("a"), Some(""));
+        let args = decode(r#"{"a":"","b":1,"a":null}"#, "", ALL).expect("dup null");
+        assert_eq!(args.opt_str("a"), None);
+        let args = decode(r#"{"a":""}"#, "", ALL).expect("empty string");
+        assert_eq!(args.opt_str("a"), Some(""));
     }
 
     #[test]
