@@ -1100,7 +1100,7 @@ Continuity/* stays with Go while the continuity signing key is not loaded
 (`setjoin_gateway_jmap_continuity_signer_missing 1`).
 - `#371` (`calendar.rs`, `calendar_delegate.rs`, `tests/jmap_family_371.rs`, `jmap-371.json`): `Calendar/*` (7 methods: `Calendar/get`, `Calendar/changes`, `Calendar/set`, `Calendar/getShared`, `Calendar/shareGet`, `Calendar/shareSet`, `Calendar/delegateList`) run natively with `Gate::Personal`, app `"calendar"`, `WorkerRead::CalendarDelegates`, and `CALENDAR_A3_METHODS` (`project_calendar`).
 - `#370` (`contact_card.rs`, `tests/jmap_family_370.rs`, `jmap-370.json`): `ContactCard/*` (10 methods, `personal` gate, `contacts` app, `accountId`). `ContactCard/set` mirrors frozen Go G1 (`jmap_contactcard_set_{create,update,destroy}` remain in `seam/call.rs::KNOWN_MISSING` -> `serverFail` when populated).
-- `#375` (`address_book.rs`, `tests/jmap_family_375.rs`, `jmap-375.json`): `AddressBook/*` and `ContactGroup/*` (7 methods, `personal` gate, `contacts` app, `accountId`). `family/mod.rs::serve` aggregates `/set` `created` maps into top-level `createdIds` to match Go `ExecuteBatch`.
+- `#375` (`address_book.rs`, `tests/jmap_family_375.rs`, `jmap-375.json`): `AddressBook/*` and `ContactGroup/*` (7 methods, `personal` gate, `contacts` app, `accountId`). Runtime HTTP (`reply::collect_created_ids`) and WebSocket (`ws_request.rs`) paths dispatch via `family::{classify_call,serve_call}` and aggregate `/set` `created` maps into top-level `createdIds` to match Go `ExecuteBatch`.
 
 Vendor mail methods (#376, `src/jmap/family/vendor_mail.rs`): `SavedSearch/{list,set,delete}`,
 `QuickStep/{get,set,apply}`, and `EmailTemplate/{list,set,delete}` run natively on both HTTP
