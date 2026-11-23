@@ -97,6 +97,7 @@ pub struct S3Store {
     bucket: Box<s3::Bucket>,
     endpoint: String,
     unsigned: Option<reqwest::Client>,
+    no_redirect: reqwest::Client,
     region: tokio::sync::Mutex<Option<String>>,
     small_cache: std::sync::Mutex<SmallCache>,
 }
@@ -335,6 +336,11 @@ impl S3Store {
         } else {
             None
         };
+        let no_redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .map_err(|error| error.to_string())?;
         let region = s3::Region::Custom {
             region: "us-east-1".into(),
             endpoint: endpoint.into(),
@@ -346,6 +352,7 @@ impl S3Store {
             bucket,
             endpoint: endpoint.into(),
             unsigned,
+            no_redirect,
             region: tokio::sync::Mutex::new(None),
             small_cache: std::sync::Mutex::new(SmallCache::default()),
         })
@@ -692,7 +699,7 @@ impl S3Store {
         bucket
             .extra_headers
             .insert("content-md5", md5.parse().unwrap());
-        let response = ReqwestRequest::new(
+        let request = ReqwestRequest::new(
             &bucket,
             key,
             Command::PutObject {
@@ -703,10 +710,26 @@ impl S3Store {
             },
         )
         .await
-        .map_err(|e| e.to_string())?
-        .response()
-        .await
         .map_err(|e| e.to_string())?;
+        let url = request.url().map_err(|e| e.to_string())?;
+        let signed = request.headers().await.map_err(|e| e.to_string())?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        for (name, value) in &signed {
+            if let (Ok(name), Ok(value)) = (
+                reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+                reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+            ) {
+                headers.append(name, value);
+            }
+        }
+        let response = self
+            .no_redirect
+            .put(url.as_str())
+            .headers(headers)
+            .body(xml.as_bytes().to_vec())
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let status = response.status().as_u16();
         if matches!(status, 200 | 204) {
             return Ok(LegalHoldReply {

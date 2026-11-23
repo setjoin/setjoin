@@ -359,13 +359,15 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
         .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
         .await?;
     owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",a.user)).await?;
-    if let Some(op) = commit_operation {
-        owner
-            .execute(
-                "DELETE FROM rust_operation_receipts WHERE operation_id=$1::text::uuid",
-                &[&op],
-            )
-            .await?;
+    if mutant.starts_with("commit-") {
+        if let Some(op) = commit_operation {
+            owner
+                .execute(
+                    "DELETE FROM rust_operation_receipts WHERE operation_id=$1::text::uuid",
+                    &[&op],
+                )
+                .await?;
+        }
     } else if !commands.is_empty() {
         owner
             .execute(
@@ -476,7 +478,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
         ]);
         std::env::remove_var("WORM_MODE");
         std::env::remove_var("WORM_LEGAL_HOLD_ENABLED");
-        // S3 response phase: 0=retry 400 SlowDownWrite->400 AuthorizationHeaderMalformed->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
+        // S3 response phase: 0=retry 400 SlowDownWrite->307 header-only eu-west-1->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
         let s3_phase = Arc::new(AtomicUsize::new(0));
         let s3_attempt = Arc::new(AtomicUsize::new(0));
         let s3_puts = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
@@ -536,12 +538,10 @@ pub async fn forwarding() -> Result<(), BoxError> {
                         ))
                         .unwrap(),
                     (0, 1) => Response::builder()
-                        .status(400)
-                        .header("content-type", "application/xml")
+                        .status(307)
+                        .header("location", "http://127.0.0.1:9/redirected-never-follow")
                         .header("x-amz-bucket-region", "eu-west-1")
-                        .body(common::full(
-                            "<Error><Code>AuthorizationHeaderMalformed</Code><Region>eu-west-1</Region></Error>",
-                        ))
+                        .body(common::full(""))
                         .unwrap(),
                     (0 | 1 | 3, _) => Response::builder().status(204).body(common::full("")).unwrap(),
                     (2, _) => Response::builder()

@@ -395,7 +395,9 @@ fn canonical_email(email: &str) -> Result<String, &'static str> {
             return Err("invalid email format");
         }
         canonical = format!("{}@{}", quote_local_part(local), &canonical[at + 1..]);
-        validate_email_once(&canonical)?;
+        if validate_email_once(&canonical).is_err() {
+            return Err("invalid email format");
+        }
     }
     Ok(canonical)
 }
@@ -456,13 +458,6 @@ fn validate_email_once(email: &str) -> Result<String, &'static str> {
     Ok(address)
 }
 
-fn is_atext_byte(b: u8, dot_allowed: bool) -> bool {
-    b.is_ascii_alphanumeric()
-        || b"!#$%&'*+/=?^_`{|}~-".contains(&b)
-        || (dot_allowed && b == b'.')
-        || b >= 0x80
-}
-
 fn local_part_needs_quoting(local: &str) -> bool {
     if local.is_empty() {
         return true;
@@ -489,217 +484,10 @@ fn quote_local_part(local: &str) -> String {
     out
 }
 
-/// Subset of Go `net/mail.ParseAddress`: parses a single RFC 5322 `addr-spec` or
-/// `display-name <addr-spec>` and returns the resolved address.
+/// Go 1.26 `net/mail.ParseAddress` via the shared `setjoin-mime` parser.
 fn parse_net_mail_address(raw: &str) -> Option<String> {
-    struct Parser<'a> {
-        s: &'a [u8],
-        pos: usize,
-    }
-    impl<'a> Parser<'a> {
-        fn peek(&self) -> Option<u8> {
-            self.s.get(self.pos).copied()
-        }
-        fn skip_space(&mut self) {
-            while let Some(b) = self.peek() {
-                if matches!(b, b' ' | b'\t') {
-                    self.pos += 1;
-                } else {
-                    break;
-                }
-            }
-        }
-        fn skip_comments_and_space(&mut self) -> Option<()> {
-            loop {
-                self.skip_space();
-                if self.peek() != Some(b'(') {
-                    return Some(());
-                }
-                self.pos += 1;
-                let mut depth = 1usize;
-                while depth > 0 {
-                    let b = *self.s.get(self.pos)?;
-                    self.pos += 1;
-                    match b {
-                        b'\\' => {
-                            let _ = *self.s.get(self.pos)?;
-                            self.pos += 1;
-                        }
-                        b'(' => depth += 1,
-                        b')' => depth -= 1,
-                        _ => {}
-                    }
-                }
-            }
-        }
-        fn consume_quoted_string(&mut self) -> Option<String> {
-            if self.peek() != Some(b'"') {
-                return None;
-            }
-            self.pos += 1;
-            let mut bytes = Vec::new();
-            loop {
-                let b = *self.s.get(self.pos)?;
-                self.pos += 1;
-                match b {
-                    b'"' => return String::from_utf8(bytes).ok(),
-                    b'\\' => {
-                        let esc = *self.s.get(self.pos)?;
-                        self.pos += 1;
-                        if esc < 0x20 || esc == 0x7f {
-                            return None;
-                        }
-                        bytes.push(esc);
-                    }
-                    _ => {
-                        if b < 0x20 || b == 0x7f {
-                            return None;
-                        }
-                        bytes.push(b);
-                    }
-                }
-            }
-        }
-        fn consume_atom(&mut self, dot_allowed: bool) -> Option<String> {
-            let start = self.pos;
-            while let Some(b) = self.peek() {
-                if is_atext_byte(b, dot_allowed) {
-                    self.pos += 1;
-                } else {
-                    break;
-                }
-            }
-            if self.pos == start {
-                return None;
-            }
-            let slice = &self.s[start..self.pos];
-            // Reject consecutive dots or leading/trailing dots inside non-dot-only atoms;
-            // raw-local check handles top-level local-parts, and domain segments cannot be empty.
-            std::str::from_utf8(slice).ok().map(str::to_owned)
-        }
-        fn consume_phrase(&mut self) -> Option<()> {
-            let mut count = 0usize;
-            loop {
-                if count == 0 {
-                    self.skip_space();
-                } else {
-                    self.skip_comments_and_space()?;
-                }
-                match self.peek() {
-                    Some(b'"') => {
-                        self.consume_quoted_string()?;
-                    }
-                    Some(b) if is_atext_byte(b, true) => {
-                        self.consume_atom(true)?;
-                    }
-                    _ => break,
-                }
-                count += 1;
-            }
-            (count > 0).then_some(())
-        }
-        fn consume_domain(&mut self) -> Option<String> {
-            if self.peek() == Some(b'[') {
-                let start = self.pos;
-                self.pos += 1;
-                while let Some(b) = self.peek() {
-                    if b == b']' {
-                        self.pos += 1;
-                        let lit = &self.s[start..self.pos];
-                        // Go net/mail consumeDomainLiteral validates bracket contents via net.ParseIP.
-                        let inner = &lit[1..lit.len() - 1];
-                        if !std::str::from_utf8(inner)
-                            .ok()
-                            .is_some_and(|s| s.parse::<std::net::IpAddr>().is_ok())
-                        {
-                            return None;
-                        }
-                        return std::str::from_utf8(lit).ok().map(str::to_owned);
-                    }
-                    self.pos += 1;
-                }
-                return None;
-            }
-            let domain = self.consume_atom(true)?;
-            if domain.split('.').any(str::is_empty) {
-                return None;
-            }
-            Some(domain)
-        }
-        fn consume_addr_spec(&mut self) -> Option<String> {
-            self.skip_space();
-            let local = if self.peek() == Some(b'"') {
-                self.consume_quoted_string()?
-            } else {
-                let atom = self.consume_atom(true)?;
-                if atom.split('.').any(str::is_empty) {
-                    return None;
-                }
-                atom
-            };
-            if local.is_empty() || self.peek() != Some(b'@') {
-                return None;
-            }
-            self.pos += 1;
-            self.skip_space();
-            let domain = self.consume_domain()?;
-            Some(format!("{local}@{domain}"))
-        }
-        fn parse_mailbox(&mut self, allow_group: bool) -> Option<String> {
-            self.skip_space();
-            let start = self.pos;
-            if self.peek() == Some(b'<') {
-                self.pos += 1;
-                let addr = self.consume_addr_spec()?;
-                if self.peek() != Some(b'>') {
-                    return None;
-                }
-                self.pos += 1;
-                return Some(addr);
-            }
-            if self.consume_phrase().is_some() {
-                self.skip_comments_and_space()?;
-                match self.peek() {
-                    Some(b'<') => {
-                        self.pos += 1;
-                        let addr = self.consume_addr_spec()?;
-                        if self.peek() != Some(b'>') {
-                            return None;
-                        }
-                        self.pos += 1;
-                        return Some(addr);
-                    }
-                    Some(b':') if allow_group => {
-                        self.pos += 1;
-                        let addr = self.parse_mailbox(false)?;
-                        self.skip_comments_and_space()?;
-                        if self.peek() != Some(b';') {
-                            return None;
-                        }
-                        self.pos += 1;
-                        return Some(addr);
-                    }
-                    _ => {
-                        self.pos = start;
-                        return self.consume_addr_spec();
-                    }
-                }
-            }
-            self.consume_addr_spec()
-        }
-    }
-
-    let mut p = Parser {
-        s: raw.as_bytes(),
-        pos: 0,
-    };
-    p.skip_space();
-    if p.pos >= p.s.len() {
-        return None;
-    }
-    let addr = p.parse_mailbox(true)?;
-    p.skip_comments_and_space()?;
-    (p.pos == p.s.len()).then_some(addr)
+    let parsed = setjoin_mime::parse_address(raw.as_bytes()).ok()?;
+    String::from_utf8(parsed.address).ok()
 }
 
 fn nonempty(s: &str) -> Option<&str> {
@@ -1675,6 +1463,14 @@ mod tests {
         );
         assert_eq!(
             canonical_email("\"\"@example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("=?koi8-r?B?dGVzdA==?= <user@example.test>"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("\"a\\.\\.b\"@example.test"),
             Err("invalid email format")
         );
         assert_eq!(

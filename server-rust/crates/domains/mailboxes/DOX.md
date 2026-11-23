@@ -25,9 +25,9 @@ F05 has four slices; the inventory assigns every route to exactly one:
   admin's scope ride in the same WHERE). Delete (worker credential) and the folder
   writes call `rust_admin_mailbox_delete` / `rust_admin_folder_*`, which reproduce Go's
   multi-statement handlers; the paired tag statement's failure is swallowed as Go only logs it.
-- Create validates the address natively with `parse_net_mail_address` (mirroring Go
-  `net/mail.ParseAddress`: dot-atom/quoted local parts, groups, whitespace/comments, bracketed domain
-  literals) and ASCII domain/local rules; invalid addresses answer 400 natively.
+- Create validates the address natively via `setjoin_mime::parse_address` (mirroring Go
+  1.26 `net/mail.ParseAddress`: dot-atom/quoted local parts, groups, comments, RFC 2047 words,
+  bracketed IP literals) and ASCII domain/local rules; invalid addresses answer 400 natively.
 - Go quirks kept: create without a positive `quotaBytes` binds NULL and hits the column's
   NOT NULL (500); update NULLs both purge-day columns when absent; folder update/delete of a
   missing folder answer 204; delete of a missing mailbox (global admin) answers 204;
