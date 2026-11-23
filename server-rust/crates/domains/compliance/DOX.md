@@ -106,9 +106,9 @@ all headers, persisted rows, mailbox state, audit, notifications and signed S3
 calls. No recorded notification exists, so no-notify is inapplicable.
 
 SQL seam: `mailserver/sql/tests/rust_compliance.pg` (27 checks). WORM hold/release
-remains owned by F04 Compliance #289 and forwards to Go pending its separate
-S3 SetLegalHold adapter and eDiscovery effect oracle. Platform #301 and Blobs
-#419 qualify F16 PutObjectRetention; they do not complete this legal-hold path. Full corpus and recording instructions: `tests/conformance/compliance/CASES.md`.
+calls S3 `PutObjectLegalHold` natively (`compliance.rs` + `S3Store::legal_hold_with_retries`)
+when `WORM_MODE` is enabled and `WORM_LEGAL_HOLD_ENABLED` defaults on. Platform #301 and Blobs
+#419 qualify F16 PutObjectRetention independently. Full corpus and recording instructions: `tests/conformance/compliance/CASES.md`.
 
 ## Chat compliance (#291)
 

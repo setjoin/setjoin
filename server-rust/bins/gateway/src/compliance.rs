@@ -119,11 +119,6 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 start,
                 search,
             } = EdiscoveryMatch::from(r.method(), r.uri().path());
-            // F04 Compliance #289 owns the unported S3 SetLegalHold adapter.
-            // F16 PutObjectRetention is covered by #301/#419.
-            if (hold || release) && std::env::var("WORM_MODE").is_ok_and(|v| !v.is_empty()) {
-                return c.upstream.forward(r, &c.identity).await;
-            }
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -327,19 +322,26 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 )
                 .await
                 {
-                    CommandOutcome::Committed(held) => json_response(
-                        200,
-                        if hold {
-                            format!(
-                                "{{\"held\":{},\"legal_hold_objects\":0,\"total\":{total}}}\n",
-                                held.len()
-                            )
+                    CommandOutcome::Committed(held) => {
+                        let legal_hold_objects = if !held.is_empty() && worm_legal_hold_enabled() {
+                            apply_legal_hold(&worker, store.as_deref(), &held, hold).await
                         } else {
-                            format!("{{\"released\":{},\"total\":{total}}}\n", held.len())
-                        },
-                        &c,
-                        id,
-                    ),
+                            0
+                        };
+                        json_response(
+                            200,
+                            if hold {
+                                format!(
+                                    "{{\"held\":{},\"legal_hold_objects\":{legal_hold_objects},\"total\":{total}}}\n",
+                                    held.len()
+                                )
+                            } else {
+                                format!("{{\"released\":{},\"total\":{total}}}\n", held.len())
+                            },
+                            &c,
+                            id,
+                        )
+                    }
                     CommandOutcome::Unknown { .. } => unknown(operation, &c, &id),
                     CommandOutcome::RolledBack(_) => problem(500, "database error", &c, &id),
                 }
@@ -621,6 +623,62 @@ async fn search_fields(r: &mut Request<Body>) -> Result<(crate::chat::Fields, by
         .ok_or(())?
         .map_err(|_| ())?;
     Ok((fields, original))
+}
+
+fn worm_legal_hold_enabled() -> bool {
+    let Ok(mode) = std::env::var("WORM_MODE") else {
+        return false;
+    };
+    if mode.is_empty() {
+        return false;
+    }
+    match std::env::var("WORM_LEGAL_HOLD_ENABLED") {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "t" | "yes"
+        ),
+        Err(_) => true,
+    }
+}
+
+async fn apply_legal_hold(
+    worker: &ScopedExecutor,
+    store: Option<&crate::recovery_worker::S3Store>,
+    msg_ids: &[i64],
+    on: bool,
+) -> usize {
+    let Some(store) = store else {
+        return 0;
+    };
+    let ids = msg_ids.to_vec();
+    let rows = match worker
+        .read(
+            "SELECT DISTINCT blob_sha256 FROM message_attachments WHERE message_id = ANY($1)",
+            &[(&ids, setjoin_pg::Type::INT8_ARRAY)],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(err) => {
+            eprintln!("ediscovery: object legal hold lookup failed: {err:?}");
+            return 0;
+        }
+    };
+    let mut n = 0;
+    for row in rows {
+        let Ok(Some(hash)) = row.try_get::<_, Option<String>>(0) else {
+            continue;
+        };
+        if hash.is_empty() {
+            continue;
+        }
+        if let Err(err) = store.legal_hold_with_retries(&hash, on).await {
+            eprintln!("ediscovery: object legal hold failed key={hash}: {err}");
+            continue;
+        }
+        n += 1;
+    }
+    n
 }
 
 // Go flushes a large single JSON write before completion. Hide the known

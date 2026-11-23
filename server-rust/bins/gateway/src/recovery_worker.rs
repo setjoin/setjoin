@@ -626,6 +626,71 @@ impl S3Store {
         }
     }
 
+    /// Sets (`on = true`, `"ON"`) or clears (`on = false`, `"OFF"`) an S3 Object Lock legal
+    /// hold (`PUT ?legal-hold`) with minio-go's retry policy (#289).
+    pub(crate) async fn legal_hold_with_retries(&self, key: &str, on: bool) -> Result<(), String> {
+        const RETRYABLE: [u16; 8] = [408, 429, 499, 500, 502, 503, 504, 520];
+        let mut last = String::from("object legal hold failed");
+        for attempt in 0..10u32 {
+            if attempt > 0 {
+                let wait = (200u64 << (attempt - 1).min(3)).min(1000);
+                tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+            }
+            match self.legal_hold_attempt(key, on).await {
+                Ok(200..=299) => return Ok(()),
+                Ok(status) if RETRYABLE.contains(&status) => {
+                    last = format!("object legal hold failed ({status})")
+                }
+                Ok(status) => return Err(format!("object legal hold failed ({status})")),
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
+    }
+
+    /// One `PUT ?legal-hold` request; returns the HTTP status code.
+    async fn legal_hold_attempt(&self, key: &str, on: bool) -> Result<u16, String> {
+        use s3::{
+            command::Command,
+            request::{tokio_backend::ReqwestRequest, Request},
+        };
+        let mut bucket = self.bucket().await?;
+        bucket.add_query("legal-hold", "");
+        let (xml, md5) = if on {
+            (
+                "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>ON</Status></LegalHold>",
+                "erOisiAmIIzsh/Ze2QqGXw==",
+            )
+        } else {
+            (
+                "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>OFF</Status></LegalHold>",
+                "VFVLURy793Xk77f+OyG/PA==",
+            )
+        };
+        bucket
+            .extra_headers
+            .insert("content-md5", md5.parse().unwrap());
+        let response = ReqwestRequest::new(
+            &bucket,
+            key,
+            Command::PutObject {
+                content: xml.as_bytes(),
+                content_type: "application/xml",
+                custom_headers: None,
+                multipart: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?
+        .response_data(false)
+        .await;
+        match response {
+            Ok(response) => Ok(response.status_code()),
+            Err(s3::error::S3Error::HttpFailWithBody(status, _)) => Ok(status),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     /// Same environment names and defaults as Go's primary object store.
     pub fn blob_reference(&self, hash: &str) -> String {
         format!("{}/{hash}", self.bucket.name())

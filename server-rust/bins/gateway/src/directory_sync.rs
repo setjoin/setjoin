@@ -198,7 +198,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                         | Action::LdapHealth
                 )
             {
-                return c.upstream.forward(r, &c.identity).await;
+                return fail(503, "service unavailable", &c, &id);
             }
             if ad_runtime.is_none()
                 && matches!(
@@ -206,7 +206,7 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                     Action::AdPut | Action::AdTest | Action::AdSync | Action::AdHealth
                 )
             {
-                return c.upstream.forward(r, &c.identity).await;
+                return fail(503, "service unavailable", &c, &id);
             }
             let scope = authority.domain_scope();
             let reply =

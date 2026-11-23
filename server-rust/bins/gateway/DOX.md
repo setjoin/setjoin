@@ -221,8 +221,9 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
   failure, `ServeMux` 307 for unclean paths, and Go's middleware envelope (security headers,
   `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). Falls back natively via
   `CatchallRoute` (SPA fallback with a website, 404 without) when LiveKit is not configured, and
-  declines to Go when the request carries a JWT credential the verified-member precheck rejects (Go's
-  guest belt). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
+  enforces Go's guest belt natively via `setjoin_authz::admit` (`Scope::User`: 404 `Guest`,
+  401 `GuestInactive`, 503 `Unavailable`; unauthenticated or invalid JWTs proxy to Go's SFU for
+  LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
   never reads it from the environment. `/meet`, `/meet/` catch-alls stay on Go with the generic
   ones (#416).
 - **`meet-reconcile`** (`src/meet_worker.rs`): `RUST_WORKERS_ON=meet-reconcile` with
@@ -323,8 +324,9 @@ entries are ON after their case floors, route/family mutants and commit-loss
 qualification. `main.rs` installs request/worker executors, process-local search
 jobs and the shared S3 client. `compliance_export.rs` owns bounded HTTP streaming;
 all business writes remain statements or family reducers. WORM hold/release
-remains owned by F04 Compliance #289 and forwarded pending its S3 SetLegalHold
-adapter; F16 PutObjectRetention is qualified by #301/#419. A quoted-NUL KQL is refused locally (400)
+applies S3 `PutObjectLegalHold` (`legal_hold_with_retries` on `S3Store`) natively
+when `WORM_MODE` is set and `WORM_LEGAL_HOLD_ENABLED` is not explicitly false;
+F16 PutObjectRetention is qualified by #301/#419. A quoted-NUL KQL is refused locally (400)
 (owner-approved security fix 2026-11-05, #436; frozen Go's parser hung). Both inventory OFF and the global switch
 restore Go ownership. The retention/audit (#290) and chat compliance (#291) slices are ON.
 

@@ -97,25 +97,6 @@ fn is_rtc(path: &str) -> bool {
     path == "/rtc" || path.starts_with("/rtc/")
 }
 
-fn carries_jwt(headers: &HeaderMap) -> bool {
-    if headers
-        .get(hyper::header::AUTHORIZATION)
-        .is_some_and(|v| v.as_bytes().starts_with(b"Bearer "))
-    {
-        return true;
-    }
-    headers
-        .get_all(hyper::header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .any(|pair| {
-            pair.trim()
-                .split_once('=')
-                .is_some_and(|(n, v)| n == "access_token" && !v.is_empty())
-        })
-}
-
 impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
     fn matches(&self, req: &Request<Body>) -> bool {
         is_rtc(req.uri().path())
@@ -129,21 +110,34 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
             if !configured {
                 return match fallback {
                     Some(fallback) => fallback.handle(req, c).await,
-                    None => c.upstream.forward(req, &c.identity).await,
+                    None => crate::surface::unregistered(&req, c.identity.proto),
                 };
             }
-            if carries_jwt(req.headers())
-                && setjoin_authz::authorize_user_request(
-                    &exec,
-                    &keys,
-                    &issuer,
-                    req.headers(),
-                    c.identity.proto,
-                )
-                .await
-                .is_none()
-            {
-                return c.upstream.forward(req, &c.identity).await;
+            if let Some(token) = setjoin_authz::token::presented(req.headers()) {
+                match setjoin_authz::push::authenticate_detailed(&exec, &*keys, &issuer, &token)
+                    .await
+                {
+                    Ok(identity) if identity.is_guest() => {
+                        return crate::admission::not_found(req.headers(), &c.identity);
+                    }
+                    Err(setjoin_authz::push::PushAuthError::GuestInactive) => {
+                        return crate::admission::problem(
+                            req.headers(),
+                            &c.identity,
+                            401,
+                            "Unauthorized",
+                        );
+                    }
+                    Err(setjoin_authz::push::PushAuthError::GuestUnavailable) => {
+                        return crate::admission::problem(
+                            req.headers(),
+                            &c.identity,
+                            503,
+                            "service unavailable",
+                        );
+                    }
+                    Ok(_) | Err(setjoin_authz::push::PushAuthError::Invalid) => {}
+                }
             }
             let id = crate::jmap::reply::request_id(
                 req.headers().get("x-request-id"),

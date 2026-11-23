@@ -353,71 +353,304 @@ async fn wait_search(owner: &tokio_postgres::Client, id: i64) -> Result<(), BoxE
     }
 }
 
-/// These remain Go-owned shapes. Never feed quoted NUL to the live Go oracle.
+/// Refused NUL KQL stays 400 and WORM hold/release calls S3 PutObjectLegalHold natively.
 pub async fn forwarding() -> Result<(), BoxError> {
     use http_body_util::BodyExt;
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-forward").ok_or("DB required")?;
     let owner = db.connect().await?;
     let a = fixture::account(&owner, "compl1-forward").await?;
-    let role:i64=owner.query_one("INSERT INTO admin_role_groups(name,permissions) VALUES ('compl1-forward','{compliance.write}') RETURNING id",&[]).await?.get(0);
+    let role: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups(name,permissions) VALUES ('compl1-forward','{compliance.write}') RETURNING id",
+            &[],
+        )
+        .await?
+        .get(0);
     owner
         .execute(
             "INSERT INTO admin_role_assignments(role_group_id,user_id) VALUES($1,$2)",
             &[&role, &a.user],
         )
         .await?;
-    struct Env(Option<std::ffi::OsString>);
+    let blob_hash = format!("{:064x}", a.two_labels);
+    owner
+        .execute(
+            "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,12,'text/plain',0)",
+            &[&blob_hash],
+        )
+        .await?;
+    owner
+        .execute(
+            "INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'hold.txt','text/plain','attachment',12 FROM messages WHERE id=$2 AND mailbox_id=$3",
+            &[&blob_hash, &a.two_labels, &a.mailbox],
+        )
+        .await?;
+    struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
     impl Drop for Env {
         fn drop(&mut self) {
-            if let Some(value) = &self.0 {
-                std::env::set_var("WORM_MODE", value)
-            } else {
-                std::env::remove_var("WORM_MODE")
+            for (k, value) in &self.0 {
+                if let Some(value) = value {
+                    std::env::set_var(k, value)
+                } else {
+                    std::env::remove_var(k)
+                }
             }
         }
     }
-    let result=async {
-        let _env=Env(std::env::var_os("WORM_MODE"));std::env::remove_var("WORM_MODE");
-        let received=Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));let capture=received.clone();
-        let upstream=common::fake_upstream(move |r|{let capture=capture.clone();async move {
-            let method=r.method().to_string();let path=r.uri().to_string();
-            let body=r.into_body().collect().await.unwrap().to_bytes();
-            capture.lock().unwrap().push(json!({"method":method,"path":path,"body":String::from_utf8(body.to_vec()).unwrap()}));
-            Response::builder().status(299).body(common::full("forwarded\n")).unwrap()
-        }}).await;
-        let patient=std::time::Duration::from_secs(30);
-        let make=|dsn:&str|ScopedExecutor::from_dsn_with(dsn,2,setjoin_pg::Timeouts{pool_wait:patient,create:patient,statement:patient}).map(|e|e.with_audit_keys("22".repeat(32),String::new())).map_err(|e|e.0);
-        let adapter=ComplianceRoute{store:None,exec:make(db.app.as_deref().unwrap_or(&db.dsn))?,worker:make(&db.dsn)?,jobs:setjoin_gateway::compliance::SearchJobs::new(setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,1),keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
-        let mut inventory:Value=serde_json::from_str(include_str!("../../route-inventory.json"))?;
-        for r in inventory["routes"].as_array_mut().unwrap(){if r["family"]=="F04"&&r["slice"]=="ediscovery" {r["state"]=json!("ON");r["upstream"]=json!("local-rust");r["oracle_commands"]=json!([""]);}}
-        let gateway=Gateway::new(Config{upstream:Some(format!("http://{upstream}").parse()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(adapter))?.with_inventory(&inventory.to_string())?;
-        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let address=listener.local_addr()?;let server=tokio::spawn(gateway.serve(listener));
-        let nul=r#"{"name":"NUL","keywords":"oracle","kql":"\"a\u0000b\"","createdBy":-42} trailing"#.to_owned();
+    let result = async {
+        let _env = Env(vec![
+            ("WORM_MODE", std::env::var_os("WORM_MODE")),
+            (
+                "WORM_LEGAL_HOLD_ENABLED",
+                std::env::var_os("WORM_LEGAL_HOLD_ENABLED"),
+            ),
+        ]);
+        std::env::remove_var("WORM_MODE");
+        std::env::remove_var("WORM_LEGAL_HOLD_ENABLED");
+        let s3_puts = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let s3_capture = s3_puts.clone();
+        let s3 = common::fake_upstream(move |r| {
+            let s3_capture = s3_capture.clone();
+            async move {
+                let method = r.method().to_string();
+                let path = r.uri().path().to_owned();
+                let query = r.uri().query().unwrap_or("").to_owned();
+                if method == "GET" && query == "location=" {
+                    return Response::builder()
+                        .header("content-type", "application/xml")
+                        .body(common::full(
+                            "<LocationConstraint xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">us-east-1</LocationConstraint>",
+                        ))
+                        .unwrap();
+                }
+                let md5 = r
+                    .headers()
+                    .get("content-md5")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_owned();
+                let has_sigv4 = r
+                    .headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|v| v.starts_with("AWS4-HMAC-SHA256 "));
+                let body = r.into_body().collect().await.unwrap().to_bytes();
+                s3_capture.lock().unwrap().push(json!({
+                    "method": method,
+                    "path": path,
+                    "query": query,
+                    "md5": md5,
+                    "sigv4": has_sigv4,
+                    "body": String::from_utf8(body.to_vec()).unwrap(),
+                }));
+                Response::builder().status(200).body(common::full("")).unwrap()
+            }
+        })
+        .await;
+        let received = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let capture = received.clone();
+        let upstream = common::fake_upstream(move |r| {
+            let capture = capture.clone();
+            async move {
+                let method = r.method().to_string();
+                let path = r.uri().to_string();
+                let body = r.into_body().collect().await.unwrap().to_bytes();
+                capture.lock().unwrap().push(json!({
+                    "method": method,
+                    "path": path,
+                    "body": String::from_utf8(body.to_vec()).unwrap()
+                }));
+                Response::builder()
+                    .status(299)
+                    .body(common::full("forwarded\n"))
+                    .unwrap()
+            }
+        })
+        .await;
+        let patient = std::time::Duration::from_secs(30);
+        let make = |dsn: &str| {
+            ScopedExecutor::from_dsn_with(
+                dsn,
+                2,
+                setjoin_pg::Timeouts {
+                    pool_wait: patient,
+                    create: patient,
+                    statement: patient,
+                },
+            )
+            .map(|e| e.with_audit_keys("22".repeat(32), String::new()))
+            .map_err(|e| e.0)
+        };
+        let store = Arc::new(setjoin_gateway::recovery_worker::S3Store::new(
+            &format!("http://{s3}"),
+            "mailblobs",
+            "test-access",
+            "test-secret",
+        )?);
+        let adapter = ComplianceRoute {
+            store: Some(store),
+            exec: make(db.app.as_deref().unwrap_or(&db.dsn))?,
+            worker: make(&db.dsn)?,
+            jobs: setjoin_gateway::compliance::SearchJobs::new(
+                setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,
+                1,
+            ),
+            keys: Arc::new(common::recovery_keys()),
+            issuer: "mailserver".into(),
+        };
+        let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;
+        for r in inventory["routes"].as_array_mut().unwrap() {
+            if r["family"] == "F04" && r["slice"] == "ediscovery" {
+                r["state"] = json!("ON");
+                r["upstream"] = json!("local-rust");
+                r["oracle_commands"] = json!([""]);
+            }
+        }
+        let gateway = Gateway::new(
+            Config {
+                upstream: Some(format!("http://{upstream}").parse()?),
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(adapter),
+        )?
+        .with_inventory(&inventory.to_string())?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let server = tokio::spawn(gateway.serve(listener));
+        let nul =
+            r#"{"name":"NUL","keywords":"oracle","kql":"\"a\u0000b\"","createdBy":-42} trailing"#
+                .to_owned();
         // Owner-approved security fix 2026-11-05 (#436): a NUL in the KQL is refused locally with a 400
         // and never reaches an upstream (frozen Go's parser hung on it).
-        let refused=common::send(address,Request::post("/api/admin/ediscovery/search").header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {token}",token=token(a.user))).body(common::full(nul))?).await;
-        if refused.status().as_u16()!=400{return Err(format!("NUL KQL answered {}",refused.status()).into());}
-        let refused_body=String::from_utf8(common::body_bytes(refused).await.to_vec())?;
-        if !refused_body.contains("invalid KQL query: query contains a NUL character"){return Err(format!("NUL KQL body: {refused_body}").into());}
-        let ids=format!("{{\"ids\":[{}]}}",a.two_labels);
-        let mut expected=Vec::new();
-        for (path,body,worm) in [("/api/admin/ediscovery/hold",ids.clone(),true),("/api/admin/ediscovery/release",ids,true)] {
-            if worm{std::env::set_var("WORM_MODE","governance");}
-            let response=common::send(address,Request::post(path).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {}",token(a.user))).body(common::full(body.clone()))?).await;
-            if response.status().as_u16()!=299{return Err("deferred request was served locally".into());}
-            if common::body_bytes(response).await.as_ref()!=b"forwarded\n"{return Err("deferred response bytes changed".into());}
-            expected.push(json!({"method":"POST","path":path,"body":body}));
+        let refused = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/search")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(nul))?,
+        )
+        .await;
+        if refused.status().as_u16() != 400 {
+            return Err(format!("NUL KQL answered {}", refused.status()).into());
         }
-        golden::compare(&json!(expected),&json!(*received.lock().unwrap()))?;
-        let searches:i64=owner.query_one("SELECT count(*) FROM ediscovery_searches WHERE created_by=$1",&[&a.user]).await?.get(0);
-        let held:i64=owner.query_one("SELECT count(*) FROM messages WHERE mailbox_id=$1 AND held",&[&a.mailbox]).await?.get(0);
-        if searches!=0||held!=0{return Err("deferred request changed native data".into());}
-        let metrics=common::send(address,Request::get("/_gateway/metrics").body(common::full(""))?).await;
-        let metrics=String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
-        if !metrics.lines().any(|l|l=="setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 2"){return Err("deferred requests were not counted as Go traffic".into());}
-        server.abort();Ok::<_,BoxError>(())
-    }.await;
+        let refused_body = String::from_utf8(common::body_bytes(refused).await.to_vec())?;
+        if !refused_body.contains("invalid KQL query: query contains a NUL character") {
+            return Err(format!("NUL KQL body: {refused_body}").into());
+        }
+        let ids = format!("{{\"ids\":[{}]}}", a.two_labels);
+        std::env::set_var("WORM_MODE", "governance");
+        let hold_resp = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/hold")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids.clone()))?,
+        )
+        .await;
+        assert_eq!(hold_resp.status().as_u16(), 200);
+        let hold_json: Value = serde_json::from_slice(&common::body_bytes(hold_resp).await)?;
+        assert_eq!(
+            hold_json,
+            json!({"held": 1, "legal_hold_objects": 1, "total": 1})
+        );
+        let held_after_hold: bool = owner
+            .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
+            .await?
+            .get(0);
+        assert!(held_after_hold, "message should be held in DB");
+
+        let release_resp = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/release")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids))?,
+        )
+        .await;
+        assert_eq!(release_resp.status().as_u16(), 200);
+        let release_json: Value = serde_json::from_slice(&common::body_bytes(release_resp).await)?;
+        assert_eq!(release_json, json!({"released": 1, "total": 1}));
+        let held_after_release: bool = owner
+            .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
+            .await?
+            .get(0);
+        assert!(!held_after_release, "message should be released in DB");
+
+        let s3_expected = json!([
+            {
+                "method": "PUT",
+                "path": format!("/mailblobs/{blob_hash}"),
+                "query": "legal-hold=",
+                "md5": "erOisiAmIIzsh/Ze2QqGXw==",
+                "sigv4": true,
+                "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>ON</Status></LegalHold>"
+            },
+            {
+                "method": "PUT",
+                "path": format!("/mailblobs/{blob_hash}"),
+                "query": "legal-hold=",
+                "md5": "VFVLURy793Xk77f+OyG/PA==",
+                "sigv4": true,
+                "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>OFF</Status></LegalHold>"
+            }
+        ]);
+        golden::compare(&s3_expected, &json!(*s3_puts.lock().unwrap()))?;
+        assert!(
+            received.lock().unwrap().is_empty(),
+            "Go upstream must receive zero requests: {:?}",
+            *received.lock().unwrap()
+        );
+        let searches: i64 = owner
+            .query_one(
+                "SELECT count(*) FROM ediscovery_searches WHERE created_by=$1",
+                &[&a.user],
+            )
+            .await?
+            .get(0);
+        assert_eq!(searches, 0);
+        let metrics =
+            common::send(address, Request::get("/_gateway/metrics").body(common::full(""))?).await;
+        let metrics = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
+        if !metrics
+            .lines()
+            .any(|l| l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0")
+        {
+            return Err(format!("expected zero F04 proxies, got:\n{metrics}").into());
+        }
+        server.abort();
+        Ok::<_, BoxError>(())
+    }
+    .await;
+    owner
+        .execute(
+            "DELETE FROM message_attachments WHERE blob_sha256=$1",
+            &[&blob_hash],
+        )
+        .await?;
+    owner
+        .execute("DELETE FROM blobs WHERE sha256=$1", &[&blob_hash])
+        .await?;
+    owner
+        .execute(
+            "UPDATE messages SET held=false WHERE mailbox_id=$1",
+            &[&a.mailbox],
+        )
+        .await?;
+    owner
+        .batch_execute(&format!(
+            "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};DELETE FROM rust_operation_receipts WHERE family='F04';COMMIT;",
+            a.user
+        ))
+        .await?;
     owner
         .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
         .await?;

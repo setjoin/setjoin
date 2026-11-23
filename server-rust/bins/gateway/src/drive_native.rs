@@ -71,7 +71,9 @@ fn denied() -> Response<Body> {
     r
 }
 impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         r.method() == hyper::Method::POST && r.uri().path() == "/api/drive/native-token"
     }
@@ -94,10 +96,17 @@ impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
         );
         Box::pin(async move {
             if !push::http_admission_allowed(&exec).await {
-                return context.upstream.forward(r, &context.identity).await;
+                return response(
+                    503,
+                    crate::problem::Problem::new(503, "service unavailable").body(),
+                    true,
+                );
             } // shared policy/runtime components #405/#420
-            if !matches!(*r.method(),hyper::Method::GET|hyper::Method::HEAD|hyper::Method::OPTIONS)
-                && !setjoin_authz::csrf::allows(r.headers(), context.identity.proto) {
+            if !matches!(
+                *r.method(),
+                hyper::Method::GET | hyper::Method::HEAD | hyper::Method::OPTIONS
+            ) && !setjoin_authz::csrf::allows(r.headers(), context.identity.proto)
+            {
                 return response(
                     403,
                     crate::problem::middleware(403, "csrf_failed", "CSRF validation failed"),
@@ -119,12 +128,13 @@ impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
                     }
                 }
                 None if crate::dav_auth::has_scheme(r.headers(), b"Negotiate ") => {
-                    return context.upstream.forward(r, &context.identity).await; // Kerberos proof #355b
+                    return context.upstream.forward(r, &context.identity).await;
+                    // Kerberos proof #355b
                 }
                 None => return denied(),
             };
             if source.is_guest() {
-                return context.upstream.forward(r, &context.identity).await;
+                return crate::admission::not_found(r.headers(), &context.identity);
             } // guest program admission #406
             if push::revoked(&exec, &source).await {
                 return response(

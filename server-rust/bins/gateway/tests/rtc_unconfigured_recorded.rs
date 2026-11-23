@@ -60,9 +60,9 @@ case!(rtc_unconfigured_post, "POST", "/rtc/x", false, false);
 case!(rtc_unconfigured_member, "GET", "/rtc", true, false);
 case!(rtc_unconfigured_website, "GET", "/rtc/x", false, true);
 
-/// A table without the catch-all fallback keeps today's Go answer.
+/// Without a catch-all fallback, unconfigured `/rtc` still answers 404 natively.
 #[tokio::test]
-async fn without_a_fallback_unconfigured_rtc_stays_with_go() -> Result<(), BoxError> {
+async fn without_a_fallback_unconfigured_rtc_answers_404_natively() -> Result<(), BoxError> {
     let hits = Arc::new(AtomicUsize::new(0));
     let seen = hits.clone();
     let upstream = common::fake_upstream(move |_| {
@@ -90,7 +90,7 @@ async fn without_a_fallback_unconfigured_rtc_stays_with_go() -> Result<(), BoxEr
             .body(common::full(""))?,
     )
     .await;
-    assert_eq!(response.status().as_u16(), 200);
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(response.status().as_u16(), 404);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
     Ok(())
 }

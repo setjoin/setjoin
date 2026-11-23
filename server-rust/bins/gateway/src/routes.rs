@@ -48,8 +48,7 @@ pub trait Intercept: Send + Sync + 'static {
     fn admits_member(&self, _headers: hyper::HeaderMap, _scheme: &'static str) -> BoxFuture<bool> {
         Box::pin(async { false })
     }
-    /// Serves the matched request. To decline, forward it with
-    /// `ctx.upstream.forward(req, &ctx.identity)`.
+    /// Serves the matched request.
     fn handle(&self, req: Request<Body>, ctx: RequestContext) -> BoxFuture<Response<Body>>;
 }
 

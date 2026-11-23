@@ -358,47 +358,94 @@ pub(crate) async fn json_body<T: serde::de::DeserializeOwned>(
     crate::admin_identity_input::first(r, 1 << 20).await
 }
 
-/// Go's `validate.CanonicalEmail` for the addresses whose `net/mail` parse is
-/// certain: dot-atom local part and dot-separated ASCII domain. `Ok(None)`
-/// means "an address this adapter does not judge": the request goes to Go.
-fn canonical_email(email: &str) -> Result<Option<String>, &'static str> {
+/// Go's `validate.CanonicalEmail`: parses an RFC 5322 single address (`net/mail.ParseAddress`,
+/// with `<...>` retry), validates local-part and domain per `shared/validate/email.go`, and
+/// preserves required quoting on de-quoted quoted-string local-parts.
+fn canonical_email(email: &str) -> Result<String, &'static str> {
+    if email.is_empty() {
+        return Err("email must not be empty");
+    }
     if email.len() > 254 {
         return Err("email exceeds 254 characters");
     }
     if email.bytes().any(|b| b < 0x20 || b == 0x7f) {
         return Err("email contains control character");
     }
-    let atext = |b: u8| b.is_ascii_alphanumeric() || b"!#$%&'*+/=?^_`{|}~-".contains(&b);
-    let simple_domain = |d: &str| {
-        d.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
-    };
-    let Some(at) = email.rfind('@') else {
-        // No '@': both parses fail. Only plain tokens are judged here.
-        return if email.bytes().all(|b| atext(b) || b == b'.') {
-            Err("invalid email format")
-        } else {
-            Ok(None)
+    if let Some(at) = email.rfind('@') {
+        if at >= 1 {
+            let local = &email[..at];
+            if local.contains("..") {
+                return Err("local-part contains consecutive dots");
+            }
+            if local.starts_with('.') {
+                return Err("local-part starts with a dot");
+            }
+            if local.ends_with('.') {
+                return Err("local-part ends with a dot");
+            }
+        }
+    }
+    let mut canonical = validate_email_once(email)?;
+    if validate_email_once(&canonical).is_err() {
+        let Some(at) = canonical.rfind('@') else {
+            return Err("invalid email format");
         };
-    };
-    let (local, domain) = (&email[..at], &email[at + 1..]);
-    if at >= 1 {
-        if local.contains("..") {
-            return Err("local-part contains consecutive dots");
+        let local = &canonical[..at];
+        if at < 1 || !local_part_needs_quoting(local) {
+            return Err("invalid email format");
         }
-        if local.starts_with('.') {
-            return Err("local-part starts with a dot");
-        }
-        if local.ends_with('.') {
-            return Err("local-part ends with a dot");
+        canonical = format!("{}@{}", quote_local_part(local), &canonical[at + 1..]);
+        validate_email_once(&canonical)?;
+    }
+    Ok(canonical)
+}
+
+fn validate_email_once(email: &str) -> Result<String, &'static str> {
+    if email.is_empty() {
+        return Err("email must not be empty");
+    }
+    if email.len() > 254 {
+        return Err("email exceeds 254 characters");
+    }
+    if email.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return Err("email contains control character");
+    }
+    if let Some(at) = email.rfind('@') {
+        if at >= 1 {
+            let local = &email[..at];
+            if local.contains("..") {
+                return Err("local-part contains consecutive dots");
+            }
+            if local.starts_with('.') {
+                return Err("local-part starts with a dot");
+            }
+            if local.ends_with('.') {
+                return Err("local-part ends with a dot");
+            }
         }
     }
-    let plain_local = !local.is_empty() && local.bytes().all(|b| atext(b) || b == b'.');
-    if !plain_local || domain.is_empty() || !simple_domain(domain) || local.contains('@') {
-        return Ok(None);
-    }
-    if domain.split('.').any(str::is_empty) {
+    let address = parse_net_mail_address(email)
+        .or_else(|| {
+            if !email.starts_with('<') {
+                parse_net_mail_address(&format!("<{email}>"))
+            } else {
+                None
+            }
+        })
+        .ok_or("invalid email format")?;
+    let at = address.rfind('@').ok_or("invalid email format")?;
+    if at < 1 || at == address.len() - 1 {
         return Err("invalid email format");
+    }
+    let (local, domain) = (&address[..at], &address[at + 1..]);
+    if !local.is_ascii() {
+        return Err("non-ASCII local-part requires SMTPUTF8");
+    }
+    if domain.len() > 255 {
+        return Err("domain exceeds 255 characters");
+    }
+    if domain.starts_with('[') && domain.ends_with(']') {
+        return Err("IP domain literals are not supported");
     }
     if !domain.contains('.') {
         return Err("domain must contain at least one dot");
@@ -406,7 +453,240 @@ fn canonical_email(email: &str) -> Result<Option<String>, &'static str> {
     if domain.contains('_') {
         return Err("domain contains underscore");
     }
-    Ok(Some(email.to_owned()))
+    Ok(address)
+}
+
+fn is_atext_byte(b: u8, dot_allowed: bool) -> bool {
+    b.is_ascii_alphanumeric()
+        || b"!#$%&'*+/=?^_`{|}~-".contains(&b)
+        || (dot_allowed && b == b'.')
+        || b >= 0x80
+}
+
+fn local_part_needs_quoting(local: &str) -> bool {
+    if local.is_empty() {
+        return true;
+    }
+    if local
+        .bytes()
+        .any(|b| b != b'.' && !b.is_ascii_alphanumeric() && !b"!#$%&'*+/=?^_`{|}~-".contains(&b))
+    {
+        return true;
+    }
+    local.starts_with('.') || local.ends_with('.') || local.contains("..")
+}
+
+fn quote_local_part(local: &str) -> String {
+    let mut out = String::with_capacity(local.len() + 2);
+    out.push('"');
+    for ch in local.chars() {
+        if ch == '\\' || ch == '"' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
+}
+
+/// Subset of Go `net/mail.ParseAddress`: parses a single RFC 5322 `addr-spec` or
+/// `display-name <addr-spec>` and returns the resolved address.
+fn parse_net_mail_address(raw: &str) -> Option<String> {
+    struct Parser<'a> {
+        s: &'a [u8],
+        pos: usize,
+    }
+    impl<'a> Parser<'a> {
+        fn peek(&self) -> Option<u8> {
+            self.s.get(self.pos).copied()
+        }
+        fn skip_space(&mut self) {
+            while let Some(b) = self.peek() {
+                if matches!(b, b' ' | b'\t') {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        fn skip_comments_and_space(&mut self) -> Option<()> {
+            loop {
+                self.skip_space();
+                if self.peek() != Some(b'(') {
+                    return Some(());
+                }
+                self.pos += 1;
+                let mut depth = 1usize;
+                while depth > 0 {
+                    let b = *self.s.get(self.pos)?;
+                    self.pos += 1;
+                    match b {
+                        b'\\' => {
+                            let _ = *self.s.get(self.pos)?;
+                            self.pos += 1;
+                        }
+                        b'(' => depth += 1,
+                        b')' => depth -= 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        fn consume_quoted_string(&mut self) -> Option<String> {
+            if self.peek() != Some(b'"') {
+                return None;
+            }
+            self.pos += 1;
+            let mut bytes = Vec::new();
+            loop {
+                let b = *self.s.get(self.pos)?;
+                self.pos += 1;
+                match b {
+                    b'"' => {
+                        return if bytes.is_empty() {
+                            None
+                        } else {
+                            String::from_utf8(bytes).ok()
+                        }
+                    }
+                    b'\\' => {
+                        let esc = *self.s.get(self.pos)?;
+                        self.pos += 1;
+                        if esc < 0x20 || esc == 0x7f {
+                            return None;
+                        }
+                        bytes.push(esc);
+                    }
+                    _ => {
+                        if b < 0x20 || b == 0x7f {
+                            return None;
+                        }
+                        bytes.push(b);
+                    }
+                }
+            }
+        }
+        fn consume_atom(&mut self, dot_allowed: bool) -> Option<String> {
+            let start = self.pos;
+            while let Some(b) = self.peek() {
+                if is_atext_byte(b, dot_allowed) {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            }
+            if self.pos == start {
+                return None;
+            }
+            let slice = &self.s[start..self.pos];
+            // Reject consecutive dots or leading/trailing dots inside non-dot-only atoms;
+            // raw-local check handles top-level local-parts, and domain segments cannot be empty.
+            std::str::from_utf8(slice).ok().map(str::to_owned)
+        }
+        fn consume_phrase(&mut self) -> Option<()> {
+            let mut count = 0usize;
+            loop {
+                self.skip_comments_and_space()?;
+                match self.peek() {
+                    Some(b'"') => {
+                        self.consume_quoted_string()?;
+                    }
+                    Some(b) if is_atext_byte(b, false) => {
+                        self.consume_atom(false)?;
+                    }
+                    _ => break,
+                }
+                count += 1;
+            }
+            (count > 0).then_some(())
+        }
+        fn consume_domain(&mut self) -> Option<String> {
+            if self.peek() == Some(b'[') {
+                let start = self.pos;
+                self.pos += 1;
+                while let Some(b) = self.peek() {
+                    if b == b']' {
+                        self.pos += 1;
+                        let lit = &self.s[start..self.pos];
+                        // Go net/mail accepts non-empty bracketed literals without ':'/' ' as domain-literal.
+                        let inner = &lit[1..lit.len() - 1];
+                        if inner.is_empty()
+                            || inner
+                                .bytes()
+                                .any(|c| c <= b' ' || c >= 0x7f || c == b'[' || c == b':')
+                        {
+                            return None;
+                        }
+                        return std::str::from_utf8(lit).ok().map(str::to_owned);
+                    }
+                    self.pos += 1;
+                }
+                return None;
+            }
+            let domain = self.consume_atom(true)?;
+            if domain.split('.').any(str::is_empty) {
+                return None;
+            }
+            Some(domain)
+        }
+        fn consume_addr_spec(&mut self) -> Option<String> {
+            let local = if self.peek() == Some(b'"') {
+                self.consume_quoted_string()?
+            } else {
+                let atom = self.consume_atom(true)?;
+                if atom.split('.').any(str::is_empty) {
+                    return None;
+                }
+                atom
+            };
+            if self.peek() != Some(b'@') {
+                return None;
+            }
+            self.pos += 1;
+            let domain = self.consume_domain()?;
+            Some(format!("{local}@{domain}"))
+        }
+    }
+
+    let mut p = Parser {
+        s: raw.as_bytes(),
+        pos: 0,
+    };
+    p.skip_comments_and_space()?;
+    if p.pos >= p.s.len() {
+        return None;
+    }
+    let start = p.pos;
+    let addr = if p.peek() != Some(b'<') {
+        let had_phrase = p.consume_phrase().is_some();
+        if had_phrase {
+            p.skip_comments_and_space()?;
+            if p.peek() == Some(b'<') {
+                p.pos += 1;
+                let addr = p.consume_addr_spec()?;
+                if p.peek() != Some(b'>') {
+                    return None;
+                }
+                p.pos += 1;
+                addr
+            } else {
+                p.pos = start;
+                p.consume_addr_spec()?
+            }
+        } else {
+            p.consume_addr_spec()?
+        }
+    } else {
+        p.pos += 1;
+        let addr = p.consume_addr_spec()?;
+        if p.peek() != Some(b'>') {
+            return None;
+        }
+        p.pos += 1;
+        addr
+    };
+    p.skip_comments_and_space()?;
+    (p.pos == p.s.len()).then_some(addr)
 }
 
 fn nonempty(s: &str) -> Option<&str> {
@@ -636,8 +916,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         return full(400, "userId and email required");
                     }
                     let email = match canonical_email(&body.email) {
-                        Ok(Some(email)) => email,
-                        Ok(None) => return c.upstream.forward(r, &c.identity).await,
+                        Ok(email) => email,
                         Err(detail) => return full(400, detail),
                     };
                     let display = if body.display_name.is_empty() {
@@ -1274,7 +1553,7 @@ mod tests {
     fn email_model_matches_validate_canonical_email() {
         assert_eq!(
             canonical_email("a.b+c@example.test"),
-            Ok(Some("a.b+c@example.test".into()))
+            Ok("a.b+c@example.test".into())
         );
         assert_eq!(canonical_email("not-an-email"), Err("invalid email format"));
         assert_eq!(
@@ -1299,18 +1578,31 @@ mod tests {
         );
         assert_eq!(
             canonical_email("ab@exa mple.test"),
-            Ok(None),
-            "judged by Go"
+            Err("invalid email format")
         );
         assert_eq!(
             canonical_email("\"a b\"@example.test"),
-            Ok(None),
-            "judged by Go"
+            Ok("\"a b\"@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("\"bob\"@corp.example"),
+            Ok("bob@corp.example".into())
         );
         assert_eq!(
             canonical_email("Name <a@example.test>"),
-            Ok(None),
-            "judged by Go"
+            Ok("a@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("<user@example.test>"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("user@[127.0.0.1]"),
+            Err("IP domain literals are not supported")
+        );
+        assert_eq!(
+            canonical_email("用户@example.test"),
+            Err("non-ASCII local-part requires SMTPUTF8")
         );
         assert_eq!(
             canonical_email(&"x".repeat(255)),

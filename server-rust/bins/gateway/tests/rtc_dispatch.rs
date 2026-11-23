@@ -2,10 +2,10 @@
 //! signal proxy answers natively at Go's fixed `127.0.0.1:7880` with Go out of
 //! the path. Without LiveKit configuration Go registers no `/rtc` handler, so
 //! the root mux answers natively (`404 page not found` without a website, #357).
-//! The global kill switch, the inventory rollback and a credential the
-//! verified-member precheck does not admit hand the unchanged request to Go.
-use crate::common::boot::CommandBootExt;
+//! The global kill switch and the inventory rollback hand the unchanged request
+//! to Go; an unverified credential still proxies natively to Go's SFU.
 use crate::common::boot::Child;
+use crate::common::boot::CommandBootExt;
 mod common;
 #[path = "common/meet_fixture.rs"]
 mod meet_fixture;
@@ -52,7 +52,7 @@ async fn executable_without_livekit_answers_the_root_mux_natively() -> Result<()
     run(Mode::Unconfigured).await
 }
 #[tokio::test]
-async fn executable_unverified_credential_stays_with_go() -> Result<(), BoxError> {
+async fn executable_unverified_credential_proxies_natively() -> Result<(), BoxError> {
     run(Mode::ForeignCredential).await
 }
 
@@ -82,7 +82,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
     let Some(db) = Db::for_case("meet5-rtc-executable") else {
         return Ok(());
     };
-    let to_go = !matches!(mode, Mode::Native | Mode::Unconfigured);
+    let to_go = matches!(mode, Mode::Kill | Mode::Rollback);
     let result = std::panic::AssertUnwindSafe(async {
         let go_hits = Arc::new(AtomicUsize::new(0));
         let observed = go_hits.clone();
@@ -237,7 +237,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             let status = response.status().as_u16();
             let body = common::body_bytes(response).await;
             let (want, text) = match mode {
-                Mode::Native => (200, "success"),
+                Mode::Native | Mode::ForeignCredential => (200, "success"),
                 Mode::Unconfigured => (404, "404 page not found\n"),
                 _ => (218, "from go"),
             };
@@ -261,7 +261,13 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         if go_hits.load(Ordering::SeqCst) != if to_go { count } else { 0 } {
             return Err("unexpected Go request count".into());
         }
-        if sfu_hits.load(Ordering::SeqCst) != if mode == Mode::Native { count } else { 0 } {
+        if sfu_hits.load(Ordering::SeqCst)
+            != if matches!(mode, Mode::Native | Mode::ForeignCredential) {
+                count
+            } else {
+                0
+            }
+        {
             return Err("unexpected SFU request count".into());
         }
         let pid = child.0.id();

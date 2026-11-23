@@ -175,7 +175,7 @@ pub(crate) fn problem(
     response
 }
 
-fn not_found(headers: &HeaderMap, identity: &ClientIdentity) -> Response<Body> {
+pub(crate) fn not_found(headers: &HeaderMap, identity: &ClientIdentity) -> Response<Body> {
     let mut response = problem(headers, identity, 404, "not found");
     crate::problem::set_body(&mut response, "404 page not found\n".into());
     response

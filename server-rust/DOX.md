@@ -622,7 +622,7 @@ In the `roots` stage under `REQUIRE_DB=1`, `scripts/check-server-rust.sh` also r
 to a frozen Go peer binary (each runs it only inside its labelled container, at container paths
 `/src/...` or `/output/...` that do not exist in the lane container); reviewed divergences; the 51
 `worker_semantics.json` workers owned by Rust; every seam present. #141 criteria 1 and 4 stay open until
-`PENDING` is empty and `FORWARD_SITES` is 0. `env` (every lane job): any Go upstream or recording
+`PENDING` is empty and `FORWARD_SITES` is 0 (gateway `.forward(` stands at `12`, excluding the exempt `rust_auth_upstream` arm, with F04 WORM `PutObjectLegalHold`, `mailboxes` `CanonicalEmail`, `mail_security` TLS/trace settings, `directory_sync`, `surface`, `rtc`, and non-Kerberos `drive_native` checks native). `env` (every lane job): any Go upstream or recording
 variable present (even empty) is red; with `LANE_GO_MASKED=1` a reachable `go` is red.
 `scripts/lane-container.sh` masks `/usr/local/go` in the lane container. `lane_go_watch` wraps the
 nextest run and the adequacy gate: ready only after a probe's event came back through `docker events`

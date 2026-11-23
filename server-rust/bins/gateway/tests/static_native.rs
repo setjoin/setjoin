@@ -116,10 +116,10 @@ async fn resolved_empty_mode_and_absent_website_are_native() -> Result<(), BoxEr
 }
 
 #[tokio::test]
-async fn health_stays_on_go_while_live_probes_are_configured() -> Result<(), BoxError> {
+async fn health_fails_closed_when_live_probes_unwired() -> Result<(), BoxError> {
     assert_eq!(
         call(config(|c| c.probes_configured = true), "/health").await?,
-        (418, 1)
+        (503, 0)
     );
     Ok(())
 }

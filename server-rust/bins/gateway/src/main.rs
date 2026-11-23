@@ -1277,7 +1277,11 @@ async fn routes(
         compliance.worker.clone(),
         keys.clone(),
         issuer.clone(),
-    );
+    )
+    .with_import_dir(Some(
+        setjoin_gateway::mail_security_tls::import_dir_from_settings(settings),
+    ))
+    .with_trace(setjoin_gateway::mail_security_trace::TraceConfig::from_settings(settings));
     let rules = setjoin_gateway::rules::RulesRoute {
         exec: exec.clone(),
         worker: compliance.worker.clone(),
