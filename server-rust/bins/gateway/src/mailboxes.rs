@@ -580,7 +580,11 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
         fn consume_phrase(&mut self) -> Option<()> {
             let mut count = 0usize;
             loop {
-                self.skip_comments_and_space()?;
+                if count == 0 {
+                    self.skip_space();
+                } else {
+                    self.skip_comments_and_space()?;
+                }
                 match self.peek() {
                     Some(b'"') => {
                         self.consume_quoted_string()?;
@@ -1651,6 +1655,10 @@ mod tests {
         );
         assert_eq!(
             canonical_email("(c)user@example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("(c) Jane <user@example.test>"),
             Err("invalid email format")
         );
         assert_eq!(

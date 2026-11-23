@@ -637,21 +637,41 @@ impl S3Store {
                 tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
             }
             match self.legal_hold_attempt(key, on).await {
-                Ok((200 | 204, _)) => return Ok(()),
-                Ok((status, body))
-                    if RETRYABLE.contains(&status) || is_retryable_s3_error(&body) =>
-                {
-                    last = format!("object legal hold failed ({status})")
+                Ok(reply) if matches!(reply.status, 200 | 204) => return Ok(()),
+                Ok(reply) => {
+                    let is_region_error = reply.status == 301
+                        || reply.status == 307
+                        || matches!(
+                            reply.code.as_deref(),
+                            Some(
+                                "AuthorizationHeaderMalformed"
+                                    | "InvalidRegion"
+                                    | "PermanentRedirect"
+                            )
+                        );
+                    if is_region_error {
+                        let next_region = reply.region.map(|r| match r.as_str() {
+                            "EU" => "eu-west-1".to_owned(),
+                            _ => r,
+                        });
+                        *self.region.lock().await = next_region;
+                        last = format!("object legal hold failed ({})", reply.status);
+                    } else if RETRYABLE.contains(&reply.status)
+                        || reply.code.as_deref().is_some_and(is_retryable_s3_code)
+                    {
+                        last = format!("object legal hold failed ({})", reply.status);
+                    } else {
+                        return Err(format!("object legal hold failed ({})", reply.status));
+                    }
                 }
-                Ok((status, _)) => return Err(format!("object legal hold failed ({status})")),
                 Err(e) => last = e,
             }
         }
         Err(last)
     }
 
-    /// One `PUT ?legal-hold` request; returns the HTTP status code and response body.
-    async fn legal_hold_attempt(&self, key: &str, on: bool) -> Result<(u16, String), String> {
+    /// One `PUT ?legal-hold` request; returns status, S3 error code, and reported region.
+    async fn legal_hold_attempt(&self, key: &str, on: bool) -> Result<LegalHoldReply, String> {
         use s3::{
             command::Command,
             request::{tokio_backend::ReqwestRequest, Request},
@@ -684,16 +704,34 @@ impl S3Store {
         )
         .await
         .map_err(|e| e.to_string())?
-        .response_data(false)
-        .await;
-        match response {
-            Ok(response) => Ok((
-                response.status_code(),
-                String::from_utf8_lossy(response.as_slice()).into_owned(),
-            )),
-            Err(s3::error::S3Error::HttpFailWithBody(status, body)) => Ok((status, body)),
-            Err(e) => Err(e.to_string()),
+        .response()
+        .await
+        .map_err(|e| e.to_string())?;
+        let status = response.status().as_u16();
+        if matches!(status, 200 | 204) {
+            return Ok(LegalHoldReply {
+                status,
+                code: None,
+                region: None,
+            });
         }
+        let header_str = |name: &str| -> Option<String> {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        };
+        let header_code = header_str("x-minio-error-code");
+        let header_region = header_str("x-amz-bucket-region");
+        let body = response.text().await.unwrap_or_default();
+        Ok(LegalHoldReply {
+            status,
+            code: header_code.or_else(|| s3_xml_tag(&body, "Code").map(str::to_owned)),
+            region: header_region.or_else(|| s3_xml_tag(&body, "Region").map(str::to_owned)),
+        })
     }
 
     /// Same environment names and defaults as Go's primary object store.
@@ -1170,28 +1208,35 @@ impl S3Store {
     }
 }
 
-fn s3_error_code(body: &str) -> Option<&str> {
-    let start = body.find("<Code>")? + "<Code>".len();
-    let end = body[start..].find("</Code>")?;
-    Some(body[start..start + end].trim())
+struct LegalHoldReply {
+    status: u16,
+    code: Option<String>,
+    region: Option<String>,
 }
 
-fn is_retryable_s3_error(body: &str) -> bool {
+fn s3_xml_tag<'a>(body: &'a str, tag: &str) -> Option<&'a str> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = body.find(&open)? + open.len();
+    let end = body[start..].find(&close)?;
+    let value = body[start..start + end].trim();
+    (!value.is_empty()).then_some(value)
+}
+
+fn is_retryable_s3_code(code: &str) -> bool {
     matches!(
-        s3_error_code(body),
-        Some(
-            "RequestError"
-                | "RequestTimeout"
-                | "Throttling"
-                | "ThrottlingException"
-                | "RequestLimitExceeded"
-                | "RequestThrottled"
-                | "InternalError"
-                | "ExpiredToken"
-                | "ExpiredTokenException"
-                | "SlowDown"
-                | "SlowDownWrite"
-                | "SlowDownRead"
-        )
+        code,
+        "RequestError"
+            | "RequestTimeout"
+            | "Throttling"
+            | "ThrottlingException"
+            | "RequestLimitExceeded"
+            | "RequestThrottled"
+            | "InternalError"
+            | "ExpiredToken"
+            | "ExpiredTokenException"
+            | "SlowDown"
+            | "SlowDownWrite"
+            | "SlowDownRead"
     )
 }

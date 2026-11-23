@@ -92,15 +92,33 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-http").ok_or("DB required")?;
     let owner = db.connect().await?;
-    let receipts: Vec<String> = owner
-        .query(
-            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F04'",
-            &[],
-        )
-        .await?
-        .into_iter()
-        .map(|row| row.get(0))
-        .collect();
+    let commands: Vec<&str> = match action {
+        "create" => vec!["case.create", "console.denied"],
+        "update" => vec!["case.update", "console.denied"],
+        "delete" => vec!["case.delete", "console.denied"],
+        "associate" => vec!["search.associate", "console.denied"],
+        "close" => vec!["case.close", "console.denied"],
+        "hold" => vec!["message.hold", "console.denied"],
+        "release" => vec!["message.release", "console.denied"],
+        "export" => vec!["export.authorize", "console.denied"],
+        "start" => vec!["search.start", "console.denied"],
+        _ if matches!(label, "denied" | "foreign") => vec!["console.denied"],
+        _ => Vec::new(),
+    };
+    let receipts: Vec<String> = if commands.is_empty() || mutant.starts_with("commit-") {
+        Vec::new()
+    } else {
+        owner
+            .query(
+                "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F04' AND command = ANY($1)",
+                &[&commands],
+            )
+            .await?
+            .into_iter()
+            .map(|row| row.get(0))
+            .collect()
+    };
+    let mut commit_operation: Option<String> = None;
     let a = fixture::account(&owner, "compl1-admin").await?;
     let role:i64=owner.query_one("INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES ('compl1-oracle',$1,$2) RETURNING id", &[&if label=="denied" {vec!["users.read"]} else {vec!["domains.read","compliance.write","mail.export"]}, &if label=="foreign" {Some(a.domain)} else {None}]).await?.get(0);
     owner
@@ -301,6 +319,7 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
             let cut=tokio::time::timeout(std::time::Duration::from_secs(5),task).await???;
             let committed=mutant=="commit-after";assert_eq!(cut==common::commit::CommitCut::AfterCommit,committed);
             assert_eq!(status,503);let operation=observation["response"]["headers"]["x-operation-id"][0].as_str().ok_or("missing unknown operation ID")?;
+            commit_operation = Some(operation.to_owned());
             assert_eq!(operation.len(),32);
             let present:bool=owner.query_one("SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=$1::text::uuid AND family='F04')",&[&operation]).await?.get(0);assert_eq!(present,committed);
             if committed {
@@ -340,12 +359,21 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
         .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
         .await?;
     owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",a.user)).await?;
-    owner
-        .execute(
-            "DELETE FROM rust_operation_receipts WHERE family='F04' AND operation_id::text<>ALL($1)",
-            &[&receipts],
-        )
-        .await?;
+    if let Some(op) = commit_operation {
+        owner
+            .execute(
+                "DELETE FROM rust_operation_receipts WHERE operation_id=$1::text::uuid",
+                &[&op],
+            )
+            .await?;
+    } else if !commands.is_empty() {
+        owner
+            .execute(
+                "DELETE FROM rust_operation_receipts WHERE family='F04' AND command = ANY($1) AND operation_id::text<>ALL($2)",
+                &[&commands, &receipts],
+            )
+            .await?;
+    }
     owner
         .execute(
             "UPDATE messages SET held=false WHERE mailbox_id=$1",
@@ -448,15 +476,18 @@ pub async fn forwarding() -> Result<(), BoxError> {
         ]);
         std::env::remove_var("WORM_MODE");
         std::env::remove_var("WORM_LEGAL_HOLD_ENABLED");
-        // S3 response phase: 0=retry 400 SlowDownWrite->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
+        // S3 response phase: 0=retry 400 SlowDownWrite->400 AuthorizationHeaderMalformed->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
         let s3_phase = Arc::new(AtomicUsize::new(0));
         let s3_attempt = Arc::new(AtomicUsize::new(0));
         let s3_puts = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let s3_auths = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let s3_capture = s3_puts.clone();
+        let auth_capture = s3_auths.clone();
         let phase_ref = s3_phase.clone();
         let attempt_ref = s3_attempt.clone();
         let s3 = common::fake_upstream(move |r| {
             let s3_capture = s3_capture.clone();
+            let auth_capture = auth_capture.clone();
             let phase_ref = phase_ref.clone();
             let attempt_ref = attempt_ref.clone();
             async move {
@@ -477,11 +508,14 @@ pub async fn forwarding() -> Result<(), BoxError> {
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("")
                     .to_owned();
-                let has_sigv4 = r
+                let auth = r
                     .headers()
                     .get("authorization")
                     .and_then(|v| v.to_str().ok())
-                    .is_some_and(|v| v.starts_with("AWS4-HMAC-SHA256 "));
+                    .unwrap_or("")
+                    .to_owned();
+                let has_sigv4 = auth.starts_with("AWS4-HMAC-SHA256 ");
+                auth_capture.lock().unwrap().push(auth);
                 let body = r.into_body().collect().await.unwrap().to_bytes();
                 s3_capture.lock().unwrap().push(json!({
                     "method": method,
@@ -499,6 +533,14 @@ pub async fn forwarding() -> Result<(), BoxError> {
                         .header("content-type", "application/xml")
                         .body(common::full(
                             "<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
+                        ))
+                        .unwrap(),
+                    (0, 1) => Response::builder()
+                        .status(400)
+                        .header("content-type", "application/xml")
+                        .header("x-amz-bucket-region", "eu-west-1")
+                        .body(common::full(
+                            "<Error><Code>AuthorizationHeaderMalformed</Code><Region>eu-west-1</Region></Error>",
                         ))
                         .unwrap(),
                     (0 | 1 | 3, _) => Response::builder().status(204).body(common::full("")).unwrap(),
@@ -782,11 +824,17 @@ pub async fn forwarding() -> Result<(), BoxError> {
         let s3_expected = json!([
             put_on.clone(),
             put_on.clone(),
+            put_on.clone(),
             put_off.clone(),
             put_on,
             put_off,
         ]);
         golden::compare(&s3_expected, &json!(*s3_puts.lock().unwrap()))?;
+        assert!(
+            s3_auths.lock().unwrap()[2].contains("/eu-west-1/s3/aws4_request"),
+            "expected refreshed eu-west-1 SigV4 credential on retry attempt 2: {:?}",
+            *s3_auths.lock().unwrap()
+        );
         assert!(
             received.lock().unwrap().is_empty(),
             "Go upstream must receive zero requests: {:?}",

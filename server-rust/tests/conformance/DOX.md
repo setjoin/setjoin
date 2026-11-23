@@ -4,6 +4,9 @@ F21 SAML SP HTTP/binding, shared-link/COMMIT and worker seams (#341): [identity-
 
 The recorded-oracle contract remains in `../../DOX.md`. Fixture identities have
 separate user/mailbox IDs and belong only to their disposable database.
+`src/fixture.rs::account` runs its domain, user, mailbox, tag, and seed message
+inserts inside an explicit `BEGIN`/`COMMIT` transaction (`ROLLBACK` on error) so
+mid-setup failures cannot leave partial rows behind.
 
 `src/fixture.rs::remove` uses three separate PostgreSQL protocol calls: exact
 append-only audit deletion with transaction-local replica mode; message deletion
