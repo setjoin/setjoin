@@ -19,6 +19,72 @@ use support::*;
 
 const REG: i64 = 34601;
 const ENC: &str = flows::ENC;
+fn source_key() -> String {
+    let hex = format!("{:x}", Sha256::digest(IDP.as_bytes()));
+    format!("saml:{}", &hex[..48])
+}
+
+async fn cleanup_user_matches(c: &tokio_postgres::Client, user: i64) -> Result<(), Err> {
+    c.batch_execute(
+        "BEGIN; ALTER TABLE identity_match_decisions DISABLE TRIGGER identity_match_decisions_append_only",
+    )
+    .await?;
+    c.execute(
+        "DELETE FROM identity_match_decisions WHERE decided_by=$1 OR person_id=$1 OR candidate_id IN (SELECT id FROM identity_match_candidates WHERE candidate_user_id=$1) OR link_id IN (SELECT id FROM user_identity_links WHERE user_id=$1)",
+        &[&user],
+    )
+    .await?;
+    c.execute(
+        "DELETE FROM identity_match_candidates WHERE candidate_user_id=$1",
+        &[&user],
+    )
+    .await?;
+    c.batch_execute(
+        "ALTER TABLE identity_match_decisions ENABLE TRIGGER identity_match_decisions_append_only; COMMIT",
+    )
+    .await?;
+    Ok(())
+}
+
+async fn cleanup_sources(c: &tokio_postgres::Client) -> Result<(), Err> {
+    let provider_key = format!("saml:{REG}");
+    let source_key = source_key();
+    for row in c
+        .query(
+            "SELECT DISTINCT l.user_id FROM user_identity_links l JOIN identity_sources s ON s.id=l.source_id WHERE s.kind='saml' AND (s.provider_key=$1 OR s.source_key=$2)",
+            &[&provider_key, &source_key],
+        )
+        .await?
+    {
+        let user: i64 = row.get(0);
+        cleanup_user_matches(c, user).await?;
+        links::cleanup_identity(c, user).await?;
+    }
+    c.batch_execute(
+        "BEGIN; ALTER TABLE identity_match_decisions DISABLE TRIGGER identity_match_decisions_append_only",
+    )
+    .await?;
+    c.execute(
+        "DELETE FROM identity_match_decisions WHERE candidate_id IN (SELECT mc.id FROM identity_match_candidates mc JOIN identity_sources s ON s.id=mc.source_id WHERE s.provider_key=$1 OR s.source_key=$2)",
+        &[&provider_key, &source_key],
+    )
+    .await?;
+    c.execute(
+        "DELETE FROM identity_match_candidates WHERE source_id IN (SELECT id FROM identity_sources WHERE provider_key=$1 OR source_key=$2)",
+        &[&provider_key, &source_key],
+    )
+    .await?;
+    c.execute(
+        "WITH s AS (SELECT x.id FROM identity_sources x WHERE (x.provider_key = $1 OR x.source_key = $2) AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
+        &[&provider_key, &source_key],
+    )
+    .await?;
+    c.batch_execute(
+        "ALTER TABLE identity_match_decisions ENABLE TRIGGER identity_match_decisions_append_only; COMMIT",
+    )
+    .await?;
+    Ok(())
+}
 
 #[derive(Clone)]
 struct Opts {
@@ -94,11 +160,9 @@ impl World {
             &[],
         )
         .await?;
-        for row in c.query("SELECT DISTINCT l.user_id FROM user_identity_links l JOIN identity_sources s ON s.id=l.source_id WHERE s.kind='saml' AND s.provider_key=$1", &[&format!("saml:{REG}")]).await? {
-            links::cleanup_identity(&c, row.get(0)).await?;
-        }
         c.execute("DELETE FROM saml_sp_registrations WHERE id=$1", &[&REG])
             .await?;
+        cleanup_sources(&c).await?;
         c.execute(
             "INSERT INTO saml_sp_registrations(id,idp_entity_id,idp_metadata_url,idp_sso_url,idp_cert_enc,sp_entity_id,sp_acs_url,group_mappings,jit_enabled,allow_idp_initiated) VALUES($1,$2,$3,'https://ignored.invalid/sso',pgp_sym_encrypt($4,$5),'https://sp.example.test/ignored/path','https://ignored.invalid/acs','[]',$6,$7)",
             &[&REG, &IDP, &o.metadata, &o.cert, &ENC, &o.jit, &o.idp_initiated],
@@ -159,6 +223,7 @@ impl World {
             self.c
                 .execute("DELETE FROM sessions WHERE user_id=$1", &[&a.user])
                 .await?;
+            cleanup_user_matches(&self.c, a.user).await?;
             links::cleanup_identity(&self.c, a.user).await?;
             self.c
                 .execute(
@@ -169,15 +234,10 @@ impl World {
             self.c
                 .execute("DELETE FROM oauth_tokens WHERE user_id=$1", &[&a.user])
                 .await?;
-            let _ = fixture::remove(&self.c, a).await;
+            fixture::remove(&self.c, a).await?;
         }
         // The first SAML login creates the registration's identity source; leave no trace of it.
-        self.c
-            .execute(
-                "WITH s AS (SELECT x.id FROM identity_sources x WHERE x.provider_key = $1 AND NOT EXISTS (SELECT 1 FROM user_identity_links l WHERE l.source_id=x.id)), a AS (DELETE FROM identity_auth_shadow_hours WHERE source_id IN (SELECT id FROM s)), b AS (DELETE FROM identity_auth_shadow_link_evidence WHERE source_id IN (SELECT id FROM s)), c AS (DELETE FROM identity_shadow_divergences WHERE source_id IN (SELECT id FROM s)) DELETE FROM identity_sources WHERE id IN (SELECT id FROM s)",
-                &[&format!("saml:{REG}")],
-            )
-            .await?;
+        cleanup_sources(&self.c).await?;
         for (key, old) in self.old {
             match old {
                 Some(v) => {
@@ -1136,6 +1196,16 @@ async fn saml_jit_refuses_an_address_another_user_already_holds() {
         assert_eq!(w.users().await?, users, "no user is provisioned");
         let n: i64 = w.c.query_one("SELECT count(*) FROM user_identity_links WHERE external_subject LIKE 'collide-%'", &[]).await?.get(0);
         assert_eq!(n, 0, "and nothing is linked");
+        let cands: i64 = w.c.query_one(
+            "SELECT count(*) FROM identity_match_candidates WHERE candidate_user_id=$1 AND external_subject LIKE 'collide-%'",
+            &[&user.user],
+        ).await?.get(0);
+        if cands != 0 {
+            return Err(format!(
+                "pre-JIT collision check was bypassed: {cands} match candidate(s) recorded by identity_auth_jit"
+            )
+            .into());
+        }
         Ok::<_, Err>(())
     }
     .await;
