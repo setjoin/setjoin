@@ -604,7 +604,7 @@ const CALENDAR_EVENT_QUERY_FREE_SLOTS_SUCCESS: Case = Case {
         "calendar-event-query-free-slots-success",
         "success",
         "CalendarEvent/queryFreeSlots",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{a.mailbox}","userIds":["{a.user}"],"start":"2026-11-23T00:00:00Z","end":"2026-11-24T00:00:00Z","durationMinutes":30,"maxSlots":5},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{a.mailbox}","userIds":["{a.user}"],"start":"2020-06-15T00:00:00Z","end":"2020-06-16T00:00:00Z","durationMinutes":30,"maxSlots":5},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_QUERY_FREE_SLOTS_CROSS_TENANT: Case = Case {
@@ -616,7 +616,7 @@ const CALENDAR_EVENT_QUERY_FREE_SLOTS_CROSS_TENANT: Case = Case {
         "calendar-event-query-free-slots-cross-tenant",
         "cross-tenant",
         "CalendarEvent/queryFreeSlots",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{f.mailbox}","userIds":["{f.user}"],"start":"2026-11-23T00:00:00Z","end":"2026-11-24T00:00:00Z"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{f.mailbox}","userIds":["{f.user}"],"start":"2020-06-15T00:00:00Z","end":"2020-06-16T00:00:00Z"},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_QUERY_FREE_SLOTS_INVALID_INPUT: Case = Case {
@@ -626,7 +626,7 @@ const CALENDAR_EVENT_QUERY_FREE_SLOTS_INVALID_INPUT: Case = Case {
         "calendar-event-query-free-slots-invalid-input",
         "invalid-input",
         "CalendarEvent/queryFreeSlots",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{a.mailbox}","userIds":[],"start":"2026-11-23T00:00:00Z","end":"2026-11-24T00:00:00Z"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{a.mailbox}","userIds":[],"start":"2020-06-15T00:00:00Z","end":"2020-06-16T00:00:00Z"},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_QUERY_FREE_SLOTS_DELEGATE_PERSONAL: Case = Case {
@@ -637,7 +637,7 @@ const CALENDAR_EVENT_QUERY_FREE_SLOTS_DELEGATE_PERSONAL: Case = Case {
         "calendar-event-query-free-slots-delegate-personal",
         "delegate-personal",
         "CalendarEvent/queryFreeSlots",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{f.mailbox}","userIds":["{f.user}"],"start":"2026-11-23T00:00:00Z","end":"2026-11-24T00:00:00Z"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{f.mailbox}","userIds":["{f.user}"],"start":"2020-06-15T00:00:00Z","end":"2020-06-16T00:00:00Z"},"c1"]]}"#,
     )
 };
 const CALENDAR_EVENT_QUERY_FREE_SLOTS_ENTITLEMENT_DENIED: Case = Case {
@@ -648,7 +648,7 @@ const CALENDAR_EVENT_QUERY_FREE_SLOTS_ENTITLEMENT_DENIED: Case = Case {
         "calendar-event-query-free-slots-entitlement-denied",
         "entitlement-denied",
         "CalendarEvent/queryFreeSlots",
-        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{a.mailbox}","userIds":["{a.user}"],"start":"2026-11-23T00:00:00Z","end":"2026-11-24T00:00:00Z"},"c1"]]}"#,
+        r#"{"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:calendars"],"methodCalls":[["CalendarEvent/queryFreeSlots",{"accountId":"{a.mailbox}","userIds":["{a.user}"],"start":"2020-06-15T00:00:00Z","end":"2020-06-16T00:00:00Z"},"c1"]]}"#,
     )
 };
 
