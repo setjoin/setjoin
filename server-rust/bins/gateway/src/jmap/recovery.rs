@@ -302,7 +302,6 @@ impl<K: KeySource> JmapCommands<K> {
         raw_args: &str,
         operation: [u8; 16],
         digest: [u8; 32],
-        mutated: &mut bool,
     ) -> (String, String) {
         // Check toggle + signer/boot readiness BEFORE decoding args (recovery_receipt.go:97).
         let Some(enabled) = gates::toggle_state(&self.exec, batch::RECEIPTS_FLAG).await else {
@@ -360,7 +359,6 @@ impl<K: KeySource> JmapCommands<K> {
             parsed_ids.push(parsed);
         }
 
-        *mutated = true;
         let env = envelope(&resolved.auth, operation, digest);
         // Runs in a receipted scoped tx and commits/releases BEFORE S3 reads & signing.
         let raw_ctx = match setjoin_jmap::http_blob::recovery_receipt_contexts(

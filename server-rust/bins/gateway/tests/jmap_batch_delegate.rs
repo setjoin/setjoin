@@ -587,9 +587,8 @@ wave1_case!(
         let token = e.token(e.a.user);
         let mb = e.a.mailbox.to_string();
 
-        // Case A: Email/set (seen) followed by Email/set with #create ref -> defers before Call 0.
-        let before = fixture::snapshot(&e.owner, e.a.mailbox).await.unwrap();
-        let audit = e.audit_rows(e.a.mailbox).await;
+        // Case A (#356 Wave 3): Email/set (seen) followed by Email/set with #create ref
+        // runs NATIVELY without deferring to Go: Call 0 marks read, Call 1 gets invalidResultReference.
         let req_create = json!({
         "using": ["urn:ietf:params:jmap:mail"],
         "methodCalls": [
@@ -598,16 +597,26 @@ wave1_case!(
         ]
     })
     .to_string();
-        let (status, _, hit) = e.post(&token, &req_create).await;
-        assert_eq!((status, hit), (299, true));
-        assert!(!e.is_read(e.a.inbox_only).await);
+        let (status, body_a, hit) = e.post(&token, &req_create).await;
+        assert_eq!((status, hit), (200, false));
+        assert!(e.is_read(e.a.inbox_only).await);
+        let doc_a: Value = serde_json::from_str(&body_a).unwrap();
+        assert_eq!(doc_a["methodResponses"][0][0], "Email/set");
+        assert_eq!(doc_a["methodResponses"][1][0], "error");
         assert_eq!(
-            fixture::snapshot(&e.owner, e.a.mailbox).await.unwrap(),
-            before
+            doc_a["methodResponses"][1][1]["type"],
+            "urn:ietf:params:jmap:error:invalidResultReference"
         );
-        assert_eq!(e.audit_rows(e.a.mailbox).await, audit);
+        e.owner
+            .execute(
+                "UPDATE messages SET is_read = FALSE WHERE id = $1 AND mailbox_id = $2",
+                &[&e.a.inbox_only, &e.a.mailbox],
+            )
+            .await
+            .unwrap();
 
-        // Case A2: Email/set followed by EmailSubmission/set with #create ref -> defers before Call 0.
+        // Case A2 (#356 Wave 3): Email/set followed by EmailSubmission/set with #create ref
+        // runs NATIVELY without deferring to Go: Call 0 marks read, Call 1 gets invalidResultReference.
         let req_sub_ref = json!({
             "using": ["urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
             "methodCalls": [
@@ -616,10 +625,23 @@ wave1_case!(
             ]
         })
         .to_string();
-        let (status, _, hit) = e.post(&token, &req_sub_ref).await;
-        assert_eq!((status, hit), (299, true));
-        assert!(!e.is_read(e.a.inbox_only).await);
-        assert_eq!(e.audit_rows(e.a.mailbox).await, audit);
+        let (status, body_a2, hit) = e.post(&token, &req_sub_ref).await;
+        assert_eq!((status, hit), (200, false));
+        assert!(e.is_read(e.a.inbox_only).await);
+        let doc_a2: Value = serde_json::from_str(&body_a2).unwrap();
+        assert_eq!(doc_a2["methodResponses"][0][0], "Email/set");
+        assert_eq!(doc_a2["methodResponses"][1][0], "error");
+        assert_eq!(
+            doc_a2["methodResponses"][1][1]["type"],
+            "urn:ietf:params:jmap:error:invalidResultReference"
+        );
+        e.owner
+            .execute(
+                "UPDATE messages SET is_read = FALSE WHERE id = $1 AND mailbox_id = $2",
+                &[&e.a.inbox_only, &e.a.mailbox],
+            )
+            .await
+            .unwrap();
 
         // Case B (#328 Wave 2b): Email/set followed by EmailSubmission/set targeting message with
         // has_attachments=true runs NATIVELY without deferring to Go.

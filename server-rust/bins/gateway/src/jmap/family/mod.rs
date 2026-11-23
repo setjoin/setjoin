@@ -226,14 +226,6 @@ pub(super) fn classify_call(
     if !(method.ready)(Ready::of(services)) {
         return None;
     }
-    if raw.len() > MAX_ARGS {
-        return None;
-    }
-    if let Value::Object(map) = serde_json::from_str::<Value>(raw).ok()? {
-        if map.keys().any(|key| key.starts_with('#')) {
-            return None;
-        }
-    }
     Some(Request {
         method,
         args: raw.to_owned(),
@@ -688,12 +680,12 @@ mod tests {
         }
         for name in ["Continuity/get", "Continuity/present"] {
             assert!(
-                classify(&body("urn:ietf:params:jmap:mail", name, "{}"), None).is_none(),
-                "{name} stays with Go when continuity signer is absent"
+                classify(&body("urn:ietf:params:jmap:mail", name, "{}"), None).is_some(),
+                "{name} is claimed natively even when continuity signer is absent"
             );
             assert!(
-                !(find(name).expect("registered").ready)(Ready { continuity: false }),
-                "{name} ready=false when continuity=false"
+                (find(name).expect("registered").ready)(Ready { continuity: false }),
+                "{name} ready=true even when continuity=false"
             );
             assert!(
                 (find(name).expect("registered").ready)(Ready { continuity: true }),

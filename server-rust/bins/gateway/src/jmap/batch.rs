@@ -62,10 +62,9 @@ pub fn classify_batch_call(method: &str, raw_args: &str, client_id: &str) -> Opt
         },
     };
     let raw_ids = match fields.get("ids") {
-        None => return None,
+        None => Vec::new(),
         Some(raw) => match super::envelope::go_string_array_field(raw.get()) {
-            Ok(Some(items)) if !items.is_empty() => items,
-            Ok(_) => return None,
+            Ok(opt) => opt.unwrap_or_default(),
             Err(msg) => {
                 return Some(BatchRequest {
                     raw_account_id,
@@ -392,10 +391,12 @@ mod tests {
         let clean =
             classify_batch(&call("Email/recover", r#"{"accountId":"12","ids":["5"]}"#)).unwrap();
         assert_eq!(clean.result(raw, &[]).unwrap(), raw);
-        assert_eq!(
-            classify_batch(&call("Email/recover", r#"{"accountId":"12","ids":[]}"#)),
-            None
-        );
+        let empty = classify_batch(&call("Email/recover", r#"{"accountId":"12","ids":[]}"#))
+            .expect("empty ids are handled natively like Go");
+        assert!(matches!(
+            empty.args,
+            BatchArgs::Valid { ref ids, ref bad } if ids.is_empty() && bad.is_empty()
+        ));
         // Over 256 ids is handled in Wave 1.
         let many = (1..=300)
             .map(|n| format!(r#""{n}""#))

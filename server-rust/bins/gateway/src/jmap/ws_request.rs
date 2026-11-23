@@ -101,92 +101,27 @@ pub fn decode(data: &[u8]) -> Option<Envelope> {
 pub const CORE: &str = "urn:ietf:params:jmap:core";
 pub const MAIL: &str = "urn:ietf:params:jmap:mail";
 
-/// Use Go's WebSocket seam: forwarding this as HTTP POST would introduce
-/// different CSRF/device admission and could change frozen-Go behavior.
-pub async fn forward_unported(
-    raw: &[u8],
-    token: &str,
-    env: &Envelope,
-    context: &crate::RequestContext,
-) -> Result<String, ()> {
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
-    let (base, timeout) = context.upstream.unported_push_target().ok_or(())?;
-    let authority = base.authority().ok_or(())?;
-    let host = authority.host();
-    let port = authority.port_u16().unwrap_or(80);
-    tokio::time::timeout(timeout, async {
-        let stream = tokio::net::TcpStream::connect((host, port))
-            .await
-            .map_err(|_| ())?;
-        let mut request = format!("ws://{authority}/jmap/ws")
-            .into_client_request()
-            .map_err(|_| ())?;
-        request.headers_mut().insert(
-            "cookie",
-            format!("access_token={token}").parse().map_err(|_| ())?,
-        );
-        request.headers_mut().insert(
-            "origin",
-            format!("http://{authority}").parse().map_err(|_| ())?,
-        );
-        crate::forwarded::apply(request.headers_mut(), &context.identity);
-        let (mut socket, _) = tokio_tungstenite::client_async(request, stream)
-            .await
-            .map_err(|_| ())?;
-        socket
-            .send(Message::Binary(raw.to_vec().into()))
-            .await
-            .map_err(|_| ())?;
-        while let Some(frame) = socket.next().await {
-            match frame.map_err(|_| ())? {
-                Message::Ping(_) => socket.flush().await.map_err(|_| ())?,
-                Message::Text(text) => {
-                    let value: Value = serde_json::from_str(&text).map_err(|_| ())?;
-                    let kind = value["@type"].as_str().unwrap_or("");
-                    if matches!(kind, "Response" | "RequestError")
-                        && value["requestId"].as_str().unwrap_or("") == env.id
-                    {
-                        let _ = socket.close(None).await;
-                        return Ok(text.to_string());
-                    }
-                }
-                Message::Close(_) => return Err(()),
-                _ => {}
-            }
-        }
-        Err(())
-    })
-    .await
-    .map_err(|_| ())?
-}
-
 pub async fn execute<K: super::token::KeySource>(
     commands: &super::JmapCommands<K>,
     identity: &setjoin_authz::push::PushIdentity,
     env: &Envelope,
-) -> Result<String, super::DeferToGo> {
+) -> String {
     if env.using.is_empty() {
-        return Ok(request_error(
-            &env.id,
-            "notRequest",
-            "'using' array must not be empty",
-        ));
+        return request_error(&env.id, "notRequest", "'using' array must not be empty");
     }
     if env.calls.len() > 32 {
-        return Ok(request_error(
+        return request_error(
             &env.id,
             "requestTooLarge",
             &format!(
                 "maxCallsInRequest of 32 exceeded ({} calls)",
                 env.calls.len()
             ),
-        ));
+        );
     }
-    let authorized = identity
-        .command_authorization(&commands.exec)
-        .await
-        .ok_or(super::DeferToGo("push authorization unavailable"))?;
+    let Some(authorized) = identity.command_authorization(&commands.exec).await else {
+        return request_error_status(&env.id, "serverFail", 500, "internal error");
+    };
     let id_ctx = authorized.context();
     let session = authorized.session_state().encode();
     let (_, outcome) = commands
@@ -198,11 +133,15 @@ pub async fn execute<K: super::token::KeySource>(
             &env.calls,
             false,
         )
-        .await?;
-    Ok(match outcome {
-        super::BatchOutcome::Problem { kind, detail, .. } => request_error(&env.id, kind, &detail),
+        .await;
+    match outcome {
+        super::BatchOutcome::Problem {
+            status,
+            kind,
+            detail,
+        } => request_error_status(&env.id, kind, status, &detail),
         super::BatchOutcome::Response(responses) => response(&session, &responses, &env.id),
-    })
+    }
 }
 
 pub fn response(session: &str, calls: &[Call], id: &str) -> String {
@@ -241,12 +180,16 @@ pub fn response(session: &str, calls: &[Call], id: &str) -> String {
 }
 
 pub fn request_error(id: &str, kind: &str, detail: &str) -> String {
+    request_error_status(id, kind, 400, detail)
+}
+
+pub fn request_error_status(id: &str, kind: &str, status: u16, detail: &str) -> String {
     let mut out = "{\"@type\":\"RequestError\"".to_owned();
     if !id.is_empty() {
         out.push_str(&format!(",\"requestId\":{}", crate::problem::go_string(id)))
     }
     out.push_str(&format!(
-        ",\"type\":\"urn:ietf:params:jmap:error:{kind}\",\"status\":400"
+        ",\"type\":\"urn:ietf:params:jmap:error:{kind}\",\"status\":{status}"
     ));
     if !detail.is_empty() {
         out.push_str(&format!(
@@ -639,5 +582,9 @@ mod family_tests {
         };
         assert_eq!(capability(&call.name), CORE);
         assert!(registered(&call.name));
+        assert_eq!(
+            request_error_status("r1", "serverFail", 500, "internal error"),
+            r#"{"@type":"RequestError","requestId":"r1","type":"urn:ietf:params:jmap:error:serverFail","status":500,"detail":"internal error"}"#
+        );
     }
 }

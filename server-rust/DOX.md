@@ -603,9 +603,9 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
 lane the rehearsal for deleting Go. `static` (`roots` and `aggregate`): every route-inventory entry ON
 except the six `fedharness` test-tool entries (owner decision 2026-11-02) and the shrink-only `PENDING`
 list; no ON entry with a `go-*` upstream; `FORWARD_SITES` pins the exact count of forward-to-Go call
-sites in `server-rust/bins/*/src` (auth `.forward(`, gateway `.forward(`, `forward_body(`,
-`forward_unported(`, raw WebSocket `client_async(`, plus Go-hop plumbing `Target::GoMail/GoAuth`,
-`.with_go_counter(`, auth `go_upstream`, `unported_push_target`; only the single gateway arm
+sites in `server-rust/bins/*/src` (auth `.forward(`, gateway `.forward(`, plus Go-hop plumbing
+`Target::GoMail/GoAuth`, `.with_go_counter(`, auth `go_upstream`; `forward_body(`, `forward_unported(`,
+`ws_client`/`client_async(`, and `unported_push_target` are 0 / banned; only the single gateway arm
 `let mut response = upstream.forward(req, &identity).await;` under `Some(upstream) => {` in
 `match &shared.rust_auth_upstream` is exempt as a Rust-to-Rust hop). A pin of 0 is red and an
 unpinned kind is banned: the proof that Go can be deleted is this static ratchet reaching

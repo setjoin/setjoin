@@ -96,15 +96,6 @@ impl Upstream {
         self
     }
 
-    /// Application-frame handoff for an unported JMAP command batch. The
-    /// destination is deployment configuration, never a client-provided URL.
-    pub(crate) fn unported_push_target(&self) -> Option<(Uri, Duration)> {
-        if let Some((counters, family)) = &self.go_counter {
-            counters.increment(*family);
-        }
-        Some((self.base.clone()?, self.header_timeout))
-    }
-
     /// Forwards `req` to Go and returns Go's response (502 if Go is
     /// unreachable). Never partially answers a request itself.
     pub async fn forward(&self, mut req: Request<Body>, id: &ClientIdentity) -> Response<Body> {

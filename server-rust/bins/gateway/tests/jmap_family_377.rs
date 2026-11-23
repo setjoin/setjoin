@@ -872,14 +872,13 @@ async fn mutant_reminder_get_no_tenant_filter() -> Result<(), BoxError> {
     .await
 }
 
-/// Auth-first & readiness test (#377): `/jmap` denies unauthenticated callers
-/// with `401` before body parsing, admits authenticated callers cleanly
-/// (`Core/echo` -> `200` with zero Go hops), and defers authenticated
-/// `Continuity/*` to Go (`502` with upstream unset) when the continuity signing
-/// key is absent (`Reminder/*` readiness without a signer is verified in
-/// `family::mod::tests::reminder_and_continuity_classification_and_readiness`).
+/// Auth-first & native fallback test (#377/#356): `/jmap` denies unauthenticated
+/// callers with `401` before body parsing, admits authenticated callers cleanly
+/// (`Core/echo` -> `200` with zero Go hops), and answers authenticated
+/// `Continuity/*` natively with `forbidden` (zero Go hops) when the continuity
+/// signing key is absent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn continuity_without_signer_forwards_to_go() -> Result<(), BoxError> {
+async fn continuity_without_signer_returns_forbidden_natively() -> Result<(), BoxError> {
     struct AbortOnDrop(tokio::task::JoinHandle<()>);
     impl Drop for AbortOnDrop {
         fn drop(&mut self) {
@@ -928,7 +927,7 @@ async fn continuity_without_signer_forwards_to_go() -> Result<(), BoxError> {
         Ok(())
     }
 
-    let Some(db) = Db::for_case("continuity_without_signer_forwards_to_go") else {
+    let Some(db) = Db::for_case("continuity_without_signer_returns_forbidden_natively") else {
         return Ok(());
     };
     let owner = db.connect().await?;
@@ -1023,14 +1022,28 @@ async fn continuity_without_signer_forwards_to_go() -> Result<(), BoxError> {
                 .header("authorization", format!("Bearer {token}"))
                 .header("content-type", "application/json")
                 .body(common::full(body))?;
-            let (status, _) = send_http(address, req).await?;
-            // With Go upstream unset, a Go forward answers 502 Bad Gateway.
-            if status != 502 {
-                return Err(format!("{method} should defer to Go (502), got {status}").into());
+            let (status, resp_body) = send_http(address, req).await?;
+            if status != 200 {
+                return Err(format!(
+                    "{method} should return HTTP 200 method error cleanly, got {status}: {resp_body}"
+                )
+                .into());
+            }
+            let doc: Value = serde_json::from_str(&resp_body)?;
+            let call = &doc["methodResponses"][0];
+            if call[0] != "error"
+                || call[1]["type"] != "urn:ietf:params:jmap:error:forbidden"
+                || call[1]["detail"] != "client continuity receipts are disabled"
+                || call[2] != "c1"
+            {
+                return Err(format!(
+                    "{method} expected forbidden without signer, got: {resp_body}"
+                )
+                .into());
             }
         }
 
-        assert_go_forwards(address, 2).await?;
+        assert_go_forwards(address, 0).await?;
         Ok::<_, BoxError>(())
     })
     .catch_unwind()
