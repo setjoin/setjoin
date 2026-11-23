@@ -85,34 +85,27 @@ async fn deferred_batch_forwards_whole_before_any_native_write() -> Result<(), B
     let owner = db.connect().await?;
     let a = fixture::account(&owner, "jmap4-deferred").await?;
     let result=async {
-        let before=snapshot(&owner,&a).await?;
         let batch=json!({"@type":"Request","id":"deferred","using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["Email/set",{"accountId":a.mailbox.to_string(),"update":{a.two_labels.to_string():{"keywords":{"$seen":true}}}},"write"],["EmailSubmission/set",{"accountId":a.mailbox.to_string(),"#create":{"resultOf":"write","name":"Email/set","path":"/created"}},"later"]]}).to_string();
-        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let upstream=listener.local_addr()?;
-        let expected=batch.clone();let go=tokio::spawn(async move{
-            let (stream,_)=listener.accept().await?;
-            let mut socket=tokio_tungstenite::accept_async(stream).await?;
-            let actual=socket.next().await.ok_or("no deferred frame")??;
-            if actual.into_data().as_ref()!=expected.as_bytes(){return Err("deferred frame changed".into())}
-            socket.send(Message::Text(r#"{"@type":"Response","requestId":"deferred","sessionState":"upstream","methodResponses":[]}"#.into())).await?;
-            Ok::<_,BoxError>(())
-        });
         let (routes,_)=routes(&db)?;
-        let gateway=Gateway::new(Config{upstream:Some(format!("http://{upstream}").parse()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:Duration::from_secs(10),edge_limit:None},routes)?.with_inventory(&inventory())?;
+        let gateway=Gateway::new(Config{upstream:None,trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:Duration::from_secs(10),edge_limit:None},routes)?.with_inventory(&inventory())?;
         let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let address=listener.local_addr()?;
         let (stop,stopped)=tokio::sync::oneshot::channel();let server=tokio::spawn(gateway.serve_until(listener,async{let _=stopped.await;}));
         let result=async {
             let mut socket=connect(address,a.user).await?;socket.send(Message::Text(batch.into())).await?;
-            let frame=tokio::time::timeout(Duration::from_secs(10),socket.next()).await?.ok_or("no deferred response")??;
-            if !frame.to_text()?.contains("\"sessionState\":\"upstream\""){return Err(format!("batch was not deferred: {frame}").into())}
-            if snapshot(&owner,&a).await?!=before{return Err("native command ran before whole-batch handoff".into())}
+            let frame=tokio::time::timeout(Duration::from_secs(10),socket.next()).await?.ok_or("no native response")??;
+            let reply: Value = serde_json::from_str(frame.to_text()?)?;
+            if reply["@type"] != "Response" || reply["requestId"] != "deferred" || reply["methodResponses"][0][0] != "Email/set" || reply["methodResponses"][1][0] != "error" || reply["methodResponses"][1][1]["type"] != "urn:ietf:params:jmap:error:invalidResultReference" {
+                return Err(format!("unexpected WS batch reply: {reply}").into());
+            }
+            let is_read: bool = owner.query_one("SELECT is_read FROM messages WHERE id=$1 AND mailbox_id=$2", &[&a.two_labels, &a.mailbox]).await?.get(0);
+            if !is_read { return Err("native Email/set did not execute".into()); }
             ready(&mut socket).await?;
             let response=common::send(address,hyper::Request::builder().uri(format!("http://{address}/_gateway/metrics")).body(common::full(""))?).await;
             let metrics=String::from_utf8(response.into_body().collect().await?.to_bytes().to_vec())?;
-            if !metrics.contains("setjoin_gateway_proxied_to_go_total 1\n"){return Err(format!("incorrect deferred attribution {metrics}").into())}
+            if !metrics.contains("setjoin_gateway_proxied_to_go_total 0\n"){return Err(format!("native WS batch unexpectedly proxied to Go: {metrics}").into())}
             socket.close(None).await?;Ok::<_,BoxError>(())
         }.await;
         let _=stop.send(());server.await?;
-        if result.is_ok(){go.await??;}else{go.abort();let _=go.await;}
         result
     }.await;
     fixture::remove(&owner, &a).await?;

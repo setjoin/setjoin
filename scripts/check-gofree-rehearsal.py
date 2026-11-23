@@ -80,12 +80,9 @@ HOP_ROW = re.compile(r'\(\s*(&\[[^\]]*\]|[A-Z_]+)\s*,\s*"[^"]+"\s*,\s*Hop\s*\("'
 CELL_GROUP = re.compile(r'const\s+([A-Z_]+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];', re.S)
 FORWARD_SITES = {
     ("auth", "go_upstream"): 3,
-    ("gateway", "forward"): 25,  # 26 minus exempt RUST_TO_RUST_CALL (lib.rs:679)
-    ("gateway", "forward_unported"): 1,
+    ("gateway", "forward"): 24,  # 25 minus exempt RUST_TO_RUST_CALL (lib.rs:679)
     ("gateway", "go_counter"): 2,
     ("gateway", "go_target"): 11,
-    ("gateway", "unported_push_target"): 2,
-    ("gateway", "ws_client"): 1,
 }
 # The Go background workers (worker_semantics.json). The owner counted 49 on 2026-11-02; the file now
 # lists 51. A change here goes with the #141 evidence checklist.

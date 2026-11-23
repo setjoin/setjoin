@@ -437,19 +437,7 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                     };
                     let reply=match env.kind.as_str() {
                         "WebSocketPushEnable"=>continue,"WebSocketPushDisable"=>r#"{"@type":"error"}"#.to_owned(),
-                        "Request" => match super::ws_request::execute(&commands, &identity, &env).await {
-                            Ok(reply) => reply,
-                            Err(super::DeferToGo(_)) => {
-                                match super::ws_request::forward_unported(
-                                    &data, &token, &env, &context,
-                                )
-                                .await
-                                {
-                                    Ok(reply) => reply,
-                                    Err(()) => break,
-                                }
-                            }
-                        },
+                        "Request" => super::ws_request::execute(&commands, &identity, &env).await,
                         _=>r#"{"@type":"error","type":"urn:ietf:params:jmap:error:unknownType","status":400,"detail":"unknown @type"}"#.to_owned(),
                     };
                     if socket.send(Message::Text(reply.into())).await.is_err() {

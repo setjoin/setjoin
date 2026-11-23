@@ -105,9 +105,26 @@ pub(crate) fn safe_client_id(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b':'))
 }
 
-/// Go struct field names match without ASCII case. Preserve raw field JSON
-/// (notably create/update numeric values). Duplicate/non-ASCII struct field
-/// names remain with the shared execution/argument engine in #318, before I/O.
+/// Go struct field names match exact or Unicode case-folded (last duplicate wins;
+/// unknown/non-ASCII keys ignored).
+fn prev_is_mistyped(name: &str, raw: &str) -> bool {
+    let trimmed = raw.trim();
+    if trimmed == "null" {
+        return false;
+    }
+    match name {
+        "accountId" | "sinceState" | "sinceQueryState" | "ifInState" | "threadId" | "emailId"
+        | "fromAccountId" | "toAccountId" => go_string_field(trimmed).is_err(),
+        "position" | "limit" | "maxChanges" => go_i64_field(trimmed).is_err(),
+        "ids" | "destroy" | "properties" | "hashes" | "typeNames" => {
+            go_string_array_field(trimmed).is_err()
+        }
+        "create" | "update" | "filter" => !trimmed.starts_with('{'),
+        "sort" => !trimmed.starts_with('['),
+        _ => false,
+    }
+}
+
 pub(crate) fn struct_arguments(
     raw: &str,
     known: &[&str],
@@ -126,14 +143,35 @@ pub(crate) fn struct_arguments(
         fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
             let mut fields = std::collections::BTreeMap::new();
             while let Some(key) = map.next_key::<String>()? {
-                if !key.is_ascii() {
-                    return Err(de::Error::custom("argument field grammar belongs to #318"));
-                }
-                if let Some(name) = self.0.iter().find(|name| name.eq_ignore_ascii_case(&key)) {
+                let target = self.0.iter().find(|name| **name == key).or_else(|| {
+                    let folded = crate::guests_input::fold(&key);
+                    self.0
+                        .iter()
+                        .find(|name| crate::guests_input::fold(name) == folded)
+                });
+                if let Some(name) = target {
                     let value = map.next_value::<Box<serde_json::value::RawValue>>()?;
-                    if fields.insert((*name).to_owned(), value).is_some() {
-                        return Err(de::Error::custom("duplicate struct fields belong to #318"));
+                    let scalar_null = value.get().trim() == "null"
+                        && matches!(
+                            *name,
+                            "accountId"
+                                | "sinceState"
+                                | "sinceQueryState"
+                                | "ifInState"
+                                | "threadId"
+                                | "emailId"
+                                | "fromAccountId"
+                                | "toAccountId"
+                                | "position"
+                                | "limit"
+                                | "maxChanges"
+                        );
+                    if let Some(prev) = fields.get(*name) {
+                        if scalar_null || prev_is_mistyped(name, prev.get()) {
+                            continue;
+                        }
                     }
+                    fields.insert((*name).to_owned(), value);
                 } else {
                     map.next_value::<de::IgnoredAny>()?;
                 }
@@ -184,46 +222,24 @@ pub(crate) fn go_i64_field(raw: &str) -> Result<Option<i64>, String> {
         .map_err(|_| "invalid integer argument".to_owned())
 }
 
-/// Replace top-level `#foo` reference keys with `"foo": <dummy>` solely for
-/// static preflight shape checks, returning `None` if no `#` keys are present
-/// or `raw` is not a JSON object.
-pub(crate) fn dummy_stripped_args(raw: &str) -> Option<String> {
-    use serde_json::value::RawValue;
-    use std::collections::BTreeMap;
-    let map: BTreeMap<String, Box<RawValue>> = serde_json::from_str(raw).ok()?;
-    if !map.keys().any(|k| k.starts_with('#')) {
-        return None;
+#[cfg(test)]
+mod tests {
+    use super::struct_arguments;
+
+    #[test]
+    fn struct_arguments_matches_go_duplicate_and_unicode_rules() {
+        let fields = struct_arguments(
+            r#"{"accountId":"1","accountid":"2","accountId":null,"ignored_é":true}"#,
+            &["accountId", "ids"],
+        )
+        .expect("object");
+        assert_eq!(fields["accountId"].get(), r#""2""#);
+        let unicode = struct_arguments(r#"{"id\u017f":"ok"}"#, &["ids"]).expect("unicode fold");
+        assert_eq!(unicode["ids"].get(), r#""ok""#);
+        let bad_first =
+            struct_arguments(r#"{"accountId":true,"accountid":"12"}"#, &["accountId"]).unwrap();
+        assert_eq!(bad_first["accountId"].get(), "true");
+        let bad_arr = struct_arguments(r#"{"ids":[123],"ids":["1"]}"#, &["ids"]).unwrap();
+        assert_eq!(bad_arr["ids"].get(), "[123]");
     }
-    let mut out: BTreeMap<String, Box<RawValue>> = BTreeMap::new();
-    for (k, v) in &map {
-        if !k.starts_with('#') {
-            out.insert(k.clone(), v.clone());
-        }
-    }
-    for k in map.keys().filter(|k| k.starts_with('#')) {
-        let name = &k[1..];
-        if out
-            .keys()
-            .any(|existing| existing.eq_ignore_ascii_case(name))
-        {
-            continue;
-        }
-        let dummy = match name.to_ascii_lowercase().as_str() {
-            "accountid" => "\"1\"",
-            "ids" | "emailids" | "hashes" | "destroy" | "properties" | "typenames" => "[\"1\"]",
-            "filter" => "{}",
-            "sort" => "[]",
-            "position" | "limit" | "maxchanges" => "0",
-            "sincestate" | "sincequerystate" | "ifinstate" | "threadid" | "emailid"
-            | "fromaccountid" | "toaccountid" => "\"0\"",
-            "update" => "{\"1\":{}}",
-            "create" => "{}",
-            _ => "null",
-        };
-        out.insert(
-            name.to_owned(),
-            RawValue::from_string(dummy.to_owned()).ok()?,
-        );
-    }
-    serde_json::to_string(&out).ok()
 }

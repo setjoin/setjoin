@@ -12,7 +12,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::args::{self, Kind};
 use super::seam::{resolve, write, write_sql, ContinuitySigner, Scope, Type};
-use super::{go_compact, go_map, Answer, Cx, Gate, Method, MethodError, Ready, Reply};
+use super::{always, go_compact, go_map, Answer, Cx, Gate, Method, MethodError, Reply};
 
 const CAPABILITY: &str = "urn:ietf:params:jmap:mail";
 const FEATURE_FLAG: &str = "feature.client_recovery_receipts";
@@ -23,10 +23,6 @@ const CLOCK_SKEW_SECS: i64 = 5 * 60;
 const MAX_AGE_SECS: i64 = 180 * 24 * 60 * 60;
 const ED25519_SIG_BYTES: usize = 64;
 
-fn continuity_ready(ready: Ready) -> bool {
-    ready.continuity
-}
-
 pub(super) const METHODS: &[Method] = &[
     Method {
         name: "Continuity/get",
@@ -36,7 +32,7 @@ pub(super) const METHODS: &[Method] = &[
         account: true,
         mutator: true,
         state: false,
-        ready: continuity_ready,
+        ready: always,
         run: get,
     },
     Method {
@@ -47,7 +43,7 @@ pub(super) const METHODS: &[Method] = &[
         account: true,
         mutator: true,
         state: false,
-        ready: continuity_ready,
+        ready: always,
         run: present,
     },
 ];
@@ -441,7 +437,8 @@ mod tests {
     }
 
     #[test]
-    fn methods_require_continuity_readiness_and_read_gate() {
+    fn methods_always_claim_and_use_read_gate() {
+        use super::super::Ready;
         assert_eq!(METHODS.len(), 2);
         for method in METHODS {
             assert_eq!(method.capability, CAPABILITY);
@@ -449,7 +446,7 @@ mod tests {
             assert!(method.account);
             assert!(method.mutator);
             assert!(!method.state);
-            assert!(!(method.ready)(Ready { continuity: false }));
+            assert!((method.ready)(Ready { continuity: false }));
             assert!((method.ready)(Ready { continuity: true }));
         }
     }
