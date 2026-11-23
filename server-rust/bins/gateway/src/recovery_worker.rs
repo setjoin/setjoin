@@ -660,13 +660,13 @@ impl S3Store {
         bucket.add_query("legal-hold", "");
         let (xml, md5) = if on {
             (
-                "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>ON</Status></LegalHold>",
-                "erOisiAmIIzsh/Ze2QqGXw==",
+                "<LegalHold><Status>ON</Status></LegalHold>",
+                "oK1+ndJbG6HuGA87LDxznw==",
             )
         } else {
             (
-                "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>OFF</Status></LegalHold>",
-                "VFVLURy793Xk77f+OyG/PA==",
+                "<LegalHold><Status>OFF</Status></LegalHold>",
+                "An8G3mv4SfhAibzslQjGDw==",
             )
         };
         bucket
@@ -1192,7 +1192,6 @@ fn is_retryable_s3_error(body: &str) -> bool {
                 | "SlowDown"
                 | "SlowDownWrite"
                 | "SlowDownRead"
-                | "ServiceUnavailable"
         )
     )
 }

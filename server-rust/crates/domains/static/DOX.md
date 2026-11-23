@@ -39,12 +39,11 @@ centralized `deny::answer`:
   domain-scoped `system.config`. Console denials write the exact durable audit.
 - Full OpenAPI spec (`Kind::FullYaml | Kind::FullJson`) admits via `deny::admit_console`
   (`Scope::User`, omitting redundant role pre-reads so console `system.config` denials own their
-  403/audit path) and delegates refusals (such as `AlternativeCredential`) to `deny::answer`;
-  `Outcome::Defer` fails closed with 503.
+  403/audit path) and delegates refusals (such as `AlternativeCredential`) to `deny::answer`.
 - `/health` with SFU/egress/ASR sidecars configured (`LIVEKIT_*`, `ASR_URL`) when the gate has
-  no probe runner (the gateway always supplies one: #457). An `error` row is served natively
-  (503) and raises `system.health_alert` through `HealthGate::with_alerts` on the ok-to-error
-  transition.
+  no probe runner (the gateway always supplies one: #457); `Outcome::Defer` fails closed with 503.
+  An `error` row is served natively (503) and raises `system.health_alert` through
+  `HealthGate::with_alerts` on the ok-to-error transition.
 - Configuration is resolved by the gateway's YAML/environment loader (#414).
   Well-known, autoconfig, downloads and favicon use that startup snapshot and
   do not forward because `SETJOIN_CONFIG` is present.

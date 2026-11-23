@@ -642,7 +642,7 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
             Some(format!("{local}@{domain}"))
         }
         fn parse_mailbox(&mut self, allow_group: bool) -> Option<String> {
-            self.skip_comments_and_space()?;
+            self.skip_space();
             let start = self.pos;
             if self.peek() == Some(b'<') {
                 self.pos += 1;
@@ -689,7 +689,7 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
         s: raw.as_bytes(),
         pos: 0,
     };
-    p.skip_comments_and_space()?;
+    p.skip_space();
     if p.pos >= p.s.len() {
         return None;
     }
@@ -1648,6 +1648,14 @@ mod tests {
         assert_eq!(
             canonical_email("user@(c)example.test"),
             Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("(c)user@example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@example.test (Jane)"),
+            Ok("user@example.test".into())
         );
         assert_eq!(
             canonical_email("< user@example.test>"),

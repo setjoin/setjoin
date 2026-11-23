@@ -57,6 +57,7 @@ pub struct RtcRoute<K: KeySource + 'static> {
     upstream: SocketAddr,
     client: Client<HttpConnector, Body>,
     fallback: Option<Arc<crate::catchall::CatchallRoute>>,
+    check_guest: bool,
 }
 
 impl<K: KeySource + 'static> RtcRoute<K> {
@@ -84,12 +85,20 @@ impl<K: KeySource + 'static> RtcRoute<K> {
             upstream,
             client,
             fallback: None,
+            check_guest: true,
         }
     }
 
     /// Go's root mux, answering `/rtc` while LiveKit is unconfigured (#357).
     pub fn with_fallback(mut self, fallback: Arc<crate::catchall::CatchallRoute>) -> Self {
         self.fallback = Some(fallback);
+        self
+    }
+
+    /// Skip the adapter-local guest belt when front-door `SessionAdmission`
+    /// already enforces it on `/rtc` and `/rtc/`.
+    pub fn without_guest_belt(mut self) -> Self {
+        self.check_guest = false;
         self
     }
 }
@@ -105,7 +114,12 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
 
     fn handle(&self, req: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
-        let (configured, upstream, client) = (self.configured, self.upstream, self.client.clone());
+        let (configured, upstream, client, check_guest) = (
+            self.configured,
+            self.upstream,
+            self.client.clone(),
+            self.check_guest,
+        );
         let fallback = self.fallback.clone();
         Box::pin(async move {
             if !configured {
@@ -114,18 +128,20 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                     None => crate::surface::unregistered(&req, c.identity.proto),
                 };
             }
-            if let Some(response) = crate::admission::check_guest_belt(
-                &exec,
-                &*keys,
-                &issuer,
-                req.headers(),
-                req.method(),
-                req.uri().path(),
-                &c.identity,
-            )
-            .await
-            {
-                return response;
+            if check_guest {
+                if let Some(response) = crate::admission::check_guest_belt(
+                    &exec,
+                    &*keys,
+                    &issuer,
+                    req.headers(),
+                    req.method(),
+                    req.uri().path(),
+                    &c.identity,
+                )
+                .await
+                {
+                    return response;
+                }
             }
             let id = crate::jmap::reply::request_id(
                 req.headers().get("x-request-id"),

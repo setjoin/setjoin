@@ -92,6 +92,15 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-http").ok_or("DB required")?;
     let owner = db.connect().await?;
+    let receipts: Vec<String> = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F04'",
+            &[],
+        )
+        .await?
+        .into_iter()
+        .map(|row| row.get(0))
+        .collect();
     let a = fixture::account(&owner, "compl1-admin").await?;
     let role:i64=owner.query_one("INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES ('compl1-oracle',$1,$2) RETURNING id", &[&if label=="denied" {vec!["users.read"]} else {vec!["domains.read","compliance.write","mail.export"]}, &if label=="foreign" {Some(a.domain)} else {None}]).await?.get(0);
     owner
@@ -330,7 +339,13 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
     owner
         .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
         .await?;
-    owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};DELETE FROM rust_operation_receipts WHERE family='F04';COMMIT;",a.user)).await?;
+    owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",a.user)).await?;
+    owner
+        .execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F04' AND operation_id::text<>ALL($1)",
+            &[&receipts],
+        )
+        .await?;
     owner
         .execute(
             "UPDATE messages SET held=false WHERE mailbox_id=$1",
@@ -609,8 +624,10 @@ pub async fn forwarding() -> Result<(), BoxError> {
                     &[&command, &request_id],
                 )
                 .await?;
+            for row in &rows {
+                receipts.push(row.get(0));
+            }
             assert_eq!(rows.len(), 1, "expected 1 receipt for {command} {request_id}");
-            receipts.push(rows[0].get(0));
             Ok(())
         }
         let ids = format!("{{\"ids\":[{}]}}", a.two_labels);
@@ -625,19 +642,19 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 .body(common::full(ids.clone()))?,
         )
         .await;
-        assert_eq!(hold_resp.status().as_u16(), 200);
         let hold_req_id = hold_resp
             .headers()
             .get("x-request-id")
             .and_then(|v| v.to_str().ok())
             .ok_or("missing x-request-id")?
             .to_owned();
+        record_receipt(&owner, "message.hold", &hold_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(hold_resp.status().as_u16(), 200);
         let hold_json: Value = serde_json::from_slice(&common::body_bytes(hold_resp).await)?;
         assert_eq!(
             hold_json,
             json!({"held": 1, "legal_hold_objects": 1, "total": 1})
         );
-        record_receipt(&owner, "message.hold", &hold_req_id, &mut cleanup.receipts).await?;
         let held_after_hold: bool = owner
             .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
             .await?
@@ -655,16 +672,16 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 .body(common::full(ids.clone()))?,
         )
         .await;
-        assert_eq!(release_resp.status().as_u16(), 200);
         let rel_req_id = release_resp
             .headers()
             .get("x-request-id")
             .and_then(|v| v.to_str().ok())
             .ok_or("missing x-request-id")?
             .to_owned();
+        record_receipt(&owner, "message.release", &rel_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(release_resp.status().as_u16(), 200);
         let release_json: Value = serde_json::from_slice(&common::body_bytes(release_resp).await)?;
         assert_eq!(release_json, json!({"released": 1, "total": 1}));
-        record_receipt(&owner, "message.release", &rel_req_id, &mut cleanup.receipts).await?;
         let held_after_release: bool = owner
             .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
             .await?
@@ -683,19 +700,19 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 .body(common::full(ids.clone()))?,
         )
         .await;
-        assert_eq!(hold_denied.status().as_u16(), 200);
         let denied_req_id = hold_denied
             .headers()
             .get("x-request-id")
             .and_then(|v| v.to_str().ok())
             .ok_or("missing x-request-id")?
             .to_owned();
+        record_receipt(&owner, "message.hold", &denied_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(hold_denied.status().as_u16(), 200);
         let denied_json: Value = serde_json::from_slice(&common::body_bytes(hold_denied).await)?;
         assert_eq!(
             denied_json,
             json!({"held": 1, "legal_hold_objects": 0, "total": 1})
         );
-        record_receipt(&owner, "message.hold", &denied_req_id, &mut cleanup.receipts).await?;
 
         s3_phase.store(3, Ordering::SeqCst);
         let release_2 = common::send(
@@ -708,7 +725,6 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 .body(common::full(ids.clone()))?,
         )
         .await;
-        assert_eq!(release_2.status().as_u16(), 200);
         let rel2_req_id = release_2
             .headers()
             .get("x-request-id")
@@ -716,6 +732,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
             .ok_or("missing x-request-id")?
             .to_owned();
         record_receipt(&owner, "message.release", &rel2_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(release_2.status().as_u16(), 200);
 
         // WORM_LEGAL_HOLD_ENABLED="yes" fails Go strconv.ParseBool -> counts attached blobs without S3 calls.
         s3_phase.store(4, Ordering::SeqCst);
@@ -731,36 +748,36 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 .body(common::full(ids))?,
         )
         .await;
-        assert_eq!(hold_disabled.status().as_u16(), 200);
         let dis_req_id = hold_disabled
             .headers()
             .get("x-request-id")
             .and_then(|v| v.to_str().ok())
             .ok_or("missing x-request-id")?
             .to_owned();
+        record_receipt(&owner, "message.hold", &dis_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(hold_disabled.status().as_u16(), 200);
         let disabled_json: Value = serde_json::from_slice(&common::body_bytes(hold_disabled).await)?;
         assert_eq!(
             disabled_json,
             json!({"held": 1, "legal_hold_objects": 1, "total": 1})
         );
-        record_receipt(&owner, "message.hold", &dis_req_id, &mut cleanup.receipts).await?;
         assert_eq!(s3_puts.lock().unwrap().len(), calls_before_disabled);
 
         let put_on = json!({
             "method": "PUT",
             "path": format!("/mailblobs/{blob_hash}"),
             "query": "legal-hold=",
-            "md5": "erOisiAmIIzsh/Ze2QqGXw==",
+            "md5": "oK1+ndJbG6HuGA87LDxznw==",
             "sigv4": true,
-            "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>ON</Status></LegalHold>"
+            "body": "<LegalHold><Status>ON</Status></LegalHold>"
         });
         let put_off = json!({
             "method": "PUT",
             "path": format!("/mailblobs/{blob_hash}"),
             "query": "legal-hold=",
-            "md5": "VFVLURy793Xk77f+OyG/PA==",
+            "md5": "An8G3mv4SfhAibzslQjGDw==",
             "sigv4": true,
-            "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>OFF</Status></LegalHold>"
+            "body": "<LegalHold><Status>OFF</Status></LegalHold>"
         });
         let s3_expected = json!([
             put_on.clone(),

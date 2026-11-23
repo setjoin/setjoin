@@ -61,6 +61,268 @@ async fn executable_active_guest_proxies_rtc_natively() -> Result<(), BoxError> 
     run(Mode::ActiveGuest).await
 }
 
+struct GuestCleanup {
+    saved_toggle: Option<Option<bool>>,
+    domain: Option<i64>,
+    users: Vec<i64>,
+}
+
+impl GuestCleanup {
+    fn new() -> Self {
+        Self {
+            saved_toggle: None,
+            domain: None,
+            users: Vec::new(),
+        }
+    }
+
+    async fn seed(&mut self, owner: &tokio_postgres::Client) -> Result<(i64, i64), BoxError> {
+        let prev: Option<bool> = owner
+            .query_opt(
+                "SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'",
+                &[],
+            )
+            .await?
+            .map(|r| r.get(0));
+        self.saved_toggle = Some(prev);
+        owner
+            .execute(
+                "INSERT INTO feature_toggles(key,enabled) VALUES('feature.guest_accounts',true) ON CONFLICT(key) DO UPDATE SET enabled=true",
+                &[],
+            )
+            .await?;
+        let domain: i64 = owner
+            .query_one(
+                "INSERT INTO domains(name,is_local) VALUES('meet5-guest-'||gen_random_uuid()::text||'.test',true) RETURNING id",
+                &[],
+            )
+            .await?
+            .get(0);
+        self.domain = Some(domain);
+        let mut active_user = 0;
+        let mut inactive_user = 0;
+        for (slot, status) in [(&mut active_user, "active"), (&mut inactive_user, "expired")] {
+            let row = owner
+                .query_one(
+                    "INSERT INTO users(username,domain_id,email,display_name,password_hash) VALUES('meet5-guest-'||gen_random_uuid()::text,(SELECT id FROM domains WHERE name='guest.invalid'),'meet5-guest-'||gen_random_uuid()::text||'@example.test','meet5 guest','x') RETURNING id, email",
+                    &[],
+                )
+                .await?;
+            let user: i64 = row.get(0);
+            let guest_email: String = row.get(1);
+            self.users.push(user);
+            owner
+                .execute(
+                    "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) VALUES($1,$2,'inviter@example.test',$3,$4)",
+                    &[&user, &guest_email, &domain, &status],
+                )
+                .await?;
+            *slot = user;
+        }
+        Ok((active_user, inactive_user))
+    }
+
+    async fn cleanup(&self, owner: &tokio_postgres::Client) -> Result<(), BoxError> {
+        if let Some(saved_toggle) = self.saved_toggle {
+            if let Some(prev) = saved_toggle {
+                owner
+                    .execute(
+                        "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.guest_accounts'",
+                        &[&prev],
+                    )
+                    .await?;
+            } else {
+                owner
+                    .execute(
+                        "DELETE FROM feature_toggles WHERE key='feature.guest_accounts'",
+                        &[],
+                    )
+                    .await?;
+            }
+        }
+        for user in &self.users {
+            owner
+                .execute("DELETE FROM guest_accounts WHERE user_id=$1", &[user])
+                .await?;
+            owner
+                .execute("DELETE FROM users WHERE id=$1", &[user])
+                .await?;
+        }
+        if let Some(domain) = self.domain {
+            owner
+                .execute("DELETE FROM domains WHERE id=$1", &[&domain])
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+type Probe = (&'static str, &'static str, Vec<(&'static str, String)>, u16, Option<&'static str>);
+
+fn guest_probes(active_user: i64, inactive_user: i64) -> Vec<Probe> {
+    let active_auth = format!("Bearer {}", common::recovery_token(active_user));
+    let inactive_auth = format!("Bearer {}", common::recovery_token(inactive_user));
+    vec![
+        (
+            "GET",
+            "/rtc/rtc/validate?access_token=good",
+            vec![("authorization", active_auth.clone())],
+            200,
+            Some("success"),
+        ),
+        (
+            "GET",
+            "/rtc",
+            vec![("authorization", active_auth.clone())],
+            200,
+            Some("success"),
+        ),
+        (
+            "POST",
+            "/rtc",
+            vec![("authorization", active_auth)],
+            404,
+            Some("404 page not found\n"),
+        ),
+        (
+            "GET",
+            "/rtc",
+            vec![("authorization", inactive_auth)],
+            401,
+            None,
+        ),
+    ]
+}
+
+async fn run_probes(address: std::net::SocketAddr, probes: &[Probe]) -> Result<(usize, usize), BoxError> {
+    let mut count = 0;
+    let mut expected_sfu = 0;
+    for (method, uri, headers, want, text) in probes {
+        let mut request = Request::builder()
+            .method(*method)
+            .uri(*uri)
+            .header("host", "mail.test");
+        for (k, v) in headers {
+            request = request.header(*k, v.as_str());
+        }
+        let response = common::send(address, request.body(common::full(""))?).await;
+        let status = response.status().as_u16();
+        let body = common::body_bytes(response).await;
+        let body_ok = match text {
+            Some(exact) => body == exact.as_bytes(),
+            None => String::from_utf8_lossy(&body).contains("Unauthorized"),
+        };
+        if status != *want || !body_ok {
+            return Err(format!("{method} {uri}: {status} {}", String::from_utf8_lossy(&body)).into());
+        }
+        if *want == 200 {
+            expected_sfu += 1;
+        }
+        count += 1;
+    }
+    Ok((count, expected_sfu))
+}
+
+#[tokio::test]
+async fn standalone_rtc_route_enforces_guest_belt_natively() -> Result<(), BoxError> {
+    use setjoin_gateway::{rtc::RtcRoute, Config, Gateway, RouteTable, TrustedProxies};
+    let _serial = SERIAL.lock().await;
+    let Some(db) = Db::for_case("meet5-rtc-standalone-guest") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let mut guest_cleanup = GuestCleanup::new();
+    struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+    impl<T> Drop for AbortOnDrop<T> {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let result = std::panic::AssertUnwindSafe(async {
+        let (active_user, inactive_user) = guest_cleanup.seed(&owner).await?;
+        let go_hits = Arc::new(AtomicUsize::new(0));
+        let go_seen = go_hits.clone();
+        let go = common::fake_upstream(move |_| {
+            let go_seen = go_seen.clone();
+            async move {
+                go_seen.fetch_add(1, Ordering::SeqCst);
+                Response::builder().status(218).body(common::full("from go")).unwrap()
+            }
+        })
+        .await;
+        let sfu_hits = Arc::new(AtomicUsize::new(0));
+        let sfu_seen = sfu_hits.clone();
+        let sfu_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let sfu_addr = sfu_listener.local_addr()?;
+        let _sfu = AbortOnDrop(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = sfu_listener.accept().await else { return };
+                let sfu_seen = sfu_seen.clone();
+                tokio::spawn(async move {
+                    let svc = hyper::service::service_fn(move |_req| {
+                        let sfu_seen = sfu_seen.clone();
+                        async move {
+                            sfu_seen.fetch_add(1, Ordering::SeqCst);
+                            Ok::<_, std::convert::Infallible>(
+                                Response::builder().status(200).body(common::full("success")).unwrap(),
+                            )
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(hyper_util::rt::TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+        let patient = Duration::from_secs(30);
+        let exec = setjoin_pg::ScopedExecutor::from_dsn_with(
+            db.app.as_deref().unwrap_or(&db.dsn),
+            2,
+            setjoin_pg::Timeouts {
+                pool_wait: patient,
+                create: patient,
+                statement: patient,
+            },
+        )
+        .map_err(|e| e.0)?;
+        let rtc = RtcRoute::new(
+            exec,
+            Arc::new(common::recovery_keys()),
+            "mailserver".into(),
+            true,
+            sfu_addr,
+        );
+        let gateway = Gateway::new(
+            Config {
+                upstream: Some(format!("http://{go}").parse()?),
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(rtc),
+        )?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let _server = AbortOnDrop(tokio::spawn(gateway.serve(listener)));
+        let probes = guest_probes(active_user, inactive_user);
+        let (_, expected_sfu) = run_probes(address, &probes).await?;
+        if go_hits.load(Ordering::SeqCst) != 0 {
+            return Err("expected zero Go hits".into());
+        }
+        if sfu_hits.load(Ordering::SeqCst) != expected_sfu {
+            return Err("unexpected SFU request count".into());
+        }
+        Ok::<_, BoxError>(())
+    })
+    .catch_unwind()
+    .await;
+    guest_cleanup.cleanup(&owner).await?;
+    match result {
+        Ok(r) => r,
+        Err(p) => std::panic::resume_unwind(p),
+    }
+}
+
 struct Owned(Child);
 impl Drop for Owned {
     fn drop(&mut self) {
@@ -88,65 +350,16 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         return Ok(());
     };
     let to_go = matches!(mode, Mode::Kill | Mode::Rollback);
-    struct GuestCleanup {
-        saved_toggle: Option<Option<bool>>,
-        domain: Option<i64>,
-        users: Vec<i64>,
-    }
     let owner = if mode == Mode::ActiveGuest {
         Some(db.connect().await?)
     } else {
         None
     };
-    let mut guest_cleanup = GuestCleanup {
-        saved_toggle: None,
-        domain: None,
-        users: Vec::new(),
-    };
+    let mut guest_cleanup = GuestCleanup::new();
     let result = std::panic::AssertUnwindSafe(async {
-        let mut active_user = None;
-        let mut inactive_user = None;
+        let mut guest_ids = None;
         if let Some(owner) = &owner {
-            let prev: Option<bool> = owner
-                .query_opt(
-                    "SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'",
-                    &[],
-                )
-                .await?
-                .map(|r| r.get(0));
-            guest_cleanup.saved_toggle = Some(prev);
-            owner
-                .execute(
-                    "INSERT INTO feature_toggles(key,enabled) VALUES('feature.guest_accounts',true) ON CONFLICT(key) DO UPDATE SET enabled=true",
-                    &[],
-                )
-                .await?;
-            let domain: i64 = owner
-                .query_one(
-                    "INSERT INTO domains(name,is_local) VALUES('meet5-guest-'||gen_random_uuid()::text||'.test',true) RETURNING id",
-                    &[],
-                )
-                .await?
-                .get(0);
-            guest_cleanup.domain = Some(domain);
-            for (slot, status) in [(&mut active_user, "active"), (&mut inactive_user, "expired")] {
-                let row = owner
-                    .query_one(
-                        "INSERT INTO users(username,domain_id,email,display_name,password_hash) VALUES('meet5-guest-'||gen_random_uuid()::text,(SELECT id FROM domains WHERE name='guest.invalid'),'meet5-guest-'||gen_random_uuid()::text||'@example.test','meet5 guest','x') RETURNING id, email",
-                        &[],
-                    )
-                    .await?;
-                let user: i64 = row.get(0);
-                let guest_email: String = row.get(1);
-                guest_cleanup.users.push(user);
-                owner
-                    .execute(
-                        "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) VALUES($1,$2,'inviter@example.test',$3,$4)",
-                        &[&user, &guest_email, &domain, &status],
-                    )
-                    .await?;
-                *slot = Some(user);
-            }
+            guest_ids = Some(guest_cleanup.seed(owner).await?);
         }
         let go_hits = Arc::new(AtomicUsize::new(0));
         let observed = go_hits.clone();
@@ -278,7 +491,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        let probes: Vec<(&str, &str, Vec<(&str, String)>, u16, Option<&str>)> = match mode {
+        let probes: Vec<Probe> = match mode {
             Mode::ForeignCredential => vec![(
                 "GET",
                 "/rtc/rtc/validate?access_token=good",
@@ -287,38 +500,8 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
                 Some("success"),
             )],
             Mode::ActiveGuest => {
-                let active_auth = format!("Bearer {}", common::recovery_token(active_user.unwrap()));
-                let inactive_auth = format!("Bearer {}", common::recovery_token(inactive_user.unwrap()));
-                vec![
-                    (
-                        "GET",
-                        "/rtc/rtc/validate?access_token=good",
-                        vec![("authorization", active_auth.clone())],
-                        200,
-                        Some("success"),
-                    ),
-                    (
-                        "GET",
-                        "/rtc",
-                        vec![("authorization", active_auth.clone())],
-                        200,
-                        Some("success"),
-                    ),
-                    (
-                        "POST",
-                        "/rtc",
-                        vec![("authorization", active_auth)],
-                        404,
-                        Some("404 page not found\n"),
-                    ),
-                    (
-                        "GET",
-                        "/rtc",
-                        vec![("authorization", inactive_auth)],
-                        401,
-                        None,
-                    ),
-                ]
+                let (active_user, inactive_user) = guest_ids.unwrap();
+                guest_probes(active_user, inactive_user)
             }
             Mode::Unconfigured => vec![
                 ("GET", "/rtc/rtc/validate?access_token=good", vec![], 404, Some("404 page not found\n")),
@@ -333,31 +516,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
                 ("GET", "/rtc", vec![], 218, Some("from go")),
             ],
         };
-        let mut count = 0;
-        let mut expected_sfu = 0;
-        for (method, uri, headers, want, text) in &probes {
-            let mut request = Request::builder()
-                .method(*method)
-                .uri(*uri)
-                .header("host", "mail.test");
-            for (k, v) in headers {
-                request = request.header(*k, v.as_str());
-            }
-            let response = common::send(address, request.body(common::full(""))?).await;
-            let status = response.status().as_u16();
-            let body = common::body_bytes(response).await;
-            let body_ok = match text {
-                Some(exact) => body == exact.as_bytes(),
-                None => String::from_utf8_lossy(&body).contains("Unauthorized"),
-            };
-            if status != *want || !body_ok {
-                return Err(format!("{method} {uri}: {status} {}", String::from_utf8_lossy(&body)).into());
-            }
-            if *want == 200 {
-                expected_sfu += 1;
-            }
-            count += 1;
-        }
+        let (count, expected_sfu) = run_probes(address, &probes).await?;
         if mode != Mode::Kill {
             let metrics = common::send(
                 address,
@@ -386,36 +545,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
     .catch_unwind()
     .await;
     if let Some(owner) = &owner {
-        if let Some(saved_toggle) = guest_cleanup.saved_toggle {
-            if let Some(prev) = saved_toggle {
-                owner
-                    .execute(
-                        "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.guest_accounts'",
-                        &[&prev],
-                    )
-                    .await?;
-            } else {
-                owner
-                    .execute(
-                        "DELETE FROM feature_toggles WHERE key='feature.guest_accounts'",
-                        &[],
-                    )
-                    .await?;
-            }
-        }
-        for user in &guest_cleanup.users {
-            owner
-                .execute("DELETE FROM guest_accounts WHERE user_id=$1", &[user])
-                .await?;
-            owner
-                .execute("DELETE FROM users WHERE id=$1", &[user])
-                .await?;
-        }
-        if let Some(domain) = guest_cleanup.domain {
-            owner
-                .execute("DELETE FROM domains WHERE id=$1", &[&domain])
-                .await?;
-        }
+        guest_cleanup.cleanup(owner).await?;
     }
     match result {
         Ok(r) => r,

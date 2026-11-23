@@ -221,9 +221,11 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
   failure, `ServeMux` 307 for unclean paths, and Go's middleware envelope (security headers,
   `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). Falls back natively via
   `CatchallRoute` (SPA fallback with a website, 404 without) when LiveKit is not configured, and
-  enforces Go's guest belt natively via `admission::check_guest_belt` (active guests follow
-  `guest_allowlist`; disallowed or off-program guests answer 404, 401 inactive guest, 503
-  unavailable; unauthenticated or invalid JWTs proxy to Go's SFU for LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
+  enforces Go's guest belt natively: the production executable enforces it once at the front door
+  via `SessionAdmission` (`RtcRoute::without_guest_belt`), while standalone `RtcRoute` runs
+  `admission::check_guest_belt` (active guests follow `guest_allowlist`; disallowed or off-program
+  guests answer 404, inactive guests 401, unavailable state 503; unauthenticated or invalid JWTs
+  proxy to Go's SFU for LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
   never reads it from the environment. `/meet`, `/meet/` catch-alls stay on Go with the generic
   ones (#416).
 - **`meet-reconcile`** (`src/meet_worker.rs`): `RUST_WORKERS_ON=meet-reconcile` with
@@ -729,10 +731,10 @@ same-process recovery), unavailable JWKS (challenged 401), missing registry
 The crypto profile corpus exercises HS256 and SM2 signatures on every gateway
 family plus a member read: standard ignores SM2; configured hybrid/smx accept it.
 
-`authority-error.json` records the frozen-Go permission-resolution failure bug:
-a signed admin with `system.config` still receives the full document if the live
-assignment SELECT fails; without that signed claim, 403 plus console.denied.
-This exception is explicit parity; healthy live authority still replaces claims.
+`authority-error.json` originally captured frozen Go's permission-resolution bug
+(retaining signed `system.config` when the assignment SELECT fails); on live
+authority lookup errors, Rust now drops signed permissions and answers an audited
+403 (`console.denied`). Healthy live authority still replaces claims.
 
 The CSRF corpus covers every family plus Go URL userinfo/Referer handling,
 Origin precedence, Fetch-Site, opaque/invalid origins and mixed-port IPv6. Safe

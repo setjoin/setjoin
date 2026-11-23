@@ -1795,7 +1795,8 @@ async fn routes(
         setjoin_gateway::rtc::SFU_SIGNAL
             .parse()
             .expect("fixed SFU signal address"),
-    );
+    )
+    .without_guest_belt();
     let (assist_exec, assist_keys, assist_issuer) = (exec.clone(), keys.clone(), issuer.clone());
     let commands = Arc::new(JmapCommands {
         worker: Some(compliance.worker.clone()),

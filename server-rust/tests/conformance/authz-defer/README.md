@@ -35,9 +35,9 @@ zero aggregate Go forwards. Both ordinary and sorted-map middleware problems
 are compared byte-for-byte with FIX3 encoding. Audit projections omit only
 volatile IDs/times/checksums; console and Meet denials use one canonical SQL write.
 
-Preserved Go defects: authority resolution errors retain signed permissions
-(`authority-error.json`); CSRF rejects mixed explicit/implicit IPv6 port forms
-(`csrf.json`). No divergence was introduced.
+Preserved Go defects: CSRF rejects mixed explicit/implicit IPv6 port forms
+(`csrf.json`). On live authority resolution errors, Rust drops signed permissions
+on console full-spec routes and answers an audited 403 (`console.denied`).
 
 `guest-dispatch.json` adds F21 outer guest denials, live disabled/expired rows,
 SPA bypass, canonical redirects and unauthenticated mux/alias outcomes. This

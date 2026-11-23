@@ -35,81 +35,95 @@ fn one_i64(rows: &[tokio_postgres::Row]) -> i64 {
 }
 
 pub async fn account(c: &Client, label: &str) -> Result<Account, BoxError> {
-    let unique: String = c
-        .query_typed("SELECT replace(gen_random_uuid()::text, '-', '')", &[])
-        .await?[0]
-        .get(0);
-    let domain_name = format!("oracle-{unique}.test");
-    let email = format!("{label}@{domain_name}");
-    let domain = one_i64(
-        &c.query_typed(
-            "INSERT INTO domains (name, is_local) VALUES ($1, TRUE) RETURNING id",
-            &[(&domain_name, Type::TEXT)],
-        )
-        .await?,
-    );
-    let user = one_i64(
-        &c.query_typed(
-            "INSERT INTO users (username, domain_id, email, display_name, password_hash) \
-             VALUES ($1, $2, $1, $3, 'x') RETURNING id",
-            &[
-                (&email, Type::TEXT),
-                (&domain, Type::INT8),
-                (&label, Type::TEXT),
-            ],
-        )
-        .await?,
-    );
-    let mut mailbox_id = one_i64(
-        &c.query_typed("SELECT nextval('mailboxes_id_seq')", &[])
+    c.batch_execute("BEGIN").await?;
+    let outcome: Result<Account, BoxError> = async {
+        let unique: String = c
+            .query_typed("SELECT replace(gen_random_uuid()::text, '-', '')", &[])
+            .await?[0]
+            .get(0);
+        let domain_name = format!("oracle-{unique}.test");
+        let email = format!("{label}@{domain_name}");
+        let domain = one_i64(
+            &c.query_typed(
+                "INSERT INTO domains (name, is_local) VALUES ($1, TRUE) RETURNING id",
+                &[(&domain_name, Type::TEXT)],
+            )
             .await?,
-    );
-    if mailbox_id == user {
-        mailbox_id = one_i64(
+        );
+        let user = one_i64(
+            &c.query_typed(
+                "INSERT INTO users (username, domain_id, email, display_name, password_hash) \
+                 VALUES ($1, $2, $1, $3, 'x') RETURNING id",
+                &[
+                    (&email, Type::TEXT),
+                    (&domain, Type::INT8),
+                    (&label, Type::TEXT),
+                ],
+            )
+            .await?,
+        );
+        let mut mailbox_id = one_i64(
             &c.query_typed("SELECT nextval('mailboxes_id_seq')", &[])
                 .await?,
         );
+        if mailbox_id == user {
+            mailbox_id = one_i64(
+                &c.query_typed("SELECT nextval('mailboxes_id_seq')", &[])
+                    .await?,
+            );
+        }
+        // The insert fires the system-tag and folder triggers (Inbox, Sent, ...).
+        let mailbox = one_i64(
+            &c.query_typed(
+                "INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) \
+                 VALUES ($1, $2, $3, $4, $5, 'personal', TRUE) RETURNING id",
+                &[
+                    (&mailbox_id, Type::INT8),
+                    (&user, Type::INT8),
+                    (&domain, Type::INT8),
+                    (&email, Type::TEXT),
+                    (&label, Type::TEXT),
+                ],
+            )
+            .await?,
+        );
+        let inbox = one_i64(
+            &c.query_typed(
+                "SELECT id FROM tags WHERE mailbox_id = $1 AND name = 'Inbox'",
+                &[(&mailbox, Type::INT8)],
+            )
+            .await?,
+        );
+        let label_tag = one_i64(
+            &c.query_typed(
+                "INSERT INTO tags (mailbox_id, name, tag_type) VALUES ($1, 'Oracle Label', 'user') RETURNING id",
+                &[(&mailbox, Type::INT8)],
+            )
+            .await?,
+        );
+        let two_labels = message(c, mailbox, inbox, &[inbox, label_tag], false).await?;
+        let inbox_only = message(c, mailbox, inbox, &[inbox], false).await?;
+        Ok(Account {
+            domain,
+            user,
+            mailbox,
+            inbox,
+            label: label_tag,
+            two_labels,
+            inbox_only,
+        })
     }
-    // The insert fires the system-tag and folder triggers (Inbox, Sent, ...).
-    let mailbox = one_i64(
-        &c.query_typed(
-            "INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary) \
-             VALUES ($1, $2, $3, $4, $5, 'personal', TRUE) RETURNING id",
-            &[
-                (&mailbox_id, Type::INT8),
-                (&user, Type::INT8),
-                (&domain, Type::INT8),
-                (&email, Type::TEXT),
-                (&label, Type::TEXT),
-            ],
-        )
-        .await?,
-    );
-    let inbox = one_i64(
-        &c.query_typed(
-            "SELECT id FROM tags WHERE mailbox_id = $1 AND name = 'Inbox'",
-            &[(&mailbox, Type::INT8)],
-        )
-        .await?,
-    );
-    let label_tag = one_i64(
-        &c.query_typed(
-            "INSERT INTO tags (mailbox_id, name, tag_type) VALUES ($1, 'Oracle Label', 'user') RETURNING id",
-            &[(&mailbox, Type::INT8)],
-        )
-        .await?,
-    );
-    let two_labels = message(c, mailbox, inbox, &[inbox, label_tag], false).await?;
-    let inbox_only = message(c, mailbox, inbox, &[inbox], false).await?;
-    Ok(Account {
-        domain,
-        user,
-        mailbox,
-        inbox,
-        label: label_tag,
-        two_labels,
-        inbox_only,
-    })
+    .await;
+    match outcome {
+        Ok(account) => {
+            c.batch_execute("COMMIT").await?;
+            Ok(account)
+        }
+        Err(err) => {
+            let _ = c.batch_execute("ROLLBACK").await;
+            Err(err)
+        }
+    }
 }
 
 /// Remove only this fixture, releasing partition locks before identity cascades.
