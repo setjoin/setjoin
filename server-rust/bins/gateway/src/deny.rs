@@ -53,7 +53,7 @@ pub(crate) fn native(
         Refusal::Revoked => crate::admission::revoked_problem(headers, &c.identity, "Session has been revoked. Sign in again."),
         // Approved divergence: Go has no such read; fail closed with guestgate's 503.
         Refusal::Unavailable => crate::admission::problem(headers, &c.identity, 503, "service unavailable"),
-        Refusal::AlternativeCredential   // #355 native Basic/Negotiate (reachable unauthenticated)
+        Refusal::AlternativeCredential   // #355a DAV/Drive handle Basic natively; non-DAV stays Go until #420/#339/#355b
         | Refusal::Impersonation         // follow-up: native impersonation sessions
         | Refusal::Guest                 // guest-scope owner
         | Refusal::NoPrimaryMailbox      // follow-up: mailbox-less members per family

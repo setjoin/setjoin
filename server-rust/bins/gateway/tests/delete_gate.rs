@@ -2,7 +2,8 @@
 //! (GATEWAY_AUTH_UPSTREAM is the dead :1 the binary requires; its hops are counted).
 //! A Go hop is a rise in setjoin_gateway_proxied_to_go_total. Every (cell, shape)
 //! has a reviewed outcome, `Native(status)` or `Hop(owner)`, reviewed against
-//! drive_native.rs:93-126, admission.rs:92-93, and the CalDAV/CardDAV authorize-None forward.
+//! caldav.rs:71-94, carddav.rs:58-81, drive_native.rs:96-128 (#355a native Basic
+//! auth + #355b Kerberos/Negotiate forwarding).
 //! Member bearer controls prove each route is served natively. A mismatch is a finding:
 //! never copy observed output into EXPECT. The guard pins the Hop cells.
 use crate::common::boot::Child;
@@ -62,10 +63,6 @@ const ALL: &[&str] = &[
     "device-trust",
     "token-binding",
 ];
-/// RuntimeAccess runs before route.handle whenever any runtime security flag is on,
-/// rejecting Basic/Negotiate with 401 before the DAV/Drive Go hops.
-const NO_RT: &[&str] = &["default", "guest-program-off"];
-const RT_ON: &[&str] = &["conditional-access", "device-trust", "token-binding"];
 /// Member tokens carry no `device` claim (drive native-token refuses device-bound tokens),
 /// so `device-trust` returns 403 `device_compliance_unverifiable` at RuntimeAccess.
 const DT_OFF: &[&str] = &[
@@ -75,44 +72,33 @@ const DT_OFF: &[&str] = &[
     "token-binding",
 ];
 const DT_ON: &[&str] = &["device-trust"];
-/// Reviewed outcomes. Hop cells only shrink (guard: MATRIX_HOPS = 12).
+/// Reviewed outcomes. Hop cells only shrink (guard: MATRIX_HOPS = 15).
+/// `#355a` (`runtime_access.rs:665`) lets DAV/Drive Basic & Negotiate past
+/// `RuntimeAccess::check` in all cells: Basic is rejected natively (`401`,
+/// app-password-only), while Negotiate still forwards to Go (`#355b`) in all 5 cells.
 const EXPECT: &[(&[&str], &str, Outcome)] = &[
-    (NO_RT, "caldav-basic", Hop("#355 DAV Basic (caldav.rs:74)")),
-    (RT_ON, "caldav-basic", Native(401)),
+    (ALL, "caldav-basic", Native(401)),
     (
-        NO_RT,
+        ALL,
         "caldav-negotiate",
-        Hop("#355 DAV Negotiate (caldav.rs:74)"),
+        Hop("#355b DAV Negotiate (caldav.rs:73)"),
     ),
-    (RT_ON, "caldav-negotiate", Native(401)),
     (DT_OFF, "caldav-member", Native(207)),
     (DT_ON, "caldav-member", Native(403)),
+    (ALL, "carddav-basic", Native(401)),
     (
-        NO_RT,
-        "carddav-basic",
-        Hop("#355 DAV Basic (carddav.rs:48)"),
-    ),
-    (RT_ON, "carddav-basic", Native(401)),
-    (
-        NO_RT,
+        ALL,
         "carddav-negotiate",
-        Hop("#355 DAV Negotiate (carddav.rs:48)"),
+        Hop("#355b DAV Negotiate (carddav.rs:60)"),
     ),
-    (RT_ON, "carddav-negotiate", Native(401)),
     (DT_OFF, "carddav-member", Native(207)),
     (DT_ON, "carddav-member", Native(403)),
+    (ALL, "drive-basic", Native(401)),
     (
-        NO_RT,
-        "drive-basic",
-        Hop("#355 native-token Basic (drive_native.rs:117)"),
-    ),
-    (RT_ON, "drive-basic", Native(401)),
-    (
-        NO_RT,
+        ALL,
         "drive-negotiate",
-        Hop("#355 native-token Negotiate (drive_native.rs:121)"),
+        Hop("#355b native-token Negotiate (drive_native.rs:122)"),
     ),
-    (RT_ON, "drive-negotiate", Native(401)),
     (ALL, "drive-guest", Native(404)),
     (DT_OFF, "drive-member", Native(200)),
     (DT_ON, "drive-member", Native(403)),
@@ -162,7 +148,6 @@ impl Process {
         .await;
         let log =
             std::env::temp_dir().join(format!("gofree-delete-gate-gateway-{}.log", address.port()));
-        let output = std::fs::File::create(&log)?;
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
         cmd.arg0("gofree-delete-gate-gateway").env_clear();
         for (key, value) in [
@@ -188,10 +173,18 @@ impl Process {
         ] {
             cmd.env(key, value);
         }
-        let child = cmd
-            .stdout(Stdio::from(output.try_clone()?))
-            .stderr(Stdio::from(output))
-            .spawn_boot()?;
+        let child = match (|| -> Result<Child, BoxError> {
+            let output = std::fs::File::create(&log)?;
+            cmd.stdout(Stdio::from(output.try_clone()?))
+                .stderr(Stdio::from(output));
+            Ok(cmd.spawn_boot()?)
+        })() {
+            Ok(child) => child,
+            Err(err) => {
+                let _ = std::fs::remove_file(&log);
+                return Err(err);
+            }
+        };
         let mut process = Self {
             child,
             address,
@@ -334,6 +327,11 @@ async fn gateway_matrix_matches_reviewed_outcomes() -> Result<(), BoxError> {
     let outcome: Result<Vec<String>, BoxError> = async {
         let mut problems = Vec::new();
         for (cell, toggles) in CELLS {
+            c.execute(
+                "DELETE FROM auth_attempts WHERE target_username=$1",
+                &[&member_email],
+            )
+            .await?;
             for (key, v) in &saved {
                 match v {
                     Some(on) => {
@@ -408,6 +406,11 @@ async fn gateway_matrix_matches_reviewed_outcomes() -> Result<(), BoxError> {
             }
         }
     }
+    c.execute(
+        "DELETE FROM auth_attempts WHERE target_username=$1",
+        &[&member_email],
+    )
+    .await?;
     c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&guest])
         .await?;
     c.execute("DELETE FROM users WHERE id=$1", &[&guest])

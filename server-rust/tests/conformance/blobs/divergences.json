@@ -1,0 +1,14 @@
+[
+  {
+    "id": "D-357f-2",
+    "route": "PUT /blobs/{sha256}",
+    "case": "invalid-worm-retention-config",
+    "field": "/response (500 upload failed instead of server startup refusal)",
+    "from": "Go refuses to start when WORM_MODE retention configuration is invalid, so no runtime response exists",
+    "to": "Rust answers 500 'upload failed\\n' without storing the blob when BlobRetention Config::Invalid is encountered",
+    "reason": "coordinator, PLAN 357 v2 (2026-11-14): fail closed on invalid retention config instead of storing unretained data or forwarding to Go.",
+    "reviewer": "coordinator, PLAN 357 v2 (2026-11-14)",
+    "reviewed": true,
+    "review": "owner-approved security fix (#357f fail-closed invalid WORM retention config)"
+  }
+]

@@ -104,7 +104,7 @@ pub struct S3Store {
 pub(crate) enum BlobReadError {
     /// Bucket discovery or object stat failed before consuming object data.
     Unavailable,
-    /// The staged reader cannot reproduce Go's seek/error path yet.
+    /// A streamed or ranged read failed after headers (surfaces as a body error, as in Go).
     Incomplete,
 }
 
@@ -202,6 +202,40 @@ impl S3Store {
         *self.region.get_mut() = Some(region);
         self
     }
+    /// Stream `key` from S3 and compute its SHA-256 hex digest and byte length
+    /// without buffering the object body, aborting immediately if it exceeds `max_bytes`.
+    pub async fn digest_object(&self, key: &str, max_bytes: u64) -> Result<(u64, String), String> {
+        use futures_util::StreamExt;
+        use sha2::{Digest, Sha256};
+        if key.is_empty() {
+            return Err("recovery object unavailable".into());
+        }
+        let bucket = self.bucket().await?;
+        let mut response = bucket
+            .get_object_stream(key)
+            .await
+            .map_err(|error| error.to_string())?;
+        if response.status_code != 200 {
+            return Err(format!("S3 get returned HTTP {}", response.status_code));
+        }
+        let mut total = 0u64;
+        let mut hasher = Sha256::new();
+        while let Some(chunk) = response.bytes.next().await {
+            let chunk = chunk.map_err(|error| error.to_string())?;
+            total = total
+                .checked_add(chunk.len() as u64)
+                .filter(|n| *n <= max_bytes)
+                .ok_or_else(|| "recovery object exceeds limit".to_owned())?;
+            hasher.update(&chunk);
+        }
+        let digest = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        Ok((total, digest))
+    }
+
     /// Frozen outbound GetObject + ReadAll. A missing object's XML Message is
     /// retained in the queue error, rather than replaced by an HTTP status.
     pub(crate) async fn smtp_raw(&self, key: &str) -> Result<Vec<u8>, String> {
@@ -329,7 +363,7 @@ impl S3Store {
             let cache = self
                 .small_cache
                 .lock()
-                .map_err(|_| BlobReadError::Incomplete)?;
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(blob) = cache
                 .entries
                 .get(key)
@@ -357,37 +391,46 @@ impl S3Store {
             .content_length
             .filter(|size| *size >= 0)
             .ok_or(BlobReadError::Unavailable)?;
+        let content_type = head.content_type.unwrap_or_default();
+        let modified = head.last_modified;
         if !buffer || size == 0 || size >= 10 << 20 {
             return Ok(BlobDownload::Streaming {
                 size: size as u64,
-                content_type: head.content_type.unwrap_or_default(),
-                modified: head.last_modified,
+                content_type,
+                modified,
             });
         }
-        let mut response = bucket
-            .get_object_stream(key)
-            .await
-            .map_err(|_| BlobReadError::Incomplete)?;
+        // Go's first S3 call is minio-go's lazy GET (`obj.Stat()`): a failed or non-200
+        // GET is Go's `blob not found` (handler.go:574-583).
+        let Ok(mut response) = bucket.get_object_stream(key).await else {
+            return Err(BlobReadError::Unavailable);
+        };
         if response.status_code != 200 {
-            return Err(BlobReadError::Incomplete);
+            return Err(BlobReadError::Unavailable);
         }
+        // Go's io.ReadFull fills exactly `size` bytes; a short or failed body falls
+        // through to http.ServeContent, which streams the object again (writeBlobContent).
         let mut bytes = Vec::with_capacity(size as usize);
-        while let Some(chunk) = response.bytes.next().await {
-            let chunk = chunk.map_err(|_| BlobReadError::Incomplete)?;
-            if bytes.len() + chunk.len() > size as usize {
-                return Err(BlobReadError::Incomplete);
+        while bytes.len() < size as usize {
+            match response.bytes.next().await {
+                Some(Ok(chunk)) => {
+                    let take = chunk.len().min(size as usize - bytes.len());
+                    bytes.extend_from_slice(&chunk[..take]);
+                }
+                Some(Err(_)) | None => {
+                    return Ok(BlobDownload::Streaming {
+                        size: size as u64,
+                        content_type,
+                        modified,
+                    });
+                }
             }
-            bytes.extend_from_slice(&chunk);
         }
-        if bytes.len() != size as usize {
-            return Err(BlobReadError::Incomplete);
-        }
-        let content_type = head.content_type.unwrap_or_default();
         {
             let mut cache = self
                 .small_cache
                 .lock()
-                .map_err(|_| BlobReadError::Incomplete)?;
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             while cache.bytes + bytes.len() > 512 << 20 && !cache.entries.is_empty() {
                 let oldest = cache
                     .entries

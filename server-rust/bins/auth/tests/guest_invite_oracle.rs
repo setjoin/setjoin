@@ -32,7 +32,6 @@ const RATE: &str = "{\"error\":\"too many requests, please wait and try again\"}
 const INTERNAL: &str = "{\"error\":\"internal error\"}\n";
 const IP_BLOCKED: &str =
     "{\"captcha_prompt\":\"Access denied by security policy\",\"error\":\"ip_blocked\"}\n";
-const OWNER: &str = "auth shape awaits its owner ticket\n";
 const TOGGLES: [&str; 3] = [
     "feature.rate_limit",
     "feature.conditional_access",
@@ -2081,9 +2080,8 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         let fx = seed(ctx, "valid").await?;
         let from = Ipv4Addr::new(127, 0, 0, 160 + i as u8);
         set_toggle(&ctx.c, key, Some(true)).await?;
-        // Guest-invite POST is admitted unconditionally by native http_threat (#349b),
-        // so all three toggles run natively on guest-invite; login stays native on
-        // feature.rate_limit and still forwards on CA and device trust.
+        // Both guest-invite POST (#349b) and /auth/login (#350/#351/#357) handle
+        // all three toggles natively without forwarding to Go.
         let server = auth_server(Arc::new(load(ctx, false, false).await?), false).await;
         let get = request(
             server.addr,
@@ -2108,22 +2106,19 @@ async fn toggles_follow_login(ctx: &Ctx) -> Result<(), Err> {
         .await?;
         set_toggle(&ctx.c, key, Some(false)).await?;
         server.close().await;
-        let native_login = key == "feature.rate_limit";
-        let login_ok = if native_login {
-            // Native admission, no Go forward: 401 for the unknown user, and the
-            // admission tail (gate.record) wrote exactly one http failure attempt.
-            let rows: i64 = ctx
-                .c
-                .query_one(
-                    "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND target_username='nobody@guestaccept.test' AND protocol='http' AND outcome='failure' AND occurred_at >= $2::text::timestamptz",
-                    &[&from.to_string(), &since],
-                )
-                .await?
-                .get(0);
-            login.status == 401 && rows == 1
-        } else {
-            login.status == 503 && login.body == OWNER
-        };
+        // Native admission, no Go forward: 401 for the unknown user. Only
+        // feature.rate_limit mounts /auth/login threat admission in load(ctx, false, false),
+        // so only that toggle writes a http failure row in auth_attempts.
+        let login_rows: i64 = ctx
+            .c
+            .query_one(
+                "SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet AND target_username='nobody@guestaccept.test' AND protocol='http' AND outcome='failure' AND occurred_at >= $2::text::timestamptz",
+                &[&from.to_string(), &since],
+            )
+            .await?
+            .get(0);
+        let want_login_rows = if key == "feature.rate_limit" { 1 } else { 0 };
+        let login_ok = login.status == 401 && login_rows == want_login_rows;
         let guest_rows: i64 = ctx
             .c
             .query_one(

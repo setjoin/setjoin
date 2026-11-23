@@ -59,11 +59,17 @@ fn main() -> ExitCode {
     let environment = std::env::vars().collect();
     let settings = match setjoin_gateway::configuration::Settings::load(&environment) {
         Ok(settings) => settings,
-        Err(error) => { eprintln!("setjoin-gateway: {error}"); return ExitCode::FAILURE; }
+        Err(error) => {
+            eprintln!("setjoin-gateway: {error}");
+            return ExitCode::FAILURE;
+        }
     };
     // An explicit Go configuration has the same validation boundary as reload.
     // The bare front-door bootstrap can still run without local application pools.
-    if environment.get("SETJOIN_CONFIG").is_some_and(|path| !path.is_empty()) {
+    if environment
+        .get("SETJOIN_CONFIG")
+        .is_some_and(|path| !path.is_empty())
+    {
         if let Err(error) = settings.validate() {
             eprintln!("setjoin-gateway: {error}");
             return ExitCode::FAILURE;
@@ -73,11 +79,20 @@ fn main() -> ExitCode {
     settings.install_startup_environment();
     let configuration = match setjoin_gateway::configuration::Runtime::new(environment, settings) {
         Ok(configuration) => Arc::new(configuration),
-        Err(error) => { eprintln!("setjoin-gateway: {error}"); return ExitCode::FAILURE; }
+        Err(error) => {
+            eprintln!("setjoin-gateway: {error}");
+            return ExitCode::FAILURE;
+        }
     };
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
-        Err(error) => { eprintln!("setjoin-gateway: {error}"); return ExitCode::FAILURE; }
+        Err(error) => {
+            eprintln!("setjoin-gateway: {error}");
+            return ExitCode::FAILURE;
+        }
     };
     if let Err(refusal) = runtime.block_on(setjoin_boot::run()) {
         return ExitCode::from(refusal.exit_code);
@@ -95,9 +110,14 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
         .map_err(|e| format!("SIGHUP registration: {e}"))?;
     let mut settings = configuration.startup_settings();
-    let configuration_exec = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty())
-        .map(|dsn| ScopedExecutor::from_dsn(&dsn, 2).map_err(|e| e.0)).transpose()?;
-    configuration.refresh_proxies(configuration_exec.as_ref()).await;
+    let configuration_exec = std::env::var("DB_DSN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|dsn| ScopedExecutor::from_dsn(&dsn, 2).map_err(|e| e.0))
+        .transpose()?;
+    configuration
+        .refresh_proxies(configuration_exec.as_ref())
+        .await;
     let listen = std::env::var("GATEWAY_LISTEN").unwrap_or_else(|_| "127.0.0.1:8090".into());
     let upstream = std::env::var("GATEWAY_UPSTREAM")
         .ok()
@@ -109,12 +129,23 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         _ => return Err("GATEWAY_ENABLED must be true/false or 1/0".into()),
     };
     let activated = setjoin_gateway::activation::take_from_env()?;
-    setjoin_gateway::tls_runtime::guard_activation(&|name| std::env::var(name).ok(), activated.https.is_some())?;
+    setjoin_gateway::tls_runtime::guard_activation(
+        &|name| std::env::var(name).ok(),
+        activated.https.is_some(),
+    )?;
     let tls_frontend = if activated.https.is_some() {
-        let verifier = setjoin_gateway::tls_runtime::client_verifier(configuration_exec.as_ref()).await?;
-        Some(setjoin_tls::Frontend::from_env_with_client_verifier(&|name| std::env::var(name).ok(), verifier)?
-            .ok_or("the https descriptor requires TLS_CERT/TLS_KEY or TLS_AUTOCERT_DOMAINS")?)
-    } else { None };
+        let verifier =
+            setjoin_gateway::tls_runtime::client_verifier(configuration_exec.as_ref()).await?;
+        Some(
+            setjoin_tls::Frontend::from_env_with_client_verifier(
+                &|name| std::env::var(name).ok(),
+                verifier,
+            )?
+            .ok_or("the https descriptor requires TLS_CERT/TLS_KEY or TLS_AUTOCERT_DOMAINS")?,
+        )
+    } else {
+        None
+    };
     let federation =
         setjoin_federation::runtime::Runtime::prepare(activated.federation, &|name| {
             std::env::var(name).ok()
@@ -140,7 +171,10 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
     let secevents = secevents_worker()?;
     let tls_rpt = tls_rpt_worker()?;
     let smime_cache = Arc::new(setjoin_mail_security::smime::trust::TrustCache::new());
-    let smime_trust = smime_trust_listener(smime_cache.clone(), activated.smtp.is_some() || activated.smtps.is_some())?;
+    let smime_trust = smime_trust_listener(
+        smime_cache.clone(),
+        activated.smtp.is_some() || activated.smtps.is_some(),
+    )?;
     let spam_trainer = spam_trainer_worker()?;
     let push_drain = push_drain_worker()?;
     let meet_reconcile = meet_reconcile_worker()?;
@@ -158,26 +192,84 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
     let ad = ad_runtime()?;
     let identity_workers = identity_workers()?;
     let admin_jobs = admin_job_workers()?;
-    let chain=Arc::new(setjoin_authz::auth_chain::Chain::default());
-    let chain_config=if enabled {
-        std::env::var("DB_DSN").ok().zip(std::env::var("DB_DIRECT_DSN").ok())
-    }else{None};
+    let chain = Arc::new(setjoin_authz::auth_chain::Chain::default());
+    let chain_config = if enabled {
+        std::env::var("DB_DSN")
+            .ok()
+            .zip(std::env::var("DB_DIRECT_DSN").ok())
+    } else {
+        None
+    };
     if settings.string("network.mode").is_empty() {
         settings.set_network_mode(setjoin_gateway::configuration::detect_network_mode().await);
     }
     let platform_storage = if enabled {
-        std::env::var("DB_DSN").ok().filter(|dsn| !dsn.is_empty()).map(|dsn| {
-            Ok::<_, String>(Arc::new(setjoin_gateway::platform_storage::Runtime::from_env()?.with_database(
-                WorkerDatabase::from_dsns(&dsn, std::env::var("DB_WORKER_DSN").ok().as_deref()).map_err(|e| e.to_string())?)))
-        }).transpose()?
-    } else { None };
-    if let Some(storage)=&platform_storage { storage.recover().await; }
+        std::env::var("DB_DSN")
+            .ok()
+            .filter(|dsn| !dsn.is_empty())
+            .map(|dsn| {
+                Ok::<_, String>(Arc::new(
+                    setjoin_gateway::platform_storage::Runtime::from_env()?.with_database(
+                        WorkerDatabase::from_dsns(
+                            &dsn,
+                            std::env::var("DB_WORKER_DSN").ok().as_deref(),
+                        )
+                        .map_err(|e| e.to_string())?,
+                    ),
+                ))
+            })
+            .transpose()?
+    } else {
+        None
+    };
+    if let Some(storage) = &platform_storage {
+        storage.recover().await;
+    }
+    let imap_on = activated.imap.is_some() || activated.imaps.is_some();
+    let smtp_off = setjoin_gateway::smtp_runtime::required_off(
+        activated.smtp.is_some(),
+        activated.smtps.is_some(),
+        activated.submission.is_some(),
+    );
+    if imap_on && !listed("GO_LISTENERS_OFF", "imap") {
+        return Err("imap sockets require GO_LISTENERS_OFF=imap before Rust activation".into());
+    }
+    let mut security_protocols = Vec::new();
+    if imap_on {
+        security_protocols.push("imap");
+    }
+    security_protocols.extend(smtp_off);
+    let protocol_security =
+        if !security_protocols.is_empty() || (enabled && !settings.string("db.dsn").is_empty()) {
+            let label = if security_protocols.is_empty() {
+                "http".to_owned()
+            } else {
+                security_protocols.join("-")
+            };
+            match setjoin_gateway::imap_runtime::load_security(&settings, &label).await {
+                Ok(security) => Some(security),
+                // IMAP keeps its refuse-to-start guard; an SMTP/HTTP failure must not
+                // take the HTTPS front door down.
+                Err(error) if !imap_on => {
+                    eprintln!("threat gate unavailable: {error}");
+                    None
+                }
+                Err(error) => return Err(error),
+            }
+        } else {
+            None
+        };
+    let (threat_gate, _threat_watchers) = match protocol_security {
+        Some((gate, watchers)) => (Some(gate), Some(watchers)),
+        None => (None, None),
+    };
     let (routes, edge_limit) = if enabled {
         routes(
             &settings,
             configuration.clone(),
             worker.as_ref().map(|(denylist, _)| denylist.clone()),
-            chain_config.as_ref().map(|_|chain.clone()),
+            chain_config.as_ref().map(|_| chain.clone()),
+            threat_gate.clone(),
             guests.clone(),
             ldap.clone(),
             ad.clone(),
@@ -191,17 +283,28 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
     } else {
         (RouteTable::proxy_all(), None)
     };
-    let chain_task=if let Some((dsn,direct))=chain_config {
-        let exec=ScopedExecutor::from_dsn(&dsn,2).map_err(|e|e.0)?;
-        let registry=exec.read("SELECT mode FROM feature_toggle_registry_state WHERE singleton",&[])
-            .await.map_err(|_|"feature registry unavailable at startup".to_owned())?;
-        if !registry.first().is_some_and(|row|matches!(row.get::<_,String>(0).as_str(),"observe"|"enforce")) {
+    let chain_task = if let Some((dsn, direct)) = chain_config {
+        let exec = ScopedExecutor::from_dsn(&dsn, 2).map_err(|e| e.0)?;
+        let registry = exec
+            .read(
+                "SELECT mode FROM feature_toggle_registry_state WHERE singleton",
+                &[],
+            )
+            .await
+            .map_err(|_| "feature registry unavailable at startup".to_owned())?;
+        if !registry
+            .first()
+            .is_some_and(|row| matches!(row.get::<_, String>(0).as_str(), "observe" | "enforce"))
+        {
             return Err("feature registry unavailable at startup".into());
         }
         chain.reload(&exec).await?;
-        let(stop,stopped)=tokio::sync::oneshot::channel();
-        let task=tokio::spawn(chain.listen(exec,direct,stopped));Some((stop,task))
-    }else{None};
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(chain.listen(exec, direct, stopped));
+        Some((stop, task))
+    } else {
+        None
+    };
     let config = Config {
         upstream: upstream
             .as_deref()
@@ -256,7 +359,10 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         }
     }
     let mut tls_workers = match tls_frontend.as_ref() {
-        Some(frontend) => Some(setjoin_gateway::tls_runtime::start(frontend.clone(), &|name| std::env::var(name).ok()).await?),
+        Some(frontend) => Some(
+            setjoin_gateway::tls_runtime::start(frontend.clone(), &|name| std::env::var(name).ok())
+                .await?,
+        ),
         None => None,
     };
     // ACME (#305): the :80 descriptor named `acme` and the http-01 renewal worker share one store.
@@ -286,7 +392,13 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         .unwrap_or_else(|| std::env::var("HOSTNAME").unwrap_or_default());
     let acme_renewal = acme_settings
         .filter(|_| listed("RUST_WORKERS_ON", setjoin_gateway::acme::RENEWAL))
-        .map(|s| setjoin_gateway::acme::Renewal::new(s, acme_store.clone(), tls_frontend.as_ref().map(|f|f.tls_alpn_store())))
+        .map(|s| {
+            setjoin_gateway::acme::Renewal::new(
+                s,
+                acme_store.clone(),
+                tls_frontend.as_ref().map(|f| f.tls_alpn_store()),
+            )
+        })
         .transpose()
         .or_else(|e| {
             if dns_degraded {
@@ -368,47 +480,26 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         ));
         (stop, task)
     });
-    let imap_on = activated.imap.is_some() || activated.imaps.is_some();
-    let smtp_off = setjoin_gateway::smtp_runtime::required_off(
-        activated.smtp.is_some(),
-        activated.smtps.is_some(),
-        activated.submission.is_some(),
-    );
-    let protocol_security = if imap_on || !smtp_off.is_empty() {
-        let mut protocols = Vec::new();
-        if imap_on {
-            protocols.push("imap");
-        }
-        protocols.extend(smtp_off);
-        match setjoin_gateway::imap_runtime::shared_security(&settings, &protocols).await {
-            Ok(security) => Some(security),
-            // IMAP keeps its refuse-to-start guard; an SMTP-only failure must not
-            // take the HTTPS front door down.
-            Err(error) if !imap_on => {
-                eprintln!("SMTP not started: {error}");
-                None
-            }
-            Err(error) => return Err(error),
-        }
-    } else {
-        None
-    };
     let imap = setjoin_gateway::imap_runtime::start(
         activated.imap,
         activated.imaps,
         &|name| std::env::var(name).ok(),
-        protocol_security.as_ref().map(|(gate,_)|gate.clone() as Arc<dyn setjoin_imap::ThreatGate>),
+        threat_gate
+            .clone()
+            .map(|gate| gate as Arc<dyn setjoin_imap::ThreatGate>),
         webhook.clone(),
     )?;
-    let smtp = setjoin_gateway::smtp_runtime::start_or_log(setjoin_gateway::smtp_runtime::start_with_trust_cache(
-        activated.smtp,
-        activated.smtps,
-        activated.submission,
-        &|name| std::env::var(name).ok(),
-        protocol_security.as_ref().map(|(gate,_)|gate.clone()),
-        webhook.clone(),
-        smime_cache,
-    ));
+    let smtp = setjoin_gateway::smtp_runtime::start_or_log(
+        setjoin_gateway::smtp_runtime::start_with_trust_cache(
+            activated.smtp,
+            activated.smtps,
+            activated.submission,
+            &|name| std::env::var(name).ok(),
+            threat_gate,
+            webhook.clone(),
+            smime_cache,
+        ),
+    );
     let listener = match activated.http {
         Some(listener) => listener,
         None => TcpListener::bind(&listen)
@@ -797,17 +888,31 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         },
     }
     if let Some(storage) = platform_storage {
-        if tokio::time::timeout(Duration::from_secs(60), storage.shutdown()).await.is_err() {
-            eprintln!("storage migration outer drain expired; terminating before dependency closure");
+        if tokio::time::timeout(Duration::from_secs(60), storage.shutdown())
+            .await
+            .is_err()
+        {
+            eprintln!(
+                "storage migration outer drain expired; terminating before dependency closure"
+            );
             std::process::exit(1);
         }
     }
-    if let Some(workers) = tls_workers { workers.shutdown().await?; }
+    if let Some(workers) = tls_workers {
+        workers.shutdown().await?;
+    }
     let _ = reload_stop.send(());
-    tokio::time::timeout(Duration::from_secs(5), reload_task).await
+    tokio::time::timeout(Duration::from_secs(5), reload_task)
+        .await
         .map_err(|_| "config reload shutdown timed out")?
         .map_err(|e| format!("config reload task: {e}"))?;
-    if let Some((stop,task))=chain_task {let _=stop.send(());tokio::time::timeout(Duration::from_secs(5),task).await.map_err(|_|"auth-chain shutdown timeout")?.map_err(|e|e.to_string())?;}
+    if let Some((stop, task)) = chain_task {
+        let _ = stop.send(());
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .map_err(|_| "auth-chain shutdown timeout")?
+            .map_err(|e| e.to_string())?;
+    }
     federation_stop.cancel();
     if let Some(task) = federation_task {
         task.await
@@ -1004,7 +1109,8 @@ async fn routes(
     settings: &setjoin_gateway::configuration::Settings,
     configuration: Arc<setjoin_gateway::configuration::Runtime>,
     denylist: Option<Arc<SessionDenylist>>,
-    chain:Option<Arc<setjoin_authz::auth_chain::Chain>>,
+    chain: Option<Arc<setjoin_authz::auth_chain::Chain>>,
+    threat: Option<Arc<setjoin_threat::Gate>>,
     lifecycle: Option<Arc<setjoin_gateway::guest_worker::GuestLifecycle>>,
     ldap: Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>,
     ad: Option<Arc<setjoin_directory_sync::ad::AdRuntime>>,
@@ -1049,12 +1155,23 @@ async fn routes(
     // Go's JWKS setting is optional: JWT_SECRET/SM2 can authenticate without
     // an ES256 provider. An empty source grants no ES256 keys and performs no I/O.
     let mut keys = match env("AUTHSERVER_JWKS_URL") {
-        Some(jwks) => Jwks::new(jwks.parse().map_err(|e| format!("AUTHSERVER_JWKS_URL: {e}"))?)?,
-        None => Jwks::with_fetch(Box::new(|| Box::pin(async { Ok(br#"{"keys":[]}"#.to_vec()) }))),
+        Some(jwks) => Jwks::new(
+            jwks.parse()
+                .map_err(|e| format!("AUTHSERVER_JWKS_URL: {e}"))?,
+        )?,
+        None => Jwks::with_fetch(Box::new(|| {
+            Box::pin(async { Ok(br#"{"keys":[]}"#.to_vec()) })
+        })),
     };
     if let Some(secret) = env("JWT_SECRET") {
-        let floor=if env("CRYPTO_ALGORITHM_PROFILE").as_deref()==Some("smx"){16}else{32};
-        if secret.len()<floor{return Err(format!("JWT_SECRET must be at least {floor} characters"));}
+        let floor = if env("CRYPTO_ALGORITHM_PROFILE").as_deref() == Some("smx") {
+            16
+        } else {
+            32
+        };
+        if secret.len() < floor {
+            return Err(format!("JWT_SECRET must be at least {floor} characters"));
+        }
         let sm2_pem = if matches!(
             env("CRYPTO_ALGORITHM_PROFILE").as_deref(),
             Some("smx" | "hybrid")
@@ -1066,14 +1183,19 @@ async fn routes(
         } else {
             None
         };
-        if env("CRYPTO_ALGORITHM_PROFILE").as_deref()==Some("smx") && sm2_pem.is_none(){
+        if env("CRYPTO_ALGORITHM_PROFILE").as_deref() == Some("smx") && sm2_pem.is_none() {
             return Err("SM2_PRIVATE_KEY_FILE is required for smx".into());
         }
         keys = keys.with_legacy_keys(setjoin_authz::legacy_jwt::LegacyKeys::from_pem(
             secret.as_bytes(),
-            &["authserver-hmac-1","mailserver-drive-native-1"],
+            &["authserver-hmac-1", "mailserver-drive-native-1"],
             sm2_pem.as_deref(),
         )?);
+    } else {
+        // #356a: without JWT_SECRET every HS256/SM2 credential is refused
+        // natively (push, SSE, presence and every other family); nothing is
+        // handed to Go. Installs share the authserver's config.env secret.
+        eprintln!("setjoin-gateway: JWT_SECRET is unset; HS256/SM2 tokens will be refused (401). Set the authserver's JWT_SECRET in config.env.");
     }
     let keys = Arc::new(keys);
     let issuer = env("JWT_ISSUER").unwrap_or_else(|| "mailserver".into());
@@ -1107,6 +1229,40 @@ async fn routes(
         )),
         keys: keys.clone(),
         issuer: issuer.clone(),
+    };
+    let runtime = Arc::new(
+        setjoin_gateway::runtime_access::RuntimeAccess::new(
+            exec.clone(),
+            keys.clone(),
+            issuer.clone(),
+        )
+        .with_attachment_secrets(
+            env("JWT_MAIL_ATTACHMENT_SECRET")
+                .or_else(|| env("JWT_SECRET"))
+                .unwrap_or_default()
+                .into_bytes(),
+            env("JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET").map(String::into_bytes),
+        )
+        .with_workers(
+            compliance.worker.clone(),
+            WorkerDatabase::from_dsns(&dsn, env("DB_WORKER_DSN").as_deref())
+                .map_err(|e| e.to_string())?,
+        )
+        .with_sessions(denylist.clone())
+        .with_direct(env("DB_DIRECT_DSN").ok_or("DB_DIRECT_DSN required for runtime gates")?)
+        .with_device_secret(
+            env("JWT_SECRET").unwrap_or_default().into_bytes(),
+            setjoin_config_secret::CryptoProfile::parse(
+                &env("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default(),
+            ),
+        ),
+    );
+    let denylist = runtime.session_cache();
+    let dav_basic = setjoin_gateway::dav_auth::DavBasicAuth {
+        chain: chain.clone(),
+        password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
+        threat: threat.map(|gate| gate as Arc<dyn setjoin_threat::ThreatGate>),
+        runtime: Some(runtime.clone() as Arc<dyn setjoin_gateway::runtime_access::RuntimeGate>),
     };
     let chat_compliance = setjoin_gateway::chat_compliance::ChatComplianceRoute {
         exec: exec.clone(),
@@ -1255,12 +1411,10 @@ async fn routes(
         .await
         .map_err(|_| "CalDAV boot feature unavailable".to_owned())?
     {
-        let route = setjoin_gateway::caldav::CalDavRoute::new(
-            exec.clone(),
-            keys.clone(),
-            issuer.clone(),
-        )
-        .await;
+        let route =
+            setjoin_gateway::caldav::CalDavRoute::new(exec.clone(), keys.clone(), issuer.clone())
+                .await
+                .with_basic_auth(dav_basic.clone());
         if let Some(direct) = env("DB_DIRECT_DSN") {
             route.start_timezone_listener(direct);
         }
@@ -1273,11 +1427,10 @@ async fn routes(
         .await
         .map_err(|_| "CardDAV boot feature unavailable".to_owned())?
     {
-        Some(setjoin_gateway::carddav::CardDavRoute {
-            exec: exec.clone(),
-            keys: keys.clone(),
-            issuer: issuer.clone(),
-        })
+        Some(
+            setjoin_gateway::carddav::CardDavRoute::new(exec.clone(), keys.clone(), issuer.clone())
+                .with_basic_auth(dav_basic.clone()),
+        )
     } else {
         None
     };
@@ -1329,17 +1482,46 @@ async fn routes(
     let deploy_config = setjoin_platform::deploy::Config {
         host_key: env("DEPLOY_HOST_KEY").unwrap_or_default(),
         checksum: env("DEPLOY_SEAWEEDFS_SHA256").unwrap_or_default(),
-        credentials: Arc::new(move || deploy_source.source_settings().map(|settings| (settings.string("s3.access_key"), settings.string("s3.secret_key"))).unwrap_or_default()),
+        credentials: Arc::new(move || {
+            deploy_source
+                .source_settings()
+                .map(|settings| {
+                    (
+                        settings.string("s3.access_key"),
+                        settings.string("s3.secret_key"),
+                    )
+                })
+                .unwrap_or_default()
+        }),
     };
     let platform_updates = setjoin_gateway::platform_updates::PlatformUpdatesRoute::new(
         exec.clone(),
         keys.clone(),
         issuer.clone(),
-    ).with_recovery(
+    )
+    .with_recovery(
         compliance.worker.clone(),
         family.as_ref().is_some_and(|f| f.continuity.is_some()),
         env("DB_DIRECT_DSN"),
-    ).await.with_deploy(compliance.worker.clone(),deploy_config).await.with_airgap(match setjoin_platform::airgap::Store::load("/var/lib/setjoin/updates",env("OFFLINE_UPDATE_TRUST_ROOTS").map(|s|s.trim().to_owned()).filter(|s|!s.is_empty()).unwrap_or_else(||"/etc/setjoin/offline-update-roots.json".into())) {Ok(store)=>Some(Arc::new(store)),Err(error)=>{eprintln!("{error}");None}});
+    )
+    .await
+    .with_deploy(compliance.worker.clone(), deploy_config)
+    .await
+    .with_airgap(
+        match setjoin_platform::airgap::Store::load(
+            "/var/lib/setjoin/updates",
+            env("OFFLINE_UPDATE_TRUST_ROOTS")
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "/etc/setjoin/offline-update-roots.json".into()),
+        ) {
+            Ok(store) => Some(Arc::new(store)),
+            Err(error) => {
+                eprintln!("{error}");
+                None
+            }
+        },
+    );
     let platform_jobs = setjoin_gateway::platform_jobs::PlatformJobsRoute {
         exec: exec.clone(),
         worker: compliance.worker.clone(),
@@ -1353,6 +1535,11 @@ async fn routes(
         issuer: issuer.clone(),
         codec: webhook_codec(),
     };
+    let auth_admin = setjoin_gateway::auth_admin::AuthAdminRoute::new(
+        exec.clone(),
+        keys.clone(),
+        issuer.clone(),
+    );
     let platform_terms = setjoin_gateway::platform_terms::PlatformTermsRoute::new(
         exec.clone(),
         keys.clone(),
@@ -1505,7 +1692,9 @@ async fn routes(
         issuer: issuer.clone(),
         webhook_codec: webhook_codec(),
         migration_runner,
-        webhook_resolver: std::sync::Arc::new(setjoin_gateway::identity_self_service::SystemResolver),
+        webhook_resolver: std::sync::Arc::new(
+            setjoin_gateway::identity_self_service::SystemResolver,
+        ),
     };
     let user_settings = setjoin_gateway::user_settings::UserSettingsRoute::new(
         exec.clone(),
@@ -1546,20 +1735,14 @@ async fn routes(
             .unwrap_or_else(|| "http://localhost:8443".into()),
         internal_key: env("INTERNAL_API_KEY").unwrap_or_default(),
     };
-    let runtime=setjoin_gateway::runtime_access::RuntimeAccess::new(exec.clone(),keys.clone(),issuer.clone())
-        .with_attachment_secrets(
-            env("JWT_MAIL_ATTACHMENT_SECRET")
-                .or_else(|| env("JWT_SECRET"))
-                .unwrap_or_default()
-                .into_bytes(),
-            env("JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET").map(String::into_bytes),
-        )
-        .with_workers(compliance.worker.clone(),WorkerDatabase::from_dsns(&dsn,env("DB_WORKER_DSN").as_deref()).map_err(|e|e.to_string())?)
-        .with_sessions(denylist.clone())
-        .with_direct(env("DB_DIRECT_DSN").ok_or("DB_DIRECT_DSN required for runtime gates")?)
-        .with_device_secret(env("JWT_SECRET").unwrap_or_default().into_bytes(),setjoin_config_secret::CryptoProfile::parse(&env("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default()));
-    let denylist=runtime.session_cache();
-    let drive_native=setjoin_gateway::drive_native::NativeTokenRoute::new(exec.clone(),keys.clone(),issuer.clone(),env("JWT_SECRET").as_deref()).with_chain(chain);
+    let drive_native = setjoin_gateway::drive_native::NativeTokenRoute::new(
+        exec.clone(),
+        keys.clone(),
+        issuer.clone(),
+        env("JWT_SECRET").as_deref(),
+    )
+    .with_basic_auth(dav_basic)
+    .with_chain(chain);
     let drive = setjoin_gateway::drive::DriveRoute {
         exec: exec.clone(),
         worker: ScopedExecutor::from_dsn(
@@ -1614,17 +1797,22 @@ async fn routes(
         worker: Some(compliance.worker.clone()),
         services: Some(Arc::new(setjoin_gateway::jmap::JmapServices::from_env(
             ScopedExecutor::from_dsn(&env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone()), pool)
-                .map_err(|e| e.0)?,
+                .map_err(|e| e.0)?
+                .with_audit_keys(
+                    env("DB_ENCRYPTION_KEY").unwrap_or_default(),
+                    env("AUDIT_HMAC_KEY").unwrap_or_default(),
+                ),
         ))),
         exec,
         keys: keys.clone(),
         issuer: issuer.clone(),
-        denylist:denylist.clone(),
+        denylist: denylist.clone(),
     });
     let mut push = setjoin_gateway::jmap::push::WebSocketRoute::new(
         commands.clone(),
         env("DB_DIRECT_DSN").unwrap_or_default(),
-    ).with_device_cache(runtime.device_cache());
+    )
+    .with_device_cache(runtime.device_cache());
     push.worker = Some(
         WorkerDatabase::from_dsns(&dsn, env("DB_WORKER_DSN").as_deref())
             .map_err(|e| format!("push DB_WORKER_DSN: {e}"))?,
@@ -1642,7 +1830,12 @@ async fn routes(
         registry: push.registry.clone(),
     };
     let mut table = table
-        .with_admission(compliance.worker.clone(), keys.clone(), issuer.clone(), denylist)
+        .with_admission(
+            compliance.worker.clone(),
+            keys.clone(),
+            issuer.clone(),
+            denylist,
+        )
         .with(event_source)
         .with(push)
         .with(presence)
@@ -1669,6 +1862,7 @@ async fn routes(
         .with(admin_sod)
         .with(platform)
         .with(platform_terms)
+        .with(auth_admin)
         .with(platform_updates)
         .with(platform_webhooks)
         .with(platform_jobs)
@@ -1688,8 +1882,7 @@ async fn routes(
         .with(drive_native)
         .with(drive_core)
         .with(drive)
-        .with(meet)
-        .with(rtc);
+        .with(meet);
     if let Some(caldav) = caldav {
         table = table.with(caldav);
     }
@@ -1700,13 +1893,16 @@ async fn routes(
     );
     catchall.meet_configured = setjoin_gateway::meet_livekit::LiveKit::from_env().configured();
     catchall.website = website;
+    table = table.with(rtc.with_fallback(Arc::new(catchall.clone())));
     table = match carddav {
         Some(route) => table.with(route),
         None => table.with(setjoin_gateway::carddav::Unregistered {
             fallback: catchall.clone(),
         }),
     };
-    let surface_config = Arc::new(setjoin_gateway::surface::SurfaceConfig::from_settings(settings));
+    let surface_config = Arc::new(setjoin_gateway::surface::SurfaceConfig::from_settings(
+        settings,
+    ));
     table = table
         .with(setjoin_gateway::surface::SurfaceRoute {
             discovery: None,
@@ -1740,7 +1936,10 @@ async fn routes(
         table = table.with(setjoin_gateway::f16::F16Route::new(config));
     }
     table = table.with(setjoin_gateway::f15::F15Route::new(office));
-    Ok((table.with_catchall(catchall).with_runtime(runtime), Some(edge)))
+    Ok((
+        table.with_catchall(catchall).with_runtime(runtime),
+        Some(edge),
+    ))
 }
 
 fn listed(var: &str, name: &str) -> bool {
@@ -2326,10 +2525,7 @@ fn smime_trust_listener(
         .ok()
         .filter(|s| !s.is_empty())
         .ok_or("DB_DIRECT_DSN is required for smime-trust-listener")?;
-    Ok(Some(Arc::new(SmimeTrustListener::new(
-        cache,
-        direct,
-    ))))
+    Ok(Some(Arc::new(SmimeTrustListener::new(cache, direct))))
 }
 
 /// `RUST_WORKERS_ON=meet-reconcile` takes Go's `meet-reconcile` (#410): room,
@@ -2776,9 +2972,13 @@ fn spam_trainer_worker(
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
-    let request = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty())
+    let request = std::env::var("DB_DSN")
+        .ok()
+        .filter(|s| !s.is_empty())
         .ok_or("DB_DSN is required for spam-trainer")?;
-    let direct = std::env::var("DB_DIRECT_DSN").ok().filter(|s| !s.is_empty())
+    let direct = std::env::var("DB_DIRECT_DSN")
+        .ok()
+        .filter(|s| !s.is_empty())
         .ok_or("DB_DIRECT_DSN is required for spam-trainer")?;
     let worker = std::env::var("DB_WORKER_DSN").ok();
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())

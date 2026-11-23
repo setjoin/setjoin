@@ -2101,55 +2101,6 @@ async fn native_missing_gate_refuses_every_349a_route() {
     result.and(closed).unwrap();
 }
 
-async fn preflight(
-    case: &str,
-    flags: &[(&str, bool)],
-    header: Option<(&str, &str)>,
-) -> Result<(), Err> {
-    let _serial = SERIAL.lock().await;
-    let Some(n) = native_open(case, true, flags).await? else {
-        return Ok(());
-    };
-    let ips = vec!["127.0.0.90".to_owned()];
-    let result = async {
-        clear_state(&n.c, &ips, &n.fx.email).await?;
-        let spy = spy().await?;
-        let cfg = rust_config(&n.db, Preset::Off, Some(format!("http://{}", spy.server.addr)))?;
-        let server = native_server(&n.db, cfg).await?;
-        let raw = json!({"email": n.fx.email, "password": PASSWORD}).to_string();
-        let mut builder = Request::post(LOGIN).header("host", HOST).header("origin", ORIGIN);
-        if let Some((k, v)) = header {
-            builder = builder.header(k, v);
-        }
-        let mut req = builder.body(body(raw.clone()))?;
-        req.extensions_mut().insert(setjoin_auth::ConnectionMeta {
-            peer: "127.0.0.90:40000".parse()?,
-            tls: false,
-        });
-        let status = server.handle(req).await.status().as_u16();
-        let hits = spy.hits.lock().unwrap().clone();
-        spy.server.close().await;
-        if status != 418 || hits != vec![raw.into_bytes()] {
-            return Err(format!("expected exactly one whole forward, got {status} and {} hits", hits.len()).into());
-        }
-        let rows: i64 = n
-            .c
-            .query_one(
-                "SELECT (SELECT count(*) FROM auth_attempts WHERE source_ip='127.0.0.90'::inet)+(SELECT count(*) FROM rate_limit_counters WHERE key='auth:http:127.0.0.90')",
-                &[],
-            )
-            .await?
-            .get(0);
-        if rows != 0 {
-            return Err("a preflight forward ran admission first (double admission, F7)".into());
-        }
-        Ok::<_, Err>(())
-    }
-    .await;
-    let closed = native_close(n, &ips).await;
-    result.and(closed)
-}
-
 #[tokio::test]
 async fn native_dpop_login_handles_natively_without_forwarding() {
     let _serial = SERIAL.lock().await;
@@ -2202,25 +2153,115 @@ async fn native_dpop_login_handles_natively_without_forwarding() {
 }
 
 #[tokio::test]
-async fn native_ca_preflight_forwards_before_any_admission_effect() {
-    preflight(
+async fn native_ca_login_handles_natively_without_forwarding() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open(
         "GOFREE349A-ca",
+        true,
         &[("feature.conditional_access", true)],
-        None,
     )
     .await
-    .unwrap();
+    .unwrap() else {
+        return;
+    };
+    let ips = vec!["127.0.0.90".to_owned()];
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
+        let spy = spy().await?;
+        let cfg = rust_config(
+            &n.db,
+            Preset::Off,
+            Some(format!("http://{}", spy.server.addr)),
+        )?;
+        let server = native_server(&n.db, cfg).await?;
+        let raw = json!({"email": n.fx.email, "password": PASSWORD}).to_string();
+        let mut req = Request::post(LOGIN)
+            .header("host", HOST)
+            .header("origin", ORIGIN)
+            .body(body(raw))?;
+        req.extensions_mut().insert(setjoin_auth::ConnectionMeta {
+            peer: "127.0.0.90:40000".parse()?,
+            tls: false,
+        });
+        let status = server.handle(req).await.status().as_u16();
+        let hits = spy.hits.lock().unwrap().clone();
+        spy.server.close().await;
+        if status != 200 || !hits.is_empty() {
+            return Err(format!(
+                "expected native 200 without forward, got {status} and {} hits",
+                hits.len()
+            )
+            .into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let _ =
+        n.c.execute("DELETE FROM sessions WHERE user_id=$1", &[&n.fx.a.user])
+            .await;
+    let _ = n
+        .c
+        .batch_execute(&format!(
+            "BEGIN;SET LOCAL ca.signin_log_prune='on';DELETE FROM ca_signin_log WHERE user_id={};COMMIT",
+            n.fx.a.user
+        ))
+        .await;
+    let audits = purge_native_audits(&n.c, &ips, &n.fx.email).await;
+    let closed = native_close(n, &ips).await;
+    result.and(audits).and(closed).unwrap();
 }
 
 #[tokio::test]
-async fn native_device_proof_preflight_forwards_before_any_admission_effect() {
-    preflight("GOFREE349A-device", &[], Some(("x-device-id", "7")))
-        .await
-        .unwrap();
+async fn native_device_proof_login_handles_natively_without_forwarding() {
+    let _serial = SERIAL.lock().await;
+    let Some(n) = native_open("GOFREE349A-device", true, &[]).await.unwrap() else {
+        return;
+    };
+    let ips = vec!["127.0.0.90".to_owned()];
+    let result = async {
+        clear_state(&n.c, &ips, &n.fx.email).await?;
+        purge_native_audits(&n.c, &ips, &n.fx.email).await?;
+        let spy = spy().await?;
+        let cfg = rust_config(
+            &n.db,
+            Preset::Off,
+            Some(format!("http://{}", spy.server.addr)),
+        )?;
+        let server = native_server(&n.db, cfg).await?;
+        let raw = json!({"email": n.fx.email, "password": PASSWORD}).to_string();
+        let mut req = Request::post(LOGIN)
+            .header("host", HOST)
+            .header("origin", ORIGIN)
+            .header("x-device-id", "7")
+            .body(body(raw))?;
+        req.extensions_mut().insert(setjoin_auth::ConnectionMeta {
+            peer: "127.0.0.90:40000".parse()?,
+            tls: false,
+        });
+        let status = server.handle(req).await.status().as_u16();
+        let hits = spy.hits.lock().unwrap().clone();
+        spy.server.close().await;
+        if status != 200 || !hits.is_empty() {
+            return Err(format!(
+                "expected native 200 without forward, got {status} and {} hits",
+                hits.len()
+            )
+            .into());
+        }
+        Ok::<_, Err>(())
+    }
+    .await;
+    let _ =
+        n.c.execute("DELETE FROM sessions WHERE user_id=$1", &[&n.fx.a.user])
+            .await;
+    let audits = purge_native_audits(&n.c, &ips, &n.fx.email).await;
+    let closed = native_close(n, &ips).await;
+    result.and(audits).and(closed).unwrap();
 }
 
 /// F5 (#454 Codex r1): a routing-toggle read error refuses before admission. Login CA
-/// routing is decided by `login_ca_route`, which answers 500 "internal error" on a lookup error
+/// routing is decided by `ca_flags`, which answers 500 "internal error" on a lookup error
 /// and never forwards to frozen Go (whose risk read fails open). No row, no count, no hit.
 #[tokio::test]
 async fn native_ca_toggle_read_error_refuses_before_admission() {
@@ -3593,6 +3634,7 @@ async fn native_long_name_locks_and_clears_on_bounded_keys() {
 #[test]
 fn native_349b_wiring_and_with_user_id_are_pinned() {
     let config = include_str!("../src/config.rs");
+    let ca = include_str!("../src/ca.rs");
     let http_threat = include_str!("../src/http_threat.rs");
     let guest_invite = include_str!("../src/guest_invite.rs");
     let issuance = include_str!("../src/issuance.rs");
@@ -3650,27 +3692,29 @@ fn native_349b_wiring_and_with_user_id_are_pinned() {
         "async fn backup_verify_admitted(",
         "pub(super) async fn mfa_finish(",
     ));
-    assert!(backup.contains("self.mfa_finish(") && backup.contains("risk,true,).await"));
-    assert!(!section(
-        totp,
-        "pub(super) async fn totp_completion_route(",
-        "pub(super) async fn completion_guest_scope("
-    )
-    .contains("feature.rate_limit"));
+    assert!(
+        backup.contains("self.mfa_finish(")
+            && backup.contains("risk,ca_enabled,dt_enabled,true,).await")
+    );
+    assert!(!totp.contains("totp_completion_route("));
+    assert!(!ca.contains("feature.rate_limit"));
     assert_eq!(push.matches("Self::threat_user(").count(), 0);
     let push_st = compact(section(
         push,
         "pub(super) async fn push_status(",
         "\n    }\n",
     ));
-    assert!(push_st.contains("self.mfa_finish(") && push_st.contains("risk,false,).await"));
+    assert!(
+        push_st.contains("self.mfa_finish(")
+            && push_st.contains("risk,ca_enabled,dt_enabled,false,).await")
+    );
     assert_eq!(guest_invite.matches("self.forward(").count(), 0);
     assert!(!section(
         issuance,
         "pub(super) async fn webpush(",
         "async fn webpush_admitted("
     )
-    .contains("feature.rate_limit"));
+    .contains("self.forward("));
     assert!(!section(issuance, "async fn webpush_admitted(", "\n}\n").contains("self.forward("));
 }
 
@@ -4116,7 +4160,7 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
     else {
         return;
     };
-    let ips: Vec<String> = (156u8..=164).map(|o| format!("127.0.0.{o}")).collect();
+    let ips: Vec<String> = (156u8..=166).map(|o| format!("127.0.0.{o}")).collect();
     let result = async {
         clear_state(&n.c, &ips, &n.fx.email).await?;
         let spy = spy().await?;
@@ -4174,50 +4218,67 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
             return Err(format!("totp_verify rate_limit mismatch: {}", r_rate.status).into());
         }
 
-        // C. Preflight forwards run BEFORE threat_admit (Go sees raw request; zero attempts/rate counters written).
+        // C. Native device headers on completions do not forward; CA preflight forwards run BEFORE
+        // threat_admit (Go sees raw request; zero attempts/rate counters written).
         let secret = fixture_secret();
         let now = unix_now() as u64;
         let bound_claims = json!({"uid":n.fx.a.user,"email":n.fx.email,"typ":"access","cnf":{"jkt":"bound-thumbprint"},"iss":"mailserver","aud":["mailserver-gateway"],"iat":now,"exp":now+3600,"jti":"349b-bound"});
         let bound_access =
             setjoin_authz::legacy_jwt::sign_hs256(secret.as_bytes(), &bound_claims.to_string());
-        let preflights: [(&str, u8, &str, &str, Vec<u8>, (&str, &str)); 2] = [
+        for (label, octet, path, payload_bytes) in [
             (
                 "x-device on totp/verify",
+                165,
+                "/auth/totp/verify",
+                b"{\"mfa_token\":\"m\",\"code\":\"123456\"}".to_vec(),
+            ),
+            (
+                "x-device on backup-codes/verify",
+                166,
+                "/auth/backup-codes/verify",
+                b"{\"mfa_token\":\"m\",\"code\":\"backup\"}".to_vec(),
+            ),
+        ] {
+            let mut hdrs = origin();
+            hdrs.push(("x-device-id".into(), "7".into()));
+            let r = send_method(server.addr, ip(octet), "POST", path, payload_bytes, &hdrs).await?;
+            if r.status != 401 {
+                return Err(format!("{label}: expected native 401, got {}", r.status).into());
+            }
+        }
+        n.c.execute(
+            "UPDATE feature_toggles SET enabled=true WHERE key='feature.conditional_access'",
+            &[],
+        )
+        .await?;
+        let native_ca: [(&str, u8, &str, &str, Vec<u8>); 2] = [
+            (
+                "CA on totp/verify",
                 161,
                 "POST",
                 "/auth/totp/verify",
                 b"{\"mfa_token\":\"m\",\"code\":\"123456\"}".to_vec(),
-                ("x-device-id", "7"),
             ),
             (
-                "x-device on backup-codes/verify",
+                "CA on backup-codes/verify",
                 162,
                 "POST",
                 "/auth/backup-codes/verify",
                 b"{\"mfa_token\":\"m\",\"code\":\"backup\"}".to_vec(),
-                ("x-device-id", "7"),
             ),
         ];
-        for (label, octet, method, path, payload_bytes, (k, v)) in preflights {
-            let mut hdrs = origin();
-            hdrs.push((k.into(), v.into()));
+        for (label, octet, method, path, payload_bytes) in native_ca {
+            let hdrs = origin();
             let r = send_method(server.addr, ip(octet), method, path, payload_bytes, &hdrs).await?;
-            if r.status != 418 {
-                return Err(format!("{label}: expected 418 forward, got {}", r.status).into());
-            }
-            let src = format!("127.0.0.{octet}");
-            let rows: i64 = n
-                .c
-                .query_one(
-                    "SELECT (SELECT count(*) FROM auth_attempts WHERE source_ip=$1::text::inet)+(SELECT count(*) FROM rate_limit_counters WHERE key='auth:http:'||$1)",
-                    &[&src],
-                )
-                .await?
-                .get(0);
-            if rows != 0 {
-                return Err(format!("{label}: preflight ran threat_admit first ({rows} rows)").into());
+            if r.status != 401 {
+                return Err(format!("{label}: expected native 401, got {}", r.status).into());
             }
         }
+        n.c.execute(
+            "UPDATE feature_toggles SET enabled=false WHERE key='feature.conditional_access'",
+            &[],
+        )
+        .await?;
         for (label, octet, method, path, payload_bytes) in [
             (
                 "bound session on totp/setup",
@@ -4248,8 +4309,8 @@ async fn native_349b_ip_block_rate_limit_and_preflight_forward_on_new_routes() {
         server.close().await;
         let hits = spy.hits.lock().unwrap().len();
         spy.server.close().await;
-        if hits != 2 {
-            return Err(format!("expected 2 preflight forwards, got {hits}").into());
+        if hits != 0 {
+            return Err(format!("expected 0 forwards with CA native, got {hits}").into());
         }
         Ok::<_, Err>(())
     }

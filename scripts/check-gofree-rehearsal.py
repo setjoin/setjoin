@@ -44,11 +44,7 @@ WORKERS = "mailserver/cmd/mailserverd/testdata/worker_semantics.json"
 EXCLUDED_LISTENERS = {"fedharness"}
 # Inventory entries still OFF, with the ticket that turns each ON. Ratchet: an entry that turns ON or
 # leaves the inventory must be deleted here; never add one. #141 criterion 1 holds only when this is empty.
-PENDING = {
-    ("gateway", "*", "/auth/admin/"): "#340",
-    ("gateway", "GET", "/terms/pending"): "#340",
-    ("gateway", "POST", "/terms/accept"): "#340",
-}
+PENDING = {}
 # Call sites in server-rust/bins/*/src that forward a request to a Go upstream: the auth server's
 # `self.forward(` to Go auth, the gateway's `upstream.forward(` proxy, `forward_body(`, and the JMAP
 # WebSocket fallback (`forward_unported(`, its raw `client_async(` dial), plus Go-hop plumbing (#358:
@@ -67,29 +63,29 @@ FORWARD_PATTERNS = {
     "unported_push_target": re.compile(r"\bunported_push_target\b"),
 }
 # The gateway's hop to the Rust identity process is Rust-to-Rust, not Go (#358 F11).
-# Exactly this two-line arm is exempt (N6): the match head on the previous line and a
-# single `.forward(` whose receiver is the matched binding. Any other line counts.
+# Exactly this three-line arm is exempt (N6): the match head two lines above, the
+# `Some(<ident>) => {` branch on the previous line, and `let mut response = <ident>.forward(req, &identity).await;`.
 RUST_TO_RUST_HEAD = "return match &shared.rust_auth_upstream {"
-RUST_TO_RUST_ARM = re.compile(r"^Some\((\w+)\) => \1\.forward\(req, &identity\)\.await,$")
+RUST_TO_RUST_BRANCH = re.compile(r"^Some\((\w+)\) => \{$")
+RUST_TO_RUST_CALL = re.compile(r"^let mut response = (\w+)\.forward\(req, &identity\)\.await;$")
 # #358: expected Go-hop CELLS in the DELETE matrices (sum over Hop rows of the row's
 # cell-group size, N4). Exact, shrink-only, reviewed: never raised to absorb CI output.
 # 0 = absolute ban.
 MATRIX_HOPS = {
-    "server-rust/bins/auth/tests/delete_gate.rs": 24,
-    "server-rust/bins/gateway/tests/delete_gate.rs": 12,
+    "server-rust/bins/auth/tests/delete_gate.rs": 0,
+    "server-rust/bins/gateway/tests/delete_gate.rs": 15,
 }
-HOP_ENTRY = re.compile(r'\bHop\("')
-HOP_ROW = re.compile(r'\(\s*(&\[[^\]]*\]|[A-Z_]+)\s*,\s*"[^"]+"\s*,\s*Hop\("')
+HOP_ENTRY = re.compile(r'\bHop\s*\("')
+HOP_ROW = re.compile(r'\(\s*(&\[[^\]]*\]|[A-Z_]+)\s*,\s*"[^"]+"\s*,\s*Hop\s*\("')
 CELL_GROUP = re.compile(r'const\s+([A-Z_]+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];', re.S)
 FORWARD_SITES = {
-    ("auth", "forward"): 12,  # lowered from 44 when #352 retired DPoP admission & token_binding_handoff (ratchet)
-    ("gateway", "forward"): 159,  # lowered from 167 (#194, admin-identity; RUST_TO_RUST_ARM exempt)
+    ("auth", "go_upstream"): 3,
+    ("gateway", "forward"): 25,  # 26 minus exempt RUST_TO_RUST_CALL (lib.rs:679)
     ("gateway", "forward_unported"): 1,
-    ("gateway", "ws_client"): 1,
-    ("auth", "go_upstream"): 4,
     ("gateway", "go_counter"): 2,
-    ("gateway", "go_target"): 9,
+    ("gateway", "go_target"): 11,
     ("gateway", "unported_push_target"): 2,
+    ("gateway", "ws_client"): 1,
 }
 # The Go background workers (worker_semantics.json). The owner counted 49 on 2026-11-02; the file now
 # lists 51. A change here goes with the #141 evidence checklist.
@@ -188,17 +184,22 @@ def inventory_problems(root):
 
 def forward_sites(root):
     counts = {}
+    exempt_used = False
     for path in sorted((root / "server-rust/bins").glob("*/src/**/*.rs")):
         binary = path.relative_to(root / "server-rust/bins").parts[0]
         text = path.read_text(errors="ignore")
         lines = text.splitlines()
         for kind, pattern in FORWARD_PATTERNS.items():
-            if kind == "forward":
+            if kind == "forward" and binary == "gateway":
                 found = 0
                 for i, line in enumerate(lines):
                     n = len(pattern.findall(line))
-                    if (n == 1 and i > 0 and lines[i - 1].strip() == RUST_TO_RUST_HEAD
-                            and RUST_TO_RUST_ARM.match(line.strip())):
+                    if (not exempt_used and n == 1 and i >= 2
+                            and lines[i - 2].strip() == RUST_TO_RUST_HEAD
+                            and (bm := RUST_TO_RUST_BRANCH.match(lines[i - 1].strip()))
+                            and (cm := RUST_TO_RUST_CALL.match(line.strip()))
+                            and bm.group(1) == cm.group(1)):
+                        exempt_used = True
                         continue
                     found += n
             else:

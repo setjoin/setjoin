@@ -136,7 +136,9 @@ async fn json_body<T: serde::de::DeserializeOwned>(r: &mut Request<Body>) -> Res
 }
 
 impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -151,9 +153,7 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let what = action(r.method(), r.uri().path()).expect("matched route");
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -170,21 +170,21 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
             // Policy routes need live `roles.manage` (Go's `requireRolesManage`);
             // the self-service routes are open to any authenticated user.
             if matches!(what, Action::Policy | Action::PutPolicy) {
-                let Ok(authority) = setjoin_admin_identity::authority(&exec, actor).await else {
-                    return c.upstream.forward(r, &c.identity).await;
-                };
                 let required: &[&str] = &db::ROLES_MANAGE;
-                if !authority.allows_any(required) {
-                    let _ = setjoin_admin_identity::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+                let authority = match setjoin_admin_identity::authority(&exec, actor).await {
+                    Ok(authority) if authority.allows_any(required) => authority,
+                    _ => {
+                        let _ = setjoin_admin_identity::console_denied(
+                            &exec,
+                            actor,
+                            &go_path,
+                            &required.join("|"),
+                            operation,
+                        )
+                        .await;
+                        return bare(403, "Forbidden", &c, &id);
+                    }
+                };
                 if authority.refused_for_scope(required) {
                     let detail = format!(
                         "{} (domain-scoped principal; org-wide-only surface, domain={})",

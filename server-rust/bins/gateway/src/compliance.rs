@@ -14,10 +14,78 @@ pub struct ComplianceRoute<K: KeySource + 'static> {
     pub keys: Arc<K>,
     pub issuer: String,
 }
+struct EdiscoveryMatch {
+    list: bool,
+    get: bool,
+    create: bool,
+    update: bool,
+    delete: bool,
+    associate: bool,
+    close: bool,
+    hold: bool,
+    release: bool,
+    export: bool,
+    start: bool,
+    search: bool,
+}
+
+impl EdiscoveryMatch {
+    fn from(method: &Method, path: &str) -> Self {
+        let list = path == "/api/admin/ediscovery/cases";
+        let get = crate::inventory::path_score("/api/admin/ediscovery/cases/{id}", path).is_some();
+        let create = list && *method == Method::POST;
+        let update = get && *method == Method::PUT;
+        let delete = get && *method == Method::DELETE;
+        let associate = *method == Method::POST && path == "/api/admin/ediscovery/cases/associate";
+        let close = *method == Method::POST
+            && crate::inventory::path_score("/api/admin/ediscovery/cases/{id}/close", path)
+                .is_some();
+        let hold = *method == Method::POST && path == "/api/admin/ediscovery/hold";
+        let release = *method == Method::POST && path == "/api/admin/ediscovery/release";
+        let export =
+            matches!(*method, Method::GET | Method::HEAD) && path == "/api/admin/ediscovery/export";
+        let start = *method == Method::POST && path == "/api/admin/ediscovery/search";
+        let search = matches!(*method, Method::GET | Method::HEAD)
+            && crate::inventory::path_score("/api/admin/ediscovery/{id}", path).is_some()
+            && !list
+            && !export;
+        Self {
+            list,
+            get,
+            create,
+            update,
+            delete,
+            associate,
+            close,
+            hold,
+            release,
+            export,
+            start,
+            search,
+        }
+    }
+
+    fn matched(&self, method: &Method) -> bool {
+        self.create
+            || self.update
+            || self.delete
+            || self.associate
+            || self.close
+            || self.hold
+            || self.release
+            || self.start
+            || self.export
+            || self.search
+            || (matches!(*method, Method::GET | Method::HEAD) && (self.list || self.get))
+    }
+}
+
 impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
-        r.uri().path().starts_with("/api/admin/ediscovery")
+        EdiscoveryMatch::from(r.method(), r.uri().path()).matched(r.method())
     }
     fn admits_member(&self, h: hyper::HeaderMap, scheme: &'static str) -> BoxFuture<bool> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
@@ -37,66 +105,36 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
             self.store.clone(),
         );
         Box::pin(async move {
-            let list = r.uri().path() == "/api/admin/ediscovery/cases";
-            let get =
-                crate::inventory::path_score("/api/admin/ediscovery/cases/{id}", r.uri().path())
-                    .is_some();
-            let create = list && *r.method() == Method::POST;
-            let update = get && *r.method() == Method::PUT;
-            let delete = get && *r.method() == Method::DELETE;
-            let associate = *r.method() == Method::POST
-                && r.uri().path() == "/api/admin/ediscovery/cases/associate";
-            let close = *r.method() == Method::POST
-                && crate::inventory::path_score(
-                    "/api/admin/ediscovery/cases/{id}/close",
-                    r.uri().path(),
-                )
-                .is_some();
-            let hold =
-                *r.method() == Method::POST && r.uri().path() == "/api/admin/ediscovery/hold";
-            let release =
-                *r.method() == Method::POST && r.uri().path() == "/api/admin/ediscovery/release";
+            let EdiscoveryMatch {
+                list,
+                get,
+                create,
+                update,
+                delete,
+                associate,
+                close,
+                hold,
+                release,
+                export,
+                start,
+                search,
+            } = EdiscoveryMatch::from(r.method(), r.uri().path());
             // F04 Compliance #289 owns the unported S3 SetLegalHold adapter.
             // F16 PutObjectRetention is covered by #301/#419.
             if (hold || release) && std::env::var("WORM_MODE").is_ok_and(|v| !v.is_empty()) {
                 return c.upstream.forward(r, &c.identity).await;
             }
-            let export = matches!(*r.method(), Method::GET | Method::HEAD)
-                && r.uri().path() == "/api/admin/ediscovery/export";
-            let start =
-                *r.method() == Method::POST && r.uri().path() == "/api/admin/ediscovery/search";
-            let search = matches!(*r.method(), Method::GET | Method::HEAD)
-                && crate::inventory::path_score("/api/admin/ediscovery/{id}", r.uri().path())
-                    .is_some()
-                && !list
-                && !export;
-            if !create
-                && !update
-                && !delete
-                && !associate
-                && !close
-                && !hold
-                && !release
-                && !start
-                && !export
-                && !search
-                && (!matches!(*r.method(), Method::GET | Method::HEAD) || !(list || get))
-            {
-                return c.upstream.forward(r, &c.identity).await;
-            }
-            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
-            };
-            let actor = auth.context();
-            let Ok(authority) = db::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
             };
             let Some(operation) = crate::jmap::random() else {
                 return problem(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
+            let actor = auth.context();
             let path = r.uri().path().trim_start_matches("/api");
             let required: &[&str] =
                 if create || update || delete || associate || close || hold || release || start {
@@ -106,11 +144,15 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 } else {
                     &db::MAIL_CONSOLE
                 };
-            if !authority.allows_any(required) {
+            let Some(authority) = db::authority(&exec, actor)
+                .await
+                .ok()
+                .filter(|authority| authority.allows_any(required))
+            else {
                 let _ =
                     db::console_denied(&exec, actor, path, &required.join("|"), operation).await;
                 return problem(403, "Forbidden", &c, &id);
-            }
+            };
             if authority.domain_scope() > 0 {
                 let detail = format!(
                     "org-wide-only surface (domain-scoped principal; domain={})",

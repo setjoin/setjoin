@@ -4,7 +4,13 @@
 connections, and checked before every locally dispatched frozen-Go `requireAuth` route.
 The route middleware inventory defines coverage; public SPA and auth routes stay outside.
 Adapters still own credential/resource authorization. Terminal authentication and guest admission are installed alongside this chain by
-#406; unported Basic/protocol strategies retain #420 ownership.
+#406. On `/caldav/`, `/carddav/`, and `POST /api/drive/native-token`, `Basic `
+and `Negotiate ` pass `RuntimeAccess::check` when no verified bearer/cookie
+proof is present: `Negotiate ` forwards to Go (#355b), while `Basic ` verifies
+natively and runs `RuntimeGate::enforce_basic` with `Proof::basic(user_id)`
+(#355a, covering device trust/lockdown, `SessionDenylist` `scope='all'`, CAE, and
+`auth_method="basic_auth"` policies). Other unported Basic/protocol strategies
+retain #420 ownership.
 
 The gateway HTTP boundary handles CSRF before runtime admission. GET, HEAD and OPTIONS
 are exempt from CSRF and still run the runtime gates on protected routes, including

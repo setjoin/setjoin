@@ -241,5 +241,18 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/secfix6.rs::attachments_zip_neutralises_dot_names_and_bounds_entries",
     "mutant": "zip-dot-names"
+  },
+  {
+    "route": "POST /jmap EmailSubmission/set",
+    "case": "signSMIME-fail-closed",
+    "field": "/notCreated/<creationId>",
+    "from": "strip signSMIME and enqueue unsigned when S/MIME infra or key/cert resolution is missing",
+    "to": "fail closed with notCreated (smime_no_cert / smime_no_matching_cert / smime_sign_failed) and drop creation whenever signSMIME=true cannot be signed",
+    "issue": "#356",
+    "reason": "Settled security control for Wave 2b (#328/#356): frozen Go stripped signSMIME and shipped unsigned mail on missing infra (pool/minio nil) or unconfigured signing state. Rust enforces fail-closed signSMIME so missing S3 store, key, matching certificate, attachment part, signature, or S3 write prevents creation enqueue/commit, and signing/reading keys always bind to the authenticated actor ($actor), never the delegated mailbox owner.",
+    "reviewer": "codex_356_plan_review (settled control #2, 2026-11-21)",
+    "reviewed": true,
+    "review": "Wave 2b settled security divergence: fail-closed signSMIME and actor-scoped S/MIME keys",
+    "secure_test": "bins/gateway/tests/jmap_batch_delegate.rs::wave2b_smime_attachments_and_decrypt_on_read"
   }
 ]

@@ -1,5 +1,5 @@
-use crate::common::boot::CommandBootExt;
 use super::*;
+use crate::common::boot::CommandBootExt;
 use http_body_util::BodyExt;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
@@ -85,9 +85,8 @@ async fn deferred_batch_forwards_whole_before_any_native_write() -> Result<(), B
     let owner = db.connect().await?;
     let a = fixture::account(&owner, "jmap4-deferred").await?;
     let result=async {
-        owner.execute("UPDATE messages SET has_attachments=true WHERE mailbox_id=$1 AND id=$2", &[&a.mailbox, &a.two_labels]).await?;
         let before=snapshot(&owner,&a).await?;
-        let batch=json!({"@type":"Request","id":"deferred","using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["Email/set",{"accountId":a.mailbox.to_string(),"update":{a.two_labels.to_string():{"keywords":{"$seen":true}}}},"write"],["EmailSubmission/set",{"accountId":a.mailbox.to_string(),"create":{"attachment":{"emailId":a.two_labels.to_string()}}},"later"]]}).to_string();
+        let batch=json!({"@type":"Request","id":"deferred","using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["Email/set",{"accountId":a.mailbox.to_string(),"update":{a.two_labels.to_string():{"keywords":{"$seen":true}}}},"write"],["EmailSubmission/set",{"accountId":a.mailbox.to_string(),"#create":{"resultOf":"write","name":"Email/set","path":"/created"}},"later"]]}).to_string();
         let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let upstream=listener.local_addr()?;
         let expected=batch.clone();let go=tokio::spawn(async move{
             let (stream,_)=listener.accept().await?;
@@ -262,17 +261,17 @@ async fn shared_registry_evicts_only_matching_sockets_and_shutdown_closes_all(
 }
 
 #[tokio::test]
-async fn unported_identity_algorithms_preserve_the_request_for_identity_owner(
-) -> Result<(), BoxError> {
+async fn legacy_algorithm_shapes_are_verified_natively_never_forwarded() -> Result<(), BoxError> {
     use base64::Engine;
     let _serial = SERIAL.lock().await;
     let Some(db) = Db::for_case("push-identity-owner") else {
         return Ok(());
     };
+    // #356a: a forward would surface this marker status.
     let marker = common::fake_upstream(|_| async {
         Response::builder()
             .status(218)
-            .body(common::full("identity #331"))
+            .body(common::full("Go must not be reached"))
             .unwrap()
     })
     .await;
@@ -301,9 +300,10 @@ async fn unported_identity_algorithms_preserve_the_request_for_identity_owner(
                 .insert("cookie", format!("access_token={token}").parse()?);
             match tokio_tungstenite::connect_async(request).await {
                 Err(tokio_tungstenite::tungstenite::Error::Http(response))
-                    if response.status().as_u16() == 218 => {}
+                    if response.status().as_u16() == 401
+                        && response.body().as_deref() == Some(b"invalid token\n".as_slice()) => {}
                 result => {
-                    return Err(format!("unported identity was not forwarded: {result:?}").into())
+                    return Err(format!("{alg} push credential was not refused natively: {result:?}").into())
                 }
             }
             let response = common::send(
@@ -314,11 +314,24 @@ async fn unported_identity_algorithms_preserve_the_request_for_identity_owner(
                     .body(common::full(""))?,
             )
             .await;
-            if response.status().as_u16() != 218 {
-                return Err(
-                    format!("presence identity was not forwarded: {}", response.status()).into(),
-                );
+            if response.status().as_u16() != 401 {
+                return Err(format!(
+                    "{alg} presence credential was not refused natively: {}",
+                    response.status()
+                )
+                .into());
             }
+        }
+        let response = common::send(
+            address,
+            hyper::Request::builder()
+                .uri(format!("http://{address}/_gateway/metrics"))
+                .body(common::full(""))?,
+        )
+        .await;
+        let metrics = String::from_utf8(common::body_bytes(response).await.to_vec())?;
+        if !metrics.contains("setjoin_gateway_proxied_to_go_total 0\n") {
+            return Err(format!("legacy shape reached Go: {metrics}").into());
         }
         Ok::<_, BoxError>(())
     }

@@ -2,10 +2,11 @@
 //! native setjoin-auth whose Go upstream is a counting fake. Each (cell, shape)
 //! has a reviewed expected outcome: `Native(status)` (zero Go hits) or
 //! `Hop(owner)` (exactly one hit, the fake's 299). EXPECT was reviewed against
-//! the hand-off order in bins/auth/src/lib.rs (login: device proof, CA, threat/rate,
-//! DPoP, credentials, guest scope, admission; refresh: native). A mismatch is a
-//! finding: fix the code or get the EXPECT change reviewed. Never copy observed
-//! output into EXPECT. The guard pins the Hop cells.
+//! the native login/refresh path in bins/auth/src/lib.rs (#350 device proof,
+//! #351 CA/device trust, #352 DPoP, #357 guest scope: all 72 cells native,
+//! MATRIX_HOPS = 0). A mismatch is a finding: fix the code or get the EXPECT
+//! change reviewed. Never copy observed output into EXPECT. The guard pins the
+//! Hop cells.
 mod common;
 use http_body_util::BodyExt;
 use hyper::Request;
@@ -99,12 +100,13 @@ const CELLS: &[Cell] = &[
 const SHAPES: [&str; 6] = [
     "login",
     "login-device",
-    "login-captcha",
     "login-dpop",
+    "login-captcha",
     "login-guest",
     "refresh",
 ];
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Outcome {
     Hop(&'static str),
@@ -126,49 +128,30 @@ const ALL: &[&str] = &[
     "device-trust",
     "token-binding",
 ];
-const CA_ON: &[&str] = &["all-on", "conditional-access", "device-trust"];
-const NON_CA: &[&str] = &[
+const THREAT_ON: &[&str] = &[
     "default",
-    "none",
+    "all-on",
     "threat-feed",
     "geo-block",
     "spray-detect",
     "captcha",
     "tarpit",
     "rate-limit",
+];
+const THREAT_OFF: &[&str] = &[
+    "none",
+    "conditional-access",
+    "device-trust",
     "token-binding",
 ];
-/// Reviewed outcomes. Hop cells only shrink (guard: MATRIX_HOPS = 24).
+/// Reviewed outcomes. Hop cells only shrink (guard: MATRIX_HOPS = 0).
 const EXPECT: &[(&[&str], &str, Outcome)] = &[
-    (
-        ALL,
-        "login-device",
-        Hop("#350 device-proof admission (lib.rs:1506)"),
-    ),
-    (
-        CA_ON,
-        "login",
-        Hop("#351 conditional access/device trust (lib.rs:1510)"),
-    ),
-    (
-        CA_ON,
-        "login-captcha",
-        Hop("#351 conditional access/device trust (lib.rs:1510)"),
-    ),
-    (
-        CA_ON,
-        "login-dpop",
-        Hop("#351 conditional access/device trust (lib.rs:1510)"),
-    ),
-    (
-        CA_ON,
-        "login-guest",
-        Hop("#351 conditional access/device trust (lib.rs:1510)"),
-    ),
-    (NON_CA, "login", Native(200)),
-    (NON_CA, "login-captcha", Native(200)),
-    (NON_CA, "login-dpop", Native(200)),
-    (NON_CA, "login-guest", Native(200)),
+    (ALL, "login", Native(200)),
+    (ALL, "login-device", Native(200)),
+    (ALL, "login-dpop", Native(200)),
+    (THREAT_ON, "login-captcha", Native(403)),
+    (THREAT_OFF, "login-captcha", Native(200)),
+    (ALL, "login-guest", Native(200)),
     (ALL, "refresh", Native(200)),
 ];
 
@@ -366,7 +349,7 @@ async fn send_shape(
     refresh: &str,
 ) -> Result<(u16, hyper::HeaderMap, String), Err> {
     let device = [
-        ("x-device-id", "delete-gate"),
+        ("x-device-id", "1"),
         ("x-device-hmac", "00"),
         ("x-device-timestamp", "0"),
         ("x-device-nonce", "delete-gate"),
@@ -381,8 +364,16 @@ async fn send_shape(
         "login" => post(addr, "/auth/login", login, &[]).await,
         "login-device" => post(addr, "/auth/login", login, &device).await,
         "login-captcha" => {
-            let b = json!({"email": email, "password": PASSWORD, "captcha_token": "delete-gate"});
-            post(addr, "/auth/login", b.to_string(), &[]).await
+            post(
+                addr,
+                "/auth/login",
+                login,
+                &[
+                    ("x-captcha-token", "bogus-token"),
+                    ("x-captcha-answer", "1"),
+                ],
+            )
+            .await
         }
         "login-dpop" => {
             let b = json!({"email": email, "password": PASSWORD, "dpop_jwk": jwk});
@@ -487,7 +478,7 @@ async fn auth_matrix_matches_reviewed_outcomes() -> Result<(), Err> {
             )
             .await?;
             c.execute(
-                "DELETE FROM auth_attempts WHERE target_username=ANY($1::text[]) OR source_ip='127.0.0.1'::inet",
+                "DELETE FROM auth_attempts WHERE target_username=ANY($1::text[])",
                 &[&vec![email.clone(), guest_email.clone()]],
             )
             .await?;
@@ -540,7 +531,7 @@ async fn auth_matrix_matches_reviewed_outcomes() -> Result<(), Err> {
     )
     .await?;
     c.execute(
-        "DELETE FROM auth_attempts WHERE target_username=ANY($1::text[]) OR source_ip='127.0.0.1'::inet",
+        "DELETE FROM auth_attempts WHERE target_username=ANY($1::text[])",
         &[&vec![email.clone(), guest_email.clone()]],
     )
     .await?;
@@ -553,6 +544,11 @@ async fn auth_matrix_matches_reviewed_outcomes() -> Result<(), Err> {
         "DELETE FROM login_events WHERE user_id=ANY($1::bigint[]) OR (user_id IS NULL AND source_ip='127.0.0.1' AND occurred_at >= $2::text::timestamptz)",
         &[&vec![user.user, guest], &since],
     )
+    .await?;
+    c.batch_execute(&format!(
+        "BEGIN; SET LOCAL ca.signin_log_prune='on'; DELETE FROM ca_signin_log WHERE user_id IN ({},{guest}); COMMIT;",
+        user.user
+    ))
     .await?;
     c.execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&guest])
         .await?;

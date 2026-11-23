@@ -152,6 +152,12 @@ declare -A DOCUMENTED_SYMBOL_SOURCE=(
   # alive. Test-harness-only variable, never daemon config; accepted only
   # while its canonical implementation source still contains it.
   [E2E_GATEWAY_FLIP_DIR]="$ROOT/mailserver/webmail/e2e/scripts/start-test-stack.sh"
+  # LANE_ADEQUACY_JOBS / LANE_JOBS / LANE_REPLAY_TIMEOUT (VERIFICATION_COMMANDS.md):
+  # test-lane concurrency and replay-timeout environment overrides consumed by the
+  # server-rust oracle adequacy gate and parallel lane runner, never daemon config.
+  [LANE_ADEQUACY_JOBS]="$ROOT/scripts/check-gofree-oracle-adequacy.py"
+  [LANE_JOBS]="$ROOT/scripts/check-gofree-oracle-adequacy.py"
+  [LANE_REPLAY_TIMEOUT]="$ROOT/scripts/check-gofree-oracle-adequacy.py"
 )
 
 # ── third-party systemd units the box also runs, not ours + OUR OWN units
@@ -169,6 +175,10 @@ source "$ROOT/mailserver/deploy/generated/unit-catalog.sh"
 declare -A OUR_UNIT_ALLOW=()
 for unit in "${SETJOIN_ALL_UNITS[@]}"; do
   OUR_UNIT_ALLOW["$unit"]=1
+done
+for socket_tmpl in "$ROOT"/mailserver/deploy/*.socket.template; do
+  [ -e "$socket_tmpl" ] || continue
+  OUR_UNIT_ALLOW["$(basename "$socket_tmpl" .template)"]=1
 done
 declare -A INFRA_UNIT_ALLOW=(
   [postgresql]=1 [minio]=1 ["clamav@scan"]=1 [pgpool]=1 [pgbouncer]=1
@@ -272,7 +282,7 @@ while IFS=: read -r file line match; do
   [ -n "${INFRA_UNIT_ALLOW[$unit]:-}" ] && continue
   echo "  [DEPLOY-DOC] $file:$line: systemd reference names unit '$unit' — it is not in the generated Setjoin unit catalog or the known infrastructure list" >&2
   fail=1
-done < <(grep -rHnoE '(^|[[:space:];|&(!])systemctl [a-z-]+( --?[A-Za-z0-9@._=-]+)* [A-Za-z0-9@._-]+|(^|[[:space:];|&(!])journalctl -u [A-Za-z0-9@._-]+' "${DOC_FILES[@]}" "${SCRIPT_FILES[@]}" 2>/dev/null)
+done < <(grep -rHnoE '(^|[[:space:];|&(!])systemctl [a-z-]+( --?[A-Za-z0-9@._=-]+)* [A-Za-z0-9_][A-Za-z0-9@._-]*|(^|[[:space:];|&(!])journalctl -u [A-Za-z0-9_][A-Za-z0-9@._-]*' "${DOC_FILES[@]}" "${SCRIPT_FILES[@]}" 2>/dev/null)
 echo "   $n3 systemd reference(s) checked."
 
 if [ "$fail" -ne 0 ]; then

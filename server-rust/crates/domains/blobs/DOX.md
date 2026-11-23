@@ -11,20 +11,25 @@ The inventory contains ten F16 method/path registrations; GET also admits HEAD.
 Go mounts blob/recovery registrations below `/api`; `/mail-attachment` is
 root-pinned. Bare GETs remain SPA routes. `f16::F16Route` installs all ten in the
 executable and HTTP dispatch tests. Inventory selection and the global kill
-switch precede adapters. Missing storage leaves F16 forwarded; missing continuity
-leaves recovery forwarded. No adapter forwards a consumed body or attempted write.
+switch precede adapters. Missing storage leaves F16 unmounted; when mounted,
+missing continuity or `feature.client_recovery_ingest` OFF answers 404 natively
+after member admission rather than forwarding. No adapter forwards a consumed
+body or attempted write.
 
 All ten bundled F16 registrations are ON by default after recorded replays and
 family mutants qualified them. The global gateway kill switch or an inventory
 OFF entry returns the whole request to Go; no mutator forwards after starting.
 
-Normal routes use shared `authorize_request`/`authorize`: CSRF, ES256/JWKS,
-current guest/session state, primary-mailbox/lifecycle and current governed admin
-roles. Recovery additionally requires `feature.client_recovery_ingest` and the
-storage/continuity prerequisites. The gateway admits a member before spending
-its tighter recovery budget, then authorizes again before data access. Unsupported
-credentials and unmirrored security gates forward untouched per ARCH-027.
-JWKS and the S3 cache are shared across the installed family.
+Normal blob and recovery routes use `deny::admit` (`Scope::Member`) +
+`deny::answer`; `/mail-attachment/{sha256}` uses `admit_attachment` +
+`deny::answer` (with `requires_session() == false` so `RuntimeAccess` handles
+`Proof::attachment`). Recovery admits members via `admit` decoupled from
+`control_plane_ready` and `feature.client_recovery_ingest` before its tighter
+recovery budget, then enforces auth -> denylist (`401 session_revoked`, or cold
+`401` only when `feature.cae_runtime` is ON) -> enabled (`404`; `store` required
+on non-list routes, `ReceiptKeys` on begin, `scanner` excluded). Only
+`deny::answer`-owned refusal classes and invalid WORM config after `deny::admit`
+forward to Go. JWKS and the S3 cache are shared across the installed family.
 
 `DB_DSN` is the request credential. `DB_WORKER_DSN` (fallback `DB_DSN`) is a
 separate pool for Go's recovery reducers and cross-mailbox-for-one-user reads;
@@ -62,8 +67,8 @@ Cross-user dedup succeeds in Go and preserves the first uploader's charge.
 Lock retention on the canonical key after the upload (`blob_retention.rs`, Go's
 `ApplyAll`): a refused retention is non-fatal (201) and joins a bounded process-local
 ledger that the `blob-cleanup` tick drains. A configuration Go would refuse to start
-with (bad mode or days) keeps PUT on Go pending the startup validation owned
-by #415. There is no database retention marker in frozen Go: admission, charge
+with (bad mode or days) is checked after `deny::admit` + `deny::answer` and keeps
+PUT on Go pending the startup validation owned by #197 / #415. There is no database retention marker in frozen Go: admission, charge
 and reclamation remain the single `blob_upload_account` reducer call; retention
 is the later S3 operation.
 
@@ -94,7 +99,7 @@ abort. A repeated abort retains the first audit and terminal state.
 Blob GET uses Go's actor-owned attachment/mailbox join and HR receipt requester,
 approver, governed-role and super-admin arms. Unowned and malformed hashes are
 404; Go performs no GET hash syntax validation. Cold objects smaller than 10 MiB
-buffer once; repeat cache hits use ServeContent headers. The cache has Go's
+buffer once (falling back to streaming if the buffered read fails after `head_object`); repeat cache hits use ServeContent headers. The cache has Go's
 10-minute TTL, 512 MiB bound and replacement accounting. Larger objects stream
 with bounded reads and response-owned cancellation; HEAD emits no body.
 All conditional and range forms are native (#419). Go emits no ETag here.

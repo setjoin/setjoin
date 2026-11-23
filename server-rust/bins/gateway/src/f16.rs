@@ -81,7 +81,7 @@ impl<K: KeySource> F16Config<K> {
 pub struct F16Route<K: KeySource + 'static> {
     blobs: BlobRoute<Arc<K>>,
     recovery: RecoveryRoute<Arc<K>>,
-    begin: Option<BeginRoute<Arc<K>>>,
+    begin: BeginRoute<Arc<K>>,
     finalize: FinalizeRoute<Arc<K>>,
     attachment: Option<AttachmentRoute>,
 }
@@ -96,7 +96,7 @@ impl<K: KeySource + 'static> F16Route<K> {
             control_plane_ready: c.continuity.is_some(),
             store: Some(c.store.clone()),
         });
-        let begin = c.continuity.map(|keys| BeginRoute(recovery.clone(), keys));
+        let begin = BeginRoute(recovery.clone(), c.continuity);
         let finalize = FinalizeRoute(recovery.clone(), c.scanner);
         let blobs = BlobRoute(Arc::new(BlobCommands {
             exec: c.exec.clone(),
@@ -127,7 +127,7 @@ impl<K: KeySource + 'static> F16Route<K> {
         let adapters: [Option<&dyn Intercept>; 5] = [
             Some(&self.blobs),
             Some(&self.recovery),
-            self.begin.as_ref().map(|r| r as &dyn Intercept),
+            Some(&self.begin),
             Some(&self.finalize),
             self.attachment.as_ref().map(|r| r as &dyn Intercept),
         ];
@@ -145,7 +145,11 @@ impl<K: KeySource + 'static> Intercept for F16Route<K> {
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         match self.adapter(&r) {
             Some(adapter) => adapter.handle(r, c),
-            None => Box::pin(async move { c.upstream.forward(r, &c.identity).await }),
+            // `matches` already declined: never reached through the route table (#357).
+            None => {
+                let reply = crate::surface::unregistered(&r, c.identity.proto);
+                Box::pin(async move { reply })
+            }
         }
     }
 }

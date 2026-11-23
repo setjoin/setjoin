@@ -359,7 +359,9 @@ fn parse_id(text: &str) -> Option<i64> {
 }
 
 impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -381,10 +383,9 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
         let import_dir = self.import_dir.clone();
         let trace = self.trace.clone();
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
@@ -396,10 +397,11 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
             let actor = auth.context();
             let mut domain_scope = 0;
             if let Some(required) = gate(what) {
-                let Ok(authority) = setjoin_mail_security::authority(&exec, actor).await else {
-                    return c.upstream.forward(r, &c.identity).await;
-                };
-                if !authority.allows_any(required) {
+                let Some(authority) = setjoin_mail_security::authority(&exec, actor)
+                    .await
+                    .ok()
+                    .filter(|authority| authority.allows_any(required))
+                else {
                     let _ = setjoin_mail_security::console_denied(
                         &exec,
                         actor,
@@ -409,7 +411,7 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     )
                     .await;
                     return bare(403, "Forbidden", &c, &id);
-                }
+                };
                 domain_scope = authority.domain_scope();
                 if authority.refused_for_scope(required) {
                     let detail = format!(
@@ -456,8 +458,10 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                 .await;
             }
             if what.is_trace() {
-                return crate::mail_security_trace::handle(what, r, &c, &id, actor, &worker, &trace)
-                    .await;
+                return crate::mail_security_trace::handle(
+                    what, r, &c, &id, actor, &worker, &trace,
+                )
+                .await;
             }
             if what.is_tls() {
                 return crate::mail_security_tls::handle(
@@ -613,7 +617,9 @@ impl<K: KeySource + 'static> Intercept for MailSecurityRoute<K> {
                     }
                     let offset =
                         atoi(&query(r.uri(), "offset").unwrap_or_default()).clamp(0, 1_000_000);
-                    match quarantine_db::admin_list(&worker, actor, &status, &q, limit, offset).await {
+                    match quarantine_db::admin_list(&worker, actor, &status, &q, limit, offset)
+                        .await
+                    {
                         Ok(body) => reply(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }

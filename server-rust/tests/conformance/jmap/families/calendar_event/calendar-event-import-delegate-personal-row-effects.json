@@ -1,0 +1,18 @@
+{
+  "case": "calendar-event-import-delegate-personal-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "calendar_events"
+    },
+    {
+      "after": "[{\"seq\": 1, \"datatype\": \"Calendar\", \"mailbox_id\": <f.mailbox>}]",
+      "before": "[{\"seq\": 1, \"datatype\": \"Calendar\", \"mailbox_id\": <f.mailbox>}]",
+      "name": "entity_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "c62af657f6518e04727249c084b73a4d63e9c3a6",
+  "route": "POST /jmap CalendarEvent/import"
+}

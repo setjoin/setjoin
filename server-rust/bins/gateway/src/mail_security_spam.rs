@@ -188,7 +188,10 @@ pub(crate) async fn handle(
     };
     let unknown = |op| unknown_outcome(op, c, id);
     match what {
-        A::SpamDashboard => out.json(db::dashboard_with_stats(worker, setjoin_spam::process_stats().snapshot()).await, 200),
+        A::SpamDashboard => out.json(
+            db::dashboard_with_stats(worker, setjoin_spam::process_stats().snapshot()).await,
+            200,
+        ),
         A::SpamReset | A::SpamDisable | A::SpamEnable => {
             let switch = match what {
                 A::SpamReset => db::Switch::Reset,
@@ -218,9 +221,7 @@ pub(crate) async fn handle(
             }
         }
         A::SendersGet => {
-            let Ok(on) = db::sender_control_on(worker).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let on = db::sender_control_on(worker).await.unwrap_or(false);
             if on {
                 match db::sender_list_read(worker, user).await {
                     Ok(raw) => out.send(raw.body, 200, Kind::Raw, Some(&raw.generation)),
@@ -240,9 +241,7 @@ pub(crate) async fn handle(
             }
         }
         A::SendersPut => {
-            let Ok(on) = db::sender_control_on(worker).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let on = db::sender_control_on(worker).await.unwrap_or(false);
             let Ok(body) = input::lenient::<input::SenderList>(&mut r).await else {
                 return out.bare(400, "invalid json");
             };
@@ -317,9 +316,7 @@ pub(crate) async fn handle(
             }
         }
         A::SendersNeverBlock => {
-            let Ok(on) = db::sender_control_on(worker).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let on = db::sender_control_on(worker).await.unwrap_or(false);
             if on {
                 return out.bare(409, "use the message-bound sender control action");
             }
@@ -476,9 +473,7 @@ pub(crate) async fn handle(
             }
         }
         A::Report => {
-            let Ok(on) = db::sender_control_on(worker).await else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let on = db::sender_control_on(worker).await.unwrap_or(false);
             if on {
                 return out.bare(409, "use the message-bound sender control report action");
             }

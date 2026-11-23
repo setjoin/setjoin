@@ -15,6 +15,21 @@ pub struct CardDavRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
     pub keys: Arc<K>,
     pub issuer: String,
+    basic: crate::dav_auth::DavBasicAuth,
+}
+impl<K: KeySource + 'static> CardDavRoute<K> {
+    pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
+        Self {
+            exec,
+            keys,
+            issuer,
+            basic: crate::dav_auth::DavBasicAuth::default(),
+        }
+    }
+    pub fn with_basic_auth(mut self, basic: crate::dav_auth::DavBasicAuth) -> Self {
+        self.basic = basic;
+        self
+    }
 }
 impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
     fn requires_session(&self, _: &Request<Body>) -> bool {
@@ -33,19 +48,36 @@ impl<K: KeySource + 'static> Intercept for CardDavRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, keys, issuer, basic) = (
+            self.exec.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+            self.basic.clone(),
+        );
         Box::pin(async move {
-            let Some(auth) = setjoin_authz::authorize_user_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                // Shared Basic/Negotiate proof remains owned by #420/#339.
+            let auth = if crate::dav_auth::has_scheme(r.headers(), b"Negotiate ") {
+                // Kerberos/SPNEGO proof remains owned by #355b.
                 return c.upstream.forward(r, &c.identity).await;
+            } else if crate::dav_auth::has_scheme(r.headers(), b"Basic ") {
+                let user = match basic.authenticate(&exec, &mut r, &c).await {
+                    Ok(user) => user,
+                    Err(response) => return response,
+                };
+                match setjoin_authz::authorize_basic_member(&exec, user.user_id, user.email).await {
+                    Ok(auth) => auth,
+                    Err(refusal) => {
+                        return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+                    }
+                }
+            } else {
+                match crate::deny::admit(&exec, &*keys, &issuer, &r, crate::deny::Scope::User)
+                    .await
+                {
+                    Ok(auth) => auth,
+                    Err(refusal) => {
+                        return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+                    }
+                }
             };
             let id = crate::jmap::reply::request_id(
                 r.headers().get("x-request-id"),

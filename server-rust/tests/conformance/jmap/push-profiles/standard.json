@@ -1,0 +1,362 @@
+{
+  "cases": {
+    "presence-hs256": {
+      "body": "{\"0\":false}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200
+    },
+    "presence-sm2": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Unauthorized\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "www-authenticate": "Negotiate, Bearer realm=\"mailserver\"",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256": {
+      "body": "event: state\ndata: {\"@type\":\"StateChange\",\"changed\":{\"<mailbox>\":{\"Calendar\":\"0\",\"CalendarEvent\":\"0\",\"Contact\":\"0\",\"Email\":\"0\",\"Mailbox\":\"0\",\"Task\":\"0\",\"Thread\":\"0\"}}}\n\n",
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/event-stream",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-accel-buffering": "no",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200
+    },
+    "sse-hs256-drive-native-scoped": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-duplicate-alg-last-es256": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-duplicate-alg-last-hs256": {
+      "body": "event: state\ndata: {\"@type\":\"StateChange\",\"changed\":{\"<mailbox>\":{\"Calendar\":\"0\",\"CalendarEvent\":\"0\",\"Contact\":\"0\",\"Email\":\"0\",\"Mailbox\":\"0\",\"Task\":\"0\",\"Thread\":\"0\"}}}\n\n",
+      "headers": {
+        "cache-control": "no-cache",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/event-stream",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-accel-buffering": "no",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 200
+    },
+    "sse-hs256-expired": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-force-pw-change": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-guest-claim-without-row": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Unauthorized\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/problem+json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-mfa-pending": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-missing-iat": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-nbf-future": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-password-reset": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-refresh": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-wrong-aud": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-hs256-wrong-iss": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-sm2": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "sse-sm2-foreign-key": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "ws-alg-none": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "ws-hs256": {
+      "frame": "{\"@type\":\"error\",\"type\":\"urn:ietf:params:jmap:error:unknownType\",\"status\":400,\"detail\":\"unknown @type\"}",
+      "status": 101
+    },
+    "ws-hs256-drive-native-kid": {
+      "frame": "{\"@type\":\"error\",\"type\":\"urn:ietf:params:jmap:error:unknownType\",\"status\":400,\"detail\":\"unknown @type\"}",
+      "status": 101
+    },
+    "ws-hs256-keyed-with-es256-point": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "ws-hs256-keyed-with-sm2-point": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "ws-hs256-retired-kid": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "ws-hs256-wrong-secret": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    },
+    "ws-sm2": {
+      "body": "invalid token\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/plain; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY"
+      },
+      "status": 401
+    }
+  },
+  "format": 1,
+  "go_source": "1a7c25d48b70fe4eb57c91bec0a0bcea7316ed01",
+  "normalization": [
+    "fixture mailbox id"
+  ],
+  "profile": "standard",
+  "routes": [
+    "GET /jmap/ws",
+    "GET /jmap/eventsource",
+    "GET /api/chat/presence"
+  ]
+}

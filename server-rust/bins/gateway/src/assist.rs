@@ -78,15 +78,6 @@ pub(crate) fn bad_gateway(
     )
 }
 
-/// The request with its already-read body restored, for a whole-request
-/// forward to Go.
-pub(crate) fn restore(mut r: Request<Body>, bytes: Vec<u8>) -> Request<Body> {
-    *r.body_mut() = Full::new(Bytes::from(bytes))
-        .map_err(|n| match n {})
-        .boxed();
-    r
-}
-
 fn text_of(fields: &crate::chat::Fields, key: &str) -> Result<String, ()> {
     crate::chat_channels::text_field(fields, key)
 }
@@ -151,7 +142,16 @@ impl<K: KeySource + 'static> Intercept for AssistRoute<K> {
         Box::pin(async move {
             let mut nonce = [0; 16];
             if getrandom::getrandom(&mut nonce).is_err() {
-                return c.upstream.forward(r, &c.identity).await;
+                return typed_problem(
+                    503,
+                    "service-unavailable",
+                    "Service Unavailable",
+                    "AI assist is temporarily unavailable.",
+                    "",
+                    &language,
+                    &c,
+                    String::new(),
+                );
             }
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), nonce);
             // Go's StripPrefix("/api") compares the raw spelling.
@@ -189,7 +189,7 @@ impl<K: KeySource + 'static> Intercept for AssistRoute<K> {
             }
             match feature_on(&exec, "feature.assist").await {
                 Some(true) => {}
-                Some(false) => {
+                Some(false) | None => {
                     return typed_problem(
                         403,
                         "forbidden",
@@ -201,7 +201,6 @@ impl<K: KeySource + 'static> Intercept for AssistRoute<K> {
                         id,
                     )
                 }
-                None => return c.upstream.forward(r, &c.identity).await,
             }
             let invalid = |c: &RequestContext, id: String, detail: &str| {
                 typed_problem(

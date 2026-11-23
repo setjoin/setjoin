@@ -36,14 +36,8 @@ pub enum Outcome<'a> {
     Unknown { operation: [u8; 16] },
 }
 
-pub fn body(
-    session_state: &str,
-    mailbox: i64,
-    message: i64,
-    client_id: &str,
-    outcome: Outcome<'_>,
-) -> String {
-    let (name, args) = match outcome {
+pub(super) fn seen_call(mailbox: i64, message: i64, outcome: Outcome<'_>) -> (&'static str, String) {
+    match outcome {
         Outcome::Updated {
             old_state,
             new_state,
@@ -77,7 +71,17 @@ pub fn body(
                 server_fail(&format!("commit outcome unknown; look up operation {hex}")),
             )
         }
-    };
+    }
+}
+
+pub fn body(
+    session_state: &str,
+    mailbox: i64,
+    message: i64,
+    client_id: &str,
+    outcome: Outcome<'_>,
+) -> String {
+    let (name, args) = seen_call(mailbox, message, outcome);
     format!(
         r#"{{"sessionState":"{session_state}","methodResponses":[["{name}",{args},"{client_id}"]]}}"#
     ) + "\n"
@@ -215,21 +219,134 @@ fn server_fail(detail: &str) -> String {
     )
 }
 
-/// Go's `connect-src` drops `http:` when the client used TLS.
-pub fn response(body: String, scheme: &str, request_id: String) -> Response<Body> {
+pub(super) fn jmap_error_json(kind: &str, status: u16, detail: &str) -> String {
+    crate::problem::jmap(status, kind, detail)
+}
+
+pub(super) fn failure_json(failure: setjoin_jmap::Failure) -> Option<String> {
+    use setjoin_jmap::Failure;
+    let (kind, status, detail) = match failure {
+        Failure::AccountNotFound => (
+            "accountNotFound",
+            400,
+            "accountId does not match an existing account",
+        ),
+        Failure::CannotCalculateChanges => (
+            "cannotCalculateChanges",
+            400,
+            "client must resync (sinceState too old)",
+        ),
+        Failure::Forbidden => ("forbidden", 500, "access denied"),
+        Failure::ServerFail => ("serverFail", 500, "database error"),
+        Failure::Forward => return None,
+    };
+    Some(jmap_error_json(kind, status, detail))
+}
+
+pub(super) fn failure_or_server_fail(failure: setjoin_jmap::Failure) -> String {
+    failure_json(failure).unwrap_or_else(|| jmap_error_json("serverFail", 500, "database error"))
+}
+
+pub(super) fn collect_created_ids(
+    calls: &[super::ws_request::Call],
+) -> std::collections::BTreeMap<String, String> {
+    #[derive(serde::Deserialize)]
+    struct Creation {
+        id: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct SetResult {
+        created: Option<std::collections::BTreeMap<String, Option<Creation>>>,
+    }
+    let mut created_ids = std::collections::BTreeMap::new();
+    for call in calls.iter().filter(|call| call.name.ends_with("/set")) {
+        if let Ok(SetResult {
+            created: Some(created),
+        }) = serde_json::from_str(call.args.get())
+        {
+            for (key, creation) in created {
+                created_ids.insert(
+                    key,
+                    creation.and_then(|entry| entry.id).unwrap_or_default(),
+                );
+            }
+        }
+    }
+    created_ids
+}
+
+pub(super) fn http_batch_response(session_state: &str, calls: &[super::ws_request::Call]) -> String {
+    let mut out = format!(
+        "{{\"sessionState\":{},\"methodResponses\":[",
+        crate::problem::go_string(session_state)
+    );
+    for (index, call) in calls.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "[{},{},{}]",
+            crate::problem::go_string(&call.name),
+            call.args.get(),
+            crate::problem::go_string(&call.id)
+        ));
+    }
+    out.push(']');
+    let created_ids = collect_created_ids(calls);
+    if !created_ids.is_empty() {
+        out.push_str(",\"createdIds\":");
+        out.push_str(
+            &go_compact(&serde_json::to_string(&created_ids).expect("created IDs"))
+                .expect("created IDs JSON"),
+        );
+    }
+    out.push_str("}\n");
+    out
+}
+
+fn framed_body(body: String) -> Body {
     // net/http buffers up to 2 KiB before choosing Content-Length. Larger
     // JSON replies flush as chunked HTTP/1.1 (observable in recorded headers).
-    let body = if body.len() > 2048 {
+    if body.len() > 2048 {
         http_body_util::StreamBody::new(futures_util::stream::iter([Ok::<_, crate::BoxError>(
             hyper::body::Frame::data(Bytes::from(body)),
         )]))
         .boxed()
     } else {
         Full::new(Bytes::from(body)).map_err(|n| match n {}).boxed()
-    };
-    let mut resp = Response::new(body);
+    }
+}
+
+/// Go's `connect-src` drops `http:` when the client used TLS.
+pub fn response(body: String, scheme: &str, request_id: String) -> Response<Body> {
+    let mut resp = Response::new(framed_body(body));
     *resp.status_mut() = StatusCode::OK;
     headers(resp.headers_mut(), scheme, request_id);
+    resp
+}
+
+/// Go's `jmap.WriteProblem` (`handler.go:157-165`): `application/problem+json`
+/// with `Cache-Control: no-store`, `security_headers`, and `x-request-id`.
+pub fn problem_response(
+    status: u16,
+    kind: &str,
+    detail: &str,
+    scheme: &str,
+    request_id: String,
+) -> Response<Body> {
+    let body = crate::problem::jmap(status, kind, detail) + "\n";
+    let mut resp = Response::new(framed_body(body));
+    *resp.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let h = resp.headers_mut();
+    security_headers(h, scheme);
+    h.insert("cache-control", HeaderValue::from_static("no-store"));
+    h.insert(
+        "content-type",
+        HeaderValue::from_static("application/problem+json"),
+    );
+    if let Ok(v) = HeaderValue::from_str(&request_id) {
+        h.insert("x-request-id", v);
+    }
     resp
 }
 

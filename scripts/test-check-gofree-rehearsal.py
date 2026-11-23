@@ -133,7 +133,8 @@ class Forward(unittest.TestCase):
         self.assertEqual(self.check(src, pinned)[0], [])
 
     ARM = ("            return match &shared.rust_auth_upstream {\n"
-           "                Some(upstream) => upstream.forward(req, &identity).await,\n")
+           "                Some(upstream) => {\n"
+           "                    let mut response = upstream.forward(req, &identity).await;\n")
 
     def test_rust_auth_hop_is_not_a_go_forward(self):
         self.assertEqual(self.check(self.SRC + self.ARM, self.PIN)[0], [])
@@ -144,8 +145,17 @@ class Forward(unittest.TestCase):
 
     def test_other_receiver_in_the_arm_is_counted(self):
         src = self.SRC + ("            return match &shared.rust_auth_upstream {\n"
-                          "                Some(upstream) => go_mail.forward(req, &identity).await,\n")
+                          "                Some(upstream) => {\n"
+                          "                    let mut response = go_mail.forward(req, &identity).await;\n")
         self.assertIn("> pinned 1", self.check(src, self.PIN)[0][0])
+
+    def test_duplicate_or_non_gateway_rust_auth_arm_is_counted(self):
+        self.assertIn("> pinned 1", self.check(self.SRC + self.ARM + self.ARM, self.PIN)[0][0])
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(guard, "FORWARD_SITES", {**self.PIN}):
+            write(Path(tmp), "server-rust/bins/gateway/src/lib.rs", self.SRC)
+            write(Path(tmp), "server-rust/bins/auth/src/lib.rs", self.ARM)
+            problems = guard.forward_problems(Path(tmp))[0]
+            self.assertTrue(any("auth/forward" in p for p in problems), problems)
 
 
 class Matrix(unittest.TestCase):
@@ -176,6 +186,8 @@ class Matrix(unittest.TestCase):
     def test_unparsable_or_unknown_group_is_red(self):
         odd = self.AUTH + 'let x = Hop("#999");\n'
         self.assertIn("not a parsable", self.check(odd, self.GATEWAY)[0])
+        spaced = self.AUTH + 'let x = Hop ("#999");\n'
+        self.assertIn("not a parsable", self.check(spaced, self.GATEWAY)[0])
         unknown = self.AUTH.replace('(ONE, "s2"', '(TWO, "s2"')
         self.assertIn("unknown cell group TWO", self.check(unknown, self.GATEWAY)[0])
 

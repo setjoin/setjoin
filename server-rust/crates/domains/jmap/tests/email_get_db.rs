@@ -1,6 +1,6 @@
-//! DB proofs for `Email/get` that the parity oracle cannot record: encrypted
-//! mail is left for Go (no audit row, `Encrypted`), plaintext writes exactly
-//! one audit row with the read, and the mailbox is the authenticated one.
+//! DB proofs for `Email/get` that the parity oracle cannot record: every read
+//! (including `smime-encrypted` entries handled by gateway decrypt-on-read)
+//! writes one `email_get` audit row, and the mailbox is the authenticated one.
 use std::time::{Duration, Instant};
 
 use setjoin_conformance::fixture::{self, Account};
@@ -48,9 +48,8 @@ async fn audits(owner: &tokio_postgres::Client, a: &Account) -> i64 {
 }
 
 #[tokio::test]
-async fn encrypted_mail_is_left_for_go_and_plaintext_is_audited_once() {
-    let Some(db) = Db::for_case("encrypted_mail_is_left_for_go_and_plaintext_is_audited_once")
-    else {
+async fn encrypted_mail_is_served_for_decrypt_and_audited_once() {
+    let Some(db) = Db::for_case("encrypted_mail_is_served_for_decrypt_and_audited_once") else {
         return;
     };
     let owner = db.connect().await.unwrap();
@@ -68,11 +67,14 @@ async fn encrypted_mail_is_left_for_go_and_plaintext_is_audited_once() {
         .await
         .unwrap();
     let mixed = get(&exec, &a, &[a.two_labels, a.inbox_only]).await;
-    assert_eq!(mixed, GetOutcome::Encrypted);
+    let GetOutcome::Served(text) = mixed else {
+        panic!("expected GetOutcome::Served for gateway decrypt-on-read, got {mixed:?}");
+    };
+    assert!(text.contains("smime-encrypted"), "{text}");
     assert_eq!(
         audits(&owner, &a).await,
-        1,
-        "an encrypted read writes nothing"
+        2,
+        "encrypted read also commits its email_get audit row"
     );
     fixture::remove(&owner, &a).await.unwrap();
 }

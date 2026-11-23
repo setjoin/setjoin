@@ -1,6 +1,6 @@
 //! Go's `jwt.NumericDate` (golang-jwt/jwt/v5 v5.3.1) as Go 1.26 computes it on
-//! linux/amd64, bit for bit (#354). Shared by every first-party token path; the push
-//! verifier (#356a) switches to [`normalize_token_claims`] after #354 lands.
+//! linux/amd64, bit for bit (#354). Shared by every first-party token path,
+//! including the push verifier (#356a).
 //!
 //! Go source mirrored:
 //! - `jwt/v5@v5.3.1/types.go:80-98` `UnmarshalJSON`: `json.Unmarshal(b, &json.Number)`,

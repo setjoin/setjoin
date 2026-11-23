@@ -213,5 +213,21 @@
     "review": "owner-approved security fix 2026-11-05",
     "secure_test": "bins/gateway/tests/secfix5.rs::quarantine_admin_actions_are_confined_to_the_callers_reach",
     "mutant": "quarantine-admin-unscoped"
+  },
+  {
+    "id": "D-357e-1",
+    "route": "GET /link-protect",
+    "case": "unscoped-mailbox-or-failed-audit",
+    "field": "/response (warn page instead of 302 redirect)",
+    "from": "Go writes an audit row with mailbox_id <= 0 or ignores audit failure and still redirects according to the verdict",
+    "to": "Rust fails closed to the warn page without writing an unscoped audit row or redirecting (Click::Unscoped | Click::Failed)",
+    "reason": "coordinator, PLAN 357 v2 (2026-11-14): R1-R4 require valid mailbox ownership for durable audit writes; no durable audit row means no redirect.",
+    "reviewer": "coordinator, PLAN 357 v2 (2026-11-14)",
+    "reviewed": true,
+    "review": "owner-approved security fix (#357e fail-closed unscoped link-protect audit)",
+    "tests": [
+      "mailsec_linkprotect::click_mailbox_zero",
+      "mailsec_linkprotect::click_mailbox_negative"
+    ]
   }
 ]

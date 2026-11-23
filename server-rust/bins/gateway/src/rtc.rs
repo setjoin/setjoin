@@ -18,8 +18,9 @@
 //! unclean path with `307` before any handler runs. Go's guest belt only sees a
 //! request carrying a JWT credential: such a request is proxied natively only
 //! when the verified-member precheck admits it, otherwise it stays with Go.
-//! Without LiveKit configuration Go registers no `/rtc` handler and the SPA
-//! fallback answers, so the request goes to Go.
+//! Without LiveKit configuration Go registers no `/rtc` handler and its root mux
+//! answers (SPA or 404). The executable gives this route the catch-all as its
+//! fallback, so that answer is native (#357); a table without one keeps Go.
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -54,6 +55,7 @@ pub struct RtcRoute<K: KeySource + 'static> {
     configured: bool,
     upstream: SocketAddr,
     client: Client<HttpConnector, Body>,
+    fallback: Option<Arc<crate::catchall::CatchallRoute>>,
 }
 
 impl<K: KeySource + 'static> RtcRoute<K> {
@@ -80,7 +82,14 @@ impl<K: KeySource + 'static> RtcRoute<K> {
             configured,
             upstream,
             client,
+            fallback: None,
         }
+    }
+
+    /// Go's root mux, answering `/rtc` while LiveKit is unconfigured (#357).
+    pub fn with_fallback(mut self, fallback: Arc<crate::catchall::CatchallRoute>) -> Self {
+        self.fallback = Some(fallback);
+        self
     }
 }
 
@@ -115,9 +124,13 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
     fn handle(&self, req: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
         let (configured, upstream, client) = (self.configured, self.upstream, self.client.clone());
+        let fallback = self.fallback.clone();
         Box::pin(async move {
             if !configured {
-                return c.upstream.forward(req, &c.identity).await;
+                return match fallback {
+                    Some(fallback) => fallback.handle(req, c).await,
+                    None => c.upstream.forward(req, &c.identity).await,
+                };
             }
             if carries_jwt(req.headers())
                 && setjoin_authz::authorize_user_request(

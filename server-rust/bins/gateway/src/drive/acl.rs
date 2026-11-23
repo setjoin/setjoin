@@ -281,7 +281,8 @@ pub(super) async fn handle<K: KeySource + 'static>(
         Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
     };
     let (Some(random), Some(second)) = (crate::jmap::random(), crate::jmap::random()) else {
-        return c.upstream.forward(r, &c.identity).await;
+        let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+        return problem(503, "service unavailable", None, &c, id);
     };
     let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), random);
     let path = String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path()))
@@ -306,13 +307,10 @@ pub(super) async fn handle<K: KeySource + 'static>(
     };
     match flag("feature.drive").await {
         Ok(true) => {}
-        Ok(false) => return ordered(404, "not found", None, "", "", None, &c, id),
-        Err(_) => return c.upstream.forward(r, &c.identity).await,
+        Ok(false) | Err(_) => return ordered(404, "not found", None, "", "", None, &c, id),
     }
     let actor = auth.context();
-    let Some(op) = op(&r) else {
-        return c.upstream.forward(r, &c.identity).await;
-    };
+    let op = op(&r).expect("matched route");
     let user = actor.user_id();
     let numeric = |index: usize, detail: &str| -> Result<i64, Response<Body>> {
         segment(&r, index)

@@ -132,7 +132,7 @@ async fn env_with_denylist(
     let route = JmapRoute(Arc::new(JmapCommands {
         services: None,
         worker: None,
-        denylist:denylist.clone(),
+        denylist: denylist.clone(),
         exec: exec.clone(),
         keys: jwks.clone(),
         issuer: "mailserver".into(),
@@ -141,16 +141,24 @@ async fn env_with_denylist(
     if component_only {
         routes = routes.with_admission(
             ScopedExecutor::from_dsn(&db.dsn, 2).expect("worker pool"),
-            jwks.clone(), "mailserver".into(), denylist,
+            jwks.clone(),
+            "mailserver".into(),
+            denylist,
         );
     }
     // An explicitly injected cold cache tests the adapter seam alone. All other
     // cases use production's central runtime chain, including flag-ON cases.
-    let sessions = if component_only { None } else {
+    let sessions = if component_only {
+        None
+    } else {
         let worker_db = setjoin_pg::workers::WorkerDatabase::new(&db.dsn).unwrap();
-        let runtime = setjoin_gateway::runtime_access::RuntimeAccess::new(exec.clone(), jwks, "mailserver".into())
-            .with_workers(ScopedExecutor::from_dsn(&db.dsn, 2).unwrap(), worker_db)
-            .with_direct(db.direct.clone());
+        let runtime = setjoin_gateway::runtime_access::RuntimeAccess::new(
+            exec.clone(),
+            jwks,
+            "mailserver".into(),
+        )
+        .with_workers(ScopedExecutor::from_dsn(&db.dsn, 2).unwrap(), worker_db)
+        .with_direct(db.direct.clone());
         let sessions = runtime.session_cache();
         routes = routes.with_runtime(runtime);
         sessions
@@ -748,7 +756,7 @@ db_case!(tokens_go_rejects_are_left_to_go, |e| {
         ("garbage", "a.b.c".into()),
     ] {
         let (status, _, hit) = e.post(&token, &body).await;
-        assert_eq!((status, hit), (299, true), "{name}");
+        assert_eq!((status, hit), (401, false), "{name}");
     }
 
     // A revoked session (admin "sign out everywhere": scope=all watermark).
@@ -804,102 +812,110 @@ db_case!(guest_claim_and_guest_satellite_both_defer_to_go, |e| {
     assert_eq!(e.post(&member, &body).await, (299, "from go".into(), true));
 });
 
-db_case!(
-    unconfigured_legacy_keys_forward_whole_requests,
-    |e| {
-        e.toggle("feature.rust_mark_read", true).await;
-        let captured = Arc::new(Mutex::new(Vec::new()));
-        let sink = captured.clone();
-        let upstream = common::fake_upstream(move |req| {
-            let sink = sink.clone();
-            async move {
-                let (parts, body) = req.into_parts();
-                let bytes = body.collect().await.unwrap().to_bytes();
-                sink.lock().await.push((
-                    parts.method,
-                    parts.uri.path_and_query().unwrap().as_str().to_owned(),
+db_case!(unconfigured_legacy_keys_forward_whole_requests, |e| {
+    e.toggle("feature.rust_mark_read", true).await;
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let sink = captured.clone();
+    let upstream = common::fake_upstream(move |req| {
+        let sink = sink.clone();
+        async move {
+            let (parts, body) = req.into_parts();
+            let bytes = body.collect().await.unwrap().to_bytes();
+            sink.lock().await.push((
+                parts.method,
+                parts.uri.path_and_query().unwrap().as_str().to_owned(),
+                parts
+                    .headers
+                    .get("authorization")
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+                ["host", "origin", "content-type", "x-test-header"].map(|name| {
                     parts
                         .headers
-                        .get("authorization")
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_owned(),
-                    ["host", "origin", "content-type", "x-test-header"].map(|name| {
-                        parts
-                            .headers
-                            .get_all(name)
-                            .iter()
-                            .map(|value| value.to_str().unwrap().to_owned())
-                            .collect::<Vec<_>>()
-                    }),
-                    bytes.to_vec(),
-                ));
-                hyper::Response::builder()
-                    .status(299)
-                    .body(full("go"))
-                    .unwrap()
-            }
-        })
-        .await;
-        let doc = json!({ "keys": [jwk(KID, &public(&e.key))] })
-            .to_string()
-            .into_bytes();
-        let keys = Jwks::with_fetch(Box::new(move || {
-            let doc = doc.clone();
-            Box::pin(async move { Ok(doc) })
-        }));
-        let route = JmapRoute(Arc::new(JmapCommands {
-            services: None,
-        worker: None,
-            denylist: None,
-            exec: e.exec.clone(),
-            keys,
-            issuer: "mailserver".into(),
-        }));
-        let gateway = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
-        // Go-minted, Go-verified tokens, not ES256 signatures with a changed alg.
-        let vectors: Value =
-            serde_json::from_str(include_str!("golden/go-unsupported-tokens.json")).unwrap();
-        let hs = vectors["hs256"].as_str().unwrap();
-        let sm2 = vectors["sm2"].as_str().unwrap();
-        let body = format!("  {} \n", seen_body(e.a.mailbox, e.a.inbox_only, SEEN));
-        // This key source has no configured HS256/SM2 keys (credential owner #406/#420).
-        let cases = [("HS256", hs), ("SM2", sm2)];
-        for (name, token) in cases {
-            let authorization = format!("Bearer {token}");
-            let req = Request::post("/jmap?opaque=1%2F2")
-                .header("host", "mail.test")
-                .header("origin", "http://mail.test")
-                .header("authorization", &authorization)
-                .header("x-test-header", "first value")
-                .header("x-test-header", "second value")
-                .header("content-type", "application/json")
-                .body(full(body.clone()))
-                .unwrap();
-            let resp = common::send(gateway, req).await;
-            assert_eq!(resp.status(), 299, "{name}");
-            let got = captured.lock().await.pop().expect("forwarded request");
-            assert_eq!(
-                got,
-                (
-                    hyper::Method::POST,
-                    "/jmap?opaque=1%2F2".into(),
-                    authorization,
-                    [
-                        vec!["mail.test".into()],
-                        vec!["http://mail.test".into()],
-                        vec!["application/json".into()],
-                        vec!["first value".into(), "second value".into()],
-                    ],
-                    body.as_bytes().to_vec()
-                ),
-                "{name}"
-            );
+                        .get_all(name)
+                        .iter()
+                        .map(|value| value.to_str().unwrap().to_owned())
+                        .collect::<Vec<_>>()
+                }),
+                bytes.to_vec(),
+            ));
+            hyper::Response::builder()
+                .status(299)
+                .body(full("go"))
+                .unwrap()
         }
-        assert!(!e.is_read(e.a.inbox_only).await);
+    })
+    .await;
+    let doc = json!({ "keys": [jwk(KID, &public(&e.key))] })
+        .to_string()
+        .into_bytes();
+    let keys = Jwks::with_fetch(Box::new(move || {
+        let doc = doc.clone();
+        Box::pin(async move { Ok(doc) })
+    }));
+    let route = JmapRoute(Arc::new(JmapCommands {
+        services: None,
+        worker: None,
+        denylist: None,
+        exec: e.exec.clone(),
+        keys,
+        issuer: "mailserver".into(),
+    }));
+    let gateway = common::gateway(upstream, "", RouteTable::proxy_all().with(route)).await;
+    // Go-minted, Go-verified tokens, not ES256 signatures with a changed alg.
+    let vectors: Value =
+        serde_json::from_str(include_str!("golden/go-unsupported-tokens.json")).unwrap();
+    let hs = vectors["hs256"].as_str().unwrap();
+    let sm2 = vectors["sm2"].as_str().unwrap();
+    let body = format!("  {} \n", seen_body(e.a.mailbox, e.a.inbox_only, SEEN));
+    // This key source has no configured HS256/SM2 keys: deny::admit answers 401 natively,
+    // while Basic/Negotiate credentials defer whole to Go (#355).
+    for (name, token) in [("HS256", hs), ("SM2", sm2)] {
+        let authorization = format!("Bearer {token}");
+        let req = Request::post("/jmap?opaque=1%2F2")
+            .header("host", "mail.test")
+            .header("origin", "http://mail.test")
+            .header("authorization", &authorization)
+            .header("content-type", "application/json")
+            .body(full(body.clone()))
+            .unwrap();
+        let resp = common::send(gateway, req).await;
+        assert_eq!(resp.status(), 401, "{name}");
     }
-);
+    assert!(captured.lock().await.is_empty());
+    let authorization = "Basic dXNlcjpwYXNz".to_owned();
+    let req = Request::post("/jmap?opaque=1%2F2")
+        .header("host", "mail.test")
+        .header("origin", "http://mail.test")
+        .header("authorization", &authorization)
+        .header("x-test-header", "first value")
+        .header("x-test-header", "second value")
+        .header("content-type", "application/json")
+        .body(full(body.clone()))
+        .unwrap();
+    let resp = common::send(gateway, req).await;
+    assert_eq!(resp.status(), 299, "Basic");
+    let got = captured.lock().await.pop().expect("forwarded request");
+    assert_eq!(
+        got,
+        (
+            hyper::Method::POST,
+            "/jmap?opaque=1%2F2".into(),
+            authorization,
+            [
+                vec!["mail.test".into()],
+                vec!["http://mail.test".into()],
+                vec!["application/json".into()],
+                vec!["first value".into(), "second value".into()],
+            ],
+            body.as_bytes().to_vec()
+        ),
+        "Basic"
+    );
+    assert!(!e.is_read(e.a.inbox_only).await);
+});
 
 db_case!(recorded_go_auth_responses_survive_deferral, |e| {
     let goldens: Value =
@@ -971,7 +987,8 @@ db_case!(recorded_go_auth_responses_survive_deferral, |e| {
         ("guest", e.token(guest, |c| c["acct"] = json!("guest"))),
         ("denylisted", e.token(e.a.user, |_| {})),
     ];
-    for (index, (name, token)) in cases.into_iter().enumerate() {
+    let mut expected_upstream_calls = 0;
+    for (name, token) in cases {
         let request = Request::post("/jmap")
             .header("host", "mail.test")
             .header("origin", "http://mail.test")
@@ -992,10 +1009,13 @@ db_case!(recorded_go_auth_responses_survive_deferral, |e| {
             }),
             "{name}: Go effects"
         );
+        if name == "guest" {
+            expected_upstream_calls += 1;
+        }
         assert_eq!(
             calls.load(Ordering::SeqCst),
-            index + 1,
-            "{name} was deferred"
+            expected_upstream_calls,
+            "{name} upstream count"
         );
         assert_eq!(
             response.status().as_u16(),
@@ -1170,7 +1190,8 @@ db_case!(
         let (status, body, hit) = e.post(&token, &seen_body(mb, msg, SEEN)).await;
         let took = t.elapsed();
         tx.rollback().await.unwrap();
-        assert_eq!((status, body.as_str(), hit), (299, "from go", true));
+        assert_eq!((status, hit), (503, false));
+        assert!(body.contains("service unavailable"), "{body}");
         // The bound is 1 s in production; the DB-backed harness widens it for starved hosts.
         let bound = setjoin_authz::precheck_timeout() + std::time::Duration::from_secs(2);
         assert!(took < bound, "took {took:?}, bound {bound:?}");
@@ -1234,9 +1255,19 @@ db_case!(runtime_security_gates_answer_natively_before_jmap, |e| {
     ] {
         e.toggle(gate, true).await;
         let (status, _, hit) = e
-            .post(&token, &list_body(e.a.mailbox, &format!(r#""filter":{{"inMailbox":"{}"}}"#, e.a.inbox)))
+            .post(
+                &token,
+                &list_body(
+                    e.a.mailbox,
+                    &format!(r#""filter":{{"inMailbox":"{}"}}"#, e.a.inbox),
+                ),
+            )
             .await;
-        let expected = if gate == "feature.device_trust_enforcement" { 403 } else { 200 };
+        let expected = if gate == "feature.device_trust_enforcement" {
+            403
+        } else {
+            200
+        };
         assert_eq!((status, hit), (expected, false), "{gate}");
         e.toggle(gate, false).await;
     }
@@ -1529,10 +1560,11 @@ db_case!(list_flag_on_answers_with_the_go_path_bytes, |e| {
     assert_eq!(e.audit_rows(mb).await, audit);
 });
 
-// The S/MIME decrypt-on-read helper belongs to #328. This unported shape,
-// rather than general query filters or ordinary patches, still forwards whole.
+// #328 Wave 2b: Email/get decrypt-on-read runs natively in Rust (never
+// forwarded to Go), sets decryptState='no_key' when the actor holds no keys,
+// and writes the email_get audit row.
 db_case!(
-    encrypted_email_get_forwards_without_effects_for_either_pilot_flag,
+    encrypted_email_get_runs_natively_and_reports_no_key_for_either_pilot_flag,
     |e| {
         let token = e.token(e.a.user, |_| {});
         let (mb, msg) = (e.a.mailbox, e.a.inbox_only);
@@ -1543,23 +1575,32 @@ db_case!(
         let request = format!(
             r#"{{"using":["urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{{"accountId":"{mb}","ids":["{msg}"]}},"0"]]}}"#
         );
-        let before = fixture::snapshot(&e.owner, mb).await.unwrap();
-        let audit = e.audit_rows(mb).await;
-        for enabled in [false, true] {
+        let audit_before = e.audit_rows(mb).await;
+        for (idx, enabled) in [false, true].into_iter().enumerate() {
             e.toggle("feature.rust_mark_read", enabled).await;
             e.toggle("feature.rust_inbox_list", enabled).await;
             let (status, body, hit) = e.post(&token, &request).await;
+            assert_eq!((status, hit), (200, false), "flag={enabled}");
+            let doc: Value = serde_json::from_str(&body).unwrap();
+            let item = &doc["methodResponses"][0][1]["list"][0];
+            assert_eq!(item["decryptState"], "no_key", "{doc}");
+            assert!(item["bodyText"].is_null(), "{doc}");
+            let audits = e.audit_rows(mb).await;
             assert_eq!(
-                (status, body.as_str(), hit),
-                (299, "from go", true),
-                "flag={enabled}"
+                audits,
+                audit_before + idx as i64 + 1,
+                "native Email/get commits its email_get audit row without Go"
             );
-            assert_eq!(fixture::snapshot(&e.owner, mb).await.unwrap(), before);
-            assert_eq!(
-                e.audit_rows(mb).await,
-                audit,
-                "no Rust email_get audit before forwarding"
-            );
+            let last_action: String = e
+                .owner
+                .query_one(
+                    "SELECT action FROM mailbox_audit_log WHERE mailbox_id = $1 ORDER BY id DESC LIMIT 1",
+                    &[&mb],
+                )
+                .await
+                .unwrap()
+                .get(0);
+            assert_eq!(last_action, "email_get");
         }
     }
 );

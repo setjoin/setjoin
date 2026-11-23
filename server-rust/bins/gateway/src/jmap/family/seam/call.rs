@@ -263,7 +263,7 @@ async fn scoped_write(
     sql: &'static str,
     params: &[Param<'_>],
 ) -> Result<String, MethodError> {
-    let Some(operation) = crate::jmap::random() else {
+    let Ok(operation) = crate::jmap::random_bytes() else {
         return Err(MethodError::server_fail());
     };
     let envelope = envelope(cx, scope, operation);
@@ -365,7 +365,7 @@ pub(crate) async fn set_batch(
     if create.is_none() && update.is_none() && ids.is_none() {
         return Ok("{}".to_owned());
     }
-    let Some(operation) = crate::jmap::random() else {
+    let Ok(operation) = crate::jmap::random_bytes() else {
         return Err(MethodError::server_fail());
     };
     let envelope = envelope(cx, scope, operation);
@@ -852,7 +852,7 @@ pub(crate) async fn worker_write(
     let Some(services) = cx.services else {
         return Err(MethodError::server_fail());
     };
-    let Some(operation) = crate::jmap::random() else {
+    let Ok(operation) = crate::jmap::random_bytes() else {
         return Err(MethodError::server_fail());
     };
     let worker = &services.worker;
@@ -1687,8 +1687,40 @@ mod db {
         (
             "jmap_calendar_event_rsvp",
             "p_attendee_email",
-            "calendar_itip.sql:12: CalendarEvent/rsvp delegate arm; rsvp_on_behalf builds the \
-             manager scope only from a full_access/manage_calendar grant and $2 is p_on_behalf_of",
+            "calendar_itip.sql:13,54: self-RSVP passes cx.email() via write(); delegate arm passes \
+             p_on_behalf_of via rsvp_on_behalf only after verifying a full_access/manage_calendar grant",
+        ),
+        (
+            "jmap_calendar_event_set_create",
+            "p_actor_email",
+            "jmap_calendar.sql:55: bound caller email from cx.email() alongside $2 actor id",
+        ),
+        (
+            "calendar_finalize_create_invites",
+            "p_organizer_email",
+            "calendar_finalize_create_invites.sql:50: created events scoped to p_mailbox_id ($1); \
+             organizer email is caller email or validated delegate",
+        ),
+        (
+            "calendar_import_ics",
+            "p_actor_email",
+            "calendar_import_ics.sql:23,85: bound caller email from cx.email() alongside $2 actor id",
+        ),
+        (
+            "calendar_free_busy",
+            "p_user_ids",
+            "calendar_freebusy.sql:548: scoped to caller mailbox ($1); peer availability filtered by \
+             sharing ACLs/defaults inside calendar_free_busy",
+        ),
+        (
+            "calendar_find_free_slots",
+            "p_user_ids",
+            "calendar_freebusy.sql:643,686: delegates to calendar_free_busy under caller mailbox ($1)",
+        ),
+        (
+            "jmap_calendar_event_counter",
+            "p_attendee_email",
+            "calendar_itip.sql:437,465: bound caller email from cx.email(); event must exist in p_mailbox_id ($1)",
         ),
         (
             "mail_work_action_enqueue",
@@ -1748,6 +1780,65 @@ mod db {
     /// placeholder, a scope mailbox on `$1`, a reviewed pair, or listed here.
     /// The `seam_probe_*` rows are the #427 test reducers.
     const REVIEWED_NEUTRAL_ARGUMENTS: &[(&str, &str, &str)] = &[
+        (
+            "jmap_calendar_get",
+            "p_ids",
+            "jmap_calendar.sql:19-20: row ids filtered under c.mailbox_id = p_mailbox_id (the bound scope)",
+        ),
+        (
+            "jmap_calendar_changes",
+            "p_since_state",
+            "jmap_calendar.sql:283-288: state cursor passed to jmap_entity_changes scoped to p_mailbox_id",
+        ),
+        (
+            "jmap_calendar_set_update",
+            "p_updates",
+            "jmap_calendar.sql:291-318: JSONB patch map updating only WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_calendar_share_get",
+            "p_calendar_id",
+            "calendar_sharing.sql:201-214: verifies calendars.mailbox_id = p_mailbox_id (the bound scope) before reading calendar_acls",
+        ),
+        (
+            "jmap_calendar_share_set",
+            "p_calendar_id",
+            "calendar_sharing.sql:251-276: verifies calendar owner (mailbox_id = p_mailbox_id) or admin grant in calendar_acls for account_scope(p_mailbox_id).user_id before mutating",
+        ),
+        (
+            "jmap_calendar_share_set",
+            "p_grants",
+            "calendar_sharing.sql:279-296: JSONB array of {userEmail, level} grants applied after owner/admin authorization",
+        ),
+        (
+            "jmap_calendar_share_set",
+            "p_revokes",
+            "calendar_sharing.sql:299-308: JSONB array of {userEmail} revokes applied after owner/admin authorization",
+        ),
+        ("jmap_calendar_event_get", "p_ids", "jmap_calendar.sql:340: row ids filtered WHERE mailbox_id = p_mailbox_id"),
+        ("jmap_calendar_event_query", "p_filter", "jmap_calendar.sql:459: JSON query filter under p_mailbox_id"),
+        ("jmap_calendar_event_query", "p_sort", "jmap_calendar.sql:459: JSON sort spec under p_mailbox_id"),
+        ("jmap_calendar_event_query", "p_position", "jmap_calendar.sql:459: pagination offset"),
+        ("jmap_calendar_event_query", "p_limit", "jmap_calendar.sql:459: pagination limit"),
+        ("jmap_calendar_event_changes", "p_since_state", "jmap_calendar.sql:529: state cursor under p_mailbox_id"),
+        ("jmap_calendar_event_set_create", "p_creates", "jmap_calendar.sql:52: JSON creates payload"),
+        ("calendar_finalize_create_bookings", "p_created_event_ids", "calendar_finalize_create_bookings.sql:28: created event ids under p_mailbox_id"),
+        ("calendar_finalize_create_invites", "p_created_event_ids", "calendar_finalize_create_invites.sql:47: created event ids under p_mailbox_id"),
+        ("calendar_finalize_create_invites", "p_organizer_name", "calendar_finalize_create_invites.sql:47: organizer display name"),
+        ("jmap_calendar_event_set_update", "p_updates", "jmap_calendar.sql:537: JSON updates payload"),
+        ("jmap_calendar_event_set_destroy", "p_ids", "jmap_calendar.sql:208: row ids filtered WHERE mailbox_id = p_mailbox_id"),
+        ("calendar_import_ics", "p_calendar_id", "calendar_import_ics.sql:20: target calendar resolved under p_mailbox_id"),
+        ("calendar_import_ics", "p_events", "calendar_import_ics.sql:20: parsed ICS JSONB events payload"),
+        ("calendar_import_ics", "p_strategy", "calendar_import_ics.sql:20: conflict strategy enum payload"),
+        ("calendar_free_busy", "p_start", "calendar_freebusy.sql:548: time bound"),
+        ("calendar_free_busy", "p_end", "calendar_freebusy.sql:548: time bound"),
+        ("calendar_find_free_slots", "p_start", "calendar_freebusy.sql:643: time bound"),
+        ("calendar_find_free_slots", "p_end", "calendar_freebusy.sql:643: time bound"),
+        ("calendar_find_free_slots", "p_duration_minutes", "calendar_freebusy.sql:643: slot duration"),
+        ("calendar_find_free_slots", "p_slot_interval_min", "calendar_freebusy.sql:643: slot step interval"),
+        ("calendar_find_free_slots", "p_working_start", "calendar_freebusy.sql:643: working window start time"),
+        ("calendar_find_free_slots", "p_working_end", "calendar_freebusy.sql:643: working window end time"),
+        ("calendar_find_free_slots", "p_max_slots", "calendar_freebusy.sql:643: result count limit"),
         (
             "jmap_task_get",
             "p_ids",
@@ -1815,6 +1906,20 @@ mod db {
             "p_status",
             "RSVP status payload",
         ),
+        (
+            "jmap_calendar_event_rsvp",
+            "p_on_behalf_of",
+            "calendar_itip.sql:15,38: self-RSVP omits p_on_behalf_of (NULL); only rsvp_on_behalf binds it to $2",
+        ),
+        ("jmap_calendar_event_counter", "p_event_id", "calendar_itip.sql:437,452: event id resolved WHERE c.mailbox_id = p_mailbox_id"),
+        ("jmap_calendar_event_counter", "p_start", "calendar_itip.sql:437: counter-proposal start time"),
+        ("jmap_calendar_event_counter", "p_end", "calendar_itip.sql:437: counter-proposal end time"),
+        ("jmap_calendar_event_counter", "p_attendee_name", "calendar_itip.sql:437: attendee display name"),
+        ("jmap_calendar_event_set_occurrence", "p_master_id", "calendar_recurrence.sql:28: master event id resolved under p_mailbox_id"),
+        ("jmap_calendar_event_set_occurrence", "p_recurrence_id", "calendar_recurrence.sql:28: occurrence timestamp"),
+        ("jmap_calendar_event_set_occurrence", "p_scope", "calendar_recurrence.sql:28: recurrence edit scope enum"),
+        ("jmap_calendar_event_set_occurrence", "p_patch", "calendar_recurrence.sql:28: JSON patch payload"),
+        ("jmap_calendar_event_send_update", "p_event_id", "calendar_itip.sql:377,388: event id resolved WHERE c.mailbox_id = p_mailbox_id"),
         (
             "quick_step_apply",
             "p_id",
@@ -1891,6 +1996,151 @@ mod db {
         ("mail_work_set", "p_due_at", "mail_work_set.sql:111-114: payload; requires the bound actor as assignee or full access"),
         ("mail_work_set", "p_reason", "mail_work_set.sql:28: length-validated audit text"),
         ("mail_work_set", "p_request_digest", "mail_work_set.sql:26,51: validated hex digest compared on replay"),
+        (
+            "jmap_addressbook_get",
+            "p_ids",
+            "jmap_contact.sql:18-19: addressbook id filter; rows scoped by ab.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_addressbook_changes",
+            "p_since_state",
+            "jmap_contact.sql:54: JMAP state cursor passed to jmap_entity_changes",
+        ),
+        (
+            "jmap_addressbook_set_create",
+            "p_creates",
+            "jmap_contact.sql:72-88: JSON payload; inserts into p_mailbox_id only",
+        ),
+        (
+            "jmap_addressbook_set_update",
+            "p_updates",
+            "jmap_contact.sql:126-140: JSON payload; updates WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_addressbook_set_destroy",
+            "p_ids",
+            "jmap_contact.sql:186-187: deletes WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_get",
+            "p_ids",
+            "jmap_contact_group.sql:54-55: group id filter; rows scoped by g.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_query",
+            "p_filter",
+            "jmap_contact_group.sql:113-119: JSON text filter; scoped by mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_set_create",
+            "p_creates",
+            "jmap_contact_group.sql:164-166: JSON payload; inserts into p_mailbox_id only",
+        ),
+        (
+            "jmap_contact_group_set_update",
+            "p_updates",
+            "jmap_contact_group.sql:230-234: JSON payload; updates WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_group_set_destroy",
+            "p_ids",
+            "jmap_contact_group.sql:286: deletes WHERE id = v_id AND mailbox_id = p_mailbox_id",
+        ),
+        (
+            "contact_group_members_set",
+            "p_group_id",
+            "jmap_contact_group.sql:327,373: group verified owned by p_mailbox_id before member writes",
+        ),
+        (
+            "contact_group_members_set",
+            "p_add",
+            "jmap_contact_group.sql:333-354: JSON member list; contactId ownership-checked against p_mailbox_id",
+        ),
+        (
+            "contact_group_members_set",
+            "p_remove",
+            "jmap_contact_group.sql:357-369: JSON member list; removes only from verified group",
+        ),
+        (
+            "expand_contact_group",
+            "p_group_id",
+            "jmap_contact_group.sql:396: group verified owned by p_mailbox_id before expanding",
+        ),
+        (
+            "jmap_contact_get",
+            "p_ids",
+            "jmap_contact.sql:235-236: contact id filter; rows scoped by ab.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "jmap_contact_query",
+            "p_filter",
+            "jmap_contact.sql:284,292-303: JSON filter; query always prefixed by ab.mailbox_id = $1",
+        ),
+        (
+            "jmap_contact_query",
+            "p_sort",
+            "jmap_contact.sql:276: unused sort payload",
+        ),
+        (
+            "jmap_contact_query",
+            "p_position",
+            "jmap_contact.sql:312: pagination offset",
+        ),
+        (
+            "jmap_contact_query",
+            "p_limit",
+            "jmap_contact.sql:312: pagination limit (clamped 1..=256)",
+        ),
+        (
+            "jmap_contact_changes",
+            "p_since_state",
+            "jmap_contact.sql:336: JMAP state cursor passed to jmap_entity_changes",
+        ),
+        (
+            "contact_merge",
+            "p_keep_id",
+            "jmap_contact.sql:633-636: keeper contact verified owned via addressbooks.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "contact_merge",
+            "p_drop_id",
+            "jmap_contact.sql:650-653,725-727: loser contact verified owned via addressbooks.mailbox_id = p_mailbox_id",
+        ),
+        (
+            "gal_search",
+            "p_text",
+            "jmap_contact.sql:558-562: search text over directory_visible_users(p_mailbox_id)",
+        ),
+        (
+            "gal_search",
+            "p_limit",
+            "jmap_contact.sql:564: result limit (clamped 1..=256)",
+        ),
+        (
+            "directory_members",
+            "p_department_id",
+            "directory_browse.sql:183-192: department id filter over directory_visible_users(p_mailbox_id)",
+        ),
+        (
+            "directory_members",
+            "p_offset",
+            "directory_browse.sql:192: pagination offset",
+        ),
+        (
+            "directory_members",
+            "p_limit",
+            "directory_browse.sql:192: pagination limit (clamped 1..=256)",
+        ),
+        (
+            "directory_search",
+            "p_query",
+            "directory_browse.sql:235-241: search text over directory_visible_users(p_mailbox_id)",
+        ),
+        (
+            "directory_search",
+            "p_limit",
+            "directory_browse.sql:243: result limit (clamped 1..=256)",
+        ),
         (
             "saved_search_set",
             "p_name",
@@ -2217,6 +2467,11 @@ mod db {
             return Some(format!("{function}: unnamed parameter"));
         }
         if ACTOR_ARGUMENTS.contains(&name) {
+            if argument.is_none()
+                && (reviewed_pair(function, name) || reviewed_neutral(function, name))
+            {
+                return None;
+            }
             return (argument != Some(actor)).then(|| {
                 format!("{function}: actor parameter {name} is {argument:?}, not ${actor}")
             });

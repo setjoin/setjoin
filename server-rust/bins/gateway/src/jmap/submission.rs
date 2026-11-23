@@ -1,14 +1,13 @@
-//! EmailSubmission request translation (#317), using the submission capability.
+//! EmailSubmission request translation (#317, #328), using the submission capability.
 use super::envelope::single_call_with_capability;
 use super::get::parse_id;
 use super::submission_input::{self, Failure};
-use serde_json::value::RawValue;
 use serde_json::Value;
-use std::collections::BTreeMap;
 
 pub const CAPABILITY: &str = "urn:ietf:params:jmap:submission";
 pub(crate) struct SubmissionRequest {
-    pub account_id: i64,
+    pub raw_account_id: String,
+    #[allow(dead_code)]
     pub client_id: String,
     pub args: Arguments,
 }
@@ -42,36 +41,6 @@ impl Arguments {
     }
 }
 impl SubmissionRequest {
-    pub(super) async fn needs_preprocessing(
-        &self,
-        exec: &setjoin_pg::ScopedExecutor,
-        auth: &setjoin_pg::MailboxAuthContext,
-    ) -> Result<bool, setjoin_pg::StatementFailure> {
-        let Arguments::Set(Ok(Some(raw))) = &self.args else {
-            return Ok(false);
-        };
-        // Already validated by classify, retaining raw nested Go key semantics.
-        let map: BTreeMap<String, Box<RawValue>> =
-            serde_json::from_str(raw).expect("classified creation map");
-        let mut ids = Vec::new();
-        for raw in map.values() {
-            let Some(email) = submission_input::attachment_email_id(raw.get()) else {
-                continue;
-            };
-            if email.is_empty() {
-                continue;
-            }
-            let Ok(id) = email.parse::<i64>() else {
-                // Go's MIME helper owns load-draft failures as notCreated too.
-                return Ok(true);
-            };
-            ids.push(id);
-        }
-        if ids.is_empty() {
-            return Ok(false);
-        }
-        setjoin_jmap::submission::has_attachments(exec, auth, &ids).await
-    }
     pub(super) fn early_error(&self) -> Option<&Failure> {
         match &self.args {
             Arguments::Rejected {
@@ -81,6 +50,7 @@ impl SubmissionRequest {
         }
     }
 }
+#[allow(dead_code)]
 pub(crate) fn classify(body: &[u8]) -> Option<SubmissionRequest> {
     let (method, call) = [
         "EmailSubmission/set",
@@ -92,29 +62,35 @@ pub(crate) fn classify(body: &[u8]) -> Option<SubmissionRequest> {
     .find_map(|method| {
         single_call_with_capability(body, method, CAPABILITY).map(|call| (method, call))
     })?;
+    classify_call(method, &call.raw_args, &call.client_id)
+}
+
+pub(crate) fn classify_call(
+    method: &str,
+    raw_args: &str,
+    client_id: &str,
+) -> Option<SubmissionRequest> {
+    let method: &'static str = match method {
+        "EmailSubmission/set" => "EmailSubmission/set",
+        "EmailSubmission/cancel" => "EmailSubmission/cancel",
+        "EmailSubmission/get" => "EmailSubmission/get",
+        "EmailSubmission/query" => "EmailSubmission/query",
+        _ => return None,
+    };
     let rejected = |error| SubmissionRequest {
-        account_id: 0,
-        client_id: call.client_id.clone(),
+        raw_account_id: String::new(),
+        client_id: client_id.to_owned(),
         args: Arguments::Rejected {
             method,
             error,
             early: true,
         },
     };
-    let input = match submission_input::decode(method, &call.raw_args) {
+    let input = match submission_input::decode(method, raw_args) {
         Ok(v) => v,
         Err(e) => return Some(rejected(e)),
     };
-    let account_id = match parse_id(&input.account) {
-        Some(v) => v,
-        None => {
-            return Some(rejected(Failure::account(if input.account.is_empty() {
-                "accountId is required"
-            } else {
-                "invalid accountId"
-            })))
-        }
-    };
+    let raw_account_id = input.account;
     let args = match method {
         "EmailSubmission/get" => {
             let raw = input.ids.unwrap_or_default();
@@ -161,19 +137,7 @@ pub(crate) fn classify(body: &[u8]) -> Option<SubmissionRequest> {
                 None => Ok(None),
                 Some(raw) if raw == "null" => Ok(Some("{}".into())),
                 Some(raw) => match serde_json::from_str::<Value>(&raw).ok()? {
-                    Value::Object(_) => {
-                        // Preserve duplicate nested fields and Go's folded
-                        // probe semantics before the whole-map #328 boundary.
-                        let map: BTreeMap<String, Box<RawValue>> =
-                            serde_json::from_str(&raw).ok()?;
-                        if map
-                            .values()
-                            .any(|v| submission_input::smime_requested(v.get()))
-                        {
-                            return None;
-                        }
-                        Ok(Some(raw))
-                    }
+                    Value::Object(_) => Ok(Some(raw)),
                     value => {
                         let kind = match value {
                             Value::Array(_) => "array",
@@ -190,33 +154,31 @@ pub(crate) fn classify(body: &[u8]) -> Option<SubmissionRequest> {
         _ => unreachable!(),
     };
     Some(SubmissionRequest {
-        account_id,
-        client_id: call.client_id,
+        raw_account_id,
+        client_id: client_id.to_owned(),
         args,
     })
 }
 
-/// Render a claimed call. Once claimed, a database failure is a native JMAP
-/// error; an ambiguous commit carries its operation ID and is never replayed.
-pub(crate) async fn response(
+/// Render a claimed call for batch/single dispatch (`(name, payload_json)`).
+/// Once claimed, a database failure is a native JMAP error; an ambiguous
+/// commit carries its operation ID and is never replayed.
+pub(crate) async fn response_call(
     exec: &setjoin_pg::ScopedExecutor,
     auth: &setjoin_pg::MailboxAuthContext,
     worker: &setjoin_pg::ScopedExecutor,
+    services: Option<&super::JmapServices>,
     request: SubmissionRequest,
-    session: &str,
     operation: [u8; 16],
     digest: [u8; 32],
-) -> String {
+) -> (&'static str, String) {
     use super::reply;
     let method = request.args.method();
     let raw = match request.args {
         Arguments::Rejected { error, .. } => {
-            return reply::method_error(
-                session,
-                error.kind,
-                error.status,
-                &error.detail,
-                &request.client_id,
+            return (
+                "error",
+                reply::jmap_error_json(error.kind, error.status, &error.detail),
             )
         }
         Arguments::Get { ids, bad } => setjoin_jmap::submission::get(exec, auth, ids.as_deref())
@@ -228,15 +190,39 @@ pub(crate) async fn response(
             limit,
         } => setjoin_jmap::submission::query(exec, auth, filter.as_deref(), position, limit).await,
         Arguments::Set(Err(detail)) => {
-            return reply::method_error(
-                session,
-                "invalidArguments",
-                400,
-                &detail,
-                &request.client_id,
+            return (
+                "error",
+                reply::jmap_error_json("invalidArguments", 400, &detail),
             )
         }
         Arguments::Set(Ok(create)) => {
+            let processed = match create.as_deref() {
+                Some(raw_create) => {
+                    let key_worker = services.map(|s| &s.worker).unwrap_or(worker);
+                    let store = services.and_then(|s| s.store.as_deref());
+                    let algorithm = services
+                        .map_or_else(setjoin_smtp::smime::EncryptAlgorithm::from_env, |s| {
+                            s.encrypt_algorithm
+                        });
+                    Some(
+                        super::smime_outbound::process_submissions(
+                            key_worker, store, algorithm, auth, raw_create,
+                        )
+                        .await,
+                    )
+                }
+                None => None,
+            };
+            let modified_create = processed.as_ref().map(|p| p.modified_create_json.as_str());
+            let processed_refs = processed
+                .as_ref()
+                .and_then(|p| p.processed_refs_json.as_deref());
+            let is_encrypted = processed
+                .as_ref()
+                .and_then(|p| p.is_encrypted_json.as_deref());
+            let processed_sizes: &[setjoin_jmap::submission::ProcessedSize] = processed
+                .as_ref()
+                .map_or(&[], |p| p.processed_sizes.as_slice());
             let envelope = setjoin_contracts::command::CommandEnvelope {
                 operation: setjoin_contracts::ids::OperationId(operation),
                 authority: auth.authority(),
@@ -249,44 +235,47 @@ pub(crate) async fn response(
                 auth,
                 &envelope,
                 std::time::Instant::now() + super::COMMAND_DEADLINE,
-                create.as_deref(),
+                modified_create,
+                processed_refs,
+                is_encrypted,
+                processed_sizes,
             )
             .await
             {
-                setjoin_pg::CommandOutcome::Committed(raw) => Ok(raw),
+                setjoin_pg::CommandOutcome::Committed(raw) => Ok(match &processed {
+                    Some(p) if !p.not_created.is_empty() => {
+                        super::smime_outbound::merge_not_created(&raw, &p.not_created)
+                    }
+                    _ => raw,
+                }),
                 setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(
                     failure,
                 )) => Err(failure),
                 setjoin_pg::CommandOutcome::RolledBack(_) => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        "database error",
-                        &request.client_id,
+                    return (
+                        "error",
+                        reply::jmap_error_json("serverFail", 500, "database error"),
                     )
                 }
                 setjoin_pg::CommandOutcome::Unknown { operation } => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        &format!(
-                            "commit outcome unknown; look up operation {}",
-                            setjoin_pg::operation_hex(operation)
+                    return (
+                        "error",
+                        reply::jmap_error_json(
+                            "serverFail",
+                            500,
+                            &format!(
+                                "commit outcome unknown; look up operation {}",
+                                setjoin_pg::operation_hex(operation)
+                            ),
                         ),
-                        &request.client_id,
                     )
                 }
             }
         }
         Arguments::Cancel(Err(detail)) => {
-            return reply::method_error(
-                session,
-                "invalidArguments",
-                400,
-                detail,
-                &request.client_id,
+            return (
+                "error",
+                reply::jmap_error_json("invalidArguments", 400, detail),
             )
         }
         Arguments::Cancel(Ok(email_id)) => {
@@ -311,75 +300,36 @@ pub(crate) async fn response(
                     failure,
                 )) => Err(failure),
                 setjoin_pg::CommandOutcome::RolledBack(_) => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        "database error",
-                        &request.client_id,
+                    return (
+                        "error",
+                        reply::jmap_error_json("serverFail", 500, "database error"),
                     )
                 }
                 setjoin_pg::CommandOutcome::Unknown { operation } => {
-                    return reply::method_error(
-                        session,
-                        "serverFail",
-                        500,
-                        &format!(
-                            "commit outcome unknown; look up operation {}",
-                            setjoin_pg::operation_hex(operation)
+                    return (
+                        "error",
+                        reply::jmap_error_json(
+                            "serverFail",
+                            500,
+                            &format!(
+                                "commit outcome unknown; look up operation {}",
+                                setjoin_pg::operation_hex(operation)
+                            ),
                         ),
-                        &request.client_id,
                     )
                 }
             }
         }
     };
     match raw {
-        Ok(raw) => {
-            let mut body = reply::method_response(session, method, &raw, &request.client_id)
-                .expect("reducer JSON");
-            if method == "EmailSubmission/set" {
-                // Go's dispatcher accumulates every /set response's created IDs
-                // into the final envelope, sorted as an encoding/json map.
-                let result: Value = serde_json::from_str(&raw).expect("reducer JSON");
-                if let Some(created) = result
-                    .get("created")
-                    .and_then(Value::as_object)
-                    .filter(|m| !m.is_empty())
-                {
-                    let ids: BTreeMap<&str, &str> = created
-                        .iter()
-                        .map(|(key, item)| {
-                            (
-                                key.as_str(),
-                                item.get("id").and_then(Value::as_str).unwrap_or(""),
-                            )
-                        })
-                        .collect();
-                    let ids = reply::go_compact(&serde_json::to_string(&ids).expect("string map"))
-                        .expect("string map");
-                    body.truncate(body.len() - 2);
-                    body.push_str(&format!(",\"createdIds\":{ids}}}\n"));
-                }
-            }
-            body
-        }
+        Ok(raw) => (method, raw),
         Err(failure) if failure.sqlstate.as_deref() == Some("BZ020") => {
-            reply::method_error(session, "notFound", 500, "notFound", &request.client_id)
+            ("error", reply::jmap_error_json("notFound", 500, "notFound"))
         }
-        Err(failure) => reply::failure_error(
-            session,
-            setjoin_jmap::classify_failure(&failure),
-            &request.client_id,
-        )
-        .unwrap_or_else(|| {
-            reply::method_error(
-                session,
-                "serverFail",
-                500,
-                "database error",
-                &request.client_id,
-            )
-        }),
+        Err(failure) => (
+            "error",
+            reply::failure_json(setjoin_jmap::classify_failure(&failure))
+                .unwrap_or_else(|| reply::jmap_error_json("serverFail", 500, "database error")),
+        ),
     }
 }

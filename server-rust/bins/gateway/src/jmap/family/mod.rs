@@ -35,6 +35,12 @@ pub(crate) use crate::jmap::get::parse_id;
 pub use seam::ContinuitySigner;
 pub(crate) use seam::Cx;
 
+/// Go's `parseArg` (`parse.go:32`): positive int64 id, or `invalidArguments`
+/// `"invalid <property>"`.
+pub(crate) fn parse_arg(id: &str, property: &str) -> Result<i64, MethodError> {
+    parse_id(id).ok_or_else(|| MethodError::new("invalidArguments", &format!("invalid {property}")))
+}
+
 /// Every family's registry rows. Names are unique across families.
 const REGISTRY: &[&[Method]] = &[
     address_book::METHODS,
@@ -210,6 +216,31 @@ pub(crate) fn classify(
     classify_with(body, services, find)
 }
 
+pub(super) fn classify_call(
+    name: &str,
+    raw: &str,
+    client_id: &str,
+    services: Option<&crate::jmap::JmapServices>,
+) -> Option<Request> {
+    let method = find(name)?;
+    if !(method.ready)(Ready::of(services)) {
+        return None;
+    }
+    if raw.len() > MAX_ARGS {
+        return None;
+    }
+    if let Value::Object(map) = serde_json::from_str::<Value>(raw).ok()? {
+        if map.keys().any(|key| key.starts_with('#')) {
+            return None;
+        }
+    }
+    Some(Request {
+        method,
+        args: raw.to_owned(),
+        client_id: client_id.to_owned(),
+    })
+}
+
 fn classify_with(
     body: &[u8],
     services: Option<&crate::jmap::JmapServices>,
@@ -316,8 +347,8 @@ fn created_ids(name: &str, args: &str) -> Option<String> {
     go_compact(&serde_json::to_string(&ids).ok()?)
 }
 
-/// Go's `dispatchInvocation` (handler.go:1527) and the HTTP envelope.
-pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String {
+/// Go's `dispatchInvocation` (handler.go:1527), returning `(name, compacted_args)`.
+pub(super) async fn serve_call(cx: &Cx<'_>) -> (&'static str, String) {
     let method = cx.method();
     let handled = if !matches!(
         serde_json::from_str::<Value>(cx.args()),
@@ -335,13 +366,18 @@ pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String
     } else {
         (method.run)(cx).await
     };
-    let (name, args) = match handled {
+    match handled {
         Ok(answer) => match go_compact(&answer.args) {
             Some(args) => (answer.name, args),
             None => ("error", MethodError::server_fail().json()),
         },
         Err(error) => ("error", error.json()),
-    };
+    }
+}
+
+/// Go's `dispatchInvocation` (handler.go:1527) and the HTTP envelope.
+pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String {
+    let (name, args) = serve_call(cx).await;
     match created_ids(name, &args) {
         Some(ids) => format!(
             "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]],\"createdIds\":{}}}\n",
@@ -597,6 +633,30 @@ mod tests {
         assert_eq!(
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/get\",{\"a\":1},\"c1\"]]}\n"
+        );
+        fn run_created<'a>(_: &'a Cx<'a>) -> Reply<'a> {
+            Box::pin(async {
+                Ok(Answer {
+                    name: "Test/set",
+                    args: r#"{"created":{"b<":{"id":"2"},"a":{"id":"1"}}}"#.into(),
+                })
+            })
+        }
+        static CREATED: Method = Method {
+            name: "Test/set",
+            capability: "urn:test",
+            app: "",
+            gate: Gate::Personal,
+            account: true,
+            mutator: true,
+            state: false,
+            ready: always,
+            run: run_created,
+        };
+        let cx = Cx::new(&exec, None, &auth, 1, 2, &CREATED, "{}");
+        assert_eq!(
+            serve(&cx, "c1", "s").await,
+            "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/set\",{\"created\":{\"b\\u003c\":{\"id\":\"2\"},\"a\":{\"id\":\"1\"}}},\"c1\"]],\"createdIds\":{\"a\":\"1\",\"b\\u003c\":\"2\"}}\n"
         );
         let cx = Cx::new(&exec, None, &auth, 1, 2, &SET_METHOD, "null");
         assert_eq!(

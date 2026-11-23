@@ -13,8 +13,8 @@ impl AuthServer {
             }
             r
         };
-        let token = Self::presented_access_token(req.headers())
-            .ok_or_else(|| deny(401, "Unauthorized"))?;
+        let token =
+            Self::presented_access_token(req.headers()).ok_or_else(|| deny(401, "Unauthorized"))?;
         self.verify_presented_access(req, &token, true)
             .map_err(|e| match e {
                 dpop::AccessError::Unauthorized => deny(401, "Unauthorized"),
@@ -589,6 +589,7 @@ pub(super) struct MfaTokens {
     pub(super) family: String,
     pub(super) jti: String,
     pub(super) factors: Vec<String>,
+    pub(super) persist: String,
 }
 /// Whether a completion mint may proceed for a guest principal. MFA completions
 /// mint `acct: guest` (Go issueTokensWithFactors). SSO refuses at mint time: this is an
@@ -601,41 +602,14 @@ pub(super) enum GuestMint {
     Refuse,
 }
 impl AuthServer {
-    /// Completion routing (#405/#420). Ok(true) forwards whole to frozen Go, Ok(false) stays
-    /// native, and a flag-lookup error refuses (#454 Codex r1): Go's risk read fails open, so an
-    /// unreadable routing flag must never hand a completion to it.
-    pub(super) async fn totp_completion_route(&self, req: &Request<Body>) -> Result<bool, ()> {
-        if [
-            "x-device-id",
-            "x-device-hmac",
-            "x-device-timestamp",
-            "x-device-nonce",
-            "x-device-body-sha256",
-        ]
-        .iter()
-        .any(|h| req.headers().contains_key(*h))
-        {
-            return Ok(true);
-        } // #420.
-        for key in [
-            "feature.conditional_access",
-            "feature.device_trust_enforcement",
-        ] {
-            if login::enabled(&self.exec, key).await.map_err(|_| ())? {
-                return Ok(true);
-            } // #405/#420.
-        }
-        Ok(false)
-    }
     /// Go evaluateCompletionConditionalAccess → populateGuestCAScope (auth.go:2603,
     /// 2499-2517): every factor completion resolves guest scope before domain
-    /// scope. An error, no row or a NULL is Go's 503 (a Scan failure). The value
-    /// only feeds CA, which forwards whole while on (#351).
+    /// scope. An error, no row or a NULL is Go's 503 (a Scan failure).
     pub(super) async fn completion_guest_scope(
         &self,
         user: i64,
         path: &str,
-    ) -> Result<(), Response<Body>> {
+    ) -> Result<bool, Response<Body>> {
         let rows = self
             .exec
             .read(
@@ -644,14 +618,14 @@ impl AuthServer {
             )
             .await;
         match rows {
-            Ok(rows)
-                if rows
-                    .first()
-                    .and_then(|r| r.try_get::<_, bool>(0).ok())
-                    .is_some() =>
-            {
-                Ok(())
-            }
+            Ok(rows) => match rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()) {
+                Some(guest) => Ok(guest),
+                None => Err(Self::failure(
+                    503,
+                    "conditional access context unavailable",
+                    path,
+                )),
+            },
             _ => Err(Self::failure(
                 503,
                 "conditional access context unavailable",
@@ -674,6 +648,7 @@ impl AuthServer {
             || meta.is_some_and(|m| m.tls)
             || ((self.config.trust_proxy || trusted) && scheme == "https")
     }
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn mfa_tokens(
         &self,
         user: &totp::CompletionUser,
@@ -683,16 +658,52 @@ impl AuthServer {
         factors: Option<Vec<String>>,
         risk: Option<Value>,
         dpop_jkt: Option<String>,
+        device: setjoin_authz::device::DeviceRequest<'_>,
+        ip: &str,
+        agent: &str,
+        ca_enabled: bool,
+        dt_enabled: bool,
     ) -> Result<MfaTokens, Response<Body>> {
-        self.completion_guest_scope(user.user(), path).await?;
+        let is_guest = self.completion_guest_scope(user.user(), path).await?;
+        let device_binding = self
+            .resolve_device(
+                user.user(),
+                device.method,
+                device.uri,
+                device.headers,
+                device.body,
+            )
+            .await;
+        let factors = factors.unwrap_or_else(|| totp::factors(pending));
+        let auth_method = Self::auth_method_from_completed_factors(&factors);
+        let ca_policy_id = self
+            .evaluate_ca(
+                ca_enabled,
+                self.ca_context(
+                    user.user(),
+                    is_guest,
+                    ip,
+                    agent,
+                    &device_binding,
+                    auth_method,
+                ),
+                true,
+                None,
+                path,
+            )
+            .await?;
         self.completion_tokens(
             user,
             path,
             family,
-            factors.unwrap_or_else(|| totp::factors(pending)),
+            factors,
             GuestMint::Allow,
             risk,
             dpop_jkt,
+            ca_policy_id,
+            dt_enabled,
+            ip,
+            agent,
         )
         .await
     }
@@ -706,6 +717,10 @@ impl AuthServer {
         guest_mint: GuestMint,
         risk: Option<Value>,
         dpop_jkt: Option<String>,
+        ca_policy_id: i64,
+        dt_enabled: bool,
+        ip: &str,
+        agent: &str,
     ) -> Result<MfaTokens, Response<Body>> {
         let scope = user
             .scope(&self.exec)
@@ -774,6 +789,13 @@ impl AuthServer {
             access["cnf"] = json!({"jkt": jkt});
             refresh["cnf"] = json!({"jkt": jkt});
         }
+        let device_claim = self
+            .resolve_device_claim(user.user(), agent, ip, dt_enabled)
+            .await;
+        // Frozen Go inherits `sif` from the matched CA policy on MFA completions while
+        // preserving full-TTL cookie persistence ("always") unless set by password login.
+        let (sif, _) = self.session_controls(ca_policy_id).await;
+        Self::apply_session_claims(&mut access, &mut refresh, now, device_claim.as_ref(), sif);
         Ok(MfaTokens {
             access: self
                 .sign(&access)
@@ -784,6 +806,7 @@ impl AuthServer {
             family,
             jti,
             factors,
+            persist: "always".to_owned(),
         })
     }
     async fn mfa_publish(
@@ -813,37 +836,32 @@ impl AuthServer {
         );
         r.headers_mut().insert(
             "set-cookie",
-            format!(
-                "access_token={}; Path=/; Max-Age={}; HttpOnly;{} SameSite=Strict",
-                tokens.access,
-                self.config.access_seconds,
-                if secure { " Secure;" } else { "" }
-            )
-            .parse()
-            .unwrap(),
+            self.access_cookie_header(&tokens.access, secure, &tokens.persist, false),
         );
         r
     }
     pub(super) async fn totp_verify(&self, req: Request<Body>) -> Response<Body> {
-        let route = self.totp_completion_route(&req).await;
-        if route.is_err() {
-            return Self::failure(500, "internal error", req.uri().path());
-        }
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
+        };
         let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if route == Ok(true) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.totp_verify_admitted(req).await;
+        let reply = self.totp_verify_admitted(req, ca_enabled, dt_enabled).await;
         self.threat_tail(admitted, reply).await
     }
-    async fn totp_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
+    async fn totp_verify_admitted(
+        &self,
+        req: Request<Body>,
+        ca_enabled: bool,
+        dt_enabled: bool,
+    ) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -853,7 +871,8 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -918,8 +937,27 @@ impl AuthServer {
             Ok(None) => return Self::failure(401, "user not found", &path),
             Err(_) => return Self::failure(500, "internal error", &path),
         };
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
         let tokens = match self
-            .mfa_tokens(&user, &pending, &path, None, None, risk, dpop_jkt)
+            .mfa_tokens(
+                &user,
+                &pending,
+                &path,
+                None,
+                None,
+                risk,
+                dpop_jkt,
+                setjoin_authz::device::DeviceRequest {
+                    headers: &parts.headers,
+                    method: parts.method.as_str(),
+                    uri,
+                    body: &raw,
+                },
+                &ip,
+                &agent,
+                ca_enabled,
+                dt_enabled,
+            )
             .await
         {
             Ok(t) => t,
@@ -992,25 +1030,29 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn totp_bootstrap_confirm(&self, req: Request<Body>) -> Response<Body> {
-        let route = self.totp_completion_route(&req).await;
-        if route.is_err() {
-            return Self::failure(500, "internal error", req.uri().path());
-        }
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
+        };
         let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if route == Ok(true) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.totp_bootstrap_confirm_admitted(req).await;
+        let reply = self
+            .totp_bootstrap_confirm_admitted(req, ca_enabled, dt_enabled)
+            .await;
         self.threat_tail(admitted, reply).await
     }
-    async fn totp_bootstrap_confirm_admitted(&self, req: Request<Body>) -> Response<Body> {
+    async fn totp_bootstrap_confirm_admitted(
+        &self,
+        req: Request<Body>,
+        ca_enabled: bool,
+        dt_enabled: bool,
+    ) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -1020,7 +1062,8 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -1088,6 +1131,12 @@ impl AuthServer {
         let path_ref = &path;
         let risk_ref = &risk;
         let dpop_jkt_ref = &dpop_jkt;
+        let uri_ref = parts.uri.path_and_query().map_or("/", |p| p.as_str());
+        let headers_ref = &parts.headers;
+        let method_ref = parts.method.as_str();
+        let raw_ref = &raw;
+        let ip_ref = ip.as_str();
+        let agent_ref = agent.as_str();
         let result = totp::bootstrap_confirm(
             &self.exec,
             &pending,
@@ -1121,6 +1170,16 @@ impl AuthServer {
                         None,
                         risk_ref.clone(),
                         dpop_jkt_ref.clone(),
+                        setjoin_authz::device::DeviceRequest {
+                            headers: headers_ref,
+                            method: method_ref,
+                            uri: uri_ref,
+                            body: raw_ref,
+                        },
+                        ip_ref,
+                        agent_ref,
+                        ca_enabled,
+                        dt_enabled,
                     )
                     .await
                 {
@@ -1268,27 +1327,29 @@ impl AuthServer {
 
 impl AuthServer {
     pub(super) async fn backup_verify(&self, req: Request<Body>) -> Response<Body> {
-        // #454 Codex r2: a flag error refuses locally, and the body bound runs before any
-        // handoff, so an oversized request answers 413 here and never reaches the upstream.
-        let route = self.totp_completion_route(&req).await;
-        if route.is_err() {
-            return Self::failure(500, "internal error", req.uri().path());
-        }
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
+            Err(()) => return Self::failure(500, "internal error", req.uri().path()),
+        };
         let staged = match self.threat_stage(req, http_threat::Route::Anonymous).await {
             Ok(staged) => staged,
             Err(reply) => return reply,
         };
-        if route == Ok(true) {
-            return self.forward(staged.into_request()).await;
-        }
         let (req, admitted) = match self.threat_admit(staged).await {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.backup_verify_admitted(req).await;
+        let reply = self
+            .backup_verify_admitted(req, ca_enabled, dt_enabled)
+            .await;
         self.threat_tail(admitted, reply).await
     }
-    async fn backup_verify_admitted(&self, req: Request<Body>) -> Response<Body> {
+    async fn backup_verify_admitted(
+        &self,
+        req: Request<Body>,
+        ca_enabled: bool,
+        dt_enabled: bool,
+    ) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
@@ -1298,7 +1359,8 @@ impl AuthServer {
             .and_then(|s| s.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -1352,6 +1414,7 @@ impl AuthServer {
             }
             _ => return Self::failure(500, "verification failed", &path),
         }
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
         self.mfa_finish(
             pending,
             path,
@@ -1361,7 +1424,15 @@ impl AuthServer {
             None,
             (401, "user not found"),
             dpop_jkt,
+            setjoin_authz::device::DeviceRequest {
+                headers: &parts.headers,
+                method: parts.method.as_str(),
+                uri,
+                body: &raw,
+            },
             risk,
+            ca_enabled,
+            dt_enabled,
             true,
         )
         .await
@@ -1377,7 +1448,10 @@ impl AuthServer {
         factors: Option<Vec<String>>,
         missing: (u16, &str),
         dpop_jkt: Option<String>,
+        device: setjoin_authz::device::DeviceRequest<'_>,
         risk: Option<Value>,
+        ca_enabled: bool,
+        dt_enabled: bool,
         stamp_user: bool,
     ) -> Response<Body> {
         let user = match totp::CompletionUser::load(&self.exec, &pending).await {
@@ -1386,7 +1460,10 @@ impl AuthServer {
             _ => return Self::failure(missing.0, missing.1, &path),
         };
         let tokens = match self
-            .mfa_tokens(&user, &pending, &path, None, factors, risk, dpop_jkt)
+            .mfa_tokens(
+                &user, &pending, &path, None, factors, risk, dpop_jkt, device, &ip, &agent,
+                ca_enabled, dt_enabled,
+            )
             .await
         {
             Ok(t) => t,

@@ -15,7 +15,7 @@ setjoin-schema = { path = "../../crates/schema" }
 setjoin-push = { path = "../../crates/push" }
 x509-parser = "=0.18.1"
 num-bigint = "=0.4.6"
-url = "=2.5.8"
+url = "=2.5.9"
 sm3 = "=0.4.2"
 pbkdf2 = "=0.12.2"
 base64 = "=0.22.1"

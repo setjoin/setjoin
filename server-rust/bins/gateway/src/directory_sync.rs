@@ -118,7 +118,9 @@ fn action(method: &Method, path: &str) -> Option<Action> {
 }
 
 impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         action(r.method(), r.uri().path()).is_some()
     }
@@ -135,27 +137,56 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
         let ldap_runtime = self.ldap.clone();
         let ad_runtime = self.ad.clone();
         Box::pin(async move {
-            let Some(what) = action(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
-            let Some(auth) = setjoin_authz::authorize_request(
-                &exec,
-                &keys,
-                &issuer,
-                r.headers(),
-                c.identity.proto,
-            )
-            .await
-            else {
-                return c.upstream.forward(r, &c.identity).await;
+            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let auth = match verdict {
+                Ok(auth) => auth,
+                Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
             };
             let Some(operation) = crate::jmap::random() else {
                 return fail(503, "service unavailable", &c, "");
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
-            let Ok(authority) = setjoin_directory_sync::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
+            let writes = matches!(
+                what,
+                Action::Resolve
+                    | Action::ResolveAll
+                    | Action::FieldPolicySet
+                    | Action::Principal
+                    | Action::LdapPut
+                    | Action::LdapTest
+                    | Action::LdapPreview
+                    | Action::LdapSync
+                    | Action::AdPut
+                    | Action::AdTest
+                    | Action::AdSync
+            );
+            let required: &[&str] = if writes {
+                &setjoin_directory_sync::IDENTITY_WRITE
+            } else {
+                &setjoin_directory_sync::AUTH_CONSOLE
+            };
+            let authority = match setjoin_directory_sync::authority(&exec, actor).await {
+                Ok(authority) if authority.allows_any(required) => authority,
+                _ => {
+                    let decoded = crate::guests_input::go_utf8(&crate::inventory::unescape(
+                        r.uri()
+                            .path()
+                            .strip_prefix("/api")
+                            .unwrap_or(r.uri().path()),
+                    ));
+                    let _ = setjoin_directory_sync::console_denied(
+                        &exec,
+                        actor,
+                        &decoded,
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return fail(403, "Forbidden", &c, &id);
+                }
             };
             if ldap_runtime.is_none()
                 && matches!(
@@ -176,42 +207,6 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                 )
             {
                 return c.upstream.forward(r, &c.identity).await;
-            }
-            let writes = matches!(
-                what,
-                Action::Resolve
-                    | Action::ResolveAll
-                    | Action::FieldPolicySet
-                    | Action::Principal
-                    | Action::LdapPut
-                    | Action::LdapTest
-                    | Action::LdapPreview
-                    | Action::LdapSync
-                    | Action::AdPut
-                    | Action::AdTest
-                    | Action::AdSync
-            );
-            let required: &[&str] = if writes {
-                &setjoin_directory_sync::IDENTITY_WRITE
-            } else {
-                &setjoin_directory_sync::AUTH_CONSOLE
-            };
-            if !authority.allows_any(required) {
-                let decoded = crate::guests_input::go_utf8(&crate::inventory::unescape(
-                    r.uri()
-                        .path()
-                        .strip_prefix("/api")
-                        .unwrap_or(r.uri().path()),
-                ));
-                let _ = setjoin_directory_sync::console_denied(
-                    &exec,
-                    actor,
-                    &decoded,
-                    &required.join("|"),
-                    operation,
-                )
-                .await;
-                return fail(403, "Forbidden", &c, &id);
             }
             let scope = authority.domain_scope();
             let reply =
@@ -325,10 +320,8 @@ impl<K: KeySource + 'static> Intercept for DirectorySyncRoute<K> {
                             .await
                         }
                         None => {
-                            setjoin_directory_sync::resolve_all(
-                                &exec, actor, resolution, operation,
-                            )
-                            .await
+                            setjoin_directory_sync::resolve_all(&exec, actor, resolution, operation)
+                                .await
                         }
                     };
                     match outcome {

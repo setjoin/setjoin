@@ -191,6 +191,7 @@ async fn purge_user_rows(c: &tokio_postgres::Client, u: i64, email: &str) -> Res
             .await?;
     }
     c.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={u};COMMIT")).await?;
+    c.batch_execute(&format!("BEGIN;SET LOCAL ca.signin_log_prune='on';DELETE FROM ca_signin_log WHERE user_id={u};COMMIT")).await?;
     Ok(())
 }
 
@@ -708,7 +709,7 @@ fn tokens_of(raw: &str) -> Result<(Value, Value), Err> {
 }
 
 /// The matrix conditions. `FlagErr` makes the routing-flag read fail: the completion refuses
-/// with 500 and never forwards (#454 Codex r1); `Ca`/`Dt` forward whole; `Clear` stays native.
+/// with 500 and never forwards (#454 Codex r1); `Ca`/`Dt`/`Clear` execute natively (#351).
 #[derive(Clone, Copy, Debug)]
 enum Cond {
     Ca,
@@ -771,7 +772,23 @@ async fn n1_cell(
         };
         let (status, raw) = case.send(query).await?;
         let after = case.snap(c).await?;
-        if matches!(cond, Cond::Clear) {
+        if matches!(cond, Cond::FlagErr) {
+            // #454 (Codex r1): an unreadable routing flag refuses; frozen Go, whose risk read
+            // fails open, must never receive the completion.
+            check(
+                status == 500 && raw.contains("internal error"),
+                &format!("{what}: want 500 internal error, got {status}: {raw}"),
+            )?;
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            check(
+                seen.try_recv().is_err(),
+                &format!("{what}: a flag-lookup error reached the upstream"),
+            )?;
+            check(
+                before == after,
+                &format!("{what}: the refusal consumed state: {before} -> {after}"),
+            )?;
+        } else {
             check(
                 status == 200,
                 &format!("{what}: native status {status}: {raw}"),
@@ -789,44 +806,6 @@ async fn n1_cell(
                 refresh.get("acct").is_none(),
                 &format!("{what}: refresh must not carry acct"),
             )?;
-        } else if matches!(cond, Cond::FlagErr) {
-            // #454 (Codex r1): an unreadable routing flag refuses; frozen Go, whose risk read
-            // fails open, must never receive the completion.
-            check(
-                status == 500 && raw.contains("internal error"),
-                &format!("{what}: want 500 internal error, got {status}: {raw}"),
-            )?;
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            check(
-                seen.try_recv().is_err(),
-                &format!("{what}: a flag-lookup error reached the upstream"),
-            )?;
-            check(
-                before == after,
-                &format!("{what}: the refusal consumed state: {before} -> {after}"),
-            )?;
-        } else {
-            let got = tokio::time::timeout(std::time::Duration::from_secs(10), seen.recv())
-                .await
-                .map_err(|_| format!("{what}: nothing forwarded"))?
-                .ok_or("spy closed")?;
-            let want = (
-                case.mat.method.to_owned(),
-                format!("{}{query}", case.mat.path),
-                case.mat.body.clone().into_bytes(),
-            );
-            check(
-                got == want,
-                &format!("{what}: forwarded request differs from the original"),
-            )?;
-            check(
-                status == 200 && raw == "forwarded",
-                &format!("{what}: upstream answer not relayed: {status} {raw}"),
-            )?;
-            check(
-                before == after,
-                &format!("{what}: forward consumed state: {before} -> {after}"),
-            )?;
         }
         Ok(())
     }
@@ -841,7 +820,7 @@ async fn n1_cell(
 }
 
 #[tokio::test]
-async fn n1_handoff_matrix_forwards_whole_flag_error_refuses_clear_is_native() {
+async fn n1_handoff_matrix_flag_error_refuses_ca_dt_and_clear_are_native() {
     let (_serial, db, c) = begin("GUEST353-n1").await.unwrap();
     let saved = save_flags(&c).await.unwrap();
     let mut result: Result<(), Err> = Ok(());
@@ -1144,7 +1123,8 @@ fn own_part(s: &str) -> &str {
 async fn failclosed_454_risk_fault_spends_no_factor_and_issues_no_token() {
     let (_serial, db, c) = begin("GUEST353-failclosed-risk").await.unwrap();
     let saved = save_flags(&c).await.unwrap();
-    let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
+    let app =
+        setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
     let mut result: Result<(), Err> = Ok(());
     for (n, route) in ROUTES.iter().enumerate() {
         result = failclosed_risk_cell(&db, &c, &app, route, n).await;
@@ -1199,7 +1179,8 @@ async fn failclosed_risk_cell(
 async fn failclosed_454_webauthn_factor_fault_issues_no_token() {
     let (_serial, db, c) = begin("GUEST353-failclosed-factors").await.unwrap();
     let saved = save_flags(&c).await.unwrap();
-    let app = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
+    let app =
+        setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().expect("DB_APP_DSN"), 2).unwrap();
     let result = async {
         set_flags(&c, false, false).await?;
         let case = Case::new(&db, &c, "webauthn", false, "failclosed-factors", None).await?;
@@ -1279,7 +1260,10 @@ async fn n2_oversized_backup_refuses_locally_even_with_ca_on() {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         let forwarded = seen.try_recv().is_ok();
         let (status, raw) = sent?;
-        check(!forwarded, "an oversized backup request reached the upstream")?;
+        check(
+            !forwarded,
+            "an oversized backup request reached the upstream",
+        )?;
         check(
             status == 413 && raw.contains("body_too_large"),
             &format!("want the local 413 body_too_large, got {status}: {raw}"),

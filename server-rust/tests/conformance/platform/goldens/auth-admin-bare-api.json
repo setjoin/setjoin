@@ -1,0 +1,65 @@
+{
+  "case": "bare-api",
+  "format": 1,
+  "go_source": "95fa35349d1c79a241283116d4219d6035d6c946",
+  "observation": {
+    "audit": [],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "none"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/api/auth/admin",
+      "method": "*",
+      "path": "/auth/admin/",
+      "wire_method": "GET"
+    },
+    "response": {
+      "body": "<a href=\"/auth/admin/\">Temporary Redirect</a>.\n\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "48"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "text/html; charset=utf-8"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "location": [
+          "/auth/admin/"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-auth-admin-oracle"
+        ]
+      },
+      "status": 307
+    }
+  },
+  "route": "* /auth/admin/"
+}

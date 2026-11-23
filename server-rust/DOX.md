@@ -605,16 +605,17 @@ except the six `fedharness` test-tool entries (owner decision 2026-11-02) and th
 list; no ON entry with a `go-*` upstream; `FORWARD_SITES` pins the exact count of forward-to-Go call
 sites in `server-rust/bins/*/src` (auth `.forward(`, gateway `.forward(`, `forward_body(`,
 `forward_unported(`, raw WebSocket `client_async(`, plus Go-hop plumbing `Target::GoMail/GoAuth`,
-`.with_go_counter(`, auth `go_upstream`, `unported_push_target`; only the exact gateway arm
-`Some(upstream) => upstream.forward(req, &identity).await,` under `match &shared.rust_auth_upstream`
-is exempt as a Rust-to-Rust hop). A pin of 0 is red and an unpinned kind is banned: the proof
-that Go can be deleted is this static ratchet reaching `FORWARD_SITES = {}` (DELETE gate, #358).
+`.with_go_counter(`, auth `go_upstream`, `unported_push_target`; only the single gateway arm
+`let mut response = upstream.forward(req, &identity).await;` under `Some(upstream) => {` in
+`match &shared.rust_auth_upstream` is exempt as a Rust-to-Rust hop). A pin of 0 is red and an
+unpinned kind is banned: the proof that Go can be deleted is this static ratchet reaching
+`FORWARD_SITES = {}` (DELETE gate, #358).
 The DELETE matrices are a behavioural supplement, not the proof:
 `bins/auth/tests/delete_gate.rs` covers login (plain, device proof, captcha, DPoP, guest) and refresh
 across 12 toggle cells; `bins/gateway/tests/delete_gate.rs` covers Basic/Negotiate on `/caldav/`,
 `/carddav/` and `/api/drive/native-token`, guest and member drive tokens and member CalDAV/CardDAV
 PROPFIND controls across 5 cells. Every cell has a reviewed expected outcome (`Native(status)` or
-`Hop(owner)`); `MATRIX_HOPS` pins expected Go-hop cells (`auth 24`, `gateway 12`), which only shrink.
+`Hop(owner)`); `MATRIX_HOPS` pins expected Go-hop cells (`auth 0`, `gateway 15`), which only shrink.
 In the `roots` stage under `REQUIRE_DB=1`, `scripts/check-server-rust.sh` also runs
 `scripts/test-samlacs-mutants.py` (38 SAML ACS mutant rejections and positive controls).
 `GO_PEER_REFERENCES` pins every source reference

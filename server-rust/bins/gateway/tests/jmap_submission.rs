@@ -104,21 +104,11 @@ replay!(submission_recall_expired, "submission-recall-expired");
 replay!(submission_get_invalid_type, "submission-get-invalid-type");
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn submission_smime_preprocessing_defers_the_whole_mixed_map() -> Result<(), BoxError> {
-    let db = Db::for_case("submission_smime_preprocessing_defers_the_whole_mixed_map")
+async fn submission_smime_preprocessing_runs_natively_in_rust() -> Result<(), BoxError> {
+    let db = Db::for_case("submission_smime_preprocessing_runs_natively_in_rust")
         .ok_or("database required")?;
-    run(
-        &db,
-        "submission-smime-deferred",
-        Mutation::PreprocessingOwner,
-    )
-    .await?;
-    run(
-        &db,
-        "submission-smime-unicode",
-        Mutation::PreprocessingOwner,
-    )
-    .await
+    run(&db, "submission-smime-deferred", Mutation::NativeSubmission).await?;
+    run(&db, "submission-smime-unicode", Mutation::NativeSubmission).await
 }
 
 replay!(submission_get_case_folded, "submission-get-case-folded");
@@ -273,19 +263,19 @@ replay!(
 );
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn submission_attachment_preprocessing_defers_the_whole_mixed_map() -> Result<(), BoxError> {
-    let db = Db::for_case("submission_attachment_preprocessing_defers_the_whole_mixed_map")
+async fn submission_attachment_preprocessing_runs_natively_in_rust() -> Result<(), BoxError> {
+    let db = Db::for_case("submission_attachment_preprocessing_runs_natively_in_rust")
         .ok_or("database required")?;
     run(
         &db,
         "submission-attachment-deferred",
-        Mutation::PreprocessingOwner,
+        Mutation::NativeSubmission,
     )
     .await?;
     run(
         &db,
         "submission-attachment-invalid-id",
-        Mutation::PreprocessingOwner,
+        Mutation::NativeSubmission,
     )
     .await
 }

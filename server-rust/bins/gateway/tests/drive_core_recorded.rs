@@ -1111,7 +1111,7 @@ async fn preview_query_failure_state() -> Result<(), BoxError> {
 }
 
 #[tokio::test]
-async fn preview_unconfigured_store_forwards_without_audit() -> Result<(), BoxError> {
+async fn preview_unconfigured_store_returns_unavailable_without_audit() -> Result<(), BoxError> {
     run("preview", "missing-store-state", false).await
 }
 
@@ -1241,7 +1241,7 @@ async fn run(route: &str, case: &str, mutant: bool) -> Result<(), BoxError> {
         let baseline=snapshot(&c,a.user,b.user,true).await?;
         let mut adapter=setjoin_gateway::drive::core::CoreRoute {exec:patient_exec(&command_dsn,if case.starts_with("commit-"){1}else{2})?,worker:patient_exec(&worker_dsn,2)?,keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into(),store:Some(std::sync::Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{endpoint}"),"mailblobs","test-access","test-secret")?))};
         let forwarded=std::sync::Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
-        let fallback=if case=="missing-store-state"{adapter.store=None;let observed=forwarded.clone();Some(common::fake_upstream(move|mut r|{let observed=observed.clone();async move{let method=r.method().to_string();let uri=r.uri().to_string();let body=r.body_mut().collect().await.unwrap().to_bytes();observed.lock().unwrap().push(json!({"method":method,"uri":uri,"body":String::from_utf8_lossy(&body)}));Response::builder().status(218).body(common::full("{\"forwarded\":true}")).unwrap()}}).await)}else{None};
+        let fallback=if case=="missing-store-state"{adapter.store=None;let observed=forwarded.clone();Some(common::fake_upstream(move|mut r|{let observed=observed.clone();async move{let method=r.method().to_string();let uri=r.uri().to_string();let body=r.body_mut().collect().await.unwrap().to_bytes();observed.lock().unwrap().push(json!({"method":method,"uri":uri,"body":String::from_utf8_lossy(&body)}));Response::builder().status(502).body(common::full("{\"forwarded\":true}")).unwrap()}}).await)}else{None};
         let table=if recording {RouteTable::proxy_all()}else{RouteTable::proxy_all().with(StatusMutant {inner:adapter,enabled:mutant})};
         let config=Config{upstream:fallback.map(|a|format!("http://{a}").parse()).transpose()?.or(oracle.as_ref().map(|o|format!("http://{}",o.address).parse()).transpose()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None};
         let gateway=Gateway::new(config,table)?;
@@ -1324,7 +1324,7 @@ async fn run(route: &str, case: &str, mutant: bool) -> Result<(), BoxError> {
         let mut response=send_request().await;
         let first=if case=="repeat-state"{let status=response.status().as_u16();let hs=headers(response.headers());let bytes=common::body_bytes(response).await;let body=response_body(&bytes,&hs)?;let effects=snapshot(&c,a.user,b.user,true).await?;let notify=notifications.drain(&c).await?.iter().map(|s|serde_json::from_str::<Value>(s)).collect::<Result<Vec<_>,_>>()?;let first=json!({"response":{"status":status,"headers":hs,"body":body},"audit":effects["audit"],"effects":effects,"notify":notify,"io":io.lock().unwrap().clone()});response=send_request().await;Some(first)}else{None};
         let status=response.status().as_u16();let headers=headers(response.headers());let bytes=common::body_bytes(response).await;
-        if !recording{let metrics=common::send(address,Request::builder().uri("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(metrics).await.to_vec())?;let count=if case=="missing-store-state"{1}else{0};if !metrics.contains(&format!("setjoin_gateway_proxied_to_go_total {count}\n"))||!metrics.contains(&format!("setjoin_gateway_proxied_to_go_by_family_total{{family=\"F14\"}} {count}\n")){return Err(format!("native proxy counters: {metrics}").into())}}
+        if !recording{let metrics=common::send(address,Request::builder().uri("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(metrics).await.to_vec())?;if !metrics.contains("setjoin_gateway_proxied_to_go_total 0\n")||!metrics.contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F14\"} 0\n"){return Err(format!("native proxy counters: {metrics}").into())}}
         task.abort();let _=task.await;
         if case=="success"&&status!=if matches!(route,"create_space"|"create_node"|"put_chunk"){201}else if matches!(route,"patch_space"|"revoke_member"|"patch_node"|"trash_node"|"restore_node"|"destroy_node"){204}else{200} {return Err(format!("{route}/{case}: HTTP {status}: {}",String::from_utf8_lossy(&bytes)).into());}
         let mut body:Value=if bytes.is_empty(){Value::Null}else if headers["content-type"]=="application/pdf"{use base64::Engine;json!({"base64":base64::engine::general_purpose::STANDARD.encode(&bytes)})}else{serde_json::from_slice(&bytes)?};
@@ -1350,7 +1350,7 @@ async fn run(route: &str, case: &str, mutant: bool) -> Result<(), BoxError> {
         normalize(&mut observation,"",&a,&b,&spaces,&nodes);
         invalidation_noise(&mut observation);s3_noise(&mut observation);if observation.get("first").is_some(){s3_noise(&mut observation["first"]);}
         if case=="missing-store-state"{
-            assert_eq!(status,218);assert_eq!(*forwarded.lock().unwrap(),vec![json!({"method":method,"uri":path,"body":""})]);
+            assert_eq!(status,503);assert_eq!(body["status"],503);assert_eq!(body["detail"],"storage unavailable");assert!(forwarded.lock().unwrap().is_empty());
             let mut seeded=json!({"effects":baseline});version_identities(&mut seeded);normalize(&mut seeded,"",&a,&b,&spaces,&nodes);invalidation_noise(&mut seeded);setjoin_conformance::golden::compare(&seeded["effects"],&observation["effects"])?;assert_eq!(observation["notify"],json!([]));assert_eq!(observation["io"],json!([]));return Ok(())
         }
         if case.starts_with("commit-"){

@@ -439,22 +439,19 @@ pub struct LinkProtectRoute {
     pub worker: ScopedExecutor,
     pub keys: TokenKeys,
     pub scanners: Scanners,
-    /// A `SETJOIN_CONFIG` file may hold the secrets: Go answers every click.
-    pub forward: bool,
 }
 
 pub const SAFE_BROWSING_ENDPOINT: &str = "https://safebrowsing.googleapis.com";
 
 impl LinkProtectRoute {
-    /// Go's `cfg.JWTSecret`, `LinkProtectTokenKeys()` and `SafeBrowsingAPIKey` from the environment.
-    /// With a `SETJOIN_CONFIG` file and any of those unset in the environment the file might set
-    /// them, so the route forwards to Go.
+    /// Go's `cfg.JWTSecret`, `LinkProtectTokenKeys()` and `SafeBrowsingAPIKey` after koanf's
+    /// defaults → `SETJOIN_CONFIG` YAML → environment layering. `main` resolves that layering
+    /// (`configuration::Settings::install_startup_environment`) before any route is built, so
+    /// `jwt.secret`, `jwt.link_protect_token_*` and `safebrowsing.api_key` from the file arrive
+    /// here as `JWT_SECRET`, `JWT_LINK_PROTECT_TOKEN_*` and `SAFEBROWSING_API_KEY` (#357).
+    /// A YAML parse failure refuses boot there, as Go does. Secrets are never logged.
     pub fn from_env(worker: ScopedExecutor) -> Self {
         let env = |name: &str| std::env::var(name).unwrap_or_default();
-        let config_file = std::env::var("SETJOIN_CONFIG").is_ok_and(|v| !v.is_empty());
-        let missing = ["JWT_SECRET", "SAFEBROWSING_API_KEY"]
-            .iter()
-            .any(|n| std::env::var(n).is_err());
         Self {
             worker,
             keys: TokenKeys::from_env(),
@@ -463,7 +460,6 @@ impl LinkProtectRoute {
                 safe_browsing_endpoint: SAFE_BROWSING_ENDPOINT.into(),
                 dns: Arc::new(SystemDns),
             },
-            forward: config_file && missing,
         }
     }
     pub fn with_dns(mut self, dns: Arc<dyn Dns>) -> Self {
@@ -620,16 +616,12 @@ impl Intercept for LinkProtectRoute {
         matches!(*r.method(), Method::GET | Method::HEAD) && r.uri().path() == "/link-protect"
     }
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (worker, keys, scanners, forward) = (
+        let (worker, keys, scanners) = (
             self.worker.clone(),
             self.keys.clone(),
             self.scanners.clone(),
-            self.forward,
         );
         Box::pin(async move {
-            if forward {
-                return c.upstream.forward(r, &c.identity).await;
-            }
             let Some(operation) = crate::jmap::random() else {
                 return text_error(503, "service unavailable", &c, "");
             };
@@ -646,8 +638,10 @@ impl Intercept for LinkProtectRoute {
             let Some(claims) = verify_token(&token, &keys, now) else {
                 return text_error(400, "link_protect: invalid or expired token", &c, &id);
             };
+            // Go reads the toggle from memory. An unreadable toggle cannot be audited either:
+            // fail closed as Go does when its audit fails, the warn page, never a redirect (#357).
             let Ok(strict) = setjoin_mail_security::dlp::strict_mode(&worker).await else {
-                return c.upstream.forward(r, &c.identity).await;
+                return page(warn_page(&claims.url, &token), head, &c, &id);
             };
             let (base, results, all_errors) = scan(&scanners, &claims.url).await;
             let scanner_json = format!(
@@ -675,9 +669,12 @@ impl Intercept for LinkProtectRoute {
             use setjoin_mail_security::dlp::Click;
             let verdict = match decided {
                 Click::Verdict(v) => v,
-                Click::Unscoped => return c.upstream.forward(r, &c.identity).await,
-                // FAIL CLOSED: no durable audit row means no redirect.
-                Click::Failed => return page(warn_page(&claims.url, &token), head, &c, &id),
+                // D-357e-1 (owner decision): a signed mailbox id <= 0 names no owner. Go audits
+                // it under that id and follows the verdict; Rust cannot scope the write, so it
+                // fails closed. FAIL CLOSED: no durable audit row means no redirect.
+                Click::Unscoped | Click::Failed => {
+                    return page(warn_page(&claims.url, &token), head, &c, &id)
+                }
             };
             match verdict.as_str() {
                 "safe" => redirect(&claims.url, head, false, &c, &id),
@@ -710,6 +707,36 @@ mod tests {
         let mut mac = Hs256::new_from_slice(&TokenKeys::derive(secret, version)).unwrap();
         mac.update(b64.as_bytes());
         format!("{b64}.{}", URL_SAFE.encode(mac.finalize().into_bytes()))
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_strict_mode_toggle_answers_the_warn_page_without_go() {
+        use http_body_util::{BodyExt, Full};
+        let worker = ScopedExecutor::from_dsn("host=127.0.0.1 port=1 user=none dbname=none connect_timeout=1", 1)
+            .map_err(|e| e.0)
+            .unwrap();
+        let secret = b"strict-mode-fault-secret-0123456789";
+        let route = LinkProtectRoute {
+            worker,
+            keys: TokenKeys::new(secret, b"", 1),
+            scanners: Scanners {
+                safe_browsing_key: String::new(),
+                safe_browsing_endpoint: SAFE_BROWSING_ENDPOINT.into(),
+                dns: Arc::new(SystemDns),
+            },
+        };
+        let token = sign("https://ok.example/", secret, 1, 4_102_444_800).replace('=', "%3D");
+        let request = Request::get(format!("/link-protect?token={token}"))
+            .body(Full::new(bytes::Bytes::new()).map_err(|n| match n {}).boxed())
+            .unwrap();
+        let context = RequestContext {
+            identity: crate::ClientIdentity { client_ip: "127.0.0.1".parse().unwrap(), proto: "http" },
+            upstream: crate::proxy::Upstream::disabled(),
+        };
+        let response = route.handle(request, context).await;
+        assert_eq!(response.status(), 200);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&body).contains("<title>Warning"));
     }
 
     #[test]

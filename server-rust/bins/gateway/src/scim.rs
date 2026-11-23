@@ -232,9 +232,7 @@ impl Handler {
     }
 
     async fn serve(&self, mut r: Request<Body>, c: RequestContext) -> Response<Body> {
-        let Some(what) = action(r.method(), r.uri().path()) else {
-            return c.upstream.forward(r, &c.identity).await;
-        };
+        let what = action(r.method(), r.uri().path()).expect("matched route");
         let Some(operation) = crate::jmap::random() else {
             return crate::proxy::status(
                 hyper::StatusCode::SERVICE_UNAVAILABLE,

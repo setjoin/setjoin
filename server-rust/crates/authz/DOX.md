@@ -31,6 +31,10 @@ authenticated ownership predicates.
 with HKDF-SHA256 domain separation and current/retiring gateway secrets. It
 returns a sealed identity plus signed binding after the same guest, revocation,
 primary-mailbox and lifecycle checks. It cannot authorize ordinary routes.
+`admit_attachment` (#201) exposes the same narrow verifier as `Result<AuthorizedAttachment, Refusal>`
+using `admit`'s exact credential extraction, clock read, token verification, and
+bounded `admission_allowed`/`caller` evaluation order, without weakening `admit`
+or allowing `mail-attachment` tokens on ordinary routes.
 The F16 adapter must repeat origin-session, device, policy-generation and
 blob-ownership checks; signature verification alone grants no object access.
 
@@ -106,7 +110,11 @@ upgrade effects. `tests/password_formats.rs` also replays frozen format vectors.
 `basic::verify` ports `pwhash.CheckAppPassword` and `auth.CheckPassword` once
 for every protocol. Each caller passes an explicit `Policy`: accepted kinds
 (`Accept`), guest app passwords, and TOTP account passwords. IMAP uses
-app-then-account; DAV Basic (#355a) will use `AppPassword` only. By owner
+app-then-account; DAV/Drive Basic (#355a) uses `DAV_POLICY` (`Accept::AppPassword`,
+`GuestAppPasswords::Refuse`, `TotpAccountPassword::Refuse`), plus
+`authorize_basic_member` for primary-mailbox/revocation checks,
+`PushIdentity::from_basic` (paired with `Option<i64>` `expires_at()`), and
+`Proof::basic(user_id)`. By owner
 ruling (2026-11-14) both refuse a TOTP user's account password, a recorded
 divergence from frozen Go; the flag is read by the per-call account SELECT
 before the cache. The account lookup, the enabled filter and the fail-closed
@@ -178,7 +186,7 @@ with amd64 `int64()` semantics (out of range is `i64::MIN`), normalised by
 wrapped internal seconds as the validator does. Claim keys fold case like
 encoding/json (`EXP` fills `exp`; every match decodes in order, last wins).
 `normalize_token_claims` is the one public entry for every first-party verifier
-(push switches after #356a).
+(including push, #356a).
 `go_url::mailserver_handler_path(method, raw)` derives the `r.URL.Path` a
 mailserverd handler sees for chain.go:434 `pathWithinScope`, following Go 1.26
 ServeMux and buildRootDispatch: `None` for a 400 escape, an unclean path or bare
