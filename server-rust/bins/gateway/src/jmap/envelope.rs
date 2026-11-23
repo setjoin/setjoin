@@ -141,7 +141,7 @@ pub(crate) fn struct_arguments(
             Ok(Default::default())
         }
         fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-            let mut fields = std::collections::BTreeMap::new();
+            let mut fields: Self::Value = std::collections::BTreeMap::new();
             while let Some(key) = map.next_key::<String>()? {
                 let target = self.0.iter().find(|name| **name == key).or_else(|| {
                     let folded = crate::guests_input::fold(&key);
