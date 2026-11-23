@@ -21,7 +21,7 @@ ring = "=0.17.14"
 uuid = { version = "=1.29.0", features = ["v4"] }
 tokio = { version = "=1.54.1", features = ["rt", "sync"] }
 
-form_urlencoded = "=1.2.2"
+form_urlencoded = "=1.2.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
 
 subtle = "=2.6.1"
@@ -36,7 +36,7 @@ serde_cbor_2 = {version="=0.13.0",features=["tags"]}
 serde = "=1.0.229"
 p521 = { version = "=0.14.0", default-features = false, features = ["ecdsa", "sha512", "std"] }
 rsa = { version = "=0.10.0-rc.19", default-features = false, features = ["std", "sha2"] }
-url = "=2.5.8"
+url = "=2.5.9"
 
 x509-parser = {version="=0.18.1",default-features=false}
 webpki = {package="rustls-webpki",version="=0.103.16",default-features=false,features=["std","ring"]}

@@ -48,7 +48,7 @@ zeroize = "=1.9.1"
 html5gum = "=0.9.0"
 setjoin-guests = { path = "../../crates/domains/guests" }
 setjoin-calendar = { path = "../../crates/domains/calendar" }
-url = "=2.5.8"
+url = "=2.5.9"
 tz-rs = "=0.7.3"
 setjoin-admin-identity = { path = "../../crates/domains/admin-identity" }
 setjoin-user-settings = { path = "../../crates/domains/user-settings" }
