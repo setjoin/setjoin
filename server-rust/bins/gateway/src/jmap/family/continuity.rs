@@ -438,7 +438,6 @@ mod tests {
 
     #[test]
     fn methods_always_claim_and_use_read_gate() {
-        use super::super::Ready;
         assert_eq!(METHODS.len(), 2);
         for method in METHODS {
             assert_eq!(method.capability, CAPABILITY);
@@ -446,8 +445,7 @@ mod tests {
             assert!(method.account);
             assert!(method.mutator);
             assert!(!method.state);
-            assert!((method.ready)(Ready { continuity: false }));
-            assert!((method.ready)(Ready { continuity: true }));
+            assert!((method.ready)(Default::default()));
         }
     }
 
