@@ -1,0 +1,33 @@
+{
+  "case": "contact-group-set-success-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Contacts\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 2, \"mailbox_id\": <a.mailbox>, \"description\": null}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Contacts\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"description\": null}]",
+      "name": "addressbooks"
+    },
+    {
+      "after": "[{\"id\": <seed.2>, \"name\": \"Team Renamed\", \"jmap_state\": 3, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"id\": <seed.2>, \"name\": \"Team Old\", \"jmap_state\": 1, \"mailbox_id\": <a.mailbox>}]",
+      "name": "contact_groups"
+    },
+    {
+      "after": "[{\"email\": null, \"group_id\": <seed.2>, \"contact_id\": <seed.1>}, {\"email\": \"free@example.test\", \"group_id\": <seed.2>, \"contact_id\": null}]",
+      "before": "[]",
+      "name": "contact_group_members"
+    },
+    {
+      "after": "[{\"seq\": 3, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 1, \"datatype\": \"ContactCard\", \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"seq\": 1, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 1, \"datatype\": \"ContactCard\", \"mailbox_id\": <a.mailbox>}]",
+      "name": "entity_state"
+    },
+    {
+      "after": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 3, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}]",
+      "name": "journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "63b6242b5518c2b050639897e2ecf995c69a4d34",
+  "route": "POST /jmap ContactGroup/set"
+}

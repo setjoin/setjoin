@@ -1,0 +1,33 @@
+{
+  "case": "contact-card-merge-success-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Contacts\", \"is_default\": true, \"jmap_state\": 2, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Contacts\", \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>}]",
+      "name": "addressbooks"
+    },
+    {
+      "after": "[{\"id\": <seed.1>, \"notes\": null, \"emails\": [{\"type\": \"work\", \"address\": \"keep@example.test\", \"is_primary\": true}, {\"type\": \"home\", \"address\": \"drop@example.test\", \"is_primary\": false}], \"phones\": [{\"type\": \"mobile\", \"number\": \"+15550100\"}], \"company\": null, \"job_title\": null, \"last_name\": null, \"vcard_uid\": \"uid-m1\", \"categories\": [\"team\", \"vip\"], \"department\": null, \"first_name\": \"Alice\", \"jmap_state\": 0, \"display_name\": \"Keep Name\", \"addressbook_id\": <seed.0>}]",
+      "before": "[{\"id\": <seed.1>, \"notes\": null, \"emails\": [{\"type\": \"work\", \"address\": \"keep@example.test\", \"is_primary\": true}], \"phones\": [], \"company\": null, \"job_title\": null, \"last_name\": null, \"vcard_uid\": \"uid-m1\", \"categories\": [\"team\"], \"department\": null, \"first_name\": null, \"jmap_state\": 0, \"display_name\": \"Keep Name\", \"addressbook_id\": <seed.0>}, {\"id\": <seed.2>, \"notes\": null, \"emails\": [{\"type\": \"home\", \"address\": \"drop@example.test\", \"is_primary\": true}], \"phones\": [{\"type\": \"mobile\", \"number\": \"+15550100\"}], \"company\": null, \"job_title\": null, \"last_name\": null, \"vcard_uid\": \"uid-m2\", \"categories\": [\"vip\"], \"department\": null, \"first_name\": \"Alice\", \"jmap_state\": 0, \"display_name\": \"Drop Name\", \"addressbook_id\": <seed.0>}]",
+      "name": "contacts"
+    },
+    {
+      "after": "[{\"email\": null, \"group_id\": <seed.3>, \"contact_id\": <seed.1>}]",
+      "before": "[{\"email\": null, \"group_id\": <seed.3>, \"contact_id\": <seed.2>}]",
+      "name": "contact_group_members"
+    },
+    {
+      "after": "[{\"seq\": 3, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 4, \"datatype\": \"ContactCard\", \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"seq\": 1, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 2, \"datatype\": \"ContactCard\", \"mailbox_id\": <a.mailbox>}]",
+      "name": "entity_state"
+    },
+    {
+      "after": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 3, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.2>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}, {\"op\": \"updated\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 3, \"mailbox_id\": <a.mailbox>}, {\"op\": \"destroyed\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.2>, \"state_seq\": 4, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.1>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"ContactCard\", \"entity_id\": <seed.2>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}]",
+      "name": "journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "aa36d7bb53756393a6d610422d3bc000b9c10c1f",
+  "route": "POST /jmap ContactCard/merge"
+}

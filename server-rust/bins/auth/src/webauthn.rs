@@ -159,11 +159,10 @@ impl AuthServer {
         let Some(rp) = &self.webauthn else {
             return Self::not_found();
         };
-        match self.totp_completion_route(&req).await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(req).await,
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
             Err(()) => return Self::failure(500, "internal error", req.uri().path()),
-        }
+        };
         let path = req.uri().path().to_owned();
         let Some(session_cookie) = cookie_value(req.headers(), "wa_login_sess") else {
             return Self::failure(400, "missing session cookie", &path);
@@ -183,7 +182,8 @@ impl AuthServer {
             .and_then(|h| h.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(b) => b.to_bytes(),
             Err(_) => return Self::failure(400, "invalid request body", &path),
         };
@@ -215,10 +215,49 @@ impl AuthServer {
             Err(_) => return Self::failure(500, "internal error", &path),
         };
         // Go webauthn.go:446 (MFA branch) and issueTokensWithFactors (direct):
-        // guest scope after the assertion and credential snapshot, before any token.
-        if let Err(reply) = self.completion_guest_scope(user.user(), &path).await {
-            return reply;
-        }
+        // guest scope after the assertion and credential snapshot, before any CA/token.
+        let is_guest = match self.completion_guest_scope(user.user(), &path).await {
+            Ok(g) => g,
+            Err(reply) => return reply,
+        };
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
+        let device_binding = self
+            .resolve_device(
+                user.user(),
+                parts.method.as_str(),
+                uri,
+                &parts.headers,
+                &raw,
+            )
+            .await;
+        // Fresh passwordless WebAuthn enforces CA before EITHER a second-factor
+        // challenge or final session issuance.
+        let ca_policy_id = match self
+            .evaluate_ca(
+                ca_enabled,
+                self.ca_context(
+                    user.user(),
+                    is_guest,
+                    &ip,
+                    &agent,
+                    &device_binding,
+                    "webauthn",
+                ),
+                false,
+                Some(&super::ca::PendingMint {
+                    user_id: user.user(),
+                    email: user.email(),
+                    amr: &["hwk"],
+                    credential_fence: None,
+                    identity_fence: None,
+                }),
+                &path,
+            )
+            .await
+        {
+            Ok(id) => id,
+            Err(reply) => return reply,
+        };
         if totp || push {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -324,6 +363,19 @@ impl AuthServer {
             claims["cnf"] = json!({"jkt": jkt});
             refresh_claims["cnf"] = json!({"jkt": jkt});
         }
+        let device_claim = self
+            .resolve_device_claim(user.user(), &agent, &ip, dt_enabled)
+            .await;
+        // Frozen Go inherits `sif` from the matched CA policy on WebAuthn completions
+        // while keeping full-TTL cookie persistence ("always").
+        let (sif, _) = self.session_controls(ca_policy_id).await;
+        Self::apply_session_claims(
+            &mut claims,
+            &mut refresh_claims,
+            now,
+            device_claim.as_ref(),
+            sif,
+        );
         let (Ok(access), Ok(refresh)) = (self.sign(&claims), self.sign(&refresh_claims)) else {
             return Self::failure(500, "token issue failed", &path);
         };
@@ -353,13 +405,7 @@ impl AuthServer {
         );
         response.headers_mut().insert(
             "set-cookie",
-            format!(
-                "access_token={access}; Path=/; Max-Age={}; HttpOnly;{} SameSite=Strict",
-                self.config.access_seconds,
-                if secure { " Secure;" } else { "" }
-            )
-            .parse()
-            .unwrap(),
+            self.access_cookie_header(&access, secure, "always", false),
         );
         response
     }

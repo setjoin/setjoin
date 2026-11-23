@@ -19,8 +19,8 @@ SIGINT/SIGTERM drain owned connections with Go's 30-second bound.
 
 The front door selects `rust-auth` for qualified entries using
 GATEWAY_RUST_AUTH_UPSTREAM. AUTHSERVER_GO_UPSTREAM is only for shapes not yet
-ported: device proof/trust (#420; HTTP threat admission #349a/#349b and DPoP
-admission/token binding #352 are native), conditional access (#405), or federation (#339–#341).
+ported: device trust/conditional access (#351/#405; HTTP threat admission #349a/#349b,
+device proof #350, and DPoP admission/token binding #352 are native), or federation (#339–#341).
 Forwarding happens before any effect and preserves the whole request/body. An
 unset upstream fails closed. Completed shapes have no return-to-Go flag.
 
@@ -42,7 +42,8 @@ The gateway-only change-password alias remains covered by bundled-inventory case
 Client IP attribution uses Go's separate TRUSTED_PROXY_IP exact peer setting,
 through the shared authz clientip parser. Cookie Secure trust is unchanged;
 these two Go trust settings must not be conflated.
-The five X-Device proof headers select #420 before buffering/decoding. Ordinary
+`POST /auth/login` resolves `X-Device-*` proof natively via `DeviceResolver::resolve_for_user`
+after password verification and guest CA scope lookup when CA/device-trust flags are OFF. Ordinary
 login still resolves guest CA context before force-password/MFA, mirroring Go's
 fail-closed 503 even when conditional-access policies are disabled. Guest login and
 MFA/WebAuthn/push completion are native (#353). Only the access token carries `acct: guest`.
@@ -146,7 +147,8 @@ device secrets before re-sealing or verifying the HMAC, while Go uses them as ke
 
 WebPush-only `POST /auth/device/register` (#333) keeps outer 64KiB buffering,
 full session/CSRF, provider/subscription bounds and shared Go URL admission.
-Device proof shapes remain #420 (threat admission is native, #349b); native push providers
+It ignores `X-Device-*` headers without forwarding or consuming nonces (#350;
+threat admission is native, #349b); native push providers
 use #336’s possession-gated transaction below. DB_ENCRYPTION_KEY and AUDIT_HMAC_KEY are startup-bound
 pool configuration and use the executor's protected transaction-local context.
 Configured DB encryption keys keep Go's profile-specific strength floor before
@@ -228,8 +230,8 @@ validate the signed mfa_pending type directly; authenticated management shares
 the existing revocation snapshot, CSRF and impersonation rejection. Go's verify
 endpoint has its distinct admission, preserved by the oracle. Completion bodies
 retain Go duplicate-map merging and null reset for `dpop_jwk`. Only unported
-device and CA shapes forward to their named owners before effects (DPoP and
-guest are native, #352/#353). The MFA corpus checks the real front door with
+CA/device-trust shapes forward to their named owners before effects (device proof,
+DPoP, and guest are native, #350/#352/#353). The MFA corpus checks the real front door with
 Go unset, raw JSON/cookie bytes, audited factor state and signed anchor links.
 
 Password-login MFA branches are native for push preference, TOTP fallback and
@@ -435,8 +437,8 @@ OIDC RP startup (#340): `OIDC_ENABLED` (YAML `oidc.enabled`, default false)
 is independent of the OP switch. Login, callback, authenticated link and the
 mixed gateway namespace are ON in the bundled inventory. GET/HEAD gateway link
 aliases retain Go's 405 because auth registers POST only. Completed RP shapes
-have no return-to-Go switch. Login-time CA/device prerequisites retain their
-existing #405/#420 owners before token exchange or any write.
+have no return-to-Go switch. Login-time CA/device-trust prerequisites retain their
+existing #405/#351 owners before token exchange or any write (device proof is native, #350).
 The [RP contract](../../crates/domains/identity/RP.md) owns the guarded HTTPS,
 sealed assertion, profile/JIT/mapping, normalized fence and link semantics.
 
@@ -522,7 +524,7 @@ cookie stays Strict. Detail: [RP.md](../../crates/domains/identity/RP.md). Test 
 A failed MFA-factor, risk or `feature.user_risk` read, or a failed common-password lookup, refuses
 before any token is signed or stored: WebAuthn finish 500 `internal error` (factors), password
 login, WebAuthn, SSO and MFA completions 500 `token issue failed`, refresh 503 with
-`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A routing-flag lookup error (conditional access, device trust, token binding) refuses locally and never forwards on the completions that mint: login, TOTP verify (`/auth/totp/verify`), enroll confirm (`/auth/totp/enroll/confirm`), backup-codes verify, push status and WebAuthn login finish answer 500 `internal error` before minting or factor consumption (`feature.rate_limit` and `feature.token_binding` are handled natively via `http_threat` and `src/dpop.rs`, and malformed `dpop_jwk` degrades to unbound when `feature.token_binding` is ON). An enabled CA/device-trust flag forwards before `threat_admit` (verify, enroll confirm, backup, webpush) or before body read (`push_status`, `webauthn_login_finish`); the OIDC callback answers 500 `internal error` and SAML ACS 503 `SAML authentication unavailable`. An `x-device-*` header on `totp_completion_route` or `webpush` still hands off to Go before any flag is read (#420). Stored risk `signals` must be an array of strings. TOTP, backup-code,
+`Retry-After: 5` once the reducer has decided to mint (a revoked, expired or replayed token keeps its 401 and reuse revocation), password change 500 `internal error`. A required `feature.conditional_access` / `feature.device_trust_enforcement` / `feature.token_binding` lookup error refuses locally (`500 internal error` on login, TOTP verify, enroll confirm, backup-codes verify, push status, WebAuthn finish, OIDC callback; preserved `503 SAML authentication unavailable` on SAML ACS) without minting or consuming factors (`feature.rate_limit` and `feature.token_binding` are handled natively via `http_threat` and `src/dpop.rs`, malformed `dpop_jwk` degrades to unbound when `feature.token_binding` is ON, `webpush` is governed by session admission + DPoP only (#458), and `X-Device-*` proof (#350) runs natively after principal/factor verification). Missing/failing `is_guest_account($1)` returns `503 conditional access context unavailable`. Stored risk `signals` must be an array of strings. TOTP, backup-code,
 push-status and bootstrap completions read the risk from the pending token before consuming
 the factor, so the factor stays unspent. Push status reads the risk on every poll, so under a
 fault a poll that is not yet approved answers 500 instead of `{"approved":false}`. Frozen Go fails
@@ -561,7 +563,7 @@ receipts, and one `failure` attempt); the Go recorder skips `fault` cases, so th
 Login and refresh are dynamic (`dynamic() == true`, admitted while one of the six gate
 toggles is on); forgot-password (`{begin,verify,reset}`) and all 21 `#349b` routes
 (`Route::Anonymous`, empty `""` username: `guest_invite_post`, `webpush`, `totp_{setup,confirm,enroll/setup,verify,enroll/confirm}`, `generate_backups`, `backup_verify`, `webauthn_register_{begin,finish}`, `push_{verify,approve,send}`, `password_grant`, `possession_{totp,webauthn_begin,webauthn_finish}`, and OIDC OP `/authorize`, `/authorize/callback`, `/oauth/`, `/userinfo`, `/revoke`, `/end_session` after CORS preflight) are always admitted (`dynamic() == false`).
-Preflight Go forwards (`x-device-*`, CA/device trust) run between `threat_stage` and `threat_admit` so forwarded requests cause zero double admission. `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`). `feature.rate_limit` and DPoP are no longer forwarded on any route.
+CA, device trust (#351), `feature.rate_limit`, `X-Device-*` proof (#350), and DPoP (#352) all run natively with zero auth forwards across all routes and fallbacks (`0` `.forward(` sites in `bins/auth/src`; unmatched and wrong-method requests answer natively via `AuthServer::mux_fallback` with Go `http.ServeMux` 404/405 + `Allow` + `HEAD` parity, #357 Part B). `WithUserID` device recording runs only on login success and the 3 Go-parity MFA completions (`totp_verify`, `totp_bootstrap_confirm`, `backup_verify`; not `push_status`).
 
 ## Native DPoP admission and token binding at issuance (#352)
 
@@ -588,3 +590,48 @@ A server with no gate answers 503: main.rs attaches the watcher-fed gate, tests 
 CAPTCHA_SECRET defaults to Go's HKDF of a non-empty JWT_SECRET. Peers are canonicalized before
 the TRUSTED_PROXY_IP match. Fail-closed reasons come from `setjoin-threat` (#367). Oracle:
 `tests/threat_oracle.rs`.
+
+## Native device-proof admission (#350)
+
+`AuthServer::device_resolver` (`setjoin_authz::device::DeviceResolver`, built from `config.secret`
+and `config.profile` in both `AuthServer::load_with_rp_http` and `AuthServer::new`, with an empty
+key failing closed) resolves `X-Device-*` proofs natively via `AuthServer::resolve_device`
+(`DeviceResolver::resolve_for_user`, preserving `#499` user-ownership check before nonce claim and
+`rust_device_secret_reseal` for legacy plaintext secrets under app RLS). It runs once per
+authenticated principal on all eight Go-parity auth/completion paths (`POST /auth/login`,
+`POST /auth/totp/verify`, `POST /auth/totp/enroll/confirm`, `POST /auth/backup-codes/verify`,
+`POST /auth/push/status` after approval harvest, `POST /auth/webauthn/login/finish` after
+assertion and guest-scope check, `GET /auth/oidc/callback`, and `POST /auth/saml/{idp}/acs`)
+using the staged method, `path_and_query`, headers, and exact body bytes (`X-Device-Nonce` is
+consumed once and fed directly into native CA context). `POST /auth/device/register` (`webpush`)
+ignores `X-Device-*` headers without forwarding or burning nonces (#458). Tests:
+`tests/device_proof_oracle.rs`, `tests/handoff.rs`.
+
+## Conditional Access, Device Trust Claims, and Session Controls (#351)
+
+`src/ca.rs` implements native CA policy evaluation, device-trust JWT claims, and session controls
+across all seven sign-in families (`POST /auth/login`, `POST /auth/totp/verify`,
+`POST /auth/totp/enroll/confirm`, `POST /auth/backup-codes/verify`, `POST /auth/push/status`,
+`POST /auth/webauthn/login/finish`, `GET /auth/oidc/callback`, `POST /auth/saml/{idp}/acs`):
+
+- **Engine & listener:** borrows `ThreatGate::engine()` when attached, or uses `AuthServer::ca_engine`
+  (loaded with the same policy store/refresh semantics plus `DirectListener` on `conditional_access`
+  in `serve_until`) when `gate` is absent. Calls `invalidate_user_scope` after SSO settlement before
+  evaluation.
+- **Decisions & telemetry:** evaluates once and appends one `ca_signin_log_append` row best-effort.
+  Hard blocks (`remediation.is_empty()`) return `403` + `X-CA-Correlation-Id`, including during step-up
+  completion; remediable blocks (`require_terms` / `require_risk_remediation`) allow issuance for
+  runtime remediation. Fresh step-up returns `202` `{mfa_required, mfa_token, step_up_reason,
+  step_up_methods, correlation_id}` + `X-CA-Correlation-Id` and stamps ThreatGate `verified_no_outcome`;
+  repeated step-up challenges are suppressed only on verified `mfa_pending` completion. WebAuthn
+  enforces CA before either second-factor MFA challenge or final issuance.
+- **Device trust & session controls:** gated on `feature.device_trust_enforcement`, queries
+  `managed_devices WHERE device_hash=$1 AND user_id=$2` via `read_user_scoped` across all 7
+  families (missing/unknown/lookup fault omits `device` claim while flag-read errors fail closed);
+  reads `policy_session_view($1)` (`sif` in seconds + original `auth_time` on both access and
+  refresh JWTs on password login and MFA/WebAuthn completions, retained across `/auth/refresh`;
+  fail-closed `sif=3600` + `persist="never"` on matched-policy read errors; cookie writer honors
+  `persistent_session` + `stay_signed_in` on password login — setting `Max-Age` for `"always"` or
+  `"user_choice"` with `stay_signed_in=true`, omitting `Max-Age` otherwise and never emitting
+  `Max-Age=0` — while preserving frozen Go's full-TTL cookie on MFA/WebAuthn and legacy `sif=None`/
+  full-TTL cookie on SSO). Tests: `tests/ca_351.rs`.

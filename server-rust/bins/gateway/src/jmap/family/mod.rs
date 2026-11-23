@@ -35,6 +35,12 @@ pub(crate) use crate::jmap::get::parse_id;
 pub use seam::ContinuitySigner;
 pub(crate) use seam::Cx;
 
+/// Go's `parseArg` (`parse.go:32`): positive int64 id, or `invalidArguments`
+/// `"invalid <property>"`.
+pub(crate) fn parse_arg(id: &str, property: &str) -> Result<i64, MethodError> {
+    parse_id(id).ok_or_else(|| MethodError::new("invalidArguments", &format!("invalid {property}")))
+}
+
 /// Every family's registry rows. Names are unique across families.
 const REGISTRY: &[&[Method]] = &[
     address_book::METHODS,
@@ -627,6 +633,30 @@ mod tests {
         assert_eq!(
             serve(&cx, "c1", "s").await,
             "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/get\",{\"a\":1},\"c1\"]]}\n"
+        );
+        fn run_created<'a>(_: &'a Cx<'a>) -> Reply<'a> {
+            Box::pin(async {
+                Ok(Answer {
+                    name: "Test/set",
+                    args: r#"{"created":{"b<":{"id":"2"},"a":{"id":"1"}}}"#.into(),
+                })
+            })
+        }
+        static CREATED: Method = Method {
+            name: "Test/set",
+            capability: "urn:test",
+            app: "",
+            gate: Gate::Personal,
+            account: true,
+            mutator: true,
+            state: false,
+            ready: always,
+            run: run_created,
+        };
+        let cx = Cx::new(&exec, None, &auth, 1, 2, &CREATED, "{}");
+        assert_eq!(
+            serve(&cx, "c1", "s").await,
+            "{\"sessionState\":\"s\",\"methodResponses\":[[\"Test/set\",{\"created\":{\"b\\u003c\":{\"id\":\"2\"},\"a\":{\"id\":\"1\"}}},\"c1\"]],\"createdIds\":{\"a\":\"1\",\"b\\u003c\":\"2\"}}\n"
         );
         let cx = Cx::new(&exec, None, &auth, 1, 2, &SET_METHOD, "null");
         assert_eq!(

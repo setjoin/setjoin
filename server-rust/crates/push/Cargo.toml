@@ -14,7 +14,7 @@ ring = "=0.17.14"
 p12-keystore = "=0.4.1"
 p256 = { version = "=0.14.0", default-features = false, features = ["arithmetic", "std", "pem"] }
 tokio = { version = "1.54", features = ["net"] }
-url = "=2.5.8"
+url = "=2.5.9"
 
 [features]
 # Enabled only by mailctl's dev dependency for process-oracle loopback peers.

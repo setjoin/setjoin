@@ -616,11 +616,10 @@ impl AuthServer {
         if self.config.vapid_private_key.is_empty() {
             return Self::push_named_problem(404, "push MFA not configured", "not-found", &path);
         }
-        match self.totp_completion_route(&req).await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(req).await,
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
             Err(()) => return Self::failure(500, "internal error", req.uri().path()),
-        }
+        };
         let ip = self.client_ip(&req).to_string();
         let secure = self.totp_secure(&req);
         let agent = req
@@ -629,7 +628,8 @@ impl AuthServer {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_owned();
-        let raw = match Limited::new(req.into_body(), 1 << 20).collect().await {
+        let (parts, incoming) = req.into_parts();
+        let raw = match Limited::new(incoming, 1 << 20).collect().await {
             Ok(v) => v.to_bytes(),
             Err(_) => return Self::failure(400, "invalid JSON", &path),
         };
@@ -685,6 +685,7 @@ impl AuthServer {
             _ => return Self::wire_json(200, "{\"approved\":false}\n".into()),
         }
         let factors = push::approval_factors(&pending);
+        let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
         self.mfa_finish(
             pending,
             path,
@@ -694,7 +695,15 @@ impl AuthServer {
             Some(factors),
             (500, "user lookup failed"),
             dpop_jkt,
+            setjoin_authz::device::DeviceRequest {
+                headers: &parts.headers,
+                method: parts.method.as_str(),
+                uri,
+                body: &raw,
+            },
             risk,
+            ca_enabled,
+            dt_enabled,
             false,
         )
         .await

@@ -1,0 +1,18 @@
+{
+  "case": "calendar-share-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Own\", \"color\": null, \"timezone\": \"UTC\", \"is_shared\": true, \"is_default\": true, \"jmap_state\": 2, \"mailbox_id\": <a.mailbox>, \"description\": null}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Own\", \"color\": null, \"timezone\": \"UTC\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"description\": null}]",
+      "name": "calendars"
+    },
+    {
+      "after": "[{\"user_id\": <f.user>, \"permission\": \"read\", \"calendar_id\": <seed.0>}]",
+      "before": "[]",
+      "name": "calendar_acls"
+    }
+  ],
+  "format": 1,
+  "go_source": "aa36d7bb53756393a6d610422d3bc000b9c10c1f",
+  "route": "POST /jmap Calendar/shareSet"
+}

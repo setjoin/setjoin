@@ -584,6 +584,178 @@ pub async fn run(case: &Case, mutation: Mutation) -> Result<(), BoxError> {
     cleaned
 }
 
+/// Verify that a mutator advances `jmap_entity_state` and appends `jmap_changes_journal`
+/// under Rust's `ScopedExecutor` (used when frozen Go's unscoped pool skipped `V097`).
+pub async fn verify_rust_journal_advances(case: &Case, datatypes: &[&str]) -> Result<(), BoxError> {
+    if std::env::var_os("GOFREE_RECORD_GO_BINARY").is_some() {
+        return Ok(());
+    }
+    let _serial = SERIAL.lock().await;
+    let Some(db) = Db::for_case(case.name) else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    for (sequence, floor) in FLOORS {
+        owner
+            .batch_execute(&format!(
+                "SELECT setval('{sequence}_id_seq', GREATEST((SELECT last_value FROM {sequence}_id_seq), {floor}))"
+            ))
+            .await?;
+    }
+    let a = fixture::account(&owner, &format!("fam-{}", case.family)).await?;
+    let f = fixture::account(&owner, &format!("fam-{}-foreign", case.family)).await?;
+    let mut toggles = Vec::new();
+    for (key, _) in case.toggles {
+        let rows = owner
+            .query_typed(
+                "SELECT enabled FROM feature_toggles WHERE key = $1",
+                &[(key, Type::TEXT)],
+            )
+            .await?;
+        toggles.push((*key, rows.first().map(|row| row.get::<_, bool>(0))));
+    }
+    let mut fx = Fx {
+        a,
+        f,
+        seeds: Vec::new(),
+    };
+    let outcome = verify_rust_journal_inner(&db, &owner, &mut fx, case, datatypes).await;
+    let cleaned = cleanup(&owner, &fx, &toggles, None).await;
+    outcome?;
+    cleaned
+}
+
+async fn journal_snapshot(
+    owner: &Client,
+    mailbox: i64,
+    datatypes: &[&str],
+) -> Result<Vec<(String, i64, i64)>, BoxError> {
+    let mut out = Vec::with_capacity(datatypes.len());
+    for dt in datatypes {
+        let seq_rows = owner
+            .query_typed(
+                "SELECT COALESCE((SELECT seq FROM jmap_entity_state WHERE mailbox_id = $1 AND datatype = $2), 0)::bigint",
+                &[(&mailbox, Type::INT8), (dt, Type::TEXT)],
+            )
+            .await?;
+        let seq: i64 = seq_rows[0].get(0);
+        let cnt_rows = owner
+            .query_typed(
+                "SELECT COUNT(*)::bigint FROM jmap_changes_journal WHERE mailbox_id = $1 AND datatype = $2",
+                &[(&mailbox, Type::INT8), (dt, Type::TEXT)],
+            )
+            .await?;
+        let journal_count: i64 = cnt_rows[0].get(0);
+        out.push(((*dt).to_owned(), seq, journal_count));
+    }
+    Ok(out)
+}
+
+async fn verify_rust_journal_inner(
+    db: &Db,
+    owner: &Client,
+    fx: &mut Fx,
+    case: &Case,
+    datatypes: &[&str],
+) -> Result<(), BoxError> {
+    for (key, enabled) in case.toggles {
+        owner
+            .query_typed(
+                "INSERT INTO feature_toggles (key, enabled) VALUES ($1, $2) \
+                 ON CONFLICT (key) DO UPDATE SET enabled = EXCLUDED.enabled",
+                &[(key, Type::TEXT), (enabled, Type::BOOL)],
+            )
+            .await?;
+    }
+    for template in case.seed {
+        let sql = render(template, fx, &[], &[])?;
+        let rows = owner.query(sql.as_str(), &[]).await?;
+        if let Some(Ok(id)) = rows.first().map(|row| row.try_get::<_, i64>(0)) {
+            fx.seeds.push(id);
+        }
+    }
+    let mut services = JmapServices::new(
+        common::patient_exec(&db.dsn, 4)?,
+        "mail.test".into(),
+        52428800,
+    );
+    services.continuity_boot = Some(BOOT.into());
+    services.continuity_signer = Some(Arc::new(ContinuitySigner::new(
+        CONTINUITY_KEY_ID.into(),
+        ring::signature::Ed25519KeyPair::from_seed_unchecked(&CONTINUITY_SEED)
+            .map_err(|_| "continuity key")?,
+    )));
+    let commands = Arc::new(JmapCommands {
+        services: Some(Arc::new(services)),
+        worker: Some(common::patient_exec(&db.dsn, 1)?),
+        exec: common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?,
+        keys: common::recovery_keys(),
+        issuer: "mailserver".into(),
+        denylist: None,
+    });
+    let routes = RouteTable::proxy_all()
+        .with(JmapRoute(commands.clone()))
+        .with(WebSocketRoute::new(commands, db.direct.clone()));
+    let gateway = Gateway::new(
+        Config {
+            upstream: None,
+            trusted_proxies: TrustedProxies::parse("")?,
+            upstream_header_timeout: Duration::from_secs(30),
+            edge_limit: None,
+        },
+        routes,
+    )?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let server = tokio::spawn(gateway.serve(listener));
+    let res = async {
+        let mut socket = None;
+        let token = common::recovery_token(fx.a.user);
+        let mut prior = Vec::new();
+        for template in case.setup {
+            let body = render(template, fx, &prior, &[])?;
+            let (_, _, text) =
+                exchange(Transport::Http, address, &token, &mut socket, &body).await?;
+            prior.push(text);
+        }
+        let vars = (case.vars)(&prior)?;
+        for template in case.between {
+            owner
+                .batch_execute(&render(template, fx, &prior, &vars)?)
+                .await?;
+        }
+        let before = journal_snapshot(owner, fx.a.mailbox, datatypes).await?;
+        let request = render(case.request, fx, &prior, &vars)?;
+        let (status, _, body) =
+            exchange(Transport::Http, address, &token, &mut socket, &request).await?;
+        if status != 200 {
+            return Err(format!("{}: expected 200, got {status}: {body}", case.name).into());
+        }
+        let (_, _, metrics) = http(address, "GET", "/_gateway/metrics", None, "").await?;
+        if !metrics
+            .lines()
+            .any(|line| line == "setjoin_gateway_proxied_to_go_total 0")
+        {
+            return Err(format!("{}: a native route used Go", case.name).into());
+        }
+        let after = journal_snapshot(owner, fx.a.mailbox, datatypes).await?;
+        for ((dt, b_seq, b_cnt), (_, a_seq, a_cnt)) in before.iter().zip(after.iter()) {
+            if a_seq <= b_seq || a_cnt <= b_cnt {
+                return Err(format!(
+                    "{}: expected Rust journal bump for {dt} (seq {b_seq}->{a_seq}, rows {b_cnt}->{a_cnt})",
+                    case.name
+                )
+                .into());
+            }
+        }
+        Ok::<(), BoxError>(())
+    }
+    .await;
+    server.abort();
+    let _ = server.await;
+    res
+}
+
 async fn execute(
     db: &Db,
     owner: &Client,
@@ -1342,9 +1514,36 @@ async fn cleanup(
             break;
         }
     }
-    // Task activity author_user_id references users(id) without CASCADE; tasks
-    // journal into jmap_changes_journal on DELETE (#373). Remove them before
-    // jmap_changes_journal and fixture::remove.
+    // Calendars, contacts, addressbooks, and tasks journal into their mailbox
+    // when deleted (trg_journal_calendar / V096 contact & addressbook / #373
+    // task triggers), so they must go before jmap_changes_journal and
+    // fixture::remove; a sharing default pins its creator (no cascade)
+    // (#370, #371, #373, #375). Task activity author_user_id references
+    // users(id) without CASCADE.
+    owner
+        .query_typed(
+            "DELETE FROM contact_group_members m USING contact_groups g WHERE m.group_id = g.id AND g.mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM contact_groups WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM contacts c USING addressbooks ab WHERE c.addressbook_id = ab.id AND ab.mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .query_typed(
+            "DELETE FROM addressbooks WHERE mailbox_id = ANY($1)",
+            &[(&every, Type::INT8_ARRAY)],
+        )
+        .await?;
     owner
         .query_typed(
             "DELETE FROM task_activity WHERE mailbox_id = ANY($1) OR author_user_id = ANY($2)",
@@ -1363,9 +1562,6 @@ async fn cleanup(
             &[(&users, Type::INT8_ARRAY)],
         )
         .await?;
-    // A calendar journals into its mailbox when deleted (trg_journal_calendar),
-    // so calendars go while their mailbox exists, then that journal; a sharing
-    // default pins its creator (no cascade) (#371).
     owner
         .query_typed(
             "DELETE FROM calendars WHERE mailbox_id = ANY($1)",
@@ -1404,6 +1600,17 @@ async fn cleanup(
             )
             .await?;
     }
+    // Clear department references and seeded #370 test departments before
+    // removing the fixture users.
+    owner
+        .query_typed(
+            "UPDATE users SET department_id = NULL WHERE id = ANY($1) AND department_id IS NOT NULL",
+            &[(&users, Type::INT8_ARRAY)],
+        )
+        .await?;
+    owner
+        .batch_execute("DELETE FROM departments WHERE path LIKE '/jmap370-%'")
+        .await?;
     fixture::remove(owner, &fx.a).await?;
     fixture::remove(owner, &fx.f).await?;
     Ok(())

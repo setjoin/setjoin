@@ -328,7 +328,12 @@ impl AuthServer {
 const ACS_BODY: usize = 4 << 20;
 
 impl AuthServer {
-    fn acs_cookie_clear(&self, req_secure: bool, reg: &setjoin_identity::saml::Registration, relay: &str) -> String {
+    fn acs_cookie_clear(
+        &self,
+        req_secure: bool,
+        reg: &setjoin_identity::saml::Registration,
+        relay: &str,
+    ) -> String {
         format!(
             "{}=; Path={}; Max-Age=0; HttpOnly{}",
             setjoin_identity::saml::Registration::tracking_cookie(relay),
@@ -360,9 +365,13 @@ impl AuthServer {
             },
             path,
         );
-        reply.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+        reply
+            .headers_mut()
+            .insert("cache-control", "no-store".parse().unwrap());
         if let Some(cookie) = clear {
-            reply.headers_mut().append("set-cookie", cookie.parse().unwrap());
+            reply
+                .headers_mut()
+                .append("set-cookie", cookie.parse().unwrap());
         }
         reply
     }
@@ -388,11 +397,17 @@ impl AuthServer {
                     .eq_ignore_ascii_case("application/x-www-form-urlencoded")
             });
         if !form {
-            return self.acs_refuse(&reg, 400, "malformed", "not a form post", &path, &ip, None).await;
+            return self
+                .acs_refuse(&reg, 400, "malformed", "not a form post", &path, &ip, None)
+                .await;
         }
         let raw = match Limited::new(incoming, ACS_BODY).collect().await {
             Ok(v) => v.to_bytes(),
-            Err(_) => return self.acs_refuse(&reg, 413, "oversize", "form too large", &path, &ip, None).await,
+            Err(_) => {
+                return self
+                    .acs_refuse(&reg, 413, "oversize", "form too large", &path, &ip, None)
+                    .await
+            }
         };
         let (mut response, mut relay) = (None::<String>, None::<String>);
         for (key, value) in form_urlencoded::parse(&raw) {
@@ -402,26 +417,61 @@ impl AuthServer {
                 _ => continue,
             };
             if slot.replace(value.into_owned()).is_some() {
-                return self.acs_refuse(&reg, 400, "malformed", "repeated form field", &path, &ip, None).await;
+                return self
+                    .acs_refuse(
+                        &reg,
+                        400,
+                        "malformed",
+                        "repeated form field",
+                        &path,
+                        &ip,
+                        None,
+                    )
+                    .await;
             }
         }
         let relay = relay.unwrap_or_default();
         let clear = setjoin_identity::saml::valid_relay(&relay)
             .then(|| self.acs_cookie_clear(secure, &reg, &relay));
         let Some(response) = response.filter(|s| !s.is_empty()) else {
-            return self.acs_refuse(&reg, 400, "malformed", "no SAMLResponse", &path, &ip, clear).await;
+            return self
+                .acs_refuse(&reg, 400, "malformed", "no SAMLResponse", &path, &ip, clear)
+                .await;
         };
         let encoded: String = response.split_ascii_whitespace().collect();
         if encoded.len() > setjoin_identity::saml_acs::xml::MAX_XML / 3 * 4 + 8 {
-            return self.acs_refuse(&reg, 413, "oversize", "SAMLResponse too large", &path, &ip, clear).await;
+            return self
+                .acs_refuse(
+                    &reg,
+                    413,
+                    "oversize",
+                    "SAMLResponse too large",
+                    &path,
+                    &ip,
+                    clear,
+                )
+                .await;
         }
         let Ok(xml) = base64::engine::general_purpose::STANDARD.decode(encoded.as_bytes()) else {
-            return self.acs_refuse(&reg, 400, "malformed", "SAMLResponse is not base64", &path, &ip, clear).await;
+            return self
+                .acs_refuse(
+                    &reg,
+                    400,
+                    "malformed",
+                    "SAMLResponse is not base64",
+                    &path,
+                    &ip,
+                    clear,
+                )
+                .await;
         };
         // SP-initiated: the tracking cookie this SP signed for this relay token.
         let tracking = if setjoin_identity::saml::valid_relay(&relay) {
-            super::rp::cookie_value(&parts.headers, &setjoin_identity::saml::Registration::tracking_cookie(&relay))
-                .and_then(|jwt| reg.open_tracking(&relay, &jwt))
+            super::rp::cookie_value(
+                &parts.headers,
+                &setjoin_identity::saml::Registration::tracking_cookie(&relay),
+            )
+            .and_then(|jwt| reg.open_tracking(&relay, &jwt))
         } else {
             None
         };
@@ -432,7 +482,9 @@ impl AuthServer {
             } else {
                 ("idp_initiated_refused", "IdP-initiated SSO is not enabled")
             };
-            return self.acs_refuse(&reg, 401, class, why, &path, &ip, clear).await;
+            return self
+                .acs_refuse(&reg, 401, class, why, &path, &ip, clear)
+                .await;
         }
         let request_id = tracking.as_ref().map(|t| t.request_id.as_str());
         let now = std::time::SystemTime::now()
@@ -442,22 +494,48 @@ impl AuthServer {
         let claims = match reg.verify_acs(&xml, request_id, now) {
             Ok(c) => c,
             Err(fail) => {
-                return self.acs_refuse(&reg, 401, fail.class, fail.detail, &path, &ip, clear).await;
+                return self
+                    .acs_refuse(&reg, 401, fail.class, fail.detail, &path, &ip, clear)
+                    .await;
             }
         };
         let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
         match reg.consume(worker, &claims, request_id).await {
             setjoin_identity::saml::Consumed::Fresh => {}
             setjoin_identity::saml::Consumed::Replayed => {
-                return self.acs_refuse(&reg, 401, "replay", "assertion or request already used", &path, &ip, clear).await;
+                return self
+                    .acs_refuse(
+                        &reg,
+                        401,
+                        "replay",
+                        "assertion or request already used",
+                        &path,
+                        &ip,
+                        clear,
+                    )
+                    .await;
             }
             setjoin_identity::saml::Consumed::Failed => {
-                return self.acs_refuse(&reg, 503, "replay_unavailable", "replay cache unavailable", &path, &ip, clear).await;
+                return self
+                    .acs_refuse(
+                        &reg,
+                        503,
+                        "replay_unavailable",
+                        "replay cache unavailable",
+                        &path,
+                        &ip,
+                        clear,
+                    )
+                    .await;
             }
         }
         let groups = match reg.groups(&claims) {
             Ok(g) => g,
-            Err(detail) => return self.acs_refuse(&reg, 401, "groups", detail, &path, &ip, clear).await,
+            Err(detail) => {
+                return self
+                    .acs_refuse(&reg, 401, "groups", detail, &path, &ip, clear)
+                    .await
+            }
         };
         let target = setjoin_identity::saml::relay_target(match &tracking {
             Some(t) => &t.uri,
@@ -478,9 +556,20 @@ impl AuthServer {
                 None => None,
             };
             let Some(token) = held else {
-                return self.acs_refuse(&reg, 503, "link_unavailable", "link completion could not be held", &path, &ip, clear).await;
+                return self
+                    .acs_refuse(
+                        &reg,
+                        503,
+                        "link_unavailable",
+                        "link completion could not be held",
+                        &path,
+                        &ip,
+                        clear,
+                    )
+                    .await;
             };
-            setjoin_identity::saml::audit(&self.exec, reg.id(), "link_held", None, &ip, "link").await;
+            setjoin_identity::saml::audit(&self.exec, reg.id(), "link_held", None, &ip, "link")
+                .await;
             let next = format!("{}?token={token}", reg.link_complete_path());
             let page = format!(
                 "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url={next}\"></head><body><a href=\"{next}\">Continue</a></body></html>"
@@ -494,15 +583,19 @@ impl AuthServer {
                 .body(body(page))
                 .unwrap();
             if let Some(cookie) = clear {
-                reply.headers_mut().append("set-cookie", cookie.parse().unwrap());
+                reply
+                    .headers_mut()
+                    .append("set-cookie", cookie.parse().unwrap());
             }
             return reply;
         }
         let assertion = reg.assertion(&claims, groups);
-        let req = Request::from_parts(parts, body(raw));
+        let req = Request::from_parts(parts, body(raw.clone()));
         let linking = unbound && link_flow.is_some();
         let (mut reply, actor) = if let (true, Some(flow)) = (linking, link_flow) {
-            let (mut reply, actor) = self.saml_link_callback(&req, Some(&assertion), None, &reg, &flow).await;
+            let (mut reply, actor) = self
+                .saml_link_callback(&req, Some(&assertion), None, &reg, &flow)
+                .await;
             reply.headers_mut().append(
                 "set-cookie",
                 format!(
@@ -514,7 +607,8 @@ impl AuthServer {
             );
             (reply, actor)
         } else {
-            self.saml_login(&req, &assertion, &reg, &claims, &target).await
+            self.saml_login(&req, &raw, &assertion, &reg, &claims, &target)
+                .await
         };
         if reply.status().is_redirection() {
             setjoin_identity::saml::audit(
@@ -538,9 +632,13 @@ impl AuthServer {
             .await;
         }
         if let Some(cookie) = clear {
-            reply.headers_mut().append("set-cookie", cookie.parse().unwrap());
+            reply
+                .headers_mut()
+                .append("set-cookie", cookie.parse().unwrap());
         }
-        reply.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+        reply
+            .headers_mut()
+            .insert("cache-control", "no-store".parse().unwrap());
         reply
     }
 }
@@ -551,19 +649,23 @@ impl AuthServer {
     async fn saml_login(
         &self,
         req: &Request<Body>,
+        raw_body: &[u8],
         assertion: &setjoin_identity::rp::Assertion,
         reg: &Arc<setjoin_identity::saml::Registration>,
         claims: &setjoin_identity::saml_acs::Claims,
         target: &str,
     ) -> (Response<Body>, Option<i64>) {
         let path = req.uri().path();
-        // Completion that Rust cannot yet finish natively stays with its owners.
-        match self.rp_completion_route(req).await {
-            Ok(false) => {}
-            Ok(true) => return (Self::failure(503, "SAML authentication unavailable", path), None),
-            // F2 (#454 Codex r1): SAML keeps its 503 on a flag-lookup error; only OIDC changes.
-            Err(()) => return (Self::failure(503, "SAML authentication unavailable", path), None),
-        }
+        // #351/#454: CA & device-trust flags fail closed as recorded 503 on SAML ACS.
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
+            Err(()) => {
+                return (
+                    Self::failure(503, "SAML authentication unavailable", path),
+                    None,
+                )
+            }
+        };
         let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
         let resolution = match assertion.resolve(&self.exec, worker).await {
             Ok(setjoin_identity::rp::Lookup::Existing(resolution)) => resolution,
@@ -575,18 +677,31 @@ impl AuthServer {
                     return (Self::failure(401, "user not found", path), None);
                 }
                 let Some(email) = reg.email(claims) else {
-                    return (Self::failure(400, "SAML authentication failed: no email in assertion", path), None);
+                    return (
+                        Self::failure(
+                            400,
+                            "SAML authentication failed: no email in assertion",
+                            path,
+                        ),
+                        None,
+                    );
                 };
                 // The address is no proof of identity, but a provisioned user must not collide
                 // with one that exists (the legacy JIT does not check aliases).
                 let address = setjoin_authz::address::canonical(&email);
                 let taken = self
                     .exec
-                    .read("SELECT identity_address_claim_count(lower($1))>0", &[(&address.as_str(), setjoin_pg::Type::TEXT)])
+                    .read(
+                        "SELECT identity_address_claim_count(lower($1))>0",
+                        &[(&address.as_str(), setjoin_pg::Type::TEXT)],
+                    )
                     .await
                     .map(|r| r[0].get::<_, bool>(0));
                 if taken.unwrap_or(true) && !setjoin_identity::mutants::on("saml-jit-collision") {
-                    return (Self::failure(409, "explicit account linking is required", path), None);
+                    return (
+                        Self::failure(409, "explicit account linking is required", path),
+                        None,
+                    );
                 }
                 match miss.create(&self.exec, worker).await {
                     Ok(resolution) => resolution,
@@ -613,7 +728,19 @@ impl AuthServer {
             }
         };
         let actor = resolution.user().user();
-        let reply = self.rp_complete(req, assertion, &**reg, &resolution, worker).await;
+        let reply = self
+            .rp_complete(
+                req,
+                Some(raw_body),
+                assertion,
+                &**reg,
+                &resolution,
+                worker,
+                ca_enabled,
+                dt_enabled,
+                "saml",
+            )
+            .await;
         if reply.status() != 200 {
             return (reply, None);
         }
@@ -648,12 +775,18 @@ impl AuthServer {
         else {
             return (Self::failure(400, "invalid identity link flow", ""), None);
         };
-        let Some(raw) = super::rp::cookie_value(req.headers(), "access_token").filter(|s| !s.is_empty())
+        let Some(raw) =
+            super::rp::cookie_value(req.headers(), "access_token").filter(|s| !s.is_empty())
         else {
             return (Self::failure(401, "linking session expired", ""), None);
         };
         let Some(session) = self.legacy.as_ref().and_then(|legacy| {
-            setjoin_identity::session::Session::verify(&raw, self.keys.as_deref(), legacy, &self.config.issuer)
+            setjoin_identity::session::Session::verify(
+                &raw,
+                self.keys.as_deref(),
+                legacy,
+                &self.config.issuer,
+            )
         }) else {
             return (Self::failure(403, "linking session changed", ""), None);
         };
@@ -661,7 +794,15 @@ impl AuthServer {
             Ok(f) => f,
             Err(detail) => {
                 return (
-                    Self::failure(if detail == "linking session changed" { 403 } else { 401 }, detail, ""),
+                    Self::failure(
+                        if detail == "linking session changed" {
+                            403
+                        } else {
+                            401
+                        },
+                        detail,
+                        "",
+                    ),
                     None,
                 )
             }
@@ -680,8 +821,12 @@ impl AuthServer {
             (Some(a), _) => a,
             (None, Some(token)) => {
                 // Single use, for this registration and this link flow only.
-                let Some((subject, groups)) = reg.take_link(&worker, flow.flow_id(), token).await else {
-                    return (Self::failure(401, "link completion expired or already used", ""), None);
+                let Some((subject, groups)) = reg.take_link(&worker, flow.flow_id(), token).await
+                else {
+                    return (
+                        Self::failure(401, "link completion expired or already used", ""),
+                        None,
+                    );
                 };
                 held = reg.held_assertion(subject, groups);
                 &held
@@ -690,7 +835,12 @@ impl AuthServer {
         };
         let user = session.user();
         let reply = match flow
-            .finish(&worker, assertion, &**reg, self.config.sso_allow_super_admin_mapping)
+            .finish(
+                &worker,
+                assertion,
+                &**reg,
+                self.config.sso_allow_super_admin_mapping,
+            )
             .await
         {
             setjoin_pg::CommandOutcome::Committed(value) => match value["status"].as_str() {
@@ -700,7 +850,9 @@ impl AuthServer {
                             .status(303)
                             .header("location", "/settings?identity=linked")
                             .header("content-type", "text/html; charset=utf-8")
-                            .body(body("<a href=\"/settings?identity=linked\">See Other</a>.\n\n"))
+                            .body(body(
+                                "<a href=\"/settings?identity=linked\">See Other</a>.\n\n",
+                            ))
                             .unwrap(),
                         Some(user),
                     )
@@ -714,7 +866,10 @@ impl AuthServer {
                 let mut reply = Self::failure(503, "identity link commit failed", "");
                 reply.headers_mut().insert(
                     "x-operation-id",
-                    uuid::Uuid::from_bytes(operation.0).to_string().parse().unwrap(),
+                    uuid::Uuid::from_bytes(operation.0)
+                        .to_string()
+                        .parse()
+                        .unwrap(),
                 );
                 reply
             }
@@ -744,7 +899,9 @@ impl AuthServer {
         if token.is_empty() {
             return Self::failure(400, "invalid identity link flow", req.uri().path());
         }
-        let (mut reply, actor) = self.saml_link_callback(&req, None, Some(&token), &reg, &flow).await;
+        let (mut reply, actor) = self
+            .saml_link_callback(&req, None, Some(&token), &reg, &flow)
+            .await;
         reply.headers_mut().append(
             "set-cookie",
             format!(
@@ -755,11 +912,22 @@ impl AuthServer {
             .unwrap(),
         );
         if reply.status().is_redirection() {
-            setjoin_identity::saml::audit(&self.exec, reg.id(), "success", actor, &ip, "link").await;
+            setjoin_identity::saml::audit(&self.exec, reg.id(), "success", actor, &ip, "link")
+                .await;
         } else {
-            setjoin_identity::saml::audit(&self.exec, reg.id(), "refused", None, &ip, &format!("link status {}", reply.status().as_u16())).await;
+            setjoin_identity::saml::audit(
+                &self.exec,
+                reg.id(),
+                "refused",
+                None,
+                &ip,
+                &format!("link status {}", reply.status().as_u16()),
+            )
+            .await;
         }
-        reply.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+        reply
+            .headers_mut()
+            .insert("cache-control", "no-store".parse().unwrap());
         reply
     }
 }
