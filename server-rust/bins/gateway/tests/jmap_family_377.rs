@@ -10,11 +10,13 @@ use std::sync::Arc;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use chrono::{Duration, SecondsFormat, Utc};
+use futures_util::FutureExt;
 use http_body_util::BodyExt;
 use hyper::Request;
 use jmap_family_oracle::{run, Case, Mutation, CONTINUITY_KEY_ID, CONTINUITY_SEED};
 use ring::signature::Ed25519KeyPair;
 use serde_json::{json, Value};
+use setjoin_conformance::fixture;
 use setjoin_conformance::harness::{BoxError, Db};
 use setjoin_gateway::jmap::{JmapCommands, JmapRoute, JmapServices};
 use setjoin_gateway::{Config, Gateway, RouteTable, TrustedProxies};
@@ -870,91 +872,182 @@ async fn mutant_reminder_get_no_tenant_filter() -> Result<(), BoxError> {
     .await
 }
 
-/// Offline readiness test (no database required): Continuity/* stays with Go
-/// when the continuity signing key is absent (`Reminder/*` readiness without
-/// a signer is verified in `family::mod::tests::reminder_and_continuity_classification_and_readiness`).
+/// Auth-first & readiness test (#377): `/jmap` denies unauthenticated callers
+/// with `401` before body parsing, admits authenticated callers cleanly
+/// (`Core/echo` -> `200` with zero Go hops), and defers authenticated
+/// `Continuity/*` to Go (`502` with upstream unset) when the continuity signing
+/// key is absent (`Reminder/*` readiness without a signer is verified in
+/// `family::mod::tests::reminder_and_continuity_classification_and_readiness`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn continuity_without_signer_forwards_to_go() {
-    let exec = common::patient_exec("host=127.0.0.1 port=1 user=x dbname=x", 1).expect("lazy");
-    let services = JmapServices::new(exec.clone(), "mail.test".into(), 52428800);
-    assert!(services.continuity_signer.is_none());
-    let commands = Arc::new(JmapCommands {
-        services: Some(Arc::new(services)),
-        worker: None,
-        exec,
-        keys: common::recovery_keys(),
-        issuer: "mailserver".into(),
-        denylist: None,
-    });
-    let gateway = Gateway::new(
-        Config {
-            upstream: None,
-            trusted_proxies: TrustedProxies::parse("").expect("proxies"),
-            upstream_header_timeout: std::time::Duration::from_secs(5),
-            edge_limit: None,
-        },
-        RouteTable::proxy_all().with(JmapRoute(commands)),
-    )
-    .expect("gateway");
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let address = listener.local_addr().expect("addr");
-    let server = tokio::spawn(gateway.serve(listener));
+async fn continuity_without_signer_forwards_to_go() -> Result<(), BoxError> {
+    struct AbortOnDrop(tokio::task::JoinHandle<()>);
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
 
-    for method in ["Continuity/get", "Continuity/present"] {
-        let body = json!({
-            "using": serde_json::from_str::<Value>(MAIL_CAPS).unwrap(),
-            "methodCalls": [[method, {"accountId": "1", "token": "x"}, "c1"]],
+    async fn send_http(
+        address: std::net::SocketAddr,
+        req: Request<common::TestBody>,
+    ) -> Result<(u16, String), BoxError> {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+            let stream = tokio::net::TcpStream::connect(address).await?;
+            let (mut sender, conn) =
+                hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream))
+                    .await?;
+            let _conn = AbortOnDrop(tokio::spawn(async move {
+                let _ = conn.await;
+            }));
+            let resp = sender.send_request(req).await?;
+            let status = resp.status().as_u16();
+            let bytes = resp.into_body().collect().await?.to_bytes();
+            Ok::<_, BoxError>((status, String::from_utf8(bytes.to_vec())?))
+        })
+        .await
+        .map_err(|_| -> BoxError { "timed out waiting for gateway HTTP response".into() })?
+    }
+
+    async fn assert_go_forwards(
+        address: std::net::SocketAddr,
+        expected: usize,
+    ) -> Result<(), BoxError> {
+        let req = Request::builder()
+            .method("GET")
+            .uri("/_gateway/metrics")
+            .header("host", "mail.test")
+            .body(common::full(String::new()))?;
+        let (status, metrics) = send_http(address, req).await?;
+        if status != 200 {
+            return Err(format!("metrics status {status}").into());
+        }
+        let target = format!("setjoin_gateway_proxied_to_go_total {expected}");
+        if !metrics.lines().any(|line| line == target) {
+            return Err(format!("expected `{target}` in metrics:\n{metrics}").into());
+        }
+        Ok(())
+    }
+
+    let Some(db) = Db::for_case("continuity_without_signer_forwards_to_go") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let a = fixture::account(&owner, "fam-377-no-signer").await?;
+
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let mut services = JmapServices::new(
+            common::patient_exec(&db.dsn, 4)?,
+            "mail.test".into(),
+            52428800,
+        );
+        services.continuity_boot = Some("bba31885-d8f1-4c47-8753-56bf86e59807".into());
+        if services.continuity_signer.is_some() {
+            return Err("expected continuity_signer to be None".into());
+        }
+        let commands = Arc::new(JmapCommands {
+            services: Some(Arc::new(services)),
+            worker: None,
+            exec: common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?,
+            keys: common::recovery_keys(),
+            issuer: "mailserver".into(),
+            denylist: None,
+        });
+        let gateway = Gateway::new(
+            Config {
+                upstream: None,
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: std::time::Duration::from_secs(5),
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(JmapRoute(commands)),
+        )?;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let _server = AbortOnDrop(tokio::spawn(gateway.serve(listener)));
+
+        let unauth_body = json!({
+            "using": serde_json::from_str::<Value>(MAIL_CAPS)?,
+            "methodCalls": [["Continuity/get", {"accountId": a.mailbox.to_string(), "token": "x"}, "c0"]],
         })
         .to_string();
-        let stream = tokio::net::TcpStream::connect(address)
-            .await
-            .expect("connect");
-        let (mut sender, conn) =
-            hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream))
-                .await
-                .expect("handshake");
-        let conn_task = tokio::spawn(async move {
-            let _ = conn.await;
-        });
-        let req = Request::builder()
+        let unauth_req = Request::builder()
             .method("POST")
             .uri("/jmap")
             .header("host", "mail.test")
             .header("origin", "http://mail.test")
             .header("content-type", "application/json")
-            .body(common::full(body))
-            .expect("request");
-        let resp = sender.send_request(req).await.expect("response");
-        // With Go upstream unset, a Go forward answers 502 Bad Gateway.
-        assert_eq!(resp.status().as_u16(), 502, "{method} should defer to Go");
-        conn_task.abort();
-    }
+            .body(common::full(unauth_body))?;
+        let (unauth_status, _) = send_http(address, unauth_req).await?;
+        if unauth_status != 401 {
+            return Err(format!(
+                "unauthenticated /jmap should fail auth-first with 401, got {unauth_status}"
+            )
+            .into());
+        }
+        assert_go_forwards(address, 0).await?;
 
-    // Confirm metrics recorded the two Continuity/* forwards.
-    let stream = tokio::net::TcpStream::connect(address)
-        .await
-        .expect("connect");
-    let (mut sender, conn) =
-        hyper::client::conn::http1::handshake(hyper_util::rt::TokioIo::new(stream))
-            .await
-            .expect("handshake");
-    let conn_task = tokio::spawn(async move {
-        let _ = conn.await;
-    });
-    let req = Request::builder()
-        .method("GET")
-        .uri("/_gateway/metrics")
-        .header("host", "mail.test")
-        .body(common::full(String::new()))
-        .expect("metrics");
-    let resp = sender.send_request(req).await.expect("metrics resp");
-    assert_eq!(resp.status().as_u16(), 200);
-    let body = resp.into_body().collect().await.expect("body").to_bytes();
-    let metrics = String::from_utf8(body.to_vec()).expect("utf8");
-    assert!(
-        metrics.contains("setjoin_gateway_proxied_to_go_total 2"),
-        "{metrics}"
-    );
-    conn_task.abort();
-    server.abort();
+        let token = common::recovery_token(a.user);
+        let echo_body = json!({
+            "using": ["urn:ietf:params:jmap:core"],
+            "methodCalls": [["Core/echo", {"hello": "world"}, "e0"]],
+        })
+        .to_string();
+        let echo_req = Request::builder()
+            .method("POST")
+            .uri("/jmap")
+            .header("host", "mail.test")
+            .header("origin", "http://mail.test")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(common::full(echo_body))?;
+        let (echo_status, echo_resp) = send_http(address, echo_req).await?;
+        if echo_status != 200 {
+            return Err(format!(
+                "authenticated Core/echo should succeed (200), got {echo_status}: {echo_resp}"
+            )
+            .into());
+        }
+        assert_go_forwards(address, 0).await?;
+
+        for method in ["Continuity/get", "Continuity/present"] {
+            let body = json!({
+                "using": serde_json::from_str::<Value>(MAIL_CAPS)?,
+                "methodCalls": [[method, {"accountId": a.mailbox.to_string(), "token": "x"}, "c1"]],
+            })
+            .to_string();
+            let req = Request::builder()
+                .method("POST")
+                .uri("/jmap")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(common::full(body))?;
+            let (status, _) = send_http(address, req).await?;
+            // With Go upstream unset, a Go forward answers 502 Bad Gateway.
+            if status != 502 {
+                return Err(format!("{method} should defer to Go (502), got {status}").into());
+            }
+        }
+
+        assert_go_forwards(address, 2).await?;
+        Ok::<_, BoxError>(())
+    })
+    .catch_unwind()
+    .await;
+
+    let cleaned = fixture::remove(&owner, &a).await;
+    match (outcome, cleaned) {
+        (Ok(Ok(())), Ok(())) => Ok(()),
+        (Ok(Err(err)), Ok(())) => Err(err),
+        (Ok(Ok(())), Err(clean_err)) => Err(clean_err),
+        (Ok(Err(err)), Err(clean_err)) => {
+            Err(format!("{err}; cleanup failed: {clean_err}").into())
+        }
+        (Err(panic), Ok(())) => std::panic::resume_unwind(panic),
+        (Err(panic), Err(clean_err)) => {
+            eprintln!("cleanup failed while unwinding: {clean_err}");
+            std::panic::resume_unwind(panic);
+        }
+    }
 }
