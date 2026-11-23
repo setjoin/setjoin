@@ -297,12 +297,12 @@ signed admins; non-admin signed permissions retain frozen Go's claim behavior.
 Full-spec routes use it instead of deferring every admin or domain-scoped token.
 Per-target family policy remains outside this helper.
 
-`authorize_console_request` checks the same identity/session/mailbox gates but
-leaves live console permission resolution to its caller, avoiding an unused
-role-ID read. Frozen Go `auth/chain.go:482` retains signed permission claims when
-ResolveAuthority errors, despite its deny-by-default comment. Full-spec routes
-preserve this security defect on error/timeout (`authority-error.json`); a
-successful empty live grant set still replaces stale signed permissions.
+`authorize_console_request` and `admit_console` check the same
+identity/session/mailbox gates but leave live console permission resolution to
+the caller, avoiding an unused role-ID read so console `system.config` denials
+own their 403/audit path. Full-spec routes fail closed with an audited 403 on
+live authority error or timeout (`authority-error.json`); a successful empty live
+grant set still replaces stale signed permissions.
 
 HTTP CSRF belongs to the gateway before dispatch, after its core budget and
 before route budgets. It also runs for injected local adapters without a limiter;

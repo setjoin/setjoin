@@ -363,42 +363,18 @@ pub async fn forwarding() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-forward").ok_or("DB required")?;
     let owner = db.connect().await?;
-    let receipts: Vec<String> = owner
-        .query(
-            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F04'",
-            &[],
-        )
-        .await?
-        .into_iter()
-        .map(|row| row.get(0))
-        .collect();
-    let a = fixture::account(&owner, "compl1-forward").await?;
-    let role: i64 = owner
-        .query_one(
-            "INSERT INTO admin_role_groups(name,permissions) VALUES ('compl1-forward','{compliance.write}') RETURNING id",
-            &[],
-        )
-        .await?
-        .get(0);
-    owner
-        .execute(
-            "INSERT INTO admin_role_assignments(role_group_id,user_id) VALUES($1,$2)",
-            &[&role, &a.user],
-        )
-        .await?;
-    let blob_hash = format!("{:064x}", a.two_labels);
-    owner
-        .execute(
-            "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,12,'text/plain',0)",
-            &[&blob_hash],
-        )
-        .await?;
-    owner
-        .execute(
-            "INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'hold.txt','text/plain','attachment',12 FROM messages WHERE id=$2 AND mailbox_id=$3",
-            &[&blob_hash, &a.two_labels, &a.mailbox],
-        )
-        .await?;
+    struct Cleanup {
+        account: Option<fixture::Account>,
+        role: Option<i64>,
+        blob_hash: Option<String>,
+        receipts: Vec<String>,
+    }
+    let mut cleanup = Cleanup {
+        account: None,
+        role: None,
+        blob_hash: None,
+        receipts: Vec::new(),
+    };
     struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
     impl Drop for Env {
         fn drop(&mut self) {
@@ -418,6 +394,36 @@ pub async fn forwarding() -> Result<(), BoxError> {
         }
     }
     let result = std::panic::AssertUnwindSafe(async {
+        cleanup.account = Some(fixture::account(&owner, "compl1-forward").await?);
+        let a = cleanup.account.as_ref().unwrap();
+        let role: i64 = owner
+            .query_one(
+                "INSERT INTO admin_role_groups(name,permissions) VALUES ('compl1-forward','{compliance.write}') RETURNING id",
+                &[],
+            )
+            .await?
+            .get(0);
+        cleanup.role = Some(role);
+        owner
+            .execute(
+                "INSERT INTO admin_role_assignments(role_group_id,user_id) VALUES($1,$2)",
+                &[&role, &a.user],
+            )
+            .await?;
+        let blob_hash = format!("{:064x}", a.two_labels);
+        cleanup.blob_hash = Some(blob_hash.clone());
+        owner
+            .execute(
+                "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,12,'text/plain',0)",
+                &[&blob_hash],
+            )
+            .await?;
+        owner
+            .execute(
+                "INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'hold.txt','text/plain','attachment',12 FROM messages WHERE id=$2 AND mailbox_id=$3",
+                &[&blob_hash, &a.two_labels, &a.mailbox],
+            )
+            .await?;
         let _env = Env(vec![
             ("WORM_MODE", std::env::var_os("WORM_MODE")),
             (
@@ -427,7 +433,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
         ]);
         std::env::remove_var("WORM_MODE");
         std::env::remove_var("WORM_LEGAL_HOLD_ENABLED");
-        // S3 response phase: 0=retry 503->200, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
+        // S3 response phase: 0=retry 400 SlowDownWrite->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
         let s3_phase = Arc::new(AtomicUsize::new(0));
         let s3_attempt = Arc::new(AtomicUsize::new(0));
         let s3_puts = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
@@ -474,14 +480,13 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 let hit = attempt_ref.fetch_add(1, Ordering::SeqCst);
                 match (phase, hit) {
                     (0, 0) => Response::builder()
-                        .status(503)
+                        .status(400)
                         .header("content-type", "application/xml")
                         .body(common::full(
-                            "<Error><Code>ServiceUnavailable</Code><Message>Slow down</Message></Error>",
+                            "<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
                         ))
                         .unwrap(),
-                    (0, _) => Response::builder().status(200).body(common::full("")).unwrap(),
-                    (1 | 3, _) => Response::builder().status(204).body(common::full("")).unwrap(),
+                    (0 | 1 | 3, _) => Response::builder().status(204).body(common::full("")).unwrap(),
                     (2, _) => Response::builder()
                         .status(403)
                         .header("content-type", "application/xml")
@@ -588,6 +593,26 @@ pub async fn forwarding() -> Result<(), BoxError> {
         if !refused_body.contains("invalid KQL query: query contains a NUL character") {
             return Err(format!("NUL KQL body: {refused_body}").into());
         }
+        async fn record_receipt(
+            owner: &tokio_postgres::Client,
+            command: &str,
+            request_id: &str,
+            receipts: &mut Vec<String>,
+        ) -> Result<(), BoxError> {
+            let rows = owner
+                .query(
+                    "SELECT operation_id::text FROM rust_operation_receipts \
+                     WHERE family='F04' AND command=$1 \
+                     AND left(operation_id::text, 14) = left($2, 14) \
+                     AND substr(operation_id::text, 16, 4) = substr($2, 16, 4) \
+                     AND right(operation_id::text, 16) = right($2, 16)",
+                    &[&command, &request_id],
+                )
+                .await?;
+            assert_eq!(rows.len(), 1, "expected 1 receipt for {command} {request_id}");
+            receipts.push(rows[0].get(0));
+            Ok(())
+        }
         let ids = format!("{{\"ids\":[{}]}}", a.two_labels);
         std::env::set_var("WORM_MODE", "governance");
         let hold_resp = common::send(
@@ -601,11 +626,18 @@ pub async fn forwarding() -> Result<(), BoxError> {
         )
         .await;
         assert_eq!(hold_resp.status().as_u16(), 200);
+        let hold_req_id = hold_resp
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
         let hold_json: Value = serde_json::from_slice(&common::body_bytes(hold_resp).await)?;
         assert_eq!(
             hold_json,
             json!({"held": 1, "legal_hold_objects": 1, "total": 1})
         );
+        record_receipt(&owner, "message.hold", &hold_req_id, &mut cleanup.receipts).await?;
         let held_after_hold: bool = owner
             .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
             .await?
@@ -624,8 +656,15 @@ pub async fn forwarding() -> Result<(), BoxError> {
         )
         .await;
         assert_eq!(release_resp.status().as_u16(), 200);
+        let rel_req_id = release_resp
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
         let release_json: Value = serde_json::from_slice(&common::body_bytes(release_resp).await)?;
         assert_eq!(release_json, json!({"released": 1, "total": 1}));
+        record_receipt(&owner, "message.release", &rel_req_id, &mut cleanup.receipts).await?;
         let held_after_release: bool = owner
             .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
             .await?
@@ -645,11 +684,18 @@ pub async fn forwarding() -> Result<(), BoxError> {
         )
         .await;
         assert_eq!(hold_denied.status().as_u16(), 200);
+        let denied_req_id = hold_denied
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
         let denied_json: Value = serde_json::from_slice(&common::body_bytes(hold_denied).await)?;
         assert_eq!(
             denied_json,
             json!({"held": 1, "legal_hold_objects": 0, "total": 1})
         );
+        record_receipt(&owner, "message.hold", &denied_req_id, &mut cleanup.receipts).await?;
 
         s3_phase.store(3, Ordering::SeqCst);
         let release_2 = common::send(
@@ -663,10 +709,17 @@ pub async fn forwarding() -> Result<(), BoxError> {
         )
         .await;
         assert_eq!(release_2.status().as_u16(), 200);
+        let rel2_req_id = release_2
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
+        record_receipt(&owner, "message.release", &rel2_req_id, &mut cleanup.receipts).await?;
 
-        // WORM_LEGAL_HOLD_ENABLED=false counts attached blobs as in Go SetLegalHold without calling S3.
+        // WORM_LEGAL_HOLD_ENABLED="yes" fails Go strconv.ParseBool -> counts attached blobs without S3 calls.
         s3_phase.store(4, Ordering::SeqCst);
-        std::env::set_var("WORM_LEGAL_HOLD_ENABLED", "false");
+        std::env::set_var("WORM_LEGAL_HOLD_ENABLED", "yes");
         let calls_before_disabled = s3_puts.lock().unwrap().len();
         let hold_disabled = common::send(
             address,
@@ -679,11 +732,18 @@ pub async fn forwarding() -> Result<(), BoxError> {
         )
         .await;
         assert_eq!(hold_disabled.status().as_u16(), 200);
+        let dis_req_id = hold_disabled
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
         let disabled_json: Value = serde_json::from_slice(&common::body_bytes(hold_disabled).await)?;
         assert_eq!(
             disabled_json,
             json!({"held": 1, "legal_hold_objects": 1, "total": 1})
         );
+        record_receipt(&owner, "message.hold", &dis_req_id, &mut cleanup.receipts).await?;
         assert_eq!(s3_puts.lock().unwrap().len(), calls_before_disabled);
 
         let put_on = json!({
@@ -736,37 +796,47 @@ pub async fn forwarding() -> Result<(), BoxError> {
     })
     .catch_unwind()
     .await;
-    owner
-        .execute(
-            "DELETE FROM message_attachments WHERE blob_sha256=$1",
-            &[&blob_hash],
-        )
-        .await?;
-    owner
-        .execute("DELETE FROM blobs WHERE sha256=$1", &[&blob_hash])
-        .await?;
-    owner
-        .execute(
-            "UPDATE messages SET held=false WHERE mailbox_id=$1",
-            &[&a.mailbox],
-        )
-        .await?;
-    owner
-        .batch_execute(&format!(
-            "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",
-            a.user
-        ))
-        .await?;
-    owner
-        .execute(
-            "DELETE FROM rust_operation_receipts WHERE family='F04' AND operation_id::text<>ALL($1)",
-            &[&receipts],
-        )
-        .await?;
-    owner
-        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
-        .await?;
-    fixture::remove(&owner, &a).await?;
+    if let Some(blob_hash) = &cleanup.blob_hash {
+        owner
+            .execute(
+                "DELETE FROM message_attachments WHERE blob_sha256=$1",
+                &[blob_hash],
+            )
+            .await?;
+        owner
+            .execute("DELETE FROM blobs WHERE sha256=$1", &[blob_hash])
+            .await?;
+    }
+    if let Some(a) = &cleanup.account {
+        owner
+            .execute(
+                "UPDATE messages SET held=false WHERE mailbox_id=$1",
+                &[&a.mailbox],
+            )
+            .await?;
+        owner
+            .batch_execute(&format!(
+                "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",
+                a.user
+            ))
+            .await?;
+    }
+    if !cleanup.receipts.is_empty() {
+        owner
+            .execute(
+                "DELETE FROM rust_operation_receipts WHERE operation_id::text = ANY($1)",
+                &[&cleanup.receipts],
+            )
+            .await?;
+    }
+    if let Some(role) = cleanup.role {
+        owner
+            .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
+            .await?;
+    }
+    if let Some(a) = &cleanup.account {
+        fixture::remove(&owner, a).await?;
+    }
     match result {
         Ok(res) => res,
         Err(payload) => std::panic::resume_unwind(payload),

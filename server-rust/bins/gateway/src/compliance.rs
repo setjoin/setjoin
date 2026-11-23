@@ -641,10 +641,7 @@ fn worm_legal_hold_enabled() -> bool {
         return false;
     }
     match std::env::var("WORM_LEGAL_HOLD_ENABLED") {
-        Ok(value) => matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "true" | "1" | "t" | "yes"
-        ),
+        Ok(value) => matches!(value.as_str(), "1" | "t" | "T" | "true" | "TRUE" | "True"),
         Err(_) => true,
     }
 }

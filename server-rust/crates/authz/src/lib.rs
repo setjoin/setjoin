@@ -292,7 +292,7 @@ pub async fn admit(
     admit_inner(exec, keys, issuer, headers, method, path, scope, true).await
 }
 
-/// Console-surface variant of [`admit`] that omits redundant role loading (#484),
+/// Console-surface variant of [`admit`] that omits redundant role loading,
 /// matching [`authorize_console_request`] so console permission handlers own their audit/error path.
 pub async fn admit_console(
     exec: &ScopedExecutor,

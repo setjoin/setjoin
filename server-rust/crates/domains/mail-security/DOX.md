@@ -134,7 +134,7 @@ a verified token; ownership is the token's user in the same WHERE as each write.
   parsed through `certificate.rs`'s Go profile over audited DER/X.509/curve decoders
   (last CN, RFC 3339 UTC, `days_left` truncated). The same admission profile serves
   S/MIME imports and gateway operator CA bundles; parsing does not verify a signature,
-  establish trust, or enforce validity. [Certificate oracle](../../../../tests/conformance/mail-security/divfix/README.md)
+  establish trust, or enforce validity. [Certificate oracle](../../../tests/conformance/mail-security/divfix/README.md)
   records rejected shapes and accepted controls from frozen Go.
 - `POST /admin/tls/import-cert` mirrors `ParseMultipartForm(10 MiB)` + `FormFile` (a part without a
   filename is a value), `MkdirAll(0700)`, `os.Create` + `Chmod(0600)` of `custom.cert.pem` and

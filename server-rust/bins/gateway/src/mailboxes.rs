@@ -542,13 +542,7 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
                 let b = *self.s.get(self.pos)?;
                 self.pos += 1;
                 match b {
-                    b'"' => {
-                        return if bytes.is_empty() {
-                            None
-                        } else {
-                            String::from_utf8(bytes).ok()
-                        }
-                    }
+                    b'"' => return String::from_utf8(bytes).ok(),
                     b'\\' => {
                         let esc = *self.s.get(self.pos)?;
                         self.pos += 1;
@@ -608,12 +602,11 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
                     if b == b']' {
                         self.pos += 1;
                         let lit = &self.s[start..self.pos];
-                        // Go net/mail accepts non-empty bracketed domain-literals containing RFC 5322 dtext.
+                        // Go net/mail consumeDomainLiteral validates bracket contents via net.ParseIP.
                         let inner = &lit[1..lit.len() - 1];
-                        if inner.is_empty()
-                            || inner
-                                .iter()
-                                .any(|&c| !((0x21..=0x5a).contains(&c) || (0x5e..=0x7e).contains(&c)))
+                        if !std::str::from_utf8(inner)
+                            .ok()
+                            .is_some_and(|s| s.parse::<std::net::IpAddr>().is_ok())
                         {
                             return None;
                         }
@@ -630,6 +623,7 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
             Some(domain)
         }
         fn consume_addr_spec(&mut self) -> Option<String> {
+            self.skip_space();
             let local = if self.peek() == Some(b'"') {
                 self.consume_quoted_string()?
             } else {
@@ -639,11 +633,11 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
                 }
                 atom
             };
-            if self.peek() != Some(b'@') {
+            if local.is_empty() || self.peek() != Some(b'@') {
                 return None;
             }
             self.pos += 1;
-            self.skip_comments_and_space()?;
+            self.skip_space();
             let domain = self.consume_domain()?;
             Some(format!("{local}@{domain}"))
         }
@@ -1640,11 +1634,31 @@ mod tests {
             Err("invalid email format")
         );
         assert_eq!(
-            canonical_email("user@[IPv6:::1]"),
+            canonical_email("user@[::1]"),
             Err("IP domain literals are not supported")
         );
         assert_eq!(
+            canonical_email("user@[IPv6:::1]"),
+            Err("invalid email format")
+        );
+        assert_eq!(
             canonical_email("user@[bad literal]"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@(c)example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("< user@example.test>"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("\"\" <user@example.test>"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("\"\"@example.test"),
             Err("invalid email format")
         );
         assert_eq!(

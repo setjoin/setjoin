@@ -21,7 +21,7 @@
 //! unavailable state returns 503. Unauthenticated or invalid JWTs proxy to the SFU.
 //! Without LiveKit configuration Go registers no `/rtc` handler and its root mux
 //! answers (SPA or 404). The executable gives this route the catch-all as its
-//! fallback, so that answer is native (#357); a table without one keeps Go.
+//! fallback, so that answer is native (#357); a table without one answers unregistered (404).
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};

@@ -113,7 +113,7 @@ async fn valid_claims(
     issuer: &str,
     headers: &HeaderMap,
     path: &str,
-) -> Option<serde_json::Value> {
+) -> Option<serde_json::Map<String, serde_json::Value>> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0.0, |d| d.as_secs_f64());
@@ -132,7 +132,7 @@ async fn valid_claims(
 /// Checks guest status, `feature.guest_accounts`, and `guest_allowed` for validated claims.
 async fn check_claims_guest(
     guest: &setjoin_pg::ScopedExecutor,
-    claims: &serde_json::Value,
+    claims: &serde_json::Map<String, serde_json::Value>,
     headers: &HeaderMap,
     method: &Method,
     path: &str,

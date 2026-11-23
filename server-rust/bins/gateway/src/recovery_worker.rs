@@ -1180,19 +1180,19 @@ fn is_retryable_s3_error(body: &str) -> bool {
     matches!(
         s3_error_code(body),
         Some(
-            "InternalError"
+            "RequestError"
                 | "RequestTimeout"
-                | "RequestTimeTooSkewed"
-                | "ServiceUnavailable"
-                | "SlowDown"
                 | "Throttling"
                 | "ThrottlingException"
-                | "OperationAborted"
-                | "RetryYourRequest"
-                | "Busy"
-                | "TooManyRequestsException"
-                | "EC2ThrottledException"
-                | "TransactionInProgressException"
+                | "RequestLimitExceeded"
+                | "RequestThrottled"
+                | "InternalError"
+                | "ExpiredToken"
+                | "ExpiredTokenException"
+                | "SlowDown"
+                | "SlowDownWrite"
+                | "SlowDownRead"
+                | "ServiceUnavailable"
         )
     )
 }

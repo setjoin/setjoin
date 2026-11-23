@@ -88,47 +88,66 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         return Ok(());
     };
     let to_go = matches!(mode, Mode::Kill | Mode::Rollback);
-    let guest_fixture = if mode == Mode::ActiveGuest {
-        let owner = db.connect().await?;
-        let saved_toggle: Option<bool> = owner
-            .query_opt(
-                "SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'",
-                &[],
-            )
-            .await?
-            .map(|r| r.get(0));
-        owner
-            .execute(
-                "INSERT INTO feature_toggles(key,enabled) VALUES('feature.guest_accounts',true) ON CONFLICT(key) DO UPDATE SET enabled=true",
-                &[],
-            )
-            .await?;
-        let domain: i64 = owner
-            .query_one(
-                "INSERT INTO domains(name,is_local) VALUES('meet5-guest-'||gen_random_uuid()::text||'.test',true) RETURNING id",
-                &[],
-            )
-            .await?
-            .get(0);
-        let user_row = owner
-            .query_one(
-                "INSERT INTO users(username,domain_id,email,display_name,password_hash) VALUES('meet5-guest-'||gen_random_uuid()::text,(SELECT id FROM domains WHERE name='guest.invalid'),'meet5-guest-'||gen_random_uuid()::text||'@example.test','meet5 guest','x') RETURNING id, email",
-                &[],
-            )
-            .await?;
-        let user: i64 = user_row.get(0);
-        let guest_email: String = user_row.get(1);
-        owner
-            .execute(
-                "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) VALUES($1,$2,'inviter@example.test',$3,'active')",
-                &[&user, &guest_email, &domain],
-            )
-            .await?;
-        Some((owner, domain, user, saved_toggle))
+    struct GuestCleanup {
+        saved_toggle: Option<Option<bool>>,
+        domain: Option<i64>,
+        users: Vec<i64>,
+    }
+    let owner = if mode == Mode::ActiveGuest {
+        Some(db.connect().await?)
     } else {
         None
     };
+    let mut guest_cleanup = GuestCleanup {
+        saved_toggle: None,
+        domain: None,
+        users: Vec::new(),
+    };
     let result = std::panic::AssertUnwindSafe(async {
+        let mut active_user = None;
+        let mut inactive_user = None;
+        if let Some(owner) = &owner {
+            let prev: Option<bool> = owner
+                .query_opt(
+                    "SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'",
+                    &[],
+                )
+                .await?
+                .map(|r| r.get(0));
+            guest_cleanup.saved_toggle = Some(prev);
+            owner
+                .execute(
+                    "INSERT INTO feature_toggles(key,enabled) VALUES('feature.guest_accounts',true) ON CONFLICT(key) DO UPDATE SET enabled=true",
+                    &[],
+                )
+                .await?;
+            let domain: i64 = owner
+                .query_one(
+                    "INSERT INTO domains(name,is_local) VALUES('meet5-guest-'||gen_random_uuid()::text||'.test',true) RETURNING id",
+                    &[],
+                )
+                .await?
+                .get(0);
+            guest_cleanup.domain = Some(domain);
+            for (slot, status) in [(&mut active_user, "active"), (&mut inactive_user, "expired")] {
+                let row = owner
+                    .query_one(
+                        "INSERT INTO users(username,domain_id,email,display_name,password_hash) VALUES('meet5-guest-'||gen_random_uuid()::text,(SELECT id FROM domains WHERE name='guest.invalid'),'meet5-guest-'||gen_random_uuid()::text||'@example.test','meet5 guest','x') RETURNING id, email",
+                        &[],
+                    )
+                    .await?;
+                let user: i64 = row.get(0);
+                let guest_email: String = row.get(1);
+                guest_cleanup.users.push(user);
+                owner
+                    .execute(
+                        "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) VALUES($1,$2,'inviter@example.test',$3,$4)",
+                        &[&user, &guest_email, &domain, &status],
+                    )
+                    .await?;
+                *slot = Some(user);
+            }
+        }
         let go_hits = Arc::new(AtomicUsize::new(0));
         let observed = go_hits.clone();
         let go = common::fake_upstream(move |_| {
@@ -259,33 +278,64 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        let guest_header = guest_fixture
-            .as_ref()
-            .map(|(_, _, user, _)| format!("Bearer {}", common::recovery_token(*user)));
-        let probes: Vec<(&str, &str, Vec<(&str, String)>)> = match mode {
+        let probes: Vec<(&str, &str, Vec<(&str, String)>, u16, Option<&str>)> = match mode {
             Mode::ForeignCredential => vec![(
                 "GET",
                 "/rtc/rtc/validate?access_token=good",
                 vec![("authorization", "Bearer not-a-token".to_owned())],
+                200,
+                Some("success"),
             )],
             Mode::ActiveGuest => {
-                let auth = guest_header.as_deref().unwrap().to_owned();
+                let active_auth = format!("Bearer {}", common::recovery_token(active_user.unwrap()));
+                let inactive_auth = format!("Bearer {}", common::recovery_token(inactive_user.unwrap()));
                 vec![
                     (
                         "GET",
                         "/rtc/rtc/validate?access_token=good",
-                        vec![("authorization", auth.clone())],
+                        vec![("authorization", active_auth.clone())],
+                        200,
+                        Some("success"),
                     ),
-                    ("GET", "/rtc", vec![("authorization", auth)]),
+                    (
+                        "GET",
+                        "/rtc",
+                        vec![("authorization", active_auth.clone())],
+                        200,
+                        Some("success"),
+                    ),
+                    (
+                        "POST",
+                        "/rtc",
+                        vec![("authorization", active_auth)],
+                        404,
+                        Some("404 page not found\n"),
+                    ),
+                    (
+                        "GET",
+                        "/rtc",
+                        vec![("authorization", inactive_auth)],
+                        401,
+                        None,
+                    ),
                 ]
             }
-            _ => vec![
-                ("GET", "/rtc/rtc/validate?access_token=good", vec![]),
-                ("GET", "/rtc", vec![]),
+            Mode::Unconfigured => vec![
+                ("GET", "/rtc/rtc/validate?access_token=good", vec![], 404, Some("404 page not found\n")),
+                ("GET", "/rtc", vec![], 404, Some("404 page not found\n")),
+            ],
+            Mode::Native => vec![
+                ("GET", "/rtc/rtc/validate?access_token=good", vec![], 200, Some("success")),
+                ("GET", "/rtc", vec![], 200, Some("success")),
+            ],
+            Mode::Kill | Mode::Rollback => vec![
+                ("GET", "/rtc/rtc/validate?access_token=good", vec![], 218, Some("from go")),
+                ("GET", "/rtc", vec![], 218, Some("from go")),
             ],
         };
         let mut count = 0;
-        for (method, uri, headers) in &probes {
+        let mut expected_sfu = 0;
+        for (method, uri, headers, want, text) in &probes {
             let mut request = Request::builder()
                 .method(*method)
                 .uri(*uri)
@@ -296,13 +346,15 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             let response = common::send(address, request.body(common::full(""))?).await;
             let status = response.status().as_u16();
             let body = common::body_bytes(response).await;
-            let (want, text) = match mode {
-                Mode::Native | Mode::ForeignCredential | Mode::ActiveGuest => (200, "success"),
-                Mode::Unconfigured => (404, "404 page not found\n"),
-                _ => (218, "from go"),
+            let body_ok = match text {
+                Some(exact) => body == exact.as_bytes(),
+                None => String::from_utf8_lossy(&body).contains("Unauthorized"),
             };
-            if status != want || body != text.as_bytes() {
-                return Err(format!("{uri}: {status} {}", String::from_utf8_lossy(&body)).into());
+            if status != *want || !body_ok {
+                return Err(format!("{method} {uri}: {status} {}", String::from_utf8_lossy(&body)).into());
+            }
+            if *want == 200 {
+                expected_sfu += 1;
             }
             count += 1;
         }
@@ -321,16 +373,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         if go_hits.load(Ordering::SeqCst) != if to_go { count } else { 0 } {
             return Err("unexpected Go request count".into());
         }
-        if sfu_hits.load(Ordering::SeqCst)
-            != if matches!(
-                mode,
-                Mode::Native | Mode::ForeignCredential | Mode::ActiveGuest
-            ) {
-                count
-            } else {
-                0
-            }
-        {
+        if sfu_hits.load(Ordering::SeqCst) != expected_sfu {
             return Err("unexpected SFU request count".into());
         }
         let pid = child.0.id();
@@ -342,31 +385,37 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
     })
     .catch_unwind()
     .await;
-    if let Some((owner, domain, user, saved_toggle)) = guest_fixture {
-        if let Some(prev) = saved_toggle {
+    if let Some(owner) = &owner {
+        if let Some(saved_toggle) = guest_cleanup.saved_toggle {
+            if let Some(prev) = saved_toggle {
+                owner
+                    .execute(
+                        "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.guest_accounts'",
+                        &[&prev],
+                    )
+                    .await?;
+            } else {
+                owner
+                    .execute(
+                        "DELETE FROM feature_toggles WHERE key='feature.guest_accounts'",
+                        &[],
+                    )
+                    .await?;
+            }
+        }
+        for user in &guest_cleanup.users {
             owner
-                .execute(
-                    "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.guest_accounts'",
-                    &[&prev],
-                )
+                .execute("DELETE FROM guest_accounts WHERE user_id=$1", &[user])
                 .await?;
-        } else {
             owner
-                .execute(
-                    "DELETE FROM feature_toggles WHERE key='feature.guest_accounts'",
-                    &[],
-                )
+                .execute("DELETE FROM users WHERE id=$1", &[user])
                 .await?;
         }
-        owner
-            .execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&user])
-            .await?;
-        owner
-            .execute("DELETE FROM users WHERE id=$1", &[&user])
-            .await?;
-        owner
-            .execute("DELETE FROM domains WHERE id=$1", &[&domain])
-            .await?;
+        if let Some(domain) = guest_cleanup.domain {
+            owner
+                .execute("DELETE FROM domains WHERE id=$1", &[&domain])
+                .await?;
+        }
     }
     match result {
         Ok(r) => r,

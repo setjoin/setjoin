@@ -19,7 +19,7 @@ pub struct DirectorySyncRoute<K: KeySource + 'static> {
     /// without it the five runtime routes return 503 "service unavailable".
     pub ldap: Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>,
     /// AD runtime (#381): present when Rust owns the four AD runtime routes and
-    /// the `ad-sync` worker; without it they forward to Go untouched.
+    /// the `ad-sync` worker; without it they return 503 "service unavailable".
     pub ad: Option<Arc<setjoin_directory_sync::ad::AdRuntime>>,
 }
 

@@ -332,13 +332,18 @@ fn redirect(location: &str, code: u16, method: &Method) -> Option<Reply<'static>
     Some(reply)
 }
 
+enum ReplyRejection {
+    Response(Response<Body>),
+    Refusal(crate::deny::Refusal),
+}
+
 impl<K: KeySource + 'static> SurfaceRoute<K> {
     async fn reply(
         &self,
         kind: Kind,
         r: &Request<Body>,
         c: &RequestContext,
-    ) -> Result<Reply<'static>, Response<Body>> {
+    ) -> Result<Reply<'static>, ReplyRejection> {
         let path = r.uri().path();
         let decoded = || String::from_utf8_lossy(&crate::inventory::unescape(path)).into_owned();
         let segment = |index: usize| -> Option<String> {
@@ -395,9 +400,7 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                 .await
                 {
                     Ok(auth) => auth,
-                    Err(refusal) => {
-                        return Err(crate::deny::native_or_unauthorized(refusal, r.headers(), c))
-                    }
+                    Err(refusal) => return Err(ReplyRejection::Refusal(refusal)),
                 };
                 let actor = auth.context();
                 let allowed = match tokio::time::timeout(
@@ -420,7 +423,10 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                 };
                 if !allowed {
                     let Ok(actor_id) = setjoin_contracts::ids::ActorId::new(actor.user_id()) else {
-                        return Err(crate::deny::unauthorized(r.headers(), c));
+                        return Err(ReplyRejection::Response(crate::deny::unauthorized(
+                            r.headers(),
+                            c,
+                        )));
                     };
                     let target = decoded();
                     let before=serde_json::json!({"actor":actor.email(),"target":target,"missingPermission":"system.config"}).to_string();
@@ -642,7 +648,8 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
             }
             match this.reply(kind, &r, &c).await {
                 Ok(reply) => reply.build(&c, id),
-                Err(resp) => resp,
+                Err(ReplyRejection::Response(resp)) => resp,
+                Err(ReplyRejection::Refusal(refusal)) => crate::deny::answer(refusal, r, &c).await,
             }
         })
     }

@@ -28,8 +28,9 @@ contract](../../../bins/gateway/DOX.md#catch-all-mux-and-spa-416).
 Native answers: every static document, downloads, device-proof telemetry,
 discovery, ready, health (including errors and configured live probes), cert hint (always `none`: the front door
 never receives a client certificate, and Go behind a TLS-terminating proxy
-never did), the three assist problems/success, translate. A request goes to Go
-whole, never partially answered, when Rust cannot prove Go's answer:
+never did), the three assist problems/success, translate. Requests no longer forward
+directly from `surface.rs`; only unmigrated admission refusal classes forward through
+centralized `deny::answer`:
 
 - Shared security-policy shapes still owned by #405/#420. Configured legacy JWTs,
   ordinary authentication denials and full-spec permission denials are native
@@ -38,7 +39,8 @@ whole, never partially answered, when Rust cannot prove Go's answer:
   domain-scoped `system.config`. Console denials write the exact durable audit.
 - Full OpenAPI spec (`Kind::FullYaml | Kind::FullJson`) admits via `deny::admit_console`
   (`Scope::User`, omitting redundant role pre-reads so console `system.config` denials own their
-  403/audit path) and renders natively; `Outcome::Defer` fails closed with 503.
+  403/audit path) and delegates refusals (such as `AlternativeCredential`) to `deny::answer`;
+  `Outcome::Defer` fails closed with 503.
 - `/health` with SFU/egress/ASR sidecars configured (`LIVEKIT_*`, `ASR_URL`) when the gate has
   no probe runner (the gateway always supplies one: #457). An `error` row is served natively
   (503) and raises `system.health_alert` through `HealthGate::with_alerts` on the ok-to-error
