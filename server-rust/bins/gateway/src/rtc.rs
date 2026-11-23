@@ -128,6 +128,14 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                     None => crate::surface::unregistered(&req, c.identity.proto),
                 };
             }
+            let id = crate::jmap::reply::request_id(
+                req.headers().get("x-request-id"),
+                crate::jmap::random().unwrap_or([0; 16]),
+            );
+            let decoded = match canonical_check(&req, &c, &id) {
+                Ok(decoded) => decoded,
+                Err(response) => return response,
+            };
             if check_guest {
                 if let Some(response) = crate::admission::check_guest_belt(
                     &exec,
@@ -143,13 +151,30 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                     return response;
                 }
             }
-            let id = crate::jmap::reply::request_id(
-                req.headers().get("x-request-id"),
-                crate::jmap::random().unwrap_or([0; 16]),
-            );
-            serve(req, &c, id, upstream, &client).await
+            serve(req, &c, id, &decoded, upstream, &client).await
         })
     }
+}
+
+fn canonical_check(
+    req: &Request<Body>,
+    c: &RequestContext,
+    id: &str,
+) -> Result<String, Response<Body>> {
+    let Some(decoded) = unescape(req.uri().path()) else {
+        // Go rejects a malformed escape while parsing the request line.
+        return Err(empty(StatusCode::BAD_REQUEST, HeaderMap::new()));
+    };
+    let cleaned = clean_path(&decoded);
+    if cleaned != decoded && req.method() != Method::CONNECT {
+        return Err(redirect(
+            req.method(),
+            &cleaned,
+            req.uri().query(),
+            envelope(c, id),
+        ));
+    }
+    Ok(decoded)
 }
 
 /// Go's middleware envelope: `SecurityHeaders`, `Cache-Control: no-store` (the
@@ -175,19 +200,11 @@ async fn serve(
     mut req: Request<Body>,
     c: &RequestContext,
     id: String,
+    decoded: &str,
     upstream: SocketAddr,
     client: &Client<HttpConnector, Body>,
 ) -> Response<Body> {
     let headers = envelope(c, &id);
-    let raw_path = req.uri().path().to_owned();
-    let Some(decoded) = unescape(&raw_path) else {
-        // Go rejects a malformed escape while parsing the request line.
-        return empty(StatusCode::BAD_REQUEST, HeaderMap::new());
-    };
-    let cleaned = clean_path(&decoded);
-    if cleaned != decoded && req.method() != Method::CONNECT {
-        return redirect(req.method(), &cleaned, req.uri().query(), headers);
-    }
     let out_path = match decoded.strip_prefix("/rtc") {
         Some("") | None => "/".to_owned(),
         Some(rest) => rest.to_owned(),

@@ -327,7 +327,9 @@ qualification. `main.rs` installs request/worker executors, process-local search
 jobs and the shared S3 client. `compliance_export.rs` owns bounded HTTP streaming;
 all business writes remain statements or family reducers. WORM hold/release
 applies S3 `PutObjectLegalHold` (`legal_hold_with_retries` on `S3Store`) natively
-when `WORM_MODE` is set and `WORM_LEGAL_HOLD_ENABLED` is not explicitly false;
+when `WORM_MODE` is non-empty and `WORM_LEGAL_HOLD_ENABLED` is unset or parses true
+under Go `strconv.ParseBool` (`1`, `t`, `T`, `true`, `TRUE`, `True`); any other value
+skips S3 calls while still counting attached blobs like Go `SetLegalHold`.
 F16 PutObjectRetention is qualified by #301/#419. A quoted-NUL KQL is refused locally (400)
 (owner-approved security fix 2026-11-05, #436; frozen Go's parser hung). Both inventory OFF and the global switch
 restore Go ownership. The retention/audit (#290) and chat compliance (#291) slices are ON.

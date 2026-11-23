@@ -66,4 +66,13 @@ grep -Fxq 'TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}' "$tmp/preserved.en
 ! grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$tmp/preserved.env"
 GATEWAY_HTTPS_LISTEN='[::1]:1443' render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/setjoin-gateway.service"
 grep -Fxq 'ListenStream=[::1]:1443' "$tmp/setjoin-https.socket"
+cat > "$tmp/yaml-config.env" <<'ENV'
+HOSTNAME=mail.example.test
+ENV
+cat > "$tmp/setjoin.yaml" <<'YAML'
+tls:
+  autocert_cache_dir: /var/lib/setjoin/custom-tls
+YAML
+CONFIG_ENV="$tmp/yaml-config.env" SETJOIN_CONFIG="$tmp/setjoin.yaml" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/yaml-gateway.service"
+grep -qx 'ReadWritePaths=-/var/lib/setjoin/custom-tls' "$tmp/yaml-gateway.service"
 echo 'native TLS release socket: PASS'

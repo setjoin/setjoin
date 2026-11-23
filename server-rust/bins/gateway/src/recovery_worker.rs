@@ -98,6 +98,7 @@ pub struct S3Store {
     endpoint: String,
     unsigned: Option<reqwest::Client>,
     no_redirect: reqwest::Client,
+    request_timeout: Option<std::time::Duration>,
     region: tokio::sync::Mutex<Option<String>>,
     small_cache: std::sync::Mutex<SmallCache>,
 }
@@ -201,6 +202,11 @@ impl S3Store {
     /// With no explicit region the existing lazy discovery remains authoritative.
     pub fn with_region(mut self, region: String) -> Self {
         *self.region.get_mut() = Some(region);
+        self
+    }
+    /// Override the per-request HTTP timeout on no-redirect requests (tests).
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.request_timeout = Some(timeout);
         self
     }
     /// Stream `key` from S3 and compute its SHA-256 hex digest and byte length
@@ -338,7 +344,6 @@ impl S3Store {
         };
         let no_redirect = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
             .build()
             .map_err(|error| error.to_string())?;
         let region = s3::Region::Custom {
@@ -353,6 +358,7 @@ impl S3Store {
             endpoint: endpoint.into(),
             unsigned,
             no_redirect,
+            request_timeout: None,
             region: tokio::sync::Mutex::new(None),
             small_cache: std::sync::Mutex::new(SmallCache::default()),
         })
@@ -646,8 +652,15 @@ impl S3Store {
             match self.legal_hold_attempt(key, on).await {
                 Ok(reply) if matches!(reply.status, 200 | 204) => return Ok(()),
                 Ok(reply) => {
+                    let reported_region = reply.region.as_deref().map(normalize_s3_region);
+                    let current_region = self.region.lock().await.clone();
+                    let changed_403 = reply.status == 403
+                        && reported_region
+                            .as_ref()
+                            .is_some_and(|r| current_region.as_deref() != Some(r.as_str()));
                     let is_region_error = reply.status == 301
                         || reply.status == 307
+                        || changed_403
                         || matches!(
                             reply.code.as_deref(),
                             Some(
@@ -657,11 +670,7 @@ impl S3Store {
                             )
                         );
                     if is_region_error {
-                        let next_region = reply.region.map(|r| match r.as_str() {
-                            "EU" => "eu-west-1".to_owned(),
-                            _ => r,
-                        });
-                        *self.region.lock().await = next_region;
+                        *self.region.lock().await = reported_region;
                         last = format!("object legal hold failed ({})", reply.status);
                     } else if RETRYABLE.contains(&reply.status)
                         || reply.code.as_deref().is_some_and(is_retryable_s3_code)
@@ -722,14 +731,15 @@ impl S3Store {
                 headers.append(name, value);
             }
         }
-        let response = self
+        let mut builder = self
             .no_redirect
             .put(url.as_str())
             .headers(headers)
-            .body(xml.as_bytes().to_vec())
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+            .body(xml.as_bytes().to_vec());
+        if let Some(timeout) = self.request_timeout.or_else(|| bucket.request_timeout()) {
+            builder = builder.timeout(timeout);
+        }
+        let mut response = builder.send().await.map_err(|e| e.to_string())?;
         let status = response.status().as_u16();
         if matches!(status, 200 | 204) {
             return Ok(LegalHoldReply {
@@ -749,7 +759,18 @@ impl S3Store {
         };
         let header_code = header_str("x-minio-error-code");
         let header_region = header_str("x-amz-bucket-region");
-        let body = response.text().await.unwrap_or_default();
+        const MAX_ERROR_BODY: usize = 5 * 1024 * 1024;
+        let mut body_bytes = Vec::new();
+        while body_bytes.len() < MAX_ERROR_BODY {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    let take = chunk.len().min(MAX_ERROR_BODY - body_bytes.len());
+                    body_bytes.extend_from_slice(&chunk[..take]);
+                }
+                Ok(None) | Err(_) => break,
+            }
+        }
+        let body = String::from_utf8_lossy(&body_bytes);
         Ok(LegalHoldReply {
             status,
             code: header_code.or_else(|| s3_xml_tag(&body, "Code").map(str::to_owned)),
@@ -916,12 +937,7 @@ impl S3Store {
                     _ => return Err(format!("S3 bucket location failed: {}", parsed.code)),
                 }
             };
-            let region = match region.as_str() {
-                "" => "us-east-1",
-                "EU" => "eu-west-1",
-                _ => &region,
-            };
-            *cached = Some(region.to_owned());
+            *cached = Some(normalize_s3_region(&region));
         }
         let mut bucket = (*self.bucket).clone();
         bucket.region = s3::Region::Custom {
@@ -1235,6 +1251,14 @@ struct LegalHoldReply {
     status: u16,
     code: Option<String>,
     region: Option<String>,
+}
+
+fn normalize_s3_region(region: &str) -> String {
+    match region {
+        "" => "us-east-1".to_owned(),
+        "EU" => "eu-west-1".to_owned(),
+        _ => region.to_owned(),
+    }
 }
 
 fn s3_xml_tag<'a>(body: &'a str, tag: &str) -> Option<&'a str> {

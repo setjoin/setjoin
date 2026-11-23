@@ -306,6 +306,81 @@ async fn standalone_rtc_route_enforces_guest_belt_natively() -> Result<(), BoxEr
         let _server = AbortOnDrop(tokio::spawn(gateway.serve(listener)));
         let probes = guest_probes(active_user, inactive_user);
         let (_, expected_sfu) = run_probes(address, &probes).await?;
+        let unclean_req = Request::builder()
+            .method("GET")
+            .uri("/rtc//validate")
+            .header("host", "mail.test")
+            .header(
+                "authorization",
+                format!("Bearer {}", common::recovery_token(inactive_user)),
+            )
+            .body(common::full(""))?;
+        let unclean_resp = common::send(address, unclean_req).await;
+        if unclean_resp.status().as_u16() != 307 {
+            return Err(format!("expected 307 before guest check, got {}", unclean_resp.status()).into());
+        }
+        owner
+            .execute(
+                "UPDATE feature_toggles SET enabled=false WHERE key='feature.guest_accounts'",
+                &[],
+            )
+            .await?;
+        let off_req = Request::builder()
+            .method("GET")
+            .uri("/rtc")
+            .header("host", "mail.test")
+            .header(
+                "authorization",
+                format!("Bearer {}", common::recovery_token(active_user)),
+            )
+            .body(common::full(""))?;
+        let off_resp = common::send(address, off_req).await;
+        let off_status = off_resp.status().as_u16();
+        let off_body = common::body_bytes(off_resp).await;
+        if off_status != 404 || off_body != b"404 page not found\n" {
+            return Err(format!("program-OFF guest: {off_status} {}", String::from_utf8_lossy(&off_body)).into());
+        }
+        let broken_exec = setjoin_pg::ScopedExecutor::from_dsn_with(
+            "postgres://setjoin:x@127.0.0.1:1/x",
+            1,
+            setjoin_pg::Timeouts {
+                pool_wait: Duration::from_millis(100),
+                create: Duration::from_millis(100),
+                statement: Duration::from_millis(100),
+            },
+        )
+        .map_err(|e| e.0)?;
+        let broken_gateway = Gateway::new(
+            Config {
+                upstream: None,
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(RtcRoute::new(
+                broken_exec,
+                Arc::new(common::recovery_keys()),
+                "mailserver".into(),
+                true,
+                sfu_addr,
+            )),
+        )?;
+        let broken_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let broken_addr = broken_listener.local_addr()?;
+        let _broken_server = AbortOnDrop(tokio::spawn(broken_gateway.serve(broken_listener)));
+        let unavail_req = Request::builder()
+            .method("GET")
+            .uri("/rtc")
+            .header("host", "mail.test")
+            .header(
+                "authorization",
+                format!("Bearer {}", common::recovery_token(active_user)),
+            )
+            .body(common::full(""))?;
+        let unavail_resp = common::send(broken_addr, unavail_req).await;
+        if unavail_resp.status().as_u16() != 503 {
+            return Err(format!("expected 503 when DB unavailable, got {}", unavail_resp.status()).into());
+        }
         if go_hits.load(Ordering::SeqCst) != 0 {
             return Err("expected zero Go hits".into());
         }

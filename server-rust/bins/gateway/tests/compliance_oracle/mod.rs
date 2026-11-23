@@ -478,7 +478,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
         ]);
         std::env::remove_var("WORM_MODE");
         std::env::remove_var("WORM_LEGAL_HOLD_ENABLED");
-        // S3 response phase: 0=retry 400 SlowDownWrite->307 header-only eu-west-1->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
+        // S3 response phase: 0=timeout->400 SlowDownWrite->307 eu-west-1->403 ap-southeast-1->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
         let s3_phase = Arc::new(AtomicUsize::new(0));
         let s3_attempt = Arc::new(AtomicUsize::new(0));
         let s3_puts = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
@@ -530,18 +530,30 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 let phase = phase_ref.load(Ordering::SeqCst);
                 let hit = attempt_ref.fetch_add(1, Ordering::SeqCst);
                 match (phase, hit) {
-                    (0, 0) => Response::builder()
+                    (0, 0) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+                        Response::builder().status(500).body(common::full("")).unwrap()
+                    }
+                    (0, 1) => Response::builder()
                         .status(400)
                         .header("content-type", "application/xml")
                         .body(common::full(
                             "<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
                         ))
                         .unwrap(),
-                    (0, 1) => Response::builder()
+                    (0, 2) => Response::builder()
                         .status(307)
                         .header("location", "http://127.0.0.1:9/redirected-never-follow")
                         .header("x-amz-bucket-region", "eu-west-1")
                         .body(common::full(""))
+                        .unwrap(),
+                    (0, 3) => Response::builder()
+                        .status(403)
+                        .header("content-type", "application/xml")
+                        .header("x-amz-bucket-region", "ap-southeast-1")
+                        .body(common::full(
+                            "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+                        ))
                         .unwrap(),
                     (0 | 1 | 3, _) => Response::builder().status(204).body(common::full("")).unwrap(),
                     (2, _) => Response::builder()
@@ -590,12 +602,15 @@ pub async fn forwarding() -> Result<(), BoxError> {
             .map(|e| e.with_audit_keys("22".repeat(32), String::new()))
             .map_err(|e| e.0)
         };
-        let store = Arc::new(setjoin_gateway::recovery_worker::S3Store::new(
-            &format!("http://{s3}"),
-            "mailblobs",
-            "test-access",
-            "test-secret",
-        )?);
+        let store = Arc::new(
+            setjoin_gateway::recovery_worker::S3Store::new(
+                &format!("http://{s3}"),
+                "mailblobs",
+                "test-access",
+                "test-secret",
+            )?
+            .with_request_timeout(std::time::Duration::from_millis(500)),
+        );
         let adapter = ComplianceRoute {
             store: Some(store),
             exec: make(db.app.as_deref().unwrap_or(&db.dsn))?,
@@ -825,14 +840,21 @@ pub async fn forwarding() -> Result<(), BoxError> {
             put_on.clone(),
             put_on.clone(),
             put_on.clone(),
+            put_on.clone(),
+            put_on.clone(),
             put_off.clone(),
             put_on,
             put_off,
         ]);
         golden::compare(&s3_expected, &json!(*s3_puts.lock().unwrap()))?;
         assert!(
-            s3_auths.lock().unwrap()[2].contains("/eu-west-1/s3/aws4_request"),
-            "expected refreshed eu-west-1 SigV4 credential on retry attempt 2: {:?}",
+            s3_auths.lock().unwrap()[3].contains("/eu-west-1/s3/aws4_request"),
+            "expected refreshed eu-west-1 SigV4 credential on retry attempt 3: {:?}",
+            *s3_auths.lock().unwrap()
+        );
+        assert!(
+            s3_auths.lock().unwrap()[4].contains("/ap-southeast-1/s3/aws4_request"),
+            "expected refreshed ap-southeast-1 SigV4 credential on retry attempt 4: {:?}",
             *s3_auths.lock().unwrap()
         );
         assert!(

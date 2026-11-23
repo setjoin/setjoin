@@ -283,6 +283,41 @@ render_mailserver_unit() {
   fi
 }
 
+# tls_import_cache_dir CONFIG_ENV — resolve Go's tls.autocert_cache_dir for
+# ProtectSystem=strict ReadWritePaths in setjoin-gateway.service.
+tls_import_cache_dir() {
+  local config="${1:-}" cache="" cfg=""
+  [ -n "$config" ] && cache=$(tls_front_value "$config" TLS_AUTOCERT_CACHE_DIR)
+  [ -n "$cache" ] || cache=$(tls_front_value "${GATEWAY_ENV:-}" TLS_AUTOCERT_CACHE_DIR)
+  [ -n "$cache" ] || cache="${TLS_AUTOCERT_CACHE_DIR:-}"
+  if [ -z "$cache" ]; then
+    cfg="${SETJOIN_CONFIG:-}"
+    [ -n "$cfg" ] || [ -z "$config" ] || cfg=$(tls_front_value "$config" SETJOIN_CONFIG)
+    [ -n "$cfg" ] || cfg=$(tls_front_value "${GATEWAY_ENV:-}" SETJOIN_CONFIG)
+    if [ -n "$cfg" ] && [ -r "$cfg" ]; then
+      cache=$(awk '
+        /^tls:[[:space:]]*(#.*)?$/ { in_tls = 1; next }
+        in_tls && /^[^[:space:]#]/ { in_tls = 0 }
+        in_tls && /^[[:space:]]+autocert_cache_dir:[[:space:]]*/ {
+          val = $0
+          sub(/^[[:space:]]+autocert_cache_dir:[[:space:]]*/, "", val)
+          if (val ~ /^"/) {
+            sub(/^"/, "", val); sub(/".*$/, "", val)
+          } else if (val ~ /^'\''/) {
+            sub(/^'\''/, "", val); sub(/'\''.*$/, "", val)
+          } else {
+            sub(/[[:space:]]+#.*$/, "", val)
+            sub(/[[:space:]]+$/, "", val)
+          }
+          last = val
+        }
+        END { if (last != "") print last }
+      ' "$cfg")
+    fi
+  fi
+  printf '%s' "${cache:-/var/cache/mailserver/autocert}"
+}
+
 # render_gateway_unit TEMPLATE OUTFILE — the Rust front door (#264, ARCH-027).
 # Renders setjoin-gateway.service.template to OUTFILE and its sibling
 # setjoin-gateway.socket.template beside it (same directory, .socket), so the
@@ -320,6 +355,11 @@ render_gateway_unit() {
       return 1
     fi
   done
+  local cache
+  cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
+  case "$cache" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
+  case "$cache" in *[[:space:]#\&]*) echo 'invalid ACME cache path' >&2; return 1;; esac
+  printf '\n[Service]\nReadWritePaths=-%s\n' "$cache" >> "$outfile"
   if tls_front_enabled "${CONFIG_ENV:-}" && [[ ",$(tls_front_value "$CONFIG_ENV" RUST_WORKERS_ON)," == *,http-tls,* ]]; then
     local https_listen="${GATEWAY_HTTPS_LISTEN:-$(tls_front_value "$CONFIG_ENV" GATEWAY_HTTPS_LISTEN)}"
     https_listen="${https_listen:-443}"
@@ -336,17 +376,12 @@ After=setjoin-https.socket
 Also=setjoin-https.socket
 TLS
     if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
-      local cache key_file
-      cache=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_CACHE_DIR)
-      cache="${cache:-/var/cache/mailserver/autocert}"
+      local key_file
       key_file=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)
-      case "$cache" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
-      case "$cache" in *[[:space:]#\&]*) echo 'invalid ACME cache path' >&2; return 1;; esac
-      printf '\n[Service]\nReadWritePaths=-%s\n' "$cache" >> "$outfile"
       if [ -n "$key_file" ]; then
         case "$key_file" in /*) ;; *) echo 'ACME account key must be absolute' >&2; return 1;; esac
         case "$key_file" in *[[:space:]#\&]*) echo 'invalid ACME account key path' >&2; return 1;; esac
-        printf 'ReadWritePaths=-%s\n' "${key_file%/*}" >> "$outfile"
+        printf '\n[Service]\nReadWritePaths=-%s\n' "${key_file%/*}" >> "$outfile"
       fi
       if [ "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_CHALLENGE)" = http-01 ]; then
         case "$(tls_front_value "$CONFIG_ENV" HTTP_MODE)" in ''|redirect)
