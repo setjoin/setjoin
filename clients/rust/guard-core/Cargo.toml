@@ -9,7 +9,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 name = "guard_core"
 
 [dependencies]
-totp-rs    = { version = "5", features = ["otpauth", "qr"] }
+totp-rs    = { version = "6", features = ["otpauth", "qr"] }
 p256       = { version = "0.14", features = ["ecdh", "ecdsa", "pkcs8"] }
 aes-gcm    = "0.11"
 argon2     = "0.5"
