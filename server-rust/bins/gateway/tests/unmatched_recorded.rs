@@ -7,6 +7,7 @@ use common::mux_oracle::{run, MuxCase, Website};
 use common::BoxError;
 use futures_util::FutureExt;
 use hyper::{Method, Request, Response};
+use setjoin_gateway::auth_admin::AuthAdminRoute;
 use setjoin_gateway::catchall::CatchallRoute;
 use setjoin_gateway::jmap::limit::{EdgeLimit, Limiter};
 use setjoin_gateway::{
@@ -19,13 +20,14 @@ use std::sync::Arc;
 const CORPUS: &str = "unmatched/goldens";
 
 fn table(exec: setjoin_pg::ScopedExecutor, website: Website) -> RouteTable {
-    let mut catchall = CatchallRoute::new().with_auth(
-        exec,
-        Arc::new(common::recovery_keys()),
-        "mailserver".into(),
-    );
+    let keys = Arc::new(common::recovery_keys());
+    let mut catchall =
+        CatchallRoute::new().with_auth(exec.clone(), keys.clone(), "mailserver".into());
     catchall.website = website;
-    RouteTable::proxy_all().with_catchall(catchall)
+    // #365 claims `* /auth/admin/` (including bare `/auth/admin`) as `Target::LocalRust`.
+    RouteTable::proxy_all()
+        .with(AuthAdminRoute::new(exec, keys, "mailserver".into()))
+        .with_catchall(catchall)
 }
 
 macro_rules! case {
