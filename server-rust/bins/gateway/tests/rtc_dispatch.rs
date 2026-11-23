@@ -194,7 +194,17 @@ fn guest_probes(active_user: i64, inactive_user: i64) -> Vec<Probe> {
         (
             "GET",
             "/rtc/%ZZ",
-            vec![("authorization", inactive_auth)],
+            vec![("authorization", inactive_auth.clone())],
+            400,
+            Some(""),
+        ),
+        (
+            "POST",
+            "/rtc/%+a",
+            vec![
+                ("origin", "https://evil.example".to_owned()),
+                ("authorization", inactive_auth),
+            ],
             400,
             Some(""),
         ),

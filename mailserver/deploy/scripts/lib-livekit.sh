@@ -297,6 +297,202 @@ validate_tls_cache_dir() {
   case "$1" in *[[:space:]#\&]*) echo 'invalid ACME cache path' >&2; return 1;; esac
 }
 
+resolve_setting_yaml_path() {
+  local config="${1:-}" cfg=""
+  cfg=$(strip_env_quotes "${SETJOIN_CONFIG:-}")
+  [ -n "$cfg" ] || [ -z "$config" ] || cfg=$(strip_env_quotes "$(tls_front_value "$config" SETJOIN_CONFIG)")
+  [ -n "$cfg" ] || cfg=$(strip_env_quotes "$(tls_front_value "${GATEWAY_ENV:-}" SETJOIN_CONFIG)")
+  printf '%s' "$cfg"
+}
+
+# yaml_section_value FILE SECTION KEY — print a direct scalar child of top-level
+# SECTION in YAML FILE (block or flow mapping), unquoted. Returns 0 iff KEY is present.
+yaml_section_value() {
+  local file="$1" section="$2" key="$3"
+  [ -n "$file" ] && [ -r "$file" ] || return 1
+  awk -v sec="$section" -v key="$key" '
+    function trim(s) {
+      sub(/^[[:space:]]+/, "", s)
+      sub(/[[:space:]]+$/, "", s)
+      return s
+    }
+    function unquote_key(s,    q) {
+      s = trim(s)
+      if (length(s) >= 2) {
+        q = substr(s, 1, 1)
+        if ((q == "\"" || q == "'\''") && substr(s, length(s), 1) == q) {
+          return substr(s, 2, length(s) - 2)
+        }
+      }
+      return s
+    }
+    function extract_scalar(v, is_flow,    i, c, esc, out) {
+      sub(/^[[:space:]]*/, "", v)
+      if (substr(v, 1, 1) == "\"") {
+        out = ""; esc = 0
+        for (i = 2; i <= length(v); i++) {
+          c = substr(v, i, 1)
+          if (esc) { out = out c; esc = 0; continue }
+          if (c == "\\") { esc = 1; continue }
+          if (c == "\"") break
+          out = out c
+        }
+        return out
+      }
+      if (substr(v, 1, 1) == "'\''") {
+        v = substr(v, 2)
+        sub(/'\''.*$/, "", v)
+        return v
+      }
+      if (is_flow) {
+        sub(/[[:space:]]*[,}].*$/, "", v)
+      }
+      sub(/[[:space:]]+#.*$/, "", v)
+      sub(/^#.*$/, "", v)
+      return trim(v)
+    }
+    function parse_flow(txt,    i, n, c, in_s, in_d, esc, depth, colon, k, v, part) {
+      n = length(txt)
+      in_s = 0; in_d = 0; esc = 0; depth = 0
+      part = ""
+      for (i = 1; i <= n + 1; i++) {
+        c = (i <= n) ? substr(txt, i, 1) : ","
+        if (i <= n) {
+          if (in_d) {
+            part = part c
+            if (esc) esc = 0
+            else if (c == "\\") esc = 1
+            else if (c == "\"") in_d = 0
+            continue
+          }
+          if (in_s) {
+            part = part c
+            if (c == "'\''") in_s = 0
+            continue
+          }
+          if (c == "\"") { in_d = 1; part = part c; continue }
+          if (c == "'\''") { in_s = 1; part = part c; continue }
+          if (c == "{" || c == "[") { depth++; part = part c; continue }
+          if (c == "}" || c == "]") {
+            if (depth == 0) {
+              i = n + 1
+              c = ","
+            } else {
+              depth--
+              part = part c
+              continue
+            }
+          }
+          if (c != "," || depth > 0) { part = part c; continue }
+        }
+        part = trim(part)
+        if (part != "") {
+          colon = index(part, ":")
+          if (colon > 0) {
+            k = unquote_key(substr(part, 1, colon - 1))
+            v = substr(part, colon + 1)
+            if (k == key && v !~ /^[[:space:]]*[\{\[]/) {
+              last = extract_scalar(v, 1)
+              found = 1
+            }
+          }
+        }
+        part = ""
+      }
+    }
+    function flow_done(s,    i, c, in_s, in_d, esc, depth) {
+      depth = 1; in_s = 0; in_d = 0; esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (in_d) {
+          if (esc) esc = 0
+          else if (c == "\\") esc = 1
+          else if (c == "\"") in_d = 0
+          continue
+        }
+        if (in_s) { if (c == "'\''") in_s = 0; continue }
+        if (c == "\"") in_d = 1
+        else if (c == "'\''") in_s = 1
+        else if (c == "{") depth++
+        else if (c == "}") {
+          depth--
+          if (depth == 0) return i
+        }
+      }
+      return 0
+    }
+    function match_section_header(line,    colon, rest, k) {
+      if (line ~ /^[[:space:]]/) return -1
+      colon = index(line, ":")
+      if (colon == 0) return -1
+      k = unquote_key(substr(line, 1, colon - 1))
+      if (k != sec) return 0
+      rest = substr(line, colon + 1)
+      if (rest ~ /^[[:space:]]*(#.*)?$/) return 1
+      if (rest ~ /^[[:space:]]*\{/) return 2
+      return 0
+    }
+    {
+      raw = $0
+      sub(/\r$/, "", raw)
+      if (in_flow) {
+        flow_buf = flow_buf " " raw
+        end_pos = flow_done(flow_buf)
+        if (end_pos > 0) {
+          parse_flow(substr(flow_buf, 1, end_pos - 1))
+          in_flow = 0
+          flow_buf = ""
+        }
+        next
+      }
+      indent_str = raw
+      sub(/[^ ].*$/, "", indent_str)
+      indent = length(indent_str)
+      trimmed = raw
+      sub(/^[[:space:]]+/, "", trimmed)
+      if (trimmed == "" || trimmed ~ /^#/) next
+
+      hdr = match_section_header(raw)
+      if (hdr == 1) { in_sec = 1; child_indent = -1; next }
+      if (hdr == 2) {
+        in_sec = 0; child_indent = -1
+        cpos = index(raw, "{")
+        flow_buf = substr(raw, cpos + 1)
+        end_pos = flow_done(flow_buf)
+        if (end_pos > 0) {
+          parse_flow(substr(flow_buf, 1, end_pos - 1))
+          flow_buf = ""
+        } else {
+          in_flow = 1
+        }
+        next
+      }
+      if (hdr == 0) { in_sec = 0; child_indent = -1; next }
+
+      if (!in_sec) next
+      if (indent == 0) { in_sec = 0; child_indent = -1; next }
+      if (child_indent < 0) child_indent = indent
+      if (indent != child_indent) next
+
+      colon = index(trimmed, ":")
+      if (colon == 0) next
+      k = unquote_key(substr(trimmed, 1, colon - 1))
+      v = substr(trimmed, colon + 1)
+      if (k == key && (v == "" || v ~ /^[[:space:]]/)) {
+        last = extract_scalar(v, 0)
+        found = 1
+      }
+    }
+    END {
+      if (found) {
+        print last
+        exit 0
+      }
+      exit 1
+    }
+  ' "$file"
+}
+
 # tls_import_cache_dir CONFIG_ENV — resolve Go's tls.autocert_cache_dir for
 # ProtectSystem=strict ReadWritePaths in setjoin-gateway.service.
 tls_import_cache_dir() {
@@ -304,53 +500,8 @@ tls_import_cache_dir() {
   [ -n "$config" ] && cache=$(strip_env_quotes "$(tls_front_value "$config" TLS_AUTOCERT_CACHE_DIR)")
   [ -n "$cache" ] || cache=$(strip_env_quotes "${TLS_AUTOCERT_CACHE_DIR:-}")
   if [ -z "$cache" ]; then
-    cfg=$(strip_env_quotes "${SETJOIN_CONFIG:-}")
-    [ -n "$cfg" ] || [ -z "$config" ] || cfg=$(strip_env_quotes "$(tls_front_value "$config" SETJOIN_CONFIG)")
-    [ -n "$cfg" ] || cfg=$(strip_env_quotes "$(tls_front_value "${GATEWAY_ENV:-}" SETJOIN_CONFIG)")
-    if [ -n "$cfg" ] && [ -r "$cfg" ]; then
-      cache=$(awk '
-        function extract_val(s, is_flow) {
-          sub(/^[[:space:]]*/, "", s)
-          if (s ~ /^"/) {
-            sub(/^"/, "", s); sub(/".*$/, "", s); return s
-          }
-          if (s ~ /^'\''/) {
-            sub(/^'\''/, "", s); sub(/'\''.*$/, "", s); return s
-          }
-          if (is_flow) {
-            sub(/[[:space:]]*[,}].*$/, "", s)
-          }
-          sub(/[[:space:]]+#.*$/, "", s)
-          sub(/[[:space:]]+$/, "", s)
-          return s
-        }
-        /^tls:[[:space:]]*\{/ {
-          in_tls = 0
-          line = $0
-          sub(/^tls:[[:space:]]*\{/, "", line)
-          if (match(line, /(^|[[:space:],{])autocert_cache_dir[[:space:]]*:[[:space:]]*/)) {
-            last = extract_val(substr(line, RSTART + RLENGTH), 1)
-          }
-          in_flow = (line !~ /\}/)
-          next
-        }
-        in_flow {
-          if (match($0, /(^|[[:space:],{])autocert_cache_dir[[:space:]]*:[[:space:]]*/)) {
-            last = extract_val(substr($0, RSTART + RLENGTH), 1)
-          }
-          if ($0 ~ /\}/) in_flow = 0
-          next
-        }
-        /^tls:[[:space:]]*(#.*)?$/ { in_tls = 1; in_flow = 0; next }
-        in_tls && /^[^[:space:]#]/ { in_tls = 0 }
-        in_tls && /^[[:space:]]+autocert_cache_dir:[[:space:]]*/ {
-          val = $0
-          sub(/^[[:space:]]+autocert_cache_dir:[[:space:]]*/, "", val)
-          last = extract_val(val, 0)
-        }
-        END { if (last != "") print last }
-      ' "$cfg")
-    fi
+    cfg=$(resolve_setting_yaml_path "$config")
+    [ -z "$cfg" ] || cache=$(yaml_section_value "$cfg" tls autocert_cache_dir || true)
   fi
   [ -n "$cache" ] || cache=$(strip_env_quotes "$(tls_front_value "${GATEWAY_ENV:-}" TLS_AUTOCERT_CACHE_DIR)")
   printf '%s' "${cache:-/var/cache/mailserver/autocert}"
@@ -382,6 +533,7 @@ render_gateway_unit() {
       -e "s#{{GATEWAY_ENV}}#${GATEWAY_ENV}#g" \
       -e "s#{{TLS_ENV}}#${TLS_ENV:-${GATEWAY_ENV%/*}/tls.env}#g" \
       -e "s#{{FEDERATION_ENV}}#${FEDERATION_ENV:-${GATEWAY_ENV%/*}/federation.env}#g" \
+      -e "s#{{STORAGE_ENV}}#${STORAGE_ENV:-${GATEWAY_ENV%/*}/storage.env}#g" \
       -e "s#{{SMTP_ENV}}#${SMTP_ENV:-${GATEWAY_ENV%/*}/smtp.env}#g" \
       -e "s#{{GATEWAY_LISTEN}}#${listen}#g" \
       -e "s#{{USER|setjoin}}#setjoin#" \
@@ -557,6 +709,22 @@ smtp_link_protect_keys() {
   fi
 }
 
+# render_storage_env OUTFILE CONFIG_ENV — S3/MinIO endpoint and credentials only,
+# loaded by the gateway unit independent of SMTP enablement (#289 legal holds,
+# blobs, attachments). Literal assignments only, never sourced.
+render_storage_env() {
+  local outfile="$1" config="$2" tmp
+  tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
+  (
+    umask 027
+    if [ -f "$config" ]; then
+      grep -E '^(S3_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY)|MINIO_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY))=' "$config" || true
+    fi
+  ) > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 0640 "$tmp"
+  mv -f "$tmp" "$outfile"
+}
+
 # render_smtp_env OUTFILE CONFIG_ENV DB_CRED_FILE — SMTP's own allow-listed
 # environment (#501), loaded by the gateway unit beside federation.env. Literal
 # assignments only, never sourced: no owner/direct-owner DSN, no updater or
@@ -604,7 +772,7 @@ render_gateway_env() {
     *) echo "render_gateway_env: GATEWAY_UPSTREAM must be Go's loopback plain listener (got '$upstream')" >&2; return 1 ;;
   esac
   local trusted="${GATEWAY_TRUSTED_PROXIES:-127.0.0.1}"
-  local cache worm_mode worm_legal_hold
+  local cache cfg="" worm_mode="" worm_days="" worm_legal_hold="" legal_hold_set=0
   cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
   validate_tls_cache_dir "$cache" || return 1
   ( umask 022; cat > "$outfile" <<ENV
@@ -621,12 +789,31 @@ GATEWAY_TRUSTED_PROXIES=$trusted
 TLS_AUTOCERT_CACHE_DIR=$cache
 ENV
   )
+  cfg=$(resolve_setting_yaml_path "${CONFIG_ENV:-}")
   worm_mode=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" WORM_MODE)")
   [ -n "$worm_mode" ] || worm_mode=$(strip_env_quotes "${WORM_MODE:-}")
+  if [ -z "$worm_mode" ] && [ -n "$cfg" ]; then
+    worm_mode=$(yaml_section_value "$cfg" worm mode || true)
+  fi
   [ -z "$worm_mode" ] || printf 'WORM_MODE=%s\n' "$worm_mode" >> "$outfile"
-  worm_legal_hold=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" WORM_LEGAL_HOLD_ENABLED)")
-  [ -n "$worm_legal_hold" ] || worm_legal_hold=$(strip_env_quotes "${WORM_LEGAL_HOLD_ENABLED:-}")
-  [ -z "$worm_legal_hold" ] || printf 'WORM_LEGAL_HOLD_ENABLED=%s\n' "$worm_legal_hold" >> "$outfile"
+
+  worm_days=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" WORM_RETENTION_DAYS)")
+  [ -n "$worm_days" ] || worm_days=$(strip_env_quotes "${WORM_RETENTION_DAYS:-}")
+  if [ -z "$worm_days" ] && [ -n "$cfg" ]; then
+    worm_days=$(yaml_section_value "$cfg" worm retention_days || true)
+  fi
+  [ -z "$worm_days" ] || printf 'WORM_RETENTION_DAYS=%s\n' "$worm_days" >> "$outfile"
+
+  if [ -n "${CONFIG_ENV:-}" ] && [ -f "$CONFIG_ENV" ] && grep -q '^WORM_LEGAL_HOLD_ENABLED=' "$CONFIG_ENV"; then
+    worm_legal_hold=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" WORM_LEGAL_HOLD_ENABLED)")
+    legal_hold_set=1
+  elif [ "${WORM_LEGAL_HOLD_ENABLED+x}" = x ]; then
+    worm_legal_hold=$(strip_env_quotes "$WORM_LEGAL_HOLD_ENABLED")
+    legal_hold_set=1
+  elif [ -n "$cfg" ] && worm_legal_hold=$(yaml_section_value "$cfg" worm legal_hold_enabled); then
+    legal_hold_set=1
+  fi
+  [ "$legal_hold_set" = 0 ] || printf 'WORM_LEGAL_HOLD_ENABLED=%s\n' "$worm_legal_hold" >> "$outfile"
   local off_names=""
   if imap_front_enabled "${CONFIG_ENV:-}"; then off_names=imap; fi
   if smtp_front_enabled "${CONFIG_ENV:-}"; then
@@ -1090,7 +1277,7 @@ render_tls_front_env() {
   tmp=$(mktemp "${outfile}.XXXXXX") || return 1
   # Paths/credentials needed by TLS/ACME only. DB tiers/worker ownership are in
   # the existing least-privilege federation.env, loaded before this file.
-  grep -E '^(HOSTNAME|TLS_CERT|TLS_KEY|TLS_AUTOCERT_(DOMAINS|EMAIL|CACHE_DIR|KEY_FILE|CHALLENGE)|TLS_DNS_(PROVIDER|CONFIG|RESOLVERS)|TLS_SESSION_TICKET_KEY_ROTATE_SECS|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|PROFILE|SHARED_CREDENTIALS_FILE|CONFIG_FILE|ROLE_ARN|WEB_IDENTITY_TOKEN_FILE|ROLE_SESSION_NAME|CONTAINER_CREDENTIALS_RELATIVE_URI|CONTAINER_CREDENTIALS_FULL_URI|CONTAINER_AUTHORIZATION_TOKEN|CONTAINER_AUTHORIZATION_TOKEN_FILE|EC2_METADATA_DISABLED|EC2_METADATA_SERVICE_ENDPOINT|ENDPOINT_URL|ENDPOINT_URL_ROUTE_53))=' "$config" > "$tmp" || true
+  grep -E '^(HOSTNAME|TLS_CERT|TLS_KEY|TLS_AUTOCERT_(DOMAINS|EMAIL|KEY_FILE|CHALLENGE)|TLS_DNS_(PROVIDER|CONFIG|RESOLVERS)|TLS_SESSION_TICKET_KEY_ROTATE_SECS|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|PROFILE|SHARED_CREDENTIALS_FILE|CONFIG_FILE|ROLE_ARN|WEB_IDENTITY_TOKEN_FILE|ROLE_SESSION_NAME|CONTAINER_CREDENTIALS_RELATIVE_URI|CONTAINER_CREDENTIALS_FULL_URI|CONTAINER_AUTHORIZATION_TOKEN|CONTAINER_AUTHORIZATION_TOKEN_FILE|EC2_METADATA_DISABLED|EC2_METADATA_SERVICE_ENDPOINT|ENDPOINT_URL|ENDPOINT_URL_ROUTE_53))=' "$config" > "$tmp" || true
   chmod 0640 "$tmp"
   mv -f "$tmp" "$outfile"
 }
@@ -1113,12 +1300,12 @@ tls_front_probe_url() {
 # honoring explicit environment assignments without evaluating any value.
 tls_front_preserve_settings() {
   local config="$1" key value
-  for key in SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
+  for key in SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
     if [ "${!key+x}" = x ]; then value="${!key}"; else value=$(tls_front_value "$config" "$key"); fi
     case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
     if [ -n "$value" ]; then
       printf '%s=%s\n' "$key" "$value"
-    elif [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ]; then
+    elif [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ] || [ "$key" = WORM_LEGAL_HOLD_ENABLED ]; then
       # Empty is the explicit listener-disable value, distinct from omission.
       if [ "${!key+x}" = x ] || { [ -f "$config" ] && grep -q "^$key=" "$config"; }; then
         printf '%s=\n' "$key"

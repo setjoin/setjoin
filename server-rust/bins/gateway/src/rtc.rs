@@ -107,6 +107,14 @@ fn is_rtc(path: &str) -> bool {
     path == "/rtc" || path.starts_with("/rtc/")
 }
 
+/// Go's `net/http` request-line `url.ParseRequestURI` bad-escape rejection
+/// (400), run before outer CSRF and edge rate limiting.
+pub(crate) fn bad_escape_check(req: &Request<Body>) -> Option<Response<Body>> {
+    let path = req.uri().path();
+    (is_rtc(path) && unescape(path).is_none())
+        .then(|| empty(StatusCode::BAD_REQUEST, HeaderMap::new()))
+}
+
 /// Go's `net/http` bad-escape rejection (400) and `ServeMux` clean-path
 /// redirect (307) for `/rtc`, invoked before outer guest admission so
 /// malformed escapes and unclean paths never turn into 401/404.
@@ -178,12 +186,18 @@ fn canonical_check(
     c: &RequestContext,
     id: &str,
 ) -> Result<String, Response<Body>> {
-    let Some(decoded) = unescape(req.uri().path()) else {
+    let raw = req.uri().path();
+    let Some(decoded) = unescape(raw) else {
         // Go rejects a malformed escape while parsing the request line.
         return Err(empty(StatusCode::BAD_REQUEST, HeaderMap::new()));
     };
-    let cleaned = clean_path(&decoded);
-    if cleaned != decoded && req.method() != Method::CONNECT {
+    let escaped = if valid_encoded(raw) {
+        raw.to_owned()
+    } else {
+        escape_path(&decoded)
+    };
+    let cleaned = clean_path(&escaped);
+    if cleaned != escaped && req.method() != Method::CONNECT {
         return Err(redirect(
             req.method(),
             &cleaned,
@@ -402,7 +416,7 @@ fn redirect(
     query: Option<&str>,
     mut headers: HeaderMap,
 ) -> Response<Body> {
-    let mut location = escape_path(cleaned);
+    let mut location = cleaned.to_owned();
     if let Some(q) = query {
         location.push('?');
         location.push_str(q);
@@ -461,6 +475,15 @@ fn clean_path(p: &str) -> String {
     np
 }
 
+fn from_hex(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// `url.PathUnescape` over the request path: `None` on a malformed escape.
 fn unescape(p: &str) -> Option<String> {
     let bytes = p.as_bytes();
@@ -468,8 +491,9 @@ fn unescape(p: &str) -> Option<String> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
+            let hi = from_hex(*bytes.get(i + 1)?)?;
+            let lo = from_hex(*bytes.get(i + 2)?)?;
+            out.push((hi << 4) | lo);
             i += 3;
         } else {
             out.push(bytes[i]);
@@ -479,6 +503,30 @@ fn unescape(p: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&out).into_owned())
 }
 
+fn is_unescaped_path_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'-' | b'_'
+                | b'.'
+                | b'~'
+                | b'$'
+                | b'&'
+                | b'+'
+                | b','
+                | b'/'
+                | b':'
+                | b';'
+                | b'='
+                | b'@'
+        )
+}
+
+/// `net/url`'s `validEncoded(p, encodePath)`.
+fn valid_encoded(p: &str) -> bool {
+    p.bytes().all(|b| b == b'%' || is_unescaped_path_byte(b))
+}
+
 /// `url.URL.EscapedPath` of a decoded path with no `RawPath`.
 fn escape_path(p: &str) -> String {
     if p == "*" {
@@ -486,23 +534,7 @@ fn escape_path(p: &str) -> String {
     }
     let mut out = String::with_capacity(p.len());
     for b in p.bytes() {
-        let keep = b.is_ascii_alphanumeric()
-            || matches!(
-                b,
-                b'-' | b'_'
-                    | b'.'
-                    | b'~'
-                    | b'$'
-                    | b'&'
-                    | b'+'
-                    | b','
-                    | b'/'
-                    | b':'
-                    | b';'
-                    | b'='
-                    | b'@'
-            );
-        if keep {
+        if is_unescaped_path_byte(b) {
             out.push(b as char);
         } else {
             out.push_str(&format!("%{b:02X}"));
@@ -521,7 +553,13 @@ mod tests {
         assert_eq!(escape_path("/v1/!*'()"), "/v1/%21%2A%27%28%29");
         assert_eq!(clean_path("/rtc//x/./y/../z/"), "/rtc/x/z/");
         assert_eq!(clean_path("/rtc/.."), "/");
+        assert_eq!(clean_path("/rtc/%2e%2e/x"), "/rtc/%2e%2e/x");
+        assert_eq!(clean_path("/rtc//a%20b"), "/rtc/a%20b");
+        assert!(valid_encoded("/rtc/%2e%2e/x"));
+        assert!(!valid_encoded("/rtc/a b"));
         assert_eq!(unescape("/rtc/a%2Fb").as_deref(), Some("/rtc/a/b"));
         assert_eq!(unescape("/rtc/%zz"), None);
+        assert_eq!(unescape("/rtc/%+a"), None);
+        assert_eq!(unescape("/rtc/%-1"), None);
     }
 }

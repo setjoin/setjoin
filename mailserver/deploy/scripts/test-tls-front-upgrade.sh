@@ -43,7 +43,9 @@ for previous_socket in absent present; do
 TLS_CERT=/fixture/leaf.crt
 TLS_KEY=/fixture/leaf.key
 WORM_MODE=compliance
+WORM_RETENTION_DAYS=3650
 WORM_LEGAL_HOLD_ENABLED=true
+S3_BUCKET=mailblobs
 LISTEN_ADDR=:443
 DB_DSN=postgres://app@fixture/db
 DB_DIRECT_DSN=postgres://app@fixture/db
@@ -70,9 +72,12 @@ ENV
       echo 'previous IMAP socket' > "$fx/units/setjoin-imap.socket"
       echo 'previous IMAPS socket' > "$fx/units/setjoin-imaps.socket"
       echo 'previous TLS env' > "$fx/config/tls.env"
+      echo 'previous storage env' > "$fx/config/storage.env"
+      mkdir -p "$fx/autocert" && chmod 0755 "$fx/autocert"
     fi
     chmod 0600 "$fx/config/config.env"
     if [ -e "$fx/config/federation.env" ]; then chmod 0640 "$fx/config/federation.env"; fi
+    if [ -e "$fx/config/storage.env" ]; then chmod 0640 "$fx/config/storage.env"; fi
     cp -a "$fx/config/." "$fx/before-config/"
     cp -a "$fx/units/." "$fx/before-units/"
     status=0
@@ -105,7 +110,12 @@ ENV
       grep -qx "ReadWritePaths=-$fx/autocert" "$fx/units/setjoin-gateway.service"
       grep -qx "TLS_AUTOCERT_CACHE_DIR=$fx/autocert" "$fx/config/gateway.env"
       grep -qx 'WORM_MODE=compliance' "$fx/config/gateway.env"
+      grep -qx 'WORM_RETENTION_DAYS=3650' "$fx/config/gateway.env"
       grep -qx 'WORM_LEGAL_HOLD_ENABLED=true' "$fx/config/gateway.env"
+      grep -qx "EnvironmentFile=-$fx/config/storage.env" "$fx/units/setjoin-gateway.service"
+      grep -qx 'S3_BUCKET=mailblobs' "$fx/config/storage.env"
+      if grep -Eq 'OWNER_DSN|JWT_SECRET|DB_DSN' "$fx/config/storage.env"; then echo 'leak in storage.env' >&2; exit 1; fi
+      test "$(stat -c '%a' "$fx/config/storage.env")" = 640
       grep -qx 'TLS_CERT=/fixture/leaf.crt' "$fx/config/tls.env"
       test ! -e "$fx/units/setjoin-acme.socket"
       test "$(stat -c '%a' "$fx/config/tls.env")" = 640

@@ -64,6 +64,7 @@ DB_CRED_FILE="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/db-credentials.d/db-credential
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 GATEWAY_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/gateway.env"
 FEDERATION_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/federation.env"
+STORAGE_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/storage.env"
 TLS_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/tls.env"
 SMTP_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/smtp.env"
 source "$(dirname "${BASH_SOURCE[0]}")/lib-livekit.sh"
@@ -83,7 +84,7 @@ backup_gateway_deployment() {
             cp -a "$SYSTEMD_DIR/$file" "$DEPLOYMENT_PREV/units/"
         fi
     done
-    for file in config.env gateway.env federation.env tls.env smtp.env; do
+    for file in config.env gateway.env federation.env tls.env smtp.env storage.env; do
         if [ -e "${CONFIG_ENV%/*}/$file" ]; then
             cp -a "${CONFIG_ENV%/*}/$file" "$DEPLOYMENT_PREV/config/"
         fi
@@ -115,7 +116,7 @@ restore_gateway_deployment() {
             cp -a "$DEPLOYMENT_PREV/units/$file" "$SYSTEMD_DIR/"
         fi
     done
-    for file in config.env gateway.env federation.env tls.env smtp.env; do
+    for file in config.env gateway.env federation.env tls.env smtp.env storage.env; do
         rm -f "${CONFIG_ENV%/*}/$file"
         if [ -e "$DEPLOYMENT_PREV/config/$file" ]; then
             cp -a "$DEPLOYMENT_PREV/config/$file" "${CONFIG_ENV%/*}/"
@@ -175,7 +176,8 @@ render_gateway_deployment() (
     render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
     chown root:setjoin "$TLS_ENV" || return 1
     _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
-    if [ ! -d "$_tls_cache" ] && { [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; }; then
+    validate_tls_cache_dir "$_tls_cache" || return 1
+    if [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; then
         mkdir -p "$_tls_cache" || return 1
         chmod 0700 "$_tls_cache" || return 1
         chown setjoin:setjoin "$_tls_cache" || return 1
@@ -186,6 +188,8 @@ render_gateway_deployment() (
     render_gateway_env "$GATEWAY_ENV" || return 1
     render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$FEDERATION_ENV" || return 1
+    render_storage_env "$STORAGE_ENV" "$CONFIG_ENV" || return 1
+    chown root:setjoin "$STORAGE_ENV" || return 1
     # SMTP (#501): its own allow-listed file, re-rendered with the unit set.
     render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$SMTP_ENV" || return 1

@@ -63,7 +63,7 @@ ENV
     cp -a "$fx/units/." "$fx/before-units/"
     status=0
     PATH="$tmp/bin:$PATH" INSTALL_DIR="$fx/install" SETJOIN_CONFIG_DIR="$fx/config" \
-      SYSTEMD_DIR="$fx/units" FED_TEST_HEALTH="$health" FED_TEST_LOG="$fx/actions" \
+      SYSTEMD_DIR="$fx/units" TLS_AUTOCERT_CACHE_DIR="$fx/autocert" FED_TEST_HEALTH="$health" FED_TEST_LOG="$fx/actions" \
       bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$fx/new/mailserverd" "$fx/new/mailctl" \
       '' '' "$fx/new/setjoin-gateway" > "$fx/output" 2>&1 || status=$?
     test "$(stat -c '%a' "$fx/install/federation-deploy.prev")" = 700

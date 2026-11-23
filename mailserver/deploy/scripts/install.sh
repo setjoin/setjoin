@@ -505,6 +505,7 @@ AUTH_ENV="$CONFIG_DIR/auth.env"
 # it is assigned before the entry migration re-renders the units.
 GATEWAY_ENV="$CONFIG_DIR/gateway.env"
 FEDERATION_ENV="$CONFIG_DIR/federation.env"
+STORAGE_ENV="$CONFIG_DIR/storage.env"
 TLS_ENV="$CONFIG_DIR/tls.env"
 SMTP_ENV="$CONFIG_DIR/smtp.env"
 CONTAINER_BIN="$(detect_container_runtime)"
@@ -1621,7 +1622,8 @@ configure_smtp_front "$CONFIG_ENV" || die "failed to transfer native SMTP owners
 render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || die "failed to render TLS settings"
 chown root:setjoin "$TLS_ENV"
 _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
-[ -d "$_tls_cache" ] || install -d -m 0700 -o setjoin -g setjoin "$_tls_cache"
+validate_tls_cache_dir "$_tls_cache" || die "invalid TLS cache directory: $_tls_cache"
+install -d -m 0700 -o setjoin -g setjoin "$_tls_cache"
 if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
   _tls_account=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)")
   if [ -n "$_tls_account" ] && [ ! -d "${_tls_account%/*}" ]; then
@@ -1632,6 +1634,9 @@ render_gateway_env "$GATEWAY_ENV" || die "failed to render $GATEWAY_ENV — see 
 render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" \
   || die "failed to render $FEDERATION_ENV — see the error above."
 chown root:setjoin "$FEDERATION_ENV"
+render_storage_env "$STORAGE_ENV" "$CONFIG_ENV" \
+  || die "failed to render $STORAGE_ENV — see the error above."
+chown root:setjoin "$STORAGE_ENV"
 render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" \
   || die "failed to render $SMTP_ENV — see the error above."
 chown root:setjoin "$SMTP_ENV"

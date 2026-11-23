@@ -473,6 +473,14 @@ async fn handle(
             _ => proxy::status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed\n"),
         };
     }
+    // Go's net/http request-line unescape runs before CSRF and edge rate limiting.
+    if route.is_some_and(|r| r.target == inventory::Target::LocalRust)
+        && shared.routes.find(&req).is_some()
+    {
+        if let Some(response) = rtc::bad_escape_check(&req) {
+            return response;
+        }
+    }
     // Owner-approved security fix 2026-11-05 (#491): the global CSRF gate runs
     // before the over-budget branch. An over-budget request that is not answered
     // here used to skip it entirely (and the later gate only runs without an edge

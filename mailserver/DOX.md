@@ -1085,17 +1085,22 @@ or GATEWAY_HTTPS_LISTEN), without CAP_NET_BIND_SERVICE. The renderer attaches
 optional federation/ACME sockets through Wants/After, never Requires on Go services.
 `tls.env` is a literal 0640 allowlist of TLS paths/provider credentials; broad
 config.env and owner credentials never enter the internet-facing gateway unit.
+`storage.env` is a dedicated literal 0640 allowlist carrying only S3/MinIO
+endpoint and credentials independent of SMTP enablement (#289 legal holds,
+blobs, attachments), and is rolled back alongside the deployment env files.
 App/worker/LISTEN credentials and the transferred worker names stay in federation.env.
 
 Managed TLS-ALPN-01 (default) and DNS-01 move `acme-renewal` with the TLS listener.
 HTTP-01 also transfers `http-port80` and renders `setjoin-acme.socket` (FD `acme`)
 only for HTTP_MODE=redirect (including unset). Go :80 proxy/serve remains owned by
-Platform #305. Managed settings survive install config regeneration; explicit
+Platform #305. Managed settings (including `WORM_MODE`, `WORM_RETENTION_DAYS`,
+and explicit `WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
 operator environment values take precedence. The TLS import/ACME cache directory
 (`tls_import_cache_dir`, resolved from `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG`
-YAML `tls.autocert_cache_dir`) is provisioned (`0700`, `setjoin:setjoin`)
-unconditionally on install/upgrade, emitted into `gateway.env` alongside non-secret
-`WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`, and granted a narrow `ReadWritePaths` in
+YAML `tls.autocert_cache_dir`) is validated before filesystem mutation, provisioned
+(`0700`, `setjoin:setjoin` enforced on both new and existing directories)
+unconditionally on install/upgrade, emitted solely into `gateway.env` alongside
+resolved `WORM_*` settings, and granted a narrow `ReadWritePaths` in
 `setjoin-gateway.service`; ACME account-key parent directories gain `ReadWritePaths`
 when `TLS_AUTOCERT_DOMAINS` is set. Static certificates remain read-only.
 

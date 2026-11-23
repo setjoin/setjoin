@@ -51,7 +51,7 @@ grep -q '^RUST_WORKERS_ON=.*federation-residue-reap' "$tmp/federation.env"
 grep -qx 'TLS_CERT=/fixture/leaf.crt' "$TLS_ENV"
 grep -qx 'TLS_SESSION_TICKET_KEY_ROTATE_SECS=60' "$TLS_ENV"
 grep -Fxq 'TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}' "$TLS_ENV"
-! grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$TLS_ENV"
+if grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$TLS_ENV"; then echo 'secret leaked to tls.env' >&2; exit 1; fi
 test "$(stat -c '%a' "$TLS_ENV")" = 640
 # Re-rendering is idempotent and leaves unrelated worker ownership intact.
 cp "$CONFIG_ENV" "$tmp/once.env"
@@ -63,7 +63,7 @@ TLS_AUTOCERT_EMAIL=new@example.test TLS_DNS_PROVIDER=cloudflare tls_front_preser
 grep -qx 'TLS_AUTOCERT_EMAIL=new@example.test' "$tmp/preserved.env"
 grep -qx 'TLS_SESSION_TICKET_KEY_ROTATE_SECS=60' "$tmp/preserved.env"
 grep -Fxq 'TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}' "$tmp/preserved.env"
-! grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$tmp/preserved.env"
+if grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$tmp/preserved.env"; then echo 'secret leaked to preserved.env' >&2; exit 1; fi
 GATEWAY_HTTPS_LISTEN='[::1]:1443' render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/setjoin-gateway.service"
 grep -Fxq 'ListenStream=[::1]:1443' "$tmp/setjoin-https.socket"
 cat > "$tmp/yaml-config.env" <<'ENV'
@@ -71,7 +71,9 @@ HOSTNAME=mail.example.test
 ENV
 cat > "$tmp/setjoin.yaml" <<'YAML'
 tls:
-  autocert_cache_dir: /var/lib/setjoin/custom-tls
+  nested:
+    autocert_cache_dir: /wrong/nested/path
+  "autocert_cache_dir": /var/lib/setjoin/custom-tls
 YAML
 echo 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/stale-cache' > "$tmp/yaml-gateway.env"
 CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/yaml-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 SETJOIN_CONFIG="$tmp/setjoin.yaml" render_gateway_env "$tmp/yaml-gateway.env"
@@ -83,7 +85,11 @@ cat > "$tmp/quoted-config.env" <<'ENV'
 HOSTNAME=mail.example.test
 TLS_AUTOCERT_CACHE_DIR="/var/lib/setjoin/quoted"
 WORM_MODE="compliance"
-WORM_LEGAL_HOLD_ENABLED='true'
+WORM_RETENTION_DAYS="3650"
+WORM_LEGAL_HOLD_ENABLED=
+S3_ENDPOINT=http://127.0.0.1:9000
+S3_BUCKET=mailblobs
+S3_ACCESS_KEY=ak-test
 S3_SECRET_KEY=must-not-reach-gateway
 DB_OWNER_DSN=must-not-reach-gateway
 JWT_SECRET=must-not-reach-gateway
@@ -91,16 +97,52 @@ ENV
 CONFIG_ENV="$tmp/quoted-config.env" GATEWAY_ENV="$tmp/quoted-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/quoted-gateway.env"
 grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/quoted' "$tmp/quoted-gateway.env"
 grep -qx 'WORM_MODE=compliance' "$tmp/quoted-gateway.env"
-grep -qx 'WORM_LEGAL_HOLD_ENABLED=true' "$tmp/quoted-gateway.env"
-! grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET' "$tmp/quoted-gateway.env"
+grep -qx 'WORM_RETENTION_DAYS=3650' "$tmp/quoted-gateway.env"
+grep -qx 'WORM_LEGAL_HOLD_ENABLED=' "$tmp/quoted-gateway.env"
+if grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET' "$tmp/quoted-gateway.env"; then echo 'secret leaked to gateway.env' >&2; exit 1; fi
+tls_front_preserve_settings "$tmp/quoted-config.env" > "$tmp/quoted-preserved.env"
+grep -qx 'WORM_MODE="compliance"' "$tmp/quoted-preserved.env"
+grep -qx 'WORM_RETENTION_DAYS="3650"' "$tmp/quoted-preserved.env"
+grep -qx 'WORM_LEGAL_HOLD_ENABLED=' "$tmp/quoted-preserved.env"
 CONFIG_ENV="$tmp/quoted-config.env" GATEWAY_ENV="$tmp/quoted-gateway.env" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/quoted-gateway.service"
 grep -qx 'ReadWritePaths=-/var/lib/setjoin/quoted' "$tmp/quoted-gateway.service"
 
+# Storage allowlist is rendered independent of SMTP enablement.
+printf 'SMTP_FRONT_ENABLED=false\nSMTP_INBOUND_ADDR=\nSMTP_SUBMISSION_ADDR=\n' >> "$tmp/quoted-config.env"
+render_smtp_env "$tmp/quoted-smtp.env" "$tmp/quoted-config.env" /nonexistent
+test ! -s "$tmp/quoted-smtp.env"
+render_storage_env "$tmp/quoted-storage.env" "$tmp/quoted-config.env"
+grep -qx 'S3_ENDPOINT=http://127.0.0.1:9000' "$tmp/quoted-storage.env"
+grep -qx 'S3_BUCKET=mailblobs' "$tmp/quoted-storage.env"
+grep -qx 'S3_ACCESS_KEY=ak-test' "$tmp/quoted-storage.env"
+grep -qx 'S3_SECRET_KEY=must-not-reach-gateway' "$tmp/quoted-storage.env"
+if grep -Eq 'OWNER_DSN|JWT_SECRET|DB_DSN' "$tmp/quoted-storage.env"; then echo 'secret leaked to storage.env' >&2; exit 1; fi
+test "$(stat -c '%a' "$tmp/quoted-storage.env")" = 640
+
+# Quoted empty TLS_AUTOCERT_CACHE_DIR="" must not enter tls.env and override gateway.env.
+cat > "$tmp/empty-cache.env" <<'ENV'
+HOSTNAME=mail.example.test
+TLS_AUTOCERT_CACHE_DIR=""
+ENV
+render_tls_front_env "$tmp/empty-tls.env" "$tmp/empty-cache.env"
+if grep -q '^TLS_AUTOCERT_CACHE_DIR=' "$tmp/empty-tls.env"; then echo 'TLS_AUTOCERT_CACHE_DIR leaked into tls.env' >&2; exit 1; fi
+CONFIG_ENV="$tmp/empty-cache.env" GATEWAY_ENV="$tmp/empty-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/empty-gateway.env"
+grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/cache/mailserver/autocert' "$tmp/empty-gateway.env"
+CONFIG_ENV="$tmp/empty-cache.env" GATEWAY_ENV="$tmp/empty-gateway.env" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/empty-gateway.service"
+grep -qx 'ReadWritePaths=-/var/cache/mailserver/autocert' "$tmp/empty-gateway.service"
+
 cat > "$tmp/flow.yaml" <<'YAML'
-tls: { autocert_cache_dir: "/var/lib/setjoin/flow-tls" }
+tls: { nested: { autocert_cache_dir: /wrong/flow }, autocert_cache_dir: "/var/lib/setjoin/flow-tls" }
+worm:
+  mode: governance
+  retention_days: 730
+  legal_hold_enabled: ""
 YAML
 CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/flow-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 SETJOIN_CONFIG="$tmp/flow.yaml" render_gateway_env "$tmp/flow-gateway.env"
 grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/flow-tls' "$tmp/flow-gateway.env"
+grep -qx 'WORM_MODE=governance' "$tmp/flow-gateway.env"
+grep -qx 'WORM_RETENTION_DAYS=730' "$tmp/flow-gateway.env"
+grep -qx 'WORM_LEGAL_HOLD_ENABLED=' "$tmp/flow-gateway.env"
 CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/flow-gateway.env" SETJOIN_CONFIG="$tmp/flow.yaml" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/flow-gateway.service"
 grep -qx 'ReadWritePaths=-/var/lib/setjoin/flow-tls' "$tmp/flow-gateway.service"
 echo 'native TLS release socket: PASS'

@@ -1296,3 +1296,154 @@ fn is_retryable_s3_code(code: &str) -> bool {
             | "SlowDownRead"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::S3Store;
+    use bytes::Bytes;
+    use http_body_util::Full;
+    use hyper::{service::service_fn, Response};
+    use hyper_util::rt::TokioIo;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
+
+    struct AbortServer(tokio::task::JoinHandle<()>);
+    impl Drop for AbortServer {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn legal_hold_403_retries_against_signed_region_after_concurrent_cache_refresh() {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let auths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entered_s = entered.clone();
+        let release_s = release.clone();
+        let auths_s = auths.clone();
+        let hits_s = hits.clone();
+        let _server = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let (entered_c, release_c, auths_c, hits_c) = (
+                    entered_s.clone(),
+                    release_s.clone(),
+                    auths_s.clone(),
+                    hits_s.clone(),
+                );
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req| {
+                        let (entered_r, release_r, auths_r, hits_r) = (
+                            entered_c.clone(),
+                            release_c.clone(),
+                            auths_c.clone(),
+                            hits_c.clone(),
+                        );
+                        async move {
+                            let auth = req
+                                .headers()
+                                .get("authorization")
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("")
+                                .to_owned();
+                            auths_r.lock().unwrap().push(auth);
+                            let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                            let resp = if n == 0 {
+                                entered_r.notify_one();
+                                release_r.notified().await;
+                                Response::builder()
+                                    .status(403)
+                                    .header("x-amz-bucket-region", "eu-west-1")
+                                    .header("content-type", "application/xml")
+                                    .body(Full::new(Bytes::from_static(
+                                        b"<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+                                    )))
+                                    .unwrap()
+                            } else {
+                                Response::builder()
+                                    .status(204)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            };
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+
+        let store = Arc::new(
+            S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap(),
+        );
+        *store.region.lock().await = Some("us-east-1".into());
+
+        let caller = store.clone();
+        let handle = tokio::spawn(async move { caller.legal_hold_with_retries("key-a", true).await });
+        entered.notified().await;
+        // Simulate another request refreshing the cached region while attempt 0 is in flight.
+        *store.region.lock().await = Some("eu-west-1".into());
+        release.notify_one();
+
+        let res = handle.await.unwrap();
+        assert!(res.is_ok(), "expected retry after 403 signed-region mismatch: {res:?}");
+        let recorded = auths.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        assert!(recorded[0].contains("/us-east-1/s3/aws4_request"));
+        assert!(recorded[1].contains("/eu-west-1/s3/aws4_request"));
+    }
+
+    #[tokio::test]
+    async fn legal_hold_403_same_region_with_retryable_code_is_terminal() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits_s = hits.clone();
+        let _server = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let hits_c = hits_s.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| {
+                        let hits_r = hits_c.clone();
+                        async move {
+                            hits_r.fetch_add(1, Ordering::SeqCst);
+                            Ok::<_, std::convert::Infallible>(
+                                Response::builder()
+                                    .status(403)
+                                    .header("x-amz-bucket-region", "eu-west-1")
+                                    .header("content-type", "application/xml")
+                                    .body(Full::new(Bytes::from_static(
+                                        b"<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
+                                    )))
+                                    .unwrap(),
+                            )
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        *store.region.lock().await = Some("eu-west-1".into());
+
+        let err = store.legal_hold_with_retries("key-b", false).await.unwrap_err();
+        assert!(err.contains("403"), "expected terminal 403 error, got {err}");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+}
