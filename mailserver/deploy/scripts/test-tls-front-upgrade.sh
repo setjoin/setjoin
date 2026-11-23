@@ -42,6 +42,8 @@ for previous_socket in absent present; do
     cat > "$fx/config/config.env" <<'ENV'
 TLS_CERT=/fixture/leaf.crt
 TLS_KEY=/fixture/leaf.key
+WORM_MODE=compliance
+WORM_LEGAL_HOLD_ENABLED=true
 LISTEN_ADDR=:443
 DB_DSN=postgres://app@fixture/db
 DB_DIRECT_DSN=postgres://app@fixture/db
@@ -56,6 +58,7 @@ DB_OWNER_DSN=must-not-reach-gateway
 DB_DIRECT_OWNER_DSN=must-not-reach-gateway
 S3_SECRET_KEY=must-not-reach-gateway
 ENV
+    printf 'TLS_AUTOCERT_CACHE_DIR=%s/autocert\n' "$fx" >> "$fx/config/config.env"
     echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$fx/config/gateway.env"
     echo 'previous gateway service' > "$fx/units/setjoin-gateway.service"
     echo 'previous gateway socket' > "$fx/units/setjoin-gateway.socket"
@@ -97,6 +100,12 @@ ENV
       grep -qx 'FileDescriptorName=imaps' "$fx/units/setjoin-imaps.socket"
       grep -qx 'GO_LISTENERS_OFF=imap,smtp,submission' "$fx/config/config.env"
       grep -qx 'GO_LISTENERS_OFF=imap,smtp,submission' "$fx/config/gateway.env"
+      test -d "$fx/autocert"
+      test "$(stat -c '%a' "$fx/autocert")" = 700
+      grep -qx "ReadWritePaths=-$fx/autocert" "$fx/units/setjoin-gateway.service"
+      grep -qx "TLS_AUTOCERT_CACHE_DIR=$fx/autocert" "$fx/config/gateway.env"
+      grep -qx 'WORM_MODE=compliance' "$fx/config/gateway.env"
+      grep -qx 'WORM_LEGAL_HOLD_ENABLED=true' "$fx/config/gateway.env"
       grep -qx 'TLS_CERT=/fixture/leaf.crt' "$fx/config/tls.env"
       test ! -e "$fx/units/setjoin-acme.socket"
       test "$(stat -c '%a' "$fx/config/tls.env")" = 640

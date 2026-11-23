@@ -91,6 +91,22 @@ async fn without_a_fallback_unconfigured_rtc_answers_404_natively() -> Result<()
     )
     .await;
     assert_eq!(response.status().as_u16(), 404);
+    let bad_escape = common::send(
+        gw,
+        Request::get("/rtc/%ZZ")
+            .header("host", "mail.test")
+            .body(common::full(""))?,
+    )
+    .await;
+    assert_eq!(bad_escape.status().as_u16(), 400);
+    let unclean = common::send(
+        gw,
+        Request::get("/rtc//x")
+            .header("host", "mail.test")
+            .body(common::full(""))?,
+    )
+    .await;
+    assert_eq!(unclean.status().as_u16(), 307);
     assert_eq!(hits.load(Ordering::SeqCst), 0);
     Ok(())
 }

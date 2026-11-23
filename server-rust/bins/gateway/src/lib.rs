@@ -500,6 +500,18 @@ async fn handle(
                     return response;
                 }
             }
+            // Go's net/http request-line unescape and ServeMux canonicalization precede buildRootDispatch's belt.
+            if route.is_some_and(|r| r.target == inventory::Target::LocalRust)
+                && shared.routes.find(&req).is_some()
+            {
+                let ctx = RequestContext {
+                    identity: identity.clone(),
+                    upstream: go_mail.clone(),
+                };
+                if let Some(response) = rtc::pre_admission_check(&req, &ctx) {
+                    return response;
+                }
+            }
             // ServeMux canonicalization precedes buildRootDispatch's belt.
             if shared.routes.catchall && shared.inventory.root_on() {
                 let ctx = RequestContext {

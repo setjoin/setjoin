@@ -653,23 +653,25 @@ impl S3Store {
                 Ok(reply) if matches!(reply.status, 200 | 204) => return Ok(()),
                 Ok(reply) => {
                     let reported_region = reply.region.as_deref().map(normalize_s3_region);
-                    let current_region = self.region.lock().await.clone();
-                    let changed_403 = reply.status == 403
-                        && reported_region
+                    let is_region_code = matches!(
+                        reply.code.as_deref(),
+                        Some(
+                            "AuthorizationHeaderMalformed"
+                                | "InvalidRegion"
+                                | "PermanentRedirect"
+                        )
+                    );
+                    if reply.status == 403 {
+                        let changed_region = reported_region
                             .as_ref()
-                            .is_some_and(|r| current_region.as_deref() != Some(r.as_str()));
-                    let is_region_error = reply.status == 301
-                        || reply.status == 307
-                        || changed_403
-                        || matches!(
-                            reply.code.as_deref(),
-                            Some(
-                                "AuthorizationHeaderMalformed"
-                                    | "InvalidRegion"
-                                    | "PermanentRedirect"
-                            )
-                        );
-                    if is_region_error {
+                            .is_some_and(|r| r.as_str() != reply.signed_region.as_str());
+                        if changed_region || is_region_code {
+                            *self.region.lock().await = reported_region;
+                            last = format!("object legal hold failed ({})", reply.status);
+                        } else {
+                            return Err(format!("object legal hold failed ({})", reply.status));
+                        }
+                    } else if reply.status == 301 || reply.status == 307 || is_region_code {
                         *self.region.lock().await = reported_region;
                         last = format!("object legal hold failed ({})", reply.status);
                     } else if RETRYABLE.contains(&reply.status)
@@ -686,13 +688,17 @@ impl S3Store {
         Err(last)
     }
 
-    /// One `PUT ?legal-hold` request; returns status, S3 error code, and reported region.
+    /// One `PUT ?legal-hold` request; returns status, signed region, S3 error code, and reported region.
     async fn legal_hold_attempt(&self, key: &str, on: bool) -> Result<LegalHoldReply, String> {
         use s3::{
             command::Command,
             request::{tokio_backend::ReqwestRequest, Request},
         };
         let mut bucket = self.bucket().await?;
+        let signed_region = match &bucket.region {
+            s3::Region::Custom { region, .. } => region.clone(),
+            other => normalize_s3_region(&other.to_string()),
+        };
         bucket.add_query("legal-hold", "");
         let (xml, md5) = if on {
             (
@@ -744,6 +750,7 @@ impl S3Store {
         if matches!(status, 200 | 204) {
             return Ok(LegalHoldReply {
                 status,
+                signed_region,
                 code: None,
                 region: None,
             });
@@ -773,6 +780,7 @@ impl S3Store {
         let body = String::from_utf8_lossy(&body_bytes);
         Ok(LegalHoldReply {
             status,
+            signed_region,
             code: header_code.or_else(|| s3_xml_tag(&body, "Code").map(str::to_owned)),
             region: header_region.or_else(|| s3_xml_tag(&body, "Region").map(str::to_owned)),
         })
@@ -1249,6 +1257,7 @@ impl S3Store {
 
 struct LegalHoldReply {
     status: u16,
+    signed_region: String,
     code: Option<String>,
     region: Option<String>,
 }

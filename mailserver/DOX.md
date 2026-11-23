@@ -1091,8 +1091,13 @@ Managed TLS-ALPN-01 (default) and DNS-01 move `acme-renewal` with the TLS listen
 HTTP-01 also transfers `http-port80` and renders `setjoin-acme.socket` (FD `acme`)
 only for HTTP_MODE=redirect (including unset). Go :80 proxy/serve remains owned by
 Platform #305. Managed settings survive install config regeneration; explicit
-operator environment values take precedence. ACME cache/account-key parents gain
-narrow ReadWritePaths in the hardened service. Static certificates remain read-only.
+operator environment values take precedence. The TLS import/ACME cache directory
+(`tls_import_cache_dir`, resolved from `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG`
+YAML `tls.autocert_cache_dir`) is provisioned (`0700`, `setjoin:setjoin`)
+unconditionally on install/upgrade, emitted into `gateway.env` alongside non-secret
+`WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`, and granted a narrow `ReadWritePaths` in
+`setjoin-gateway.service`; ACME account-key parent directories gain `ReadWritePaths`
+when `TLS_AUTOCERT_DOMAINS` is set. Static certificates remain read-only.
 
 Install and flat upgrade require a real local TLS handshake plus the native
 /_gateway/healthz response. The local probe accepts the installation's self-signed

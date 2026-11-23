@@ -135,7 +135,7 @@ config_value() {
     sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -1 || true
 }
 render_gateway_deployment() (
-    local root key names file tmp
+    local root key names file tmp _tls_cache
     root="$(cd "$(dirname "$0")/../../.." && pwd)"
     source "$root/mailserver/deploy/scripts/lib-livekit.sh" || return 1
     # This is the legacy flat layout. Immutable installations use signed Updates.
@@ -174,6 +174,12 @@ render_gateway_deployment() (
     configure_smtp_front "$CONFIG_ENV" || return 1
     render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
     chown root:setjoin "$TLS_ENV" || return 1
+    _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
+    if [ ! -d "$_tls_cache" ] && { [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; }; then
+        mkdir -p "$_tls_cache" || return 1
+        chmod 0700 "$_tls_cache" || return 1
+        chown setjoin:setjoin "$_tls_cache" || return 1
+    fi
     # A descriptor belongs to the matching new binary. Recreate only this
     # release's socket set; snapshots preserve prior bytes, absence and state.
     rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"

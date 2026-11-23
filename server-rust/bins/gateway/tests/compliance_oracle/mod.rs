@@ -532,7 +532,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 match (phase, hit) {
                     (0, 0) => {
                         tokio::time::sleep(std::time::Duration::from_millis(700)).await;
-                        Response::builder().status(500).body(common::full("")).unwrap()
+                        Response::builder().status(200).body(common::full("")).unwrap()
                     }
                     (0, 1) => Response::builder()
                         .status(400)

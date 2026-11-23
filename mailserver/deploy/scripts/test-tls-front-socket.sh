@@ -73,6 +73,34 @@ cat > "$tmp/setjoin.yaml" <<'YAML'
 tls:
   autocert_cache_dir: /var/lib/setjoin/custom-tls
 YAML
-CONFIG_ENV="$tmp/yaml-config.env" SETJOIN_CONFIG="$tmp/setjoin.yaml" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/yaml-gateway.service"
+echo 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/stale-cache' > "$tmp/yaml-gateway.env"
+CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/yaml-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 SETJOIN_CONFIG="$tmp/setjoin.yaml" render_gateway_env "$tmp/yaml-gateway.env"
+grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/custom-tls' "$tmp/yaml-gateway.env"
+CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/yaml-gateway.env" SETJOIN_CONFIG="$tmp/setjoin.yaml" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/yaml-gateway.service"
 grep -qx 'ReadWritePaths=-/var/lib/setjoin/custom-tls' "$tmp/yaml-gateway.service"
+
+cat > "$tmp/quoted-config.env" <<'ENV'
+HOSTNAME=mail.example.test
+TLS_AUTOCERT_CACHE_DIR="/var/lib/setjoin/quoted"
+WORM_MODE="compliance"
+WORM_LEGAL_HOLD_ENABLED='true'
+S3_SECRET_KEY=must-not-reach-gateway
+DB_OWNER_DSN=must-not-reach-gateway
+JWT_SECRET=must-not-reach-gateway
+ENV
+CONFIG_ENV="$tmp/quoted-config.env" GATEWAY_ENV="$tmp/quoted-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/quoted-gateway.env"
+grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/quoted' "$tmp/quoted-gateway.env"
+grep -qx 'WORM_MODE=compliance' "$tmp/quoted-gateway.env"
+grep -qx 'WORM_LEGAL_HOLD_ENABLED=true' "$tmp/quoted-gateway.env"
+! grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET' "$tmp/quoted-gateway.env"
+CONFIG_ENV="$tmp/quoted-config.env" GATEWAY_ENV="$tmp/quoted-gateway.env" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/quoted-gateway.service"
+grep -qx 'ReadWritePaths=-/var/lib/setjoin/quoted' "$tmp/quoted-gateway.service"
+
+cat > "$tmp/flow.yaml" <<'YAML'
+tls: { autocert_cache_dir: "/var/lib/setjoin/flow-tls" }
+YAML
+CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/flow-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 SETJOIN_CONFIG="$tmp/flow.yaml" render_gateway_env "$tmp/flow-gateway.env"
+grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/flow-tls' "$tmp/flow-gateway.env"
+CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/flow-gateway.env" SETJOIN_CONFIG="$tmp/flow.yaml" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/flow-gateway.service"
+grep -qx 'ReadWritePaths=-/var/lib/setjoin/flow-tls' "$tmp/flow-gateway.service"
 echo 'native TLS release socket: PASS'

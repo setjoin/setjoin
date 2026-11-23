@@ -107,6 +107,23 @@ fn is_rtc(path: &str) -> bool {
     path == "/rtc" || path.starts_with("/rtc/")
 }
 
+/// Go's `net/http` bad-escape rejection (400) and `ServeMux` clean-path
+/// redirect (307) for `/rtc`, invoked before outer guest admission so
+/// malformed escapes and unclean paths never turn into 401/404.
+pub(crate) fn pre_admission_check(
+    req: &Request<Body>,
+    c: &RequestContext,
+) -> Option<Response<Body>> {
+    if !is_rtc(req.uri().path()) {
+        return None;
+    }
+    let id = crate::jmap::reply::request_id(
+        req.headers().get("x-request-id"),
+        crate::jmap::random().unwrap_or([0; 16]),
+    );
+    canonical_check(req, c, &id).err()
+}
+
 impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
     fn matches(&self, req: &Request<Body>) -> bool {
         is_rtc(req.uri().path())
@@ -122,12 +139,6 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
         );
         let fallback = self.fallback.clone();
         Box::pin(async move {
-            if !configured {
-                return match fallback {
-                    Some(fallback) => fallback.handle(req, c).await,
-                    None => crate::surface::unregistered(&req, c.identity.proto),
-                };
-            }
             let id = crate::jmap::reply::request_id(
                 req.headers().get("x-request-id"),
                 crate::jmap::random().unwrap_or([0; 16]),
@@ -136,6 +147,12 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                 Ok(decoded) => decoded,
                 Err(response) => return response,
             };
+            if !configured {
+                return match fallback {
+                    Some(fallback) => fallback.handle(req, c).await,
+                    None => crate::surface::unregistered(&req, c.identity.proto),
+                };
+            }
             if check_guest {
                 if let Some(response) = crate::admission::check_guest_belt(
                     &exec,

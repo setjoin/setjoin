@@ -1620,11 +1620,10 @@ configure_imap_front "$CONFIG_ENV" || die "failed to transfer native IMAP owners
 configure_smtp_front "$CONFIG_ENV" || die "failed to transfer native SMTP ownership"
 render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || die "failed to render TLS settings"
 chown root:setjoin "$TLS_ENV"
+_tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
+[ -d "$_tls_cache" ] || install -d -m 0700 -o setjoin -g setjoin "$_tls_cache"
 if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
-  _tls_cache=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_CACHE_DIR)
-  _tls_cache="${_tls_cache:-/var/cache/mailserver/autocert}"
-  [ -d "$_tls_cache" ] || install -d -m 0700 -o setjoin -g setjoin "$_tls_cache"
-  _tls_account=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)
+  _tls_account=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)")
   if [ -n "$_tls_account" ] && [ ! -d "${_tls_account%/*}" ]; then
     install -d -m 0700 -o setjoin -g setjoin "${_tls_account%/*}"
   fi
