@@ -20,8 +20,9 @@
   the same (`mail_security_trace.rs`, reqwest, redirects followed). `src/received.rs` ports
   `textproto.ReadMIMEHeader`, `mail.ParseDate` over `time.Parse` (48 layouts, `Local` read as UTC),
   the five RE2 patterns and Go's JSON, checked by `tests/received_vectors.json` (265 inputs recorded
-  from Go 1.26.6). Identity names come from `HOSTNAME`/`INTERNAL_DOMAINS`; with `SETJOIN_CONFIG` set
-  the user route stays with Go (Rust cannot read the file). A timestamp outside years 0..9999 is a
+  from Go 1.26.6). Identity names (`hostname`, `internal.domains`) are resolved from the
+  gateway's startup `Settings` snapshot (`configuration::Settings`), including when `SETJOIN_CONFIG`
+  is set; standalone callers fall back to `HOSTNAME`/`INTERNAL_DOMAINS`. A timestamp outside years 0..9999 is a
   marshal error: 200 with an empty body.
 - Oracle: `tests/mailsec_oracle/trace.rs` stashes the two global tables; the inbound cases start a
   stand-in on 127.0.0.1:80 (Go's hard-coded base), so run them as root and never in parallel.

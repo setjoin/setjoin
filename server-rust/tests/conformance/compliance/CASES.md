@@ -51,10 +51,11 @@ and X-Operation-ID, resolve the receipt and compare durable whole effects withou
 replaying a mutation. No-notify is inapplicable: all recorded notification lists
 are empty, including observed admin and tag channels.
 
-Deferred shapes: WORM hold/release require Platform retention registry #301;
-a NUL KQL (Go's parser hung) is a local 400, #436. A fake-Go test proves the
-WORM requests forward original request bytes and increment only the Go counter. No reviewed
-behavior divergence is accepted (`divergences.json` is empty).
+Native WORM hold/release (#289): when `WORM_MODE` is non-empty, `apply_legal_hold` executes
+`PUT ?legal-hold` (`ON`/`OFF`) via `S3Store::legal_hold_with_retries` when `WORM_LEGAL_HOLD_ENABLED`
+is enabled (or counts attached blobs as a no-op when disabled), keeping Go out of the path. A NUL
+KQL (Go's parser hung) is a local 400, #436. No reviewed behavior divergence is accepted
+(`divergences.json` is empty).
 
 Coverage: the catalog lists the adapter and family handlers, KQL/search/export
 modules and the shared S3 transport used by this slice. Integration runs Rust

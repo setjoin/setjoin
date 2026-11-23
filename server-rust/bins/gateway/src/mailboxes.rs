@@ -591,8 +591,8 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
                     Some(b'"') => {
                         self.consume_quoted_string()?;
                     }
-                    Some(b) if is_atext_byte(b, false) => {
-                        self.consume_atom(false)?;
+                    Some(b) if is_atext_byte(b, true) => {
+                        self.consume_atom(true)?;
                     }
                     _ => break,
                 }
@@ -608,12 +608,12 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
                     if b == b']' {
                         self.pos += 1;
                         let lit = &self.s[start..self.pos];
-                        // Go net/mail accepts non-empty bracketed literals without ':'/' ' as domain-literal.
+                        // Go net/mail accepts non-empty bracketed domain-literals containing RFC 5322 dtext.
                         let inner = &lit[1..lit.len() - 1];
                         if inner.is_empty()
                             || inner
-                                .bytes()
-                                .any(|c| c <= b' ' || c >= 0x7f || c == b'[' || c == b':')
+                                .iter()
+                                .any(|&c| !((0x21..=0x5a).contains(&c) || (0x5e..=0x7e).contains(&c)))
                         {
                             return None;
                         }
@@ -643,8 +643,51 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
                 return None;
             }
             self.pos += 1;
+            self.skip_comments_and_space()?;
             let domain = self.consume_domain()?;
             Some(format!("{local}@{domain}"))
+        }
+        fn parse_mailbox(&mut self, allow_group: bool) -> Option<String> {
+            self.skip_comments_and_space()?;
+            let start = self.pos;
+            if self.peek() == Some(b'<') {
+                self.pos += 1;
+                let addr = self.consume_addr_spec()?;
+                if self.peek() != Some(b'>') {
+                    return None;
+                }
+                self.pos += 1;
+                return Some(addr);
+            }
+            if self.consume_phrase().is_some() {
+                self.skip_comments_and_space()?;
+                match self.peek() {
+                    Some(b'<') => {
+                        self.pos += 1;
+                        let addr = self.consume_addr_spec()?;
+                        if self.peek() != Some(b'>') {
+                            return None;
+                        }
+                        self.pos += 1;
+                        return Some(addr);
+                    }
+                    Some(b':') if allow_group => {
+                        self.pos += 1;
+                        let addr = self.parse_mailbox(false)?;
+                        self.skip_comments_and_space()?;
+                        if self.peek() != Some(b';') {
+                            return None;
+                        }
+                        self.pos += 1;
+                        return Some(addr);
+                    }
+                    _ => {
+                        self.pos = start;
+                        return self.consume_addr_spec();
+                    }
+                }
+            }
+            self.consume_addr_spec()
         }
     }
 
@@ -656,35 +699,7 @@ fn parse_net_mail_address(raw: &str) -> Option<String> {
     if p.pos >= p.s.len() {
         return None;
     }
-    let start = p.pos;
-    let addr = if p.peek() != Some(b'<') {
-        let had_phrase = p.consume_phrase().is_some();
-        if had_phrase {
-            p.skip_comments_and_space()?;
-            if p.peek() == Some(b'<') {
-                p.pos += 1;
-                let addr = p.consume_addr_spec()?;
-                if p.peek() != Some(b'>') {
-                    return None;
-                }
-                p.pos += 1;
-                addr
-            } else {
-                p.pos = start;
-                p.consume_addr_spec()?
-            }
-        } else {
-            p.consume_addr_spec()?
-        }
-    } else {
-        p.pos += 1;
-        let addr = p.consume_addr_spec()?;
-        if p.peek() != Some(b'>') {
-            return None;
-        }
-        p.pos += 1;
-        addr
-    };
+    let addr = p.parse_mailbox(true)?;
     p.skip_comments_and_space()?;
     (p.pos == p.s.len()).then_some(addr)
 }
@@ -1599,6 +1614,38 @@ mod tests {
         assert_eq!(
             canonical_email("user@[127.0.0.1]"),
             Err("IP domain literals are not supported")
+        );
+        assert_eq!(
+            canonical_email("Dr. Jane <jane@example.test>"),
+            Ok("jane@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("Staff: jane@example.test;"),
+            Ok("jane@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("Staff: Jane <jane@example.test>;"),
+            Ok("jane@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("Staff: ;"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@ example.test"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("user @example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@[IPv6:::1]"),
+            Err("IP domain literals are not supported")
+        );
+        assert_eq!(
+            canonical_email("user@[bad literal]"),
+            Err("invalid email format")
         );
         assert_eq!(
             canonical_email("用户@example.test"),

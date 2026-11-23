@@ -33,6 +33,7 @@ enum Mode {
     Rollback,
     Unconfigured,
     ForeignCredential,
+    ActiveGuest,
 }
 
 #[tokio::test]
@@ -54,6 +55,10 @@ async fn executable_without_livekit_answers_the_root_mux_natively() -> Result<()
 #[tokio::test]
 async fn executable_unverified_credential_proxies_natively() -> Result<(), BoxError> {
     run(Mode::ForeignCredential).await
+}
+#[tokio::test]
+async fn executable_active_guest_proxies_rtc_natively() -> Result<(), BoxError> {
+    run(Mode::ActiveGuest).await
 }
 
 struct Owned(Child);
@@ -83,6 +88,46 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         return Ok(());
     };
     let to_go = matches!(mode, Mode::Kill | Mode::Rollback);
+    let guest_fixture = if mode == Mode::ActiveGuest {
+        let owner = db.connect().await?;
+        let saved_toggle: Option<bool> = owner
+            .query_opt(
+                "SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'",
+                &[],
+            )
+            .await?
+            .map(|r| r.get(0));
+        owner
+            .execute(
+                "INSERT INTO feature_toggles(key,enabled) VALUES('feature.guest_accounts',true) ON CONFLICT(key) DO UPDATE SET enabled=true",
+                &[],
+            )
+            .await?;
+        let domain: i64 = owner
+            .query_one(
+                "INSERT INTO domains(name,is_local) VALUES('meet5-guest-'||gen_random_uuid()::text||'.test',true) RETURNING id",
+                &[],
+            )
+            .await?
+            .get(0);
+        let user_row = owner
+            .query_one(
+                "INSERT INTO users(username,domain_id,email,display_name,password_hash) VALUES('meet5-guest-'||gen_random_uuid()::text,(SELECT id FROM domains WHERE name='guest.invalid'),'meet5-guest-'||gen_random_uuid()::text||'@example.test','meet5 guest','x') RETURNING id, email",
+                &[],
+            )
+            .await?;
+        let user: i64 = user_row.get(0);
+        let guest_email: String = user_row.get(1);
+        owner
+            .execute(
+                "INSERT INTO guest_accounts(user_id,invited_email,invited_by_email,host_domain_id,status) VALUES($1,$2,'inviter@example.test',$3,'active')",
+                &[&user, &guest_email, &domain],
+            )
+            .await?;
+        Some((owner, domain, user, saved_toggle))
+    } else {
+        None
+    };
     let result = std::panic::AssertUnwindSafe(async {
         let go_hits = Arc::new(AtomicUsize::new(0));
         let observed = go_hits.clone();
@@ -214,30 +259,45 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        let probes: [(&str, &str, Vec<(&str, &str)>); 3] = [
-            ("GET", "/rtc/rtc/validate?access_token=good", vec![]),
-            ("GET", "/rtc", vec![]),
-            (
+        let guest_header = guest_fixture
+            .as_ref()
+            .map(|(_, _, user, _)| format!("Bearer {}", common::recovery_token(*user)));
+        let probes: Vec<(&str, &str, Vec<(&str, String)>)> = match mode {
+            Mode::ForeignCredential => vec![(
                 "GET",
                 "/rtc/rtc/validate?access_token=good",
-                vec![("authorization", "Bearer not-a-token")],
-            ),
-        ];
-        let used = if mode == Mode::ForeignCredential { 2..3 } else { 0..2 };
+                vec![("authorization", "Bearer not-a-token".to_owned())],
+            )],
+            Mode::ActiveGuest => {
+                let auth = guest_header.as_deref().unwrap().to_owned();
+                vec![
+                    (
+                        "GET",
+                        "/rtc/rtc/validate?access_token=good",
+                        vec![("authorization", auth.clone())],
+                    ),
+                    ("GET", "/rtc", vec![("authorization", auth)]),
+                ]
+            }
+            _ => vec![
+                ("GET", "/rtc/rtc/validate?access_token=good", vec![]),
+                ("GET", "/rtc", vec![]),
+            ],
+        };
         let mut count = 0;
-        for (method, uri, headers) in &probes[used] {
+        for (method, uri, headers) in &probes {
             let mut request = Request::builder()
                 .method(*method)
                 .uri(*uri)
                 .header("host", "mail.test");
             for (k, v) in headers {
-                request = request.header(*k, *v);
+                request = request.header(*k, v.as_str());
             }
             let response = common::send(address, request.body(common::full(""))?).await;
             let status = response.status().as_u16();
             let body = common::body_bytes(response).await;
             let (want, text) = match mode {
-                Mode::Native | Mode::ForeignCredential => (200, "success"),
+                Mode::Native | Mode::ForeignCredential | Mode::ActiveGuest => (200, "success"),
                 Mode::Unconfigured => (404, "404 page not found\n"),
                 _ => (218, "from go"),
             };
@@ -262,7 +322,10 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             return Err("unexpected Go request count".into());
         }
         if sfu_hits.load(Ordering::SeqCst)
-            != if matches!(mode, Mode::Native | Mode::ForeignCredential) {
+            != if matches!(
+                mode,
+                Mode::Native | Mode::ForeignCredential | Mode::ActiveGuest
+            ) {
                 count
             } else {
                 0
@@ -279,6 +342,32 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
     })
     .catch_unwind()
     .await;
+    if let Some((owner, domain, user, saved_toggle)) = guest_fixture {
+        if let Some(prev) = saved_toggle {
+            owner
+                .execute(
+                    "UPDATE feature_toggles SET enabled=$1 WHERE key='feature.guest_accounts'",
+                    &[&prev],
+                )
+                .await?;
+        } else {
+            owner
+                .execute(
+                    "DELETE FROM feature_toggles WHERE key='feature.guest_accounts'",
+                    &[],
+                )
+                .await?;
+        }
+        owner
+            .execute("DELETE FROM guest_accounts WHERE user_id=$1", &[&user])
+            .await?;
+        owner
+            .execute("DELETE FROM users WHERE id=$1", &[&user])
+            .await?;
+        owner
+            .execute("DELETE FROM domains WHERE id=$1", &[&domain])
+            .await?;
+    }
     match result {
         Ok(r) => r,
         Err(p) => std::panic::resume_unwind(p),

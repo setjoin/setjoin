@@ -16,23 +16,13 @@ pub const DEFAULT_CACHE_DIR: &str = "/var/cache/mailserver/autocert";
 
 /// The directory `POST /admin/tls/import-cert` writes: `cfg.TLSAutocertCacheDir + "/imported"`.
 pub fn import_dir_from_settings(settings: &crate::configuration::Settings) -> String {
-    let base = settings.string("tls.autocert_cache_dir");
-    let base = if base.is_empty() {
-        DEFAULT_CACHE_DIR
-    } else {
-        base
-    };
-    format!("{base}/imported")
+    format!("{}/imported", settings.string("tls.autocert_cache_dir"))
 }
 
 /// Environment-only `import_dir` resolution for standalone `MailSecurityRoute::new` callers.
 pub fn import_dir_from_env() -> Option<String> {
-    let base = std::env::var("TLS_AUTOCERT_CACHE_DIR").unwrap_or_default();
-    let base = if base.is_empty() {
-        DEFAULT_CACHE_DIR
-    } else {
-        base.as_str()
-    };
+    let base =
+        std::env::var("TLS_AUTOCERT_CACHE_DIR").unwrap_or_else(|_| DEFAULT_CACHE_DIR.to_owned());
     Some(format!("{base}/imported"))
 }
 

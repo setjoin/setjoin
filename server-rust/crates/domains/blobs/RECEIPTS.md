@@ -60,4 +60,5 @@ blob_retention_recorded --test blob_upload --test blob_cleanup_recorded --test
 blob_cleanup_startup -- --test-threads=1` with the assigned disposable DSNs and
 `REQUIRE_DB=1`. This is the worker seed/PUT/tick seam; the existing HTTP corpus
 owns the complete PUT wire envelope. eDiscovery S3 SetLegalHold/release remains
-owned by F04 Compliance #289 and still forwards; F16 PutObjectRetention is separate.
+owned by F04 Compliance #289 (executed natively via `S3Store::legal_hold_with_retries`);
+F16 PutObjectRetention is separate.

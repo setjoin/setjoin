@@ -637,19 +637,21 @@ impl S3Store {
                 tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
             }
             match self.legal_hold_attempt(key, on).await {
-                Ok(200..=299) => return Ok(()),
-                Ok(status) if RETRYABLE.contains(&status) => {
+                Ok((200 | 204, _)) => return Ok(()),
+                Ok((status, body))
+                    if RETRYABLE.contains(&status) || is_retryable_s3_error(&body) =>
+                {
                     last = format!("object legal hold failed ({status})")
                 }
-                Ok(status) => return Err(format!("object legal hold failed ({status})")),
+                Ok((status, _)) => return Err(format!("object legal hold failed ({status})")),
                 Err(e) => last = e,
             }
         }
         Err(last)
     }
 
-    /// One `PUT ?legal-hold` request; returns the HTTP status code.
-    async fn legal_hold_attempt(&self, key: &str, on: bool) -> Result<u16, String> {
+    /// One `PUT ?legal-hold` request; returns the HTTP status code and response body.
+    async fn legal_hold_attempt(&self, key: &str, on: bool) -> Result<(u16, String), String> {
         use s3::{
             command::Command,
             request::{tokio_backend::ReqwestRequest, Request},
@@ -685,8 +687,11 @@ impl S3Store {
         .response_data(false)
         .await;
         match response {
-            Ok(response) => Ok(response.status_code()),
-            Err(s3::error::S3Error::HttpFailWithBody(status, _)) => Ok(status),
+            Ok(response) => Ok((
+                response.status_code(),
+                String::from_utf8_lossy(response.as_slice()).into_owned(),
+            )),
+            Err(s3::error::S3Error::HttpFailWithBody(status, body)) => Ok((status, body)),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -1163,4 +1168,31 @@ impl S3Store {
         }
         Ok(response)
     }
+}
+
+fn s3_error_code(body: &str) -> Option<&str> {
+    let start = body.find("<Code>")? + "<Code>".len();
+    let end = body[start..].find("</Code>")?;
+    Some(body[start..start + end].trim())
+}
+
+fn is_retryable_s3_error(body: &str) -> bool {
+    matches!(
+        s3_error_code(body),
+        Some(
+            "InternalError"
+                | "RequestTimeout"
+                | "RequestTimeTooSkewed"
+                | "ServiceUnavailable"
+                | "SlowDown"
+                | "Throttling"
+                | "ThrottlingException"
+                | "OperationAborted"
+                | "RetryYourRequest"
+                | "Busy"
+                | "TooManyRequestsException"
+                | "EC2ThrottledException"
+                | "TransactionInProgressException"
+        )
+    )
 }

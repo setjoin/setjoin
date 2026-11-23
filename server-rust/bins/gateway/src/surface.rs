@@ -385,7 +385,7 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                 openapi::font(&decoded()),
             ),
             Kind::FullYaml | Kind::FullJson => {
-                let auth = match crate::deny::admit(
+                let auth = match crate::deny::admit_console(
                     &self.exec,
                     &*self.keys,
                     &self.issuer,

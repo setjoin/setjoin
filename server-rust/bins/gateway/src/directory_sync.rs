@@ -2,7 +2,7 @@
 //! the two worker-independent LDAP reads (slice 2, #284).
 //!
 //! The LDAP runtime routes (#380) and the four AD runtime routes (#381) are served
-//! here when the matching runtime is configured; otherwise they forward to Go.
+//! here when the matching runtime is configured; otherwise they answer 503 "service unavailable".
 use crate::directory_sync_input as input;
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use hyper::{Method, Request, Response};
@@ -16,7 +16,7 @@ pub struct DirectorySyncRoute<K: KeySource + 'static> {
     pub keys: Arc<K>,
     pub issuer: String,
     /// LDAP runtime (#380): present when Rust owns the LDAP routes and worker;
-    /// without it the five runtime routes forward to Go untouched.
+    /// without it the five runtime routes return 503 "service unavailable".
     pub ldap: Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>,
     /// AD runtime (#381): present when Rust owns the four AD runtime routes and
     /// the `ad-sync` worker; without it they forward to Go untouched.

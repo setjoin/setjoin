@@ -221,9 +221,9 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
   failure, `ServeMux` 307 for unclean paths, and Go's middleware envelope (security headers,
   `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). Falls back natively via
   `CatchallRoute` (SPA fallback with a website, 404 without) when LiveKit is not configured, and
-  enforces Go's guest belt natively via `setjoin_authz::admit` (`Scope::User`: 404 `Guest`,
-  401 `GuestInactive`, 503 `Unavailable`; unauthenticated or invalid JWTs proxy to Go's SFU for
-  LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
+  enforces Go's guest belt natively via `admission::check_guest_belt` (active guests follow
+  `guest_allowlist`; disallowed or off-program guests answer 404, 401 inactive guest, 503
+  unavailable; unauthenticated or invalid JWTs proxy to Go's SFU for LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
   never reads it from the environment. `/meet`, `/meet/` catch-alls stay on Go with the generic
   ones (#416).
 - **`meet-reconcile`** (`src/meet_worker.rs`): `RUST_WORKERS_ON=meet-reconcile` with

@@ -280,8 +280,42 @@ pub fn credential(headers: &HeaderMap) -> Result<String, Refusal> {
 /// Go's handler sees ([`go_url::mailserver_handler_path`], chain.go:434). Where Go
 /// reaches no handler that path is `None`: a scoped token is refused and the request is
 /// off the Drive surface. Answering Go's 400/redirect/SPA itself is the router's job.
-pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
-    headers: &HeaderMap, method: &str, path: &str, scope: Scope) -> Result<Authorized, Refusal> {
+pub async fn admit(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    scope: Scope,
+) -> Result<Authorized, Refusal> {
+    admit_inner(exec, keys, issuer, headers, method, path, scope, true).await
+}
+
+/// Console-surface variant of [`admit`] that omits redundant role loading (#484),
+/// matching [`authorize_console_request`] so console permission handlers own their audit/error path.
+pub async fn admit_console(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    scope: Scope,
+) -> Result<Authorized, Refusal> {
+    admit_inner(exec, keys, issuer, headers, method, path, scope, false).await
+}
+
+async fn admit_inner(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    scope: Scope,
+    resolve_roles: bool,
+) -> Result<Authorized, Refusal> {
     let handler_path = go_url::mailserver_handler_path(method, path);
     let handler_path = handler_path.as_deref();
     let drive = drive_surface(scope, handler_path);
@@ -339,7 +373,7 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
         gates::Caller::Blocked => return Err(Refusal::MailboxBlocked),
         gates::Caller::Unavailable => return Err(Refusal::Unavailable),
     };
-    let roles = if session.admin {
+    let roles = if resolve_roles && session.admin {
         tokio::time::timeout(precheck_timeout(), gates::roles(exec, session.user_id)).await.ok().flatten().ok_or(Refusal::Unavailable)?
     } else { Vec::new() };
     Ok(authorized(session, mailbox, state, roles))

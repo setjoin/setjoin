@@ -323,8 +323,15 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 .await
                 {
                     CommandOutcome::Committed(held) => {
-                        let legal_hold_objects = if !held.is_empty() && worm_legal_hold_enabled() {
-                            apply_legal_hold(&worker, store.as_deref(), &held, hold).await
+                        let legal_hold_objects = if !held.is_empty() && worm_mode_enabled() {
+                            apply_legal_hold(
+                                &worker,
+                                store.as_deref(),
+                                &held,
+                                hold,
+                                worm_legal_hold_enabled(),
+                            )
+                            .await
                         } else {
                             0
                         };
@@ -625,11 +632,12 @@ async fn search_fields(r: &mut Request<Body>) -> Result<(crate::chat::Fields, by
     Ok((fields, original))
 }
 
+fn worm_mode_enabled() -> bool {
+    std::env::var("WORM_MODE").is_ok_and(|mode| !mode.is_empty())
+}
+
 fn worm_legal_hold_enabled() -> bool {
-    let Ok(mode) = std::env::var("WORM_MODE") else {
-        return false;
-    };
-    if mode.is_empty() {
+    if !worm_mode_enabled() {
         return false;
     }
     match std::env::var("WORM_LEGAL_HOLD_ENABLED") {
@@ -646,6 +654,7 @@ async fn apply_legal_hold(
     store: Option<&crate::recovery_worker::S3Store>,
     msg_ids: &[i64],
     on: bool,
+    legal_hold_enabled: bool,
 ) -> usize {
     let Some(store) = store else {
         return 0;
@@ -672,9 +681,11 @@ async fn apply_legal_hold(
         if hash.is_empty() {
             continue;
         }
-        if let Err(err) = store.legal_hold_with_retries(&hash, on).await {
-            eprintln!("ediscovery: object legal hold failed key={hash}: {err}");
-            continue;
+        if legal_hold_enabled {
+            if let Err(err) = store.legal_hold_with_retries(&hash, on).await {
+                eprintln!("ediscovery: object legal hold failed key={hash}: {err}");
+                continue;
+            }
         }
         n += 1;
     }

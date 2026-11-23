@@ -27,15 +27,22 @@ pub struct TraceConfig {
 impl TraceConfig {
     pub fn from_settings(settings: &crate::configuration::Settings) -> Self {
         let host = settings.string("hostname");
-        let host = if host.is_empty() { "localhost" } else { host };
+        let host = if host.is_empty() {
+            "localhost"
+        } else {
+            host.as_str()
+        };
         let internal = settings.string("internal.domains");
-        let internal = if internal.is_empty() { host } else { internal };
+        let internal = if internal.is_empty() {
+            host
+        } else {
+            internal.as_str()
+        };
         Self::new(Some(Identity::from_config(host, internal)))
     }
     pub fn from_env() -> Self {
-        let env = |name: &str| std::env::var(name).ok();
-        let host = env("HOSTNAME").filter(|v| !v.is_empty());
-        let internal = match env("INTERNAL_DOMAINS") {
+        let host = std::env::var("HOSTNAME").ok().filter(|v| !v.is_empty());
+        let internal = match std::env::var("INTERNAL_DOMAINS").ok() {
             Some(v) => v,
             None => host.clone().unwrap_or_else(|| "localhost".into()),
         };

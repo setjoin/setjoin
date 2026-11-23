@@ -1,12 +1,16 @@
 mod export;
 pub mod mutants;
 use crate::common::{self, BoxError};
+use futures_util::FutureExt;
 use hyper::{Request, Response};
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture, golden, harness::Db};
 use setjoin_gateway::{compliance::ComplianceRoute, Config, Gateway, RouteTable, TrustedProxies};
 use setjoin_pg::ScopedExecutor;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn token(user: i64) -> String {
@@ -359,6 +363,15 @@ pub async fn forwarding() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-forward").ok_or("DB required")?;
     let owner = db.connect().await?;
+    let receipts: Vec<String> = owner
+        .query(
+            "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F04'",
+            &[],
+        )
+        .await?
+        .into_iter()
+        .map(|row| row.get(0))
+        .collect();
     let a = fixture::account(&owner, "compl1-forward").await?;
     let role: i64 = owner
         .query_one(
@@ -398,7 +411,13 @@ pub async fn forwarding() -> Result<(), BoxError> {
             }
         }
     }
-    let result = async {
+    struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+    impl<T> Drop for AbortOnDrop<T> {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let result = std::panic::AssertUnwindSafe(async {
         let _env = Env(vec![
             ("WORM_MODE", std::env::var_os("WORM_MODE")),
             (
@@ -408,10 +427,17 @@ pub async fn forwarding() -> Result<(), BoxError> {
         ]);
         std::env::remove_var("WORM_MODE");
         std::env::remove_var("WORM_LEGAL_HOLD_ENABLED");
+        // S3 response phase: 0=retry 503->200, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
+        let s3_phase = Arc::new(AtomicUsize::new(0));
+        let s3_attempt = Arc::new(AtomicUsize::new(0));
         let s3_puts = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
         let s3_capture = s3_puts.clone();
+        let phase_ref = s3_phase.clone();
+        let attempt_ref = s3_attempt.clone();
         let s3 = common::fake_upstream(move |r| {
             let s3_capture = s3_capture.clone();
+            let phase_ref = phase_ref.clone();
+            let attempt_ref = attempt_ref.clone();
             async move {
                 let method = r.method().to_string();
                 let path = r.uri().path().to_owned();
@@ -444,7 +470,27 @@ pub async fn forwarding() -> Result<(), BoxError> {
                     "sigv4": has_sigv4,
                     "body": String::from_utf8(body.to_vec()).unwrap(),
                 }));
-                Response::builder().status(200).body(common::full("")).unwrap()
+                let phase = phase_ref.load(Ordering::SeqCst);
+                let hit = attempt_ref.fetch_add(1, Ordering::SeqCst);
+                match (phase, hit) {
+                    (0, 0) => Response::builder()
+                        .status(503)
+                        .header("content-type", "application/xml")
+                        .body(common::full(
+                            "<Error><Code>ServiceUnavailable</Code><Message>Slow down</Message></Error>",
+                        ))
+                        .unwrap(),
+                    (0, _) => Response::builder().status(200).body(common::full("")).unwrap(),
+                    (1 | 3, _) => Response::builder().status(204).body(common::full("")).unwrap(),
+                    (2, _) => Response::builder()
+                        .status(403)
+                        .header("content-type", "application/xml")
+                        .body(common::full(
+                            "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+                        ))
+                        .unwrap(),
+                    _ => Response::builder().status(500).body(common::full("")).unwrap(),
+                }
             }
         })
         .await;
@@ -519,7 +565,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
         .with_inventory(&inventory.to_string())?;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
-        let server = tokio::spawn(gateway.serve(listener));
+        let _server = AbortOnDrop(tokio::spawn(gateway.serve(listener)));
         let nul =
             r#"{"name":"NUL","keywords":"oracle","kql":"\"a\u0000b\"","createdBy":-42} trailing"#
                 .to_owned();
@@ -566,6 +612,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
             .get(0);
         assert!(held_after_hold, "message should be held in DB");
 
+        s3_phase.store(1, Ordering::SeqCst);
         let release_resp = common::send(
             address,
             Request::post("/api/admin/ediscovery/release")
@@ -573,7 +620,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
                 .header("origin", "http://mail.test")
                 .header("content-type", "application/json")
                 .header("authorization", format!("Bearer {}", token(a.user)))
-                .body(common::full(ids))?,
+                .body(common::full(ids.clone()))?,
         )
         .await;
         assert_eq!(release_resp.status().as_u16(), 200);
@@ -585,23 +632,82 @@ pub async fn forwarding() -> Result<(), BoxError> {
             .get(0);
         assert!(!held_after_release, "message should be released in DB");
 
+        // 403 AccessDenied must fail without retrying (legal_hold_objects: 0).
+        s3_phase.store(2, Ordering::SeqCst);
+        let hold_denied = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/hold")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids.clone()))?,
+        )
+        .await;
+        assert_eq!(hold_denied.status().as_u16(), 200);
+        let denied_json: Value = serde_json::from_slice(&common::body_bytes(hold_denied).await)?;
+        assert_eq!(
+            denied_json,
+            json!({"held": 1, "legal_hold_objects": 0, "total": 1})
+        );
+
+        s3_phase.store(3, Ordering::SeqCst);
+        let release_2 = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/release")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids.clone()))?,
+        )
+        .await;
+        assert_eq!(release_2.status().as_u16(), 200);
+
+        // WORM_LEGAL_HOLD_ENABLED=false counts attached blobs as in Go SetLegalHold without calling S3.
+        s3_phase.store(4, Ordering::SeqCst);
+        std::env::set_var("WORM_LEGAL_HOLD_ENABLED", "false");
+        let calls_before_disabled = s3_puts.lock().unwrap().len();
+        let hold_disabled = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/hold")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids))?,
+        )
+        .await;
+        assert_eq!(hold_disabled.status().as_u16(), 200);
+        let disabled_json: Value = serde_json::from_slice(&common::body_bytes(hold_disabled).await)?;
+        assert_eq!(
+            disabled_json,
+            json!({"held": 1, "legal_hold_objects": 1, "total": 1})
+        );
+        assert_eq!(s3_puts.lock().unwrap().len(), calls_before_disabled);
+
+        let put_on = json!({
+            "method": "PUT",
+            "path": format!("/mailblobs/{blob_hash}"),
+            "query": "legal-hold=",
+            "md5": "erOisiAmIIzsh/Ze2QqGXw==",
+            "sigv4": true,
+            "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>ON</Status></LegalHold>"
+        });
+        let put_off = json!({
+            "method": "PUT",
+            "path": format!("/mailblobs/{blob_hash}"),
+            "query": "legal-hold=",
+            "md5": "VFVLURy793Xk77f+OyG/PA==",
+            "sigv4": true,
+            "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>OFF</Status></LegalHold>"
+        });
         let s3_expected = json!([
-            {
-                "method": "PUT",
-                "path": format!("/mailblobs/{blob_hash}"),
-                "query": "legal-hold=",
-                "md5": "erOisiAmIIzsh/Ze2QqGXw==",
-                "sigv4": true,
-                "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>ON</Status></LegalHold>"
-            },
-            {
-                "method": "PUT",
-                "path": format!("/mailblobs/{blob_hash}"),
-                "query": "legal-hold=",
-                "md5": "VFVLURy793Xk77f+OyG/PA==",
-                "sigv4": true,
-                "body": "<LegalHold xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>OFF</Status></LegalHold>"
-            }
+            put_on.clone(),
+            put_on.clone(),
+            put_off.clone(),
+            put_on,
+            put_off,
         ]);
         golden::compare(&s3_expected, &json!(*s3_puts.lock().unwrap()))?;
         assert!(
@@ -626,9 +732,9 @@ pub async fn forwarding() -> Result<(), BoxError> {
         {
             return Err(format!("expected zero F04 proxies, got:\n{metrics}").into());
         }
-        server.abort();
         Ok::<_, BoxError>(())
-    }
+    })
+    .catch_unwind()
     .await;
     owner
         .execute(
@@ -647,15 +753,24 @@ pub async fn forwarding() -> Result<(), BoxError> {
         .await?;
     owner
         .batch_execute(&format!(
-            "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};DELETE FROM rust_operation_receipts WHERE family='F04';COMMIT;",
+            "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",
             a.user
         ))
+        .await?;
+    owner
+        .execute(
+            "DELETE FROM rust_operation_receipts WHERE family='F04' AND operation_id::text<>ALL($1)",
+            &[&receipts],
+        )
         .await?;
     owner
         .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
         .await?;
     fixture::remove(&owner, &a).await?;
-    result
+    match result {
+        Ok(res) => res,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
 }
 
 /// Both switches must bypass the actual adapter for every transferred route.

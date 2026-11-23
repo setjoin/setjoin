@@ -28,6 +28,25 @@ pub(crate) async fn admit(
     .await
 }
 
+pub(crate) async fn admit_console(
+    exec: &setjoin_pg::ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    r: &Request<Body>,
+    scope: Scope,
+) -> Result<setjoin_authz::Authorized, Refusal> {
+    setjoin_authz::admit_console(
+        exec,
+        keys,
+        issuer,
+        r.headers(),
+        r.method().as_str(),
+        r.uri().path(),
+        scope,
+    )
+    .await
+}
+
 /// Go's RequireAuth 401 (`mailserver/internal/middleware/auth.go:23-28`).
 pub(crate) fn unauthorized(headers: &HeaderMap, c: &RequestContext) -> Response<Body> {
     let mut response = crate::admission::problem(headers, &c.identity, 401, "Unauthorized");

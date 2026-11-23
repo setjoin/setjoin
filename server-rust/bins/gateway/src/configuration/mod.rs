@@ -86,6 +86,28 @@ impl Settings {
                 }
             }
         }
+        // Mirror Go config.go:615-620 and 634-637 fallback rules when the explicit env vars are absent.
+        if !environment.contains_key("INTERNAL_DOMAINS")
+            && values.get("internal.domains").and_then(Value::as_str) == Some("localhost")
+        {
+            if let Some(host) = environment.get("HOSTNAME").filter(|v| !v.is_empty()) {
+                values.insert("internal.domains".into(), host.clone().into());
+                file_keys.insert("internal.domains".into());
+            }
+        }
+        if !environment.contains_key("WORM_LEGAL_HOLD_ENABLED") {
+            let worm_mode_non_empty = values
+                .get("worm.mode")
+                .and_then(Value::as_str)
+                .is_some_and(|v| !v.is_empty());
+            values.insert(
+                "worm.legal_hold_enabled".into(),
+                Value::Bool(worm_mode_non_empty),
+            );
+            if worm_mode_non_empty || file_keys.contains("worm.legal_hold_enabled") {
+                file_keys.insert("worm.legal_hold_enabled".into());
+            }
+        }
         Ok(Self { values, file_keys })
     }
     pub fn string(&self, key: &str) -> String {

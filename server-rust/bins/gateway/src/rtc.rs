@@ -15,9 +15,10 @@
 //!
 //! Go's global middleware wraps the answer (`SecurityHeaders`, the single
 //! `Cache-Control` authority, `X-Request-ID`) and its `ServeMux` redirects an
-//! unclean path with `307` before any handler runs. Go's guest belt only sees a
-//! request carrying a JWT credential: such a request is proxied natively only
-//! when the verified-member precheck admits it, otherwise it stays with Go.
+//! unclean path with `307` before any handler runs. Go's guest belt is enforced
+//! natively via `admission::check_guest_belt`: active guests follow `guest_allowlist`,
+//! disallowed or off-program guests return 404, inactive guests return 401, and
+//! unavailable state returns 503. Unauthenticated or invalid JWTs proxy to the SFU.
 //! Without LiveKit configuration Go registers no `/rtc` handler and its root mux
 //! answers (SPA or 404). The executable gives this route the catch-all as its
 //! fallback, so that answer is native (#357); a table without one keeps Go.
@@ -113,31 +114,18 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                     None => crate::surface::unregistered(&req, c.identity.proto),
                 };
             }
-            if let Some(token) = setjoin_authz::token::presented(req.headers()) {
-                match setjoin_authz::push::authenticate_detailed(&exec, &*keys, &issuer, &token)
-                    .await
-                {
-                    Ok(identity) if identity.is_guest() => {
-                        return crate::admission::not_found(req.headers(), &c.identity);
-                    }
-                    Err(setjoin_authz::push::PushAuthError::GuestInactive) => {
-                        return crate::admission::problem(
-                            req.headers(),
-                            &c.identity,
-                            401,
-                            "Unauthorized",
-                        );
-                    }
-                    Err(setjoin_authz::push::PushAuthError::GuestUnavailable) => {
-                        return crate::admission::problem(
-                            req.headers(),
-                            &c.identity,
-                            503,
-                            "service unavailable",
-                        );
-                    }
-                    Ok(_) | Err(setjoin_authz::push::PushAuthError::Invalid) => {}
-                }
+            if let Some(response) = crate::admission::check_guest_belt(
+                &exec,
+                &*keys,
+                &issuer,
+                req.headers(),
+                req.method(),
+                req.uri().path(),
+                &c.identity,
+            )
+            .await
+            {
+                return response;
             }
             let id = crate::jmap::reply::request_id(
                 req.headers().get("x-request-id"),
