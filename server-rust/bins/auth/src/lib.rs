@@ -1,4 +1,5 @@
 //! HTTP transport for the standalone identity process. See DOX.md.
+mod ca;
 mod captcha;
 mod config;
 mod device;
@@ -34,8 +35,6 @@ pub fn body(text: impl Into<Bytes>) -> Body {
         .map_err(|never| match never {})
         .boxed()
 }
-type Client =
-    hyper_util::client::legacy::Client<hyper_util::client::legacy::connect::HttpConnector, Body>;
 /// Request-body cap shared by every JSON route (the mutant restores Go's none for
 /// the owner-approved #491 fix test).
 fn body_cap() -> usize {
@@ -45,9 +44,6 @@ fn body_cap() -> usize {
         1 << 20
     }
 }
-fn client() -> Client {
-    hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new()).build_http()
-}
 pub struct AuthServer {
     saml: Option<Arc<setjoin_identity::saml::Registry>>,
     rp: Option<Arc<setjoin_identity::rp::Registry>>,
@@ -55,7 +51,6 @@ pub struct AuthServer {
     oidc_cipher: Option<setjoin_identity::oidc::CodeCipher>,
     webauthn: Option<setjoin_identity::webauthn::RelyingParty>,
     internal_key: std::sync::RwLock<String>,
-    client: Client,
     pub exec: setjoin_pg::ScopedExecutor,
     device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
@@ -73,6 +68,8 @@ pub struct AuthServer {
     /// Shared threat gate (#349): watcher-fed in production; credential routes
     /// answer 503 without one.
     gate: Option<Arc<setjoin_threat::Gate>>,
+    /// Fallback CA policy engine when `ThreatGate` is absent (#351).
+    ca_engine: setjoin_authz::policy::eval::Engine,
     /// Captcha tokens already accepted by this process (#349 single-use).
     captcha_used: captcha::UsedSet,
 }
@@ -167,6 +164,7 @@ impl AuthServer {
             Vec::new(),
             setjoin_config_secret::CryptoProfile::Standard,
         );
+        let ca_engine = setjoin_authz::policy::eval::Engine::new(exec.clone());
         Self {
             saml: None,
             rp: None,
@@ -174,7 +172,6 @@ impl AuthServer {
             oidc_cipher: None,
             webauthn: None,
             internal_key: std::sync::RwLock::new(String::new()),
-            client: client(),
             exec,
             device_resolver,
             keys: None,
@@ -190,6 +187,7 @@ impl AuthServer {
             push_ip: Default::default(),
             native_push: Default::default(),
             gate: None,
+            ca_engine,
             captcha_used: Default::default(),
         }
     }
@@ -340,6 +338,8 @@ impl AuthServer {
         } else {
             None
         };
+        let ca_engine = setjoin_authz::policy::eval::Engine::new(exec.clone());
+        ca_engine.initialize().await;
         Ok(Self {
             saml,
             rp,
@@ -369,8 +369,8 @@ impl AuthServer {
             push_ip: Default::default(),
             native_push,
             gate: None,
+            ca_engine,
             captcha_used: Default::default(),
-            client: client(),
             exec,
             device_resolver,
             keys: Some(Arc::new(keys)),
@@ -482,27 +482,85 @@ impl AuthServer {
         };
         setjoin_authz::clientip::resolve(peer, req.headers(), &trusted).client_ip
     }
-    async fn forward(&self, mut req: Request<Body>) -> Response<Body> {
-        let Some(base) = &self.config.go_upstream else {
-            return Response::builder()
-                .status(503)
-                .body(body("auth shape awaits its owner ticket\n"))
-                .unwrap();
+    fn mux_reply(req: &Request<Body>, allow: Option<&'static str>) -> Response<Body> {
+        let text = if allow.is_some() {
+            "Method Not Allowed\n"
+        } else {
+            "404 page not found\n"
         };
-        let suffix = req.uri().path_and_query().map_or("/", |p| p.as_str());
-        let Ok(uri) = format!("{}{suffix}", base.trim_end_matches('/')).parse() else {
-            return Self::failure(503, "auth upstream unavailable", req.uri().path());
-        };
-        let ip = self.client_ip(&req).to_string();
-        req.headers_mut().remove("forwarded");
-        req.headers_mut().remove("x-real-ip");
-        req.headers_mut()
-            .insert("x-forwarded-for", ip.parse().expect("IP header"));
-        *req.uri_mut() = uri;
-        match self.client.request(req).await {
-            Ok(r) => r.map(|b| b.map_err(std::io::Error::other).boxed()),
-            Err(_) => Self::failure(502, "auth upstream unavailable", ""),
+        let mut reply = Response::builder()
+            .status(if allow.is_some() { 405 } else { 404 })
+            .header("content-type", "text/plain; charset=utf-8")
+            .header("x-content-type-options", "nosniff");
+        if let Some(allow) = allow {
+            reply = reply.header("allow", allow);
         }
+        if req.method() == Method::HEAD {
+            reply = reply.header("content-length", text.len());
+        }
+        reply
+            .body(body(if req.method() == Method::HEAD {
+                ""
+            } else {
+                text
+            }))
+            .unwrap()
+    }
+    fn mux_fallback(&self, req: Request<Body>) -> Response<Body> {
+        let path = req.uri().path();
+        let allow = match path {
+            "/api/v1/version"
+            | "/.well-known/setjoin"
+            | "/.well-known/jwks.json"
+            | "/.well-known/oauth-authorization-server"
+            | "/health"
+            | "/ready"
+            | "/auth/password-policy"
+            | "/auth/me"
+            | "/auth/session/token"
+            | "/auth/identity-links"
+            | "/terms/pending" => Some("GET, HEAD"),
+            "/auth/login"
+            | "/auth/refresh"
+            | "/auth/logout"
+            | "/auth/mfa/reauth"
+            | "/auth/mfa/possession/totp"
+            | "/auth/mfa/possession/webauthn/begin"
+            | "/auth/mfa/possession/webauthn/finish"
+            | "/auth/mfa/push/send"
+            | "/auth/mfa/approve"
+            | "/auth/device/register"
+            | "/device/register"
+            | "/terms/accept"
+            | "/auth/introspect"
+            | "/auth/revoke" => Some("POST"),
+            "/auth/forgot-password/begin"
+            | "/auth/forgot-password/verify"
+            | "/auth/forgot-password/reset"
+                if self.forgot_password =>
+            {
+                Some("POST")
+            }
+            "/auth/scim/disable" | "/admin/reload" if !self.config.internal_api_key.is_empty() => {
+                Some("POST")
+            }
+            "/auth/password" => Some("PUT"),
+            _ if path
+                .strip_prefix("/auth/admin/users/")
+                .and_then(|s| s.strip_suffix("/impersonate"))
+                .is_some_and(|s| !s.is_empty() && !s.contains('/')) =>
+            {
+                Some("POST")
+            }
+            _ if path
+                .strip_prefix("/auth/identity-links/")
+                .is_some_and(|s| !s.is_empty() && !s.contains('/')) =>
+            {
+                Some("DELETE")
+            }
+            _ => None,
+        };
+        Self::mux_reply(&req, allow)
     }
     pub async fn handle(&self, req: Request<Body>) -> Response<Body> {
         if req.uri().path() == "/auth/identity-links"
@@ -609,16 +667,18 @@ impl AuthServer {
             };
         }
         if req.uri().path().starts_with("/.well-known/")
-            && !(matches!(req.method(), &Method::GET | &Method::HEAD)
-                && matches!(
-                    req.uri().path(),
-                    "/.well-known/setjoin" | "/.well-known/jwks.json"
-                ))
+            && (!matches!(
+                req.uri().path(),
+                "/.well-known/setjoin"
+                    | "/.well-known/jwks.json"
+                    | "/.well-known/oauth-authorization-server"
+            ) || (self.config.oidc_enabled && req.method() == Method::OPTIONS))
         {
+            let reply = Self::mux_reply(&req, None);
             return if self.config.oidc_enabled {
-                self.oidc_cors(&req, Self::not_found())
+                self.oidc_cors(&req, reply)
             } else {
-                Self::not_found()
+                reply
             };
         }
         if req.method() == Method::POST
@@ -688,12 +748,7 @@ impl AuthServer {
         if self.config.internal_api_key.is_empty()
             && matches!(req.uri().path(), "/admin/reload" | "/auth/scim/disable")
         {
-            return Response::builder()
-                .status(404)
-                .header("content-type", "text/plain; charset=utf-8")
-                .header("x-content-type-options", "nosniff")
-                .body(body("404 page not found\n"))
-                .unwrap();
+            return Self::mux_reply(&req, None);
         }
         if req.uri().path().starts_with("/auth/push/")
             || req.uri().path().starts_with("/auth/backup-codes/")
@@ -826,28 +881,7 @@ impl AuthServer {
                 | "/auth/totp/remove" => Some("POST"),
                 _ => None,
             };
-            let text = if allow.is_some() {
-                "Method Not Allowed\n"
-            } else {
-                "404 page not found\n"
-            };
-            let mut reply = Response::builder()
-                .status(if allow.is_some() { 405 } else { 404 })
-                .header("content-type", "text/plain; charset=utf-8")
-                .header("x-content-type-options", "nosniff");
-            if let Some(allow) = allow {
-                reply = reply.header("allow", allow);
-            }
-            if req.method() == Method::HEAD {
-                reply = reply.header("content-length", text.len());
-            }
-            return reply
-                .body(body(if req.method() == Method::HEAD {
-                    ""
-                } else {
-                    text
-                }))
-                .unwrap();
+            return Self::mux_reply(&req, allow);
         }
         if req.uri().path() == "/auth/guest-invite/accept" {
             return self.guest_invite(req).await;
@@ -953,7 +987,7 @@ impl AuthServer {
                         .body(body("not ready\n"))
                         .unwrap(),
                 },
-                _ => return self.forward(req).await,
+                _ => return self.mux_fallback(req),
             };
             if head {
                 if let Some(length) = response.body().size_hint().exact().filter(|n| *n > 0) {
@@ -965,14 +999,7 @@ impl AuthServer {
             }
             return response;
         }
-        if req.uri().path().starts_with("/.well-known/") {
-            return if self.config.oidc_enabled {
-                self.oidc_cors(&req, Self::not_found())
-            } else {
-                Self::not_found()
-            };
-        }
-        self.forward(req).await
+        self.mux_fallback(req)
     }
     fn not_found() -> Response<Body> {
         Response::builder()
@@ -1511,15 +1538,12 @@ impl AuthServer {
             .await
     }
     async fn login(&self, req: Request<Body>) -> Response<Body> {
-        // #349 F7: every forward that toggles decide runs first, on the
-        // raw request, so frozen Go never admits a request Rust already admitted.
-        // Device proof (#350) runs natively after principal verification; CA (#351)
-        // still forwards whole while enabled so the nonce is never consumed twice.
-        match self.login_ca_route().await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(req).await,
+        // #351/#454: CA & device-trust flags decide natively before admission; a
+        // read error fails closed (500) before ThreatGate touches any budget.
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
             Err(()) => return Self::failure(500, "internal error", req.uri().path()),
-        }
+        };
         let staged = match self.threat_stage(req, http_threat::Route::Login).await {
             Ok(staged) => staged,
             Err(reply) => return reply,
@@ -1528,11 +1552,16 @@ impl AuthServer {
             Ok(v) => v,
             Err(reply) => return reply,
         };
-        let reply = self.login_admitted(req).await;
+        let reply = self.login_admitted(req, ca_enabled, dt_enabled).await;
         self.threat_tail(admitted, reply).await
     }
     /// Go CSRF(Login): the handler behind the dynamic threat mount.
-    async fn login_admitted(&self, req: Request<Body>) -> Response<Body> {
+    async fn login_admitted(
+        &self,
+        req: Request<Body>,
+        ca_enabled: bool,
+        dt_enabled: bool,
+    ) -> Response<Body> {
         let path = req.uri().path().to_owned();
         let (csrf_headers, scheme) = Self::csrf_context(&req);
         if !setjoin_authz::csrf::allows(&csrf_headers, scheme) {
@@ -1594,22 +1623,48 @@ impl AuthServer {
             }
         };
         // Go resolves guest CA context even when CA policies are disabled.
-        // Lookup failure must precede force-password/MFA token minting.
-        // Go populateGuestCAScope (auth.go:2499): the value only feeds CA, which
-        // forwards whole before any effect while on (#351). Guests continue
-        // natively (#353); a lookup failure is Go's 503 before any token.
-        if login::guest_scope(&self.exec, &proof).await.is_err() {
-            return Self::failure(503, "conditional access context unavailable", &path);
-        }
+        // Lookup failure must precede force-password/MFA token minting (Go auth.go:805-822).
+        let is_guest = match login::guest_scope(&self.exec, &proof).await {
+            Ok(g) => g,
+            Err(_) => return Self::failure(503, "conditional access context unavailable", &path),
+        };
         let uri = parts.uri.path_and_query().map_or("/", |p| p.as_str());
-        self.resolve_device(
-            proof.user(),
-            parts.method.as_str(),
-            uri,
-            &parts.headers,
-            &raw,
-        )
-        .await;
+        let device_binding = self
+            .resolve_device(
+                proof.user(),
+                parts.method.as_str(),
+                uri,
+                &parts.headers,
+                &raw,
+            )
+            .await;
+        let cred_fence = proof.credential_fence();
+        let ca_policy_id = match self
+            .evaluate_ca(
+                ca_enabled,
+                self.ca_context(
+                    proof.user(),
+                    is_guest,
+                    &ip,
+                    &agent,
+                    &device_binding,
+                    "password",
+                ),
+                false,
+                Some(&ca::PendingMint {
+                    user_id: proof.user(),
+                    email: proof.email(),
+                    amr: &["pwd"],
+                    credential_fence: Some(&cred_fence),
+                    identity_fence: None,
+                }),
+                &path,
+            )
+            .await
+        {
+            Ok(id) => id,
+            Err(reply) => return reply,
+        };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -1714,6 +1769,17 @@ impl AuthServer {
             access_claims["cnf"] = json!({"jkt": jkt});
             refresh_claims["cnf"] = json!({"jkt": jkt});
         }
+        let device_claim = self
+            .resolve_device_claim(proof.user(), &agent, &ip, dt_enabled)
+            .await;
+        let (sif, persist) = self.session_controls(ca_policy_id).await;
+        Self::apply_session_claims(
+            &mut access_claims,
+            &mut refresh_claims,
+            now,
+            device_claim.as_ref(),
+            sif,
+        );
         let (access, refresh) = match (self.sign(&access_claims), self.sign(&refresh_claims)) {
             (Ok(a), Ok(r)) => (a, r),
             _ => return Self::failure(500, "token issue failed", &path),
@@ -1796,13 +1862,7 @@ impl AuthServer {
         );
         response.headers_mut().insert(
             "set-cookie",
-            format!(
-                "access_token={access}; Path=/; Max-Age={}; HttpOnly;{} SameSite=Strict",
-                self.config.access_seconds,
-                if secure { " Secure;" } else { "" }
-            )
-            .parse()
-            .unwrap(),
+            self.access_cookie_header(&access, secure, &persist, input.stay),
         );
         Self::threat_user(response, proof.user())
     }
@@ -1822,9 +1882,10 @@ pub async fn serve_until(
     tls: Option<tokio_rustls::TlsAcceptor>,
     shutdown: impl std::future::Future<Output = ()>,
 ) {
-    // These subscriptions keep the native SSO registries current for this server.
+    // These subscriptions keep the native SSO & CA registries current for this server.
     let _saml_listener = server.start_saml_listener().await;
     let _rp_listener = server.start_rp_listener().await;
+    let _ca_listener = server.start_ca_listener();
     let mut tasks = tokio::task::JoinSet::new();
     tokio::pin!(shutdown);
     loop {

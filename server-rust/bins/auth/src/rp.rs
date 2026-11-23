@@ -98,13 +98,12 @@ impl AuthServer {
         if self.rp.is_none() {
             return Self::not_found();
         }
-        // Login-time CA completion remains with #405/#351. Decide
-        // before token exchange or any identity/profile write. Device proof (#350) is native.
-        match self.rp_completion_route().await {
-            Ok(false) => {}
-            Ok(true) => return self.forward(req).await,
+        // #351/#454: login-time CA & device-trust flags decide natively before token
+        // exchange or any identity/profile write.
+        let (ca_enabled, dt_enabled) = match self.ca_flags().await {
+            Ok(v) => v,
             Err(()) => return Self::failure(500, "internal error", req.uri().path()),
-        }
+        };
         let query = setjoin_identity::issuance::query(req.uri().query().unwrap_or(""));
         if cookie_value(req.headers(), "oidc_state").as_deref()
             != Some(query.get("state").map_or("", String::as_str))
@@ -187,9 +186,12 @@ impl AuthServer {
             // The IdP's redirect is cross-site, so the SameSite=Strict session cookie is not
             // sent: hold the verified assertion for the same-site completion request (#547).
             // A request that does carry the session (same-site IdP) completes directly.
-            let strict_session = cookie_value(req.headers(), "access_token").is_some_and(|s| !s.is_empty());
+            let strict_session =
+                cookie_value(req.headers(), "access_token").is_some_and(|s| !s.is_empty());
             if !strict_session && !setjoin_identity::mutants::on("oidc-link-needs-strict-cookies") {
-                let reply = self.rp_link_hold(&req, &assertion, &provider, &name, &flow).await;
+                let reply = self
+                    .rp_link_hold(&req, &assertion, &provider, &name, &flow)
+                    .await;
                 return self.rp_clear(reply, &req, true);
             }
             let mut reply = self
@@ -223,6 +225,9 @@ impl AuthServer {
                                 &*provider,
                                 &resolution,
                                 worker,
+                                ca_enabled,
+                                dt_enabled,
+                                "oidc",
                             )
                             .await
                         }
@@ -254,6 +259,9 @@ impl AuthServer {
                     &*provider,
                     &resolution,
                     worker,
+                    ca_enabled,
+                    dt_enabled,
+                    "oidc",
                 )
                 .await
             }
@@ -323,6 +331,9 @@ impl AuthServer {
         provider: &dyn setjoin_identity::rp::Federated,
         resolution: &setjoin_identity::rp::Resolution,
         worker: &setjoin_pg::ScopedExecutor,
+        ca_enabled: bool,
+        dt_enabled: bool,
+        auth_method: &str,
     ) -> Response<Body> {
         let path = req.uri().path();
         let user = match assertion
@@ -362,29 +373,80 @@ impl AuthServer {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", path),
         };
-        if resolution.guest_scope(&self.exec).await.is_err() {
-            return Self::failure(503, "conditional access context unavailable", path);
-        }
-        if let Some(raw) = raw_body {
-            let uri = req.uri().path_and_query().map_or("/", |p| p.as_str());
-            self.resolve_device(user.user(), req.method().as_str(), uri, req.headers(), raw)
-                .await;
-        }
+        let is_guest = match resolution.guest_scope(&self.exec).await {
+            Ok(g) => g,
+            Err(_) => return Self::failure(503, "conditional access context unavailable", path),
+        };
         let ip = self.client_ip(req).to_string();
         let agent = req
             .headers()
             .get("user-agent")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
+        let device_binding = if let Some(raw) = raw_body {
+            let uri = req.uri().path_and_query().map_or("/", |p| p.as_str());
+            self.resolve_device(user.user(), req.method().as_str(), uri, req.headers(), raw)
+                .await
+        } else {
+            Default::default()
+        };
+        if ca_enabled {
+            // Freshly settled SSO role/group mappings must be visible to CA policies.
+            self.policy_engine()
+                .invalidate_user_scope(user.user())
+                .await;
+        }
+        let ca_policy_id = match self
+            .evaluate_ca(
+                ca_enabled,
+                self.ca_context(
+                    user.user(),
+                    is_guest,
+                    &ip,
+                    agent,
+                    &device_binding,
+                    auth_method,
+                ),
+                false,
+                Some(&super::ca::PendingMint {
+                    user_id: user.user(),
+                    email: user.email(),
+                    amr: &["pwd"],
+                    credential_fence: None,
+                    identity_fence: resolution.fence(),
+                }),
+                path,
+            )
+            .await
+        {
+            Ok(id) => id,
+            Err(reply) => return reply,
+        };
         let prepared = std::sync::Mutex::new(None::<super::totp::MfaTokens>);
         let refusal = std::sync::Mutex::new(None::<Response<Body>>);
+        // Frozen Go's evaluateSSOConditionalAccess discards the matched policy ID and
+        // passes Session: nil, preserving the legacy SSO sif=None and full-TTL cookie
+        // shape while still enforcing CA gates and attaching DeviceClaim.
+        let _ = ca_policy_id;
         let outcome = if resolution.normalized() {
             resolution
                 .mint_normalized(
                     worker,
                     |family| async {
                         match self
-                            .completion_tokens(&user, path, Some(family), vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone(), None)
+                            .completion_tokens(
+                                &user,
+                                path,
+                                Some(family),
+                                vec!["pwd".into()],
+                                super::totp::GuestMint::Refuse,
+                                risk.clone(),
+                                None,
+                                0,
+                                dt_enabled,
+                                &ip,
+                                agent,
+                            )
                             .await
                         {
                             Ok(tokens) => {
@@ -425,7 +487,19 @@ impl AuthServer {
                 .await
         } else {
             let tokens = match self
-                .completion_tokens(&user, path, None, vec!["pwd".into()], super::totp::GuestMint::Refuse, risk.clone(), None)
+                .completion_tokens(
+                    &user,
+                    path,
+                    None,
+                    vec!["pwd".into()],
+                    super::totp::GuestMint::Refuse,
+                    risk.clone(),
+                    None,
+                    0,
+                    dt_enabled,
+                    &ip,
+                    agent,
+                )
                 .await
             {
                 Ok(t) => t,
@@ -732,14 +806,6 @@ impl AuthServer {
 }
 
 impl AuthServer {
-    /// Ok(true) hands the completion off (#405/#351), Ok(false) stays native, a flag-lookup error
-    /// refuses (#454 Codex r1). Device proof (#350) is native.
-    pub(super) async fn rp_completion_route(&self) -> Result<bool, ()> {
-        self.login_ca_route().await
-    }
-}
-
-impl AuthServer {
     pub(super) fn rp_classified_link_failure(value: &Value, path: &str) -> Response<Body> {
         let code = value["sqlstate"].as_str().unwrap_or("");
         let (status, detail, default) = match code {
@@ -819,7 +885,11 @@ impl AuthServer {
         };
         let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
         let Some(token) = flow.hold(worker, assertion).await else {
-            return Self::failure(503, "identity link completion could not be held", req.uri().path());
+            return Self::failure(
+                503,
+                "identity link completion could not be held",
+                req.uri().path(),
+            );
         };
         let next = format!(
             "/auth/oidc/link/complete?provider={}&token={token}",
@@ -861,17 +931,25 @@ impl AuthServer {
         if token.is_empty() {
             return Self::failure(400, "invalid identity link flow", &path);
         }
-        let mut reply = self.rp_link_finish_held(&req, &provider, &raw_flow, &token).await;
+        let mut reply = self
+            .rp_link_finish_held(&req, &provider, &raw_flow, &token)
+            .await;
         reply.headers_mut().append(
             "set-cookie",
             format!(
                 "identity_link_flow=; Path=/; Max-Age=0; HttpOnly{}; SameSite=Strict",
-                if self.totp_secure(&req) { "; Secure" } else { "" }
+                if self.totp_secure(&req) {
+                    "; Secure"
+                } else {
+                    ""
+                }
             )
             .parse()
             .unwrap(),
         );
-        reply.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+        reply
+            .headers_mut()
+            .insert("cache-control", "no-store".parse().unwrap());
         reply
     }
 
@@ -911,7 +989,11 @@ impl AuthServer {
             Ok(f) => f,
             Err(detail) => {
                 return Self::failure(
-                    if detail == "linking session changed" { 403 } else { 401 },
+                    if detail == "linking session changed" {
+                        403
+                    } else {
+                        401
+                    },
                     detail,
                     "",
                 )
@@ -923,8 +1005,13 @@ impl AuthServer {
         };
         self.rp_link_outcome(
             req,
-            flow.finish(worker, &assertion, provider, self.config.sso_allow_super_admin_mapping)
-                .await,
+            flow.finish(
+                worker,
+                &assertion,
+                provider,
+                self.config.sso_allow_super_admin_mapping,
+            )
+            .await,
         )
     }
 }

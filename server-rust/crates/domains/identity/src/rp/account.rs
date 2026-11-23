@@ -15,8 +15,19 @@ pub struct Assertion {
 impl Assertion {
     /// A verified SAML assertion's identity: provider = registration IdP entity ID,
     /// subject = NameID. Only the ACS, after signature verification, builds one.
-    pub fn saml(issuer: String, subject: String, email: String, groups: Option<Vec<String>>) -> Self {
-        Self { email, subject, issuer, groups, kind: "saml" }
+    pub fn saml(
+        issuer: String,
+        subject: String,
+        email: String,
+        groups: Option<Vec<String>>,
+    ) -> Self {
+        Self {
+            email,
+            subject,
+            issuer,
+            groups,
+            kind: "saml",
+        }
     }
     pub fn subject(&self) -> &str {
         &self.subject
@@ -121,6 +132,9 @@ impl Resolution {
     pub fn user(&self) -> &crate::totp::CompletionUser {
         &self.user
     }
+    pub fn fence(&self) -> Option<&Value> {
+        self.fence.as_ref()
+    }
 }
 fn failed(detail: &str) -> StatementFailure {
     StatementFailure {
@@ -148,7 +162,11 @@ impl Assertion {
             let rows = worker
                 .read(
                     "SELECT identity_auth_resolve($3,$1,$2)::text",
-                    &[(&self.issuer, Type::TEXT), (&self.subject, Type::TEXT), (&self.kind, Type::TEXT)],
+                    &[
+                        (&self.issuer, Type::TEXT),
+                        (&self.subject, Type::TEXT),
+                        (&self.kind, Type::TEXT),
+                    ],
                 )
                 .await
                 .map_err(|_| failed("normalized identity resolution unavailable"))?;
@@ -273,8 +291,12 @@ impl Assertion {
         Ok(Lookup::Existing(Resolution {
             user: crate::totp::CompletionUser {
                 user,
-                email: r.try_get(0).map_err(|_| failed("normalized identity resolution unavailable"))?,
-                admin: r.try_get(1).map_err(|_| failed("normalized identity resolution unavailable"))?,
+                email: r
+                    .try_get(0)
+                    .map_err(|_| failed("normalized identity resolution unavailable"))?,
+                admin: r
+                    .try_get(1)
+                    .map_err(|_| failed("normalized identity resolution unavailable"))?,
             },
             fence,
             feature,
@@ -303,7 +325,11 @@ impl Assertion {
         let bind = worker
             .protocol_statement(
                 "SELECT identity_source_provider_bind($3,$1,$2)",
-                &[(&self.issuer, Type::TEXT), (&key, Type::TEXT), (&self.kind, Type::TEXT)],
+                &[
+                    (&self.issuer, Type::TEXT),
+                    (&key, Type::TEXT),
+                    (&self.kind, Type::TEXT),
+                ],
             )
             .await;
         if normalized && bind.is_err() {
@@ -348,8 +374,12 @@ impl Assertion {
             .ok_or_else(|| failed("SSO authorization state unavailable"))?;
         Ok(crate::totp::CompletionUser {
             user,
-            email: r.try_get(0).map_err(|_| failed("SSO authorization state unavailable"))?,
-            admin: r.try_get(1).map_err(|_| failed("SSO authorization state unavailable"))?,
+            email: r
+                .try_get(0)
+                .map_err(|_| failed("SSO authorization state unavailable"))?,
+            admin: r
+                .try_get(1)
+                .map_err(|_| failed("SSO authorization state unavailable"))?,
         })
     }
 }
@@ -446,8 +476,8 @@ impl Missing<'_> {
         // link. A source in shadow (or legacy) read mode used to create a legacy user without one,
         // so every retry failed 409 against an orphan. Create user and link together through the
         // same reducer whenever the feature is on; only a serving source keeps the mint fence.
-        let through_link = self.normalized
-            || (self.feature && !crate::mutants::on("rp-jit-shadow-orphan"));
+        let through_link =
+            self.normalized || (self.feature && !crate::mutants::on("rp-jit-shadow-orphan"));
         let (user, fence) = if through_link {
             let rows = worker
                 .protocol_query(
@@ -474,7 +504,9 @@ impl Missing<'_> {
                 return Err(failed("user creation failed"));
             }
             let fence = if self.normalized {
-                Some(json!({"source_id":number(&value,"sourceId")?,"source_generation":number(&value,"sourceGeneration")?,"link_id":number(&value,"linkId")?,"link_generation":number(&value,"linkGeneration")?}))
+                Some(
+                    json!({"source_id":number(&value,"sourceId")?,"source_generation":number(&value,"sourceGeneration")?,"link_id":number(&value,"linkId")?,"link_generation":number(&value,"linkGeneration")?}),
+                )
             } else {
                 None
             };
@@ -548,6 +580,9 @@ impl Resolution {
                 "SELECT is_guest_account($1)",
                 &[(&self.user.user, Type::INT8)],
             )
-            .await?.first().and_then(|r| r.try_get(0).ok()).ok_or_else(|| failed("guest scope unavailable"))?)
+            .await?
+            .first()
+            .and_then(|r| r.try_get(0).ok())
+            .ok_or_else(|| failed("guest scope unavailable"))?)
     }
 }
