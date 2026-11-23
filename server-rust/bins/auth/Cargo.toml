@@ -11,7 +11,7 @@ oracle-mutants = ["setjoin-contracts/oracle-mutants", "setjoin-authz/oracle-muta
 [dependencies]
 setjoin-threat = { path = "../../crates/threat" }
 base64 = "=0.22.1"
-cookie = { version = "=0.18.2", default-features = false }
+cookie = { version = "=0.18.3", default-features = false }
 sha2 = "=0.10.9"
 setjoin-contracts = { path = "../../crates/contracts" }
 setjoin-schema = { path = "../../crates/schema" }
