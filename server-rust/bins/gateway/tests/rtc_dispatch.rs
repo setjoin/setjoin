@@ -1,8 +1,9 @@
 //! Executable `/rtc` registration (#410): with LiveKit configured the SFU
 //! signal proxy answers natively at Go's fixed `127.0.0.1:7880` with Go out of
-//! the path; the global kill switch, the inventory rollback, a missing LiveKit
-//! configuration (Go registers no `/rtc` handler then) and a credential the
-//! verified-member precheck does not admit all hand the unchanged request to Go.
+//! the path. Without LiveKit configuration Go registers no `/rtc` handler, so
+//! the root mux answers natively (`404 page not found` without a website, #357).
+//! The global kill switch, the inventory rollback and a credential the
+//! verified-member precheck does not admit hand the unchanged request to Go.
 use crate::common::boot::CommandBootExt;
 use crate::common::boot::Child;
 mod common;
@@ -47,7 +48,7 @@ async fn executable_inventory_rollback_returns_rtc_to_go() -> Result<(), BoxErro
     run(Mode::Rollback).await
 }
 #[tokio::test]
-async fn executable_without_livekit_leaves_rtc_to_go() -> Result<(), BoxError> {
+async fn executable_without_livekit_answers_the_root_mux_natively() -> Result<(), BoxError> {
     run(Mode::Unconfigured).await
 }
 #[tokio::test]
@@ -81,7 +82,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
     let Some(db) = Db::for_case("meet5-rtc-executable") else {
         return Ok(());
     };
-    let to_go = mode != Mode::Native;
+    let to_go = !matches!(mode, Mode::Native | Mode::Unconfigured);
     let result = std::panic::AssertUnwindSafe(async {
         let go_hits = Arc::new(AtomicUsize::new(0));
         let observed = go_hits.clone();
@@ -235,7 +236,11 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             let response = common::send(address, request.body(common::full(""))?).await;
             let status = response.status().as_u16();
             let body = common::body_bytes(response).await;
-            let (want, text) = if to_go { (218, "from go") } else { (200, "success") };
+            let (want, text) = match mode {
+                Mode::Native => (200, "success"),
+                Mode::Unconfigured => (404, "404 page not found\n"),
+                _ => (218, "from go"),
+            };
             if status != want || body != text.as_bytes() {
                 return Err(format!("{uri}: {status} {}", String::from_utf8_lossy(&body)).into());
             }
@@ -256,7 +261,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         if go_hits.load(Ordering::SeqCst) != if to_go { count } else { 0 } {
             return Err("unexpected Go request count".into());
         }
-        if sfu_hits.load(Ordering::SeqCst) != if to_go { 0 } else { count } {
+        if sfu_hits.load(Ordering::SeqCst) != if mode == Mode::Native { count } else { 0 } {
             return Err("unexpected SFU request count".into());
         }
         let pid = child.0.id();

@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 pub mod alerts;
 pub mod apps;
+pub mod auth_admin;
 pub mod branding;
 pub mod dns;
 pub mod domains;

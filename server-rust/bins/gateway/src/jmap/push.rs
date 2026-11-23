@@ -89,11 +89,9 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
             },
         );
         Box::pin(async move {
-            // Identity #331 owns these key profiles. Header inspection chooses
-            // a transport only; it grants no authority to unverified claims.
-            if unported_identity(request.headers()) {
-                return context.upstream.forward(request, &context.identity).await;
-            }
+            // #356a: HS256/SM2 and ES256 push credentials share one verifier
+            // (`setjoin_authz::push` with the configured legacy keys). Header
+            // shape never selects a path and grants no authority.
             // Go's outer guest belt reads the ordinary credential before the
             // push handler reads its cookie. It must not lend the cookie identity
             // any authority from a different Authorization header.
@@ -361,7 +359,7 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                         _=tokio::time::sleep_until(pong+Duration::from_secs(70))=>break,
                         _=ping.tick()=>{if socket.send(Message::Ping(Vec::new().into())).await.is_err(){break}continue},
                         _=revalidate.tick()=>{
-                            let mut allowed=chrono::Utc::now().timestamp()<identity.expires_at();
+                            let mut allowed=identity.expires_at().is_some_and(|exp|chrono::Utc::now().timestamp()<exp);
                             for channel in &admitted {
                                 let app=if channel.starts_with("chat:"){Some("chat")}else if channel.starts_with("meet:"){Some("meet")}else if channel.starts_with("drive-"){Some("drive")}else{None};
                                 if let Some(app)=app {allowed &=app_allowed(&commands.exec,&identity,app).await;}
@@ -439,10 +437,18 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                     };
                     let reply=match env.kind.as_str() {
                         "WebSocketPushEnable"=>continue,"WebSocketPushDisable"=>r#"{"@type":"error"}"#.to_owned(),
-                        "Request"=>{
-                            if super::ws_request::needs_go(&commands,&identity,&env).await {
-                                match super::ws_request::forward_unported(&data,&token,&env,&context).await {Ok(reply)=>reply,Err(())=>break}
-                            } else {super::ws_request::execute(&commands,&identity,&env,&context).await}
+                        "Request" => match super::ws_request::execute(&commands, &identity, &env).await {
+                            Ok(reply) => reply,
+                            Err(super::DeferToGo(_)) => {
+                                match super::ws_request::forward_unported(
+                                    &data, &token, &env, &context,
+                                )
+                                .await
+                                {
+                                    Ok(reply) => reply,
+                                    Err(()) => break,
+                                }
+                            }
                         },
                         _=>r#"{"@type":"error","type":"urn:ietf:params:jmap:error:unknownType","status":400,"detail":"unknown @type"}"#.to_owned(),
                     };
@@ -557,27 +563,6 @@ pub(super) fn cookie(headers: &hyper::HeaderMap) -> Option<String> {
         }
     }
     None
-}
-
-pub(super) fn unported_identity(headers: &hyper::HeaderMap) -> bool {
-    use base64::Engine;
-    let ordinary = setjoin_authz::token::extract(headers);
-    [ordinary, cookie(headers)]
-        .into_iter()
-        .flatten()
-        .any(|token| {
-            let Some(header) = token.split('.').next() else {
-                return false;
-            };
-            let Some(value) = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(header)
-                .ok()
-                .and_then(|h| serde_json::from_slice::<serde_json::Value>(&h).ok())
-            else {
-                return false;
-            };
-            matches!(value["alg"].as_str(), Some("HS256" | "SM2"))
-        })
 }
 
 pub(super) fn plain(

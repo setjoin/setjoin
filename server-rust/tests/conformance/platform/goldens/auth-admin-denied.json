@@ -1,0 +1,80 @@
+{
+  "case": "denied",
+  "format": 1,
+  "go_source": "95fa35349d1c79a241283116d4219d6035d6c946",
+  "observation": {
+    "audit": [
+      {
+        "action": "console.denied",
+        "after_state": null,
+        "before_state": {
+          "actor": "x@test",
+          "missingPermission": "identity.write",
+          "target": "/auth/admin/unknown"
+        },
+        "checksum": "<checksum>",
+        "id": "<audit>",
+        "ip": null,
+        "notes": "/auth/admin/unknown",
+        "occurred_at": "<timestamp>",
+        "target_id": null,
+        "target_type": "console",
+        "user_id": null
+      }
+    ],
+    "effects": [
+      {
+        "after": [],
+        "before": [],
+        "table": "none"
+      }
+    ],
+    "notify": [],
+    "request": {
+      "external_path": "/auth/admin/unknown",
+      "method": "*",
+      "path": "/auth/admin/",
+      "wire_method": "GET"
+    },
+    "response": {
+      "body": "{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Forbidden\",\"instance\":\"\"}\n",
+      "headers": {
+        "cache-control": [
+          "no-store"
+        ],
+        "content-length": [
+          "91"
+        ],
+        "content-security-policy": [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';"
+        ],
+        "content-type": [
+          "application/problem+json"
+        ],
+        "cross-origin-opener-policy": [
+          "same-origin"
+        ],
+        "date": [
+          "<timestamp>"
+        ],
+        "permissions-policy": [
+          "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+        ],
+        "referrer-policy": [
+          "strict-origin-when-cross-origin"
+        ],
+        "x-content-type-options": [
+          "nosniff"
+        ],
+        "x-frame-options": [
+          "DENY"
+        ],
+        "x-request-id": [
+          "gofree-auth-admin-oracle"
+        ]
+      },
+      "status": 403
+    }
+  },
+  "route": "* /auth/admin/"
+}

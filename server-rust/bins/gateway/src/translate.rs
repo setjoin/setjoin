@@ -2,7 +2,7 @@
 //! Called by `ChatBRoute` after its feature, entitlement and authentication
 //! chain, which is the chain Go's chat mount applies before the handler.
 //! Mirrors `mailserver/internal/chat/translate.go`.
-use crate::assist::{feature_on, restore, typed_problem};
+use crate::assist::{feature_on, typed_problem};
 use crate::{Body, RequestContext};
 use hyper::{Request, Response};
 use setjoin_authz::Authorized;
@@ -36,13 +36,10 @@ pub(crate) async fn serve(
             .await
             .map_err(|_| ())?;
         let fields = crate::chat_channels::decode_fields(&bytes)?;
-        Ok::<_, ()>((
-            crate::chat_channels::text_field(&fields, "TARGETLOCALE")?,
-            bytes,
-        ))
+        crate::chat_channels::text_field(&fields, "TARGETLOCALE")
     }
     .await;
-    let Ok((locale, bytes)) = locale else {
+    let Ok(locale) = locale else {
         return crate::chat::problem(400, "invalid JSON", path, c, id);
     };
     if locale.is_empty() {
@@ -59,7 +56,7 @@ pub(crate) async fn serve(
     }
     match feature_on(exec, "feature.assist").await {
         Some(true) => {}
-        Some(false) => {
+        Some(false) | None => {
             return typed_problem(
                 503,
                 "service-unavailable",
@@ -71,7 +68,6 @@ pub(crate) async fn serve(
                 id,
             )
         }
-        None => return c.upstream.forward(restore(r, bytes), &c.identity).await,
     }
     let actor = auth.context();
     let thread = match setjoin_chat::members::thread(exec, actor, message).await {
@@ -145,7 +141,18 @@ pub(crate) async fn serve(
                 }
             }
         }
-        None => return c.upstream.forward(restore(r, bytes), &c.identity).await,
+        None => {
+            return typed_problem(
+                503,
+                "service-unavailable",
+                "Service Unavailable",
+                "Chat compliance status is unavailable.",
+                path,
+                language,
+                c,
+                id,
+            )
+        }
     }
     let request = logic::Request {
         messages: vec![logic::Message { role: "user".into(), content: body }],

@@ -216,6 +216,31 @@ pub(crate) fn classify(
     classify_with(body, services, find)
 }
 
+pub(super) fn classify_call(
+    name: &str,
+    raw: &str,
+    client_id: &str,
+    services: Option<&crate::jmap::JmapServices>,
+) -> Option<Request> {
+    let method = find(name)?;
+    if !(method.ready)(Ready::of(services)) {
+        return None;
+    }
+    if raw.len() > MAX_ARGS {
+        return None;
+    }
+    if let Value::Object(map) = serde_json::from_str::<Value>(raw).ok()? {
+        if map.keys().any(|key| key.starts_with('#')) {
+            return None;
+        }
+    }
+    Some(Request {
+        method,
+        args: raw.to_owned(),
+        client_id: client_id.to_owned(),
+    })
+}
+
 fn classify_with(
     body: &[u8],
     services: Option<&crate::jmap::JmapServices>,
@@ -322,8 +347,8 @@ fn created_ids(name: &str, args: &str) -> Option<String> {
     go_compact(&serde_json::to_string(&ids).ok()?)
 }
 
-/// Go's `dispatchInvocation` (handler.go:1527) and the HTTP envelope.
-pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String {
+/// Go's `dispatchInvocation` (handler.go:1527), returning `(name, compacted_args)`.
+pub(super) async fn serve_call(cx: &Cx<'_>) -> (&'static str, String) {
     let method = cx.method();
     let handled = if !matches!(
         serde_json::from_str::<Value>(cx.args()),
@@ -341,13 +366,18 @@ pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String
     } else {
         (method.run)(cx).await
     };
-    let (name, args) = match handled {
+    match handled {
         Ok(answer) => match go_compact(&answer.args) {
             Some(args) => (answer.name, args),
             None => ("error", MethodError::server_fail().json()),
         },
         Err(error) => ("error", error.json()),
-    };
+    }
+}
+
+/// Go's `dispatchInvocation` (handler.go:1527) and the HTTP envelope.
+pub(super) async fn serve(cx: &Cx<'_>, client_id: &str, session: &str) -> String {
+    let (name, args) = serve_call(cx).await;
     match created_ids(name, &args) {
         Some(ids) => format!(
             "{{\"sessionState\":{},\"methodResponses\":[[{},{},{}]],\"createdIds\":{}}}\n",

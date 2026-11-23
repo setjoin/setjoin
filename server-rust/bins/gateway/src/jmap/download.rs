@@ -177,10 +177,10 @@ impl<K: KeySource> JmapCommands<K> {
                 (len, 206)
             }
             _ => {
-                let Some(a) = super::random() else {
+                let Ok(a) = super::random_bytes() else {
                     return fail();
                 };
-                let Some(b) = super::random() else {
+                let Ok(b) = super::random_bytes() else {
                     return fail();
                 };
                 let boundary = format!("{}{}", reply::hex(&a), &reply::hex(&b)[..28]);

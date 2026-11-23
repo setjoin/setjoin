@@ -466,7 +466,7 @@ async fn sse_public_registry_evicts_targets_and_releases_budget() -> Result<(), 
     jmap_sse_lifetime::registry::eviction().await
 }
 #[tokio::test]
-async fn sse_unported_identity_profile_forwards_unchanged() -> Result<(), BoxError> {
+async fn sse_legacy_profile_shape_is_verified_natively() -> Result<(), BoxError> {
     jmap_sse_lifetime::registry::legacy().await
 }
 

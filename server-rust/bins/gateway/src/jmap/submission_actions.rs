@@ -38,76 +38,58 @@ impl<K: KeySource> JmapCommands<K> {
         req: Request<Body>,
         ctx: RequestContext,
     ) -> Response<Body> {
-        let (parts, body) = req.into_parts();
-        match self.try_action(&parts, &ctx).await {
-            Ok(response) => response,
-            Err(_) => {
-                ctx.upstream
-                    .forward(Request::from_parts(parts, body), &ctx.identity)
-                    .await
-            }
-        }
+        let (req, authorized) = match self.admit_http(req, &ctx, crate::deny::Scope::Member).await {
+            Ok(ok) => ok,
+            Err(response) => return response,
+        };
+        let (parts, _) = req.into_parts();
+        self.try_action(&parts, &ctx, &authorized).await
     }
     async fn try_action(
         &self,
         parts: &hyper::http::request::Parts,
         ctx: &RequestContext,
-    ) -> Result<Response<Body>, &'static str> {
-        let (action, raw) = target(parts.uri.path()).ok_or("unsupported submission action")?;
-        let authorized = setjoin_authz::authorize_request(
-            &self.exec,
-            &self.keys,
-            &self.issuer,
-            &parts.headers,
-            ctx.identity.proto,
-        )
-        .await
-        .ok_or("unported identity admission (#331)")?;
+        authorized: &setjoin_authz::Authorized,
+    ) -> Response<Body> {
+        let fallback_id = reply::request_id(parts.headers.get("x-request-id"), [0; 16]);
+        let Some((action, raw)) = target(parts.uri.path()) else {
+            return crate::mailboxes::bare(404, "not found", ctx, &fallback_id);
+        };
+        let Ok(rand_bytes) = super::random_bytes() else {
+            return crate::mailboxes::bare(500, "internal error", ctx, &fallback_id);
+        };
+        let request_id = reply::request_id(parts.headers.get("x-request-id"), rand_bytes);
         let identity = authorized.context();
-        if let Some(denylist) = &self.denylist {
-            let issued =
-                chrono::DateTime::from_timestamp(authorized.issued_at(), 0).ok_or("token iat")?;
-            if !denylist.loaded()
-                || denylist.is_revoked(
-                    identity.user_id(),
-                    authorized.token_id(),
-                    authorized.token_family(),
-                    issued,
-                )
-            {
-                return Err("unported identity admission (#331)");
-            }
-        }
-        let request_id = reply::request_id(
-            parts.headers.get("x-request-id"),
-            super::random().ok_or("rng unavailable")?,
-        );
         let email_id = raw
             .parse::<i64>()
             .ok()
             .filter(|id| action == Action::Recall || *id > 0);
         let Some(email_id) = email_id else {
-            return Ok(crate::mailboxes::bare(
-                400,
-                "invalid message id",
-                ctx,
-                &request_id,
-            ));
+            return crate::mailboxes::bare(400, "invalid message id", ctx, &request_id);
+        };
+        let (Ok(actor_id), Ok(mailbox_id)) = (
+            ActorId::new(identity.user_id()),
+            MailboxId::new(identity.mailbox_id()),
+        ) else {
+            return crate::mailboxes::bare(500, "internal error", ctx, &request_id);
         };
         let auth = MailboxAuthContext::from_authenticated_session(
-            ActorId::new(identity.user_id()).map_err(|_| "actor")?,
-            MailboxId::new(identity.mailbox_id()).map_err(|_| "mailbox")?,
+            actor_id,
+            mailbox_id,
             super::REQUEST_AUTHORITY_GENERATION,
         );
+        let Ok(op_bytes) = super::random_bytes() else {
+            return crate::mailboxes::bare(500, "internal error", ctx, &request_id);
+        };
         let envelope = CommandEnvelope {
-            operation: OperationId(super::random().ok_or("rng unavailable")?),
+            operation: OperationId(op_bytes),
             authority: auth.authority(),
             binding: setjoin_db::lifecycle::accepted_contract(),
             payload_digest: Digest(Sha256::digest(parts.uri.to_string().as_bytes()).into()),
             command: setjoin_jmap::submission::Submission,
         };
         if action == Action::Recall {
-            return Ok(self
+            return self
                 .recall_action(
                     &auth,
                     identity.email(),
@@ -116,9 +98,9 @@ impl<K: KeySource> JmapCommands<K> {
                     ctx,
                     &request_id,
                 )
-                .await);
+                .await;
         }
-        let response = match setjoin_jmap::submission::undo(
+        match setjoin_jmap::submission::undo(
             &self.exec,
             &auth,
             &envelope,
@@ -145,8 +127,7 @@ impl<K: KeySource> JmapCommands<K> {
             CommandOutcome::RolledBack(_) => {
                 crate::mailboxes::bare(500, "undo failed", ctx, &request_id)
             }
-        };
-        Ok(response)
+        }
     }
     async fn recall_action(
         &self,

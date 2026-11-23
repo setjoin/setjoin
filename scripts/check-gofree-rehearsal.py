@@ -44,11 +44,7 @@ WORKERS = "mailserver/cmd/mailserverd/testdata/worker_semantics.json"
 EXCLUDED_LISTENERS = {"fedharness"}
 # Inventory entries still OFF, with the ticket that turns each ON. Ratchet: an entry that turns ON or
 # leaves the inventory must be deleted here; never add one. #141 criterion 1 holds only when this is empty.
-PENDING = {
-    ("gateway", "*", "/auth/admin/"): "#340",
-    ("gateway", "GET", "/terms/pending"): "#340",
-    ("gateway", "POST", "/terms/accept"): "#340",
-}
+PENDING = {}
 # Call sites in server-rust/bins/*/src that forward a request to a Go upstream: the auth server's
 # `self.forward(` to Go auth, the gateway's `upstream.forward(` proxy, `forward_body(`, and the JMAP
 # WebSocket fallback (`forward_unported(`, its raw `client_async(` dial). Exact ratchet: a new site is
@@ -61,7 +57,7 @@ FORWARD_PATTERNS = {
 }
 FORWARD_SITES = {
     ("auth", "forward"): 0,  # lowered from 2 when #357 Part B retired AuthServer fallback forwards (ratchet)
-    ("gateway", "forward"): 160,  # lowered from 167 (#194, admin-identity leftovers)
+    ("gateway", "forward"): 26,  # lowered after #354, #201, #355a, #356 wave 1+2a+2b, #356a, #357/#378
     ("gateway", "forward_body"): 0,
     ("gateway", "forward_unported"): 1,
     ("gateway", "ws_client"): 1,

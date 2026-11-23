@@ -52,7 +52,10 @@ an operator command. Driver tasks are aborted when a connection is dropped.
     only runtime crate that links a database driver. `run_command` binds the
     authenticated mailbox, actor and operation ID as `$1`–`$3` and executes
     one statement; the family supplies atomic audit/notify effects in that
-    statement or its reducer. `lookup_operation` reads the family receipt
+    statement or its reducer. `run_locked_tx` (#356 Wave 2a) runs a multi-statement
+    mailbox-scoped closure under `operation_lock` without inserting into
+    `rust_operation_receipts` when a domain audit row (`mailbox_audit_log`
+    `details.operation`) is the operation-lookup receipt. `lookup_operation` reads the family receipt
     under current scope; the receipt must commit with the command. Lookup waits
     for the operation lock, then reads at READ COMMITTED; timeout is an error.
     Operation IDs must be unique per command attempt.

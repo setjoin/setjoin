@@ -32,7 +32,17 @@ pub enum SeenValue {
 /// `Some` only when `body` is fully expressible as `SetMessageSeen`.
 pub fn classify(body: &[u8]) -> Option<SeenRequest> {
     let call = single_call(body, "Email/set")?;
-    let args = exact_keys(&call.args, &["accountId", "update"], &["create", "destroy"])?;
+    let raw = serde_json::to_string(&call.args).ok()?;
+    classify_call("Email/set", &raw, &call.client_id)
+}
+
+/// Call-level classifier for [`SeenRequest`] inside a JMAP batch.
+pub fn classify_call(method: &str, raw_args: &str, client_id: &str) -> Option<SeenRequest> {
+    if method != "Email/set" {
+        return None;
+    }
+    let parsed: serde_json::Value = serde_json::from_str(raw_args).ok()?;
+    let args = exact_keys(&parsed, &["accountId", "update"], &["create", "destroy"])?;
     for optional in ["create", "destroy"] {
         if args.get(optional).is_some_and(|v| !v.is_null()) {
             return None;
@@ -57,7 +67,7 @@ pub fn classify(body: &[u8]) -> Option<SeenRequest> {
         account_id,
         message_id,
         seen,
-        client_id: call.client_id,
+        client_id: client_id.to_owned(),
     })
 }
 

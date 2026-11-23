@@ -162,6 +162,16 @@ async fn command(
     operation: [u8; 16],
 ) -> CommandOutcome<Value, StatementFailure> {
     let auth = session(actor);
+    command_with_auth(exec, &auth, name, sql, params, operation).await
+}
+async fn command_with_auth(
+    exec: &ScopedExecutor,
+    auth: &MailboxAuthContext,
+    name: &'static str,
+    sql: &str,
+    params: &[Param<'_>],
+    operation: [u8; 16],
+) -> CommandOutcome<Value, StatementFailure> {
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -176,7 +186,7 @@ async fn command(
             command: name,
         },
         &envelope,
-        &auth,
+        auth,
         Instant::now() + Duration::from_secs(30),
         sql,
         params,
@@ -197,22 +207,70 @@ async fn command(
     )
     .await
 }
+fn delegate_auth(
+    actor: &AuthContext,
+    mailbox: i64,
+) -> Result<MailboxAuthContext, CommandOutcome<Value, StatementFailure>> {
+    let (Ok(actor_id), Ok(mailbox_id)) = (
+        setjoin_contracts::ids::ActorId::new(actor.user_id()),
+        setjoin_contracts::ids::MailboxId::new(mailbox),
+    ) else {
+        return Err(CommandOutcome::RolledBack(
+            setjoin_pg::Rejection::Statement(StatementFailure {
+                sqlstate: Some("BZ114".into()),
+                message: "mailbox not found".into(),
+                hint: None,
+            }),
+        ));
+    };
+    Ok(MailboxAuthContext::from_authenticated_session(
+        actor_id,
+        mailbox_id,
+        setjoin_contracts::ids::Generation(1),
+    ))
+}
 pub async fn grant(
     exec: &ScopedExecutor,
     actor: &AuthContext,
+    mailbox: i64,
     email: &str,
     permission: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Value, StatementFailure> {
-    command(exec,actor,"mailbox_delegate_grant","SELECT mailbox_delegate_grant($2,$1,$4,$5) WHERE $3::text IS NOT NULL AND EXISTS(SELECT 1 FROM mailboxes WHERE id=$1 AND user_id=$2)",&[(&email,Type::TEXT),(&permission,Type::TEXT)],operation).await
+    let auth = match delegate_auth(actor, mailbox) {
+        Ok(auth) => auth,
+        Err(outcome) => return outcome,
+    };
+    command_with_auth(
+        exec,
+        &auth,
+        "mailbox_delegate_grant",
+        "SELECT mailbox_delegate_grant($2,$1,$4,$5) WHERE $3::text IS NOT NULL AND EXISTS(SELECT 1 FROM mailboxes WHERE id=$1 AND user_id=$2)",
+        &[(&email, Type::TEXT), (&permission, Type::TEXT)],
+        operation,
+    )
+    .await
 }
 pub async fn revoke(
     exec: &ScopedExecutor,
     actor: &AuthContext,
+    mailbox: i64,
     grantee: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<Value, StatementFailure> {
-    command(exec,actor,"mailbox_delegate_revoke","SELECT mailbox_delegate_revoke($2,$1,$4) WHERE $3::text IS NOT NULL AND EXISTS(SELECT 1 FROM mailboxes WHERE id=$1 AND user_id=$2)",&[(&grantee,Type::INT8)],operation).await
+    let auth = match delegate_auth(actor, mailbox) {
+        Ok(auth) => auth,
+        Err(outcome) => return outcome,
+    };
+    command_with_auth(
+        exec,
+        &auth,
+        "mailbox_delegate_revoke",
+        "SELECT mailbox_delegate_revoke($2,$1,$4) WHERE $3::text IS NOT NULL AND EXISTS(SELECT 1 FROM mailboxes WHERE id=$1 AND user_id=$2)",
+        &[(&grantee, Type::INT8)],
+        operation,
+    )
+    .await
 }
 pub async fn set_default(
     exec: &ScopedExecutor,

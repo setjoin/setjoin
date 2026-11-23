@@ -1,0 +1,33 @@
+{
+  "case": "auth_admin_bare",
+  "format": 1,
+  "go_source": "8c89d3e5568f76fb818c95a481e24cd3a9f6354b",
+  "observation": {
+    "audit": [],
+    "effects": [],
+    "notify": [],
+    "request": {
+      "bearer": false,
+      "method": "GET",
+      "path": "/auth/admin",
+      "website": false
+    },
+    "response": {
+      "body": "<a href=\"/auth/admin/\">Temporary Redirect</a>.\n\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "text/html; charset=utf-8",
+        "cross-origin-opener-policy": "same-origin",
+        "location": "/auth/admin/",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "mux-oracle"
+      },
+      "status": 307
+    }
+  },
+  "route": "GET /auth/admin"
+}

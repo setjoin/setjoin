@@ -101,7 +101,9 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                 };
                 let mut random = [0; 16];
                 if getrandom::getrandom(&mut random).is_err() {
-                    return c.upstream.forward(r, &c.identity).await;
+                    let id =
+                        crate::jmap::reply::request_id(r.headers().get("x-request-id"), [0; 16]);
+                    return problem(503, "service unavailable", None, &c, id);
                 }
                 let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), random);
                 if crate::inventory::path_score("/api/admin/sharing/audit", r.uri().path())
@@ -111,12 +113,11 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                     let scope = match setjoin_drive::authority(&worker, auth.context(), false).await
                     {
                         Ok(Some(a)) => a,
-                        Ok(None) => {
+                        Ok(None) | Err(_) => {
                             setjoin_drive::denied(&worker, auth.context(), path, false, random)
                                 .await;
                             return problem(403, "Forbidden", None, &c, id);
                         }
-                        Err(_) => return c.upstream.forward(r, &c.identity).await,
                     };
                     let value = |key: &str| query(&r, key);
                     let user = value("user_id").and_then(|s| s.parse::<i64>().ok());
@@ -145,12 +146,11 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                     let scope = match setjoin_drive::authority(&worker, auth.context(), false).await
                     {
                         Ok(Some(a)) => a,
-                        Ok(None) => {
+                        Ok(None) | Err(_) => {
                             setjoin_drive::denied(&worker, auth.context(), &path, false, random)
                                 .await;
                             return problem(403, "Forbidden", None, &c, id);
                         }
-                        Err(_) => return c.upstream.forward(r, &c.identity).await,
                     };
                     let value = String::from_utf8_lossy(&crate::inventory::unescape(
                         r.uri().path().rsplit('/').next().unwrap_or(""),
@@ -181,12 +181,11 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                     let scope = match setjoin_drive::authority(&worker, auth.context(), true).await
                     {
                         Ok(Some(a)) => a,
-                        Ok(None) => {
+                        Ok(None) | Err(_) => {
                             setjoin_drive::denied(&worker, auth.context(), &path, true, random)
                                 .await;
                             return problem(403, "Forbidden", None, &c, id);
                         }
-                        Err(_) => return c.upstream.forward(r, &c.identity).await,
                     };
                     if setjoin_drive::reason_required(&exec).await
                         && r.headers()
@@ -230,12 +229,11 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                         .await
                     {
                         Ok(Some(a)) => a,
-                        Ok(None) => {
+                        Ok(None) | Err(_) => {
                             setjoin_drive::denied(&worker, auth.context(), path, manage, random)
                                 .await;
                             return problem(403, "Forbidden", None, &c, id);
                         }
-                        Err(_) => return c.upstream.forward(r, &c.identity).await,
                     };
                     if manage {
                         if setjoin_drive::reason_required(&exec).await
@@ -370,17 +368,16 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                             id,
                         );
                     };
-                    if !is_default {
-                        match setjoin_drive::primary_mailbox(&worker, auth.context()).await {
-                            Ok(Some(mailbox)) if mailbox == auth.context().mailbox_id() => (),
-                            Ok(Some(_)) => return c.upstream.forward(r, &c.identity).await,
-                            _ => return problem(500, "mailbox not found", None, &c, id),
-                        }
-                    }
                     let outcome = if is_default {
                         setjoin_drive::clear_default(&worker, auth.context(), grantee, random).await
                     } else {
-                        setjoin_drive::revoke(&worker, auth.context(), grantee, random).await
+                        let mailbox =
+                            match setjoin_drive::primary_mailbox(&worker, auth.context()).await {
+                                Ok(Some(mailbox)) => mailbox,
+                                _ => return problem(500, "mailbox not found", None, &c, id),
+                            };
+                        setjoin_drive::revoke(&worker, auth.context(), mailbox, grantee, random)
+                            .await
                     };
                     return match outcome {
                         setjoin_pg::CommandOutcome::Committed(_) => empty(204, &c, id),
@@ -429,19 +426,15 @@ impl<K: KeySource + 'static> Intercept for DriveRoute<K> {
                             id,
                         );
                     }
-                    match setjoin_drive::primary_mailbox(&worker, auth.context()).await {
-                        Ok(Some(mailbox)) if mailbox == auth.context().mailbox_id() => (),
-                        Ok(Some(_)) => {
-                            *r.body_mut() = http_body_util::Full::new(bytes)
-                                .map_err(|e| match e {})
-                                .boxed();
-                            return c.upstream.forward(r, &c.identity).await;
-                        }
-                        _ => return problem(500, "mailbox not found", None, &c, id),
-                    }
+                    let mailbox =
+                        match setjoin_drive::primary_mailbox(&worker, auth.context()).await {
+                            Ok(Some(mailbox)) => mailbox,
+                            _ => return problem(500, "mailbox not found", None, &c, id),
+                        };
                     return match setjoin_drive::grant(
                         &worker,
                         auth.context(),
+                        mailbox,
                         email,
                         permission,
                         random,

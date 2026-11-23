@@ -11,7 +11,9 @@ pub struct RetentionAuditRoute<K: KeySource + 'static> {
     pub issuer: String,
 }
 impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, r: &Request<Body>) -> bool {
         r.uri().path().starts_with("/api/admin/retention/")
             || r.uri().path().starts_with("/api/admin/audit")
@@ -33,14 +35,11 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
             self.worker.clone(),
         );
         Box::pin(async move {
-            let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
+            let verdict =
+                crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
                 Ok(auth) => auth,
                 Err(refusal) => return crate::deny::answer(refusal, r, &c).await,
-            };
-            let actor = auth.context();
-            let Ok(authority) = setjoin_compliance::authority(&exec, actor).await else {
-                return c.upstream.forward(r, &c.identity).await;
             };
             let Some(op) = crate::jmap::random() else {
                 return crate::compliance::problem(503, "service unavailable", &c, "");
@@ -60,7 +59,12 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
             } else {
                 &setjoin_compliance::MAIL_CONSOLE
             };
-            if !authority.allows_any(required) {
+            let actor = auth.context();
+            let Some(authority) = setjoin_compliance::authority(&exec, actor)
+                .await
+                .ok()
+                .filter(|authority| authority.allows_any(required))
+            else {
                 let _ = setjoin_compliance::console_denied(
                     &exec,
                     actor,
@@ -70,7 +74,7 @@ impl<K: KeySource + 'static> Intercept for RetentionAuditRoute<K> {
                 )
                 .await;
                 return crate::compliance::problem(403, "Forbidden", &c, &id);
-            }
+            };
             if r.uri().path().starts_with("/api/admin/content-search/") {
                 if authority.domain_scope() > 0 {
                     let detail = format!(

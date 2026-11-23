@@ -12,22 +12,24 @@
 //! upgraded sessions retain their application-owned lifetime.
 
 pub mod acme;
-mod admission;
-mod deny;
-mod guest_allowlist;
+pub mod auth_admin;
 pub mod activation;
+mod admission;
 pub mod attachment;
-pub mod blobs;
 mod blob_content;
+pub mod blobs;
 pub mod catchall;
-pub mod oidc_namespace;
 pub mod cert_monitor;
 pub mod chat;
 pub mod chat_b;
 pub mod chat_unfurl;
 pub mod chat_workers;
 pub mod cron_catalog;
+pub mod dav_auth;
+mod deny;
+mod guest_allowlist;
 pub mod notify_drain;
+pub mod oidc_namespace;
 pub mod push_drain;
 pub mod secevents;
 pub mod setup_control;
@@ -43,7 +45,6 @@ pub mod f16;
 pub mod forwarded;
 pub mod http_limits;
 pub mod imap_runtime;
-pub mod smtp_runtime;
 pub mod inventory;
 pub mod jmap;
 pub mod mdm_notify;
@@ -63,6 +64,7 @@ pub mod recovery_worker;
 pub mod routes;
 pub mod rtc;
 pub mod served_stats;
+pub mod smtp_runtime;
 pub mod surface;
 pub mod ticket_keys;
 pub mod tls_runtime;
@@ -171,7 +173,9 @@ impl Gateway {
 
     /// Share the process-local trusted-proxy snapshot with config reload.
     pub fn with_configuration(mut self, config: &configuration::Runtime) -> Self {
-        Arc::get_mut(&mut self.shared).expect("new gateway is unshared").trusted = config.trusted.clone();
+        Arc::get_mut(&mut self.shared)
+            .expect("new gateway is unshared")
+            .trusted = config.trusted.clone();
         self
     }
 
@@ -240,7 +244,9 @@ impl Gateway {
         let (draining, _) = tokio::sync::watch::channel(false);
         let mut runtime_task = RuntimeTask(self.shared.routes.runtime.clone().map(|runtime| {
             let stop = draining.subscribe();
-            tokio::spawn(async move { runtime.run(stop).await; })
+            tokio::spawn(async move {
+                runtime.run(stop).await;
+            })
         }));
         let mut connections = tokio::task::JoinSet::new();
         loop {
@@ -278,14 +284,23 @@ impl Gateway {
                             accepted = frontend.accept(stream) => accepted,
                         };
                         let Ok(stream) = accepted else { return };
-                        if stream.get_ref().1.alpn_protocol() == Some(b"acme-tls/1") { return; }
+                        if stream.get_ref().1.alpn_protocol() == Some(b"acme-tls/1") {
+                            return;
+                        }
                         let h2 = stream.get_ref().1.alpn_protocol() == Some(b"h2");
-                        let leaf = stream.get_ref().1.peer_certificates()
-                            .and_then(|chain| chain.first()).cloned()
+                        let leaf = stream
+                            .get_ref()
+                            .1
+                            .peer_certificates()
+                            .and_then(|chain| chain.first())
+                            .cloned()
                             .map(setjoin_tls::PeerCertificate);
-                        serve_http_connection(shared, peer, stream, drain, Some(h2), leaf, permit).await;
+                        serve_http_connection(shared, peer, stream, drain, Some(h2), leaf, permit)
+                            .await;
                     }
-                    None => serve_http_connection(shared, peer, stream, drain, None, None, permit).await,
+                    None => {
+                        serve_http_connection(shared, peer, stream, drain, None, None, permit).await
+                    }
                 }
             });
         }
@@ -293,7 +308,10 @@ impl Gateway {
         self.shared.routes.shutdown();
         let _ = draining.send(true);
         if let Some(mut task) = runtime_task.0.take() {
-            if tokio::time::timeout(Duration::from_secs(5), &mut task).await.is_err() {
+            if tokio::time::timeout(Duration::from_secs(5), &mut task)
+                .await
+                .is_err()
+            {
                 task.abort();
                 let _ = task.await;
             }
@@ -411,19 +429,26 @@ async fn handle(
             req.headers_mut().insert(hyper::header::HOST, authority);
         }
     }
-    let mut identity = forwarded::resolve(peer.ip(), req.headers(), &shared.trusted.read().expect("trusted proxy snapshot"));
+    let mut identity = forwarded::resolve(
+        peer.ip(),
+        req.headers(),
+        &shared.trusted.read().expect("trusted proxy snapshot"),
+    );
     // shared/clientip: the actual TLS socket is authoritative even for a
     // trusted proxy claiming that the original scheme was plaintext.
     if secure {
         identity.proto = "https";
     }
     let route = shared.inventory.find(req.method(), req.uri().path());
-    let auth_path = req.uri().path().starts_with("/auth/");
+    let auth_path = unmatched::is_auth_path(req.uri().path());
     // Direct authserver recordings retain its per-route CSRF ordering/headers.
     // Gateway traffic, including both auth upstreams, has mailserver's outer CSRF.
     let auth_listener = shared.inventory.auth_only();
     let auth_target = route.map_or(auth_path, |r| {
-        matches!(r.target, inventory::Target::RustAuth | inventory::Target::GoAuth)
+        matches!(
+            r.target,
+            inventory::Target::RustAuth | inventory::Target::GoAuth
+        )
     });
     let family = shared
         .inventory
@@ -464,33 +489,58 @@ async fn handle(
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
-        // The executable answers over-budget requests; legacy injected limits
-        // can defer to Go while their pilot flags are off.
+        // Go's coreLimit answers every over-budget request with its own 429 (#357).
         if !limit.limiter.allow(identity.client_ip, now) {
-            if limit.answer_over_budget().await {
-                return jmap::limit::rate_limited(req.headers().get("x-request-id"));
-            }
+            return jmap::limit::rate_limited(req.headers().get("x-request-id"));
         } else {
             // Go mailserver's global CSRF gate runs before route-specific buckets.
             // Rejections are final before any route bucket or authentication.
             if !auth_listener && setjoin_contracts::mutants::on("csrf-after-over-budget") {
-                if let Some(response)=csrf_denial(&req,&identity){return response;}
+                if let Some(response) = csrf_denial(&req, &identity) {
+                    return response;
+                }
             }
             // ServeMux canonicalization precedes buildRootDispatch's belt.
             if shared.routes.catchall && shared.inventory.root_on() {
-                let ctx=RequestContext{identity:identity.clone(),upstream:go_mail.clone()};
-                if let Some(response)=catchall::root_redirect(&req,&ctx){return response;}
+                let ctx = RequestContext {
+                    identity: identity.clone(),
+                    upstream: go_mail.clone(),
+                };
+                if let Some(response) = catchall::root_redirect(&req, &ctx) {
+                    return response;
+                }
             }
-            let path=req.uri().path();
-            let concrete=route.is_some_and(|r|r.path!="/" && r.path!="/api/");
-            let legacy=!matches!(*req.method(),Method::GET|Method::HEAD) &&
-                (shared.inventory.go_match(req.method(),path,None).is_some() ||
-                 shared.inventory.go_match(req.method(),&format!("{path}/"),None).is_some());
-            // Auth proxy entries are gated too; ordinary SPA GETs are not.
-            if path.starts_with("/api/") || auth_path || concrete || legacy {
+            let path = req.uri().path();
+            let concrete = route.is_some_and(|r| r.path != "/" && r.path != "/api/");
+            let legacy = !matches!(*req.method(), Method::GET | Method::HEAD)
+                && (shared
+                    .inventory
+                    .go_match(req.method(), path, None)
+                    .is_some()
+                    || shared
+                        .inventory
+                        .go_match(req.method(), &format!("{path}/"), None)
+                        .is_some());
+            // Auth proxy entries and slash-redirect subtree targets are gated too; ordinary SPA GETs and genuinely unclaimed `/auth/*` fallback paths are not.
+            if path.starts_with("/api/")
+                || (auth_path
+                    && (route.is_some()
+                        || unmatched::slash_redirect(&shared.inventory, &req, identity.proto)
+                            .is_some()))
+                || concrete
+                || legacy
+            {
                 if let Some(admission) = &shared.routes.admission {
-                    if let Some(response) = admission.check(req.headers().clone(), req.method().clone(),
-                        req.uri().path().to_owned(), identity.clone(), false).await {
+                    if let Some(response) = admission
+                        .check(
+                            req.headers().clone(),
+                            req.method().clone(),
+                            req.uri().path().to_owned(),
+                            identity.clone(),
+                            false,
+                        )
+                        .await
+                    {
                         return response;
                     }
                 }
@@ -503,7 +553,13 @@ async fn handle(
             {
                 if let Some(fallback) = shared.routes.mux_fallback() {
                     return fallback
-                        .handle(req, RequestContext { identity, upstream: go_mail })
+                        .handle(
+                            req,
+                            RequestContext {
+                                identity,
+                                upstream: go_mail,
+                            },
+                        )
                         .await;
                 }
                 return surface::unregistered(&req, identity.proto);
@@ -529,12 +585,18 @@ async fn handle(
                     false
                 };
                 if !admitted {
-                    return go_mail.forward(req, &identity).await;
+                    // D-357a-1: without the deployment verifier (no DB_DSN, or a custom
+                    // embedding) Go's guest belt cannot run here; fail closed with
+                    // guestgate's lookup-failure answer (middleware.go:75).
+                    return admission::problem(
+                        req.headers(),
+                        &identity,
+                        503,
+                        "service unavailable",
+                    );
                 }
             }
-            if !limit.allow_route(req.method(), req.uri().path(), identity.client_ip, now)
-                && limit.answer_over_budget().await
-            {
+            if !limit.allow_route(req.method(), req.uri().path(), identity.client_ip, now) {
                 return jmap::limit::route_rate_limited(
                     req.headers().get("x-request-id"),
                     identity.proto,
@@ -557,6 +619,26 @@ async fn handle(
         };
         if let Some(reply) = catchall::root_redirect(&req, &ctx) {
             return reply;
+        }
+    }
+    // #357/#378: an `/auth/*` spelling no inventory row claims is answered by frozen
+    // Go's pinned-API root mux (slash redirect, else SPA/404), never by Go auth. This
+    // runs after CSRF, both budgets and admission, exactly as Go's root dispatch does.
+    if route.is_none() && auth_path && shared.inventory.root_on() {
+        if let Some(fallback) = shared.routes.mux_fallback() {
+            if let Some(reply) = unmatched::slash_redirect(&shared.inventory, &req, identity.proto)
+            {
+                return reply;
+            }
+            return fallback
+                .handle(
+                    req,
+                    RequestContext {
+                        identity,
+                        upstream: go_mail,
+                    },
+                )
+                .await;
         }
     }
     let target = route.map_or(
@@ -586,13 +668,33 @@ async fn handle(
             }
         }
         inventory::Target::RustAuth => {
+            if route.is_some_and(|r| {
+                r.target == inventory::Target::RustAuth
+                    && inventory::Inventory::is_pinned_and_mounted(r)
+            }) {
+                strip_api_prefix(&mut req);
+            }
             return match &shared.rust_auth_upstream {
-                Some(upstream) => upstream.forward(req, &identity).await,
+                Some(upstream) => {
+                    let mut response = upstream.forward(req, &identity).await;
+                    if !auth_listener
+                        && route.is_some_and(inventory::Inventory::is_pinned_and_mounted)
+                    {
+                        jmap::reply::security_headers(response.headers_mut(), identity.proto);
+                        response
+                            .headers_mut()
+                            .entry(hyper::header::CACHE_CONTROL)
+                            .or_insert_with(|| {
+                                hyper::header::HeaderValue::from_static("no-store")
+                            });
+                    }
+                    response
+                }
                 None => proxy::status(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Rust auth upstream unavailable\n",
                 ),
-            }
+            };
         }
         inventory::Target::GoMail => return go_mail.forward(req, &identity).await,
         inventory::Target::LocalRust => {}
@@ -606,10 +708,15 @@ async fn handle(
     } else {
         shared.routes.find(&req)
     };
-    if let Some(runtime) = shared.routes.runtime.as_ref().filter(|_| {
-        adapter.is_some() && route.is_some_and(|r| r.path != "/" && r.path != "/api/")
-    }) {
-        let ctx = RequestContext { identity: identity.clone(), upstream: go_mail.clone() };
+    if let Some(runtime) =
+        shared.routes.runtime.as_ref().filter(|_| {
+            adapter.is_some() && route.is_some_and(|r| r.path != "/" && r.path != "/api/")
+        })
+    {
+        let ctx = RequestContext {
+            identity: identity.clone(),
+            upstream: go_mail.clone(),
+        };
         if let Some(response) = runtime.check(&mut req, &ctx).await {
             return response;
         }
@@ -619,8 +726,16 @@ async fn handle(
             // RequireAuth follows the route bucket; the guest belt precedes it.
             if route.requires_session(&req) {
                 if let Some(admission) = &shared.routes.admission {
-                    if let Some(response) = admission.check(req.headers().clone(), req.method().clone(),
-                        req.uri().path().to_owned(), identity.clone(), true).await {
+                    if let Some(response) = admission
+                        .check(
+                            req.headers().clone(),
+                            req.method().clone(),
+                            req.uri().path().to_owned(),
+                            identity.clone(),
+                            true,
+                        )
+                        .await
+                    {
                         return response;
                     }
                 }
@@ -635,13 +750,39 @@ async fn handle(
     }
 }
 
-fn csrf_denial(req:&Request<Body>,identity:&ClientIdentity)->Option<Response<Body>>{
-    if matches!(*req.method(),Method::GET|Method::HEAD|Method::OPTIONS)
-        || jmap::csrf::allows(req.headers(),identity.proto){return None;}
-    let id=jmap::reply::request_id(req.headers().get("x-request-id"),jmap::random().unwrap_or([0;16]));
-    let mut response=jmap::reply::response(problem::middleware(403,"csrf_failed","CSRF validation failed"),identity.proto,id);
-    *response.status_mut()=StatusCode::FORBIDDEN;
-    response.headers_mut().insert("content-type","application/problem+json".parse().unwrap());
+fn strip_api_prefix(req: &mut Request<Body>) {
+    if !req.uri().path().starts_with("/api/") {
+        return;
+    }
+    if let Some(stripped) = req
+        .uri()
+        .path_and_query()
+        .and_then(|pq| pq.as_str().strip_prefix("/api"))
+        .and_then(|rest| rest.parse::<Uri>().ok())
+    {
+        *req.uri_mut() = stripped;
+    }
+}
+
+fn csrf_denial(req: &Request<Body>, identity: &ClientIdentity) -> Option<Response<Body>> {
+    if matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS)
+        || jmap::csrf::allows(req.headers(), identity.proto)
+    {
+        return None;
+    }
+    let id = jmap::reply::request_id(
+        req.headers().get("x-request-id"),
+        jmap::random().unwrap_or([0; 16]),
+    );
+    let mut response = jmap::reply::response(
+        problem::middleware(403, "csrf_failed", "CSRF validation failed"),
+        identity.proto,
+        id,
+    );
+    *response.status_mut() = StatusCode::FORBIDDEN;
+    response
+        .headers_mut()
+        .insert("content-type", "application/problem+json".parse().unwrap());
     Some(response)
 }
 
@@ -685,22 +826,22 @@ pub mod admin_sod;
 pub mod blob_retention;
 pub mod health_alerts;
 pub mod platform;
+mod platform_airgap;
+mod platform_deploy;
 mod platform_input;
 pub mod platform_jobs;
+mod platform_recovery_admin;
 pub mod platform_storage;
 pub mod platform_terms;
 pub mod platform_updates;
-mod platform_recovery_admin;
-mod platform_airgap;
-mod platform_deploy;
 mod platform_upgrades;
 pub mod platform_webhooks;
 pub mod webhook;
 
 pub mod booking_mail;
 pub mod booking_worker;
-pub mod calendar;
 pub mod caldav;
+pub mod calendar;
 pub mod carddav;
 pub mod contacts;
 pub mod contacts_csv;
@@ -709,6 +850,7 @@ mod go_time;
 pub mod ics;
 mod ssrf;
 pub mod subscription_sync;
+mod unmatched;
 
 mod admin_users_csv;
 pub mod admin_users_lifecycle;
@@ -770,7 +912,9 @@ pub mod runtime_access;
 struct RuntimeTask(Option<tokio::task::JoinHandle<()>>);
 impl Drop for RuntimeTask {
     fn drop(&mut self) {
-        if let Some(task) = self.0.take() { task.abort(); }
+        if let Some(task) = self.0.take() {
+            task.abort();
+        }
     }
 }
 
@@ -782,6 +926,6 @@ pub mod telemetry;
 pub mod discovery;
 pub mod spam_trainer;
 
+mod identity_migration;
 pub mod identity_self_service;
 mod identity_smime;
-mod identity_migration;

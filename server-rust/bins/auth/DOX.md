@@ -78,9 +78,12 @@ Unknown/mismatched/already revoked tokens are empty 200 no-ops. JSON carries
 no form token here and is not the introspection legacy contract. COMMIT wire
 loss returns 503 with x-operation-id; `token_faults` proves before/after outcomes.
 
-`GET/HEAD /terms/pending` and `POST /terms/accept` (#333) are native. They use
-Go authserver's signature/access/revocation guard and native DPoP admission (#352),
-without gateway mailbox or guest gates.
+`GET/HEAD /terms/pending` and `POST /terms/accept` (#333, gateway aliases ON in #363) are native. They use
+Go authserver's signature/access/revocation guard and native DPoP admission (#352), without gateway mailbox or
+guest gates.
+On the gateway listener (#363), `PINNED_AND_MOUNTED` serves both `/terms/*` and `/api/terms/*`
+(stripping `/api` before forwarding to `rust-auth`), so gateway outer CSRF, `authLimit`,
+and `SessionAdmission` execute before `setjoin-auth`.
 Mutations retain CSRF and authenticated source IP. Pending JSON preserves struct
 order and no added cache policy; HEAD preserves representation length. Terms
 acceptance ignores request identity, maps stale/missing/disabled documents to
@@ -108,7 +111,7 @@ environment and fixture teardown (#516). The wire status-mutant regression
 `reload_restoration_failure_does_not_poison_next_case` forces restoration failure
 then runs a normal reload replay, guarding against duplicate-client cascades.
 
-`POST /auth/admin/users/{id}/impersonate` (#333) preserves full session + CSRF,
+`POST /auth/admin/users/{id}/impersonate` (#333; `/api/auth/admin/users/{id}/impersonate` also mounted in `inventory.rs` with `/api` stripped before forwarding to `rust-auth`, #363) preserves full session + CSRF,
 live permission and strict descending tier checks. Cookie Secure uses login's
 transport/proxy trust. The oracle validates signature, random JTI, uid/sub/act,
 15-minute lifetime and absent admin before masking randomness, then byte-checks

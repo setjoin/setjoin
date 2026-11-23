@@ -309,9 +309,7 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
                 );
                 return reply;
             }
-            let Some(kind) = kind(r.method(), r.uri().path()) else {
-                return c.upstream.forward(r, &c.identity).await;
-            };
+            let kind = kind(r.method(), r.uri().path()).expect("matched route");
             // The webhook and the guest lobby carry no caller identity: LiveKit's
             // signed token and the lobby secret are their only credentials.
             match kind {
@@ -338,12 +336,11 @@ impl<K: KeySource + 'static> Intercept for MeetRoute<K> {
             }
             match setjoin_meet::enabled(&exec).await {
                 Ok(true) => {}
-                Ok(false) => {
+                Ok(false) | Err(_) => {
                     let mut reply = problem(404, "not found", "", &c, id, &language);
                     reply.headers_mut().remove("content-language");
                     return reply;
                 }
-                Err(_) => return c.upstream.forward(r, &c.identity).await,
             }
             let decoded =
                 String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path())).into_owned();
@@ -1234,8 +1231,7 @@ async fn public(
 ) -> Response<Body> {
     match setjoin_meet::enabled(exec).await {
         Ok(true) => {}
-        Ok(false) => return plain(404, "not found", c, id),
-        Err(_) => return c.upstream.forward(r, &c.identity).await,
+        Ok(false) | Err(_) => return plain(404, "not found", c, id),
     }
     let decoded = String::from_utf8_lossy(&crate::inventory::unescape(r.uri().path())).into_owned();
     let path = decoded.strip_prefix("/api").unwrap_or(&decoded).to_owned();
@@ -1249,8 +1245,7 @@ async fn public(
     if kind == Kind::PublicCreate {
         match setjoin_meet::flag(exec, "meet.guest_access", true).await {
             Ok(true) => {}
-            Ok(false) => return plain(404, "not found", c, id),
-            Err(_) => return c.upstream.forward(r, &c.identity).await,
+            Ok(false) | Err(_) => return plain(404, "not found", c, id),
         }
         // Go's MaxBytesReader(4 KiB) plus a one-value Decoder: the first JSON
         // value must complete inside the cap; anything after it is ignored.

@@ -25,11 +25,38 @@ pub type Check<'a> = Pin<Box<dyn Future<Output = Option<Response<Body>>> + Send 
 pub type Task<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 pub trait RuntimeGate: Send + Sync + 'static {
     fn check<'a>(&'a self, r: &'a mut Request<Body>, c: &'a RequestContext) -> Check<'a>;
+    fn enforce_basic<'a>(
+        &'a self,
+        _r: &'a mut Request<Body>,
+        _c: &'a RequestContext,
+        _user_id: i64,
+    ) -> Check<'a> {
+        Box::pin(async { None })
+    }
     fn initialize(&self) -> Task<'_> {
         Box::pin(async {})
     }
     fn run(&self, stop: watch::Receiver<bool>) -> Task<'_> {
         Box::pin(stopped(stop))
+    }
+}
+impl<T: RuntimeGate + ?Sized> RuntimeGate for Arc<T> {
+    fn check<'a>(&'a self, r: &'a mut Request<Body>, c: &'a RequestContext) -> Check<'a> {
+        (**self).check(r, c)
+    }
+    fn enforce_basic<'a>(
+        &'a self,
+        r: &'a mut Request<Body>,
+        c: &'a RequestContext,
+        user_id: i64,
+    ) -> Check<'a> {
+        (**self).enforce_basic(r, c, user_id)
+    }
+    fn initialize(&self) -> Task<'_> {
+        (**self).initialize()
+    }
+    fn run(&self, stop: watch::Receiver<bool>) -> Task<'_> {
+        (**self).run(stop)
     }
 }
 pub struct RuntimeAccess<K: KeySource + 'static> {
@@ -108,6 +135,276 @@ impl<K: KeySource + 'static> RuntimeAccess<K> {
     pub fn device_cache(&self) -> Arc<crate::jmap::device_cache::DeviceCache> {
         self.devices.clone()
     }
+
+    async fn read_flags(&self) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+        let keys: Vec<String> = [
+            "feature.cae_runtime",
+            "feature.conditional_access",
+            "feature.device_trust_enforcement",
+            "feature.device_lockdown",
+            "feature.token_binding",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+        self.exec
+            .read(
+                "SELECT key,enabled FROM feature_toggles WHERE key=ANY($1::text[])",
+                &[(&keys, Type::TEXT_ARRAY)],
+            )
+            .await
+    }
+
+    async fn enforce_proof(
+        &self,
+        r: &mut Request<Body>,
+        c: &RequestContext,
+        flags: &[setjoin_pg::Row],
+        proof: Proof,
+        bearer_token: Option<&str>,
+    ) -> Option<Response<Body>> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs_f64();
+        // The live guest/credential belt still belongs to #406; this is a member proof.
+        let guests = match self
+            .exec
+            .read(
+                "SELECT count(*)::int8 FROM guest_account_status($1)",
+                &[(&proof.user_id(), Type::INT8)],
+            )
+            .await
+        {
+            Ok(guests) => guests,
+            Err(_) => return Some(unavailable(r, c)),
+        };
+        if guests[0].get::<_, i64>(0) != 0 {
+            return None;
+        }
+        let on = |key: &str| {
+            flags
+                .iter()
+                .any(|v| v.get::<_, String>(0) == key && v.get::<_, bool>(1))
+        };
+        if on("feature.device_trust_enforcement") {
+            if let Some((title, detail)) = proof.compliance_denial() {
+                return Some(deny(r, c, 403, title, detail, false));
+            }
+            if self
+                .devices
+                .revoked_enabled(self.worker_db.as_ref(), proof.device_id())
+                .await
+            {
+                let body = format!(
+                    "{{\"detail\":{},\"status\":403,\"title\":\"Forbidden\"}}\n",
+                    crate::problem::go_string(
+                        "This device's access has been revoked. Contact your administrator."
+                    )
+                );
+                return Some(reply(r, c, 403, body, false, true));
+            }
+        }
+        if on("feature.conditional_access") && on("feature.device_lockdown") {
+            let bg = store::break_glass(&self.exec).await.unwrap_or_default();
+            if !bg.is_empty() && !bg.contains(&proof.user_id()) {
+                let binding = if let Some(resolver) = &self.device {
+                    if let Some(body) = proof_body(r).await {
+                        let target = r.uri().path_and_query().map_or("/", |v| v.as_str());
+                        // http.StripPrefix mutates Go's URL before the device helper.
+                        let inner = if target.starts_with("/api/") {
+                            &target[4..]
+                        } else {
+                            target
+                        };
+                        resolver
+                            .resolve(
+                                &proof,
+                                DeviceRequest {
+                                    headers: r.headers(),
+                                    method: r.method().as_str(),
+                                    uri: inner,
+                                    body: &body,
+                                },
+                            )
+                            .await
+                    } else {
+                        Default::default()
+                    }
+                } else {
+                    Default::default()
+                };
+                if !binding.bound || binding.enroll_state != "approved" {
+                    let body = format!(
+                        "{{\"code\":\"BZ095\",\"detail\":{},\"status\":403,\"title\":\"Forbidden\"}}\n",
+                        crate::problem::go_string("device not enrolled — contact your administrator")
+                    );
+                    return Some(reply(r, c, 403, body, false, true));
+                }
+            }
+        }
+        let claims = proof.claims();
+        if let Some(sessions) = &self.sessions {
+            let issued = chrono::DateTime::from_timestamp(
+                claims["iat"].as_i64().unwrap_or(-62_135_596_800),
+                0,
+            )?;
+            if sessions.is_revoked(
+                proof.user_id(),
+                text(claims, "jti"),
+                text(claims, "fam"),
+                issued,
+            ) {
+                return Some(deny(
+                    r,
+                    c,
+                    401,
+                    "session_revoked",
+                    "Session has been revoked. Sign in again.",
+                    false,
+                ));
+            }
+        }
+        if !on("feature.cae_runtime") {
+            return None;
+        }
+        if self.sessions.as_ref().is_none_or(|s| !s.loaded()) {
+            return Some(deny(
+                r,
+                c,
+                401,
+                "session_revoked",
+                "Session verification unavailable — re-authenticate.",
+                false,
+            ));
+        }
+        if on("feature.token_binding") && !text(&claims["cnf"], "jkt").is_empty() {
+            let uri = format!(
+                "https://{}{}",
+                r.headers()
+                    .get("host")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or(""),
+                r.uri().path()
+            );
+            let signed = r
+                .headers()
+                .get("dpop")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+            if !dpop::verify(
+                signed,
+                r.method().as_str(),
+                &uri,
+                text(&claims["cnf"], "jkt"),
+                now,
+                &self.replay,
+                bearer_token.unwrap_or(""),
+            ) {
+                return Some(reply(
+                    r,
+                    c,
+                    401,
+                    crate::problem::runtime_binding(),
+                    false,
+                    false,
+                ));
+            }
+        }
+        if let Some(sif) = claims["sif"].as_i64() {
+            let anchor = claims["auth_time"]
+                .as_i64()
+                .or_else(|| claims["iat"].as_i64());
+            if anchor.is_none_or(|anchor| {
+                now - anchor as f64 > sif.wrapping_mul(1_000_000_000) as f64 / 1e9
+            }) {
+                return Some(deny(
+                    r,
+                    c,
+                    401,
+                    "sign_in_frequency",
+                    "Session expired — re-authenticate.",
+                    true,
+                ));
+            }
+        }
+        if !on("feature.conditional_access") {
+            return None;
+        }
+        let ua = r
+            .headers()
+            .get("user-agent")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let ctx = Context {
+            user_id: proof.user_id(),
+            source_ip: c.identity.client_ip.to_string(),
+            protocol: "http".into(),
+            auth_method: if text(claims, "auth_method").is_empty() {
+                "jwt_bearer".into()
+            } else {
+                text(claims, "auth_method").into()
+            },
+            current_acr: text(claims, "acr").into(),
+            user_agent: ua.into(),
+            device_fp: fingerprint(ua, c.identity.client_ip),
+            country: self
+                .geo
+                .as_ref()
+                .map_or_else(String::new, |geo| geo.country(c.identity.client_ip)),
+            risk_level: text(&claims["risk"], "level").into(),
+            request_time: Some(now as i64),
+            ..Default::default()
+        };
+        // Go runtime deliberately leaves ClientType, CompletedFactors and
+        // DeviceBound/EnrollState unset, even after a successful lockdown proof.
+        let result = self.engine.evaluate(ctx).await;
+        match result.decision.as_str() {
+            "block" => {
+                if result.remediation == "terms" && result.terms_id != 0 {
+                    if let Some(worker) = &self.worker {
+                        let rows = worker
+                            .read(
+                                "SELECT EXISTS(SELECT 1 FROM terms_of_use t LEFT JOIN terms_of_use_acceptance a ON a.tou_id=t.id AND a.user_id=$1 AND a.version=t.version WHERE t.id=$2 AND t.enabled AND a.user_id IS NULL)",
+                                &[(&proof.user_id(), Type::INT8), (&result.terms_id, Type::INT8)],
+                            )
+                            .await;
+                        if rows.is_ok_and(|r| !r[0].get::<_, bool>(0)) {
+                            return None;
+                        }
+                    }
+                }
+                Some(reply(
+                    r,
+                    c,
+                    403,
+                    crate::problem::runtime_block(
+                        &result.reason,
+                        &result.remediation,
+                        result.terms_id,
+                    ),
+                    false,
+                    false,
+                ))
+            }
+            "step_up" => Some(deny(r, c, 401, "step_up_required", &result.reason, true)),
+            _ => None, // Go wires no limited_web context projection in mailserverd.
+        }
+    }
+}
+
+fn is_dav_or_drive_native(r: &Request<Body>) -> bool {
+    let path = crate::guests_input::go_utf8(&crate::inventory::unescape(r.uri().path()));
+    path.starts_with("/caldav/")
+        || path.starts_with("/carddav/")
+        || (r.method() == hyper::Method::POST && r.uri().path() == "/api/drive/native-token")
+}
+
+fn has_basic_or_negotiate(headers: &hyper::HeaderMap) -> bool {
+    headers.get(hyper::header::AUTHORIZATION).is_some_and(|v| {
+        let bytes = v.as_bytes();
+        bytes.starts_with(b"Basic ") || bytes.starts_with(b"Negotiate ")
+    })
 }
 async fn stopped(mut stop: watch::Receiver<bool>) {
     while !*stop.borrow() {
@@ -318,24 +615,7 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
             }
             // Read flags before proof selection: an unsupported credential must
             // not turn an enabled gate into silent admission.
-            let keys: Vec<String> = [
-                "feature.cae_runtime",
-                "feature.conditional_access",
-                "feature.device_trust_enforcement",
-                "feature.device_lockdown",
-                "feature.token_binding",
-            ]
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-            let flags = match self
-                .exec
-                .read(
-                    "SELECT key,enabled FROM feature_toggles WHERE key=ANY($1::text[])",
-                    &[(&keys, Type::TEXT_ARRAY)],
-                )
-                .await
-            {
+            let flags = match self.read_flags().await {
                 Ok(flags) => flags,
                 Err(_) => return Some(unavailable(r, c)),
             };
@@ -382,6 +662,9 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
                 None
             };
             let Some(proof) = proof else {
+                if is_dav_or_drive_native(r) && has_basic_or_negotiate(r.headers()) {
+                    return None;
+                }
                 return flags.iter().any(|flag| flag.get::<_, bool>(1)).then(|| {
                     reply(
                         r,
@@ -393,221 +676,24 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
                     )
                 });
             };
-            // The live guest/credential belt still belongs to #406; this is a member proof.
-            let guests = match self
-                .exec
-                .read(
-                    "SELECT count(*)::int8 FROM guest_account_status($1)",
-                    &[(&proof.user_id(), Type::INT8)],
-                )
+            self.enforce_proof(r, c, &flags, proof, token.as_deref())
                 .await
-            {
-                Ok(guests) => guests,
+        })
+    }
+
+    fn enforce_basic<'a>(
+        &'a self,
+        r: &'a mut Request<Body>,
+        c: &'a RequestContext,
+        user_id: i64,
+    ) -> Check<'a> {
+        Box::pin(async move {
+            let flags = match self.read_flags().await {
+                Ok(flags) => flags,
                 Err(_) => return Some(unavailable(r, c)),
             };
-            if guests[0].get::<_, i64>(0) != 0 {
-                return None;
-            }
-            let on = |key: &str| {
-                flags
-                    .iter()
-                    .any(|v| v.get::<_, String>(0) == key && v.get::<_, bool>(1))
-            };
-            if on("feature.device_trust_enforcement") {
-                if let Some((title, detail)) = proof.compliance_denial() {
-                    return Some(deny(r, c, 403, title, detail, false));
-                }
-                if self
-                    .devices
-                    .revoked_enabled(self.worker_db.as_ref(), proof.device_id())
-                    .await
-                {
-                    let body = format!(
-                        "{{\"detail\":{},\"status\":403,\"title\":\"Forbidden\"}}\n",
-                        crate::problem::go_string(
-                            "This device's access has been revoked. Contact your administrator."
-                        )
-                    );
-                    return Some(reply(r, c, 403, body, false, true));
-                }
-            }
-            if on("feature.conditional_access") && on("feature.device_lockdown") {
-                let bg = store::break_glass(&self.exec).await.unwrap_or_default();
-                if !bg.is_empty() && !bg.contains(&proof.user_id()) {
-                    let binding = if let Some(resolver) = &self.device {
-                        if let Some(body) = proof_body(r).await {
-                            let target = r.uri().path_and_query().map_or("/", |v| v.as_str());
-                            // http.StripPrefix mutates Go's URL before the device helper.
-                            let inner = if target.starts_with("/api/") {
-                                &target[4..]
-                            } else {
-                                target
-                            };
-                            resolver
-                                .resolve(
-                                    &proof,
-                                    DeviceRequest {
-                                        headers: r.headers(),
-                                        method: r.method().as_str(),
-                                        uri: inner,
-                                        body: &body,
-                                    },
-                                )
-                                .await
-                        } else {
-                            Default::default()
-                        }
-                    } else {
-                        Default::default()
-                    };
-                    if !binding.bound || binding.enroll_state != "approved" {
-                        let body=format!("{{\"code\":\"BZ095\",\"detail\":{},\"status\":403,\"title\":\"Forbidden\"}}\n",crate::problem::go_string("device not enrolled — contact your administrator"));
-                        return Some(reply(r, c, 403, body, false, true));
-                    }
-                }
-            }
-            let claims = proof.claims();
-            if let Some(sessions) = &self.sessions {
-                let issued = chrono::DateTime::from_timestamp(
-                    claims["iat"].as_i64().unwrap_or(-62_135_596_800),
-                    0,
-                )?;
-                if sessions.is_revoked(
-                    proof.user_id(),
-                    text(claims, "jti"),
-                    text(claims, "fam"),
-                    issued,
-                ) {
-                    return Some(deny(
-                        r,
-                        c,
-                        401,
-                        "session_revoked",
-                        "Session has been revoked. Sign in again.",
-                        false,
-                    ));
-                }
-            }
-            if !on("feature.cae_runtime") {
-                return None;
-            }
-            if self.sessions.as_ref().is_none_or(|s| !s.loaded()) {
-                return Some(deny(
-                    r,
-                    c,
-                    401,
-                    "session_revoked",
-                    "Session verification unavailable — re-authenticate.",
-                    false,
-                ));
-            }
-            if on("feature.token_binding") && !text(&claims["cnf"], "jkt").is_empty() {
-                let uri = format!(
-                    "https://{}{}",
-                    r.headers()
-                        .get("host")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or(""),
-                    r.uri().path()
-                );
-                let signed = r
-                    .headers()
-                    .get("dpop")
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("");
-                if !dpop::verify(
-                    signed,
-                    r.method().as_str(),
-                    &uri,
-                    text(&claims["cnf"], "jkt"),
-                    now,
-                    &self.replay,
-                    token.as_deref().unwrap_or(""),
-                ) {
-                    return Some(reply(
-                        r,
-                        c,
-                        401,
-                        crate::problem::runtime_binding(),
-                        false,
-                        false,
-                    ));
-                }
-            }
-            if let Some(sif) = claims["sif"].as_i64() {
-                let anchor = claims["auth_time"]
-                    .as_i64()
-                    .or_else(|| claims["iat"].as_i64());
-                if anchor.is_none_or(|anchor| {
-                    now - anchor as f64 > sif.wrapping_mul(1_000_000_000) as f64 / 1e9
-                }) {
-                    return Some(deny(
-                        r,
-                        c,
-                        401,
-                        "sign_in_frequency",
-                        "Session expired — re-authenticate.",
-                        true,
-                    ));
-                }
-            }
-            if !on("feature.conditional_access") {
-                return None;
-            }
-            let ua = r
-                .headers()
-                .get("user-agent")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("");
-            let ctx = Context {
-                user_id: proof.user_id(),
-                source_ip: c.identity.client_ip.to_string(),
-                protocol: "http".into(),
-                auth_method: if text(claims, "auth_method").is_empty() {
-                    "jwt_bearer".into()
-                } else {
-                    text(claims, "auth_method").into()
-                },
-                current_acr: text(claims, "acr").into(),
-                user_agent: ua.into(),
-                device_fp: fingerprint(ua, c.identity.client_ip),
-                country: self
-                    .geo
-                    .as_ref()
-                    .map_or_else(String::new, |geo| geo.country(c.identity.client_ip)),
-                risk_level: text(&claims["risk"], "level").into(),
-                request_time: Some(now as i64),
-                ..Default::default()
-            };
-            // Go runtime deliberately leaves ClientType, CompletedFactors and
-            // DeviceBound/EnrollState unset, even after a successful lockdown proof.
-            let result = self.engine.evaluate(ctx).await;
-            match result.decision.as_str() {
-                "block" => {
-                    if result.remediation == "terms" && result.terms_id != 0 {
-                        if let Some(worker) = &self.worker {
-                            let rows=worker.read("SELECT EXISTS(SELECT 1 FROM terms_of_use t LEFT JOIN terms_of_use_acceptance a ON a.tou_id=t.id AND a.user_id=$1 AND a.version=t.version WHERE t.id=$2 AND t.enabled AND a.user_id IS NULL)",&[(&proof.user_id(),Type::INT8),(&result.terms_id,Type::INT8)]).await;
-                            if rows.is_ok_and(|r| !r[0].get::<_, bool>(0)) {
-                                return None;
-                            }
-                        }
-                    }
-                    Some(reply(
-                        r,
-                        c,
-                        403,
-                        crate::problem::runtime_block(
-                            &result.reason,
-                            &result.remediation,
-                            result.terms_id,
-                        ),
-                        false,
-                        false,
-                    ))
-                }
-                "step_up" => Some(deny(r, c, 401, "step_up_required", &result.reason, true)),
-                _ => None, // Go wires no limited_web context projection in mailserverd.
-            }
+            self.enforce_proof(r, c, &flags, Proof::basic(user_id), None)
+                .await
         })
     }
 }

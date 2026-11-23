@@ -66,8 +66,9 @@ forwarded requests. Normal replay asserts zero total/F14 Go proxy counters.
 Both outcomes return 503/X-Operation-ID; the committed receipt resolves the
 actual outcome without replaying a write. The after-COMMIT case compares the
 full V2 Go business effects, audit and notifications; the before-COMMIT case
-retains the seeded snapshot. Concurrent primary-mailbox changes defer the
-untouched request to Go. Shared-authz unsupported token/guest/security cases
+retains the seeded snapshot. Concurrent primary-mailbox changes resolve the
+caller's live primary mailbox and run the delegate grant/revoke reducer with it
+rather than forwarding to Go. Shared-authz unsupported token/guest/security cases
 retain ARCH-027 forwarding pending identity #331–#333. Drive workers: #276
 (watch) and #409 (maintenance, preview; see the gateway DOX).
 
@@ -134,9 +135,9 @@ unchanged versus committed Go business effects without replaying the command.
 No accepted divergences. Existing workspace/root index lines already cover F14
 slices and are intentionally unchanged.
 
-Unconfigured preview storage declines before any audit write; its executable
-adapter regression checks unchanged rows/notifications and the untouched Go
-request. Fault fixtures are owned by the disposable database and restored even
+Unconfigured preview storage fails closed with 503 (`storage unavailable`) before
+any audit write; its executable adapter regression checks unchanged
+rows/notifications and zero Go forwarding. Fault fixtures are owned by the disposable database and restored even
 on panic: app read grants, private worker views, renamed canonical functions,
 and actor/space-scoped audit or chunk-registration triggers. Registration failure
 after S3 copy preserves Go's temporary cleanup and leaves no committed chunk or

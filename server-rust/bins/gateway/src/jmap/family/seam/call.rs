@@ -263,7 +263,7 @@ async fn scoped_write(
     sql: &'static str,
     params: &[Param<'_>],
 ) -> Result<String, MethodError> {
-    let Some(operation) = crate::jmap::random() else {
+    let Ok(operation) = crate::jmap::random_bytes() else {
         return Err(MethodError::server_fail());
     };
     let envelope = envelope(cx, scope, operation);
@@ -365,7 +365,7 @@ pub(crate) async fn set_batch(
     if create.is_none() && update.is_none() && ids.is_none() {
         return Ok("{}".to_owned());
     }
-    let Some(operation) = crate::jmap::random() else {
+    let Ok(operation) = crate::jmap::random_bytes() else {
         return Err(MethodError::server_fail());
     };
     let envelope = envelope(cx, scope, operation);
@@ -852,7 +852,7 @@ pub(crate) async fn worker_write(
     let Some(services) = cx.services else {
         return Err(MethodError::server_fail());
     };
-    let Some(operation) = crate::jmap::random() else {
+    let Ok(operation) = crate::jmap::random_bytes() else {
         return Err(MethodError::server_fail());
     };
     let worker = &services.worker;

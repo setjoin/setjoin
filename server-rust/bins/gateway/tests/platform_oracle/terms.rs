@@ -657,7 +657,6 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         let edge_limit = (!recording && burst(action, label).is_some()).then(|| {
             setjoin_gateway::jmap::limit::EdgeLimit::new(
                 setjoin_gateway::jmap::limit::Limiter::new(100_000, 60),
-                Arc::new(|| -> BoxFuture<bool> { Box::pin(async { true }) }),
             )
         });
         let table = RouteTable::proxy_all().with(adapter);
@@ -926,8 +925,8 @@ fn request(case: &Case, uri: &str, user: i64, body: String) -> Result<Request<Bo
         request = request.header("origin", origin);
     }
     request = request.header("x-request-id", "gofree-plat5-oracle");
-    let authorization = named("authorization")
-        .map_or(format!("Bearer {}", token(user)), |(_, v)| expand(v, user));
+    let authorization =
+        named("authorization").map_or(format!("Bearer {}", token(user)), |(_, v)| expand(v, user));
     if !authorization.is_empty() {
         request = request.header("authorization", authorization);
     }
@@ -944,15 +943,21 @@ fn request(case: &Case, uri: &str, user: i64, body: String) -> Result<Request<Bo
 
 /// `{token}` is the persona's admin token; the other markers are forgeries Go must refuse,
 /// or claims it must ignore.
-fn expand(value: &str, user: i64) -> String {
+pub(super) fn expand(value: &str, user: i64) -> String {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     let signed = |edit: &dyn Fn(&mut Value)| {
-        format!("Bearer {}", super::admin_token_with(user, &[0x11; 32], edit))
+        format!(
+            "Bearer {}",
+            super::admin_token_with(user, &[0x11; 32], edit)
+        )
     };
     match value {
         "Bearer {token}" => format!("Bearer {}", token(user)),
         "Bearer {token-bad-signature}" => {
-            format!("Bearer {}", super::admin_token_with(user, &[0x12; 32], |_| {}))
+            format!(
+                "Bearer {}",
+                super::admin_token_with(user, &[0x12; 32], |_| {})
+            )
         }
         "Bearer {token-expired}" => signed(&|claims| claims["exp"] = json!(1)),
         "Bearer {token-claims-identity-write}" => {
@@ -992,7 +997,7 @@ fn native_mux(action: &str) -> bool {
 }
 
 /// Waits out a window that would end during a burst (Go's buckets are epoch aligned).
-async fn whole_window(window_secs: u64) -> Result<(), BoxError> {
+pub(super) async fn whole_window(window_secs: u64) -> Result<(), BoxError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
@@ -1012,7 +1017,11 @@ fn replace_bounded(text: &str, from: &str, to: &str) -> String {
         let (head, tail) = rest.split_at(at);
         let after = &tail[from.len()..];
         out.push_str(head);
-        if after.chars().next().is_none_or(|c| matches!(c, '/' | '"' | '?' | '\\')) {
+        if after
+            .chars()
+            .next()
+            .is_none_or(|c| matches!(c, '/' | '"' | '?' | '\\'))
+        {
             out.push_str(to);
         } else {
             out.push_str(from);
