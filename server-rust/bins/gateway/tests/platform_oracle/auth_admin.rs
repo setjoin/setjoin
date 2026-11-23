@@ -275,7 +275,6 @@ pub async fn run(label: &str, mutant: bool) -> Result<(), BoxError> {
         let edge_limit = (!recording && case.burst.is_some()).then(|| {
             setjoin_gateway::jmap::limit::EdgeLimit::new(
                 setjoin_gateway::jmap::limit::Limiter::new(100_000, 60),
-                Arc::new(|| -> BoxFuture<bool> { Box::pin(async { true }) }),
             )
         });
         let table = if recording {
