@@ -1,0 +1,52 @@
+{
+  "case": "calendar-event-get-shared-success",
+  "format": 1,
+  "go_source": "c62af657f6518e04727249c084b73a4d63e9c3a6",
+  "kind": "success",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [
+      "Secret private event"
+    ],
+    "audit": [],
+    "effects": {
+      "calendar_events": {
+        "after": "[{\"id\": <seed.1>, \"uid\": \"uid-shared-pub\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Shared public event\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 0, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": false, \"jmap_state\": 0, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PUBLIC\", \"component_type\": \"VEVENT\", \"organizer_name\": null, \"organizer_email\": null, \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}, {\"id\": <seed.2>, \"uid\": \"uid-shared-priv\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Secret private event\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 0, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": false, \"jmap_state\": 0, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PRIVATE\", \"component_type\": \"VEVENT\", \"organizer_name\": null, \"organizer_email\": null, \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}]",
+        "before": "[{\"id\": <seed.1>, \"uid\": \"uid-shared-pub\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Shared public event\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 0, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": false, \"jmap_state\": 0, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PUBLIC\", \"component_type\": \"VEVENT\", \"organizer_name\": null, \"organizer_email\": null, \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}, {\"id\": <seed.2>, \"uid\": \"uid-shared-priv\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Secret private event\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 0, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": false, \"jmap_state\": 0, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PRIVATE\", \"component_type\": \"VEVENT\", \"organizer_name\": null, \"organizer_email\": null, \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}]"
+      }
+    },
+    "notify": [],
+    "repeat": null,
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:core\",\"urn:ietf:params:jmap:calendars\"],\"methodCalls\":[[\"CalendarEvent/getShared\",{\"accountId\":\"<a.mailbox>\",\"ownerEmail\":\"<owner-email>\"},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"CalendarEvent/getShared\",{\"list\":[{\"id\":\"<seed.1>\",\"end\":\"<timestamp>+00:00\",\"start\":\"<timestamp>+00:00\",\"title\":\"Shared public event\",\"status\":\"confirmed\",\"isAllDay\":false,\"location\":null,\"timeZone\":null,\"calendarId\":\"<seed.0>\",\"isReadOnly\":true,\"description\":null,\"recurrenceRule\":null},{\"id\":\"<seed.2>\",\"end\":\"<timestamp>+00:00\",\"start\":\"<timestamp>+00:00\",\"title\":\"Busy\",\"status\":\"confirmed\",\"isAllDay\":false,\"location\":null,\"timeZone\":null,\"calendarId\":\"<seed.0>\",\"isReadOnly\":true,\"description\":null,\"recurrenceRule\":null}],\"accountId\":\"<a.user>\",\"ownerEmail\":\"<owner-email>\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": [
+      "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"CalendarEvent/resourceList\",{\"list\":[{\"id\":\"<seed.3>\",\"name\":\"MgrEmailProbe\",\"email\":\"<owner-email>\",\"capacity\":4,\"resourceType\":\"room\",\"bookingPolicy\":\"auto-accept\"}],\"accountId\":\"<a.mailbox>\"},\"r0\"]]}\n"
+    ]
+  },
+  "route": "POST /jmap CalendarEvent/getShared"
+}

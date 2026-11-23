@@ -1,0 +1,28 @@
+{
+  "case": "calendar-set-invalid-input-row-effects",
+  "effects": [
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "calendars"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "calendar_acls"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "entity_state"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "changes_journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "63b6242b5518c2b050639897e2ecf995c69a4d34",
+  "route": "POST /jmap Calendar/set"
+}

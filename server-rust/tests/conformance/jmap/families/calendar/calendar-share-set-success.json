@@ -1,0 +1,54 @@
+{
+  "case": "calendar-share-set-success",
+  "format": 1,
+  "go_source": "aa36d7bb53756393a6d610422d3bc000b9c10c1f",
+  "kind": "success",
+  "normalization": [
+    "case pointer values and vars: <name>",
+    "sessionState: text after the last '-' replaced by <timestamp>",
+    "timestamps (date and time, fraction): <timestamp>; the zone suffix is kept",
+    "UUIDs: <uuid>",
+    "fixture and seed ids (whole digit runs): <a.mailbox> <a.user> <f.mailbox> <f.user> <seed.N>",
+    "headers: date, content-length and transfer-encoding dropped"
+  ],
+  "observation": {
+    "absent": [],
+    "audit": [],
+    "effects": {
+      "calendar_acls": {
+        "after": "[{\"user_id\": <f.user>, \"permission\": \"write\", \"calendar_id\": <seed.0>}]",
+        "before": "[]"
+      },
+      "calendars": {
+        "after": "[{\"id\": <seed.0>, \"name\": \"Own\", \"color\": null, \"timezone\": \"UTC\", \"is_shared\": true, \"is_default\": true, \"jmap_state\": 1, \"mailbox_id\": <a.mailbox>, \"description\": null}]",
+        "before": "[{\"id\": <seed.0>, \"name\": \"Own\", \"color\": null, \"timezone\": \"UTC\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"description\": null}]"
+      }
+    },
+    "notify": [
+      "calendar:<a.mailbox> {\"event\": \"calendar_shared\", \"event_id\": null, \"calendar_id\": <seed.0>}"
+    ],
+    "repeat": null,
+    "request": {
+      "body": "{\"using\":[\"urn:ietf:params:jmap:calendars\"],\"methodCalls\":[[\"Calendar/shareSet\",{\"accountId\":\"<a.mailbox>\",\"calendarId\":\"<seed.0>\",\"grants\":[{\"userEmail\":\"foreign-<f.user>@oracle.test\",\"level\":\"write\"}]},\"c1\"]]}",
+      "method": "POST",
+      "path": "/jmap"
+    },
+    "response": {
+      "body": "{\"sessionState\":\"0-0-0-0-0-0-0-<timestamp>\",\"methodResponses\":[[\"Calendar/shareSet\",{\"ok\":true,\"newState\":\"1\",\"calendarId\":\"<seed.0>\"},\"c1\"]]}\n",
+      "headers": {
+        "cache-control": "no-store",
+        "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self' wss: https: http:; media-src 'self' blob: http://127.0.0.1:*; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-src 'self'; frame-ancestors 'none';",
+        "content-type": "application/json",
+        "cross-origin-opener-policy": "same-origin",
+        "permissions-policy": "camera=(self), microphone=(self), autoplay=(self), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+        "x-request-id": "gofree-jmapfam"
+      },
+      "status": 200
+    },
+    "setup": []
+  },
+  "route": "POST /jmap Calendar/shareSet"
+}

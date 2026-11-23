@@ -1,0 +1,33 @@
+{
+  "case": "address-book-set-repeat-row-effects",
+  "effects": [
+    {
+      "after": "[{\"id\": <seed.0>, \"name\": \"Default\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"description\": null}, {\"id\": <created.k1>, \"name\": \"Repeat Book\", \"is_shared\": false, \"is_default\": false, \"jmap_state\": 1, \"mailbox_id\": <a.mailbox>, \"description\": null}, {\"id\": <created.k1>, \"name\": \"Repeat Book\", \"is_shared\": false, \"is_default\": false, \"jmap_state\": 1, \"mailbox_id\": <a.mailbox>, \"description\": null}]",
+      "before": "[{\"id\": <seed.0>, \"name\": \"Default\", \"is_shared\": false, \"is_default\": true, \"jmap_state\": 0, \"mailbox_id\": <a.mailbox>, \"description\": null}]",
+      "name": "addressbooks"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "contact_groups"
+    },
+    {
+      "after": "[]",
+      "before": "[]",
+      "name": "contact_group_members"
+    },
+    {
+      "after": "[{\"seq\": 3, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"seq\": 1, \"datatype\": \"AddressBook\", \"mailbox_id\": <a.mailbox>}]",
+      "name": "entity_state"
+    },
+    {
+      "after": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <created.k1>, \"state_seq\": 2, \"mailbox_id\": <a.mailbox>}, {\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <created.k1>, \"state_seq\": 3, \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"op\": \"created\", \"datatype\": \"AddressBook\", \"entity_id\": <seed.0>, \"state_seq\": 1, \"mailbox_id\": <a.mailbox>}]",
+      "name": "journal"
+    }
+  ],
+  "format": 1,
+  "go_source": "63b6242b5518c2b050639897e2ecf995c69a4d34",
+  "route": "POST /jmap AddressBook/set"
+}

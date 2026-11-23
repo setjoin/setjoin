@@ -1,0 +1,23 @@
+{
+  "case": "calendar-event-rsvp-entitlement-denied-row-effects",
+  "effects": [
+    {
+      "after": "[{\"name\": \"Alice\", \"role\": \"required\", \"rsvp\": true, \"email\": \"fam-calendar_event@oracle.test\", \"status\": \"needs-action\", \"event_id\": <seed.1>}]",
+      "before": "[{\"name\": \"Alice\", \"role\": \"required\", \"rsvp\": true, \"email\": \"fam-calendar_event@oracle.test\", \"status\": \"needs-action\", \"event_id\": <seed.1>}]",
+      "name": "event_attendees"
+    },
+    {
+      "after": "[{\"id\": <seed.1>, \"uid\": \"uid-own-1\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Own event\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 0, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": false, \"jmap_state\": 0, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PUBLIC\", \"component_type\": \"VEVENT\", \"organizer_name\": null, \"organizer_email\": null, \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}]",
+      "before": "[{\"id\": <seed.1>, \"uid\": \"uid-own-1\", \"url\": null, \"color\": null, \"rdate\": null, \"rrule\": null, \"title\": \"Own event\", \"due_at\": null, \"end_at\": \"<timestamp>+00:00\", \"exdate\": null, \"status\": \"confirmed\", \"transp\": \"OPAQUE\", \"valarm\": null, \"all_day\": false, \"location\": null, \"priority\": null, \"sequence\": 0, \"start_at\": \"<timestamp>+00:00\", \"timezone\": null, \"is_meeting\": false, \"jmap_state\": 0, \"calendar_id\": <seed.0>, \"description\": null, \"meeting_url\": null, \"completed_at\": null, \"recurrence_id\": null, \"classification\": \"PUBLIC\", \"component_type\": \"VEVENT\", \"organizer_name\": null, \"organizer_email\": null, \"parent_event_uid\": null, \"percent_complete\": null, \"recurrence_override\": null}]",
+      "name": "calendar_events"
+    },
+    {
+      "after": "[{\"seq\": 1, \"datatype\": \"Calendar\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 1, \"datatype\": \"CalendarEvent\", \"mailbox_id\": <a.mailbox>}]",
+      "before": "[{\"seq\": 1, \"datatype\": \"Calendar\", \"mailbox_id\": <a.mailbox>}, {\"seq\": 1, \"datatype\": \"CalendarEvent\", \"mailbox_id\": <a.mailbox>}]",
+      "name": "entity_state"
+    }
+  ],
+  "format": 1,
+  "go_source": "c62af657f6518e04727249c084b73a4d63e9c3a6",
+  "route": "POST /jmap CalendarEvent/rsvp"
+}
