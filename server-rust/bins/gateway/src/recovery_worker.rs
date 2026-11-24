@@ -995,11 +995,18 @@ impl S3Store {
                         .unwrap_or_default();
                 }
                 match parsed.code.as_str() {
-                    "AccessDenied"
-                    | "AuthorizationHeaderMalformed"
-                    | "InvalidRegion"
-                    | "PermanentRedirect"
-                    | "TemporaryRedirect" => parsed.region,
+                    "AccessDenied" | "AuthorizationHeaderMalformed" | "InvalidRegion" => {
+                        parsed.region
+                    }
+                    "PermanentRedirect" | "TemporaryRedirect" => {
+                        if parsed.region.is_empty() {
+                            return Err(format!(
+                                "S3 bucket location redirect ({status} {}) missing bucket region",
+                                parsed.code
+                            ));
+                        }
+                        parsed.region
+                    }
                     "NotImplemented"
                         if headers.get("server").is_some_and(|s| s == "AmazonSnowball") =>
                     {
@@ -1989,6 +1996,34 @@ mod tests {
         drop(srv);
         assert_eq!(hits.load(Ordering::SeqCst), 1);
         assert_eq!(store.region.lock().await.as_deref(), Some("eu-west-1"));
+
+        // Cold-cache GET ?location on 307 WITHOUT region hint must fail instead of caching us-east-1.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let srv = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| async move {
+                        let resp = Response::builder()
+                            .status(307)
+                            .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                            .body(Full::new(Bytes::new()))
+                            .unwrap();
+                        Ok::<_, std::convert::Infallible>(resp)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        assert!(store.bucket().await.is_err());
+        drop(srv);
+        assert_eq!(*store.region.lock().await, None);
     }
 
     #[tokio::test]

@@ -67,10 +67,8 @@ fn main() -> ExitCode {
         "S3__BUCKET",
         "MINIO_BUCKET",
         "S3_ACCESS_KEY",
-        "S3__ACCESS_KEY",
         "MINIO_ACCESS_KEY",
         "S3_SECRET_KEY",
-        "S3__SECRET_KEY",
         "MINIO_SECRET_KEY",
     ]
     .iter()

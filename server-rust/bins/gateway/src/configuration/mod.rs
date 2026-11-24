@@ -119,10 +119,14 @@ impl Settings {
         }
     }
     pub fn boolean(&self, key: &str) -> bool {
-        matches!(
-            self.string(key).as_str(),
-            "1" | "t" | "T" | "true" | "TRUE" | "True"
-        )
+        match self.values.get(key) {
+            Some(Value::Bool(b)) => *b,
+            Some(Value::Number(n)) => {
+                n.as_f64() == Some(1.0) || n.as_i64() == Some(1) || n.as_u64() == Some(1)
+            }
+            Some(Value::String(s)) => matches!(s.as_str(), "1" | "t" | "T" | "true" | "TRUE" | "True"),
+            _ => false,
+        }
     }
     /// The client-visible configuration projection recorded by the Go overlay.
     pub fn projection(&self) -> Value {
@@ -159,7 +163,20 @@ impl Settings {
                 continue;
             }
             let name = key.replace('.', "_").to_ascii_uppercase();
-            std::env::set_var(&name, self.string(key));
+            let env_value = if key == "s3.secure"
+                && matches!(
+                    self.values.get(key.as_str()),
+                    Some(Value::Bool(_) | Value::Number(_))
+                ) {
+                if self.boolean(key) {
+                    "true".to_owned()
+                } else {
+                    "false".to_owned()
+                }
+            } else {
+                self.string(key)
+            };
+            std::env::set_var(&name, env_value);
             // Existing protocol adapters use Go's field-oriented spelling.
             match key.as_str() {
                 "tls.cert" => std::env::set_var("TLS_CERT_FILE", self.string(key)),
@@ -333,4 +350,19 @@ fn loopback_listener(address: &str) -> bool {
         || address
             .strip_prefix("localhost:")
             .is_some_and(|port| !port.contains(':'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn settings_boolean_matches_koanf_numeric_one() {
+        let numeric = Settings::parse("s3:\n  secure: 1.0\n", &BTreeMap::new()).unwrap();
+        assert!(numeric.boolean("s3.secure"));
+
+        let quoted = Settings::parse("s3:\n  secure: \"1.0\"\n", &BTreeMap::new()).unwrap();
+        assert!(!quoted.boolean("s3.secure"));
+    }
 }

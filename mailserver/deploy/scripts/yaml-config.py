@@ -982,6 +982,7 @@ def parse_systemd_env_entries(
             else None
         )
         if key:
+            out.pop(key, None)
             out[key] = (val, raw_line)
     return out
 
@@ -1133,76 +1134,58 @@ def cmd_render_storage(args: list[str]) -> int:
         "S3_ENDPOINT",
         "S3__ENDPOINT",
         "S3_ACCESS_KEY",
-        "S3__ACCESS_KEY",
         "S3_SECRET_KEY",
-        "S3__SECRET_KEY",
         "S3_BUCKET",
         "S3__BUCKET",
         "S3_SECURE",
         "S3__SECURE",
         "MINIO_ENDPOINT",
-        "MINIO__ENDPOINT",
         "MINIO_ACCESS_KEY",
-        "MINIO__ACCESS_KEY",
         "MINIO_SECRET_KEY",
-        "MINIO__SECRET_KEY",
         "MINIO_BUCKET",
-        "MINIO__BUCKET",
         "MINIO_SECURE",
-        "MINIO__SECURE",
     )
     if not any(k in s3_yaml for k in yaml_keys) and not any(k in env_map for k in env_keys):
         return 0
 
     def env_pick(*names: str) -> str | None:
-        for k, v in reversed(list(env_map.items())):
-            if k in names:
-                return v
+        for name in names:
+            if name in env_map:
+                return env_map[name]
         return None
 
     endpoint = (
         str(s3_yaml["endpoint"]) if s3_yaml.get("endpoint") is not None else "127.0.0.1:9000"
     )
-    picked_endpoint = env_pick("S3_ENDPOINT", "S3__ENDPOINT")
+    picked_endpoint = env_pick("S3__ENDPOINT", "S3_ENDPOINT")
     if picked_endpoint is not None:
         endpoint = picked_endpoint
-    if endpoint == "127.0.0.1:9000":
-        minio_endpoint = env_pick("MINIO_ENDPOINT", "MINIO__ENDPOINT")
-        if minio_endpoint:
-            endpoint = minio_endpoint
+    if endpoint == "127.0.0.1:9000" and env_map.get("MINIO_ENDPOINT"):
+        endpoint = env_map["MINIO_ENDPOINT"]
 
     access_key = str(s3_yaml["access_key"]) if s3_yaml.get("access_key") is not None else ""
-    picked_access = env_pick("S3_ACCESS_KEY", "S3__ACCESS_KEY")
-    if picked_access is not None:
-        access_key = picked_access
-    if access_key == "":
-        minio_access = env_pick("MINIO_ACCESS_KEY", "MINIO__ACCESS_KEY")
-        if minio_access:
-            access_key = minio_access
+    if "S3_ACCESS_KEY" in env_map:
+        access_key = env_map["S3_ACCESS_KEY"]
+    if access_key == "" and env_map.get("MINIO_ACCESS_KEY"):
+        access_key = env_map["MINIO_ACCESS_KEY"]
 
     secret_key = str(s3_yaml["secret_key"]) if s3_yaml.get("secret_key") is not None else ""
-    picked_secret = env_pick("S3_SECRET_KEY", "S3__SECRET_KEY")
-    if picked_secret is not None:
-        secret_key = picked_secret
-    if secret_key == "":
-        minio_secret = env_pick("MINIO_SECRET_KEY", "MINIO__SECRET_KEY")
-        if minio_secret:
-            secret_key = minio_secret
+    if "S3_SECRET_KEY" in env_map:
+        secret_key = env_map["S3_SECRET_KEY"]
+    if secret_key == "" and env_map.get("MINIO_SECRET_KEY"):
+        secret_key = env_map["MINIO_SECRET_KEY"]
 
     bucket = str(s3_yaml["bucket"]) if s3_yaml.get("bucket") is not None else "mailblobs"
-    picked_bucket = env_pick("S3_BUCKET", "S3__BUCKET")
+    picked_bucket = env_pick("S3__BUCKET", "S3_BUCKET")
     if picked_bucket is not None:
         bucket = picked_bucket
-    if bucket == "mailblobs":
-        minio_bucket = env_pick("MINIO_BUCKET", "MINIO__BUCKET")
-        if minio_bucket:
-            bucket = minio_bucket
+    if bucket == "mailblobs" and env_map.get("MINIO_BUCKET"):
+        bucket = env_map["MINIO_BUCKET"]
 
     try:
-        minio_secure = env_pick("MINIO_SECURE", "MINIO__SECURE")
-        s3_secure = env_pick("S3_SECURE", "S3__SECURE")
-        if minio_secure:
-            secure = _strict_go_bool(minio_secure, "MINIO_SECURE")
+        s3_secure = env_pick("S3__SECURE", "S3_SECURE")
+        if env_map.get("MINIO_SECURE"):
+            secure = _strict_go_bool(env_map["MINIO_SECURE"], "MINIO_SECURE")
         elif s3_secure is not None:
             secure = _koanf_bool(s3_secure)
         elif s3_yaml.get("secure") is not None:
