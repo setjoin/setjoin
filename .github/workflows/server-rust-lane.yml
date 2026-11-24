@@ -21,7 +21,7 @@ name: server-rust lane
 # pr-precheck.yml (light pre-check + selected integration tests), and the merge queue then requires this workflow's `aggregate`
 # on the batch. Apply only with the merge-queue ruleset active.
 # What main does (the plan job's `mode` output; the queue already tested what lands on main):
-#   push to main     mode=cache  CACHE REFRESH ONLY: build + coverage-build + gomod-cache save the caches, no
+#   push to main     mode=cache  CACHE REFRESH ONLY: build + coverage-build save the caches, no
 #                                test, coverage, replay or guard job runs; the run is NOT a test pass
 #   schedule 02:30   mode=full   the FULL lane plus coverage, the backstop (also saves caches); mode=skip
 #                                (green, summary says why) when main had no commit in the last 26 hours
@@ -32,7 +32,6 @@ name: server-rust lane
 #   queue           first on every run: a merge_group entry with the switch on decides head|gone (waits while a
 #                   later entry is queued, see above); every other run prints head without any network call
 #   plan            decides debug, full, cache, skip or gone, and the shard lists
-#   gomod-cache     (mode=cache only) go mod download + save of the Go module cache (shard 1 saves it in full mode)
 #   build           one nextest archive of every workspace test binary + the expected test list
 #   roots           static guards, cargo-deny, doc tests, pilot, schema-simulation, bench-mark-read
 #   pgtap           reducer pgTAP suites (mailserver + authserver) on the lane Postgres
@@ -207,11 +206,6 @@ jobs:
           workspaces: server-rust -> ../../../../lane-build/target
           shared-key: lane
           save-if: false
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/setjoin-server-rust-lane/go-mod
-          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
-          restore-keys: lane-go-mod-
       - name: Run the lane (debug, not a lane result)
         run: bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
       - name: Summary
@@ -228,40 +222,6 @@ jobs:
           name: lane-result-debug
           path: lane-artifacts/
           retention-days: 7
-
-  # mode=cache only: the Go module cache that shard 1 saves in full mode, without any test shard.
-  gomod-cache:
-    needs: plan
-    if: needs.plan.outputs.mode == 'cache' && needs.plan.outputs.debug != 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.26.6'
-          cache: false
-      - id: gomod
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/setjoin-server-rust-lane/go-mod
-          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
-          restore-keys: lane-go-mod-
-      - name: Download every Go module into the lane module cache
-        run: |
-          set -euo pipefail
-          export GOMODCACHE="$HOME/.cache/setjoin-server-rust-lane/go-mod"
-          mkdir -p "$GOMODCACHE"
-          go mod download # workspace mode (go.work): every module the lane builds
-          for d in $(find . -name go.mod -not -path '*/node_modules/*' -exec dirname {} \;); do
-            (cd "$d" && GOWORK=off go mod download) || echo "::warning::go mod download failed outside the workspace in $d"
-          done
-          du -sh "$GOMODCACHE"
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        if: github.ref == 'refs/heads/main' && steps.gomod.outputs.cache-hit != 'true'
-        with:
-          path: ~/.cache/setjoin-server-rust-lane/go-mod
-          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
 
   build:
     needs: plan
@@ -382,11 +342,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with: { fetch-depth: 0 } # check-architecture-r5-collisions.sh needs origin/main
       - uses: ./.github/actions/lane-setup
-      # Provisioning copied from the retired xinchuang-ci.yml unit-tests job (same pinned versions): the guards
-      # run on the host, and lane-setup only pulls the toolchain images.
-      - uses: actions/setup-go@v7
-        with:
-          go-version: '1.26.6'
+      # The guards run on the host; lane-setup only pulls the toolchain images.
       - uses: actions/setup-node@v7
         with:
           node-version: '26'
@@ -405,13 +361,21 @@ jobs:
         working-directory: mailserver/webmail
         run: npm ci
       - name: Install pinned quality tools
-        # Guards verify exact versions (config/quality-tool-versions.json); the errcheck ratchet is golangci-lint-version-sensitive.
+        # Guards verify exact versions (config/quality-tool-versions.json).
         run: |
+          set -euo pipefail
           TOOLS="$HOME/.local/setjoin-ci-tools"
           mkdir -p "$TOOLS"
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$TOOLS" v2.13.2
-          GOBIN="$TOOLS" go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
-          GOBIN="$TOOLS" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          SHFMT_TMP="$(mktemp)"
+          curl -fsSL --retry 3 https://github.com/mvdan/sh/releases/download/v3.13.1/shfmt_v3.13.1_linux_amd64 -o "$SHFMT_TMP"
+          echo "fb096c5d1ac6beabbdbaa2874d025badb03ee07929f0c9ff67563ce8c75398b1  $SHFMT_TMP" | sha256sum -c -
+          install -m 0755 "$SHFMT_TMP" "$TOOLS/shfmt"
+          rm -f "$SHFMT_TMP"
+          AL_TMP="$(mktemp)"
+          curl -fsSL --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$AL_TMP"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $AL_TMP" | sha256sum -c -
+          tar -xz -C "$TOOLS" actionlint -f "$AL_TMP"
+          rm -f "$AL_TMP"
           RUFF_TMP="$(mktemp -d)"
           curl -fsSL https://github.com/astral-sh/ruff/releases/download/0.16.4/ruff-x86_64-unknown-linux-musl.tar.gz | tar -xz -C "$RUFF_TMP"
           install -m 0755 "$RUFF_TMP"/ruff-x86_64-unknown-linux-musl/ruff "$TOOLS/ruff"
@@ -427,7 +391,7 @@ jobs:
           cargo install cargo-deny --locked --version 0.19.0
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH" # the license-policy test replaces CARGO_HOME
       - name: Point the guards at the lane Postgres
-        # lane-setup exported PGPASSWORD for the postgres superuser on LANE_PG_PORT; check-guc-afterconnect reads DB_DSN.
+        # lane-setup exported PGPASSWORD for the postgres superuser on LANE_PG_PORT.
         run: |
           {
             echo "DB_PORT=$LANE_PG_PORT"
@@ -471,12 +435,6 @@ jobs:
         with:
           name: lane-list
           path: ${{ runner.temp }}/list
-      - id: gomod
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ~/.cache/setjoin-server-rust-lane/go-mod
-          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
-          restore-keys: lane-go-mod-
       - name: Shard ${{ matrix.shard }} (nextest partition and replay slice)
         run: |
           python3 scripts/lane-binaries.py "$RUNNER_TEMP/list/lane-list.json" >"$LANE_ARTIFACT_DIR/binaries.json"
@@ -484,12 +442,6 @@ jobs:
           SERVER_RUST_NEXTEST_EXTRACT_TO="$LANE_BUILD" \
           LANE_ADEQUACY_BINARIES="$LANE_ARTIFACT_DIR/binaries.json" \
             bash scripts/lane-container.sh bash scripts/server-rust-parallel-lane.sh
-      # one shard saves the Go module cache, and only from main (a pull request never writes a cache)
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        if: always() && github.ref == 'refs/heads/main' && matrix.shard == 1 && steps.gomod.outputs.cache-hit != 'true'
-        with:
-          path: ~/.cache/setjoin-server-rust-lane/go-mod
-          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -586,7 +538,7 @@ jobs:
   # so in the step summary. merge_group and workflow_dispatch are red unless plan chose mode=full, so a
   # mis-planned or skipped queue run can never pass vacuously.
   aggregate:
-    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard, gomod-cache, queue]
+    needs: [plan, debug, build, roots, pgtap, guards, shard, coverage-build, coverage-shard, queue]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -606,7 +558,7 @@ jobs:
         run: |
           if [ "$MODE" = cache ]; then
             echo "### server-rust lane: cache refresh only, no tests" >> "$GITHUB_STEP_SUMMARY"
-            echo "A push to main only rebuilds and saves the cargo caches (build, coverage-build) and the Go module cache (gomod-cache). No test, replay, coverage or guard job ran: this is **not** a test pass. The merge queue tested this commit before it landed; the nightly full lane is the backstop." >> "$GITHUB_STEP_SUMMARY"
+            echo "A push to main only rebuilds and saves the cargo caches (build, coverage-build). No test, replay, coverage or guard job ran: this is **not** a test pass. The merge queue tested this commit before it landed; the nightly full lane is the backstop." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$MODE" = skip ]; then
             echo "### server-rust lane: nightly skipped" >> "$GITHUB_STEP_SUMMARY"
             echo "No commit landed on main in the last 26 hours, so no full lane was due. Nothing ran: this is **not** a test pass." >> "$GITHUB_STEP_SUMMARY"
@@ -633,15 +585,6 @@ jobs:
           set -o pipefail
           python3 scripts/merge-lane-shards.py --list results/lane-list/lane-list.json --results results \
             --shards "$SHARDS" --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Go-deletion rehearsal (#141)
-        if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
-        env:
-          SHARDS: ${{ needs.plan.outputs.shard_count }}
-          COVERAGE: ${{ needs.plan.outputs.coverage_count }}
-        run: |
-          set -o pipefail
-          python3 scripts/check-gofree-rehearsal.py lane results --shards "$SHARDS" \
-            --coverage-shards "$COVERAGE" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always() && needs.plan.outputs.debug == 'false' && needs.plan.outputs.mode == 'full'
         with:

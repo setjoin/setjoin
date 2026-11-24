@@ -18,24 +18,40 @@ struct Evidence {
     artifacts: BTreeMap<String, String>,
 }
 fn inspect(root: &Path) -> Result<BTreeMap<String, String>> {
+    let exists = |name: &str| {
+        !fs::symlink_metadata(root.join(name))
+            .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    };
     let mut artifacts = BTreeMap::new();
-    for name in [
-        "authserverd",
-        "mailctl",
-        "mailserverd",
-        "setjoin-auth",
-        "setjoin-gateway",
-    ] {
-        if matches!(name, "setjoin-auth" | "setjoin-gateway")
-            && fs::symlink_metadata(root.join(name))
-                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-        {
-            continue;
+    if exists("setjoin-server") {
+        for legacy in ["authserverd", "mailserverd", "setjoin-gateway"] {
+            ensure!(
+                !exists(legacy),
+                "mixed legacy ({legacy}) and post-#142 (setjoin-server) binaries in install root"
+            );
         }
-        artifacts.insert(
-            name.into(),
-            hash_artifact(open(&root.join(name), false)?)?.1,
-        );
+        for name in ["mailctl", "setjoin-auth", "setjoin-server"] {
+            artifacts.insert(
+                name.into(),
+                hash_artifact(open(&root.join(name), false)?)?.1,
+            );
+        }
+    } else {
+        for name in [
+            "authserverd",
+            "mailctl",
+            "mailserverd",
+            "setjoin-auth",
+            "setjoin-gateway",
+        ] {
+            if matches!(name, "setjoin-auth" | "setjoin-gateway") && !exists(name) {
+                continue;
+            }
+            artifacts.insert(
+                name.into(),
+                hash_artifact(open(&root.join(name), false)?)?.1,
+            );
+        }
     }
     existing_dir(&root.join("webmail"))?;
     artifacts.insert("webmail".into(), tree_digest(&root.join("webmail"), "")?);
@@ -56,6 +72,7 @@ fn quarantine(root: &Path, dir: &Path) -> Result<()> {
         "mailserverd.prev",
         "setjoin-auth.prev",
         "setjoin-gateway.prev",
+        "setjoin-server.prev",
         "webmail.prev",
     ] {
         let path = root.join(name);
@@ -220,4 +237,49 @@ pub fn execute(mut flags: BTreeMap<String, String>) -> Result<()> {
     quarantine(&root, &quarantine_dir)?;
     println!("adopted release {id}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn write_file(path: &Path, data: &[u8], mode: u32) {
+        if let Some(p) = path.parent() {
+            fs::create_dir_all(p).unwrap();
+            fs::set_permissions(p, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fs::write(path, data).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[test]
+    fn post_142_inspect_quarantine_and_mixed_rejection() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::set_permissions(tmp.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let root = tmp.path().join("install");
+        write_file(&root.join("setjoin-server"), b"server", 0o500);
+        write_file(&root.join("setjoin-auth"), b"auth", 0o500);
+        write_file(&root.join("mailctl"), b"mailctl", 0o500);
+        write_file(&root.join("webmail/index.html"), b"webmail", 0o400);
+
+        let inspected = inspect(&root).expect("post-#142 inspect passes");
+        let keys: Vec<_> = inspected.keys().map(String::as_str).collect();
+        assert_eq!(keys, vec!["mailctl", "setjoin-auth", "setjoin-server", "webmail"]);
+
+        // Quarantine moves setjoin-server.prev and setjoin-auth.prev.
+        write_file(&root.join("setjoin-server.prev"), b"prev-server", 0o500);
+        write_file(&root.join("setjoin-auth.prev"), b"prev-auth", 0o500);
+        let qdir = tmp.path().join("quarantine");
+        quarantine(&root, &qdir).expect("quarantine passes");
+        assert!(!root.join("setjoin-server.prev").exists());
+        assert!(!root.join("setjoin-auth.prev").exists());
+        assert!(qdir.join("setjoin-server.prev").exists());
+        assert!(qdir.join("setjoin-auth.prev").exists());
+
+        // Mixing legacy setjoin-gateway alongside setjoin-server fails closed.
+        write_file(&root.join("setjoin-gateway"), b"legacy", 0o500);
+        let err = inspect(&root).unwrap_err().to_string();
+        assert!(err.contains("mixed legacy"), "{err}");
+    }
 }

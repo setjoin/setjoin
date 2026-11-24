@@ -7,9 +7,7 @@ contracts, they do not become a second source of business authority.
 
 ## Authority and rollout model
 
-- `shared/toggle/toggle.go` owns the sorted `Definition{Key, Default}` catalog.
-- `shared/pwhash/auth_log.go` owns the finite authentication-provider catalog;
-  provider-specific feature keys are derived from it.
+- `server-rust/crates/domains/platform/src/registry_data.rs` owns the sorted feature-toggle catalog and finite authentication-provider catalog (provider-specific feature keys are derived from it); versioned registry snapshots live in `server-rust/crates/domains/platform/testdata/toggle/`.
 - `mailserver/sql/generated/feature_toggle_registry_current.sql` is generated
   classifier input. Never edit it by hand.
 - V183 introduced the database registry state, reducer-authoritative SET,
@@ -27,10 +25,11 @@ contracts, they do not become a second source of business authority.
 
 ## Add or change a feature key
 
-1. Add a typed constant and exactly one default to the sorted `definitions`
-   slice in `shared/toggle/toggle.go`. Do not pass a raw key to `IsEnabled`.
-   Dynamic suffix families must first be reduced to a reviewed finite source
-   such as `pwhash.AuthProviders()`.
+1. Add a typed constant and exactly one default to the sorted catalog in
+   `server-rust/crates/domains/platform/src/registry_data.rs` and update the
+   versioned snapshot under `server-rust/crates/domains/platform/testdata/toggle/`.
+   Do not pass a raw key to feature checks; dynamic suffix families must first
+   be reduced to a reviewed finite source.
 2. Find the next unused schema migration number. Never reuse or edit V183 (or
    another committed registry projection).
 3. From the repository root, run the developer-only writer, replacing `V195`
@@ -158,9 +157,9 @@ evidence.
 
 ## Recovery from common failures
 
-- `E_TOGGLE_REGISTRY_DRIFT`: do not edit a historical artifact. Confirm the
+- Toggle registry drift: do not edit a historical artifact. Confirm the
   typed authority, generate the next unused migration locally, inspect it, and
-  rerun `--check`.
+  rerun the platform feature-registry snapshot test.
 - `feature registry release contract differs`: return the database to observe
   if needed; use a target/rollback cohort whose signed digest/mode declarations
   match the live state. Never bypass updater preflight.

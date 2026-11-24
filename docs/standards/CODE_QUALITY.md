@@ -31,44 +31,29 @@ bash scripts/quality.sh security   # dependency, secret and workflow authorities
 
 | Authored surface | Convention/correctness authority | Security authority | Runner |
 | --- | --- | --- | --- |
-| Go | `gofmt`; GolangCI with a small reviewed set | `govulncheck`; curated `gosec` where enabled | macOS + Ubuntu |
+| Rust (`server-rust/`, `clients/`) | `rustfmt --check`, Clippy with warnings denied, family-isolation guard | `cargo deny --locked check` (RustSec advisories, licences, sources, bans) | macOS + Ubuntu |
 | PL/pgSQL/SQL | schema load, PostgreSQL parser, project guards, pgTAP | R1-R4/RLS/reducer guards | Ubuntu + disposable PostgreSQL |
 | TypeScript/Svelte/CSS | strict TypeScript, `svelte-check`, ESLint, Stylelint | npm audit and project CSP/XSS tests | macOS + Ubuntu |
 | Electron TypeScript | TypeScript and Biome | npm audit and Electron security tests | macOS + Ubuntu/Windows packaging |
-| Rust | `rustfmt --check`, Clippy with warnings denied | guarded RustSec audit | macOS + Ubuntu |
 | ArkTS | pinned Hvigor/DevEco compile and Setjoin bridge guards | platform build/security checks | DevEco-capable macOS runner |
 | Shell | declared-shell syntax, ShellCheck, and shfmt debt ratchet | ShellCheck plus project destructive-action guards | macOS + Ubuntu |
 | Python | parser gate plus pinned Ruff check/format | choose one measured AST rule owner before promotion | Ubuntu |
 | PowerShell | parser gate; PSScriptAnalyzer | signed collector and Exchange evidence guards | Windows |
 | Docker/YAML/JSON/TOML | owning schema/build checks | Actionlint for workflows | Ubuntu |
 
-There is no tracked authored Swift, Kotlin or Java. Tauri/UniFFI-generated
+There is no tracked authored Go (all server-side Go code, `golangci-lint`, `govulncheck`, and `config/errcheck-mailserver.baseline` were deleted in `#142`, [ARCH-031](../adr/ARCH-031-go-is-deleted.md)), Swift, Kotlin or Java. Tauri/UniFFI-generated
 products are checked by their platform compiler/build lane; generated or
 vendored reference code must not become a second lint authority.
 
-## Go authoring conventions
+## Rust authoring conventions
 
-Beyond the toolchain gate above, Go code follows these house rules:
+Beyond the toolchain gate above, Rust server (`server-rust/`) and client (`clients/`) code follows these house rules:
 
-- `golangci-lint run ./...` clean.
-- Typed discriminator constants.
-- `slog` for logging.
-- Propagate `context.Context`.
-- Extract shared code instead of copy/paste.
-- Register every new package in its owning child DOX.
-
-## Current Go ratchet
-
-The repository-wide root GolangCI configuration blocks on `govet` and
-`ineffassign`; mailserver keeps its broader reviewed set. The first unlimited
-mailserver `errcheck` pass found 328 occurrences under the old generic close/copy
-exclusions. Eight were corrected; removing those exclusions exposed 67 more, so
-the remaining 387 are registered by exact path and call name in
-`config/errcheck-mailserver.baseline`; `scripts/check-errcheck-ratchet.sh`
-rejects every new occurrence and every multiplicity increase. This is an
-explicit debt ledger, not a clean-lane claim. Entries are removed as code is
-fixed; the broad duplicate Gosec G104 diagnostic stays disabled only because the
-exact ratchet owns that finding class.
+- `cargo fmt --check` and `cargo clippy --locked -- -D warnings` clean.
+- Commit `Cargo.lock` and keep `--locked` reproducible builds.
+- Enforce domain-family isolation (`scripts/check-rust-family-isolation.py`) and licence/advisory policy (`cargo deny --locked check`, `server-rust/license-exception-reasons.toml`).
+- Multi-statement business logic belongs in PL/pgSQL reducers (`mailserver/sql/reducers/`, `authserver/sql/reducers/`) per [ARCH-028](../adr/ARCH-028-rust-replaces-go-reducers-stay.md) and [ARCH-031](../adr/ARCH-031-go-is-deleted.md).
+- Register every new crate or binary in `server-rust/AGENTS.md` or `clients/AGENTS.md`.
 
 ## SQL boundary
 

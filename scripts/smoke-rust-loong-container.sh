@@ -3,8 +3,8 @@
 # the scratch image whose rootfs is the glibc 2.36 new-world sysroot.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-binary="$root/build/rust-floor/loongarch64/loongarch64-unknown-linux-gnu/release/setjoin-gateway"
-[[ -x "$binary" ]] || { echo "missing gateway: $binary" >&2; exit 1; }
+binary="$root/build/rust-floor/loongarch64/loongarch64-unknown-linux-gnu/release/setjoin-server"
+[[ -x "$binary" ]] || { echo "missing setjoin-server: $binary" >&2; exit 1; }
 name="setjoin-floor-loong-smoke-$$"
 cleanup() {
   if docker container inspect "$name" >/dev/null 2>&1; then
@@ -18,7 +18,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' INT TERM
 docker run --rm --name "$name" --network host \
-  -e GATEWAY_LISTEN -e GATEWAY_AUTH_UPSTREAM \
-  --mount "type=bind,source=$binary,target=/setjoin-gateway,readonly" \
-  setjoin-rust-loong-floor:ci /setjoin-gateway "$@" &
+  -e GATEWAY_LISTEN -e GATEWAY_RUST_AUTH_UPSTREAM \
+  --mount "type=bind,source=$binary,target=/setjoin-server,readonly" \
+  setjoin-rust-loong-floor:ci /setjoin-server "$@" &
 wait "$!"

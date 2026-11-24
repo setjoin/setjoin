@@ -9,7 +9,7 @@ use std::{
 };
 
 fn gateway(db: &Db, off: &str, direct: &str) -> Result<common::boot::Child, BoxError> {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     cmd.arg0("gofree-mailsec3b-gateway");
     cmd.env_clear().stdout(Stdio::null()).stderr(Stdio::piped());
     for (key, value) in [

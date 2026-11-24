@@ -1,8 +1,10 @@
-# Rust source workspace — recording transaction/publication successor
+# Rust source workspace — canonical server reference & qualification log
+
+> **Post-Go status (`#142`, [ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)):** All server-side Go code, Go oracle recorders, `.github/workflows/gofree-record.yml`, and Go-rehearsal guards (`check-gofree-rehearsal.py`, `check-gofree-route-inventory.py`, `gomod-cache`) were deleted in `#142`. The primary server binary target in `bins/gateway/Cargo.toml` was renamed from `setjoin-gateway` to `setjoin-server` while keeping the Cargo package name `setjoin-gateway` and systemd unit name `setjoin-gateway.service` unchanged until Wave 1 `#544`. All recorded JSON goldens, transcripts, vectors, and `divergences.json` remain under `tests/conformance/` as permanent Rust regression tests.
 
 Historical qualification log: the paragraphs below describe the workspace at
-each ticket's adoption point. Current layout, transfer defaults, front-door
-inventory and verification contracts live in [AGENTS.md](AGENTS.md).
+each ticket's adoption point. Current layout, binary names, and verification
+contracts live in [AGENTS.md](AGENTS.md).
 
 ## Rate limits and threat
 
@@ -599,6 +601,8 @@ requests get a read-only token and no secrets (the lane needs none); caches are 
 
 ## Go-deletion rehearsal (#141)
 
+> **Completed and retired in `#142` ([ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)):** `#141` passed with `PENDING = 0`, `REHEARSAL-FORWARD-SITES = 0`, `MATRIX_HOPS = 0/0`, and `GO_PEER_REFERENCES = 0`. Go and `scripts/check-gofree-rehearsal.py` were deleted in `#142`; `scripts/test-samlacs-mutants.py` remains active in CI `roots` under `REQUIRE_DB=1`. Historical rehearsal record preserved below.
+
 `scripts/check-gofree-rehearsal.py` (self-test `scripts/test-check-gofree-rehearsal.py`) makes the hosted
 lane the rehearsal for deleting Go. `static` (`roots` and `aggregate`): every route-inventory entry ON
 except the six `fedharness` test-tool entries (owner decision 2026-11-02) and the shrink-only `PENDING`
@@ -644,6 +648,8 @@ webmail Playwright e2e is outside the rehearsal (needs a deployed stack via `E2E
 workflow); the front-door goldens cover its HTTP surface.
 
 ## Frozen Go recording workflow
+
+> **Deleted in `#142` ([ARCH-031](../docs/adr/ARCH-031-go-is-deleted.md)):** `.github/workflows/gofree-record.yml` and Go recording helpers (`scripts/gofree-record.sh`, `*.go.txt` overlays) were deleted with Go. Existing goldens remain as permanent regression tests; historical workflow record preserved below.
 
 `.github/workflows/gofree-record.yml` (#339) is `workflow_dispatch` only (`contents: read`,
 `packages: read`, never pull_request or push) and is deleted with Go (#142). Inputs: `package`,

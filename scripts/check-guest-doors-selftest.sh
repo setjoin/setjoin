@@ -33,12 +33,7 @@ fail=0
 # on the real tree when nothing matches).
 mk_clean() {
   local d="$1"
-  mkdir -p "$d/mailserver/sql/reducers" "$d/mailserver/internal/guestgate" \
-    "$d/mailserver/internal/auth" "$d/mailserver/cmd/mailserverd" "$d/scripts"
-  cp "$ROOT/mailserver/internal/guestgate/allowlist.go" "$d/mailserver/internal/guestgate/"
-  cp "$ROOT/mailserver/internal/guestgate/middleware.go" "$d/mailserver/internal/guestgate/"
-  cp "$ROOT/mailserver/internal/auth/chain.go" "$ROOT/mailserver/internal/auth/bcrypt.go" "$d/mailserver/internal/auth/"
-  cp "$ROOT/mailserver/cmd/mailserverd/main.go" "$d/mailserver/cmd/mailserverd/"
+  mkdir -p "$d/mailserver/sql/reducers" "$d/scripts"
   cp "$ROOT/mailserver/sql/reducers/guest_profile.sql" "$d/mailserver/sql/reducers/"
   cp "$GUARD_SRC" "$d/scripts/"
 }
@@ -78,42 +73,6 @@ $fn$ LANGUAGE plpgsql;
 SQL
 }
 
-# ── §2: allowlist single source (two independent checks) ───────────────────
-setup_s2_markers() {
-  grep -vE '// guest-allowlist-(begin|end)' "$ROOT/mailserver/internal/guestgate/allowlist.go" \
-    > "$1/mailserver/internal/guestgate/allowlist.go"
-}
-setup_s2_literal() {
-  printf '\n// selftest-injected route literal\nvar _evilRoute = "/evil"\n' \
-    >> "$1/mailserver/internal/guestgate/middleware.go"
-}
-setup_s2_meet_blanket() {
-  awk '/\/\/ guest-allowlist-end/ { print "\t{\"\", \"prefix\", \"/meet/\", nil}," } { print }' \
-    "$ROOT/mailserver/internal/guestgate/allowlist.go" > "$1/mailserver/internal/guestgate/allowlist.go"
-}
-setup_s2_public_poll() {
-  grep -v 'public/meet/\[\^/\].*join-request' "$ROOT/mailserver/internal/guestgate/allowlist.go" \
-    > "$1/mailserver/internal/guestgate/allowlist.go"
-}
-setup_s2_rtc() {
-  grep -vE '\{"GET", "(exact|prefix)", "/rtc' "$ROOT/mailserver/internal/guestgate/allowlist.go" \
-    > "$1/mailserver/internal/guestgate/allowlist.go"
-}
-
-# ── §3: belt seams (three independent choke points) ─────────────────────────
-setup_s3_authreq() {
-  awk '/func \(c \*Chain\) AuthenticateRequest/,/^}/ { if ($0 ~ /applyGuestBelt/) next } { print }' \
-    "$ROOT/mailserver/internal/auth/chain.go" > "$1/mailserver/internal/auth/chain.go"
-}
-setup_s3_pushtoken() {
-  awk '/func \(c \*Chain\) AuthenticatePushToken/,/^}/ { if ($0 ~ /applyGuestBelt/) next } { print }' \
-    "$ROOT/mailserver/internal/auth/chain.go" > "$1/mailserver/internal/auth/chain.go"
-}
-setup_s3_bcrypt() {
-  grep -v 'is_guest_account' "$ROOT/mailserver/internal/auth/bcrypt.go" \
-    > "$1/mailserver/internal/auth/bcrypt.go"
-}
-
 # ── §4: RLS-blind raw guest_accounts read outside the named excepted files ───
 setup_s4() {
   cat > "$1/mailserver/sql/reducers/evil_raw_read.sql" <<'SQL'
@@ -127,34 +86,9 @@ setup_s4_profile_authority() {
     > "$1/mailserver/sql/reducers/guest_profile.sql"
 }
 
-# ── §5: dispatch wrap (three independent structural assertions) ────────────
-setup_s5_wrap() {
-  sed 's/guestgate\.Middleware/REMOVED_FOR_SELFTEST/g' "$ROOT/mailserver/cmd/mailserverd/main.go" \
-    > "$1/mailserver/cmd/mailserverd/main.go"
-}
-setup_s5_bare() {
-  cp "$ROOT/mailserver/cmd/mailserverd/main.go" "$1/mailserver/cmd/mailserverd/main.go"
-  printf '\nfunc evilBypass() { apiMux.ServeHTTP(nil, nil) }\n' >> "$1/mailserver/cmd/mailserverd/main.go"
-}
-setup_s5_stripprefix() {
-  sed 's/StripPrefix("\/api", gatedAPI)/StripPrefix("\/api", apiMux)/' \
-    "$ROOT/mailserver/cmd/mailserverd/main.go" > "$1/mailserver/cmd/mailserverd/main.go"
-}
-
-run_case "§1 unjustified membership grant"       "evil_new_door.sql"                                    setup_s1
-run_case "§2 allowlist markers missing"          "allowlist markers missing"                            setup_s2_markers
-run_case "§2 middleware route literal"           "middleware.go carries route literals"                 setup_s2_literal
-run_case "§2 Meet blanket prefix"                "Meet uses a blanket guest prefix"                      setup_s2_meet_blanket
-run_case "§2 authenticated-knock poll missing"   "authenticated-knock public GET poll is missing"        setup_s2_public_poll
-run_case "§2 LiveKit signal path missing"        "guest LiveKit signal path"                             setup_s2_rtc
-run_case "§3 AuthenticateRequest loses belt"     "AuthenticateRequest lost the guest belt"               setup_s3_authreq
-run_case "§3 AuthenticatePushToken loses belt"   "AuthenticatePushToken lost the guest belt"             setup_s3_pushtoken
-run_case "§3 bcrypt loses guest refusal"         "CheckPassword lost the protocol-surface guest refusal" setup_s3_bcrypt
-run_case "§4 raw guest_accounts read"            "evil_raw_read.sql reads guest_accounts directly"       setup_s4
-run_case "§4 guest_profile loses worker authority" "guest_profile.sql exception lost worker authority"      setup_s4_profile_authority
-run_case "§5 dispatch wrap lost"                 "main.go lost the guestgate wrap"                       setup_s5_wrap
-run_case "§5 apiMux served directly"             "main.go serves apiMux directly"                        setup_s5_bare
-run_case "§5 /api mount not gatedAPI"            "the /api mount is not built from gatedAPI"             setup_s5_stripprefix
+run_case "§1 unjustified membership grant"         "evil_new_door.sql"                                 setup_s1
+run_case "§4 raw guest_accounts read"              "evil_raw_read.sql reads guest_accounts directly"   setup_s4
+run_case "§4 guest_profile loses worker authority" "guest_profile.sql exception lost worker authority" setup_s4_profile_authority
 
 # ── clean copy still passes (no false positive from copying unmodified) ────
 d="$(mktemp -d)"
@@ -172,4 +106,4 @@ if [ "$fail" -ne 0 ]; then
   echo "check-guest-doors selftest: FAILED (see above)"
   exit 1
 fi
-echo "check-guest-doors selftest OK (14/14 mutations caught + clean copy passes)"
+echo "check-guest-doors selftest OK (3/3 mutations caught + clean copy passes)"

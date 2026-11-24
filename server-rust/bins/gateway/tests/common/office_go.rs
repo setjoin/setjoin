@@ -112,9 +112,7 @@ pub async fn start_with_clamd(
     let reserved = setjoin_conformance::ports::listener().await;
     let address = reserved.local_addr()?;
     drop(reserved);
-    let workers = include_str!(
-        "../../../../../mailserver/cmd/mailserverd/testdata/worker_launch_inventory.golden"
-    )
+    let workers = include_str!("../../data/worker_launch_inventory.golden")
     .lines()
     .filter_map(|line| {
         let mut fields = line.split('|');

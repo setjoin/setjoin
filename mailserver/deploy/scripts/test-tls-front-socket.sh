@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Hermetic release seam: public TLS belongs to the native activated front door.
 set -euo pipefail
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 source "$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/gofree-tlsfront-render.XXXXXX")
@@ -52,7 +53,7 @@ grep -qx 'TLS_CERT=/fixture/leaf.crt' "$TLS_ENV"
 grep -qx 'TLS_SESSION_TICKET_KEY_ROTATE_SECS=60' "$TLS_ENV"
 grep -Fxq 'TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}' "$TLS_ENV"
 if grep -Eq 'OWNER_DSN|S3_SECRET|JWT_SECRET|DB_DSN' "$TLS_ENV"; then echo 'secret leaked to tls.env' >&2; exit 1; fi
-test "$(stat -c '%a' "$TLS_ENV")" = 640
+test "$(mode_of "$TLS_ENV")" = 640
 # Re-rendering is idempotent and leaves unrelated worker ownership intact.
 cp "$CONFIG_ENV" "$tmp/once.env"
 configure_tls_front "$CONFIG_ENV"
@@ -117,7 +118,7 @@ grep -qx 'S3_BUCKET=mailblobs' "$tmp/quoted-storage.env"
 grep -qx 'S3_ACCESS_KEY=ak-test' "$tmp/quoted-storage.env"
 grep -qx 'S3_SECRET_KEY=must-not-reach-gateway' "$tmp/quoted-storage.env"
 if grep -Eq 'OWNER_DSN|JWT_SECRET|DB_DSN' "$tmp/quoted-storage.env"; then echo 'secret leaked to storage.env' >&2; exit 1; fi
-test "$(stat -c '%a' "$tmp/quoted-storage.env")" = 640
+test "$(mode_of "$tmp/quoted-storage.env")" = 640
 
 # Quoted empty TLS_AUTOCERT_CACHE_DIR="" must not enter tls.env and override gateway.env.
 cat > "$tmp/empty-cache.env" <<'ENV'
@@ -522,8 +523,13 @@ for bad_dir in /var/lib/postgresql /var/cache/apt /etc/ssh /srv/postgres /opt/ot
     exit 1
   fi
 done
-validate_tls_cache_target /var/lib/setjoin/custom-tls
-validate_tls_cache_target /var/cache/mailserver/autocert
+if [ "$(uname -s)" = Linux ]; then
+  validate_tls_cache_target /var/lib/setjoin/custom-tls
+  validate_tls_cache_target /var/cache/mailserver/autocert
+else
+  _real_tmp=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$tmp")
+  TMPDIR="$_real_tmp" validate_tls_cache_target "$_real_tmp/valid/autocert"
+fi
 
 # render_federation_env projects LIVEKIT_* for /rtc and /api/rtc without leaking them into gateway/storage.env.
 cat > "$tmp/livekit-config.env" <<'ENV'

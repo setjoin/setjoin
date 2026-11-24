@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 #   chat_scope_helper.sql        — the LIVE chat_hold_active definition post
 #                                   arch #A6 (reducer reload CREATE OR REPLACEs
 #                                   over V127's copy; body is byte-identical)
-allow='chat_channel_set_hold\.sql|V126__chat_compliance\.sql|V127__chat_oversight\.sql|chat_scope_helper\.sql|admin_config\.go|admin_ediscovery\.go'
+allow='chat_channel_set_hold\.sql|V126__chat_compliance\.sql|V127__chat_oversight\.sql|chat_scope_helper\.sql'
 
 # Match RAW-COLUMN reads only (qualified reference, WHERE predicate,
 # assignment, or an unqualified SELECT-list read) — NOT the bare token: the
@@ -39,10 +39,8 @@ allow='chat_channel_set_hold\.sql|V126__chat_compliance\.sql|V127__chat_oversigh
 # catches the multi-line variant (a continuation line of a wrapped SELECT list
 # beginning with the bare column) — safe against the sanctioned alias, which
 # always appears as `AS legal_hold` mid-line, never at line start.
-hits=$(grep -rn --include='*.go' --include='*.sql' 'legal_hold' \
-         mailserver/internal/admin mailserver/internal/chat mailserver/sql/reducers \
-         mailserver/cmd mailctl 2>/dev/null \
-       | grep -v '_test\.go' \
+hits=$(grep -rn --include='*.sql' 'legal_hold' \
+         mailserver/sql/reducers 2>/dev/null \
        | sed 's/legal_hold_reason//g' \
        | grep -E '(c\.legal_hold\b|chat_channels\.legal_hold\b|WHERE[[:space:]]+legal_hold\b|SET[[:space:]]+legal_hold\b|legal_hold[[:space:]]*=|SELECT[^;]*[,(][[:space:]]*legal_hold\b|SELECT[[:space:]]+legal_hold\b|^[^:]*:[0-9]+:[[:space:]]*`?legal_hold\b)' \
        | grep -Ev "$allow" || true)

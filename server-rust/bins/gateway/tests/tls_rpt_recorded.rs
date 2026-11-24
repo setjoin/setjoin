@@ -462,26 +462,3 @@ async fn toggle_default_is_on_and_a_stored_row_wins() -> Result<(), BoxError> {
     assert!(default && !off && on, "default={default} off={off} on={on}");
     Ok(())
 }
-
-/// The overlay replaces only the report client of Go's `tlsrpt.go`.
-#[test]
-fn overlay_source_matches_frozen_go() {
-    let root = drain_oracle::repo_root().unwrap();
-    let go = std::fs::read_to_string(root.join("mailserver/internal/smtp/tlsrpt.go")).unwrap();
-    let overlay = std::fs::read_to_string(
-        root.join("server-rust/tests/conformance/drain/tls_rpt_source.go.txt"),
-    )
-    .unwrap();
-    let body = overlay
-        .split_once("package smtp")
-        .map(|(_, rest)| format!("package smtp{rest}"))
-        .unwrap();
-    let rebuilt = body.replace("\nvar _ = ssrf.SafeHTTPClient\n", "").replace(
-        "goFreeTLSRPTClient()",
-        "ssrf.SafeHTTPClient(10 * time.Second)",
-    );
-    assert_eq!(
-        rebuilt, go,
-        "the overlay drifted from frozen Go's tlsrpt.go"
-    );
-}

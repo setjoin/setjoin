@@ -4,25 +4,27 @@ The counted path from a fresh clone to a green test suite. Follow it top to
 bottom; each step names the exact command and the expected output.
 
 > **Architecture in one line:** business logic lives in PL/pgSQL reducers
-> (`mailserver/sql/reducers/`); the Go gateway is a thin protocol translator.
+> (`mailserver/sql/reducers/`, `authserver/sql/reducers/`); the canonical Rust
+> server (`server-rust/`: `setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`,
+> `setjoin-updater`) translates protocols and orchestrates requests (Go deleted in
+> `#142`, [`ARCH-031`](docs/adr/ARCH-031-go-is-deleted.md)).
 > Read [`AGENTS.md`](AGENTS.md) (project rules + the per-area doc index) and
 > [`CONTEXT.md`](CONTEXT.md) (the domain glossary) before changing code.
 
 ## Prerequisites
 
-Versions are read from `go.mod` / the build scripts — install at least these:
+Versions match `server-rust/Cargo.toml` and the build scripts — install at least these:
 
 | Tool         | Version | Why                                              |
 |--------------|---------|--------------------------------------------------|
-| Go           | 1.26.4+ | gateway, auth server, `mailctl` (`go.mod`)       |
+| Rust (`cargo` + `rustfmt` + `clippy` + `llvm-tools`) | 1.97.1+ (CI: 1.99+) | canonical server binaries (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and client native crates |
 | Node + npm   | 20+     | webmail (Svelte 5 / Vite 8)                       |
 | PostgreSQL   | 18+     | server **and** `psql` client; all data + logic   |
 | pg_prove     | any     | pgTAP runner (`cpan TAP::Parser::SourceHandler::pgTAP`) |
 | PgBouncer    | any     | query pool — **runtime only**, not needed for tests |
 | SeaweedFS (`weed`) | recent | blob storage — only for the **live** dev server |
-| libopus (`pkg-config opus`) | any | Meet captions bot (`asrbot/`) — optional; missing it LOUDLY skips just that module in `build.sh`/`test.sh`/`lint.sh` (`brew install pkg-config opus` / `apt install pkg-config libopus-dev`) |
 
-The pgTAP + Go test suites need **only** PostgreSQL (direct, `127.0.0.1:5432`,
+The pgTAP + Rust server test suites need **only** PostgreSQL (direct, `127.0.0.1:5432`,
 role `mail`). PgBouncer and SeaweedFS are for running the live server
 (`scripts/setup-test-env.sh`), not for `scripts/test.sh`.
 
@@ -46,7 +48,7 @@ bash scripts/preflight.sh
 bash scripts/load-test-schema.sh
 #    → ends with: "==> Schema loaded clean."
 
-# 4. Run the full suite (Go + webmail + pgTAP).
+# 4. Run the full suite (Rust server + webmail + pgTAP).
 bash scripts/test.sh
 ```
 
@@ -56,10 +58,11 @@ services separately).
 
 ### Expected result
 
-The mailserver pgTAP, Go, and webmail Vitest lanes must all pass. Exact test counts
-are intentionally emitted by the runners instead of copied into this guide, so a
-new required case cannot make the documentation stale. Missing, skipped, failed,
-ambiguous, malformed, or flaky-after-retry named cases fail the canonical gate.
+The mailserver/authserver pgTAP, Rust server (`server-rust/`), and webmail Vitest lanes
+must all pass. Exact test counts are intentionally emitted by the runners instead of
+copied into this guide, so a new required case cannot make the documentation stale.
+Missing, skipped, failed, ambiguous, malformed, or flaky-after-retry named cases fail
+the canonical gate.
 
 ## The edit-a-reducer loop
 
@@ -110,8 +113,8 @@ Do **not** weaken the fail-loud `ON_ERROR_STOP=1` contract to quiet it.
 ### Parallel git worktrees: give each one its own test DB
 
 Two worktrees running the gate at the same time against the shared
-`mailserver_test` clobber each other's fixtures (one worktree's `go test ./...`
-seeds users, another's pgTAP run reads them mid-suite). Every DB script
+`mailserver_test` clobber each other's fixtures (one worktree's DB tests
+seed users while another's pgTAP run reads them mid-suite). Every DB script
 (`load-test-schema.sh`, `reload-reducers.sh`, `preflight.sh`, …) already reads
 its target database from the `DB_NAME` env var (default `mailserver_test` —
 zero change if you don't set it), so a second worktree just needs its own name:
@@ -122,10 +125,9 @@ DB_NAME=mailserver_test2 bash scripts/load-test-schema.sh
 ```
 
 `scripts/worktree-gate.sh <db-name>` wraps this: it loads the schema into
-`<db-name>`, then runs `go build`/`go test` (with `DB_DSN` pointed at
-`<db-name>`) and pgTAP (`pg_prove -d <db-name>`) against it — the same three
-gates `scripts/test.sh` runs, parameterized so it never touches the default
-`mailserver_test`:
+`<db-name>`, then runs the Rust server suite (with `DB_DSN` pointed at
+`<db-name>`) and pgTAP (`pg_prove -d <db-name>`) against it — parameterized so it
+never touches the default `mailserver_test`:
 
 ```bash
 bash scripts/worktree-gate.sh mailserver_test2
@@ -134,10 +136,11 @@ bash scripts/worktree-gate.sh mailserver_test2
 ## Other commands
 
 ```bash
-bash scripts/build.sh         # build mailserverd + authserverd
-bash scripts/lint.sh          # Go + web type/ESLint/Stylelint checks
-bash scripts/quality.sh fast  # all authored-language change-time checks
-bash scripts/quality.sh full  # fast + Clippy/platform-owned checks
+bash scripts/build.sh            # build setjoin-server, setjoin-auth, mailctl, asrbotd, setjoin-updater
+bash scripts/check-server-rust.sh # run Rust server workspace + conformance gates
+bash scripts/lint.sh             # Rust + web type/ESLint/Stylelint checks
+bash scripts/quality.sh fast     # all authored-language change-time checks
+bash scripts/quality.sh full     # fast + Clippy/platform-owned checks
 bash scripts/e2e.sh [imap|smtp|ldap]   # protocol end-to-end tests
 bash scripts/setup-test-env.sh         # run the live dev server (needs weed)
 ```
@@ -252,9 +255,9 @@ npm test           # Vitest
 ## House rules (the short version)
 
 - **Branch off `main`** for work. Commit/push only when asked.
-- **Go:** `golangci-lint run ./...` clean; `slog` logging; propagate
-  `context.Context`; no cross-package copy-paste (extract to `internal/` shared
-  packages).
+- **Rust (`server-rust/`, `clients/`):** `cargo fmt --check`, `cargo clippy --locked -- -D warnings`,
+  `cargo deny --locked check`, family isolation between domain crates, and `--locked` lockfiles;
+  see [`server-rust/AGENTS.md`](server-rust/AGENTS.md).
 - **Webmail (Svelte 5 runes):** `$state`/`$derived`/`$effect`, `onclick=` (not
   `on:click`); token-only styling; type, ESLint and Stylelint gates must be clean.
 - **All authored languages:** use the checked-in, check-only quality front door;
@@ -262,7 +265,7 @@ npm test           # Vitest
   [`docs/standards/CODE_QUALITY.md`](docs/standards/CODE_QUALITY.md).
 - **DB security (enforced):** every user-data query filters by
   `user_id`/`mailbox_id` from the auth context; ownership in the same `WHERE`;
-  no `fmt.Sprintf` of user input into SQL. See
+  never interpolate user input into SQL. See
   [`docs/standards/DATABASE_SECURITY.md`](docs/standards/DATABASE_SECURITY.md).
 - **Docs are canonical:** update the nearest owning `AGENTS.md` when a change
   affects purpose, contracts, workflows, or durable structure (the "Update After
@@ -274,10 +277,11 @@ npm test           # Vitest
 |-----------------|--------------------------------|
 | Project rules + index | [`AGENTS.md`](AGENTS.md)  |
 | Domain glossary | [`CONTEXT.md`](CONTEXT.md)      |
-| Mail server (Go + reducers + webmail) | `mailserver/AGENTS.md` |
-| Reducers / schema / tests | `mailserver/sql/AGENTS.md` |
-| Auth server     | `authserver/AGENTS.md`         |
-| Admin CLI       | `mailctl/AGENTS.md`            |
+| Rust server (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) | [`server-rust/AGENTS.md`](server-rust/AGENTS.md) |
+| Mailserver SQL, webmail, deploy, OpenAPI assets | [`mailserver/AGENTS.md`](mailserver/AGENTS.md) |
+| Reducers / schema / tests | [`mailserver/sql/AGENTS.md`](mailserver/sql/AGENTS.md) |
+| Auth/threat SQL reducers & pgTAP tests | [`authserver/AGENTS.md`](authserver/AGENTS.md) |
+| Admin CLI (`mailctl`) | [`server-rust/bins/mailctl/DOX.md`](server-rust/bins/mailctl/DOX.md) |
 | Integration (curl flows) | [`docs/guides/INTEGRATION_EXAMPLES.md`](docs/guides/INTEGRATION_EXAMPLES.md) |
 | Single-node prod | [`docs/guides/SINGLE_NODE_SETUP.md`](docs/guides/SINGLE_NODE_SETUP.md) |
 | Feature registry + architecture checks | [`docs/guides/FEATURE_REGISTRY_DEVELOPMENT.md`](docs/guides/FEATURE_REGISTRY_DEVELOPMENT.md) |

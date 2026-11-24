@@ -2,8 +2,11 @@
 # Operator seam: a flat upgrade installs native federation units/config; failed
 # readiness restores the previous release's exact descriptor and config surface.
 set -euo pipefail
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/gofree-fed2-upgrade.XXXXXX")
+tmp=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$tmp")
+export TMPDIR="$tmp"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
 cat > "$tmp/bin/systemctl" <<'MOCK'
@@ -30,7 +33,7 @@ for previous_socket in absent present; do
   for health in 0 1 gateway-down; do
     fx="$tmp/$previous_socket-$health"
     mkdir -p "$fx/install" "$fx/new" "$fx/config" "$fx/units" "$fx/before-config" "$fx/before-units"
-    for artifact in mailserverd setjoin-gateway; do
+    for artifact in setjoin-server; do
       echo "old $artifact" > "$fx/install/$artifact"
       echo "new $artifact" > "$fx/new/$artifact"
     done
@@ -64,33 +67,33 @@ ENV
     status=0
     PATH="$tmp/bin:$PATH" INSTALL_DIR="$fx/install" SETJOIN_CONFIG_DIR="$fx/config" \
       SYSTEMD_DIR="$fx/units" TLS_AUTOCERT_CACHE_DIR="$fx/autocert" FED_TEST_HEALTH="$health" FED_TEST_LOG="$fx/actions" \
-      bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$fx/new/mailserverd" "$fx/new/mailctl" \
-      '' '' "$fx/new/setjoin-gateway" > "$fx/output" 2>&1 || status=$?
-    test "$(stat -c '%a' "$fx/install/federation-deploy.prev")" = 700
+      bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$fx/new/setjoin-server" "$fx/new/mailctl" \
+      > "$fx/output" 2>&1 || status=$?
+    test "$(mode_of "$fx/install/federation-deploy.prev")" = 700
     if [ "$health" = 0 ]; then
       [ "$status" = 0 ] || { cat "$fx/output" >&2; exit 1; }
       grep -qx 'FileDescriptorName=federation' "$fx/units/setjoin-federation.socket"
       grep -qx 'Wants=setjoin-federation.socket' "$fx/units/setjoin-gateway.service"
       ! grep -Eq '^EnvironmentFile=.*(config.env|db-credentials.env)$' "$fx/units/setjoin-gateway.service"
       grep -qx "EnvironmentFile=-$fx/config/federation.env" "$fx/units/setjoin-gateway.service"
-      grep -qx "ExecStart=$fx/install/setjoin-gateway" "$fx/units/setjoin-gateway.service"
+      grep -qx "ExecStart=$fx/install/setjoin-server" "$fx/units/setjoin-gateway.service"
       grep -qx 'GO_WORKERS_OFF=backup-engine,federation-service,federation-residue-reap' "$fx/config/config.env"
       grep -qx 'RUST_WORKERS_ON=notify-intent-drain,federation-residue-reap' "$fx/config/config.env"
       grep -qx 'GO_WORKERS_OFF=federation-service,federation-residue-reap' "$fx/config/federation.env"
       grep -qx 'RUST_WORKERS_ON=federation-residue-reap' "$fx/config/federation.env"
       ! grep -Eq 'OWNER_DSN|S3_SECRET' "$fx/config/federation.env"
-      test "$(stat -c '%a' "$fx/config/federation.env")" = 640
+      test "$(mode_of "$fx/config/federation.env")" = 640
       grep -qx 'daemon-reload' "$fx/actions"
       grep -qx 'enable setjoin-federation.socket' "$fx/actions"
     else
       [ "$status" != 0 ] || { echo 'failed readiness reported success' >&2; exit 1; }
       diff -ru "$fx/before-config" "$fx/config"
       diff -ru "$fx/before-units" "$fx/units"
-      test "$(stat -c '%a' "$fx/config/config.env")" = 600
+      test "$(mode_of "$fx/config/config.env")" = 600
       if [ "$previous_socket" = present ]; then
-        test "$(stat -c '%a' "$fx/config/federation.env")" = 640
+        test "$(mode_of "$fx/config/federation.env")" = 640
       fi
-      test "$(cat "$fx/install/setjoin-gateway")" = 'old setjoin-gateway'
+      test "$(cat "$fx/install/setjoin-server")" = 'old setjoin-server'
       # Close the new descriptor before the old gateway is started.
       python3 - "$fx/actions" <<'PY'
 import sys

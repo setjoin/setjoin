@@ -467,7 +467,7 @@ mod tests {
     use std::cmp::Ordering;
     const BUNDLE: &str = include_str!("cacert.pem");
     const AS_OF: &str = "## Certificate data from Mozilla as of: ";
-    const REFRESH: &str = "refresh both byte-identical copies: curl -fsS https://curl.se/ca/cacert.pem -o server-rust/crates/protocols/smtp/src/inbound/cacert.pem && cp server-rust/crates/protocols/smtp/src/inbound/cacert.pem mailserver/internal/smime/cacert.pem";
+    const REFRESH: &str = "refresh cacert.pem: curl -fsS https://curl.se/ca/cacert.pem -o server-rust/crates/protocols/smtp/src/inbound/cacert.pem";
     #[test]
     fn bundled_roots_parse() {
         let blocks = BUNDLE.matches("-----BEGIN CERTIFICATE-----").count();

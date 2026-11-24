@@ -40,31 +40,13 @@ fail=0
 stage() { printf '\n\033[1m══ %s ══\033[0m\n' "$1"; }
 run()   { echo "+ $*"; if "$@"; then echo "  ✓ $1"; else echo "  ✗ FAILED: $*"; fail=1; fi; }
 
-# ── 1. SQL-injection check (single home: the guard script CI also runs) ───────
-stage "SQL injection check"
-run bash scripts/check-sql-injection.sh
-
-# ── 2. Lint ───────────────────────────────────────────────────────────────────
-stage "Lint (golangci-lint)"
+# ── 1. Lint ───────────────────────────────────────────────────────────────────
+stage "Lint (webmail)"
 run bash scripts/lint.sh
 
-# ── 3. Cross-compile check (arm64 + loong64) ─────────────────────────────────
-stage "Cross-compile (arm64, loong64)"
-for arch in arm64 loong64; do
-  for mod in authserver mailserver shared mailctl; do
-    echo "+ $mod → linux/$arch"
-    if ( cd "$mod" && GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build ./... ); then
-      echo "  ✓ $mod/$arch"
-    else
-      echo "  ✗ FAILED: $mod cross-compile $arch"
-      fail=1
-    fi
-  done
-done
-
-# ── 4. Structural guards ──────────────────────────────────────────────────────
+# ── 2. Structural guards ──────────────────────────────────────────────────────
 # The full manifest (scripts/run-guards.sh — every scripts/check-*.sh, self-test
-# first) runs INSIDE scripts/test.sh at stage 5, so guards execute exactly once.
+# first) runs INSIDE scripts/test.sh at stage 3, so guards execute exactly once.
 # Only when the DB stages are skipped do we run the manifest here, minus the
 # DB-needing guards, so --no-db still gets every static verdict.
 if [ "$RUN_DB" = 0 ]; then
@@ -72,7 +54,7 @@ if [ "$RUN_DB" = 0 ]; then
   run bash scripts/run-guards.sh --no-db
 fi
 
-# ── 5. DB-backed Go tests + pgTAP (the gap CI used to skip) ───────────────────
+# ── 3. DB-backed tests + pgTAP (REQUIRE_DB fail-closed) ───────────────────────
 if [ "$RUN_DB" = 1 ]; then
   stage "DB-backed tests + pgTAP (REQUIRE_DB fail-closed)"
   # Same DSN as scripts/test.sh; REQUIRE_DB makes a missing DB FAIL not skip.
@@ -84,12 +66,9 @@ else
   echo "  (skipped — --no-db)"
 fi
 
-# ── 6. QEMU cross-arch smoke (optional; needs Docker) ────────────────────────
 if [ "$SMOKE" = 1 ]; then
-  stage "Cross-arch QEMU smoke"
-  for arch in arm64 loong64; do
-    run bash scripts/cross-build.sh --arch "$arch" --smoke
-  done
+  stage "Cross-arch Rust floor smoke"
+  echo "  Use scripts/smoke-rust-floor.sh for Rust floor container smoke."
 fi
 
 printf '\n'

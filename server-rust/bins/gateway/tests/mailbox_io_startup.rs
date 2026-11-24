@@ -102,7 +102,7 @@ async fn bundled_mailbox_import_export_are_native_and_both_kill_switches_forward
                 )?;
             }
             let mut process = Process(
-                Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+                Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                     .arg0(format!("gofree-mbox5-gateway-{mode}"))
                     .env_clear()
                     .env("GATEWAY_LISTEN", address.to_string())

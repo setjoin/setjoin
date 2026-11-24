@@ -64,7 +64,7 @@ ENGINE_BIN="${SOFFICE_BIN:-soffice}"
 #     fidelity class static_print_layout, fallback
 #     screen_share_or_office_editor.
 ADMITTED_FORMATS="docx odt txt xlsx ods"
-CORPUS_DIR="$ROOT/mailserver/internal/meet/presentation/testdata/corpus"
+CORPUS_DIR="$ROOT/docs/verification/meet-m0-corpus"
 
 die() {
   echo "meet-m6-convert-doc-modes: $1" >&2

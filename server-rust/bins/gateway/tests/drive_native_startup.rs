@@ -4,7 +4,7 @@ mod common;
 #[test]
 fn weak_native_signing_secret_is_rejected_before_listening() {
     use std::os::unix::process::CommandExt;
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
         .arg0("gofree-idlogin3-weak-drive-key")
         .env_clear()
         .env("GATEWAY_LISTEN", "127.0.0.1:0")

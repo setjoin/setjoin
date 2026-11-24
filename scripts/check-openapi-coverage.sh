@@ -20,9 +20,10 @@
 # Paths are normalized {param} → {} so param-name differences ({id} vs
 # {accountId}) don't cause false diffs (position-based comparison).
 #
-# The route set comes from scripts/check-route-inventory.sh. It replays the six
-# gateway registrars plus the production-used Drive, Chat, Meet, and SCIM
-# registrars. Source regex is deliberately not an authority here.
+# The route set comes from the committed canonical schema-v1 route inventory
+# (server-rust/bins/gateway/data/route-inventory.json), validated against
+# route_inventory.golden by server-rust/bins/gateway. Source regex is
+# deliberately not an authority here.
 #
 # Usage:
 #   scripts/check-openapi-coverage.sh              # the guard (exit 1 on drift)
@@ -36,7 +37,7 @@ export LC_ALL=C
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPEC="$ROOT/mailserver/api/openapi.yaml"
 PENDING="$ROOT/mailserver/api/openapi-pending.txt"
-INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/test-results/mailserver/route-inventory.json}"
+INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server-rust/bins/gateway/data/route-inventory.json}"
 INVENTORY_READER="$ROOT/scripts/route-inventory-json.mjs"
 
 # These protocol muxes are governed by DAV contracts rather than OpenAPI.

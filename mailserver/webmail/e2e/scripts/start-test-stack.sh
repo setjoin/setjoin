@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # e2e/scripts/start-test-stack.sh
 # Starts all services needed for E2E testing: a fresh mailserver_e2e DB, a
-# SeaweedFS S3 backend, the authserver, and the gateway (mailserverd) serving
+# SeaweedFS S3 backend, setjoin-auth, and setjoin-server serving
 # a freshly built SPA. Set E2E_SKIP_WEBMAIL_BUILD=1 only when the caller has
 # already produced and verified e2e/../build in the same run.
 set -e
@@ -41,8 +41,8 @@ source "$ROOT/scripts/e2e-test-db-guard.sh"
 e2e_validate_test_db || exit $?
 INSTANCE_DIR="${TMPDIR:-/tmp}/setjoin-e2e-${DB_NAME}-${GATEWAY_PORT}"
 CONTROL_SOCKET="${E2E_CONTROL_SOCKET:-$INSTANCE_DIR/control.sock}"
-AUTH_BIN="${INSTANCE_DIR}/authserver"
-GATEWAY_BIN="${INSTANCE_DIR}/gateway"
+AUTH_BIN="${INSTANCE_DIR}/setjoin-auth"
+GATEWAY_BIN="${INSTANCE_DIR}/setjoin-server"
 MAILCTL_BIN="${INSTANCE_DIR}/mailctl"
 UPDATER_BIN="${INSTANCE_DIR}/setjoin-updater"
 LIVEKIT_CONTAINER="setjoin-e2e-livekit-${GATEWAY_PORT}"
@@ -267,7 +267,7 @@ if [ "${E2E_MAXIMAL_FEATURES:-0}" = "1" ]; then
     # browser without an enrolled native-shell device proof; its ON behavior is
     # covered by device-lockdown.spec.ts, while this lane exercises the other
     # features together through a usable browser session.
-    registry_fixture="$ROOT/shared/toggle/testdata/registry-v226.json"
+    registry_fixture="$ROOT/server-rust/crates/domains/platform/testdata/toggle/registry-v275.json"
     registry_keys="$(jq -c '[.definitions[].key]' "$registry_fixture")"
     registry_digest="$(jq -r '.registryDigest' "$registry_fixture")"
     installed_digest="$(psql -d "$DB_NAME" -Atc \
@@ -370,37 +370,57 @@ if [ "$LIVEKIT_MODE" = "1" ]; then
     echo "[e2e] LiveKit: OK"
 fi
 
-# ── Build binaries (correct module paths) ──
-echo "[e2e] Building authserver..."
-(cd "$ROOT/authserver" && go build -o "$AUTH_BIN" ./cmd/authserverd)
-echo "[e2e] Building gateway (mailserverd)..."
-(cd "$ROOT/mailserver" && go build -o "$GATEWAY_BIN" ./cmd/mailserverd)
-echo "[e2e] Building mailctl (CA quickstart spec shells out to it)..."
-(cd "$ROOT/mailctl" && go build -o "$MAILCTL_BIN" ./)
+# ── Build or stage Rust binaries ──
+RUST_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}"
+RUST_PROFILE="${E2E_CARGO_PROFILE:-debug}"
+RUST_BIN_DIR="${RUST_TARGET_DIR}/${RUST_PROFILE}"
+CARGO_PROFILE_ARGS=()
+if [ "$RUST_PROFILE" = "release" ]; then
+    CARGO_PROFILE_ARGS+=(--release)
+fi
+if [ "${E2E_SKIP_RUST_BUILD:-0}" = "1" ] && \
+   [ -x "$RUST_BIN_DIR/setjoin-auth" ] && \
+   [ -x "$RUST_BIN_DIR/setjoin-server" ] && \
+   [ -x "$RUST_BIN_DIR/mailctl" ] && \
+   { [ "${E2E_MANAGED_OFFICE:-0}" != "1" ] || [ -x "$RUST_BIN_DIR/setjoin-updater" ]; }; then
+    echo "[e2e] Using prebuilt Rust binaries from $RUST_BIN_DIR"
+else
+    RUST_PKGS=(-p setjoin-auth -p setjoin-gateway -p setjoin-mailctl)
+    if [ "${E2E_MANAGED_OFFICE:-0}" = "1" ]; then
+        command -v docker >/dev/null 2>&1 || { echo "ERROR: E2E_MANAGED_OFFICE=1 requires Docker"; exit 1; }
+        RUST_PKGS+=(-p setjoin-updater)
+    fi
+    echo "[e2e] Building Rust binaries (${RUST_PROFILE})..."
+    (cd "$ROOT/server-rust" && cargo build --locked "${CARGO_PROFILE_ARGS[@]}" "${RUST_PKGS[@]}")
+fi
+install -m 0755 "$RUST_BIN_DIR/setjoin-auth" "$AUTH_BIN"
+install -m 0755 "$RUST_BIN_DIR/setjoin-server" "$GATEWAY_BIN"
+install -m 0755 "$RUST_BIN_DIR/mailctl" "$MAILCTL_BIN"
 echo "[e2e] mailctl: $MAILCTL_BIN (point specs at it via MAILCTL_BIN)"
 if [ "${E2E_MANAGED_OFFICE:-0}" = "1" ]; then
     command -v docker >/dev/null 2>&1 || { echo "ERROR: E2E_MANAGED_OFFICE=1 requires Docker"; exit 1; }
-    echo "[e2e] Building updater (managed Office install spec shells out to it)..."
-    (cd "$ROOT/mailserver" && go build -o "$UPDATER_BIN" ./cmd/setjoin-updater)
+    install -m 0755 "$RUST_BIN_DIR/setjoin-updater" "$UPDATER_BIN"
     echo "[e2e] updater: $UPDATER_BIN (point specs at it via SETJOIN_UPDATER_BIN)"
 fi
 
-# ── Start authserver ──
-echo "[e2e] Starting authserver on :${AUTH_PORT}..."
+# ── Start setjoin-auth ──
+echo "[e2e] Starting setjoin-auth on :${AUTH_PORT}..."
 DB_DSN="$APP_DSN" \
+DB_WORKER_DSN="$WORKER_DSN" \
 JWT_SECRET="test-e2e-secret-key-at-least-32-chars!!" \
 DB_ENCRYPTION_KEY="$ENC_KEY" \
 AUDIT_HMAC_KEY="e2e-audit-hmac-key-32-bytes-fixed" \
 HOSTNAME="localhost" \
-LISTEN_ADDR=":${AUTH_PORT}" \
+LISTEN_ADDR="127.0.0.1:${AUTH_PORT}" \
+TRUSTED_PROXY_IP="127.0.0.1" \
 THREAT_RATE_LIMIT_PER_MIN="${THREAT_RATE_LIMIT_PER_MIN:-100000}" \
 THREAT_CAPTCHA_THRESHOLD="${THREAT_CAPTCHA_THRESHOLD:-100000}" \
 THREAT_TARPIT_THRESHOLD="${THREAT_TARPIT_THRESHOLD:-100000}" \
 "$AUTH_BIN" &
 AUTH_PID=$!
-echo "[e2e] Authserver PID: $AUTH_PID"
+echo "[e2e] setjoin-auth PID: $AUTH_PID"
 
-# ── Start gateway ──
+# ── Start setjoin-server ──
 # One launch site so the initial boot and a rehearsal flip share the exact same
 # environment (identical DSNs, keys, and ports; only the web root may change).
 launch_gateway() {
@@ -418,6 +438,10 @@ launch_gateway() {
     DB_ENCRYPTION_KEY="$ENC_KEY" \
     AUDIT_HMAC_KEY="e2e-audit-hmac-key-32-bytes-fixed" \
     HOSTNAME="localhost" \
+    GATEWAY_ENABLED="true" \
+    GATEWAY_LISTEN="127.0.0.1:${GATEWAY_PORT}" \
+    GATEWAY_RUST_AUTH_UPSTREAM="http://127.0.0.1:${AUTH_PORT}" \
+    GATEWAY_TRUSTED_PROXIES="127.0.0.1" \
     LISTEN_ADDR=":${GATEWAY_PORT}" \
     SMTP_INBOUND_ADDR="127.0.0.1:${SMTP_INBOUND_PORT}" \
     SMTP_SUBMISSION_ADDR="127.0.0.1:${SMTP_SUBMISSION_PORT}" \
@@ -437,7 +461,7 @@ launch_gateway() {
     LIVEKIT_URL="$GATEWAY_LIVEKIT_URL" \
     "$GATEWAY_BIN" &
     GW_PID=$!
-    echo "[e2e] Gateway PID: $GW_PID (web root: $GATEWAY_WEBSITE_DIR)"
+    echo "[e2e] setjoin-server PID: $GW_PID (web root: $GATEWAY_WEBSITE_DIR)"
 }
 
 echo "[e2e] Starting gateway on :${GATEWAY_PORT}..."

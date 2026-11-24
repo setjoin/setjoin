@@ -970,8 +970,8 @@ describe('jmap client', () => {
 // A helper whose `using` array omits the method's required capability is rejected
 // with 400 unknownCapability — this shipped TWICE (EmailSubmission/* and
 // Email/bundles both 400'd in production). This guard catches the whole class.
-// vitest cwd is mailserver/webmail — the golden file lives in the Go package.
-const GOLDEN_PATH = resolve(process.cwd(), '../internal/jmap/testdata/methods.golden');
+// vitest cwd is mailserver/webmail — the golden file lives in the Rust gateway crate.
+const GOLDEN_PATH = resolve(process.cwd(), '../../server-rust/bins/gateway/data/jmap_methods.golden');
 
 function goldenRegistry(): Map<string, string> {
 	const rows = new Map<string, string>();

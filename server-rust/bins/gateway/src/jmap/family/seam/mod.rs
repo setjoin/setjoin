@@ -266,8 +266,7 @@ mod tests {
     use super::literals;
     use super::{CALENDAR_A3_METHODS, WORKER_METHODS, WORKER_TASK_METHODS};
 
-    const GOLDEN: &str =
-        include_str!("../../../../../../../mailserver/internal/jmap/testdata/methods.golden");
+    const GOLDEN: &str = include_str!("../../../../data/jmap_methods.golden");
 
     /// Substrings no scanned file may contain once its exact exceptions are removed.
     const FORBIDDEN: &[&str] = &[
@@ -765,41 +764,24 @@ mod tests {
         }
     }
 
-    /// Frozen Go: `calendarA3Error` is defined in calendar_a3.go and called
-    /// there and in calendar.go only (delete with Go, #142).
+    /// `CALENDAR_A3_METHODS` stays sorted, unique, non-empty, and registered in
+    /// `jmap_methods.golden`.
     #[test]
-    fn calendar_projection_methods_match_go() {
-        const CALENDAR_A3: &str =
-            include_str!("../../../../../../../mailserver/internal/jmap/calendar_a3.go");
-        const CALENDAR: &str =
-            include_str!("../../../../../../../mailserver/internal/jmap/calendar.go");
-        let call = Regex::new(r#"calendarA3Error\(err, h, "([A-Za-z]+/[A-Za-z]+)"\)"#)
-            .expect("call pattern");
-        let go: BTreeSet<String> = [CALENDAR_A3, CALENDAR]
-            .iter()
-            .flat_map(|text| call.captures_iter(text))
-            .map(|captures| captures[1].to_owned())
-            .collect();
-        let rust: BTreeSet<String> = CALENDAR_A3_METHODS
-            .iter()
-            .map(|name| (*name).to_owned())
-            .collect();
-        assert_eq!(
-            rust, go,
-            "CALENDAR_A3_METHODS must equal Go's calendarA3Error call sites"
-        );
+    fn calendar_projection_methods_are_sorted_and_registered() {
+        assert!(!CALENDAR_A3_METHODS.is_empty());
         let mut sorted = CALENDAR_A3_METHODS.to_vec();
         sorted.sort_unstable();
+        sorted.dedup();
         assert_eq!(
             sorted, CALENDAR_A3_METHODS,
-            "CALENDAR_A3_METHODS stays sorted"
+            "CALENDAR_A3_METHODS stays sorted and unique"
         );
         for name in CALENDAR_A3_METHODS {
             assert!(
                 GOLDEN
                     .lines()
                     .any(|line| line.starts_with(&format!("{name}\t"))),
-                "{name} is not in methods.golden"
+                "{name} is not in jmap_methods.golden"
             );
         }
     }

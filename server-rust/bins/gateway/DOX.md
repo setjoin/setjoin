@@ -1,6 +1,10 @@
-# setjoin-gateway — DOX (moved verbatim from server-rust/AGENTS.md, #385)
+# setjoin-server (package `setjoin-gateway`) — DOX
 
-Parent: [server-rust/AGENTS.md](../../AGENTS.md). Rust front door (#255, [ARCH-027](../../../docs/adr/ARCH-027-rust-front-door-gateway.md)).
+Parent: [server-rust/AGENTS.md](../../AGENTS.md). Canonical Rust server binary `setjoin-server` (Cargo package `setjoin-gateway` unchanged; systemd unit name `setjoin-gateway.service` unchanged; #255/#142, [ARCH-027](../../../docs/adr/ARCH-027-rust-front-door-gateway.md), [ARCH-031](../../../docs/adr/ARCH-031-go-is-deleted.md)).
+
+> **Post-Go status (`#142` / `ARCH-031`):** Go `mailserverd` and `authserverd` were deleted. Every shipped HTTP route (`PENDING = 0`), protocol listener (HTTP/h2c/HTTPS/ACME, JMAP, IMAP, SMTP, CalDAV, CardDAV, LDAP, Federation), and all 51 background workers execute natively in Rust (`setjoin-server` and `setjoin-auth`) with `REHEARSAL-FORWARD-SITES = 0` and `DELETE-GATE-MATRIX` Go-hop cells `0 / 0`. Relocated golden/inventory assets live in `bins/gateway/data/{route_inventory.golden,jmap_methods.golden,worker_launch_inventory.golden,route-inventory.json}`. Legacy Go proxy flags (`GATEWAY_UPSTREAM`, `AUTHSERVER_GO_UPSTREAM`, `GATEWAY_ENABLED=false`) are retired from shipped systemd units and scripts; `GATEWAY_RUST_AUTH_UPSTREAM` is the canonical auth-upstream variable (`GATEWAY_AUTH_UPSTREAM` remains only as a deprecated Rust read-side alias during rolling upgrades, and `GO_LISTENERS_OFF` / `GO_WORKERS_OFF` remain solely as transitional deploy/test-harness compatibility variables until Wave 1 cleanup).
+
+Historical front-door and per-family qualification details below document how each surface transferred into `bins/gateway/`:
 
 Rust front door (#255). Dispatches by `bins/gateway/route-inventory.json`
 to local Rust, `setjoin-auth`, Go mailserver or Go authserver. OFF entries

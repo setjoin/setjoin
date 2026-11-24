@@ -118,7 +118,7 @@ async fn run(kill: bool, rollback: bool) -> Result<(), BoxError> {
             "gofree-meet4-exec-{}-{kill}-{rollback}.log",
             a.user
         )))?;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command.arg0("gofree-meet4-gateway").env_clear();
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),

@@ -184,8 +184,7 @@ fn scim_route(method: &hyper::Method, path: &str) -> bool {
 /// Select the middleware of the actual Go ServeMux match, including routes
 /// without a limiter (which can override a less-specific limited subtree).
 fn route_bucket(method: &hyper::Method, path: &str) -> Option<&'static str> {
-    const ROUTES: &str =
-        include_str!("../../../../../mailserver/cmd/mailserverd/testdata/route_inventory.golden");
+    const ROUTES: &str = include_str!("../../data/route_inventory.golden");
     type Rule = (&'static str, &'static str, &'static str);
     static RULES: OnceLock<Vec<Rule>> = OnceLock::new();
     let rules = RULES.get_or_init(|| {

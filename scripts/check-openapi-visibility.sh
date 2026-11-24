@@ -59,7 +59,7 @@ set -uo pipefail
 export LC_ALL=C
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPEC="$ROOT/mailserver/api/openapi.yaml"
-INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/test-results/mailserver/route-inventory.json}"
+INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server-rust/bins/gateway/data/route-inventory.json}"
 INVENTORY_READER="$ROOT/scripts/route-inventory-json.mjs"
 
 # ── extract "<path> <x-visibility>" for every documented path object ──────────

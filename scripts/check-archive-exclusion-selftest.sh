@@ -116,19 +116,6 @@ SQL
 # synthetic benign loader: an execution-context line with no archive reference
 psql -h 127.0.0.1 -f "$1"
 SH
-  cat >"$WORK/mailserver/sql/dbschema/dbschema.go" <<'GO'
-package dbschema
-
-import (
-	"embed"
-	"regexp"
-)
-
-//go:embed *.sql
-var migrationFS embed.FS
-
-var filenameRe = regexp.MustCompile(`^V(\d+)__.+\.sql$`)
-GO
   printf 'CREATE TABLE baseline_probe(id int);\n' >"$WORK/mailserver/sql/dbschema/V001__baseline.sql"
   printf 'CREATE TABLE fwd_probe(id int);\n' >"$WORK/mailserver/sql/dbschema/V002__forward_probe.sql"
   printf '\\dt\n' >"$WORK/mailserver/sql/tests/_fixtures.sql"
@@ -242,54 +229,6 @@ if printf '%s' "$out" | grep -qF "rogue_loader.sh"; then
   ok "(B2) names the rogue loader file"
 else
   bad "(B2) did not name the violating file:"$'\n'"$out"
-fi
-
-echo "(B3) guard vs a //go:embed directive reaching into _archive"
-build_minirepo
-# Reachable fixture (r2 P2): the rogue directive's `_archive/*.sql` pattern
-# must match REAL SQL beneath the embed dir, and that SQL must be
-# archive-provenanced (sentinel) and named in the shape the LIVE embed
-# contract's rename gate (^V(\d+)__.+\.sql$, dbschema.go:39/:42) selects —
-# exactly the file that would be compiled into the binary as migration V24 if
-# the scan missed the directive.
-mkdir -p "$WORK/mailserver/sql/dbschema/_archive"
-{
-  printf '%s\n' "$SENTINEL"
-  printf 'CREATE TABLE client_versions_probe(id int);\n'
-} \
-  >"$WORK/mailserver/sql/dbschema/_archive/V024__client_versions.sql"
-embed_fixture="$WORK/mailserver/sql/dbschema/_archive/V024__client_versions.sql"
-case "${embed_fixture##*/}" in
-  V[0-9]*__*.sql)
-    ok "(B3) embed fixture carries the rename-gate name (live V<pk>__*.sql contract selects it)"
-    ;;
-  *)
-    bad "(B3) embed fixture name is NOT selected by the ^V(\\d+)__ rename gate: ${embed_fixture##*/}"
-    ;;
-esac
-if [ -f "$embed_fixture" ] && head -n 1 "$embed_fixture" | grep -q 'SETJOIN-ARCHIVE-NONEXECUTED'; then
-  ok "(B3) //go:embed _archive/*.sql matches archive-provenanced SQL (directive reachable, not vacuous)"
-else
-  bad "(B3) rogue embed pattern has no sentinel-bearing SQL beneath the embed dir (directive vacuous)"
-fi
-cat >"$WORK/mailserver/sql/dbschema/rogue_embed.go" <<'GO'
-package dbschema
-
-import "embed"
-
-//go:embed _archive/*.sql
-var rogueFS embed.FS
-GO
-run_guard
-if [ "$rc" -ne 0 ]; then
-  ok "(B3) //go:embed _archive/*.sql fails the guard"
-else
-  bad "(B3) guard PASSED with a rogue embed directive (false-negative!)"
-fi
-if printf '%s' "$out" | grep -qF "rogue_embed.go"; then
-  ok "(B3) names the rogue embed file (scanner rejects the directive binding archived SQL)"
-else
-  bad "(B3) did not name the violating file:"$'\n'"$out"
 fi
 
 echo "(C1) load-test-schema.sh vs baseline whose resolved path is in _archive"

@@ -9,61 +9,19 @@ use setjoin_pg::workers::WorkerDatabase;
 
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-struct GoTask {
-    name: String,
-    schedule: String,
-    sql: String,
-    seconds: u64,
-}
-
-/// Parse Go's registry literal lines straight from the frozen source, so any
-/// change to `AllTasks()` (add, remove, edit) fails this test until Rust follows.
-fn go_tasks() -> Vec<GoTask> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../mailserver/internal/cron/tasks.go");
-    let source = std::fs::read_to_string(path).expect("tasks.go");
-    let field = |line: &str, key: &str| -> String {
-        let start = line.find(key).unwrap_or_else(|| panic!("{key} in {line}")) + key.len();
-        let rest = &line[start..];
-        let quote = rest.chars().next().unwrap();
-        assert!(quote == '"' || quote == '`', "{line}");
-        let body = &rest[1..];
-        body[..body.find(quote).unwrap()].to_string()
-    };
-    source
-        .lines()
-        .filter(|l| l.trim_start().starts_with("{Name: \""))
-        .map(|line| {
-            assert!(line.contains("enabled: true}"), "disabled task: {line}");
-            let timeout = line
-                .split("Timeout: ")
-                .nth(1)
-                .unwrap()
-                .split(" * time.Second")
-                .next()
-                .unwrap();
-            GoTask {
-                name: field(line, "Name: "),
-                schedule: field(line, "Schedule: "),
-                sql: field(line, "SQL: "),
-                seconds: timeout.parse().unwrap(),
-            }
-        })
-        .collect()
-}
-
 #[test]
-fn catalog_equals_gos_all_tasks_name_sql_schedule_and_timeout() {
-    let go = go_tasks();
-    assert_eq!(go.len(), 31, "Go has 31 cron tasks");
-    let rust: Vec<_> = CATALOG.iter().map(|(n, ..)| *n).collect();
-    let names: Vec<_> = go.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(rust, names, "Rust catalog and Go AllTasks() differ");
-    for (task, (name, sql, _)) in go.iter().zip(CATALOG) {
-        assert_eq!(task.sql, *sql, "{name}: statement");
-        let (schedule, seconds) = go_task_spec(name).unwrap_or_else(|| panic!("{name}: no spec"));
-        assert_eq!(task.schedule, schedule, "{name}: schedule");
-        assert_eq!(task.seconds, seconds, "{name}: timeout");
+fn catalog_tasks_have_unique_names_non_empty_sql_and_valid_specs() {
+    use std::collections::BTreeSet;
+    assert_eq!(CATALOG.len(), 31, "cron catalog must retain all 31 tasks");
+    let mut names = BTreeSet::new();
+    for (name, sql, _) in CATALOG {
+        assert!(!name.is_empty(), "cron task name must not be empty");
+        assert!(names.insert(*name), "duplicate cron task name: {name}");
+        assert!(!sql.trim().is_empty(), "{name}: SQL statement must not be empty");
+        let (schedule, seconds) =
+            go_task_spec(name).unwrap_or_else(|| panic!("{name}: missing cron task spec"));
+        assert!(!schedule.trim().is_empty(), "{name}: empty schedule");
+        assert!(seconds > 0, "{name}: timeout must be positive");
     }
     assert!(go_task_spec("not-a-task").is_none());
 }

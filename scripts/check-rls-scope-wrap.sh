@@ -152,11 +152,11 @@ EOF
 
 selftest
 
-viol="$(
-  { scan "$ROOT/mailserver/internal/chat" "$ROOT"
-    scan "$ROOT/mailserver/internal/meet" "$ROOT"
-  } 2>/dev/null
-)"
+viol=""
+for dir in "$ROOT/mailserver/internal/chat" "$ROOT/mailserver/internal/meet"; do
+  [ -d "$dir" ] || continue
+  viol+="$(scan "$dir" "$ROOT" 2>/dev/null || true)"
+done
 if [ -n "$viol" ]; then
   echo "check-rls-scope-wrap: FAIL — direct h.pool call(s) outside dbscope.RunUserScoped and outside the allowlist:" >&2
   echo "$viol" | sed 's/^/  /' >&2

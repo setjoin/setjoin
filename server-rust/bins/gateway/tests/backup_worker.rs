@@ -13,7 +13,7 @@ fn recorded_go_backup_worker_through_gateway_process() {
             "/../mailctl/tests/backup_worker.py"
         ))
         .arg("replay")
-        .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        .arg(env!("CARGO_BIN_EXE_setjoin-server"))
         .status()
         .expect("backup worker oracle requires Python, PostgreSQL tools and OpenSSL");
     assert!(status.success(), "backup worker parity failed");
@@ -26,7 +26,7 @@ fn backup_effects_require_db_dsn_without_go_workers_off() {
     let key = std::env::temp_dir().join(format!("gofree-mctl4-worker-key-{}", std::process::id()));
     std::fs::write(&key, "00".repeat(32)).unwrap();
     std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
         .env_clear()
         .env("GATEWAY_LISTEN", "127.0.0.1:0")
         .env("BACKUP_SIGNING_KEY_FILE", &key)
@@ -48,7 +48,7 @@ fn backup_keeps_go_parity_with_recovery_cleanup_enabled() {
             "/../mailctl/tests/backup_worker.py"
         ))
         .arg("replay")
-        .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        .arg(env!("CARGO_BIN_EXE_setjoin-server"))
         .env("MAILCTL_WORKER_CASE", "worker")
         .env("MAILCTL_WORKER_WITH_RECOVERY", "1")
         .status()

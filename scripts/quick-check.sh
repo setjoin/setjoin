@@ -64,11 +64,9 @@ run() {
       step "cargo test --lib -p $p ${LANE_QC_TESTS:-}" bash scripts/quick-check-tests.sh run "$p" ${LANE_QC_TESTS:-}
     done
   fi
-  step "check-gofree-route-inventory" python3 scripts/check-gofree-route-inventory.py
   step "check-agent-context-budget" bash scripts/check-agent-context-budget.sh
   step "check-agent-docs" bash scripts/check-agent-docs.sh
   step "check-workflow-log-hygiene" bash scripts/check-workflow-log-hygiene.sh
-  step "check-recorder-docs" bash scripts/check-recorder-docs.sh
   mapfile -t added < <(git diff --name-only --diff-filter=A "$BASE...HEAD" -- '*.rs' 2>/dev/null)
   if [ "${#added[@]}" -eq 0 ]; then
     skip "rustfmt added files" "no Rust file added"

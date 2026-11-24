@@ -9,14 +9,14 @@ use setjoin_conformance::harness::Db;
 use std::process::{Command, Stdio};
 
 fn gateway(db: &Db, rust_on: &str, go_off: &str) -> std::io::Result<crate::common::boot::Child> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command.env_clear().stdout(Stdio::null()).stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
         ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn)),
         ("DB_WORKER_DSN", db.dsn.as_str()),
         ("DB_DIRECT_DSN", db.dsn.as_str()),
-        ("JWT_SECRET", "gofree-startup-master"),
+        ("JWT_SECRET", "gofree-startup-master-32-bytes-ok"),
         ("RUST_WORKERS_ON", rust_on),
         ("GO_WORKERS_OFF", go_off),
     ] {

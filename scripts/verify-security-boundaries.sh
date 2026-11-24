@@ -344,7 +344,6 @@ run_lane_command() {
       (cd "$ROOT/mailserver" && go test ./internal/updates -count=1)
       ;;
     contracts)
-      bash "$ROOT/scripts/check-route-inventory.sh"
       bash "$ROOT/scripts/check-openapi-coverage.sh" --self-test
       bash "$ROOT/scripts/check-openapi-visibility.sh" --self-test
       bash "$ROOT/scripts/check-agent-context-budget.sh"

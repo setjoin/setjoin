@@ -8,9 +8,8 @@
 
 | Layer | Technology | Current | Latest (checked) | Upgrade Policy |
 |---|---|---|---|---|
-| Go runtime | Go | Project/module baseline 1.26.6; current Mac tool 1.27.0 | 1.27.0 | Go 1.27 is a toolchain/runner/release-image upgrade, not a dependency patch; rehearse Ubuntu/macOS/cross-build and retained-binary lanes before changing module directives. |
+| Rust runtime | Rust | MSRV 1.97.1 (`server-rust/`), CI 1.99+ | 1.99+ | `rustup` stable; canonical server (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and client native crates. Go runtime and server modules were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)). |
 | Node runtime | Node.js | 26.6.0 local; CI uses major 26 | 26.6.0 | Development and release CI stay on the current project baseline. |
-| Rust runtime | Rust | 1.97.1 stable | 1.97.1 | `rustup` stable; release CI pins the verified `dtolnay/rust-toolchain` stable commit. |
 | PostgreSQL | server compatibility target | 18.x (18.4 current) | 18.4 | Stay on latest 18.x patch. Major PG upgrades require extension audit. The 信创 CI lane intentionally also exercises PostgreSQL 17. |
 | Connection pool | PgBouncer | 1.25.2 compatibility target | 1.25.2 | Host/package deployment; patch-level updates are accepted after release-note review. |
 | Object storage | `chrislusf/seaweedfs` | `sha256:52194fba4fecd0083c842158b3a902ba6e04a63619b2b0efcd08007bdb6a4602` (image reports SeaweedFS 4.40) | digest verified 2026-07-21 | Deploy by immutable digest; change it only through an explicit compatibility review and live storage smoke. |
@@ -36,29 +35,15 @@ The schema requires three extensions created in `mailserver/sql/dbschema/V001__b
 
 ---
 
-## Go Dependencies
+## Rust Server Workspace (`server-rust/`)
 
-Representative direct dependencies after the 2026-08-04 all-module refresh:
+All server binaries (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`, `setjoin-updater`) and domain/protocol crates are locked in `server-rust/Cargo.lock` and governed by `server-rust/deny.toml`, `server-rust/license-exception-reasons.toml`, `scripts/check-rust-family-isolation.py`, and `scripts/check-rust-license-exceptions.py`. Server-side Go modules (`mailserver`, `authserver`, `shared`, `mailctl`, `asrbot`, `tools/setjoin-release`) were deleted in `#142` ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)).
 
-| Package | Current | Latest | Notes |
-|---|---|---|---|
-| `github.com/jackc/pgx/v5` | v5.10.0 | v5.10.0 | Current. |
-| `github.com/zitadel/oidc/v3` | v3.48.1 | v3.48.1 | Single library for both RP and OP. |
-| `github.com/crewjam/saml` | v0.5.1 | v0.5.1 | Current. |
-| `github.com/go-webauthn/webauthn` | v0.17.4 | v0.17.4 | Current. |
-| `github.com/golang-jwt/jwt/v5` | v5.3.1 | v5.3.1 | Current. |
-| `github.com/livekit/server-sdk-go/v2` | v2.18.1 | v2.18.1 | Resolves `livekit/protocol` v1.50.4. |
-| `github.com/microsoftgraph/msgraph-sdk-go` | v1.100.0 | v1.100.0 | Current. |
-| `golang.org/x/crypto` | v0.55.0 | v0.55.0 | Current. |
-| `golang.org/x/net` | v0.58.0 | v0.58.0 | Current direct baseline; asrbot resolves v0.57.0 transitively. |
-| `golang.org/x/oauth2` | v0.36.0 | v0.36.0 | Current. |
-| `golang.org/x/text` | v0.41.0 | v0.41.0 | Current. |
-
-**Verification command:**
+**Verification commands:**
 ```bash
-for module in mailserver authserver shared mailctl asrbot tools/setjoin-release; do
-  (cd "$module" && GOWORK=off go list -m -u all)
-done
+cargo deny --locked check --manifest-path server-rust/Cargo.toml
+python3 scripts/check-rust-family-isolation.py
+python3 scripts/check-rust-license-exceptions.py
 ```
 
 ---
@@ -120,9 +105,8 @@ bash scripts/quality.sh doctor
 
 Exact active native scanner versions are pinned in
 `config/quality-tool-versions.json`. Compatible package updates applied on
-2026-08-25 include Electron 43.4.1, current in-range webmail packages, and Go
-`golang.org/x/crypto` 0.55.0 / `x/mod` 0.40.0 with their compatible `x/net`,
-`x/text`, and `x/tools` updates, plus `@napi-rs/cli` 3.8.6. Electron 44,
+2026-08-25 include Electron 43.4.1, current in-range webmail packages, and
+`@napi-rs/cli` 3.8.6. Electron 44,
 TypeScript 7, and LiveKit 2.22 are
 major or explicit compatibility-boundary upgrades and remain separate rehearsals,
 not automatic version churn.
@@ -151,14 +135,15 @@ Before upgrading any dependency:
 1. **Check the web** for the latest version, release notes, and breaking changes.
 2. **Review transitive compatibility:**
    - PostgreSQL major bump → audit all extensions (`pg_cron`, etc.).
-   - Go major bump → check `go.mod` directive.
+   - Rust MSRV/toolchain bump → check `server-rust/Cargo.toml`, `clients/Cargo.toml`, and `rust-floor.yml`.
    - Svelte major bump → audit all `.svelte` files for syntax changes (e.g., runes mode).
 3. **Run the verification suite:**
-   - `go build ./...` (gateway)
+   - `bash scripts/build.sh` and `bash scripts/check-server-rust.sh` (Rust server)
+   - `cargo deny --locked check --manifest-path server-rust/Cargo.toml`
    - `npm run check` (webmail — must be 0 errors, 0 warnings)
    - `npm run build` (webmail)
    - `npm audit` (must be 0 vulnerabilities)
-4. **Commit `package-lock.json`** after any npm change.
+4. **Commit `Cargo.lock` / `package-lock.json`** after any dependency change.
 5. **Update this file** with new version numbers and any new compatibility constraints discovered.
 
 ---
@@ -166,13 +151,13 @@ Before upgrading any dependency:
 ## References
 
 - pg_cron releases: https://github.com/citusdata/pg_cron/releases
-- Go downloads: https://go.dev/dl/
+- Rust releases: https://releases.rs/
 - Alpine Linux releases: https://alpinelinux.org/releases/
 - PostgreSQL releases: https://www.postgresql.org/docs/release/
 
 ---
 
-*Last verified: 2026-08-25*
+*Last verified: 2026-11-25*
 
 ---
 

@@ -131,13 +131,6 @@ validate_origin() {
 run_static() {
   echo "==> [static] build"
   bash "$ROOT/scripts/build.sh"
-  echo "==> [static] xinchuang tagged lane (-tags xinchuang build/vet/test)"
-  # Triage row 005: the tagged xinchuang/db package (notify.go) must compile
-  # and its tests must gate — mirrors the xinchuang-tagged-lane CI job.
-  (cd "$ROOT/mailserver" \
-    && go build -tags xinchuang ./... \
-    && go vet -tags xinchuang ./... \
-    && go test -tags xinchuang ./internal/xinchuang/... -count=1)
   echo "==> [static] local CI without database"
   bash "$ROOT/scripts/ci-local.sh" --no-db
 }
@@ -249,24 +242,15 @@ audit_tauri_mobile() {
 }
 
 run_security() {
-  local govulncheck
-  govulncheck="$(command -v govulncheck 2>/dev/null || true)"
-  [ -n "$govulncheck" ] || govulncheck="$(go env GOPATH)/bin/govulncheck"
-  [ -x "$govulncheck" ] || { echo "verify-all: govulncheck is required" >&2; exit 1; }
   require_command cargo-audit
-
-  for mod in authserver mailserver shared mailctl; do
-    echo "==> [security] govulncheck $mod"
-    (cd "$ROOT/$mod" && "$govulncheck" ./...)
-  done
-  echo "==> [security] govulncheck asrbot"
-  (cd "$ROOT/asrbot" && GOWORK=off "$govulncheck" -tags nolibopusfile ./...)
 
   for dir in mailserver/webmail clients/desktop/electron clients/desktop clients/rust/desktop-native; do
     echo "==> [security] npm audit $dir"
     (cd "$ROOT/$dir" && npm audit --audit-level=moderate)
   done
 
+  echo "==> [security] RustSec server-rust workspace"
+  (cd "$ROOT/server-rust" && cargo deny --locked check)
   echo "==> [security] RustSec workspace"
   (cd "$ROOT/clients" && cargo audit -D unsound)
   echo "==> [security] RustSec Tauri mobile"

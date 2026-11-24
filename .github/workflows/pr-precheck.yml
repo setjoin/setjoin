@@ -6,7 +6,7 @@ name: PR pre-check
 #                cheap guards (scripts/quick-check.sh, shared with quick-check.yml)
 #   integration  the integration tests (tests/*.rs) that scripts/precheck-integration.py selects for the
 #                change, on the lane Postgres with REQUIRE_DB=1 and the lane's skip-marker, ignored-test,
-#                zero-test and Go-rehearsal checks (scripts/server-rust-parallel-lane.sh,
+#                and zero-test checks (scripts/server-rust-parallel-lane.sh,
 #                SERVER_RUST_STAGES=workspace). No server-rust code change: it ends after the selection.
 #                The run step is capped at 30 minutes; hitting the cap is a failure, never a pass.
 # Peak concurrency per pull request is two jobs (the gate starts after both end), next to the 19-job lane.
@@ -106,12 +106,6 @@ jobs:
           workspaces: server-rust -> ../../../../lane-build/target
           shared-key: lane
           save-if: false
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        if: steps.select.outputs.select != ''
-        with:
-          path: ~/.cache/setjoin-server-rust-lane/go-mod
-          key: lane-go-mod-${{ hashFiles('**/go.sum') }}
-          restore-keys: lane-go-mod-
       - name: Integration tests of the selected targets (30-minute cap)
         if: steps.select.outputs.select != ''
         timeout-minutes: 30

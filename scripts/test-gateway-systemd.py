@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the gateway with real, disposable systemd socket/service units.
 
-Run as root on a systemd host, passing a built setjoin-gateway executable.
+Run as root on a systemd host, passing a built setjoin-server executable.
 This proves HTTP activation, capability removal and restart queuing, not public
 TLS/protocol handover or installer integration. No installed Setjoin unit changes.
 """
@@ -92,7 +92,7 @@ def verify(binary):
                 "--property=NoNewPrivileges=yes",
                 "--property=TimeoutStopSec=15",
                 f"--property=ExecStopPost={hook}",
-                "--setenv=GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:9",
+                "--setenv=GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9",
                 str(executable),
             )
             with socket.create_connection(address, timeout=10) as connection:

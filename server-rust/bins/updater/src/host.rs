@@ -17,8 +17,29 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     net::TcpStream,
 };
-const START: [&str; 3] = ["setjoin-auth", "setjoin", "setjoin-gateway"];
-const STOP: [&str; 3] = ["setjoin-gateway", "setjoin", "setjoin-auth"];
+const CORE_START: [&str; 2] = ["setjoin-auth", "setjoin-gateway"];
+const CORE_STOP: [&str; 2] = ["setjoin-gateway", "setjoin-auth"];
+const LEGACY_UNIT: &str = "setjoin";
+
+fn has_legacy_unit(units: &Path) -> bool {
+    std::fs::symlink_metadata(units.join(format!("{LEGACY_UNIT}.service"))).is_ok()
+}
+
+fn start_units_in(units: &Path) -> Vec<&'static str> {
+    if has_legacy_unit(units) {
+        vec!["setjoin-auth", LEGACY_UNIT, "setjoin-gateway"]
+    } else {
+        CORE_START.to_vec()
+    }
+}
+
+fn stop_units_in(units: &Path) -> Vec<&'static str> {
+    if has_legacy_unit(units) {
+        vec!["setjoin-gateway", LEGACY_UNIT, "setjoin-auth"]
+    } else {
+        CORE_STOP.to_vec()
+    }
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Probe {
@@ -324,7 +345,7 @@ pub fn require_unit_binaries(release: &Path) -> Result<()> {
     require_unit_binaries_in(Path::new("/etc/systemd/system"), release)
 }
 pub(crate) fn require_unit_binaries_in(units: &Path, release: &Path) -> Result<()> {
-    for unit in START {
+    for unit in start_units_in(units) {
         let text = match std::fs::read_to_string(units.join(format!("{unit}.service"))) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -353,19 +374,24 @@ pub(crate) fn require_unit_binaries_in(units: &Path, release: &Path) -> Result<(
     }
     Ok(())
 }
-pub async fn preflight() -> Result<()> {
-    for unit in START {
-        let m = std::fs::symlink_metadata(format!("/etc/systemd/system/{unit}.service"))?;
+fn check_required_units_in(units: &Path) -> Result<Vec<&'static str>> {
+    for unit in start_units_in(units) {
+        let m = std::fs::symlink_metadata(units.join(format!("{unit}.service")))?;
         ensure!(m.is_file(), "required unit unavailable");
     }
+    Ok(stop_units_in(units))
+}
+pub async fn preflight() -> Result<()> {
+    let units = Path::new("/etc/systemd/system");
+    let stop_units = check_required_units_in(units)?;
     let mut args = vec!["is-enabled"];
-    args.extend(STOP);
+    args.extend(stop_units);
     fixed("systemctl", &args).await?;
     let explicit_cfg = std::env::var_os("SETJOIN_CONFIG_DIR")
         .filter(|v| !v.is_empty())
         .map(|d| std::path::PathBuf::from(d).join("config.env"));
     check_worm_gateway_ready(
-        Path::new("/etc/systemd/system/setjoin-gateway.service"),
+        &units.join("setjoin-gateway.service"),
         explicit_cfg.as_deref(),
         Path::new("/etc/setjoin/config.env"),
     )
@@ -3067,12 +3093,12 @@ pub(crate) fn check_worm_gateway_ready(
 }
 pub async fn stop() -> Result<()> {
     let mut args = vec!["stop"];
-    args.extend(STOP);
+    args.extend(stop_units_in(Path::new("/etc/systemd/system")));
     fixed("systemctl", &args).await
 }
 pub async fn start() -> Result<()> {
     let mut args = vec!["start"];
-    args.extend(START);
+    args.extend(start_units_in(Path::new("/etc/systemd/system")));
     fixed("systemctl", &args).await
 }
 pub async fn readiness() -> Result<()> {
@@ -4148,7 +4174,7 @@ mod tests {
 
 #[cfg(test)]
 mod unit_binaries {
-    use super::require_unit_binaries_in;
+    use super::{check_required_units_in, require_unit_binaries_in, start_units_in, stop_units_in};
     fn dir(tag: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!(
             "setjoin-unit-binaries-{tag}-{}",
@@ -4185,5 +4211,93 @@ mod unit_binaries {
         assert!(require_unit_binaries_in(&units, &release).is_err());
         let _ = std::fs::remove_dir_all(&units);
         let _ = std::fs::remove_dir_all(&release);
+    }
+
+    #[test]
+    fn cross_rename_boundary_refuses_mismatched_gateway_and_server_binaries() {
+        let (units, post_release, pre_release) = (
+            dir("boundary-units"),
+            dir("boundary-post"),
+            dir("boundary-pre"),
+        );
+        std::fs::write(
+            units.join("setjoin-auth.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-auth\n",
+        )
+        .unwrap();
+        std::fs::write(post_release.join("setjoin-auth"), b"auth").unwrap();
+        std::fs::write(post_release.join("setjoin-server"), b"server").unwrap();
+        std::fs::write(pre_release.join("setjoin-auth"), b"auth").unwrap();
+        std::fs::write(pre_release.join("setjoin-gateway"), b"gateway").unwrap();
+
+        // Pre-#142 unit (ExecStart=setjoin-gateway) refuses post-#142 release (setjoin-server only).
+        std::fs::write(
+            units.join("setjoin-gateway.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-gateway\n",
+        )
+        .unwrap();
+        let err = require_unit_binaries_in(&units, &post_release)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("lacks setjoin-gateway"), "{err}");
+        require_unit_binaries_in(&units, &pre_release).unwrap();
+
+        // Post-#142 unit (ExecStart=setjoin-server) refuses pre-#142 release (setjoin-gateway only).
+        std::fs::write(
+            units.join("setjoin-gateway.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-server\n",
+        )
+        .unwrap();
+        let err = require_unit_binaries_in(&units, &pre_release)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("lacks setjoin-server"), "{err}");
+        require_unit_binaries_in(&units, &post_release).unwrap();
+
+        let _ = std::fs::remove_dir_all(&units);
+        let _ = std::fs::remove_dir_all(&post_release);
+        let _ = std::fs::remove_dir_all(&pre_release);
+    }
+
+    #[test]
+    fn post_142_preflight_does_not_require_legacy_setjoin_unit() {
+        let units = dir("preflight-post142");
+        std::fs::write(
+            units.join("setjoin-auth.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-auth\n",
+        )
+        .unwrap();
+        std::fs::write(
+            units.join("setjoin-gateway.service"),
+            "[Service]\nExecStart=/opt/setjoin/current/setjoin-server\n",
+        )
+        .unwrap();
+        assert_eq!(start_units_in(&units), vec!["setjoin-auth", "setjoin-gateway"]);
+        assert_eq!(stop_units_in(&units), vec!["setjoin-gateway", "setjoin-auth"]);
+        assert_eq!(
+            check_required_units_in(&units).unwrap(),
+            vec!["setjoin-gateway", "setjoin-auth"]
+        );
+
+        // Legacy setjoin.service is still included when present on a pre-cutover host.
+        std::fs::write(
+            units.join("setjoin.service"),
+            "[Unit]\nDescription=legacy\n",
+        )
+        .unwrap();
+        assert_eq!(
+            start_units_in(&units),
+            vec!["setjoin-auth", "setjoin", "setjoin-gateway"]
+        );
+        assert_eq!(
+            check_required_units_in(&units).unwrap(),
+            vec!["setjoin-gateway", "setjoin", "setjoin-auth"]
+        );
+
+        // Missing core setjoin-gateway.service still fails preflight.
+        std::fs::remove_file(units.join("setjoin-gateway.service")).unwrap();
+        assert!(check_required_units_in(&units).is_err());
+
+        let _ = std::fs::remove_dir_all(&units);
     }
 }

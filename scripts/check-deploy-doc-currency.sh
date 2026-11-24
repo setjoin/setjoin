@@ -75,11 +75,13 @@ CONFIG_ENV_SAMPLE="${CONFIG_ENV_SAMPLE:-$ROOT/mailserver/deploy/config.env.sampl
 # alongside authserver/setjoin-sfu/setjoin-valkey — this constant follows it
 # so check 2 (script/doc paths) keeps scanning its content, not silently
 # losing coverage because the old filename stopped resolving.
-SERVICE_FILE="${SERVICE_FILE:-$ROOT/mailserver/deploy/mailserver.service.template}"
-CONFIG_GO_FILES=(
-  "$ROOT/mailserver/internal/config/config.go"
-  "$ROOT/authserver/internal/config/config.go"
-  "$ROOT/shared/config/base.go"
+SERVICE_FILE="${SERVICE_FILE:-$ROOT/mailserver/deploy/setjoin-gateway.service.template}"
+CONFIG_RUST_FILES=(
+  "$ROOT/server-rust/bins/gateway/src/main.rs"
+  "$ROOT/server-rust/bins/gateway/src/acme.rs"
+  "$ROOT/server-rust/bins/gateway/src/configuration/mod.rs"
+  "$ROOT/server-rust/bins/auth/src/config.rs"
+  "$ROOT/server-rust/crates/domains/platform/src/config.rs"
 )
 
 echo "==> Deploy-doc currency guard"
@@ -136,16 +138,12 @@ declare -A NON_KOANF_ALLOW=(
 declare -A DOCUMENTED_SYMBOL_SOURCE=(
   [REWIND_ATTEMPT]="$ROOT/scripts/transactional-upgrade-rehearsal.sh"
   [RUN_PREFIX]="$ROOT/scripts/unified-deployment-readiness.sh"
-  [E_ROUTE_UNDOCUMENTED]="$ROOT/scripts/check-route-inventory.sh"
+  [E_ROUTE_UNDOCUMENTED]="$ROOT/scripts/check-openapi-coverage.sh"
   [RAIL_APPS]="$ROOT/mailserver/webmail/src/lib/nav/navConfig.ts"
-  [E_TOGGLE_REGISTRY_DRIFT]="$ROOT/scripts/check-toggle-registry.sh"
   [E_ARCH_R2_METRICS]="$ROOT/scripts/check-architecture-r2-dx-metrics.sh"
-  # TRUSTED_PROXY_IP (TRUSTED_PROXY_DEPLOYMENT.md) is deliberately NOT a
-  # koanf Config field or config.env.sample key: clientip.go reads it once at
-  # process init via os.Getenv (shared/clientip — the single XFF trust
-  # boundary). Accepted only while that canonical implementation source still
-  # contains the symbol, like every entry above.
-  [TRUSTED_PROXY_IP]="$ROOT/shared/clientip/clientip.go"
+  # TRUSTED_PROXY_IP (TRUSTED_PROXY_DEPLOYMENT.md): exact peer trust boundary read
+  # via std::env::var in server-rust/bins/auth/src/config.rs.
+  [TRUSTED_PROXY_IP]="$ROOT/server-rust/bins/auth/src/config.rs"
   # E2E_GATEWAY_FLIP_DIR (WEBMAIL_PERFORMANCE_VERIFICATION.md): the opt-in
   # webmail rehearsal seam — restarts ONLY the gateway against a validated
   # web root (start-test-stack.sh), keeping DB/SeaweedFS/authserver sessions
@@ -212,9 +210,8 @@ while IFS=: read -r file line rawtok; do
   symbol_source="${DOCUMENTED_SYMBOL_SOURCE[$var]:-}"
   if [ -n "$symbol_source" ] && [ -f "$symbol_source" ] && grep -qF "$var" "$symbol_source"; then continue; fi
   if [ -f "$CONFIG_ENV_SAMPLE" ] && grep -qE "^$var=" "$CONFIG_ENV_SAMPLE"; then continue; fi
-  key="$(env_to_koanf_key "$var")"
-  if grep -q "koanf:\"$key\"" "${CONFIG_GO_FILES[@]}" 2>/dev/null; then continue; fi
-  echo "  [DEPLOY-DOC] $file:$line: \`$var\` resolves to neither a config.env.sample key nor a koanf:\"$key\" tag" >&2
+  if grep -qF "\"$var\"" "${CONFIG_RUST_FILES[@]}" 2>/dev/null; then continue; fi
+  echo "  [DEPLOY-DOC] $file:$line: \`$var\` resolves to neither a config.env.sample key nor a Rust config env var" >&2
   fail=1
 done < <(grep -rHnoE '`[A-Z][A-Z0-9]*(_[A-Z0-9]+)+`' "${DOC_FILES[@]}")
 echo "   $n1 token(s) checked."

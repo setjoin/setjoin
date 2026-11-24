@@ -54,7 +54,7 @@ fn start(
     ));
     std::fs::create_dir(&dir).unwrap();
     let binary = dir.join("gofree-catchall-gateway");
-    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_setjoin-gateway"), &binary).unwrap();
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_setjoin-server"), &binary).unwrap();
     let mut command = Command::new(binary);
     command
         .env_clear()

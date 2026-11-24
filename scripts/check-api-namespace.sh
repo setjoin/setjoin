@@ -26,14 +26,13 @@
 # ──────────────────────────────────────────────────────────────────────────
 source "$(dirname "$0")/_base.sh"
 
-MAIN="$ROOT/mailserver/cmd/mailserverd/main.go"
 PINNED_FILE="$ROOT/scripts/api-pinned-prefixes.txt"
+INVENTORY="${ROUTE_INVENTORY_FILE:-$ROOT/server-rust/bins/gateway/data/route-inventory.json}"
+INVENTORY_READER="$ROOT/scripts/route-inventory-json.mjs"
 ROUTES_DIR="$ROOT/mailserver/webmail/src/routes"
 WEBMAIL_SRC="$ROOT/mailserver/webmail/src"
 
 pinned_from_file() { grep -vE '^\s*#|^\s*$' "$PINNED_FILE" | awk '{print $1}' | sort -u; }
-pinned_from_go()   { sed -n '/^var apiPinnedPrefixes = \[\]string{/,/^}/p' "$MAIN" \
-                       | grep -oE '"/[^"]*"' | tr -d '"' | sort -u; }
 
 spa_paths() {
   find "$ROUTES_DIR" -name '+page.svelte' -print \
@@ -43,21 +42,13 @@ spa_paths() {
 
 fail=0
 
-check_sync() {
-  if ! diff <(pinned_from_file) <(pinned_from_go) >/dev/null; then
-    echo "API-namespace guard FAILED — pinned prefixes out of sync:" >&2
-    diff <(pinned_from_file) <(pinned_from_go) | sed 's/^/    /' >&2
-    echo "    (< only in scripts/api-pinned-prefixes.txt, > only in main.go apiPinnedPrefixes)" >&2
-    return 1
-  fi
-}
-
 check_pinned_shadow() {
-  local hit=0 p
+  local hit=0 p routes
+  routes="$(API_PINNED_PREFIXES_FILE="$PINNED_FILE" node "$INVENTORY_READER" routes "$INVENTORY")" || return 1
   while IFS= read -r p; do
     while IFS= read -r pin; do
       if [ "$p" = "$pin" ] || case "$p" in "$pin"/*) true ;; *) false ;; esac; then
-        if grep -qE "mux\.Handle(Func)?\(\"GET $p\"" "$MAIN"; then
+        if grep -qxF "GET $p" <<<"$routes"; then
           echo "  [PINNED-SHADOW] GET $p is pinned AND an SPA page — the page is unreachable." >&2
           hit=1
         fi
@@ -99,31 +90,27 @@ if [ "${1:-}" = "--self-test" ]; then
   mkdir -p "$tmp/routes/foo" "$tmp/src"
   : > "$tmp/routes/foo/+page.svelte"
   printf '/foo\n/auth\n' > "$tmp/pinned.txt"
-  cat > "$tmp/main.go" <<'EOF'
-var apiPinnedPrefixes = []string{
-	"/foo", "/auth",
-}
-mux.Handle("GET /foo", h)
+  cat > "$tmp/route-inventory.json" <<'EOF'
+{"schema_version":1,"owner":"merged","operations":[{"method":"GET","path":"/foo","pattern":"GET /foo","owner":"gateway","mount":"/","middleware":"none","visibility":"public","satisfying_masks":["00000"]}]}
 EOF
   cat > "$tmp/src/app.svelte" <<'EOF'
 fetch('/admin/users')
 fetch('/api/admin/users')
 fetch('/auth/login')
 EOF
-  MAIN="$tmp/main.go" PINNED_FILE="$tmp/pinned.txt" ROUTES_DIR="$tmp/routes" WEBMAIL_SRC="$tmp/src"
-  sync_rc=0; check_sync >/dev/null 2>&1 || sync_rc=$?
-  shadow_rc=0; check_pinned_shadow >/dev/null 2>&1 || shadow_rc=$?
-  client_rc=0; check_client_literals >/dev/null 2>&1 || client_rc=$?
-  if [ $sync_rc -eq 0 ] && [ $shadow_rc -ne 0 ] && [ $client_rc -ne 0 ]; then
-    echo "check-api-namespace self-test: OK (sync clean; fires on pinned-shadow /foo + root fetch /admin/users; passes /api + pinned)"
+  INVENTORY="$tmp/route-inventory.json" PINNED_FILE="$tmp/pinned.txt" ROUTES_DIR="$tmp/routes" WEBMAIL_SRC="$tmp/src"
+  shadow_rc=0; shadow_out="$(check_pinned_shadow 2>&1)" || shadow_rc=$?
+  client_rc=0; client_out="$(check_client_literals 2>&1)" || client_rc=$?
+  if [ $shadow_rc -ne 0 ] && grep -qF '[PINNED-SHADOW]' <<<"$shadow_out" && [ $client_rc -ne 0 ] && grep -qF '[CLIENT]' <<<"$client_out"; then
+    echo "check-api-namespace self-test: OK (fires on pinned-shadow /foo + root fetch /admin/users; passes /api + pinned)"
     exit 0
   fi
-  echo "check-api-namespace SELF-TEST FAILED: sync=$sync_rc shadow=$shadow_rc(want!=0) client=$client_rc(want!=0)" >&2
+  echo "check-api-namespace SELF-TEST FAILED: shadow=$shadow_rc(want!=0) client=$client_rc(want!=0)" >&2
+  printf '  shadow_out: %s\n  client_out: %s\n' "$shadow_out" "$client_out" >&2
   exit 1
 fi
 
-echo "==> API-namespace guard: pinned sync + pinned-shadow + client root-path literals"
-check_sync || fail=1
+echo "==> API-namespace guard: pinned-shadow + client root-path literals"
 check_pinned_shadow || fail=1
 check_client_literals || fail=1
 if [ $fail -ne 0 ]; then

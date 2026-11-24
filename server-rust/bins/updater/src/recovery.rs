@@ -64,7 +64,7 @@ async fn evidence(
 ) -> Result<PathBuf> {
     secure_dir(dir, 0o700)?;
     let mut units = BTreeMap::new();
-    for unit in ["setjoin-auth", "setjoin", "setjoin-updater"] {
+    for unit in ["setjoin-auth", "setjoin-gateway", "setjoin-updater"] {
         let state = if let Ok(exe) = host::executable("systemctl") {
             match tokio::process::Command::new(exe)
                 .args(["is-active", unit])

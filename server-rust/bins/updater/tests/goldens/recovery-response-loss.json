@@ -39,21 +39,21 @@
     ],
     "host": [
       "is-active setjoin-auth",
-      "is-active setjoin",
+      "is-active setjoin-gateway",
       "is-active setjoin-updater",
       "stop setjoin-updater",
       "stop setjoin-gateway setjoin setjoin-auth",
       "start setjoin-auth setjoin setjoin-gateway",
       "is-active setjoin-auth",
-      "is-active setjoin",
+      "is-active setjoin-gateway",
       "is-active setjoin-updater",
       "start setjoin-updater",
       "is-active setjoin-auth",
-      "is-active setjoin",
+      "is-active setjoin-gateway",
       "is-active setjoin-updater",
       "stop setjoin-updater",
       "is-active setjoin-auth",
-      "is-active setjoin",
+      "is-active setjoin-gateway",
       "is-active setjoin-updater",
       "start setjoin-updater"
     ],
@@ -74,8 +74,8 @@
           "journal_hash": "<journal-hash>"
         },
         "units": {
-          "setjoin": "unknown",
           "setjoin-auth": "unknown",
+          "setjoin-gateway": "unknown",
           "setjoin-updater": "unknown"
         }
       },
@@ -95,8 +95,8 @@
           "journal_hash": "<journal-hash>"
         },
         "units": {
-          "setjoin": "unknown",
           "setjoin-auth": "unknown",
+          "setjoin-gateway": "unknown",
           "setjoin-updater": "unknown"
         }
       },
@@ -116,8 +116,8 @@
           "journal_hash": "<journal-hash>"
         },
         "units": {
-          "setjoin": "unknown",
           "setjoin-auth": "unknown",
+          "setjoin-gateway": "unknown",
           "setjoin-updater": "unknown"
         }
       },
@@ -137,8 +137,8 @@
           "journal_hash": "<journal-hash>"
         },
         "units": {
-          "setjoin": "unknown",
           "setjoin-auth": "unknown",
+          "setjoin-gateway": "unknown",
           "setjoin-updater": "unknown"
         }
       }

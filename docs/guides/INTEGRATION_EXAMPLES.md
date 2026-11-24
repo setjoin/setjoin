@@ -14,12 +14,12 @@ Every endpoint here is verified against the real handlers:
 
 | Surface                | Source of truth                                  |
 |------------------------|--------------------------------------------------|
-| `/api/discover`        | `mailserver/internal/discovery`                  |
-| `/auth/login`          | `authserver/internal/handlers/auth.go` (`Login`) |
-| `/.well-known/jmap`, `/jmap` | `mailserver/internal/jmap` (`Session`, `Request`) |
-| `/caldav/`             | `mailserver/internal/caldav`                     |
-| `/carddav/`            | `mailserver/internal/carddav`                    |
-| route wiring           | `mailserver/cmd/mailserverd/main.go`             |
+| `/api/discover`        | `server-rust/crates/domains/static`              |
+| `/auth/login`          | `server-rust/bins/auth/src` (`Login`)            |
+| `/.well-known/jmap`, `/jmap` | `server-rust/bins/gateway/src/jmap` (`Session`, `Request`) |
+| `/caldav/`             | `server-rust/crates/protocols/dav`               |
+| `/carddav/`            | `server-rust/crates/protocols/dav`               |
+| route wiring           | `server-rust/bins/gateway/src/main.rs`           |
 
 For identity-source automation, use the admin-only full OpenAPI document and
 the bounded examples in

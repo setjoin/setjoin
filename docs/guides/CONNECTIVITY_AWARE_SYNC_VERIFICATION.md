@@ -63,8 +63,8 @@ The E0 lane statuses are intentionally distinct:
 
 ## E0 boundary and exact limitations
 
-The verifier owns the front door, diagnostics, artifact naming, the existing
-`scripts/check-toggle-registry.sh` guard, invocation of the DX0 manifest
+The verifier owns the front door, diagnostics, artifact naming, the Rust
+feature-toggle registry snapshot test, invocation of the DX0 manifest
 validator, and the focused E0 TypeScript contract test. It does not implement or
 infer any of the following:
 

@@ -46,7 +46,7 @@ def verify(binary):
     with tempfile.TemporaryDirectory(prefix="gofree-tlsfront-systemd-", dir="/run") as path:
         directory = Path(path)
         directory.chmod(0o755)
-        executable = directory / "setjoin-gateway"
+        executable = directory / "setjoin-server"
         shutil.copyfile(binary, executable)
         executable.chmod(0o755)
         named_executable = directory / "gofree-tlsfront-gateway"
@@ -68,7 +68,7 @@ def verify(binary):
         hook = directory / "gofree-tlsfront-stop"
         hook.write_text(f"#!/bin/sh\nfor attempt in $(seq 1 200); do\n test -e '{gate}' || exit 0\n sleep 0.05\ndone\nexit 1\n")
         hook.chmod(0o755)
-        (directory / "gateway.env").write_text("GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:9\n")
+        (directory / "gateway.env").write_text("GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9\n")
         (directory / "federation.env").write_text(
             "RUST_WORKERS_ON=http-tls\nGO_WORKERS_OFF=http-tls,http-h2c,federation-service\n"
             f"FEDERATION_LOCAL_DOMAIN=zulu.test\nFEDERATION_CERT={directory}/cert.pem\nFEDERATION_KEY={directory}/key.pem\n"
@@ -106,8 +106,8 @@ def verify(binary):
                     text = (directory / original).read_text()
                     for source, replacement in mappings.items():
                         text = text.replace(source, replacement)
-                    text = text.replace(" setjoin.service setjoin-auth.service", "")
-                    text = text.replace("Wants=setjoin.service setjoin-auth.service\n", "")
+                    text = text.replace(" setjoin-auth.service", "")
+                    text = text.replace("Wants=setjoin-auth.service\n", "")
                     text = text.replace("User=setjoin", "User=nobody").replace("Group=setjoin", "Group=nogroup")
                     text = text.replace(f"ExecStart={executable}", f"ExecStart={named_executable}")
                     if original.endswith(".service"):

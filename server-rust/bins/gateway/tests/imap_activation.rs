@@ -144,7 +144,7 @@ fn executable_refuses_imap_sockets_without_live_admission() {
             .arg("-c")
             .arg("export LISTEN_PID=$$ LISTEN_FDS=3; exec -a gofree-authrt-gateway \"$1\"")
             .arg("gofree-authrt-launcher")
-            .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            .arg(env!("CARGO_BIN_EXE_setjoin-server"))
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         unsafe {
@@ -285,7 +285,7 @@ async fn http_descriptor_named_after_its_unit_is_still_served() {
         .arg("-c")
         .arg("export LISTEN_PID=$$ LISTEN_FDS=1; exec -a gofree-authrt-gateway \"$1\"")
         .arg("gofree-authrt-launcher")
-        .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        .arg(env!("CARGO_BIN_EXE_setjoin-server"))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     unsafe {

@@ -1045,8 +1045,7 @@ mod tests {
     use super::*;
     use crate::jmap::family::{always, Gate, Method, Reply};
 
-    const GOLDEN: &str =
-        include_str!("../../../../../../../mailserver/internal/jmap/testdata/methods.golden");
+    const GOLDEN: &str = include_str!("../../../../data/jmap_methods.golden");
 
     #[test]
     fn owner_bound_accepts_only_anchored_reducer_calls() {

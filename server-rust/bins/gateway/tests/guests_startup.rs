@@ -136,7 +136,7 @@ async fn bundled_guests_are_native_and_both_kill_switches_forward() -> Result<()
                 )?;
             }
             let mut process = Process(
-                Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+                Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                     .arg0(format!("gofree-guests1-gateway-{mode}"))
                     .env_clear()
                     .env("GATEWAY_LISTEN", address.to_string())
@@ -300,7 +300,7 @@ async fn guest_worker_starts_without_go_workers_off() -> Result<(), BoxError> {
         return Ok(());
     };
     let mut child = Process(
-        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .arg0("gofree-guests1-worker-transfer")
             .env_clear()
             .env("GATEWAY_LISTEN", "127.0.0.1:0")

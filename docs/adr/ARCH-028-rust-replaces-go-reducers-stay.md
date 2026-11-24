@@ -1,7 +1,6 @@
 # ADR: ARCH-028 — Rust replaces Go; PL/pgSQL reducers stay where they save round trips
 
-**Status:** Accepted; supersedes the "remove database-resident reducers in version 1" target and
-ARCH-026's rejection of Rust calling a reducer
+**Status:** Migration phase closed by [ARCH-031](ARCH-031-go-is-deleted.md) (Go deleted in `#142`); PL/pgSQL reducer retention remains binding. Originally accepted; supersedes the "remove database-resident reducers in version 1" target and ARCH-026's rejection of Rust calling a reducer
 **Date:** 2026-10-29
 **Authority:** owner decision 2026-10-29 (after the #217 Rust-vs-Go measurement); spec
 setjoin/setjoin#209; amends [ARCH-026](ARCH-026-per-command-rust-authority-transfer.md)

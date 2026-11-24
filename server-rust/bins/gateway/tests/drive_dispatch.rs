@@ -72,7 +72,7 @@ async fn run(kill: bool, rollback: bool) -> Result<(), BoxError> {
         let reserved = setjoin_conformance::ports::listener().await;let address=reserved.local_addr()?;drop(reserved);
         let dir=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../test-results/gofree-drive1");std::fs::create_dir_all(&dir)?;
         let log=std::fs::File::create(dir.join(format!("gofree-drive1-exec-{}-{kill}-{rollback}.log",a.user)))?;
-        let mut command=Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));command.arg0("gofree-drive1-gateway").env_clear();
+        let mut command=Command::new(env!("CARGO_BIN_EXE_setjoin-server"));command.arg0("gofree-drive1-gateway").env_clear();
         for(key,value)in[
             ("GATEWAY_LISTEN",address.to_string()),("GATEWAY_ENABLED",(!kill).to_string()),("GATEWAY_AUTH_UPSTREAM",format!("http://{jwks}")),
             ("DB_DSN",db.app.as_deref().unwrap_or(&db.dsn).to_owned()),("DB_WORKER_DSN",db.dsn.clone()),("DB_DIRECT_DSN",db.direct.clone()),

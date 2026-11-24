@@ -17,7 +17,7 @@ impl Drop for Process {
 #[test]
 fn outbound_worker_starts_without_go_workers_off_guard() {
     let mut child = Process(
-        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .arg0("gofree-smtp4-gateway-guard")
             .env_clear()
             .env("GATEWAY_LISTEN", "127.0.0.1:0")
@@ -157,7 +157,7 @@ async fn all_transport_security_features_start_the_real_worker_on_its_worker_cre
         assert_eq!(denied.sqlstate.as_deref(), Some("42501"));
         let addr = setjoin_conformance::ports::address();
         let mut process = Process(
-            Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
                 .arg0("gofree-smtp4-gateway-worker")
                 .env_clear()
                 .env("GATEWAY_LISTEN", addr.to_string())

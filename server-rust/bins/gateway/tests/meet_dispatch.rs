@@ -133,7 +133,7 @@ async fn run(kill: bool, rollback: bool, livekit: bool, denied: bool) -> Result<
             "gofree-meet1-exec-{}-{kill}-{rollback}-{livekit}-{denied}.log",
             a.user
         )))?;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
         command.arg0("gofree-meet1-gateway").env_clear();
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),

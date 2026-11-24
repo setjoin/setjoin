@@ -22,6 +22,7 @@ Use targeted search for old material rather than keeping a catalog of every hist
 Follow the known source path and relevant owner sections; search for unknown entry points. These are stable entry points, not a reading list:
 
 - System architecture: `architecture.md`
+- Post-Go canonical architecture ADR: [ARCH-031](adr/ARCH-031-go-is-deleted.md) (closes [ARCH-028](adr/ARCH-028-rust-replaces-go-reducers-stay.md) migration phase; Go deleted in `#142`)
 - Work-order/phases: `phases.md`
 - Feature matrix: `features.md`
 - Product positioning and claim gates: `product-positioning.md`
@@ -71,7 +72,7 @@ flags until a separate rollout decision.
 - Confirm every newly referenced path exists.
 - Run `git diff --check`.
 - Run `bash scripts/check-agent-docs.sh` when changing hot agent/TODO context.
-- When changing reducer-error documentation, cross-check codes against `mailserver/sql/` and the shared Go parser.
+- When changing reducer-error documentation, cross-check codes against `mailserver/sql/` and the Rust reducer-error mapper (`server-rust/bins/gateway/src/jmap/family/reducer_error.rs`).
 
 ## Child DOX Index
 

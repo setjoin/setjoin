@@ -10,17 +10,19 @@ import {
 	probesAdmitted,
 } from './rollout';
 
-/** The client-side flag name must stay pinned to the server registry's
- *  toggle constant (shared/toggle/toggle.go FeatureMeetLocalRecording). */
-const toggleGo = readFileSync(
-	new URL('../../../../../shared/toggle/toggle.go', import.meta.url),
-	'utf8',
-);
+/** The client-side flag name must stay pinned to the server toggle registry
+ *  (server-rust/crates/domains/platform/testdata/toggle/registry-v275.json). */
+const toggleRegistry = JSON.parse(
+	readFileSync(
+		new URL('../../../../../server-rust/crates/domains/platform/testdata/toggle/registry-v275.json', import.meta.url),
+		'utf8',
+	),
+) as { definitions: Array<{ key: string }> };
 
 describe('meet local recording rollout gate', () => {
 	it('pins the flag name to the server toggle registry', () => {
 		expect(MEET_LOCAL_RECORDING_FLAG).toBe('feature.meet_local_recording');
-		expect(toggleGo).toMatch(/FeatureMeetLocalRecording\s+= "feature\.meet_local_recording"/);
+		expect(toggleRegistry.definitions.some((d) => d.key === MEET_LOCAL_RECORDING_FLAG)).toBe(true);
 	});
 
 	it('ships the shared off/observe/execute vocabulary with production default off', () => {

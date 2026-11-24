@@ -1,9 +1,10 @@
 # setjoin
 
 Setjoin is a private, on-premise productivity suite for organizations with
-roughly 300–10,000 users. The monorepo contains Go protocol gateways, PostgreSQL
-reducers, SvelteKit webmail, native client shells, and self-hosted collaboration
-sidecars.
+roughly 300–10,000 users. The monorepo contains the canonical Rust server
+binaries (`setjoin-server`, `setjoin-auth`, `mailctl`, `asrbotd`,
+`setjoin-updater`), PostgreSQL PL/pgSQL reducers, SvelteKit webmail, native
+client shells, and self-hosted collaboration sidecars.
 
 **A composable workplace. Choose your apps and providers. Keep control of your data.**
 

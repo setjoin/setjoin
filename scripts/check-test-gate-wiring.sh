@@ -62,17 +62,9 @@ run_check() {
   require_literal "$ARCHITECTURE_R2" 'node "$METRICS" validate "$final_dir/aggregate.json"' 'Architecture R2 shared metrics validator' || failed=1
   require_literal "$ARCHITECTURE_R2" "src/routes/admin/(system)/features/features.test.ts" 'Architecture R2 registry UI reconciliation gate' || failed=1
   require_literal "$ARCHITECTURE_R2_METRICS" 'node "$METRICS" validate "$aggregate"' 'Architecture R2 local metrics consumer' || failed=1
-  require_literal "$TEST_SH" 'Reloading clean schema before Go tests' 'scripts/test.sh clean Go database precondition' || failed=1
   require_literal "$TEST_SH" 'bash "$ROOT/scripts/load-test-schema.sh"' 'scripts/test.sh schema reload' || failed=1
-  require_literal "$TEST_SH" "VALUES ('go-tests.local', TRUE)" 'scripts/test.sh deterministic local-domain fixture' || failed=1
-  require_literal "$TEST_SH" 'go-module-catalog.mjs" list test' 'scripts/test.sh catalog-driven Go JSON evidence' || failed=1
-  require_literal "$ROOT/config/go-modules.json" '"id": "setjoin-release"' 'release publisher catalog entry' || failed=1
-  require_literal "$ROOT/scripts/run-go-test-evidence.sh" '-coverpkg=./...' 'whole-module Go coverage denominator' || failed=1
   require_literal "$TEST_SH" 'run-pgtap-evidence.sh" test-results/pgtap/mailserver.tap' 'scripts/test.sh pgTAP evidence' || failed=1
-  require_literal "$TEST_SH" '--verify go-json' 'scripts/test.sh Go evidence verification' || failed=1
   require_literal "$TEST_SH" '--verify tap' 'scripts/test.sh pgTAP evidence verification' || failed=1
-  require_literal "$TEST_SH" 'report-go-coverage.mjs" --mode enforce' 'scripts/test.sh Go coverage enforcement' || failed=1
-  require_literal "$TEST_SH" 'run-go-fuzz-smoke.sh' 'scripts/test.sh bounded fuzz evidence' || failed=1
   require_literal "$TEST_SH" 'report-changed-coverage.mjs" --mode enforce' 'scripts/test.sh changed-coverage enforcement' || failed=1
   require_literal "$VERIFY_ALL" 'bash "$ROOT/scripts/test.sh"' 'scripts/verify-all.sh canonical core gate' || failed=1
   require_literal "$VERIFY_ALL" '--verify playwright-json' 'scripts/verify-all.sh Playwright evidence verification' || failed=1
@@ -93,7 +85,7 @@ run_check() {
   require_literal "$ROOT/scripts/run-pgtap-lane.sh" 'STALE known-red pgTAP' 'pgTAP known-red ratchet' || failed=1
   require_literal "$LANE_WORKFLOW" '--verify tap' 'server-rust lane pgTAP evidence verification' || failed=1
   require_literal "$LANE_WORKFLOW" 'needs: [plan, debug, build, roots, pgtap, guards,' 'server-rust lane aggregate gates on pgTAP and guards' || failed=1
-  require_literal "$LANE_WORKFLOW" 'gomod-cache, queue]' 'server-rust lane aggregate gates on the merge-queue decision (queue appended last)' || failed=1
+  require_literal "$LANE_WORKFLOW" 'coverage-shard, queue]' 'server-rust lane aggregate gates on the merge-queue decision (queue appended last)' || failed=1
   require_literal "$LANE_WORKFLOW" 'python3 scripts/lane-job-gate.py queue-role' 'server-rust lane queue job runs the queue-role decision' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'queue' 'actions: read' 'server-rust lane queue job reads Actions runs for failed later refs' || failed=1
   require_job_literal "$LANE_WORKFLOW" 'queue' 'GH_TOKEN: ${{ github.token }}' 'server-rust lane queue step passes the token for the failed-run lookup' || failed=1

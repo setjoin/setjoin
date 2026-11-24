@@ -30,20 +30,14 @@ mkdir -p "$TMP/reducers" "$TMP/tests"
 for f in notify_state_change.sql utils.sql utils_tags.sql; do
   cp "$ROOT/mailserver/sql/reducers/$f" "$TMP/reducers/" 2>/dev/null || true
 done
-# A clean Go handler (so the Go-side check passes unless a case overrides it).
-cat > "$TMP/handler_ok.go" <<'GO'
-package ws
-func x() { tagChannel := fmt.Sprintf("tag:%d", mailboxID); _ = tagChannel }
-GO
-OK_HANDLER="$TMP/handler_ok.go"
 
 fail=0
 pass() { echo "    ok   $1"; }
 bad()  { echo "    FAIL $1"; fail=1; }
 
-# run_guard <ws_handler> → writes $TMP/out, returns guard exit code
+# run_guard → writes $TMP/out, returns guard exit code
 run_guard() {
-  REDUCERS_DIR="$TMP/reducers" TESTS_DIR="$TMP/tests" WS_HANDLER="$1" \
+  REDUCERS_DIR="$TMP/reducers" TESTS_DIR="$TMP/tests" \
     bash "$GUARD" > "$TMP/out" 2>&1
   return $?
 }
@@ -51,7 +45,7 @@ run_guard() {
 # expect_catch <case-name> <tag>  — guard must exit 1 AND print [tag]
 expect_catch() {
   local name="$1" tag="$2"
-  if run_guard "$OK_HANDLER"; then
+  if run_guard; then
     bad "$name — guard did NOT fail (expected to catch [$tag])"
   elif grep -q "\[$tag\]" "$TMP/out"; then
     pass "$name — caught [$tag]"
@@ -63,7 +57,7 @@ expect_catch() {
 echo "==> seam-guard self-test (each check must fire on an injected violation)"
 
 # Sanity: clean tree passes.
-if run_guard "$OK_HANDLER"; then pass "clean tree passes"; else bad "clean tree should pass"; sed 's/^/        /' "$TMP/out"; fi
+if run_guard; then pass "clean tree passes"; else bad "clean tree should pass"; sed 's/^/        /' "$TMP/out"; fi
 
 # A — ownership predicate scopes a user by a mailbox id.
 cat > "$TMP/reducers/case_a.sql" <<'SQL'
@@ -119,20 +113,6 @@ END; $$ LANGUAGE plpgsql;
 SQL
 expect_catch "F: pg_notify('tag:' || p_user_id)" "F"
 rm -f "$TMP/reducers/case_f.sql"
-
-# F (Go) — handler subscribes by claims.UserID.
-cat > "$TMP/handler_bad.go" <<'GO'
-package ws
-func x() { tagChannel := fmt.Sprintf("tag:%d", claims.UserID); _ = tagChannel }
-GO
-if run_guard "$TMP/handler_bad.go"; then
-  bad "F(Go): handler claims.UserID — guard did NOT fail"
-elif grep -q "\[F\]" "$TMP/out"; then
-  pass "F(Go): handler subscribes by claims.UserID — caught [F]"
-else
-  bad "F(Go): failed but without an [F] line"; sed 's/^/        /' "$TMP/out"
-fi
-rm -f "$TMP/handler_bad.go"
 
 # G — calendar reducer person-lookup by users.email only.
 cat > "$TMP/reducers/calendar_case_g.sql" <<'SQL'
@@ -271,7 +251,7 @@ BEGIN
 END; $$ LANGUAGE plpgsql;
 SQL
 # case_h2 also trips Check B (new p_account_id param) — assert H is present too.
-if run_guard "$OK_HANDLER"; then
+if run_guard; then
   bad "H2: declared-but-unused p_account_id — guard did NOT fail"
 elif grep -q "\[H\]" "$TMP/out"; then
   pass "H2: declared-but-unused p_account_id — caught [H]"
@@ -291,7 +271,7 @@ BEGIN
   UPDATE messages SET is_read = TRUE WHERE domain_id = v_domain_id;
 END; $$ LANGUAGE plpgsql;
 SQL
-if run_guard "$OK_HANDLER"; then
+if run_guard; then
   pass "H-neg: p_mailbox_id used once (resolved into a local) — not flagged"
 else
   if grep -q "\[H\]" "$TMP/out"; then bad "H-neg: derived-local use FALSE-fired [H]"; sed 's/^/        /' "$TMP/out"; else pass "H-neg: not flagged by H (other check unrelated)"; fi
@@ -299,7 +279,7 @@ fi
 rm -f "$TMP/reducers/case_h_ok.sql"
 
 # Final: with all violations removed, the tree is clean again.
-if run_guard "$OK_HANDLER"; then pass "tree clean again after removing all cases"; else bad "tree should be clean again"; sed 's/^/        /' "$TMP/out"; fi
+if run_guard; then pass "tree clean again after removing all cases"; else bad "tree should be clean again"; sed 's/^/        /' "$TMP/out"; fi
 
 if [ "$fail" -ne 0 ]; then
   echo "==> seam-guard self-test FAILED — the guard stopped catching a bug class."

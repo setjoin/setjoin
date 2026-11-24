@@ -53,7 +53,7 @@ use tokio::net::TcpListener;
 
 fn main() -> ExitCode {
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--version")) {
-        println!("setjoin-gateway {}", env!("CARGO_PKG_VERSION"));
+        println!("setjoin-server {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
     let environment: Vec<(String, String)> = std::env::vars().collect();

@@ -61,28 +61,9 @@ no_selftest=()
 skipped=()
 ran=0
 
-# OpenAPI coverage/visibility consume the runtime-derived route artifact. Build
-# and validate it once before the alphabetical guard loop reaches either
-# consumer; skip its normal position below so this prerequisite is not repeated.
-route_guard="$ROOT/scripts/check-route-inventory.sh"
-if [[ -f "$route_guard" ]]; then
-  echo "──[ guard prerequisite: check-route-inventory ]──"
-  if ! bash "$route_guard" --self-test; then
-    echo "✗ SELF-TEST FAILED: check-route-inventory (guard may no longer fire — do not trust it)"
-    if is_known_red check-route-inventory; then tolerated+=("check-route-inventory (self-test)"); else fail+=("check-route-inventory (self-test)"); fi
-  elif bash "$route_guard"; then
-    ran=$((ran + 1))
-    ! is_known_red check-route-inventory || stale_red+=("check-route-inventory")
-  else
-    echo "✗ GUARD FAILED: check-route-inventory"
-    if is_known_red check-route-inventory; then tolerated+=("check-route-inventory"); else fail+=("check-route-inventory"); fi
-  fi
-fi
-
 for g in "$ROOT"/scripts/check-*.sh; do
   case "$g" in *-selftest.sh) continue ;; esac
   name="$(basename "$g" .sh)"
-  [[ "$name" == "check-route-inventory" ]] && continue
   # Release-signing workflow gate (requires GITHUB_REPOSITORY and BUILD_RUN_ID;
   # exercised by scripts/test-check-server-release-build.sh, not a repo-tree guard).
   [[ "$name" == "check-server-release-build" ]] && continue

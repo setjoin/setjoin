@@ -44,7 +44,7 @@ for (const file of tracked) {
   else if (base.includes('.')) extensions.add(base.split('.').pop().toLowerCase());
 }
 const classified = new Set(data.languages.flatMap((language) => language.extensions));
-for (const extension of ['go', 'sql', 'pg', 'ts', 'svelte', 'css', 'rs', 'ets', 'sh', 'py', 'ps1', 'yml', 'yaml', 'json', 'json5', 'toml', 'dockerfile']) {
+for (const extension of ['sql', 'pg', 'ts', 'svelte', 'css', 'rs', 'ets', 'sh', 'py', 'ps1', 'yml', 'yaml', 'json', 'json5', 'toml', 'dockerfile']) {
   if (extensions.has(extension) && !classified.has(extension)) throw new Error(`active extension is unclassified: ${extension}`);
 }
 NODE

@@ -83,12 +83,6 @@ for f in "$SCAN_ROOT"/scripts/*; do
   [ -f "$f" ] || continue
   scan_file "$f"
 done
-while IFS= read -r g; do
-  [ -n "$g" ] || continue
-  scan_file "$g"
-done < <(find "$SCAN_ROOT" \
-  \( -name node_modules -o -name .git -o -name worktrees -o -name build -o -name vendor \) -prune \
-  -o -type f -name '*.go' -print 2>/dev/null | LC_ALL=C sort)
 
 # ── 3. Loader input-enumeration contract ───────────────────────────────────
 require_input() {
@@ -108,16 +102,6 @@ for rd in "$SCAN_ROOT/mailserver/sql/reducers" "$SCAN_ROOT/authserver/sql/reduce
   rs="$(LC_ALL=C ls "$rd"/*.sql 2>/dev/null || true)"
   [ -n "$rs" ] || violations+=("loader input contract: no *.sql reducers under $rd")
 done
-
-dbschema_go="$SCAN_ROOT/mailserver/sql/dbschema/dbschema.go"
-if [ -f "$dbschema_go" ]; then
-  grep -q '^//go:embed \*\.sql$' "$dbschema_go" ||
-    violations+=("go embed contract: '//go:embed *.sql' missing from $dbschema_go — the dir-local embed glob is the archive-exclusion backstop")
-  grep -qF '^V(\d+)__.+\.sql$' "$dbschema_go" ||
-    violations+=("go embed contract: V<NNN>__*.sql filename regex missing from $dbschema_go")
-else
-  violations+=("go embed contract: $dbschema_go missing")
-fi
 
 # ── Verdict ────────────────────────────────────────────────────────────────
 if [ "${#violations[@]}" -gt 0 ]; then

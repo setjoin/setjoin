@@ -3,17 +3,17 @@
 set -euo pipefail
 
 if [[ $# != 1 || ! -x "$1" ]]; then
-  echo 'usage: smoke-rust-floor.sh <gateway-executable>' >&2
+  echo 'usage: smoke-rust-floor.sh <setjoin-server-executable>' >&2
   exit 2
 fi
 gateway=$1
-expected=${SMOKE_EXPECTED_VERSION:?set SMOKE_EXPECTED_VERSION to the gateway package version}
+expected=${SMOKE_EXPECTED_VERSION:?set SMOKE_EXPECTED_VERSION to the server package version}
 [[ "$expected" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][[:alnum:].-]+)?$ ]] || {
   echo 'invalid SMOKE_EXPECTED_VERSION' >&2
   exit 2
 }
 if ! version=$(timeout 30 env -i PATH="$PATH" "$gateway" --version) ||
-    [[ "$version" != "setjoin-gateway $expected" ]]; then
+    [[ "$version" != "setjoin-server $expected" ]]; then
   echo "invalid gateway version: ${version:-<no output>}" >&2
   exit 1
 fi
@@ -35,8 +35,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' INT TERM
 (
-  exec -a "${SMOKE_PROCESS_NAME:-setjoin-floor-gateway}" env -i PATH="$PATH" \
-    GATEWAY_LISTEN="127.0.0.1:$port" GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:9 "$gateway"
+  exec -a "${SMOKE_PROCESS_NAME:-setjoin-floor-server}" env -i PATH="$PATH" \
+    GATEWAY_LISTEN="127.0.0.1:$port" GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9 "$gateway"
 ) >"$log" 2>&1 &
 pid=$!
 for ((i=0; i<attempts; i++)); do

@@ -22,7 +22,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GUARD="$ROOT/scripts/check-identity-predicate.sh"
 REAL_REDUCER="$ROOT/mailserver/sql/reducers/resolve_identity.sql"
-REAL_CONNECTOR="$ROOT/authserver/internal/connector/connector.go"
+REAL_CONNECTOR="$ROOT/server-rust/crates/domains/identity/src/rp/account.rs"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -60,9 +60,9 @@ fi
 
 # ── Negative 2: a changed case-fold in the connector twin → DRIFT. ──────────
 # Swap lower(u.email) → upper(u.email): a real normalization-rule change.
-cp "$REAL_CONNECTOR" "$TMP/connector_fold.go"
-perl -0pi -e 's/lower\(u\.email\) = lower\(\$1\)/upper(u.email) = upper(\$1)/' "$TMP/connector_fold.go"
-if run_guard "$REAL_REDUCER" "$TMP/connector_fold.go"; then
+cp "$REAL_CONNECTOR" "$TMP/connector_fold.rs"
+perl -0pi -e 's/lower\(u\.email\)\s*=\s*lower\(\$1\)/upper(u.email) = upper(\$1)/' "$TMP/connector_fold.rs"
+if run_guard "$REAL_REDUCER" "$TMP/connector_fold.rs"; then
   bad "N2: changed case-fold — guard did NOT fire"; sed 's/^/        /' "$TMP/out"
 elif grep -q "DRIFT" "$TMP/out"; then
   pass "N2: lower()→upper() case-fold (connector) — caught (DRIFT)"
@@ -85,9 +85,9 @@ fi
 # ── Positive (cosmetic only): rename the mailboxes alias in the connector. ──
 # mb → xb everywhere in the EXISTS subquery. Normalization canonicalizes the
 # mailboxes alias, so this is a no-op to the rule → must STILL PASS.
-cp "$REAL_CONNECTOR" "$TMP/connector_alias.go"
-perl -0pi -e 's/JOIN mailboxes mb ON mb\.id = a\.mailbox_id\n(\s*)WHERE mb\.user_id = u\.id/JOIN mailboxes xb ON xb.id = a.mailbox_id\n${1}WHERE xb.user_id = u.id/' "$TMP/connector_alias.go"
-if run_guard "$REAL_REDUCER" "$TMP/connector_alias.go"; then
+cp "$REAL_CONNECTOR" "$TMP/connector_alias.rs"
+perl -0pi -e 's/JOIN mailboxes mb ON mb\.id\s*=\s*a\.mailbox_id\s+WHERE mb\.user_id\s*=\s*u\.id/JOIN mailboxes xb ON xb.id=a.mailbox_id WHERE xb.user_id=u.id/' "$TMP/connector_alias.rs"
+if run_guard "$REAL_REDUCER" "$TMP/connector_alias.rs"; then
   pass "P1: cosmetic mailboxes-alias rename (mb→xb) — still passes (normalized away)"
 else
   bad "P1: cosmetic alias rename should pass (normalization failed to absorb it)"; sed 's/^/        /' "$TMP/out"

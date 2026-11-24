@@ -27,7 +27,7 @@ sysroot, checks ELF version needs and smokes the gateway in a scratch loong64 ru
 
 ## Log hygiene
 
-Steps print tool versions only (`go version`, `node --version`), never environment or
+Steps print tool versions only (`rustc --version`, `node --version`), never environment or
 host dumps (`env`, `printenv`, `go env`, `set -x`, `docker info`, `uname -a`, `ip addr`).
 The same guard enforces this.
 
@@ -56,7 +56,7 @@ while a head runs). A `gone` entry (its branch left the queue) runs nothing and 
 ejects the entry, which fails closed. Every waiter keeps `aggregate` pending until it ends, never green. Intermediate
 commits of a batch are not tested one by one: the batch tip's lane is their test. The nightly full lane is the backstop.
 Rollback and rollout: `server-rust/DOX.md#parallel-full-lane-550`.
-A push to `main` only refreshes the caches (`build`, `coverage-build`, `gomod-cache`; no tests, summary
+A push to `main` only refreshes the caches (`build`, `coverage-build`; no tests, summary
 "cache refresh only, no tests"), and a nightly `schedule` (02:30 UTC) runs the full lane plus coverage as the backstop,
 skipping cleanly when main has no commit in the last 26 hours. It never runs on `pull_request`; PRs get only `.github/workflows/pr-precheck.yml`
 (jobs `light` = `scripts/quick-check.sh` and `integration` = the changed packages' integration tests selected by
@@ -85,15 +85,6 @@ package and of its normal/build reverse dependents when there are at most 5 of t
 changed path (soft caps 30 and 20: over the cap, only changed or referencing test files run);
 nothing for `server-rust/Cargo.toml`, `Cargo.lock` or `rust-toolchain*` changes. It runs them through
 `scripts/server-rust-parallel-lane.sh` with `SERVER_RUST_STAGES=workspace` and `SERVER_RUST_NEXTEST_SELECT` on the lane
-Postgres (`REQUIRE_DB=1`, skip markers, ignored and zero tests red), restoring the `lane` cargo and Go module caches
+Postgres (`REQUIRE_DB=1`, skip markers, ignored and zero tests red), restoring the `lane` cargo cache
 without saving. The test step is capped at 30 minutes (job 45; an auth-domain selection of ~2000 tests needs ~5 min build + ~16 min tests + teardown); hitting the cap is red. Anything not selected, doc tests,
 replays, mutants and coverage stay with the merge queue's full lane.
-
-## gofree record (manual, deleted with Go)
-
-`.github/workflows/gofree-record.yml` is `workflow_dispatch` only (`contents: read`, `packages: read`;
-no pull_request or push trigger). It records new Go-free oracle goldens from the frozen Go coverage
-binary inside the pinned `setjoin-ci-linux-tc` image, never commits, and uploads new goldens plus a
-`git status --porcelain` and diff as an artifact. It is removed with Go (#142).
-Concurrency is one group per ref: branches record in parallel; on one branch a second dispatch waits,
-and a third replaces the waiting one (GitHub keeps one pending run per group), so dispatch one at a time per branch.

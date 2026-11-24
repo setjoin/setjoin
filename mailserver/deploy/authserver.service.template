@@ -3,10 +3,10 @@ Description=SetJoin Auth Server (Rust setjoin-auth)
 Documentation=https://github.com/setjoin/setjoin
 After=network.target postgresql.service
 Wants=postgresql.service
-# The gateway (setjoin-gateway.service) proxies /auth/* routes to this process.
-# Ordering only (Wants, not Requires, on the gateway side), so a gateway restart
+# The server (setjoin-gateway.service) proxies /auth/* routes to this process.
+# Ordering only (Wants, not Requires, on the server side), so a server restart
 # never hard-depends on auth being healthy.
-Before=setjoin.service
+Before=setjoin-gateway.service
 # StartLimit* live in [Unit] (systemd ignores them under [Service]).
 StartLimitBurst=5
 StartLimitIntervalSec=60

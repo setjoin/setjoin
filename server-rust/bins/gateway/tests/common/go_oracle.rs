@@ -213,9 +213,7 @@ async fn start_configured(
     // Workers a case needs running (comma-separated names), e.g. identity-metrics.
     let keep = std::env::var("GOFREE_ORACLE_KEEP_WORKERS").unwrap_or_default();
     let keep: Vec<&str> = keep.split(',').filter(|name| !name.is_empty()).collect();
-    let workers = include_str!(
-        "../../../../../mailserver/cmd/mailserverd/testdata/worker_launch_inventory.golden"
-    )
+    let workers = include_str!("../../data/worker_launch_inventory.golden")
     .lines()
     .filter_map(|line| {
         let mut fields = line.split('|');

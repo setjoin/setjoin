@@ -6,16 +6,46 @@
   "stableCommonEnvelope": false,
   "publicationLeaf": null,
   "sources": [
-    {"path":"scripts/run-pgtap-evidence.sh","sha256":"6b751c708211ecb20adcd2bf93428018062d533094d8f27fe9442321c3daa789"},
-    {"path":"scripts/check-architecture-r2-evidence.sh","sha256":"14aeca70325785cbe70b20e9093ced65cd793599689675e1b785f5b014c8051a"},
-    {"path":"docs/verification/architecture-r3-cases.json","sha256":"3c81bdd560582aedebcb28d2edd3cc37443ff521b89a6a8b812a3013a183bd75"},
-    {"path":"scripts/verify-architecture-r3.sh","sha256":"4c973be0b92b39e3632145777bbc7a6d7e4faeb571a78d89e218e6bbfad32e9f"},
-    {"path":"docs/verification/architecture-r4-cases.json","sha256":"a1f5302ff814b375f225179eb5f64a3f690721b6cca223b723f1f6b5ee011d31"},
-    {"path":"scripts/verify-architecture-r4.sh","sha256":"0bfb96fdf7a04c88d60558bb2d0392b5830616f3380f611b4d22ddd8576640b2"},
-    {"path":"docs/verification/connectivity-aware-sync-cases.json","sha256":"db926fbba696ceeda8bcaed33eabc902cd031eb0df1362edc2603df09403bfa5"},
-    {"path":"scripts/check-connectivity-aware-sync-cases.mjs","sha256":"6f77a7f0ad60df5b90bd57e1c3c6ef21e1f4e7c01e6d2beec35bfdd11b9ab3f5"},
-    {"path":"scripts/verify-connectivity-aware-sync.sh","sha256":"d4699da46db480b535e0ab027ddcd88c7836d4af1e7d1be5fd56097dd2be245c"},
-    {"path":"scripts/verify-office-foundation.sh","sha256":"6bc198a6cf133032a04d59df203169a7fa1fd4ce9457b29858ca60bc2b66013c"}
+    {
+      "path": "scripts/run-pgtap-evidence.sh",
+      "sha256": "6b751c708211ecb20adcd2bf93428018062d533094d8f27fe9442321c3daa789"
+    },
+    {
+      "path": "scripts/check-architecture-r2-evidence.sh",
+      "sha256": "14aeca70325785cbe70b20e9093ced65cd793599689675e1b785f5b014c8051a"
+    },
+    {
+      "path": "docs/verification/architecture-r3-cases.json",
+      "sha256": "3c81bdd560582aedebcb28d2edd3cc37443ff521b89a6a8b812a3013a183bd75"
+    },
+    {
+      "path": "scripts/verify-architecture-r3.sh",
+      "sha256": "4c973be0b92b39e3632145777bbc7a6d7e4faeb571a78d89e218e6bbfad32e9f"
+    },
+    {
+      "path": "docs/verification/architecture-r4-cases.json",
+      "sha256": "a1f5302ff814b375f225179eb5f64a3f690721b6cca223b723f1f6b5ee011d31"
+    },
+    {
+      "path": "scripts/verify-architecture-r4.sh",
+      "sha256": "fd16e5a3fa49f79d368b3a42bf35845aa34b37aca4ba80e27ddc575c782619a3"
+    },
+    {
+      "path": "docs/verification/connectivity-aware-sync-cases.json",
+      "sha256": "630568098e08ee3832492350af230a7e3bf2a6546773d6a6952443e258b9127f"
+    },
+    {
+      "path": "scripts/check-connectivity-aware-sync-cases.mjs",
+      "sha256": "f5c4f8b7dc90d2656ee74ab0af54a2a81d671f722f21ac26db5bbfe3bec806e7"
+    },
+    {
+      "path": "scripts/verify-connectivity-aware-sync.sh",
+      "sha256": "117b84d7d75c3ff0250bd54805192812c2076763deca34789a40d8de3f020f0b"
+    },
+    {
+      "path": "scripts/verify-office-foundation.sh",
+      "sha256": "6bc198a6cf133032a04d59df203169a7fa1fd4ce9457b29858ca60bc2b66013c"
+    }
   ],
   "programs": [
     {

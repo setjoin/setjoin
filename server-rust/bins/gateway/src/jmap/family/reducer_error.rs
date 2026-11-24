@@ -494,16 +494,9 @@ pub(crate) fn project_calendar(failure: &StatementFailure) -> MethodError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
-
-    use regex::Regex;
+    use std::collections::BTreeSet;
 
     use super::*;
-
-    // Drift tests against frozen Go; delete with Go (#142).
-    const REDUCERERR: &str = include_str!("../../../../../../shared/reducererr/reducererr.go");
-    const DETAIL: &str = include_str!("../../../../../../shared/reducererr/detail.go");
-    const PROJECTION: &str = include_str!("../../../../../../shared/reducererr/projection.go");
 
     const ALL: [Class; 12] = [
         Class::Unknown,
@@ -528,133 +521,26 @@ mod tests {
         }
     }
 
-    fn block<'a>(source: &'a str, header: &str) -> &'a str {
-        let start = source
-            .find(header)
-            .unwrap_or_else(|| panic!("{header} not found"));
-        let body = &source[start + header.len()..];
-        &body[..body.find("\n}").expect("block end")]
-    }
-
-    fn constants() -> BTreeMap<String, String> {
-        Regex::new(r#"(?m)^\s*(Err[A-Za-z0-9]+)\s*=\s*"(BZ[0-9]+)""#)
-            .expect("constant pattern")
-            .captures_iter(REDUCERERR)
-            .map(|c| (c[1].to_owned(), c[2].to_owned()))
-            .collect()
-    }
-
-    fn code(raw: &str, constants: &BTreeMap<String, String>) -> String {
-        if raw.starts_with('"') {
-            raw.trim_matches('"').to_owned()
-        } else {
-            constants
-                .get(raw)
-                .unwrap_or_else(|| panic!("unknown constant {raw}"))
-                .clone()
-        }
-    }
-
-    /// `case ClassX, ClassY:` / `default:` followed by `return "…"` in one switch.
-    fn switch_returns(source: &str, header: &str) -> (BTreeMap<String, String>, String) {
-        let mut map = BTreeMap::new();
-        let mut default = String::new();
-        let mut current: Vec<String> = Vec::new();
-        for line in block(source, header).lines() {
-            let line = line.trim();
-            if let Some(rest) = line.strip_prefix("case ") {
-                current = rest
-                    .trim_end_matches(':')
-                    .split(',')
-                    .map(|name| name.trim().trim_start_matches("Class").to_owned())
-                    .collect();
-            } else if line.starts_with("default") {
-                current = vec!["<default>".to_owned()];
-            } else if let Some(rest) = line.strip_prefix("return \"") {
-                let value = rest.split('"').next().unwrap_or("").to_owned();
-                for name in &current {
-                    if name == "<default>" {
-                        default = value.clone();
-                    } else {
-                        map.insert(name.clone(), value.clone());
-                    }
-                }
-            }
-        }
-        (map, default)
-    }
-
     #[test]
-    fn code_class_matches_frozen_go() {
-        let constants = constants();
-        let rows = Regex::new(r#"(?m)^\s*(Err[A-Za-z0-9]+|"BZ[0-9]+")\s*:\s*Class([A-Za-z]+),"#)
-            .expect("row pattern");
-        let go: BTreeMap<String, String> = rows
-            .captures_iter(block(REDUCERERR, "var codeClass = map[string]ReplyClass{"))
-            .map(|c| (code(&c[1], &constants), c[2].to_owned()))
-            .collect();
-        let rust: BTreeMap<String, String> = CODE_CLASS
-            .iter()
-            .map(|(code, class)| ((*code).to_owned(), format!("{class:?}")))
-            .collect();
-        assert_eq!(CODE_CLASS.len(), rust.len(), "duplicate code in CODE_CLASS");
-        assert_eq!(rust, go);
-    }
-
-    #[test]
-    fn detail_tables_match_frozen_go() {
-        let constants = constants();
-        let pass = Regex::new(r#""(BZ[0-9]+)":\s*pass(Message|Hint)"#).expect("pass pattern");
-        let mut message = BTreeSet::new();
-        let mut hint = BTreeSet::new();
-        for c in pass.captures_iter(block(DETAIL, "var detailPass = map[string]passMode{")) {
-            if &c[2] == "Message" {
-                message.insert(c[1].to_owned());
-            } else {
-                hint.insert(c[1].to_owned());
-            }
+    fn reducer_error_tables_maintain_invariants() {
+        let codes: BTreeSet<&str> = CODE_CLASS.iter().map(|(code, _)| *code).collect();
+        assert_eq!(CODE_CLASS.len(), codes.len(), "duplicate code in CODE_CLASS");
+        let fixed_codes: BTreeSet<&str> = FIXED.iter().map(|(code, _)| *code).collect();
+        assert_eq!(FIXED.len(), fixed_codes.len(), "duplicate code in FIXED");
+        for code in PASS_MESSAGE {
+            assert!(
+                !PASS_HINT.contains(code),
+                "{code} cannot be in both PASS_MESSAGE and PASS_HINT"
+            );
         }
-        let rust_message: BTreeSet<String> = PASS_MESSAGE.iter().map(|c| (*c).to_owned()).collect();
-        let rust_hint: BTreeSet<String> = PASS_HINT.iter().map(|c| (*c).to_owned()).collect();
-        assert_eq!(rust_message, message);
-        assert_eq!(rust_hint, hint);
-        let fixed = Regex::new(r#"(?m)^\s*(Err[A-Za-z0-9]+|"BZ[0-9]+")\s*:\s*"([^"]*)""#)
-            .expect("fixed pattern");
-        let go: BTreeMap<String, String> = fixed
-            .captures_iter(block(DETAIL, "var detailFixed = map[string]string{"))
-            .map(|c| (code(&c[1], &constants), c[2].to_owned()))
-            .collect();
-        let rust: BTreeMap<String, String> = FIXED
-            .iter()
-            .map(|(code, text)| ((*code).to_owned(), (*text).to_owned()))
-            .collect();
-        assert_eq!(rust, go);
         for code in ["BZ114", "BZ121", "BZ125"] {
             assert!(
                 !PASS_MESSAGE.contains(&code) && !PASS_HINT.contains(&code),
                 "{code} must stay off the pass lists (no ownership oracle)"
             );
         }
-        let (fallbacks, default) =
-            switch_returns(DETAIL, "func (c ReplyClass) detailFallback() string {");
         for class in ALL {
-            let name = format!("{class:?}");
-            let expected = fallbacks
-                .get(&name)
-                .cloned()
-                .unwrap_or_else(|| default.clone());
-            assert_eq!(fallback(class), expected, "{name}");
-        }
-    }
-
-    #[test]
-    fn jmap_projection_matches_frozen_go() {
-        let (types, default) =
-            switch_returns(PROJECTION, "func (c ReplyClass) JMAPError() string {");
-        for class in ALL {
-            let name = format!("{class:?}");
-            let expected = types.get(&name).cloned().unwrap_or_else(|| default.clone());
-            assert_eq!(jmap_type(class).unwrap_or(""), expected, "{name}");
+            assert!(!fallback(class).is_empty(), "{class:?} has empty fallback");
         }
     }
 

@@ -19,7 +19,7 @@ const paths = {
   sql: resolve(root, 'mailserver/sql/dbschema/V214__exchange_replacement_registry_projection.sql'),
   docs: resolve(generatedDir, 'exchange-replacement-docs-v1.json')
   ,comparison: resolve(generatedDir, 'exchange-replacement-comparison-v1.md')
-  ,cli: resolve(root, 'mailctl/exchange_registry_v1.json')
+  ,cli: resolve(root, 'server-rust/bins/mailctl/src/exchange_registry_v1.json')
 };
 
 const allowed = {

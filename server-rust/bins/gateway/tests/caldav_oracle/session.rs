@@ -345,7 +345,7 @@ pub(super) async fn executable(
         )))
     })
     .await;
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .env_clear()
         .env("GATEWAY_LISTEN", address.to_string())

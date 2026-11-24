@@ -228,16 +228,7 @@ if [ -n "${JIT_SCAN_GO_FILES+x}" ]; then
   # Selftest override: caller supplies explicit space-separated list (may be empty).
   GO_FILES="$JIT_SCAN_GO_FILES"
 else
-  GO_FILES="\
-    $ROOT/shared/permissions/resolver.go \
-    $ROOT/authserver/internal/handlers/auth.go \
-    $ROOT/authserver/internal/handlers/session.go \
-    $ROOT/authserver/internal/handlers/impersonation.go \
-    $ROOT/authserver/internal/token/refresh.go \
-    $ROOT/mailserver/internal/admin/admin_roles.go \
-    $ROOT/mailserver/internal/admin/admin_jit.go \
-    $ROOT/mailserver/internal/admin/admin_users.go \
-    $ROOT/mailserver/internal/jmap/handler.go"
+  GO_FILES=""
 fi
 
 # ── SQL file scan ──────────────────────────────────────────────────────────

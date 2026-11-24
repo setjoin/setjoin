@@ -36,7 +36,7 @@
 source "$(dirname "$0")/_base.sh"
 
 MODE="${1:-gen}"
-CORPUS_DIR="$ROOT/mailserver/internal/meet/presentation/testdata/corpus"
+CORPUS_DIR="$ROOT/docs/verification/meet-m0-corpus"
 MANIFEST="$ROOT/docs/verification/meet-m0-corpus.json"
 
 if ! command -v python3 >/dev/null 2>&1; then

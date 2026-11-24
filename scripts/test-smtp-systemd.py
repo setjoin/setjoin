@@ -91,7 +91,7 @@ def verify(binary):
     previous = sql(dsn, "SELECT jsonb_object_agg(key,enabled) FROM feature_toggles")
     with tempfile.TemporaryDirectory(prefix='gofree-smtp6-systemd-', dir='/run') as path, peer(http.server.ThreadingHTTPServer(('127.0.0.1',0),Store)) as store, peer(socketserver.ThreadingTCPServer(('127.0.0.1',0),Clam)) as clam, peer(socketserver.UDPServer(('127.26.5.26',53),DNS)) as dns:
         directory = Path(path); directory.chmod(0o755)
-        executable = directory / 'setjoin-gateway'; shutil.copyfile(binary,executable); executable.chmod(0o755)
+        executable = directory / 'setjoin-server'; shutil.copyfile(binary,executable); executable.chmod(0o755)
         name = directory.name
         mappings = {'setjoin-gateway.service':name+'.service','setjoin-gateway.socket':name+'.socket','setjoin-smtp.socket':name+'-smtp.socket','setjoin-submission.socket':name+'-submission.socket'}
         units = list(mappings.values()); installed=[]
@@ -107,7 +107,7 @@ def verify(binary):
         config=directory/'config.env'
         config.write_text(f'DB_ENCRYPTION_KEY={"22"*32}\nAUDIT_HMAC_KEY={"33"*32}\nDB_DSN={dsn}\nDB_DIRECT_DSN={dsn}\nDB_WORKER_DSN={dsn}\nSMTP_TLS_CERT_FILE={directory}/cert.pem\nSMTP_TLS_KEY_FILE={directory}/key.pem\nIMAP_ADDR=\nIMAP_TLS_ADDR=\nSMTP_INBOUND_ADDR=127.0.0.1:{smtp}\nSMTP_SUBMISSION_ADDR=127.0.0.1:{submission}\nSMTP_INBOUND_TLS_ADDR=\nCLAMAV_ADDR=127.0.0.1:{clam.server_address[1]}\nSANDBOX_FAIL_MODE=\nJWT_SECRET=smtp6-joint-secret-32-bytes-minimum\nJWT_LINK_PROTECT_TOKEN_VERSION=2\nINTERNAL_DOMAINS=smtp1.test\nPROTECTED_DOMAINS=smtp1.test\nS3_ENDPOINT=http://127.0.0.1:{store.server_address[1]}\nS3_SECURE=false\nS3_BUCKET=mailblobs\nS3_ACCESS_KEY=smtp6-fixture\nS3_SECRET_KEY=smtp6-fixture\n')
         bootstrap=directory/'bootstrap.env'; bootstrap.write_text('smtp6 disposable bootstrap\n'); bootstrap.chmod(0o600); shutil.chown(bootstrap,user='nobody',group='nogroup')
-        (directory/'gateway.env').write_text(f'CONFIG_PATH={bootstrap}\nGATEWAY_AUTH_UPSTREAM=http://127.0.0.1:9\nGO_LISTENERS_OFF=smtp,submission\nWORM_MODE=\n')
+        (directory/'gateway.env').write_text(f'CONFIG_PATH={bootstrap}\nGATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9\nGO_LISTENERS_OFF=smtp,submission\nWORM_MODE=\n')
         env=dict(os.environ,INSTALL_DIR=str(directory),RUNTIME_DIR=str(directory),CONFIG_ENV=str(config),GATEWAY_ENV=str(directory/'gateway.env'),SMTP_ENV=str(directory/'smtp.env'),GATEWAY_LISTEN=f'127.0.0.1:{http_port}',FEDERATION_ENABLED='false')
         try:
             run('bash','-c','source "$1"; configure_smtp_front "$2"; render_smtp_env "$3" "$2" /nonexistent; render_gateway_unit "$4" "$5"','render',str(ROOT/'mailserver/deploy/scripts/lib-livekit.sh'),str(config),str(directory/'smtp.env'),str(ROOT/'mailserver/deploy/setjoin-gateway.service.template'),str(directory/'setjoin-gateway.service'),env=env)
@@ -115,7 +115,7 @@ def verify(binary):
             for original,target in mappings.items():
                 text=(directory/original).read_text()
                 for src,dst in mappings.items():text=text.replace(src,dst)
-                text=text.replace(' setjoin.service setjoin-auth.service','').replace('Wants=setjoin.service setjoin-auth.service\n','')
+                text=text.replace(' setjoin-auth.service','').replace('Wants=setjoin-auth.service\n','')
                 text=text.replace('User=setjoin','User=nobody').replace('Group=setjoin','Group=nogroup')
                 if original.endswith('.service'):text=text.replace('[Service]','[Service]\nBindReadOnlyPaths='+str(resolver)+':/etc/resolv.conf')
                 dest=Path('/run/systemd/system')/target;assert not dest.exists();dest.write_text(text);installed.append(dest)
@@ -127,9 +127,11 @@ def verify(binary):
                 sql(dsn,(ORACLE/'cleanup.sql').read_text()+(ORACLE/'seed.sql').read_text())
                 if case.get('setup_sql'):sql(dsn,case['setup_sql'])
                 flags=dict(case['mail_auth']);flags['feature.smtp_inbound']=True;flags['feature.smtp_submission']=True
-                # NewStatic in the Go recorder explicitly disables every Go key.
+                # NewStatic in the recorder explicitly disables every registered key.
                 # Missing DB rows otherwise inherit default-ON, so materialize them.
-                keys=re.findall(r'^\s*\w+\s*=\s*"([^"\n]+\.[^"\n]+)"', (ROOT/'shared/toggle/toggle.go').read_text(), re.M)
+                toggle_dir = ROOT / 'server-rust/crates/domains/platform/testdata/toggle'
+                newest_registry = max(toggle_dir.glob('registry-v*.json'), key=lambda p: int(re.search(r'v(\d+)', p.stem).group(1)))
+                keys = [d['key'] for d in json.loads(newest_registry.read_text())['definitions']]
                 seed='INSERT INTO feature_toggles(key,enabled) VALUES '+','.join('('+quote(k)+',false)' for k in keys)+' ON CONFLICT(key) DO UPDATE SET enabled=false;'
                 sql(dsn,'UPDATE feature_toggles SET enabled=false;'+seed+''.join(f'UPDATE feature_toggles SET enabled=true WHERE key={quote(k)};' for k,v in flags.items() if v))
                 store.blobs={};clam.reply=case['pipeline']['clam_reply']

@@ -316,7 +316,7 @@ pub async fn executable() -> Result<(), BoxError> {
   if let Ok(path)=std::env::var("GOFREE_RESOURCE_LEDGER") {
    use std::io::Write;writeln!(std::fs::OpenOptions::new().append(true).open(path)?,"Planned process gofree-jmap5-executable, assigned DB only, Go upstream unset, listener {address}")?;
   }
-  let mut command=Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+  let mut command=Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
   command.arg0("gofree-jmap5-executable").env_clear().env("GATEWAY_LISTEN",address.to_string()).env("GATEWAY_AUTH_UPSTREAM","http://127.0.0.1:1").env("DB_DSN",db.app.as_deref().unwrap_or(&db.dsn)).env("DB_WORKER_DSN",&db.dsn).env("DB_DIRECT_DSN",&db.direct).env("DB_ENCRYPTION_KEY","22".repeat(32)).env("AUTHSERVER_JWKS_URL",format!("http://{jwks}/.well-known/jwks.json")).env("GATEWAY_DB_POOL","4").env("SETJOIN_AUTHZ_PRECHECK_TIMEOUT_MS","15000").env("SETJOIN_PG_DEADLINE_MS","30000").stdout(Stdio::null()).stderr(Stdio::piped());
   let mut process=Process(command.spawn_boot()?);
   if let Ok(path)=std::env::var("GOFREE_RESOURCE_LEDGER") {

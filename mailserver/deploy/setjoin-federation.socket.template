@@ -1,6 +1,6 @@
 [Unit]
 Description=Setjoin native federation listener
-ConditionPathExists={{RUNTIME_DIR}}/setjoin-gateway
+ConditionPathExists={{RUNTIME_DIR}}/setjoin-server
 
 [Socket]
 ListenStream={{FEDERATION_LISTEN}}

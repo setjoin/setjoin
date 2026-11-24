@@ -1,16 +1,8 @@
 # Program directory
 
-**Resumed 2026-10-29** (paused earlier that day; checkpoint index `HANDOVER.md` on
-branch `handover/dots-to-local-20261029`). Active work: the Rust rewrite, starting with
-the RP07-S01 mark-read tracer bullet. The P0 quality-tool catalog probe HOLD is
-dropped (owner decision 2026-10-29); its archive stays on
-`handover/p0-catalog-archive-20261029`.
-
-**Rust rewrite committed 2026-10-11; target revised 2026-10-29 (ARCH-028):** Rust replaces
-Go route by route behind the Rust front door (ARCH-027); PL/pgSQL reducers stay wherever they
-save round trips. Plan: `retired-docs:superpowers/plans/2026-10-22-setjoin-rust-implementation/` on
-branch `plan/setjoin-rust-implementation-20261022` (its "remove reducers in version 1" target is
-superseded). Avoid new investment in Go code; reducers remain the business-logic home.
+**Go-free Rust Rewrite (Spec `#25`) COMPLETED 2026-11-25 ([ARCH-031](../adr/ARCH-031-go-is-deleted.md)):** All server-side Go code (`mailserverd`, `authserverd`, `mailctl`, `asrbotd`, `shared/`, `tools/setjoin-release/`), Go oracle recorders, and pure-Go CI jobs/guards are deleted (`#142`), and the primary Rust server binary is renamed `setjoin-gateway` → `setjoin-server` (Cargo package `setjoin-gateway` and systemd unit `setjoin-gateway.service` unchanged until Wave 1 `#544`). PL/pgSQL reducers (`mailserver/sql/reducers/`, `authserver/sql/reducers/`) remain authoritative ([ARCH-028](../adr/ARCH-028-rust-replaces-go-reducers-stay.md)).
+- **Closure trail:** `#355b` (PR #567: native DAV/Drive Kerberos/SPNEGO), residual gateway forwards (PR #566), `#359` (PR #568: `REHEARSAL-FORWARD-SITES = 0`), Go-peer retirement (PR #569: `GO_PEER_REFERENCES = 0`), `#141` Go-deletion dress rehearsal (full `server-rust-lane.yml` green on `main` with zero Go processes/upstreams, `PENDING = 0`, `MATRIX_HOPS = 0/0`), Phase 4 pure-Rust E2E verification, and `#142` (`ARCH-031` Go deletion + `setjoin-server` rename).
+- **Next active program (unblocked):** **Wave 1 Post-Go Target Architecture (`#536`–`#547`)** — including `setjoind` consolidation (`#544`) and schema-first EdgeContract (`#561`), tracked via GitHub issues.
 
 Moved from the root rail on 2026-09-11 without changing any plan score, authority or
 execution gate. Paths below are repository-relative. Consult the owning plan and current

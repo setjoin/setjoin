@@ -56,7 +56,7 @@ fn spawn(
     enabled: bool,
     workers: &[(&str, &str)],
 ) -> Result<Process, BoxError> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .arg0(format!("gofree-dirsync5-gateway-{name}"))
         .env_clear()

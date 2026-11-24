@@ -25,7 +25,7 @@ async fn unbaselined_database_refuses_boot_before_listening() {
         .unwrap();
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(15),
-        tokio::process::Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_setjoin-server"))
             .env_clear()
             .env("DB_DSN", &dsn)
             .env("GATEWAY_LISTEN", "127.0.0.1:0")

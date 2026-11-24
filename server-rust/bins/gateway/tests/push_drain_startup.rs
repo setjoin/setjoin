@@ -14,7 +14,7 @@ fn gateway(
     rust_on: &str,
     go_off: &str,
 ) -> std::io::Result<crate::common::boot::Child> {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_setjoin-server"));
     command
         .env_clear()
         .stdout(Stdio::null())
