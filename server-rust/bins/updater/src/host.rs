@@ -531,14 +531,60 @@ fn strip_inline_yaml_comment(s: &str) -> &str {
     s
 }
 
-fn clean_yaml_scalar(s: &str) -> String {
+fn decode_yaml_hex(chars: &mut std::str::Chars<'_>, count: usize) -> Result<char, &'static str> {
+    let mut val = 0u32;
+    for _ in 0..count {
+        let ch = chars.next().ok_or("truncated YAML escape")?;
+        let d = ch.to_digit(16).ok_or("invalid hex in YAML escape")?;
+        val = (val << 4) | d;
+    }
+    char::from_u32(val).ok_or("invalid Unicode scalar in YAML escape")
+}
+
+fn decode_yaml_double_quoted(inner: &str) -> Result<String, &'static str> {
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let esc = chars.next().ok_or("trailing backslash in YAML string")?;
+        match esc {
+            '0' => out.push('\0'),
+            'a' => out.push('\x07'),
+            'b' => out.push('\x08'),
+            't' | '\t' => out.push('\t'),
+            'n' => out.push('\n'),
+            'v' => out.push('\x0b'),
+            'f' => out.push('\x0c'),
+            'r' => out.push('\r'),
+            'e' => out.push('\x1b'),
+            ' ' => out.push(' '),
+            '"' => out.push('"'),
+            '/' => out.push('/'),
+            '\\' => out.push('\\'),
+            'N' => out.push('\u{0085}'),
+            '_' => out.push('\u{00A0}'),
+            'L' => out.push('\u{2028}'),
+            'P' => out.push('\u{2029}'),
+            'x' => out.push(decode_yaml_hex(&mut chars, 2)?),
+            'u' => out.push(decode_yaml_hex(&mut chars, 4)?),
+            'U' => out.push(decode_yaml_hex(&mut chars, 8)?),
+            _ => return Err("unsupported YAML escape sequence"),
+        }
+    }
+    Ok(out)
+}
+
+fn clean_yaml_scalar(s: &str) -> Result<String, &'static str> {
     let t = strip_inline_yaml_comment(s).trim();
     if let Some(inner) = t.strip_prefix('"').and_then(|v| v.strip_suffix('"')) {
-        inner.to_owned()
+        decode_yaml_double_quoted(inner)
     } else if let Some(inner) = t.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
-        inner.to_owned()
+        Ok(inner.replace("''", "'"))
     } else {
-        t.to_owned()
+        Ok(t.to_owned())
     }
 }
 
@@ -619,7 +665,7 @@ fn strip_yaml_key_props(k: &str) -> Result<String, &'static str> {
     if t.starts_with('!') || t.starts_with('&') || t.starts_with('*') {
         return Err("unsupported YAML key property or alias");
     }
-    Ok(clean_yaml_scalar(t))
+    clean_yaml_scalar(t)
 }
 
 fn normalize_retention_days(raw: &str) -> String {
@@ -664,10 +710,10 @@ fn flow_worm_settings(flow: &str) -> Result<YamlWorm, &'static str> {
             return Err("YAML alias/tag in worm setting");
         }
         if key_clean == "mode" {
-            let val = clean_yaml_scalar(fv_trim);
+            let val = clean_yaml_scalar(fv_trim)?;
             out.mode = (!yaml_scalar_is_null(&val)).then_some(val);
         } else if key_clean == "retention_days" {
-            let val = clean_yaml_scalar(fv_trim);
+            let val = clean_yaml_scalar(fv_trim)?;
             out.retention_days = (!yaml_scalar_is_null(&val)).then(|| normalize_retention_days(&val));
         }
     }
@@ -773,10 +819,10 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
                             return Err("YAML alias/tag in worm setting");
                         }
                         if key_clean == "mode" {
-                            let val = clean_yaml_scalar(v_trim);
+                            let val = clean_yaml_scalar(v_trim)?;
                             out.mode = (!yaml_scalar_is_null(&val)).then_some(val);
                         } else if key_clean == "retention_days" {
-                            let val = clean_yaml_scalar(v_trim);
+                            let val = clean_yaml_scalar(v_trim)?;
                             out.retention_days =
                                 (!yaml_scalar_is_null(&val)).then(|| normalize_retention_days(&val));
                         }
@@ -819,8 +865,18 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
     Ok(out)
 }
 
-fn parse_unit_env_files(unit: &str) -> Vec<(std::path::PathBuf, bool)> {
-    let mut out = Vec::new();
+const STORAGE_ENV_KEYS: [&str; 8] = [
+    "S3_ENDPOINT",
+    "MINIO_ENDPOINT",
+    "S3_BUCKET",
+    "MINIO_BUCKET",
+    "S3_ACCESS_KEY",
+    "MINIO_ACCESS_KEY",
+    "S3_SECRET_KEY",
+    "MINIO_SECRET_KEY",
+];
+
+fn parse_unit_env_files_into(unit: &str, out: &mut Vec<(std::path::PathBuf, bool)>) {
     for line in unit.lines() {
         let t = line.trim();
         if t.starts_with('#') || t.starts_with(';') {
@@ -851,7 +907,65 @@ fn parse_unit_env_files(unit: &str) -> Vec<(std::path::PathBuf, bool)> {
             out.push((std::path::PathBuf::from(unquoted), optional));
         }
     }
-    out
+}
+
+fn load_unit_env_files(unit_path: &Path) -> Result<Vec<(std::path::PathBuf, bool)>> {
+    let mut out = Vec::new();
+    match std::fs::read_to_string(unit_path) {
+        Ok(src) => parse_unit_env_files_into(&src, &mut out),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(err).with_context(|| format!("reading {}", unit_path.display()));
+        }
+    }
+    let Some(unit_name) = unit_path.file_name().and_then(|n| n.to_str()) else {
+        return Ok(out);
+    };
+    let Some(parent) = unit_path.parent() else {
+        return Ok(out);
+    };
+    let dropin_rel = format!("{unit_name}.d");
+    let mut search_dirs = vec![parent.join(&dropin_rel)];
+    if parent == Path::new("/usr/lib/systemd/system") || parent == Path::new("/lib/systemd/system")
+    {
+        search_dirs.push(Path::new("/run/systemd/system").join(&dropin_rel));
+        search_dirs.push(Path::new("/etc/systemd/system").join(&dropin_rel));
+    } else if parent == Path::new("/run/systemd/system") {
+        search_dirs.push(Path::new("/etc/systemd/system").join(&dropin_rel));
+    }
+    let mut dropins: std::collections::BTreeMap<String, std::path::PathBuf> =
+        std::collections::BTreeMap::new();
+    for dir in search_dirs {
+        match std::fs::read_dir(&dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    let entry =
+                        entry.with_context(|| format!("reading drop-in entry in {}", dir.display()))?;
+                    let name = entry.file_name();
+                    let Some(name_str) = name.to_str() else {
+                        continue;
+                    };
+                    if name_str.starts_with('.') || !name_str.ends_with(".conf") {
+                        continue;
+                    }
+                    let path = entry.path();
+                    if std::fs::metadata(&path).is_ok_and(|m| !m.is_dir()) {
+                        dropins.insert(name_str.to_owned(), path);
+                    }
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(err).with_context(|| format!("reading drop-in dir {}", dir.display()));
+            }
+        }
+    }
+    for (_, path) in dropins {
+        let src = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading drop-in {}", path.display()))?;
+        parse_unit_env_files_into(&src, &mut out);
+    }
+    Ok(out)
 }
 
 struct EffectiveGatewayEnv {
@@ -908,6 +1022,12 @@ fn gateway_has_worm_settings(
     if !gw.has_storage_file || !gw.has_gateway_file {
         return false;
     }
+    let has_storage_setting = STORAGE_ENV_KEYS
+        .iter()
+        .any(|k| env_lookup(&gw.pairs, k).is_some_and(|v| !v.is_empty()));
+    if !has_storage_setting {
+        return false;
+    }
     if env_lookup(&gw.pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
         return false;
     }
@@ -927,11 +1047,7 @@ pub(crate) fn check_worm_gateway_ready(
     explicit_config_env: Option<&Path>,
     default_config_env: &Path,
 ) -> Result<()> {
-    let unit_src = std::fs::read_to_string(unit_path).ok();
-    let env_files = unit_src
-        .as_deref()
-        .map(parse_unit_env_files)
-        .unwrap_or_default();
+    let env_files = load_unit_env_files(unit_path)?;
     let unit_cfg = env_files
         .iter()
         .rfind(|(p, _)| p.file_name().and_then(|n| n.to_str()) == Some("gateway.env"))
@@ -1257,5 +1373,65 @@ mod tests {
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+
+        // Systemd drop-in appending WORM_MODE=compliance after gateway.env clears it fails preflight
+        let dropin_dir = dir.path().join("setjoin-gateway.service.d");
+        std::fs::create_dir_all(&dropin_dir).unwrap();
+        let dropin_unit = dir.path().join("setjoin-gateway.service");
+        std::fs::write(
+            &dropin_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                fed.display(),
+                gw.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            dropin_dir.join("10-override.conf"),
+            format!("[Service]\nEnvironmentFile={}\n", override_env.display()),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&dropin_unit, None, &stale_default).is_err());
+        std::fs::remove_file(dropin_dir.join("10-override.conf")).unwrap();
+        assert!(check_worm_gateway_ready(&dropin_unit, None, &stale_default).is_ok());
+
+        // Escaped double-quoted YAML key/value enables WORM preflight; empty storage.env fails even when WORM_MODE matches
+        std::fs::write(
+            &yaml,
+            "\"w\\u006frm\":\n  \"m\\x6fde\": \"compli\\u0061nce\"\n",
+        )
+        .unwrap();
+        std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\n", yaml.display())).unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                storage.display(),
+                gw.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        std::fs::write(&storage, "# empty storage env\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(&storage, "S3_BUCKET=mailblobs\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+
+        // Drop-in EnvironmentFile= reset clears base unit directives
+        std::fs::create_dir_all(&dropin_dir).unwrap();
+        std::fs::write(
+            &dropin_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                storage.display(),
+                gw.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(dropin_dir.join("20-reset.conf"), "[Service]\nEnvironmentFile=\n").unwrap();
+        assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_err());
     }
 }

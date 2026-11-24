@@ -47,14 +47,17 @@ signed DDL preserves Go's one-transaction-per-migration schema/evidence contract
 ambiguous completion requires exact durable checksum evidence before success.
 Feature-registry contracts bind preflight, commit and rollback to live mode,
 catalog digest and the previous binary's compatibility evidence.
-`host::preflight` evaluates `setjoin-gateway.service`'s `EnvironmentFile=` chain in
-systemd order (respecting empty `EnvironmentFile=` resets) and checks that
-DB-backed hosts declare explicit `WORM_MODE` in `gateway.env`, and that active
-WORM settings (`SETJOIN_CONFIG_DIR` or unit-derived `config.env`, plus
-`SETJOIN_CONFIG` YAML `worm.mode` and `worm.retention_days`) match a present
-`storage.env` and effective `WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`/`WORM_RETENTION_DAYS`,
-failing closed on unreadable, merged, or unparsed YAML constructs in `worm` config;
-all DB-backed immutable hosts should upgrade `setjoin-updater` and run
+`host::preflight` evaluates `setjoin-gateway.service` and its `<unit>.d/*.conf`
+drop-ins' `EnvironmentFile=` chain in systemd order (respecting empty
+`EnvironmentFile=` resets, with optional whitespace around `=`) and checks that
+DB-backed hosts declare explicit empty `WORM_MODE=` in `gateway.env` with an
+empty effective `WORM_MODE` when WORM is disabled, and that active WORM settings
+(`SETJOIN_CONFIG_DIR` or unit-derived `config.env`, plus `SETJOIN_CONFIG` YAML
+`worm.mode` and `worm.retention_days`) match a present `storage.env`, at least
+one non-empty effective `S3_*`/`MINIO_*` storage setting, and effective
+`WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`/`WORM_RETENTION_DAYS`, failing closed on
+unreadable, merged, or unparsed YAML constructs in `worm` config; all DB-backed
+immutable hosts should upgrade `setjoin-updater` and run
 `upgrade.sh refresh-gateway-env` before activating a gateway release that retires
 Go's legal-hold forward.
 

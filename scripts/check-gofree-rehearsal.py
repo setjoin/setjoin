@@ -80,7 +80,7 @@ HOP_ROW = re.compile(r'\(\s*(&\[[^\]]*\]|[A-Z_]+)\s*,\s*"[^"]+"\s*,\s*Hop\s*\("'
 CELL_GROUP = re.compile(r'const\s+([A-Z_]+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];', re.S)
 FORWARD_SITES = {
     ("auth", "go_upstream"): 3,
-    ("gateway", "forward"): 12,  # 13 minus exempt RUST_TO_RUST_CALL (lib.rs:679)
+    ("gateway", "forward"): 12,  # 13 minus exempt RUST_TO_RUST_CALL (lib.rs:704)
     ("gateway", "go_counter"): 2,
     ("gateway", "go_target"): 11,
 }

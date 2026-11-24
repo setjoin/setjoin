@@ -1402,6 +1402,11 @@ fn s3_region_from_url(endpoint: &str) -> Option<String> {
         return (is_valid_aws_region_label(region) && !is_excluded_s3_prefix(region))
             .then(|| region.to_owned());
     }
+    if prefix.starts_with("s3-fips-") {
+        if let Some(region) = prefix.strip_prefix("s3-") {
+            return is_valid_aws_region_label(region).then(|| region.to_owned());
+        }
+    }
     if let Some(region) = prefix
         .strip_prefix("s3-")
         .or_else(|| prefix.strip_prefix("s3."))
@@ -1911,6 +1916,14 @@ mod tests {
         assert_eq!(
             s3_region_from_url("https://s3-fips.us-east-1.amazonaws.com").as_deref(),
             Some("us-east-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-fips-us-gov-west-1.amazonaws.com").as_deref(),
+            Some("fips-us-gov-west-1")
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-fips-us-gov-west-1.amazonaws.com", "us-gov-east-1"),
+            "https://s3-fips-us-gov-west-1.amazonaws.com"
         );
         assert_eq!(
             s3_region_from_url("https://s3-fips.dualstack.us-gov-west-1.amazonaws.com").as_deref(),

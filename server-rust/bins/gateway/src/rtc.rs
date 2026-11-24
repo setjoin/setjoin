@@ -624,33 +624,34 @@ fn clean_query_params(s: &str) -> String {
     const MAX_PARAMS: usize = 10_000;
     let b = s.as_bytes();
     let num_params = b.iter().filter(|&&c| c == b'&').count() + 1;
-    if num_params <= MAX_PARAMS {
-        let mut i = 0;
-        let mut needs_clean = false;
-        while i < b.len() {
-            match b[i] {
-                b';' => {
+    if num_params > MAX_PARAMS {
+        return String::new();
+    }
+    let mut i = 0;
+    let mut needs_clean = false;
+    while i < b.len() {
+        match b[i] {
+            b';' => {
+                needs_clean = true;
+                break;
+            }
+            b'%' => {
+                if i + 2 >= b.len()
+                    || !b[i + 1].is_ascii_hexdigit()
+                    || !b[i + 2].is_ascii_hexdigit()
+                {
                     needs_clean = true;
                     break;
                 }
-                b'%' => {
-                    if i + 2 >= b.len()
-                        || !b[i + 1].is_ascii_hexdigit()
-                        || !b[i + 2].is_ascii_hexdigit()
-                    {
-                        needs_clean = true;
-                        break;
-                    }
-                    i += 3;
-                }
-                _ => i += 1,
+                i += 3;
             }
-        }
-        if !needs_clean {
-            return s.to_owned();
+            _ => i += 1,
         }
     }
-    reencode_query(s, MAX_PARAMS)
+    if !needs_clean {
+        return s.to_owned();
+    }
+    reencode_query(s)
 }
 
 fn query_unescape(s: &str) -> Option<Vec<u8>> {
@@ -667,7 +668,7 @@ fn query_unescape(s: &str) -> Option<Vec<u8>> {
                 let (Some(&h), Some(&l)) = (b.get(i + 1), b.get(i + 2)) else {
                     return None;
                 };
-                out.push((hex(h)? << 4) | hex(l)?);
+                out.push((from_hex(h)? << 4) | from_hex(l)?);
                 i += 3;
             }
             c => {
@@ -694,18 +695,13 @@ fn query_escape(bytes: &[u8], out: &mut String) {
     }
 }
 
-fn reencode_query(s: &str, max_params: usize) -> String {
+fn reencode_query(s: &str) -> String {
     let mut map: std::collections::BTreeMap<Vec<u8>, Vec<Vec<u8>>> =
         std::collections::BTreeMap::new();
-    let mut remaining = max_params;
     for part in s.split('&') {
         if part.is_empty() {
             continue;
         }
-        if remaining == 0 {
-            break;
-        }
-        remaining -= 1;
         if part.contains(';') {
             continue;
         }
@@ -770,5 +766,11 @@ mod tests {
         assert_eq!(clean_query_params("b=2&bad;x=1&a=1"), "a=1&b=2");
         assert_eq!(clean_query_params("b=2&bad=%ZZ&a=1"), "a=1&b=2");
         assert_eq!(clean_query_params("%ZZ"), "");
+
+        let at_limit = format!("a=1{}", "&a=1".repeat(9_999));
+        assert_eq!(clean_query_params(&at_limit), at_limit);
+        let over_limit = format!("a=1{}", "&a=1".repeat(10_000));
+        assert_eq!(clean_query_params(&over_limit), "");
+        assert_eq!(clean_query_params(&"&".repeat(10_000)), "");
     }
 }

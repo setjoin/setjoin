@@ -258,6 +258,26 @@ restore_gateway_files_only() {
     systemctl daemon-reload
     restore_tls_cache_meta
 }
+restore_gateway_refresh() {
+    local file
+    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+        if [ ! -f "$DEPLOYMENT_PREV/$file-enabled" ] && [ -e "$SYSTEMD_DIR/$file" ]; then
+            systemctl disable "$file" || true
+        fi
+    done
+    if [ ! -f "$DEPLOYMENT_PREV/socket-enabled" ] && [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
+        systemctl disable setjoin-federation.socket || true
+    fi
+    restore_gateway_files_only
+    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+        if [ -f "$DEPLOYMENT_PREV/$file-enabled" ]; then
+            systemctl enable "$file" || true
+        fi
+    done
+    if [ -f "$DEPLOYMENT_PREV/socket-enabled" ]; then
+        systemctl enable setjoin-federation.socket || true
+    fi
+}
 restore_gateway_deployment() {
     local file
     # Close the new socket before the previous executable can receive its FD.
@@ -438,7 +458,7 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
     backup_gateway_deployment
     if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
         echo "   ✗ gateway unit/config refresh failed." >&2
-        restore_gateway_files_only
+        restore_gateway_refresh
         exit 1
     fi
     exit 0

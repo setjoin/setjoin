@@ -5,6 +5,8 @@ Used by mailserver/deploy/scripts/lib-livekit.sh so install/upgrade and CI deplo
 guards require only Python 3 stdlib (no external PyYAML dependency).
 """
 
+from __future__ import annotations
+
 import math
 import os
 import re

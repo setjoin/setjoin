@@ -9,6 +9,13 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/systemctl" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FED_TEST_LOG"
+if [ "${1:-}" = enable ] && [ -n "${FED_TEST_FAIL_ENABLE:-}" ] && [ "${2:-}" = "$FED_TEST_FAIL_ENABLE" ]; then
+  exit 1
+fi
+if [ "${1:-}" = is-enabled ] && [ -n "${FED_TEST_ENABLED_SOCKETS+x}" ]; then
+  target="${3:-${2:-}}"
+  case " ${FED_TEST_ENABLED_SOCKETS} " in *" $target "*) exit 0 ;; *) exit 1 ;; esac
+fi
 MOCK
 cat > "$tmp/bin/chown" <<'MOCK'
 #!/usr/bin/env bash
@@ -182,6 +189,30 @@ ENV
   [ "$bad_rc" != 0 ] || { echo 'expected bad refresh-gateway-env to fail' >&2; exit 1; }
   if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'refresh-gateway-env rollback stopped setjoin-gateway' >&2; exit 1; fi
   diff -u "$im/gateway.before" "$im/config/gateway.env"
+
+  # Restore valid config.env before testing partial-enable rollback and lock contention.
+  cp "$im/config.before" "$im/config/config.env"
+  mkdir -p "$im/before-enable-cfg" "$im/before-enable-units"
+  cp -a "$im/config/." "$im/before-enable-cfg/"
+  cp -a "$im/units/." "$im/before-enable-units/"
+  : > "$im/actions"
+  cat >> "$im/config/config.env" <<'ENV'
+FEDERATION_ENABLED=true
+FEDERATION_LOCAL_DOMAIN=zulu.test
+FEDERATION_CERT=/fixture/leaf.crt
+FEDERATION_KEY=/fixture/leaf.key
+FEDERATION_LISTEN_ADDR=127.0.0.1:17443
+ENV
+  en_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
+    FED_TEST_ENABLED_SOCKETS="" FED_TEST_FAIL_ENABLE="setjoin-federation.socket" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env 2>/dev/null || en_rc=$?
+  [ "$en_rc" != 0 ] || { echo 'expected partial socket enable failure in refresh-gateway-env' >&2; exit 1; }
+  if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'refresh-gateway-env enable rollback stopped setjoin-gateway' >&2; exit 1; fi
+  grep -qx 'enable setjoin-https.socket' "$im/actions"
+  grep -qx 'disable setjoin-https.socket' "$im/actions"
+  diff -ru "$im/before-enable-units" "$im/units"
 
   # Restore valid config.env before testing lock contention with valid inputs.
   cp "$im/config.before" "$im/config/config.env"
