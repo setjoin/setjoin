@@ -49,7 +49,7 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 796 · declarations: 1178 · unique names: 1176
+- Reducer files: 796 · declarations: 1179 · unique names: 1176
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
 - Canonical complement (no CSV row): 1070 → `unattested_functions.csv`
@@ -72,6 +72,7 @@ Overloaded names (coverage is name-level and never attests every overload):
 
 - `effective_capabilities` — 2 declarations — unattested
 - `guest_active_preview` — 2 declarations — unattested
+- `rust_compliance_message_hold` — 2 declarations — unattested
 
 ## Certification critical path
 

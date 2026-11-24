@@ -16,7 +16,7 @@ fn gateway(db: &Db, rust_on: &str, go_off: &str) -> std::io::Result<crate::commo
         ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn)),
         ("DB_WORKER_DSN", db.dsn.as_str()),
         ("DB_DIRECT_DSN", db.dsn.as_str()),
-        ("JWT_SECRET", "gofree-startup-master"),
+        ("JWT_SECRET", "gofree-startup-master-32-bytes-ok"),
         ("RUST_WORKERS_ON", rust_on),
         ("GO_WORKERS_OFF", go_off),
     ] {
