@@ -398,14 +398,14 @@ pub async fn forwarding() -> Result<(), BoxError> {
         account: Option<fixture::Account>,
         role: Option<i64>,
         blob_hash: Option<String>,
-        attachment_inserted: bool,
+        attachment_id: Option<i64>,
         receipts: Vec<String>,
     }
     let mut cleanup = Cleanup {
         account: None,
         role: None,
         blob_hash: None,
-        attachment_inserted: false,
+        attachment_id: None,
         receipts: Vec::new(),
     };
     struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
@@ -451,13 +451,14 @@ pub async fn forwarding() -> Result<(), BoxError> {
             )
             .await?;
         cleanup.blob_hash = Some(blob_hash.clone());
-        owner
-            .execute(
-                "INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'hold.txt','text/plain','attachment',12 FROM messages WHERE id=$2 AND mailbox_id=$3",
+        let attachment_id: i64 = owner
+            .query_one(
+                "INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'hold.txt','text/plain','attachment',12 FROM messages WHERE id=$2 AND mailbox_id=$3 RETURNING id",
                 &[&blob_hash, &a.two_labels, &a.mailbox],
             )
-            .await?;
-        cleanup.attachment_inserted = true;
+            .await?
+            .get(0);
+        cleanup.attachment_id = Some(attachment_id);
         let _env = Env(vec![
             ("WORM_MODE", std::env::var_os("WORM_MODE")),
             (
@@ -875,12 +876,13 @@ pub async fn forwarding() -> Result<(), BoxError> {
     .catch_unwind()
     .await;
     if let (Some(a), Some(blob_hash)) = (&cleanup.account, &cleanup.blob_hash) {
-        if cleanup.attachment_inserted {
+        if let Some(attachment_id) = cleanup.attachment_id {
             owner
                 .execute(
-                    "DELETE FROM message_attachments WHERE message_id=$1 AND blob_sha256=$2 \
-                     AND EXISTS (SELECT 1 FROM messages WHERE id=$1 AND mailbox_id=$3)",
-                    &[&a.two_labels, blob_hash, &a.mailbox],
+                    "DELETE FROM message_attachments ma \
+                     WHERE ma.id=$1 AND ma.message_id=$2 AND ma.blob_sha256=$3 \
+                     AND EXISTS (SELECT 1 FROM messages m WHERE m.id=ma.message_id AND m.received_at=ma.received_at AND m.mailbox_id=$4)",
+                    &[&attachment_id, &a.two_labels, blob_hash, &a.mailbox],
                 )
                 .await?;
         }

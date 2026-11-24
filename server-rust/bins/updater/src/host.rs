@@ -1700,8 +1700,35 @@ fn env_lookup_precedence(pairs: &[(String, String)], keys: &[&str]) -> Option<St
     merged
         .into_iter()
         .rev()
-        .find(|(k, _)| keys.contains(&k.as_str()))
+        .find(|(k, _)| keys.iter().any(|target| k.eq_ignore_ascii_case(target)))
         .map(|(_, v)| v)
+}
+
+fn parse_koanf_retention_days(raw: &str) -> Result<i64, String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Err("empty WORM_RETENTION_DAYS".into());
+    }
+    if let Some(days) = YamlParser::parse_yaml_int(s) {
+        if days < 1 {
+            return Err(format!(
+                "invalid WORM_RETENTION_DAYS (must be >= 1): {raw:?}"
+            ));
+        }
+        return Ok(days);
+    }
+    if let Some(v) = parse_yaml_float(s) {
+        if v >= (i64::MIN as f64) && v < 9_223_372_036_854_775_808.0 {
+            let days = v as i64;
+            if days < 1 {
+                return Err(format!(
+                    "invalid WORM_RETENTION_DAYS (must be >= 1): {raw:?}"
+                ));
+            }
+            return Ok(days);
+        }
+    }
+    Err(format!("invalid WORM_RETENTION_DAYS: {raw:?}"))
 }
 
 fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
@@ -1764,7 +1791,7 @@ fn resolve_s3_settings(
         .and_then(|s| s.access_key.as_deref())
         .unwrap_or("")
         .to_owned();
-    if let Some(v) = env_lookup(pairs, "S3_ACCESS_KEY") {
+    if let Some(v) = env_lookup_precedence(pairs, &["S3_ACCESS_KEY"]) {
         access_key = v;
     }
     if access_key.is_empty() {
@@ -1777,7 +1804,7 @@ fn resolve_s3_settings(
         .and_then(|s| s.secret_key.as_deref())
         .unwrap_or("")
         .to_owned();
-    if let Some(v) = env_lookup(pairs, "S3_SECRET_KEY") {
+    if let Some(v) = env_lookup_precedence(pairs, &["S3_SECRET_KEY"]) {
         secret_key = v;
     }
     if secret_key.is_empty() {
@@ -1818,18 +1845,26 @@ fn resolve_s3_settings(
     })
 }
 
-const STORAGE_ENV_KEYS: [&str; 10] = [
-    "S3_ENDPOINT",
-    "S3__ENDPOINT",
-    "MINIO_ENDPOINT",
-    "S3_BUCKET",
-    "S3__BUCKET",
-    "MINIO_BUCKET",
-    "S3_ACCESS_KEY",
-    "MINIO_ACCESS_KEY",
-    "S3_SECRET_KEY",
-    "MINIO_SECRET_KEY",
-];
+fn has_storage_env_setting(pairs: &[(String, String)]) -> bool {
+    [
+        "S3_ENDPOINT",
+        "S3__ENDPOINT",
+        "S3_BUCKET",
+        "S3__BUCKET",
+        "S3_ACCESS_KEY",
+        "S3_SECRET_KEY",
+    ]
+    .iter()
+    .any(|k| env_lookup_precedence(pairs, &[k]).is_some_and(|v| !v.is_empty()))
+        || [
+            "MINIO_ENDPOINT",
+            "MINIO_BUCKET",
+            "MINIO_ACCESS_KEY",
+            "MINIO_SECRET_KEY",
+        ]
+        .iter()
+        .any(|k| env_lookup(pairs, k).is_some_and(|v| !v.is_empty()))
+}
 
 #[derive(Default, Debug)]
 struct UnitEnvSpec {
@@ -1990,7 +2025,56 @@ fn systemd_logical_lines(unit: &str) -> Vec<String> {
     logical
 }
 
-fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) -> Result<()> {
+fn expand_systemd_env_file_specifiers(raw: &str, unit_name: &str) -> Result<String> {
+    if !raw.contains('%') {
+        return Ok(raw.to_owned());
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            out.push(ch);
+            continue;
+        }
+        let Some(spec) = chars.next() else {
+            bail!(
+                "unsupported trailing systemd specifier in EnvironmentFile path {raw:?}; resolve explicitly or run upgrade.sh refresh-gateway-env"
+            );
+        };
+        match spec {
+            '%' => out.push('%'),
+            'n' => {
+                ensure!(
+                    !unit_name.is_empty(),
+                    "cannot expand %n systemd specifier without unit name in EnvironmentFile path {raw:?}"
+                );
+                out.push_str(unit_name);
+            }
+            'N' => {
+                let stem = unit_name
+                    .rsplit_once('.')
+                    .map(|(s, _)| s)
+                    .unwrap_or(unit_name);
+                ensure!(
+                    !stem.is_empty(),
+                    "cannot expand %N systemd specifier without unit name in EnvironmentFile path {raw:?}"
+                );
+                out.push_str(stem);
+            }
+            'E' => out.push_str("/etc"),
+            't' => out.push_str("/run"),
+            'S' => out.push_str("/var/lib"),
+            'C' => out.push_str("/var/cache"),
+            'L' => out.push_str("/var/log"),
+            _ => bail!(
+                "unsupported systemd specifier %{spec} in EnvironmentFile path {raw:?}; resolve explicitly or run upgrade.sh refresh-gateway-env"
+            ),
+        }
+    }
+    Ok(out)
+}
+
+fn parse_unit_env_spec_into(unit: &str, unit_name: &str, spec: &mut UnitEnvSpec) -> Result<()> {
     let mut in_service = false;
     for line in systemd_logical_lines(unit) {
         let t = line.trim();
@@ -2050,8 +2134,9 @@ fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) -> Result<()> {
             .or_else(|| rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
             .unwrap_or(rest);
         if !unquoted.is_empty() {
+            let expanded = expand_systemd_env_file_specifiers(unquoted, unit_name)?;
             spec.env_files
-                .push((std::path::PathBuf::from(unquoted), optional));
+                .push((std::path::PathBuf::from(expanded), optional));
         }
     }
     Ok(())
@@ -2122,8 +2207,9 @@ fn load_unit_env_spec_with_dirs(
     dropin_dirs: &[std::path::PathBuf],
 ) -> Result<UnitEnvSpec> {
     let mut spec = UnitEnvSpec::default();
+    let unit_name = unit_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     match std::fs::read_to_string(unit_path) {
-        Ok(src) => parse_unit_env_spec_into(&src, &mut spec)
+        Ok(src) => parse_unit_env_spec_into(&src, unit_name, &mut spec)
             .with_context(|| format!("parsing {}", unit_path.display()))?,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => {
@@ -2170,7 +2256,7 @@ fn load_unit_env_spec_with_dirs(
     for (_, path) in dropins {
         let src = std::fs::read_to_string(&path)
             .with_context(|| format!("reading drop-in {}", path.display()))?;
-        parse_unit_env_spec_into(&src, &mut spec)
+        parse_unit_env_spec_into(&src, unit_name, &mut spec)
             .with_context(|| format!("parsing drop-in {}", path.display()))?;
     }
     Ok(spec)
@@ -2465,10 +2551,7 @@ fn gateway_has_worm_settings(
     if !gw.has_storage_file || !gw.has_gateway_file {
         return false;
     }
-    let has_storage_setting = STORAGE_ENV_KEYS
-        .iter()
-        .any(|k| env_lookup(&gw.pairs, k).is_some_and(|v| !v.is_empty()));
-    if !has_storage_setting {
+    if !has_storage_env_setting(&gw.pairs) {
         return false;
     }
     if expected_s3 != gateway_s3 {
@@ -2482,7 +2565,7 @@ fn gateway_has_worm_settings(
     if env_lookup(&gw.pairs, "WORM_LEGAL_HOLD_ENABLED").as_deref() != expected_legal_hold {
         return false;
     }
-    let gw_retention = env_lookup(&gw.pairs, "WORM_RETENTION_DAYS");
+    let gw_retention = env_lookup_precedence(&gw.pairs, &["WORM_RETENTION_DAYS"]);
     let gw_retention_nonempty = gw_retention.as_deref().filter(|v| !v.is_empty());
     if gw_retention_nonempty != expected_retention_days {
         return false;
@@ -2491,7 +2574,7 @@ fn gateway_has_worm_settings(
 }
 
 fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
-    let is_db_backed = env_lookup(&gw.pairs, "DB_DSN").is_some_and(|v| !v.is_empty());
+    let is_db_backed = env_lookup_precedence(&gw.pairs, &["DB_DSN"]).is_some_and(|v| !v.is_empty());
     if !is_db_backed {
         return Ok(());
     }
@@ -2503,10 +2586,7 @@ fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
         );
     }
     if effective_worm.as_deref().is_some_and(|v| !v.is_empty()) {
-        let has_storage_setting = STORAGE_ENV_KEYS
-            .iter()
-            .any(|k| env_lookup(&gw.pairs, k).is_some_and(|v| !v.is_empty()));
-        if !gw.has_storage_file || !has_storage_setting {
+        if !gw.has_storage_file || !has_storage_env_setting(&gw.pairs) {
             bail!(
                 "DB-backed setjoin-gateway enables WORM_MODE, but lacks storage.env and S3_*/MINIO_* settings; run upgrade.sh refresh-gateway-env before activating"
             );
@@ -2544,7 +2624,7 @@ pub(crate) fn check_worm_gateway_ready(
     let pairs = parse_env_assignments(&config_src);
     let expected_legal_hold = env_lookup(&pairs, "WORM_LEGAL_HOLD_ENABLED");
     let config_worm_mode = env_lookup_precedence(&pairs, &["WORM__MODE", "WORM_MODE"]);
-    let config_retention = env_lookup(&pairs, "WORM_RETENTION_DAYS");
+    let config_retention = env_lookup_precedence(&pairs, &["WORM_RETENTION_DAYS"]);
     let host_yaml_path = env_lookup(&pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty());
     let mut cached_yaml: Option<(String, String)> = None;
     let need_yaml = config_worm_mode.is_none() || config_retention.is_none();
@@ -2582,6 +2662,16 @@ pub(crate) fn check_worm_gateway_ready(
             .and_then(|y| y.retention_days.clone()),
     };
     if let Some(mode) = expected_mode {
+        let canonical_retention_days = expected_retention_days
+            .as_deref()
+            .map(|raw| {
+                parse_koanf_retention_days(raw)
+                    .map(|days| days.to_string())
+                    .map_err(|reason| {
+                        anyhow::anyhow!("{reason}; run upgrade.sh refresh-gateway-env")
+                    })
+            })
+            .transpose()?;
         let host_yaml_s3 = match host_yaml_path.as_ref() {
             Some(yaml_path) => {
                 let yaml = match cached_yaml.as_ref() {
@@ -2631,7 +2721,7 @@ pub(crate) fn check_worm_gateway_ready(
             &gw,
             &mode,
             expected_legal_hold.as_deref(),
-            expected_retention_days.as_deref(),
+            canonical_retention_days.as_deref(),
             &host_s3,
             &gw_s3,
         ) {
@@ -2640,7 +2730,8 @@ pub(crate) fn check_worm_gateway_ready(
             );
         }
     } else {
-        let is_db_backed = env_lookup(&gw.pairs, "DB_DSN").is_some_and(|v| !v.is_empty());
+        let is_db_backed =
+            env_lookup_precedence(&gw.pairs, &["DB_DSN"]).is_some_and(|v| !v.is_empty());
         let gateway_has_empty_worm =
             gw.has_gateway_file && gw.gateway_file_worm_mode.as_deref() == Some("");
         let effective_worm_empty =
@@ -3458,6 +3549,12 @@ mod tests {
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
         std::fs::write(
             &yaml,
+            "s3:\n  bucket: mailblobs\n  secure: 0x_1\nworm:\n  mode: compliance\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(
+            &yaml,
             "s3:\n  bucket: mailblobs\n  secure: !<tag:example.com,2000:custom> true\nworm:\n  mode: compliance\n",
         )
         .unwrap();
@@ -3495,5 +3592,64 @@ mod tests {
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+
+        // WORM_RETENTION_DAYS float/underscored values normalize to canonical integer days; non-canonical gateway.env or invalid values fail closed
+        std::fs::write(&cfg, "WORM_MODE=compliance\nWORM_RETENTION_DAYS=3650.0\n").unwrap();
+        std::fs::write(
+            &gw,
+            "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=3650.0\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(
+            &gw,
+            "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=3650\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(&cfg, "WORM_MODE=compliance\nWORM_RETENTION_DAYS=0\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(&cfg, "WORM_MODE=compliance\nWORM_RETENTION_DAYS=bad\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+
+        // Case-insensitive koanf env keys (worm_mode / s3_bucket) match Go os.Environ() transform
+        std::fs::write(&cfg, "worm_mode=compliance\ns3_bucket=custom-ci\n").unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        std::fs::write(&storage, "S3_BUCKET=mailblobs\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(&storage, "S3_BUCKET=custom-ci\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+
+        // Systemd % specifiers (%%, %N) expand cleanly and unsupported specifiers (%H) fail closed
+        let spec_dir = dir.path().join("spec-env");
+        let spec_lit_dir = spec_dir.join("%lit");
+        let spec_name_dir = spec_dir.join("spec");
+        std::fs::create_dir_all(&spec_lit_dir).unwrap();
+        std::fs::create_dir_all(&spec_name_dir).unwrap();
+        let spec_unit = spec_dir.join("spec.service");
+        std::fs::write(spec_lit_dir.join("storage.env"), "S3_BUCKET=mailblobs\n").unwrap();
+        std::fs::write(
+            spec_name_dir.join("gateway.env"),
+            "GATEWAY_ENABLED=true\nDB_DSN=postgres://app@localhost/mail\nWORM_MODE=compliance\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &spec_unit,
+            format!(
+                "[Service]\nEnvironmentFile={}/%%lit/storage.env\nEnvironmentFile={}/%N/gateway.env\n",
+                spec_dir.display(),
+                spec_dir.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&spec_unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(&cfg, "WORM_MODE=compliance\nS3_BUCKET=mailblobs\n").unwrap();
+        assert!(check_worm_gateway_ready(&spec_unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(
+            &spec_unit,
+            "[Service]\nEnvironmentFile=-/etc/setjoin/%H/override.env\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&spec_unit, Some(&cfg), &stale_default).is_err());
     }
 }

@@ -662,7 +662,7 @@ async fn search_fields(r: &mut Request<Body>) -> Result<(crate::chat::Fields, by
 fn worm_mode_enabled() -> bool {
     std::env::vars()
         .fold(None, |acc, (k, v)| {
-            if k == "WORM_MODE" || k == "WORM__MODE" {
+            if k.eq_ignore_ascii_case("WORM_MODE") || k.eq_ignore_ascii_case("WORM__MODE") {
                 Some(v)
             } else {
                 acc

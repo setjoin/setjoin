@@ -130,7 +130,8 @@ pub async fn run() -> Result<(), Refusal> {
         .map_err(|_| refuse(0, "database startup recovery failed — refusing to start"))?;
     log("INFO", "database startup recovery completed");
     report(&worker, &recovered[0].get::<_, String>(0)).await;
-    if !std::env::var("WORM_MODE").unwrap_or_default().is_empty() {
+    let mode = resolve_worm_mode_from_env();
+    if !mode.is_empty() {
         store
             .ensure_worm_bucket()
             .await
@@ -140,11 +141,13 @@ pub async fn run() -> Result<(), Refusal> {
         log("WARN", "startup: stale multipart abort encountered errors");
     }
     store.ping(&db).await;
-    let mode = std::env::var("WORM_MODE").unwrap_or_default();
-    let days = std::env::var("WORM_RETENTION_DAYS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2557);
+    let days = if mode.is_empty() {
+        2557
+    } else {
+        let raw_days = env_last_ci("WORM_RETENTION_DAYS");
+        parse_worm_retention_days(raw_days.as_deref())
+            .map_err(|_| refuse(0, "invalid WORM_RETENTION_DAYS — refusing to start"))?
+    };
     store
         .init_worm(&mode, days)
         .await
@@ -286,4 +289,118 @@ async fn connect(dsn: &str) -> Result<WorkerConnection, String> {
         .connect_session()
         .await
         .map_err(|e| e.to_string())
+}
+
+fn env_last_ci(target: &str) -> Option<String> {
+    std::env::vars()
+        .fold(None, |acc, (k, v)| {
+            if k.eq_ignore_ascii_case(target) {
+                Some(v)
+            } else {
+                acc
+            }
+        })
+}
+
+fn resolve_worm_mode_from_env() -> String {
+    std::env::vars()
+        .fold(None, |acc, (k, v)| {
+            if k.eq_ignore_ascii_case("WORM_MODE") || k.eq_ignore_ascii_case("WORM__MODE") {
+                Some(v)
+            } else {
+                acc
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn strip_numeric_underscores(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() || s.starts_with('_') || s.ends_with('_') || s.contains("__") {
+        return None;
+    }
+    let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+    let hex_prefixed = unsigned.starts_with("0x") || unsigned.starts_with("0X");
+    let oct_or_bin = unsigned.starts_with("0o")
+        || unsigned.starts_with("0O")
+        || unsigned.starts_with("0b")
+        || unsigned.starts_with("0B");
+    let bytes = s.as_bytes();
+    for (idx, &ch) in bytes.iter().enumerate() {
+        if ch == b'_' {
+            let prev = bytes[idx - 1];
+            let next = bytes[idx + 1];
+            if !prev.is_ascii_alphanumeric() && prev != b'_' {
+                return None;
+            }
+            if !next.is_ascii_hexdigit() {
+                return None;
+            }
+            if !hex_prefixed && (matches!(prev, b'e' | b'E') || matches!(next, b'e' | b'E')) {
+                return None;
+            }
+            if !hex_prefixed && !oct_or_bin && !next.is_ascii_digit() {
+                return None;
+            }
+        }
+    }
+    Some(s.replace('_', ""))
+}
+
+fn parse_worm_retention_days(raw: Option<&str>) -> Result<i64, String> {
+    let Some(s) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(2557);
+    };
+    let clean = strip_numeric_underscores(s)
+        .ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
+    let (neg, unsigned) = if let Some(rest) = clean.strip_prefix('-') {
+        (true, rest)
+    } else if let Some(rest) = clean.strip_prefix('+') {
+        (false, rest)
+    } else {
+        (false, clean.as_str())
+    };
+    let parsed_int =
+        if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+            i64::from_str_radix(hex, 16)
+                .ok()
+                .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
+        } else if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+            i64::from_str_radix(oct, 8)
+                .ok()
+                .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
+        } else if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+            i64::from_str_radix(bin, 2)
+                .ok()
+                .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
+        } else {
+            clean.parse::<i64>().ok()
+        };
+    if let Some(days) = parsed_int {
+        return Ok(days);
+    }
+    let v: f64 = clean
+        .parse()
+        .map_err(|_| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
+    if !v.is_finite() || v < (i64::MIN as f64) || v >= 9_223_372_036_854_775_808.0 {
+        return Err(format!("invalid WORM_RETENTION_DAYS: {s:?}"));
+    }
+    Ok(v as i64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_worm_retention_days;
+
+    #[test]
+    fn worm_retention_days_matches_koanf_int_and_rejects_malformed() {
+        assert_eq!(parse_worm_retention_days(None).unwrap(), 2557);
+        assert_eq!(parse_worm_retention_days(Some("")).unwrap(), 2557);
+        assert_eq!(parse_worm_retention_days(Some("3650")).unwrap(), 3650);
+        assert_eq!(parse_worm_retention_days(Some("3650.0")).unwrap(), 3650);
+        assert_eq!(parse_worm_retention_days(Some("1_000")).unwrap(), 1000);
+        assert_eq!(parse_worm_retention_days(Some("0x10")).unwrap(), 16);
+        assert!(parse_worm_retention_days(Some("bad")).is_err());
+        assert!(parse_worm_retention_days(Some("NaN")).is_err());
+    }
 }

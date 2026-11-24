@@ -186,11 +186,11 @@ class _Parser:
             return False
         if re.fullmatch(r"[+-]?(?:0|[1-9](?:_?[0-9])*)", raw):
             return int(raw.replace("_", ""))
-        if re.fullmatch(r"[+-]?0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*", raw):
+        if re.fullmatch(r"[+-]?0[xX]_?[0-9a-fA-F](?:_?[0-9a-fA-F])*", raw):
             return int(raw.replace("_", ""), 16)
-        if re.fullmatch(r"[+-]?0[oO][0-7](?:_?[0-7])*", raw):
+        if re.fullmatch(r"[+-]?0[oO]_?[0-7](?:_?[0-7])*", raw):
             return int(raw.replace("_", ""), 8)
-        if re.fullmatch(r"[+-]?0[bB][01](?:_?[01])*", raw):
+        if re.fullmatch(r"[+-]?0[bB]_?[01](?:_?[01])*", raw):
             return int(raw.replace("_", ""), 2)
         if re.fullmatch(
             r"[+-]?(?:(?:0|[1-9](?:_?[0-9])*)\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?|\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?|(?:0|[1-9](?:_?[0-9])*)[eE][+-]?[0-9](?:_?[0-9])*)",
@@ -1064,15 +1064,19 @@ def cmd_env_get(args: list[str]) -> int:
 
 
 def cmd_env_get_any(args: list[str]) -> int:
+    ignore_case = False
+    if args and args[0] in ("-i", "--ignore-case"):
+        ignore_case = True
+        args = args[1:]
     if len(args) < 2:
-        sys.stderr.write("usage: yaml-config.py env-get-any FILE KEY [KEY ...]\n")
+        sys.stderr.write("usage: yaml-config.py env-get-any [-i] FILE KEY [KEY ...]\n")
         return 2
     env_map = parse_systemd_env_file(args[0])
-    wanted = set(args[1:])
+    wanted = {k.lower() if ignore_case else k for k in args[1:]}
     found = False
     selected = ""
     for k, val in env_map.items():
-        if k in wanted:
+        if (k.lower() if ignore_case else k) in wanted:
             found = True
             selected = val
     if not found:
@@ -1082,20 +1086,50 @@ def cmd_env_get_any(args: list[str]) -> int:
 
 
 def cmd_env_order(args: list[str]) -> int:
+    ci_keys: set[str] = set()
+    if len(args) >= 2 and args[0] == "--ci-keys":
+        ci_keys = {k.lower() for k in args[1].split(",") if k}
+        args = args[2:]
     if len(args) < 2:
-        sys.stderr.write("usage: yaml-config.py env-order FILE KEY [KEY ...]\n")
+        sys.stderr.write("usage: yaml-config.py env-order [--ci-keys K1,K2] FILE KEY [KEY ...]\n")
         return 2
     entries = parse_systemd_env_entries(args[0])
     wanted = set(args[1:])
     emitted: set[str] = set()
     for k in entries:
-        if k in wanted and k not in emitted:
+        if (k in wanted or k.lower() in ci_keys) and k not in emitted:
             sys.stdout.write(f"{k}\n")
             emitted.add(k)
     for k in args[1:]:
         if k not in emitted:
             sys.stdout.write(f"{k}\n")
             emitted.add(k)
+    return 0
+
+
+def cmd_normalize_retention(args: list[str]) -> int:
+    if len(args) != 1:
+        sys.stderr.write("usage: yaml-config.py normalize-retention VALUE\n")
+        return 2
+    raw = args[0].strip()
+    if not raw:
+        return 0
+    try:
+        days = int(raw, 0)
+    except ValueError:
+        try:
+            val = float(raw)
+        except ValueError:
+            sys.stderr.write(f"invalid WORM_RETENTION_DAYS: {args[0]!r}\n")
+            return 2
+        if not math.isfinite(val) or val < -(1 << 63) or val >= float(1 << 63):
+            sys.stderr.write(f"invalid WORM_RETENTION_DAYS: {args[0]!r}\n")
+            return 2
+        days = int(val)
+    if days < 1:
+        sys.stderr.write(f"invalid WORM_RETENTION_DAYS (must be >= 1): {args[0]!r}\n")
+        return 2
+    sys.stdout.write(str(days))
     return 0
 
 
@@ -1171,62 +1205,70 @@ def cmd_render_storage(args: list[str]) -> int:
             s3_yaml = doc["s3"]
 
     yaml_keys = ("endpoint", "access_key", "secret_key", "bucket", "secure")
-    env_keys = (
-        "S3_ENDPOINT",
-        "S3__ENDPOINT",
-        "S3_ACCESS_KEY",
-        "S3_SECRET_KEY",
-        "S3_BUCKET",
-        "S3__BUCKET",
-        "S3_SECURE",
-        "S3__SECURE",
+    ci_env_keys = {
+        "s3_endpoint",
+        "s3__endpoint",
+        "s3_access_key",
+        "s3_secret_key",
+        "s3_bucket",
+        "s3__bucket",
+        "s3_secure",
+        "s3__secure",
+    }
+    minio_env_keys = (
         "MINIO_ENDPOINT",
         "MINIO_ACCESS_KEY",
         "MINIO_SECRET_KEY",
         "MINIO_BUCKET",
         "MINIO_SECURE",
     )
-    if not any(k in s3_yaml for k in yaml_keys) and not any(k in env_map for k in env_keys):
+    if (
+        not any(k in s3_yaml for k in yaml_keys)
+        and not any(k.lower() in ci_env_keys for k in env_map)
+        and not any(k in env_map for k in minio_env_keys)
+    ):
         return 0
 
-    def env_pick(*names: str) -> str | None:
-        wanted = set(names)
+    def env_pick_ci(*names: str) -> str | None:
+        wanted = {n.lower() for n in names}
         selected = None
         for k, val in env_map.items():
-            if k in wanted:
+            if k.lower() in wanted:
                 selected = val
         return selected
 
     endpoint = (
         str(s3_yaml["endpoint"]) if s3_yaml.get("endpoint") is not None else "127.0.0.1:9000"
     )
-    picked_endpoint = env_pick("S3__ENDPOINT", "S3_ENDPOINT")
+    picked_endpoint = env_pick_ci("S3__ENDPOINT", "S3_ENDPOINT")
     if picked_endpoint is not None:
         endpoint = picked_endpoint
     if endpoint == "127.0.0.1:9000" and env_map.get("MINIO_ENDPOINT"):
         endpoint = env_map["MINIO_ENDPOINT"]
 
     access_key = str(s3_yaml["access_key"]) if s3_yaml.get("access_key") is not None else ""
-    if "S3_ACCESS_KEY" in env_map:
-        access_key = env_map["S3_ACCESS_KEY"]
+    picked_access = env_pick_ci("S3_ACCESS_KEY")
+    if picked_access is not None:
+        access_key = picked_access
     if access_key == "" and env_map.get("MINIO_ACCESS_KEY"):
         access_key = env_map["MINIO_ACCESS_KEY"]
 
     secret_key = str(s3_yaml["secret_key"]) if s3_yaml.get("secret_key") is not None else ""
-    if "S3_SECRET_KEY" in env_map:
-        secret_key = env_map["S3_SECRET_KEY"]
+    picked_secret = env_pick_ci("S3_SECRET_KEY")
+    if picked_secret is not None:
+        secret_key = picked_secret
     if secret_key == "" and env_map.get("MINIO_SECRET_KEY"):
         secret_key = env_map["MINIO_SECRET_KEY"]
 
     bucket = str(s3_yaml["bucket"]) if s3_yaml.get("bucket") is not None else "mailblobs"
-    picked_bucket = env_pick("S3__BUCKET", "S3_BUCKET")
+    picked_bucket = env_pick_ci("S3__BUCKET", "S3_BUCKET")
     if picked_bucket is not None:
         bucket = picked_bucket
     if bucket == "mailblobs" and env_map.get("MINIO_BUCKET"):
         bucket = env_map["MINIO_BUCKET"]
 
     try:
-        s3_secure = env_pick("S3__SECURE", "S3_SECURE")
+        s3_secure = env_pick_ci("S3__SECURE", "S3_SECURE")
         if env_map.get("MINIO_SECURE"):
             secure = _strict_go_bool(env_map["MINIO_SECURE"], "MINIO_SECURE")
         elif s3_secure is not None:
@@ -1255,7 +1297,7 @@ def main(argv: list[str]) -> int:
         sys.stdout.reconfigure(newline="\n")
     if len(argv) < 2:
         sys.stderr.write(
-            "usage: yaml-config.py <get|env-line|env-get|env-get-any|env-order|env-copy|env-preserve|render-storage> ...\n"
+            "usage: yaml-config.py <get|env-line|env-get|env-get-any|env-order|env-copy|env-preserve|normalize-retention|render-storage> ...\n"
         )
         return 2
     cmd = argv[1]
@@ -1273,6 +1315,8 @@ def main(argv: list[str]) -> int:
         return cmd_env_copy(argv[2:])
     if cmd == "env-preserve":
         return cmd_env_preserve(argv[2:])
+    if cmd == "normalize-retention":
+        return cmd_normalize_retention(argv[2:])
     if cmd == "render-storage":
         return cmd_render_storage(argv[2:])
     sys.stderr.write(f"unknown subcommand: {cmd}\n")

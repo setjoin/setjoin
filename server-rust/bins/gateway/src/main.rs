@@ -66,21 +66,24 @@ fn main() -> ExitCode {
     };
     let explicit_worm_env = environment
         .iter()
-        .any(|(k, _)| k == "WORM_MODE" || k == "WORM__MODE");
-    let explicit_storage_env = [
-        "S3_ENDPOINT",
-        "S3__ENDPOINT",
-        "MINIO_ENDPOINT",
-        "S3_BUCKET",
-        "S3__BUCKET",
-        "MINIO_BUCKET",
-        "S3_ACCESS_KEY",
-        "MINIO_ACCESS_KEY",
-        "S3_SECRET_KEY",
-        "MINIO_SECRET_KEY",
-    ]
-    .iter()
-    .any(|k| env_get(k).is_some_and(|v| !v.is_empty()));
+        .any(|(k, _)| k.eq_ignore_ascii_case("WORM_MODE") || k.eq_ignore_ascii_case("WORM__MODE"));
+    let explicit_storage_env = environment.iter().any(|(k, v)| {
+        !v.is_empty()
+            && ([
+                "S3_ENDPOINT",
+                "S3__ENDPOINT",
+                "S3_BUCKET",
+                "S3__BUCKET",
+                "S3_ACCESS_KEY",
+                "S3_SECRET_KEY",
+            ]
+            .iter()
+            .any(|name| k.eq_ignore_ascii_case(name))
+                || matches!(
+                    k.as_str(),
+                    "MINIO_ENDPOINT" | "MINIO_BUCKET" | "MINIO_ACCESS_KEY" | "MINIO_SECRET_KEY"
+                ))
+    });
     let socket_activated = env_get("LISTEN_PID")
         .is_some_and(|pid| pid == std::process::id().to_string())
         && env_get("LISTEN_FDS")

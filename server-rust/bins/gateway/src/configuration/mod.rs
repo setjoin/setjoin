@@ -71,7 +71,9 @@ impl Settings {
         }
         let mut file = BTreeMap::new();
         if !yaml.trim().is_empty() {
-            let value: Value = serde_saphyr::from_str(yaml).map_err(|e| format!("yaml: {e}"))?;
+            let normalized_yaml = normalize_yaml_underscore_numbers(yaml);
+            let value: Value =
+                serde_saphyr::from_str(&normalized_yaml).map_err(|e| format!("yaml: {e}"))?;
             if !value.is_null() && !value.is_object() {
                 return Err("yaml: configuration must be a mapping".into());
             }
@@ -196,6 +198,9 @@ impl Settings {
                 } else {
                     "false".to_owned()
                 }
+            } else if key == "worm.retention_days" {
+                canonical_worm_retention_value(self.values.get(key.as_str()))
+                    .unwrap_or_else(|| self.string(key))
             } else {
                 self.string(key)
             };
@@ -209,6 +214,197 @@ impl Settings {
         }
     }
 }
+fn valid_underscore_digits(s: &str, pred: fn(u8) -> bool) -> bool {
+    let bytes = s.as_bytes();
+    let mut saw_digit = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'_' {
+            if i == 0 || i + 1 == bytes.len() || bytes[i - 1] == b'_' || bytes[i + 1] == b'_' {
+                return false;
+            }
+        } else if pred(b) {
+            saw_digit = true;
+        } else {
+            return false;
+        }
+    }
+    saw_digit
+}
+
+fn normalize_go_yaml_number(raw: &str) -> Option<String> {
+    if !raw.contains('_') {
+        return None;
+    }
+    let unsigned = raw.strip_prefix(['+', '-']).unwrap_or(raw);
+    if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+        let digits = hex.strip_prefix('_').unwrap_or(hex);
+        if valid_underscore_digits(digits, |b| b.is_ascii_hexdigit()) {
+            return Some(raw.replace('_', ""));
+        }
+        return None;
+    }
+    if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+        let digits = oct.strip_prefix('_').unwrap_or(oct);
+        if valid_underscore_digits(digits, |b| matches!(b, b'0'..=b'7')) {
+            return Some(raw.replace('_', ""));
+        }
+        return None;
+    }
+    if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+        let digits = bin.strip_prefix('_').unwrap_or(bin);
+        if valid_underscore_digits(digits, |b| matches!(b, b'0' | b'1')) {
+            return Some(raw.replace('_', ""));
+        }
+        return None;
+    }
+    let (mantissa, exponent) = match unsigned.find(['e', 'E']) {
+        Some(idx) => {
+            let exp_raw = &unsigned[idx + 1..];
+            let exp = exp_raw.strip_prefix(['+', '-']).unwrap_or(exp_raw);
+            if !valid_underscore_digits(exp, |b| b.is_ascii_digit()) {
+                return None;
+            }
+            (&unsigned[..idx], Some(exp))
+        }
+        None => (unsigned, None),
+    };
+    let int_ok = |part: &str| {
+        part == "0"
+            || (part.as_bytes().first().is_some_and(|b| matches!(b, b'1'..=b'9'))
+                && valid_underscore_digits(part, |b| b.is_ascii_digit()))
+    };
+    if let Some((int_part, frac_part)) = mantissa.split_once('.') {
+        if int_part.is_empty() && frac_part.is_empty() {
+            return None;
+        }
+        if !int_part.is_empty() && !int_ok(int_part) {
+            return None;
+        }
+        if !frac_part.is_empty() && !valid_underscore_digits(frac_part, |b| b.is_ascii_digit()) {
+            return None;
+        }
+        return Some(raw.replace('_', ""));
+    }
+    if int_ok(mantissa) && exponent.is_some() {
+        return Some(raw.replace('_', ""));
+    }
+    if int_ok(mantissa) {
+        return Some(raw.replace('_', ""));
+    }
+    None
+}
+
+fn normalize_yaml_underscore_numbers(yaml: &str) -> String {
+    use serde_saphyr::granit_parser::{Event, Parser, ScalarStyle};
+
+    let mut edits: Vec<(usize, usize, String)> = Vec::new();
+    for item in Parser::new_from_str(yaml) {
+        let Ok((event, span)) = item else {
+            return yaml.to_owned();
+        };
+        let Event::Scalar(text, ScalarStyle::Plain, _, tag) = event else {
+            continue;
+        };
+        let tag_ok = tag.as_ref().is_none_or(|t| {
+            t.handle() == "tag:yaml.org,2002:" && matches!(t.suffix(), "int" | "float")
+        });
+        if !tag_ok {
+            continue;
+        }
+        let Some(normalized) = normalize_go_yaml_number(text.as_ref()) else {
+            continue;
+        };
+        let (Some(start), Some(end)) = (span.start.byte_offset(), span.end.byte_offset()) else {
+            continue;
+        };
+        if yaml.get(start..end) == Some(text.as_ref()) {
+            edits.push((start, end, normalized));
+        }
+    }
+    if edits.is_empty() {
+        return yaml.to_owned();
+    }
+    edits.sort_by_key(|(start, _, _)| *start);
+    let mut out = String::with_capacity(yaml.len());
+    let mut cursor = 0usize;
+    for (start, end, replacement) in edits {
+        if start < cursor {
+            continue;
+        }
+        out.push_str(&yaml[cursor..start]);
+        out.push_str(&replacement);
+        cursor = end;
+    }
+    out.push_str(&yaml[cursor..]);
+    out
+}
+
+fn canonical_worm_retention_value(value: Option<&Value>) -> Option<String> {
+    match value {
+        Some(Value::Number(n)) => {
+            if let Some(i) = n.as_i64() {
+                Some(i.to_string())
+            } else if let Some(u) = n.as_u64() {
+                Some(u.to_string())
+            } else {
+                n.as_f64()
+                    .filter(|f| {
+                        f.is_finite()
+                            && *f >= (i64::MIN as f64)
+                            && *f < 9_223_372_036_854_775_808.0
+                    })
+                    .map(|f| (*f as i64).to_string())
+            }
+        }
+        Some(Value::String(s)) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let normalized = normalize_go_yaml_number(trimmed).unwrap_or_else(|| trimmed.to_owned());
+            let (neg, unsigned) = if let Some(rest) = normalized.strip_prefix('-') {
+                (true, rest)
+            } else if let Some(rest) = normalized.strip_prefix('+') {
+                (false, rest)
+            } else {
+                (false, normalized.as_str())
+            };
+            let parsed = if let Some(hex) =
+                unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X"))
+            {
+                i64::from_str_radix(hex, 16)
+                    .ok()
+                    .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
+            } else if let Some(oct) =
+                unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O"))
+            {
+                i64::from_str_radix(oct, 8)
+                    .ok()
+                    .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
+            } else if let Some(bin) =
+                unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B"))
+            {
+                i64::from_str_radix(bin, 2)
+                    .ok()
+                    .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
+            } else {
+                normalized.parse::<i64>().ok()
+            };
+            if let Some(days) = parsed {
+                return Some(days.to_string());
+            }
+            normalized
+                .parse::<f64>()
+                .ok()
+                .filter(|f| {
+                    f.is_finite() && *f >= (i64::MIN as f64) && *f < 9_223_372_036_854_775_808.0
+                })
+                .map(|f| (f as i64).to_string())
+        }
+        _ => None,
+    }
+}
+
 fn transform(name: &str) -> String {
     let mut key = name.to_lowercase().replace("__", ".");
     if let Some(at) = key.find('_') {
@@ -432,5 +628,42 @@ mod tests {
         )
         .unwrap();
         assert_eq!(bucket_double.string("s3.bucket"), "second");
+    }
+
+    #[test]
+    fn yaml_underscore_numbers_and_canonical_retention_match_go() {
+        let float_one = Settings::parse("s3:\n  secure: 1_0e-1\n", &BTreeMap::new()).unwrap();
+        assert!(float_one.boolean("s3.secure"));
+
+        let tagged_float =
+            Settings::parse("s3:\n  secure: !!float 1_0e-1\n", &BTreeMap::new()).unwrap();
+        assert!(tagged_float.boolean("s3.secure"));
+
+        let hex_one = Settings::parse("s3:\n  secure: 0x_1\n", &BTreeMap::new()).unwrap();
+        assert!(hex_one.boolean("s3.secure"));
+
+        let quoted = Settings::parse("s3:\n  secure: \"1_0e-1\"\n", &BTreeMap::new()).unwrap();
+        assert!(!quoted.boolean("s3.secure"));
+
+        let str_tagged =
+            Settings::parse("s3:\n  secure: !!str 1_0e-1\n", &BTreeMap::new()).unwrap();
+        assert!(!str_tagged.boolean("s3.secure"));
+
+        let yaml_retention =
+            Settings::parse("worm:\n  retention_days: 3650.0\n", &BTreeMap::new()).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(yaml_retention.values.get("worm.retention_days"))
+                .as_deref(),
+            Some("3650")
+        );
+
+        let mut env = BTreeMap::new();
+        env.insert("WORM_RETENTION_DAYS".into(), "3650.0".into());
+        let env_retention = Settings::parse("", &env).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(env_retention.values.get("worm.retention_days"))
+                .as_deref(),
+            Some("3650")
+        );
     }
 }

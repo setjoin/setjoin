@@ -402,6 +402,18 @@ env_file_try_any() {
   esac
 }
 
+env_file_try_any_ci() {
+  local __var="$1" __file="${2:-}" __val="" __rc=0
+  shift 2
+  [ -n "$__file" ] && [ -f "$__file" ] || return 1
+  __val=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-get-any -i "$__file" "$@") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
+}
+
 resolve_setting_yaml_path() {
   local config="${1:-}" cfg=""
   cfg=$(strip_env_quotes "${SETJOIN_CONFIG:-}")
@@ -797,7 +809,7 @@ ENV
   fi
 
   # WORM retention & legal-hold switches (always emit WORM_MODE so systemd-activated gateway verifies render).
-  if env_file_try_any worm_mode "${CONFIG_ENV:-}" WORM_MODE WORM__MODE; then
+  if env_file_try_any_ci worm_mode "${CONFIG_ENV:-}" WORM_MODE WORM__MODE; then
     :
   elif [ "${WORM__MODE+x}" = x ]; then
     worm_mode=$(strip_env_quotes "$WORM__MODE")
@@ -808,7 +820,7 @@ ENV
   fi
   systemd_env_line WORM_MODE "$worm_mode" >> "$outfile" || return 1
 
-  if env_file_try worm_days "${CONFIG_ENV:-}" WORM_RETENTION_DAYS; then
+  if env_file_try_any_ci worm_days "${CONFIG_ENV:-}" WORM_RETENTION_DAYS; then
     :
   elif [ "${WORM_RETENTION_DAYS+x}" = x ]; then
     worm_days=$(strip_env_quotes "$WORM_RETENTION_DAYS")
@@ -816,6 +828,11 @@ ENV
     yaml_section_try worm_days "$cfg" worm retention_days || { [ $? -eq 1 ] || return 1; }
   fi
   if [ -n "$worm_days" ]; then
+    if [ -n "$worm_mode" ]; then
+      worm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days") || return 1
+    elif norm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days" 2>/dev/null); then
+      worm_days="$norm_days"
+    fi
     systemd_env_line WORM_RETENTION_DAYS "$worm_days" >> "$outfile" || return 1
   fi
 
@@ -1316,7 +1333,7 @@ tls_front_preserve_settings() {
   local config="$1" key value rc=0 line="" ordered=""
   local keys=(SETJOIN_CONFIG INTERNAL_DOMAINS SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM__MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53)
   if [ -f "$config" ]; then
-    ordered=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-order "$config" "${keys[@]}") || return 1
+    ordered=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-order --ci-keys WORM_MODE,WORM__MODE,WORM_RETENTION_DAYS "$config" "${keys[@]}") || return 1
     while IFS= read -r key; do
       [ -n "$key" ] || continue
       if [ "${!key+x}" = x ]; then
@@ -1328,9 +1345,16 @@ tls_front_preserve_settings() {
         0) printf '%s\n' "$line" ;;
         1) ;;
         3)
-          if [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ] || [ "$key" = WORM_MODE ] || [ "$key" = WORM__MODE ] || [ "$key" = WORM_LEGAL_HOLD_ENABLED ] || [ "$key" = INTERNAL_DOMAINS ]; then
-            printf '%s=\n' "$key"
-          fi
+          case "$key" in
+            IMAP_ADDR|IMAP_TLS_ADDR|SMTP_INBOUND_ADDR|SMTP_INBOUND_TLS_ADDR|SMTP_SUBMISSION_ADDR|WORM_LEGAL_HOLD_ENABLED|INTERNAL_DOMAINS)
+              printf '%s=\n' "$key"
+              ;;
+            *)
+              case "$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')" in
+                worm_mode|worm__mode) printf '%s=\n' "$key" ;;
+              esac
+              ;;
+          esac
           ;;
         *) return 1 ;;
       esac
