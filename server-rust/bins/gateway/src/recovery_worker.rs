@@ -336,6 +336,7 @@ impl S3Store {
             Some(
                 reqwest::Client::builder()
                     .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
                     .build()
                     .map_err(|error| error.to_string())?,
             )
@@ -924,24 +925,52 @@ impl S3Store {
                 .map_err(|error| error.to_string())?;
                 (status, body, headers)
             } else {
-                // rust-s3 percent-encodes the path; attach location as a query.
+                // rust-s3 percent-encodes the path; attach location as a query and reuse no_redirect.
                 let mut location_bucket = (*self.bucket).clone();
                 location_bucket.add_query("location", "");
-                let response =
+                let request =
                     ReqwestRequest::new(&location_bucket, "", Command::GetBucketLocation)
                         .await
-                        .map_err(|error| error.to_string())?
-                        .response_data(false)
-                        .await
                         .map_err(|error| error.to_string())?;
-                (
-                    response.status_code(),
+                let url = request.url().map_err(|error| error.to_string())?;
+                let signed = request.headers().await.map_err(|error| error.to_string())?;
+                let mut req_headers = reqwest::header::HeaderMap::new();
+                for (name, value) in &signed {
+                    if let (Ok(name), Ok(value)) = (
+                        reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+                        reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+                    ) {
+                        req_headers.append(name, value);
+                    }
+                }
+                let mut builder = self.no_redirect.get(url.as_str()).headers(req_headers);
+                if let Some(timeout) = self
+                    .request_timeout
+                    .or_else(|| location_bucket.request_timeout())
+                {
+                    builder = builder.timeout(timeout);
+                }
+                let response = builder.send().await.map_err(|error| error.to_string())?;
+                let status = response.status().as_u16();
+                let headers = response
+                    .headers()
+                    .iter()
+                    .filter_map(|(name, value)| {
+                        value
+                            .to_str()
+                            .ok()
+                            .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                    })
+                    .collect::<std::collections::HashMap<_, _>>();
+                let body = String::from_utf8(
                     response
-                        .as_str()
+                        .bytes()
+                        .await
                         .map_err(|error| error.to_string())?
-                        .to_owned(),
-                    response.headers(),
+                        .to_vec(),
                 )
+                .map_err(|error| error.to_string())?;
+                (status, body, headers)
             };
             let region = if status == 200 {
                 let parsed: LocationReply =
@@ -951,8 +980,13 @@ impl S3Store {
                 let mut parsed: LocationError = quick_xml::de::from_str(&body).unwrap_or_default();
                 if let Some(code) = headers.get("x-minio-error-code").filter(|v| !v.is_empty()) {
                     parsed.code.clone_from(code);
-                } else if parsed.code.is_empty() && status == 403 {
-                    parsed.code = "AccessDenied".into();
+                } else if parsed.code.is_empty() {
+                    match status {
+                        403 => parsed.code = "AccessDenied".into(),
+                        301 => parsed.code = "PermanentRedirect".into(),
+                        307 => parsed.code = "TemporaryRedirect".into(),
+                        _ => {}
+                    }
                 }
                 if parsed.region.is_empty() {
                     parsed.region = headers
@@ -961,9 +995,11 @@ impl S3Store {
                         .unwrap_or_default();
                 }
                 match parsed.code.as_str() {
-                    "AccessDenied" | "AuthorizationHeaderMalformed" | "InvalidRegion" => {
-                        parsed.region
-                    }
+                    "AccessDenied"
+                    | "AuthorizationHeaderMalformed"
+                    | "InvalidRegion"
+                    | "PermanentRedirect"
+                    | "TemporaryRedirect" => parsed.region,
                     "NotImplemented"
                         if headers.get("server").is_some_and(|s| s == "AmazonSnowball") =>
                     {
@@ -1828,7 +1864,7 @@ mod tests {
             b"<Error><Code>InvalidRegion</Code><Message>Invalid</Message></Error>",
         )
         .await;
-        // Unrelated terminal 403 or 301/307 PermanentRedirect with changed region must not retry or mutate cache.
+        // Unrelated terminal 403 or same-region 301 must not retry or mutate cache.
         run_case(
             403,
             Some("ap-southeast-1"),
@@ -1837,10 +1873,122 @@ mod tests {
         .await;
         run_case(
             301,
-            Some("ap-southeast-1"),
-            b"<Error><Code>PermanentRedirect</Code><Message>Moved</Message></Error>",
+            Some("eu-west-1"),
+            b"<Error><Code>PermanentRedirect</Code><Message>Same region</Message></Error>",
         )
         .await;
+    }
+
+    #[tokio::test]
+    async fn legal_hold_and_bucket_location_retry_301_307_without_following_redirect() {
+        use bytes::Bytes;
+        use http_body_util::Full;
+        use hyper::{service::service_fn, Response};
+        use hyper_util::rt::TokioIo;
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        };
+
+        async fn run_redirect_hold(status: u16, target_region: &'static str) {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let auths = Arc::new(Mutex::new(Vec::<String>::new()));
+            let hits_s = hits.clone();
+            let auths_s = auths.clone();
+
+            let srv = AbortServer(tokio::spawn(async move {
+                loop {
+                    let Ok((stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let hits_c = hits_s.clone();
+                    let auths_c = auths_s.clone();
+                    tokio::spawn(async move {
+                        let svc = service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                            let hits_r = hits_c.clone();
+                            let auths_r = auths_c.clone();
+                            async move {
+                                let auth = req
+                                    .headers()
+                                    .get("authorization")
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("")
+                                    .to_owned();
+                                auths_r.lock().unwrap().push(auth);
+                                let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                                let resp = if n == 0 {
+                                    Response::builder()
+                                        .status(status)
+                                        .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                                        .header("x-amz-bucket-region", target_region)
+                                        .body(Full::new(Bytes::new()))
+                                        .unwrap()
+                                } else {
+                                    Response::builder().status(204).body(Full::new(Bytes::new())).unwrap()
+                                };
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), svc)
+                            .await;
+                    });
+                }
+            }));
+
+            let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+            *store.region.lock().await = Some("eu-west-1".into());
+            let res = store.legal_hold_with_retries("key-redir", true).await;
+            drop(srv);
+            assert!(res.is_ok(), "expected empty {status} region redirect to retry: {res:?}");
+            assert_eq!(hits.load(Ordering::SeqCst), 2);
+            assert_eq!(store.region.lock().await.as_deref(), Some(target_region));
+            let recorded = auths.lock().unwrap();
+            assert!(recorded[0].contains("/eu-west-1/s3/aws4_request"));
+            assert!(recorded[1].contains(&format!("/{target_region}/s3/aws4_request")));
+        }
+
+        run_redirect_hold(301, "ap-southeast-1").await;
+        run_redirect_hold(307, "us-west-2").await;
+
+        // Cold-cache GET ?location on 307 must not follow Location and must cache x-amz-bucket-region.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_s = hits.clone();
+        let srv = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let hits_c = hits_s.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| {
+                        let hits_r = hits_c.clone();
+                        async move {
+                            hits_r.fetch_add(1, Ordering::SeqCst);
+                            let resp = Response::builder()
+                                .status(307)
+                                .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                                .header("x-amz-bucket-region", "eu-west-1")
+                                .body(Full::new(Bytes::new()))
+                                .unwrap();
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        assert!(store.bucket().await.is_ok());
+        drop(srv);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(store.region.lock().await.as_deref(), Some("eu-west-1"));
     }
 
     #[tokio::test]

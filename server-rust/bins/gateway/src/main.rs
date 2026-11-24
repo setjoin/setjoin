@@ -57,15 +57,20 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let environment: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    let explicit_worm_env = environment.contains_key("WORM_MODE");
+    let explicit_worm_env =
+        environment.contains_key("WORM_MODE") || environment.contains_key("WORM__MODE");
     let explicit_storage_env = [
         "S3_ENDPOINT",
+        "S3__ENDPOINT",
         "MINIO_ENDPOINT",
         "S3_BUCKET",
+        "S3__BUCKET",
         "MINIO_BUCKET",
         "S3_ACCESS_KEY",
+        "S3__ACCESS_KEY",
         "MINIO_ACCESS_KEY",
         "S3_SECRET_KEY",
+        "S3__SECRET_KEY",
         "MINIO_SECRET_KEY",
     ]
     .iter()

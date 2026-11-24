@@ -579,7 +579,7 @@ struct YamlS3 {
     access_key: Option<String>,
     secret_key: Option<String>,
     bucket: Option<String>,
-    secure: Option<String>,
+    secure: Option<(String, bool)>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -595,6 +595,10 @@ fn koanf_bool(raw: &str) -> bool {
     matches!(raw, "1" | "t" | "T" | "true" | "TRUE" | "True")
 }
 
+fn yaml_koanf_bool(raw: &str, quoted: bool) -> bool {
+    koanf_bool(raw) || (!quoted && raw.parse::<f64>().is_ok_and(|v| v.is_finite() && v == 1.0))
+}
+
 fn strict_go_bool(raw: &str, key: &str) -> Result<bool, String> {
     if koanf_bool(raw) {
         Ok(true)
@@ -608,7 +612,7 @@ fn strict_go_bool(raw: &str, key: &str) -> Result<bool, String> {
 #[derive(Clone, Debug)]
 enum YamlNode {
     Null,
-    Scalar(String),
+    Scalar(String, bool),
     Seq(Vec<YamlNode>),
     Map(Vec<(String, YamlNode)>),
 }
@@ -783,8 +787,8 @@ impl<'a> YamlParser<'a> {
         };
         if tag_val == "!str" {
             return match node {
-                YamlNode::Null => Ok(YamlNode::Scalar(String::new())),
-                YamlNode::Scalar(s) => Ok(YamlNode::Scalar(s)),
+                YamlNode::Null => Ok(YamlNode::Scalar(String::new(), true)),
+                YamlNode::Scalar(s, _) => Ok(YamlNode::Scalar(s, true)),
                 _ => Err("YAML !!str tag requires scalar"),
             };
         }
@@ -1063,14 +1067,14 @@ impl<'a> YamlParser<'a> {
         let val = match self.peek() {
             Some(b'{') => self.parse_flow_mapping()?,
             Some(b'[') => self.parse_flow_seq()?,
-            Some(b'"') => YamlNode::Scalar(self.parse_dquote(true)?),
-            Some(b'\'') => YamlNode::Scalar(self.parse_squote(true)?),
+            Some(b'"') => YamlNode::Scalar(self.parse_dquote(true)?, true),
+            Some(b'\'') => YamlNode::Scalar(self.parse_squote(true)?, true),
             _ => {
                 let (plain, is_null) = self.parse_plain_token(true)?;
-                if is_null {
+                if is_null && tag.as_deref() != Some("!str") {
                     YamlNode::Null
                 } else {
-                    YamlNode::Scalar(plain)
+                    YamlNode::Scalar(plain, false)
                 }
             }
         };
@@ -1283,7 +1287,7 @@ impl<'a> YamlParser<'a> {
                 self.skip_comment_eol()?;
                 self.parse_block_value_node(parent_indent)?
             }
-            Some(b'|' | b'>') => YamlNode::Scalar(self.parse_block_scalar(parent_indent)?),
+            Some(b'|' | b'>') => YamlNode::Scalar(self.parse_block_scalar(parent_indent)?, true),
             Some(b'{') => {
                 let node = self.parse_flow_mapping()?;
                 self.skip_comment_eol()?;
@@ -1295,21 +1299,21 @@ impl<'a> YamlParser<'a> {
                 node
             }
             Some(b'"') => {
-                let node = YamlNode::Scalar(self.parse_dquote(false)?);
+                let node = YamlNode::Scalar(self.parse_dquote(false)?, true);
                 self.skip_comment_eol()?;
                 node
             }
             Some(b'\'') => {
-                let node = YamlNode::Scalar(self.parse_squote(false)?);
+                let node = YamlNode::Scalar(self.parse_squote(false)?, true);
                 self.skip_comment_eol()?;
                 node
             }
             _ => {
                 let (plain, is_null) = self.parse_plain_token(false)?;
-                if is_null {
+                if is_null && tag.as_deref() != Some("!str") {
                     YamlNode::Null
                 } else {
-                    YamlNode::Scalar(plain)
+                    YamlNode::Scalar(plain, false)
                 }
             }
         };
@@ -1370,20 +1374,22 @@ impl<'a> YamlParser<'a> {
                     Some(b'"') => {
                         let s = self.parse_dquote(false)?;
                         self.skip_comment_eol()?;
-                        YamlNode::Scalar(s)
+                        YamlNode::Scalar(s, true)
                     }
                     Some(b'\'') => {
                         let s = self.parse_squote(false)?;
                         self.skip_comment_eol()?;
-                        YamlNode::Scalar(s)
+                        YamlNode::Scalar(s, true)
                     }
-                    Some(b'|' | b'>') => YamlNode::Scalar(self.parse_block_scalar(parent_indent)?),
+                    Some(b'|' | b'>') => {
+                        YamlNode::Scalar(self.parse_block_scalar(parent_indent)?, true)
+                    }
                     _ => {
                         let (plain, is_null) = self.parse_plain_token(false)?;
-                        if is_null {
+                        if is_null && tag.as_deref() != Some("!str") {
                             YamlNode::Null
                         } else {
-                            YamlNode::Scalar(plain)
+                            YamlNode::Scalar(plain, false)
                         }
                     }
                 };
@@ -1511,15 +1517,30 @@ fn parse_yaml_root_map(yaml: &str) -> Result<Vec<(String, YamlNode)>, &'static s
     parser.parse_root_map()
 }
 
+fn yaml_section_scalar_meta(
+    section_entries: &[(String, YamlNode)],
+    key: &str,
+) -> Result<Option<(String, bool)>, &'static str> {
+    match map_lookup(section_entries, key) {
+        None | Some(YamlNode::Null) => Ok(None),
+        Some(YamlNode::Scalar(s, quoted)) => Ok(Some((s.clone(), *quoted))),
+        Some(_) => Err("non-scalar YAML section setting"),
+    }
+}
+
 fn yaml_section_scalar(
     section_entries: &[(String, YamlNode)],
     key: &str,
 ) -> Result<Option<String>, &'static str> {
-    match map_lookup(section_entries, key) {
-        None | Some(YamlNode::Null) => Ok(None),
-        Some(YamlNode::Scalar(s)) => Ok(Some(s.clone())),
-        Some(_) => Err("non-scalar YAML section setting"),
-    }
+    Ok(yaml_section_scalar_meta(section_entries, key)?.map(|(s, _)| s))
+}
+
+fn env_lookup_any(pairs: &[(String, String)], keys: &[&str]) -> Option<String> {
+    pairs
+        .iter()
+        .rev()
+        .find(|(k, _)| keys.contains(&k.as_str()))
+        .map(|(_, v)| v.clone())
 }
 
 fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
@@ -1557,7 +1578,7 @@ fn yaml_s3_settings(yaml: &str) -> Result<YamlS3, &'static str> {
         access_key: yaml_section_scalar(entries, "access_key")?,
         secret_key: yaml_section_scalar(entries, "secret_key")?,
         bucket: yaml_section_scalar(entries, "bucket")?,
-        secure: yaml_section_scalar(entries, "secure")?,
+        secure: yaml_section_scalar_meta(entries, "secure")?,
     })
 }
 
@@ -1569,11 +1590,13 @@ fn resolve_s3_settings(
         .and_then(|s| s.endpoint.as_deref())
         .unwrap_or("127.0.0.1:9000")
         .to_owned();
-    if let Some(v) = env_lookup(pairs, "S3_ENDPOINT") {
+    if let Some(v) = env_lookup_any(pairs, &["S3_ENDPOINT", "S3__ENDPOINT"]) {
         endpoint = v;
     }
     if endpoint == "127.0.0.1:9000" {
-        if let Some(v) = env_lookup(pairs, "MINIO_ENDPOINT").filter(|v| !v.is_empty()) {
+        if let Some(v) = env_lookup_any(pairs, &["MINIO_ENDPOINT", "MINIO__ENDPOINT"])
+            .filter(|v| !v.is_empty())
+        {
             endpoint = v;
         }
     }
@@ -1582,11 +1605,13 @@ fn resolve_s3_settings(
         .and_then(|s| s.access_key.as_deref())
         .unwrap_or("")
         .to_owned();
-    if let Some(v) = env_lookup(pairs, "S3_ACCESS_KEY") {
+    if let Some(v) = env_lookup_any(pairs, &["S3_ACCESS_KEY", "S3__ACCESS_KEY"]) {
         access_key = v;
     }
     if access_key.is_empty() {
-        if let Some(v) = env_lookup(pairs, "MINIO_ACCESS_KEY").filter(|v| !v.is_empty()) {
+        if let Some(v) = env_lookup_any(pairs, &["MINIO_ACCESS_KEY", "MINIO__ACCESS_KEY"])
+            .filter(|v| !v.is_empty())
+        {
             access_key = v;
         }
     }
@@ -1595,11 +1620,13 @@ fn resolve_s3_settings(
         .and_then(|s| s.secret_key.as_deref())
         .unwrap_or("")
         .to_owned();
-    if let Some(v) = env_lookup(pairs, "S3_SECRET_KEY") {
+    if let Some(v) = env_lookup_any(pairs, &["S3_SECRET_KEY", "S3__SECRET_KEY"]) {
         secret_key = v;
     }
     if secret_key.is_empty() {
-        if let Some(v) = env_lookup(pairs, "MINIO_SECRET_KEY").filter(|v| !v.is_empty()) {
+        if let Some(v) = env_lookup_any(pairs, &["MINIO_SECRET_KEY", "MINIO__SECRET_KEY"])
+            .filter(|v| !v.is_empty())
+        {
             secret_key = v;
         }
     }
@@ -1608,21 +1635,25 @@ fn resolve_s3_settings(
         .and_then(|s| s.bucket.as_deref())
         .unwrap_or("mailblobs")
         .to_owned();
-    if let Some(v) = env_lookup(pairs, "S3_BUCKET") {
+    if let Some(v) = env_lookup_any(pairs, &["S3_BUCKET", "S3__BUCKET"]) {
         bucket = v;
     }
     if bucket == "mailblobs" {
-        if let Some(v) = env_lookup(pairs, "MINIO_BUCKET").filter(|v| !v.is_empty()) {
+        if let Some(v) = env_lookup_any(pairs, &["MINIO_BUCKET", "MINIO__BUCKET"])
+            .filter(|v| !v.is_empty())
+        {
             bucket = v;
         }
     }
 
-    let secure = if let Some(v) = env_lookup(pairs, "MINIO_SECURE").filter(|v| !v.is_empty()) {
+    let secure = if let Some(v) =
+        env_lookup_any(pairs, &["MINIO_SECURE", "MINIO__SECURE"]).filter(|v| !v.is_empty())
+    {
         strict_go_bool(&v, "MINIO_SECURE")?
-    } else if let Some(v) = env_lookup(pairs, "S3_SECURE") {
+    } else if let Some(v) = env_lookup_any(pairs, &["S3_SECURE", "S3__SECURE"]) {
         koanf_bool(&v)
-    } else if let Some(v) = yaml_s3.and_then(|s| s.secure.as_deref()) {
-        koanf_bool(v)
+    } else if let Some((ref v, quoted)) = yaml_s3.and_then(|s| s.secure.as_ref()) {
+        yaml_koanf_bool(v, *quoted)
     } else {
         false
     };
@@ -1636,14 +1667,18 @@ fn resolve_s3_settings(
     })
 }
 
-const STORAGE_ENV_KEYS: [&str; 8] = [
+const STORAGE_ENV_KEYS: [&str; 12] = [
     "S3_ENDPOINT",
+    "S3__ENDPOINT",
     "MINIO_ENDPOINT",
     "S3_BUCKET",
+    "S3__BUCKET",
     "MINIO_BUCKET",
     "S3_ACCESS_KEY",
+    "S3__ACCESS_KEY",
     "MINIO_ACCESS_KEY",
     "S3_SECRET_KEY",
+    "S3__SECRET_KEY",
     "MINIO_SECRET_KEY",
 ];
 
@@ -1652,6 +1687,52 @@ struct UnitEnvSpec {
     inline_env: Vec<(String, String)>,
     env_files: Vec<(std::path::PathBuf, bool)>,
     unset_env: Vec<String>,
+}
+
+fn decode_systemd_hex(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    count: usize,
+) -> Option<char> {
+    let mut val = 0u32;
+    for _ in 0..count {
+        let d = chars.peek().and_then(|c| c.to_digit(16))?;
+        chars.next();
+        val = (val << 4) | d;
+    }
+    char::from_u32(val)
+}
+
+fn decode_systemd_c_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<char> {
+    let esc = chars.next()?;
+    match esc {
+        'a' => Some('\x07'),
+        'b' => Some('\x08'),
+        'f' => Some('\x0c'),
+        'n' => Some('\n'),
+        'r' => Some('\r'),
+        't' => Some('\t'),
+        'v' => Some('\x0b'),
+        '\\' => Some('\\'),
+        '"' => Some('"'),
+        '\'' => Some('\''),
+        's' => Some(' '),
+        'x' => decode_systemd_hex(chars, 2),
+        'u' => decode_systemd_hex(chars, 4),
+        'U' => decode_systemd_hex(chars, 8),
+        '0'..='7' => {
+            let mut val = (esc as u32) - ('0' as u32);
+            for _ in 0..2 {
+                if let Some(&d @ '0'..='7') = chars.peek() {
+                    chars.next();
+                    val = (val * 8) + ((d as u32) - ('0' as u32));
+                } else {
+                    break;
+                }
+            }
+            char::from_u32(val)
+        }
+        other => Some(other),
+    }
 }
 
 fn split_systemd_words(s: &str) -> Vec<String> {
@@ -1675,7 +1756,7 @@ fn split_systemd_words(s: &str) -> Vec<String> {
                         break;
                     }
                     if inner == '\\' && q == '"' {
-                        if let Some(esc) = chars.next() {
+                        if let Some(esc) = decode_systemd_c_escape(&mut chars) {
                             word.push(esc);
                         }
                     } else {
@@ -1684,7 +1765,7 @@ fn split_systemd_words(s: &str) -> Vec<String> {
                 }
             } else if ch == '\\' {
                 chars.next();
-                if let Some(esc) = chars.next() {
+                if let Some(esc) = decode_systemd_c_escape(&mut chars) {
                     word.push(esc);
                 }
             } else {
@@ -1791,31 +1872,30 @@ fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
     }
 }
 
-fn dropin_rel_dirs(unit_name: &str) -> Vec<String> {
-    let mut rels = Vec::new();
+fn dropin_unit_categories(unit_name: &str) -> (Option<String>, Vec<String>) {
     let Some((stem, unit_type)) = unit_name.rsplit_once('.') else {
-        rels.push(format!("{unit_name}.d"));
-        return rels;
+        return (None, vec![format!("{unit_name}.d")]);
     };
-    rels.push(format!("{unit_type}.d"));
+    let type_dir = format!("{unit_type}.d");
+    let mut unit_rels = Vec::new();
     for (idx, _) in stem.match_indices('-') {
         if idx > 0 {
-            rels.push(format!("{}-.{unit_type}.d", &stem[..idx]));
+            unit_rels.push(format!("{}-.{unit_type}.d", &stem[..idx]));
         }
     }
     if let Some((prefix, _)) = stem.split_once('@') {
         if !prefix.is_empty() {
             let tmpl = format!("{prefix}@.{unit_type}.d");
-            if !rels.contains(&tmpl) {
-                rels.push(tmpl);
+            if !unit_rels.contains(&tmpl) {
+                unit_rels.push(tmpl);
             }
         }
     }
     let exact = format!("{unit_name}.d");
-    if !rels.contains(&exact) {
-        rels.push(exact);
+    if !unit_rels.contains(&exact) {
+        unit_rels.push(exact);
     }
-    rels
+    (Some(type_dir), unit_rels)
 }
 
 fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
@@ -1825,7 +1905,7 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
     let Some(parent) = unit_path.parent() else {
         return Vec::new();
     };
-    let rels = dropin_rel_dirs(unit_name);
+    let (type_rel, unit_rels) = dropin_unit_categories(unit_name);
     const SYSTEM_UNIT_DIRS: [&str; 5] = [
         "/lib/systemd/system",
         "/usr/lib/systemd/system",
@@ -1838,9 +1918,14 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
     } else {
         vec![parent]
     };
-    let mut dirs = Vec::with_capacity(tiers.len() * rels.len());
-    for rel in &rels {
+    let mut dirs = Vec::with_capacity(tiers.len() * (unit_rels.len() + usize::from(type_rel.is_some())));
+    if let Some(ref t) = type_rel {
         for tier in &tiers {
+            dirs.push(tier.join(t));
+        }
+    }
+    for tier in &tiers {
+        for rel in &unit_rels {
             dirs.push(tier.join(rel));
         }
     }
@@ -1964,7 +2049,7 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
             pairs.retain(|(name, _)| name != entry);
         }
     }
-    let gateway_file_worm_mode = env_lookup(&gateway_file_pairs, "WORM_MODE");
+    let gateway_file_worm_mode = env_lookup_any(&gateway_file_pairs, &["WORM_MODE", "WORM__MODE"]);
     Ok(EffectiveGatewayEnv {
         pairs,
         has_storage_file,
@@ -1993,13 +2078,19 @@ fn gateway_has_worm_settings(
     if expected_s3 != gateway_s3 {
         return false;
     }
-    if env_lookup(&gw.pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
+    if env_lookup_any(&gw.pairs, &["WORM_MODE", "WORM__MODE"]).as_deref() != Some(expected_mode) {
         return false;
     }
-    if env_lookup(&gw.pairs, "WORM_LEGAL_HOLD_ENABLED").as_deref() != expected_legal_hold {
+    if env_lookup_any(
+        &gw.pairs,
+        &["WORM_LEGAL_HOLD_ENABLED", "WORM__LEGAL_HOLD_ENABLED"],
+    )
+    .as_deref()
+        != expected_legal_hold
+    {
         return false;
     }
-    let gw_retention = env_lookup(&gw.pairs, "WORM_RETENTION_DAYS");
+    let gw_retention = env_lookup_any(&gw.pairs, &["WORM_RETENTION_DAYS", "WORM__RETENTION_DAYS"]);
     let gw_retention_nonempty = gw_retention.as_deref().filter(|v| !v.is_empty());
     if gw_retention_nonempty != expected_retention_days {
         return false;
@@ -2013,7 +2104,7 @@ fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
         return Ok(());
     }
     let has_gateway_worm = gw.has_gateway_file && gw.gateway_file_worm_mode.is_some();
-    let effective_worm = env_lookup(&gw.pairs, "WORM_MODE");
+    let effective_worm = env_lookup_any(&gw.pairs, &["WORM_MODE", "WORM__MODE"]);
     if !has_gateway_worm || effective_worm.is_none() {
         bail!(
             "DB-backed setjoin-gateway unit/gateway.env must set explicit WORM_MODE (empty when disabled); run upgrade.sh refresh-gateway-env before activating"
@@ -2060,9 +2151,12 @@ pub(crate) fn check_worm_gateway_ready(
     let config_src = std::fs::read_to_string(resolved_cfg)
         .with_context(|| format!("reading {}", resolved_cfg.display()))?;
     let pairs = parse_env_assignments(&config_src);
-    let expected_legal_hold = env_lookup(&pairs, "WORM_LEGAL_HOLD_ENABLED");
-    let config_worm_mode = env_lookup(&pairs, "WORM_MODE");
-    let config_retention = env_lookup(&pairs, "WORM_RETENTION_DAYS");
+    let expected_legal_hold = env_lookup_any(
+        &pairs,
+        &["WORM_LEGAL_HOLD_ENABLED", "WORM__LEGAL_HOLD_ENABLED"],
+    );
+    let config_worm_mode = env_lookup_any(&pairs, &["WORM_MODE", "WORM__MODE"]);
+    let config_retention = env_lookup_any(&pairs, &["WORM_RETENTION_DAYS", "WORM__RETENTION_DAYS"]);
     let host_yaml_path = env_lookup(&pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty());
     let mut cached_yaml: Option<(String, String)> = None;
     let need_yaml = config_worm_mode.is_none() || config_retention.is_none();
@@ -2161,7 +2255,8 @@ pub(crate) fn check_worm_gateway_ready(
         let is_db_backed = env_lookup(&gw.pairs, "DB_DSN").is_some_and(|v| !v.is_empty());
         let gateway_has_empty_worm =
             gw.has_gateway_file && gw.gateway_file_worm_mode.as_deref() == Some("");
-        let effective_worm_empty = env_lookup(&gw.pairs, "WORM_MODE").as_deref() == Some("");
+        let effective_worm_empty =
+            env_lookup_any(&gw.pairs, &["WORM_MODE", "WORM__MODE"]).as_deref() == Some("");
         if is_db_backed && (!gateway_has_empty_worm || !effective_worm_empty) {
             bail!(
                 "DB-backed setjoin-gateway unit/gateway.env must set explicit empty WORM_MODE=; run upgrade.sh refresh-gateway-env before activating"
@@ -2734,24 +2829,40 @@ mod tests {
             .iter()
             .position(|p| p == Path::new("/usr/lib/systemd/system/setjoin-gateway.service.d"))
             .unwrap();
+        let etc_prefix_pos = sys_dirs
+            .iter()
+            .position(|p| p == Path::new("/etc/systemd/system/setjoin-.service.d"))
+            .unwrap();
+        let etc_unit_pos = sys_dirs
+            .iter()
+            .position(|p| p == Path::new("/etc/systemd/system/setjoin-gateway.service.d"))
+            .unwrap();
         assert!(etc_type_pos < lib_unit_pos);
+        assert!(lib_unit_pos < etc_prefix_pos);
+        assert!(etc_prefix_pos < etc_unit_pos);
         assert!(sys_dirs.contains(&Path::new("/lib/systemd/system/service.d").to_path_buf()));
-        assert!(sys_dirs.contains(&Path::new("/etc/systemd/system/setjoin-.service.d").to_path_buf()));
 
-        // Cross-tier precedence: unit-specific /usr/lib/<unit>.d overrides same-named /etc/service.d
+        // Cross-tier precedence:
+        // 1) unit-specific /usr/lib/<unit>.d overrides same-named /etc/service.d
+        // 2) /etc/setjoin-.service.d overrides same-named /usr/lib/setjoin-gateway.service.d
         let xtier = dir.path().join("xtier");
         let x_etc_type = xtier.join("etc-service.d");
         let x_lib_unit = xtier.join("lib-unit.d");
+        let x_etc_prefix = xtier.join("etc-prefix.d");
         std::fs::create_dir_all(&x_etc_type).unwrap();
         std::fs::create_dir_all(&x_lib_unit).unwrap();
+        std::fs::create_dir_all(&x_etc_prefix).unwrap();
         let x_unit = xtier.join("setjoin-gateway.service");
         std::fs::write(&x_unit, "[Service]\n").unwrap();
         std::fs::write(x_etc_type.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", gw.display())).unwrap();
         std::fs::write(x_lib_unit.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", storage.display())).unwrap();
-        let x_merged = load_unit_env_files_with_dirs(&x_unit, &[x_etc_type, x_lib_unit]).unwrap();
+        let x_merged = load_unit_env_files_with_dirs(&x_unit, &[x_etc_type, x_lib_unit.clone()]).unwrap();
         assert_eq!(x_merged, vec![(storage.clone(), false)]);
+        std::fs::write(x_etc_prefix.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", fed.display())).unwrap();
+        let x_merged_tier = load_unit_env_files_with_dirs(&x_unit, &[x_lib_unit, x_etc_prefix]).unwrap();
+        assert_eq!(x_merged_tier, vec![(fed.clone(), false)]);
 
-        // Inline [Service] Environment= supplies DB_DSN (caught even without config.env) and Environment= resets it
+        // Inline [Service] Environment= with C-style escapes supplies DB_DSN (caught even without config.env) and Environment= resets it
         let inline_dir = dir.path().join("inline-env");
         let inline_dropin = inline_dir.join("inline.service.d");
         std::fs::create_dir_all(&inline_dropin).unwrap();
@@ -2761,7 +2872,7 @@ mod tests {
         std::fs::write(
             &inline_unit,
             format!(
-                "[Service]\nEnvironment=\"DB_DSN=postgres://app@localhost/mail\"\nEnvironmentFile={}\n",
+                "[Service]\nEnvironment=\"DB_DSN=post\\x67res://app@localhost/mail\"\nEnvironmentFile={}\n",
                 inline_gw.display()
             ),
         )
@@ -2771,21 +2882,66 @@ mod tests {
         std::fs::write(inline_dropin.join("10-reset.conf"), "[Service]\nEnvironment=\n").unwrap();
         assert!(check_worm_gateway_ready(&inline_unit, None, &missing_default).is_ok());
 
-        // YAML block scalars (|-) and merge keys (<<: *base / <<: [*a, *b]) in s3: match render-storage
+        // C-style escapes in UnsetEnvironment="WORM_MODE=..." remove WORM_MODE
+        let esc_dir = dir.path().join("esc-unset");
+        let esc_dropin = esc_dir.join("esc.service.d");
+        std::fs::create_dir_all(&esc_dropin).unwrap();
+        let esc_cfg = esc_dir.join("config.env");
+        let esc_gw = esc_dir.join("gateway.env");
+        let esc_storage = esc_dir.join("storage.env");
+        let esc_unit = esc_dir.join("esc.service");
+        std::fs::write(&esc_cfg, "WORM_MODE=compliance\n").unwrap();
+        std::fs::write(&esc_gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        std::fs::write(&esc_storage, "S3_BUCKET=mailblobs\n").unwrap();
+        std::fs::write(
+            &esc_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                esc_storage.display(),
+                esc_gw.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&esc_unit, Some(&esc_cfg), &missing_default).is_ok());
+        std::fs::write(
+            esc_dropin.join("10-unset.conf"),
+            "[Service]\nUnsetEnvironment=\"WORM_MODE=compli\\x61nce\"\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&esc_unit, Some(&esc_cfg), &missing_default).is_err());
+
+        // YAML block scalars (|-), merge keys (<<: *base), !!str null bucket, and numeric secure: 1.0 match render-storage
         std::fs::write(
             &yaml,
-            "x_s3_base: &s3_base\n  endpoint: https://s3.base.test\n  secret_key: |-\n    block-secret\ns3:\n  <<: *s3_base\n  bucket: merged-blobs\nworm:\n  mode: compliance\n",
+            "x_s3_base: &s3_base\n  endpoint: https://s3.base.test\n  secret_key: |-\n    block-secret\ns3:\n  <<: *s3_base\n  bucket: !!str null\n  secure: 1.0\nworm:\n  mode: compliance\n",
         )
         .unwrap();
         std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\n", yaml.display())).unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
-        std::fs::write(&storage, "S3_BUCKET=merged-blobs\n").unwrap();
+        std::fs::write(&storage, "S3_BUCKET=null\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
         std::fs::write(
             &storage,
-            "S3_ENDPOINT=https://s3.base.test\nS3_SECURE=false\nS3_BUCKET=merged-blobs\nS3_ACCESS_KEY=\nS3_SECRET_KEY=block-secret\n",
+            "S3_ENDPOINT=https://s3.base.test\nS3_SECURE=true\nS3_BUCKET=null\nS3_ACCESS_KEY=\nS3_SECRET_KEY=block-secret\n",
         )
         .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        // Quoted "1.0" stays false (koanf bool semantics), matching render-storage
+        std::fs::write(
+            &yaml,
+            "s3:\n  bucket: mailblobs\n  secure: \"1.0\"\nworm:\n  mode: compliance\n",
+        )
+        .unwrap();
+        std::fs::write(&storage, "S3_BUCKET=mailblobs\nS3_SECURE=true\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(&storage, "S3_BUCKET=mailblobs\nS3_SECURE=false\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+
+        // Go-compatible WORM__MODE=compliance in config.env requires WORM_MODE=compliance + matching S3 in gateway
+        std::fs::write(&cfg, "WORM__MODE=compliance\nS3__BUCKET=mailblobs\n").unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
     }
 }

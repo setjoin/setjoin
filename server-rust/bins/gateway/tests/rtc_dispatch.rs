@@ -390,7 +390,7 @@ async fn standalone_rtc_route_enforces_guest_belt_natively() -> Result<(), BoxEr
         let off_resp = common::send(address, off_req).await;
         let off_status = off_resp.status().as_u16();
         let off_body = common::body_bytes(off_resp).await;
-        if off_status != 404 || off_body != b"404 page not found\n" {
+        if off_status != 404 || off_body.as_ref() != b"404 page not found\n" {
             return Err(format!("program-OFF guest: {off_status} {}", String::from_utf8_lossy(&off_body)).into());
         }
         let broken_exec = setjoin_pg::ScopedExecutor::from_dsn_with(
