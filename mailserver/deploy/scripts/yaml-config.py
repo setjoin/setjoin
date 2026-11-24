@@ -308,26 +308,30 @@ class _Parser:
                 raise YamlError(f"cannot coerce {type(val).__name__} to !!float")
             raw_s = raw_plain if raw_plain is not None else str(val)
             try:
+                oct_resolved = False
                 if re.fullmatch(r"[+-]?0(?:_?[0-7])+", raw_s):
-                    iv = int(raw_s.replace("_", ""), 8)
-                    if iv < -(1 << 63) or iv >= (1 << 63):
-                        raise YamlError("invalid !!float scalar")
-                    out = float(iv)
-                elif "_" in raw_s:
-                    if not re.fullmatch(
-                        r"[+-]?(?:(?:0|[1-9](?:_?[0-9])*)(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?",
-                        raw_s,
-                    ):
-                        raise YamlError("invalid !!float scalar")
-                    out = float(raw_s.replace("_", ""))
-                else:
-                    s = raw_s.strip()
-                    if not re.fullmatch(
-                        r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?",
-                        s,
-                    ):
-                        raise YamlError("invalid !!float scalar")
-                    out = float(s)
+                    neg = raw_s.startswith("-")
+                    sig = raw_s.lstrip("+-").replace("_", "").lstrip("0")
+                    if len(sig) <= 21:
+                        mag = int(sig, 8) if sig else 0
+                        out = float(-mag if neg else mag)
+                        oct_resolved = True
+                if not oct_resolved:
+                    if "_" in raw_s:
+                        if not re.fullmatch(
+                            r"[+-]?(?:(?:0|[1-9](?:_?[0-9])*)(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?",
+                            raw_s,
+                        ):
+                            raise YamlError("invalid !!float scalar")
+                        out = float(raw_s.replace("_", ""))
+                    else:
+                        s = raw_s.strip()
+                        if not re.fullmatch(
+                            r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?",
+                            s,
+                        ):
+                            raise YamlError("invalid !!float scalar")
+                        out = float(s)
             except (ValueError, OverflowError) as exc:
                 raise YamlError("invalid !!float scalar") from exc
             if not math.isfinite(out):

@@ -4082,6 +4082,7 @@ mod tests {
             "worm:\n  retention_days: !!float \" 0_10 \"\n",
             "worm:\n  retention_days: !!float \" 1_000 \"\n",
             "worm:\n  retention_days: !!float \"0_1000000000000000000000\"\n",
+            "worm:\n  retention_days: !!float \"-0_1000000000000000000000\"\n",
             "worm:\n  retention_days: !!int \"0+10\"\n",
             "worm:\n  retention_days: !!int \"0-10\"\n",
             "worm:\n  retention_days: !!int \"0x+10\"\n",
@@ -4090,6 +4091,12 @@ mod tests {
         ] {
             assert!(yaml_worm_settings(tagged_radix).is_err());
         }
+        let dec_fallback = yaml_worm_settings("worm:\n  retention_days: !!float \"01000000000000000000000\"\n")
+            .unwrap()
+            .retention_days
+            .unwrap();
+        assert!(parse_koanf_env_retention_days(&dec_fallback).is_err());
+        assert!(dec_fallback.parse::<f64>().unwrap() > 9.9e20);
         let padded_oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \" 010 \"\n").unwrap();
         assert_eq!(padded_oct_float.retention_days.as_deref(), Some("10"));
         assert_eq!(

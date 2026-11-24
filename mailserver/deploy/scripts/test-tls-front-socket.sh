@@ -549,8 +549,24 @@ printf 'worm:\n  retention_days: !!float "0_10"\n' > "$tmp/tag-oct.yaml"
 [ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-oct.yaml" worm retention_days)" = 8 ]
 printf 'worm:\n  retention_days: !!float " 010 "\n' > "$tmp/tag-padded-oct.yaml"
 [ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-padded-oct.yaml" worm retention_days)" = 10 ]
+python3 - "$ROOT/mailserver/deploy/scripts/yaml-config.py" <<'PY'
+import importlib.util, os, sys, tempfile
+spec = importlib.util.spec_from_file_location("yc", sys.argv[1])
+yc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(yc)
+def load(txt):
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as tf:
+        tf.write(txt)
+        p = tf.name
+    try:
+        return yc.parse_yaml_mapping(p)["worm"]["retention_days"]
+    finally:
+        os.unlink(p)
+assert load('worm:\n  retention_days: !!float "01000000000000000000000"\n') == 1e21
+assert load('worm:\n  retention_days: !!float "-0_777777777777777777777"\n') == float(-9223372036854775807)
+PY
 big_oct="0_$(printf '1%.0s' $(seq 1 400))"
-for bad_tag in '!!float " 0_10 "' '!!float "0+10"' '!!float "0_8"' '!!float "0_1000000000000000000000"' "!!float \"$big_oct\""; do
+for bad_tag in '!!float " 0_10 "' '!!float " 1_000 "' '!!float "0+10"' '!!float "0_8"' '!!float "0_1000000000000000000000"' '!!float "-0_1000000000000000000000"' "!!float \"$big_oct\"" '!!int "0+10"' '!!int "0-10"' '!!int "0x+10"' '!!int "0o+10"' '!!int "0b+10"'; do
   printf 'worm:\n  retention_days: %s\n' "$bad_tag" > "$tmp/tag-bad.yaml"
   rc=0
   err=$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-bad.yaml" worm retention_days 2>&1) || rc=$?
@@ -560,11 +576,12 @@ for bad_tag in '!!float " 0_10 "' '!!float "0+10"' '!!float "0_8"' '!!float "0_1
     exit 1
   fi
 done
-for leak_case in '!!float "super-secret-scalar-val"' '!!int "super-secret-scalar-val"' '!!bool "super-secret-scalar-val"' '!!null "super-secret-scalar-val"' '!!float {secret_key: "super-secret-dict-val"}'; do
+for leak_case in '!!float "super-secret-scalar-val"' '!!int "super-secret-scalar-val"' '!!bool "super-secret-scalar-val"' '!!null "super-secret-scalar-val"' '!!float {secret_key: "super-secret-dict-val"}' '!!float ["super-secret-seq-val"]'; do
   printf 's3:\n  secret_key: %s\n' "$leak_case" > "$tmp/tag-secret.yaml"
   rc=0
   err=$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-secret.yaml" s3 secret_key 2>&1) || rc=$?
-  [ "$rc" -ne 0 ]
+  [ "$rc" -eq 2 ]
+  printf '%s' "$err" | grep -q '^yaml-config: '
   if printf '%s' "$err" | grep -q 'super-secret-'; then
     echo "tagged error leaked secret for $leak_case: $err" >&2
     exit 1
