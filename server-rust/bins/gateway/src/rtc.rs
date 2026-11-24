@@ -294,8 +294,11 @@ async fn serve(
     };
     let mut target = escape_path(out_path);
     if let Some(q) = req.uri().query() {
-        target.push('?');
-        target.push_str(q);
+        let cleaned = clean_query_params(q);
+        if !cleaned.is_empty() || q.is_empty() {
+            target.push('?');
+            target.push_str(&cleaned);
+        }
     }
     let uri: Uri = match format!("http://{upstream}{target}").parse() {
         Ok(u) => u,
@@ -614,6 +617,118 @@ fn escape_path(p: &[u8]) -> String {
     out
 }
 
+/// Go `net/http/httputil.cleanQueryParams` parity: keep valid queries verbatim;
+/// strip semicolon-containing or malformed percent-escape segments and
+/// over-limit trailing parameters by re-encoding via `url.ParseQuery`.
+fn clean_query_params(s: &str) -> String {
+    const MAX_PARAMS: usize = 10_000;
+    let b = s.as_bytes();
+    let num_params = b.iter().filter(|&&c| c == b'&').count() + 1;
+    if num_params <= MAX_PARAMS {
+        let mut i = 0;
+        let mut needs_clean = false;
+        while i < b.len() {
+            match b[i] {
+                b';' => {
+                    needs_clean = true;
+                    break;
+                }
+                b'%' => {
+                    if i + 2 >= b.len()
+                        || !b[i + 1].is_ascii_hexdigit()
+                        || !b[i + 2].is_ascii_hexdigit()
+                    {
+                        needs_clean = true;
+                        break;
+                    }
+                    i += 3;
+                }
+                _ => i += 1,
+            }
+        }
+        if !needs_clean {
+            return s.to_owned();
+        }
+    }
+    reencode_query(s, MAX_PARAMS)
+}
+
+fn query_unescape(s: &str) -> Option<Vec<u8>> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' => {
+                let (Some(&h), Some(&l)) = (b.get(i + 1), b.get(i + 2)) else {
+                    return None;
+                };
+                out.push((hex(h)? << 4) | hex(l)?);
+                i += 3;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    Some(out)
+}
+
+fn query_escape(bytes: &[u8], out: &mut String) {
+    use std::fmt::Write;
+    for &b in bytes {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => {
+                let _ = write!(out, "%{b:02X}");
+            }
+        }
+    }
+}
+
+fn reencode_query(s: &str, max_params: usize) -> String {
+    let mut map: std::collections::BTreeMap<Vec<u8>, Vec<Vec<u8>>> =
+        std::collections::BTreeMap::new();
+    let mut remaining = max_params;
+    for part in s.split('&') {
+        if part.is_empty() {
+            continue;
+        }
+        if remaining == 0 {
+            break;
+        }
+        remaining -= 1;
+        if part.contains(';') {
+            continue;
+        }
+        let (raw_k, raw_v) = part.split_once('=').unwrap_or((part, ""));
+        let (Some(k), Some(v)) = (query_unescape(raw_k), query_unescape(raw_v)) else {
+            continue;
+        };
+        map.entry(k).or_default().push(v);
+    }
+    let mut out = String::new();
+    for (k, vals) in map {
+        for v in vals {
+            if !out.is_empty() {
+                out.push('&');
+            }
+            query_escape(&k, &mut out);
+            out.push('=');
+            query_escape(&v, &mut out);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,5 +762,13 @@ mod tests {
         assert!(!is_rtc("/api/%72tcx"));
         assert!(!is_rtc("/%72tc%2Ffoo"));
         assert!(!is_rtc("/rtcx"));
+
+        assert_eq!(
+            clean_query_params("access_token=abc&auto_subscribe=1"),
+            "access_token=abc&auto_subscribe=1"
+        );
+        assert_eq!(clean_query_params("b=2&bad;x=1&a=1"), "a=1&b=2");
+        assert_eq!(clean_query_params("b=2&bad=%ZZ&a=1"), "a=1&b=2");
+        assert_eq!(clean_query_params("%ZZ"), "");
     }
 }

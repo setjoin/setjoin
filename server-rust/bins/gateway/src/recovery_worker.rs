@@ -1303,52 +1303,148 @@ fn normalize_s3_region(region: &str) -> String {
     }
 }
 
-fn split_amazon_s3_prefix(host: &str) -> Option<&str> {
+fn is_valid_aws_region_label(s: &str) -> bool {
+    !s.is_empty()
+        && !s.contains('.')
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+fn is_excluded_s3_prefix(rest: &str) -> bool {
+    rest.starts_with("website")
+        || rest.starts_with("control")
+        || rest.starts_with("accelerate")
+        || rest.starts_with("outposts")
+        || rest.starts_with("fips")
+        || rest.starts_with("dualstack")
+        || rest.starts_with("xpress-")
+}
+
+fn is_amazon_elb_host(lower: &str) -> bool {
+    lower
+        .strip_suffix(".amazonaws.com")
+        .or_else(|| lower.strip_suffix(".amazonaws.com.cn"))
+        .is_some_and(|prefix| prefix.contains("elb"))
+}
+
+fn amazon_privatelink_region(lower: &str) -> Option<&str> {
+    let body = lower
+        .strip_prefix("bucket.vpce-")
+        .or_else(|| lower.strip_prefix("accesspoint.vpce-"))?
+        .strip_suffix(".vpce.amazonaws.com")?;
+    let (_, region) = body.split_once(".s3.")?;
+    is_valid_aws_region_label(region).then_some(region)
+}
+
+fn amazon_outposts_region(lower: &str) -> Option<&str> {
+    let body = lower.strip_suffix(".amazonaws.com")?;
+    let (prefix, region) = body.rsplit_once(".s3-outposts.")?;
+    (!prefix.is_empty() && is_valid_aws_region_label(region)).then_some(region)
+}
+
+fn amazon_express_region(lower: &str) -> Option<&str> {
+    let body = lower.strip_suffix(".amazonaws.com")?;
+    let (head, region) = body.split_once('.')?;
+    if !is_valid_aws_region_label(region) {
+        return None;
+    }
+    if head == "s3express-control" {
+        return Some(region);
+    }
+    let az = head.strip_prefix("s3express-")?;
+    let (zone_id, az_num) = az.rsplit_once("-az")?;
+    let valid_zone = (3..=7).contains(&zone_id.len())
+        && zone_id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    let valid_num = az_num.len() == 1 && matches!(az_num.as_bytes()[0], b'1'..=b'6');
+    (valid_zone && valid_num).then_some(region)
+}
+
+fn amazon_cn_region(prefix: &str) -> Option<&str> {
+    let region = prefix
+        .strip_prefix("s3.dualstack.")
+        .or_else(|| prefix.strip_prefix("s3."))?;
+    (region.starts_with("cn") && is_valid_aws_region_label(region)).then_some(region)
+}
+
+/// Extracts an explicit AWS region from Amazon S3 endpoint hosts matching
+/// `minio-go` v7.2.1 `s3utils.GetRegionFromURL` (including FIPS, PrivateLink,
+/// Outposts, Express, China, dual-stack, and legacy `s3-<region>` hosts).
+fn s3_region_from_url(endpoint: &str) -> Option<String> {
+    let url = reqwest::Url::parse(endpoint).ok()?;
+    let lower = url.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "s3.amazonaws.com" | "s3-external-1.amazonaws.com" | "s3.dualstack.amazonaws.com"
+    ) || is_amazon_elb_host(&lower)
+    {
+        return None;
+    }
+    if let Some(prefix) = lower.strip_suffix(".amazonaws.com.cn") {
+        return amazon_cn_region(prefix).map(str::to_owned);
+    }
+    if let Some(region) = amazon_privatelink_region(&lower) {
+        return Some(region.to_owned());
+    }
+    if let Some(region) = amazon_express_region(&lower) {
+        return Some(region.to_owned());
+    }
+    if let Some(region) = amazon_outposts_region(&lower) {
+        return Some(region.to_owned());
+    }
+    let prefix = lower.strip_suffix(".amazonaws.com")?;
+    if let Some(region) = prefix
+        .strip_prefix("s3-fips.dualstack.")
+        .or_else(|| prefix.strip_prefix("s3-fips."))
+        .or_else(|| prefix.strip_prefix("s3.dualstack."))
+    {
+        return (is_valid_aws_region_label(region) && !is_excluded_s3_prefix(region))
+            .then(|| region.to_owned());
+    }
+    if let Some(region) = prefix
+        .strip_prefix("s3-")
+        .or_else(|| prefix.strip_prefix("s3."))
+    {
+        return (is_valid_aws_region_label(region) && !is_excluded_s3_prefix(region))
+            .then(|| region.to_owned());
+    }
+    None
+}
+
+/// Returns true only when `minio-go` v7.2.1 `makeTargetURL` rewrites the host
+/// to `s3.dualstack.<region>.<domain>` (excludes FIPS, PrivateLink, Outposts,
+/// Express, website, control, accelerate, ELB, and non-AWS hosts).
+fn is_amazon_s3_rewrite_host(host: &str) -> bool {
     let lower = host.trim_end_matches('.').to_ascii_lowercase();
-    let prefix = lower
-        .strip_suffix(".amazonaws.com.cn")
-        .or_else(|| lower.strip_suffix(".amazonaws.com"))?;
-    let valid = if matches!(prefix, "s3" | "s3-external-1" | "s3.dualstack") {
-        true
-    } else if let Some(rest) = prefix
+    if is_amazon_elb_host(&lower) {
+        return false;
+    }
+    if matches!(
+        lower.as_str(),
+        "s3.amazonaws.com" | "s3-external-1.amazonaws.com" | "s3.dualstack.amazonaws.com"
+    ) {
+        return true;
+    }
+    if let Some(prefix) = lower.strip_suffix(".amazonaws.com.cn") {
+        return amazon_cn_region(prefix).is_some();
+    }
+    let Some(prefix) = lower.strip_suffix(".amazonaws.com") else {
+        return false;
+    };
+    let Some(region) = prefix
         .strip_prefix("s3.dualstack.")
         .or_else(|| prefix.strip_prefix("s3."))
         .or_else(|| prefix.strip_prefix("s3-"))
-    {
-        !rest.is_empty()
-            && !rest.contains('.')
-            && !rest.contains("fips")
-            && !rest.starts_with("control")
-            && !rest.starts_with("accelerate")
-            && !rest.starts_with("outposts")
-    } else {
-        false
+    else {
+        return false;
     };
-    valid.then_some(host)
-}
-
-/// Extracts an explicit AWS region from standard, dual-stack, or legacy `s3-<region>`
-/// Amazon S3 endpoints matching `minio-go` v7.2.1 `s3utils.GetRegionFromURL`.
-fn s3_region_from_url(endpoint: &str) -> Option<String> {
-    let url = reqwest::Url::parse(endpoint).ok()?;
-    let host = split_amazon_s3_prefix(url.host_str()?)?;
-    let lower = host.trim_end_matches('.').to_ascii_lowercase();
-    let prefix = lower
-        .strip_suffix(".amazonaws.com.cn")
-        .or_else(|| lower.strip_suffix(".amazonaws.com"))?;
-    if matches!(prefix, "s3" | "s3-external-1" | "s3.dualstack") {
-        return None;
-    }
-    let rest = prefix
-        .strip_prefix("s3.dualstack.")
-        .or_else(|| prefix.strip_prefix("s3."))
-        .or_else(|| prefix.strip_prefix("s3-"))?;
-    (!rest.is_empty()).then(|| rest.to_owned())
+    is_valid_aws_region_label(region) && !is_excluded_s3_prefix(region)
 }
 
 /// Derives the dual-stack AWS regional S3 endpoint matching `minio-go` v7.2.1
-/// (`s3DualstackEnabled = true` on `IsAmazonEndpoint`), leaving non-AWS and
-/// specialized endpoints untouched.
+/// (`s3DualstackEnabled = true` in `makeTargetURL`), leaving FIPS, PrivateLink,
+/// Outposts, website, and non-AWS endpoints untouched.
 fn regional_s3_endpoint(endpoint: &str, region: &str) -> String {
     if region.is_empty() {
         return endpoint.to_owned();
@@ -1359,7 +1455,7 @@ fn regional_s3_endpoint(endpoint: &str, region: &str) -> String {
     let Some(host) = url.host_str() else {
         return endpoint.to_owned();
     };
-    if split_amazon_s3_prefix(host).is_none() {
+    if !is_amazon_s3_rewrite_host(host) {
         return endpoint.to_owned();
     }
     let domain = if region.starts_with("cn-") {
@@ -1764,6 +1860,32 @@ mod tests {
             "https://s3-fips.us-east-1.amazonaws.com"
         );
         assert_eq!(
+            regional_s3_endpoint(
+                "https://s3-fips.dualstack.us-gov-west-1.amazonaws.com",
+                "us-gov-east-1"
+            ),
+            "https://s3-fips.dualstack.us-gov-west-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint(
+                "https://bucket.vpce-1234.s3.us-west-2.vpce.amazonaws.com",
+                "us-east-1"
+            ),
+            "https://bucket.vpce-1234.s3.us-west-2.vpce.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-website-us-east-1.amazonaws.com", "us-west-2"),
+            "https://s3-website-us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-website.us-east-2.amazonaws.com", "us-west-2"),
+            "https://s3-website.us-east-2.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://my-outpost.s3-outposts.us-east-1.amazonaws.com", "us-west-2"),
+            "https://my-outpost.s3-outposts.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
             regional_s3_endpoint("http://127.0.0.1:9000", "us-west-2"),
             "http://127.0.0.1:9000"
         );
@@ -1771,12 +1893,42 @@ mod tests {
         assert_eq!(s3_region_from_url("https://s3.amazonaws.com"), None);
         assert_eq!(s3_region_from_url("https://s3-external-1.amazonaws.com"), None);
         assert_eq!(
+            s3_region_from_url("https://s3-website-us-east-1.amazonaws.com"),
+            None
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-website.us-east-2.amazonaws.com"),
+            None
+        );
+        assert_eq!(
             s3_region_from_url("https://s3-us-west-2.amazonaws.com").as_deref(),
             Some("us-west-2")
         );
         assert_eq!(
             s3_region_from_url("https://s3.dualstack.eu-central-1.amazonaws.com").as_deref(),
             Some("eu-central-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-fips.us-east-1.amazonaws.com").as_deref(),
+            Some("us-east-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-fips.dualstack.us-gov-west-1.amazonaws.com").as_deref(),
+            Some("us-gov-west-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://bucket.vpce-1234.s3.us-west-2.vpce.amazonaws.com")
+                .as_deref(),
+            Some("us-west-2")
+        );
+        assert_eq!(
+            s3_region_from_url("https://accesspoint.vpce-abcd.s3.eu-central-1.vpce.amazonaws.com")
+                .as_deref(),
+            Some("eu-central-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://my-outpost.s3-outposts.us-east-1.amazonaws.com").as_deref(),
+            Some("us-east-1")
         );
 
         let regional_store =

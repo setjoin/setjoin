@@ -160,6 +160,7 @@ fn executable_refuses_imap_sockets_without_go_off_and_live_admission() {
             .env_clear()
             .env("GATEWAY_ENABLED", "false")
             .env("DB_DSN", &std::env::var("TEST_DB_DSN").expect("disposable boot database"))
+            .env("WORM_MODE", "")
             // BOOT needs a live request database. The independent direct
             // connection must still refuse IMAP without policy notifications.
             .env("DB_DIRECT_DSN", "postgres://nobody@127.0.0.1:9/none")

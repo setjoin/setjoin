@@ -826,9 +826,12 @@ fn parse_unit_env_files(unit: &str) -> Vec<(std::path::PathBuf, bool)> {
         if t.starts_with('#') || t.starts_with(';') {
             continue;
         }
-        let Some(raw_rhs) = t.strip_prefix("EnvironmentFile=") else {
+        let Some((lhs, raw_rhs)) = t.split_once('=') else {
             continue;
         };
+        if lhs.trim() != "EnvironmentFile" {
+            continue;
+        }
         let rhs = raw_rhs.trim();
         if rhs.is_empty() {
             out.clear();
@@ -851,9 +854,16 @@ fn parse_unit_env_files(unit: &str) -> Vec<(std::path::PathBuf, bool)> {
     out
 }
 
+struct EffectiveGatewayEnv {
+    pairs: Vec<(String, String)>,
+    has_storage_file: bool,
+    has_gateway_file: bool,
+    gateway_file_worm_mode: Option<String>,
+}
+
 fn load_effective_gateway_env(
     env_files: &[(std::path::PathBuf, bool)],
-) -> Option<(Vec<(String, String)>, bool, bool)> {
+) -> Option<EffectiveGatewayEnv> {
     let has_storage_file = env_files.iter().any(|(p, _)| {
         p.file_name().and_then(|n| n.to_str()) == Some("storage.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
@@ -862,15 +872,28 @@ fn load_effective_gateway_env(
         p.file_name().and_then(|n| n.to_str()) == Some("gateway.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
     });
-    let mut effective_gw_pairs = Vec::new();
+    let mut pairs = Vec::new();
+    let mut gateway_file_pairs = Vec::new();
     for (path, optional) in env_files {
         match std::fs::read_to_string(path) {
-            Ok(content) => effective_gw_pairs.extend(parse_env_assignments(&content)),
+            Ok(content) => {
+                let parsed = parse_env_assignments(&content);
+                if path.file_name().and_then(|n| n.to_str()) == Some("gateway.env") {
+                    gateway_file_pairs.extend(parsed.clone());
+                }
+                pairs.extend(parsed);
+            }
             Err(_) if !optional => return None,
             Err(_) => {}
         }
     }
-    Some((effective_gw_pairs, has_storage_file, has_gateway_file))
+    let gateway_file_worm_mode = env_lookup(&gateway_file_pairs, "WORM_MODE");
+    Some(EffectiveGatewayEnv {
+        pairs,
+        has_storage_file,
+        has_gateway_file,
+        gateway_file_worm_mode,
+    })
 }
 
 fn gateway_has_worm_settings(
@@ -879,22 +902,19 @@ fn gateway_has_worm_settings(
     expected_legal_hold: Option<&str>,
     expected_retention_days: Option<&str>,
 ) -> bool {
-    let Some((effective_gw_pairs, has_storage_file, has_gateway_file)) =
-        load_effective_gateway_env(env_files)
-    else {
+    let Some(gw) = load_effective_gateway_env(env_files) else {
         return false;
     };
-    if !has_storage_file || !has_gateway_file {
+    if !gw.has_storage_file || !gw.has_gateway_file {
         return false;
     }
-    if env_lookup(&effective_gw_pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
+    if env_lookup(&gw.pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
         return false;
     }
-    if env_lookup(&effective_gw_pairs, "WORM_LEGAL_HOLD_ENABLED").as_deref() != expected_legal_hold
-    {
+    if env_lookup(&gw.pairs, "WORM_LEGAL_HOLD_ENABLED").as_deref() != expected_legal_hold {
         return false;
     }
-    let gw_retention = env_lookup(&effective_gw_pairs, "WORM_RETENTION_DAYS");
+    let gw_retention = env_lookup(&gw.pairs, "WORM_RETENTION_DAYS");
     let gw_retention_nonempty = gw_retention.as_deref().filter(|v| !v.is_empty());
     if gw_retention_nonempty != expected_retention_days {
         return false;
@@ -975,14 +995,14 @@ pub(crate) fn check_worm_gateway_ready(
                 "WORM is enabled in host configuration, but setjoin-gateway unit/gateway.env lacks matching storage.env and WORM_MODE; run upgrade.sh refresh-gateway-env before activating"
             );
         }
-    } else if let Some((effective_gw_pairs, _, has_gateway_file)) =
-        load_effective_gateway_env(&env_files)
-    {
-        if env_lookup(&effective_gw_pairs, "DB_DSN").is_some_and(|v| !v.is_empty())
-            && (!has_gateway_file || env_lookup(&effective_gw_pairs, "WORM_MODE").is_none())
-        {
+    } else if let Some(gw) = load_effective_gateway_env(&env_files) {
+        let is_db_backed = env_lookup(&gw.pairs, "DB_DSN").is_some_and(|v| !v.is_empty());
+        let gateway_has_empty_worm =
+            gw.has_gateway_file && gw.gateway_file_worm_mode.as_deref() == Some("");
+        let effective_worm_empty = env_lookup(&gw.pairs, "WORM_MODE").as_deref() == Some("");
+        if is_db_backed && (!gateway_has_empty_worm || !effective_worm_empty) {
             bail!(
-                "DB-backed setjoin-gateway unit/gateway.env lacks explicit WORM_MODE=; run upgrade.sh refresh-gateway-env before activating"
+                "DB-backed setjoin-gateway unit/gateway.env must set explicit empty WORM_MODE=; run upgrade.sh refresh-gateway-env before activating"
             );
         }
     }
@@ -1165,7 +1185,7 @@ mod tests {
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
 
-        // Empty EnvironmentFile= clears earlier directives in systemd
+        // Empty EnvironmentFile= (including whitespace around =) clears earlier directives in systemd
         let cleared_unit = dir.path().join("cleared.service");
         std::fs::write(
             &cleared_unit,
@@ -1176,10 +1196,31 @@ mod tests {
             ),
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&cleared_unit, None, &stale_default).is_err());
+        assert!(check_worm_gateway_ready(&cleared_unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(
+            &cleared_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile = {}\nEnvironmentFile =\n",
+                storage.display(),
+                gw.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&cleared_unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(
+            &cleared_unit,
+            format!(
+                "[Service]\nEnvironmentFile = -{}\nEnvironmentFile = {}\n",
+                storage.display(),
+                gw.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&cleared_unit, Some(&cfg), &stale_default).is_ok());
 
-        // DB-backed non-WORM host requires explicit WORM_MODE= in gateway.env
+        // DB-backed non-WORM host requires explicit empty WORM_MODE= in gateway.env and empty effective value
         let fed = dir.path().join("federation.env");
+        let override_env = dir.path().join("override.env");
         std::fs::write(&fed, "DB_DSN=postgres://app@localhost/mail\n").unwrap();
         std::fs::write(
             &unit,
@@ -1193,7 +1234,28 @@ mod tests {
         std::fs::write(&cfg, "HOSTNAME=mail.test\n").unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        // Stale non-empty WORM_MODE in gateway.env is rejected when host disables WORM
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        // Empty WORM_MODE= in another env file does not satisfy gateway.env requirement
+        std::fs::write(&fed, "DB_DSN=postgres://app@localhost/mail\nWORM_MODE=\n").unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        // Explicit WORM_MODE= in gateway.env succeeds when effective value stays empty
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
+        // Later EnvironmentFile overriding WORM_MODE to non-empty is rejected
+        std::fs::write(&override_env, "WORM_MODE=compliance\n").unwrap();
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\nEnvironmentFile={}\n",
+                fed.display(),
+                gw.display(),
+                override_env.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
     }
 }

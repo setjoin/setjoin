@@ -747,7 +747,30 @@ async fn activated_db_gateway_refuses_unrefreshed_worm_environment() {
     let Some(db) = setjoin_conformance::harness::Db::for_case("fed2-worm-guard") else {
         return;
     };
-    for worm_val in [None, Some("compliance")] {
+    struct ChildGuard(std::process::Child);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    for (fdnames, worm_val, expected_needle) in [
+        (
+            "http",
+            None,
+            "systemd-activated gateway requires explicit WORM_MODE (empty when disabled) in gateway.env; run upgrade.sh refresh-gateway-env before activating",
+        ),
+        (
+            "federation",
+            None,
+            "systemd-activated gateway requires explicit WORM_MODE (empty when disabled) in gateway.env; run upgrade.sh refresh-gateway-env before activating",
+        ),
+        (
+            "http",
+            Some("compliance"),
+            "WORM_MODE is enabled in gateway settings, but no S3_*/MINIO_* storage settings were loaded; run upgrade.sh refresh-gateway-env before activating",
+        ),
+    ] {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let fd = listener.as_raw_fd();
         let mut command = Command::new("bash");
@@ -757,7 +780,7 @@ async fn activated_db_gateway_refuses_unrefreshed_worm_environment() {
             .env("DB_DSN", &db.dsn)
             .env("DB_WORKER_DSN", &db.dsn)
             .env("DB_DIRECT_DSN", &db.direct)
-            .env("LISTEN_FDNAMES", "http")
+            .env("LISTEN_FDNAMES", fdnames)
             .env("LISTEN_FDS", "1")
             .arg("-c")
             .arg("export LISTEN_PID=$$; exec -a \"$2-gateway\" \"$1\"")
@@ -780,10 +803,10 @@ async fn activated_db_gateway_refuses_unrefreshed_worm_environment() {
                 Ok(())
             });
         }
-        let mut child = command.spawn_boot().unwrap();
+        let mut child = ChildGuard(command.spawn().unwrap());
         let status = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                if let Some(status) = child.try_wait().unwrap() {
+                if let Some(status) = child.0.try_wait().unwrap() {
                     return status;
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;
@@ -791,15 +814,18 @@ async fn activated_db_gateway_refuses_unrefreshed_worm_environment() {
         })
         .await
         .expect("gateway must refuse unrefreshed WORM environment at startup");
-        assert!(!status.success(), "expected failure for {worm_val:?}");
+        assert!(
+            !status.success(),
+            "expected failure for fdnames={fdnames} worm_val={worm_val:?}"
+        );
         use std::io::Read;
         let mut stderr = String::new();
-        if let Some(mut pipe) = child.stderr.take() {
+        if let Some(mut pipe) = child.0.stderr.take() {
             pipe.read_to_string(&mut stderr).unwrap();
         }
         assert!(
-            stderr.contains("WORM_MODE") && stderr.contains("refresh-gateway-env"),
-            "unexpected stderr for {worm_val:?}: {stderr}"
+            stderr.contains(expected_needle),
+            "unexpected stderr for fdnames={fdnames} worm_val={worm_val:?}: {stderr}"
         );
     }
 }
