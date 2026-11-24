@@ -294,7 +294,9 @@ strip_env_quotes() {
 
 validate_tls_cache_dir() {
   case "$1" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
-  case "$1" in *[[:space:]#\&]*) echo 'invalid ACME cache path' >&2; return 1;; esac
+  [ -n "${1//\//}" ] || { echo 'ACME cache must not be filesystem root' >&2; return 1; }
+  case "/$1/" in */./*|*/../*) echo 'ACME cache must not contain . or .. segments' >&2; return 1;; esac
+  case "$1" in *[[:space:]#\&]*|*$'\n'*|*$'\r'*) echo 'invalid ACME cache path' >&2; return 1;; esac
 }
 
 resolve_setting_yaml_path() {
@@ -326,24 +328,71 @@ yaml_section_value() {
       }
       return s
     }
-    function extract_scalar(v, is_flow,    i, c, esc, out) {
-      sub(/^[[:space:]]*/, "", v)
-      if (substr(v, 1, 1) == "\"") {
-        out = ""; esc = 0
-        for (i = 2; i <= length(v); i++) {
-          c = substr(v, i, 1)
-          if (esc) { out = out c; esc = 0; continue }
-          if (c == "\\") { esc = 1; continue }
-          if (c == "\"") break
-          out = out c
+    function strip_line_comment(s,    i, c, prev, in_s, in_d, esc) {
+      in_s = 0; in_d = 0; esc = 0
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (in_d) {
+          if (esc) esc = 0
+          else if (c == "\\") esc = 1
+          else if (c == "\"") in_d = 0
+          continue
         }
-        return out
+        if (in_s) {
+          if (c == "'\''") {
+            if (substr(s, i + 1, 1) == "'\''") { i++; continue }
+            in_s = 0
+          }
+          continue
+        }
+        if (c == "\"") { in_d = 1; continue }
+        if (c == "'\''") { in_s = 1; continue }
+        if (c == "#") {
+          prev = (i == 1) ? " " : substr(s, i - 1, 1)
+          if (prev ~ /[[:space:]]/) return substr(s, 1, i - 1)
+        }
       }
-      if (substr(v, 1, 1) == "'\''") {
-        v = substr(v, 2)
-        sub(/'\''.*$/, "", v)
-        return v
+      return s
+    }
+    function decode_dquoted(v,    i, c, esc, out) {
+      out = ""; esc = 0
+      for (i = 2; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (esc) {
+          if (c == "n") out = out "\n"
+          else if (c == "r") out = out "\r"
+          else if (c == "t") out = out "\t"
+          else if (c == "\\" || c == "\"" || c == "/") out = out c
+          else out = out "\\" c
+          esc = 0
+          continue
+        }
+        if (c == "\\") { esc = 1; continue }
+        if (c == "\"") break
+        out = out c
       }
+      return out
+    }
+    function decode_squoted(v,    i, c, out) {
+      out = ""
+      for (i = 2; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (c == "'\''") {
+          if (substr(v, i + 1, 1) == "'\''") {
+            out = out "'\''"
+            i++
+            continue
+          }
+          break
+        }
+        out = out c
+      }
+      return out
+    }
+    function extract_scalar(v, is_flow) {
+      sub(/^[[:space:]]*/, "", v)
+      if (substr(v, 1, 1) == "\"") return decode_dquoted(v)
+      if (substr(v, 1, 1) == "'\''") return decode_squoted(v)
       if (is_flow) {
         sub(/[[:space:]]*[,}].*$/, "", v)
       }
@@ -367,7 +416,14 @@ yaml_section_value() {
           }
           if (in_s) {
             part = part c
-            if (c == "'\''") in_s = 0
+            if (c == "'\''") {
+              if (substr(txt, i + 1, 1) == "'\''") {
+                part = part "'\''"
+                i++
+              } else {
+                in_s = 0
+              }
+            }
             continue
           }
           if (c == "\"") { in_d = 1; part = part c; continue }
@@ -410,7 +466,13 @@ yaml_section_value() {
           else if (c == "\"") in_d = 0
           continue
         }
-        if (in_s) { if (c == "'\''") in_s = 0; continue }
+        if (in_s) {
+          if (c == "'\''") {
+            if (substr(s, i + 1, 1) == "'\''") i++
+            else in_s = 0
+          }
+          continue
+        }
         if (c == "\"") in_d = 1
         else if (c == "'\''") in_s = 1
         else if (c == "{") depth++
@@ -436,7 +498,7 @@ yaml_section_value() {
       raw = $0
       sub(/\r$/, "", raw)
       if (in_flow) {
-        flow_buf = flow_buf " " raw
+        flow_buf = flow_buf " " strip_line_comment(raw)
         end_pos = flow_done(flow_buf)
         if (end_pos > 0) {
           parse_flow(substr(flow_buf, 1, end_pos - 1))
@@ -457,7 +519,7 @@ yaml_section_value() {
       if (hdr == 2) {
         in_sec = 0; child_indent = -1
         cpos = index(raw, "{")
-        flow_buf = substr(raw, cpos + 1)
+        flow_buf = strip_line_comment(substr(raw, cpos + 1))
         end_pos = flow_done(flow_buf)
         if (end_pos > 0) {
           parse_flow(substr(flow_buf, 1, end_pos - 1))
@@ -713,10 +775,24 @@ smtp_link_protect_keys() {
 # loaded by the gateway unit independent of SMTP enablement (#289 legal holds,
 # blobs, attachments). Literal assignments only, never sourced.
 render_storage_env() {
-  local outfile="$1" config="$2" tmp
+  local outfile="$1" config="$2" tmp cfg="" pair ykey envkey val
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
+  cfg=$(resolve_setting_yaml_path "$config")
   (
     umask 027
+    if [ -n "$cfg" ]; then
+      for pair in endpoint:S3_ENDPOINT secure:S3_SECURE bucket:S3_BUCKET access_key:S3_ACCESS_KEY secret_key:S3_SECRET_KEY; do
+        ykey="${pair%%:*}"
+        envkey="${pair#*:}"
+        if [ -f "$config" ] && grep -q "^${envkey}=" "$config"; then
+          continue
+        fi
+        if val=$(yaml_section_value "$cfg" s3 "$ykey") && [ -n "$val" ]; then
+          case "$val" in *$'\n'*|*$'\r'*) echo "storage.env: s3.$ykey must be one line" >&2; exit 1;; esac
+          printf '%s=%s\n' "$envkey" "$val"
+        fi
+      done
+    fi
     if [ -f "$config" ]; then
       grep -E '^(S3_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY)|MINIO_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY))=' "$config" || true
     fi
@@ -809,8 +885,6 @@ ENV
     legal_hold_set=1
   elif [ "${WORM_LEGAL_HOLD_ENABLED+x}" = x ]; then
     worm_legal_hold=$(strip_env_quotes "$WORM_LEGAL_HOLD_ENABLED")
-    legal_hold_set=1
-  elif [ -n "$cfg" ] && worm_legal_hold=$(yaml_section_value "$cfg" worm legal_hold_enabled); then
     legal_hold_set=1
   fi
   [ "$legal_hold_set" = 0 ] || printf 'WORM_LEGAL_HOLD_ENABLED=%s\n' "$worm_legal_hold" >> "$outfile"
@@ -1300,7 +1374,7 @@ tls_front_probe_url() {
 # honoring explicit environment assignments without evaluating any value.
 tls_front_preserve_settings() {
   local config="$1" key value
-  for key in SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
+  for key in SETJOIN_CONFIG SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
     if [ "${!key+x}" = x ]; then value="${!key}"; else value=$(tls_front_value "$config" "$key"); fi
     case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
     if [ -n "$value" ]; then

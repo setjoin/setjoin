@@ -561,7 +561,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
                         .header("content-type", "application/xml")
                         .header("x-amz-bucket-region", "ap-southeast-1")
                         .body(common::full(
-                            "<Error><Code>SlowDownWrite</Code><Message>Access Denied</Message></Error>",
+                            "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
                         ))
                         .unwrap(),
                     _ => Response::builder().status(500).body(common::full("")).unwrap(),

@@ -90,14 +90,14 @@ ENV
       [ "$status" = 0 ] || { cat "$fx/output" >&2; exit 1; }
       grep -qx 'FileDescriptorName=federation' "$fx/units/setjoin-federation.socket"
       grep -qx 'Wants=setjoin-federation.socket' "$fx/units/setjoin-gateway.service"
-      ! grep -Eq '^EnvironmentFile=.*(config.env|db-credentials.env)$' "$fx/units/setjoin-gateway.service"
+      if grep -Eq '^EnvironmentFile=.*(config.env|db-credentials.env)$' "$fx/units/setjoin-gateway.service"; then echo 'privileged env leaked into gateway unit' >&2; exit 1; fi
       grep -qx "EnvironmentFile=-$fx/config/federation.env" "$fx/units/setjoin-gateway.service"
       grep -qx "ExecStart=$fx/install/setjoin-gateway" "$fx/units/setjoin-gateway.service"
       grep -qx 'GO_WORKERS_OFF=backup-engine,federation-service,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/config.env"
       grep -qx 'RUST_WORKERS_ON=notify-intent-drain,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/config.env"
       grep -qx 'GO_WORKERS_OFF=federation-service,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/federation.env"
       grep -qx 'RUST_WORKERS_ON=federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/federation.env"
-      ! grep -Eq 'OWNER_DSN|S3_SECRET' "$fx/config/federation.env"
+      if grep -Eq 'OWNER_DSN|S3_SECRET' "$fx/config/federation.env"; then echo 'secret leaked into federation.env' >&2; exit 1; fi
       test "$(stat -c '%a' "$fx/config/federation.env")" = 640
       grep -qx 'LISTEN_ADDR=127.0.0.1:0' "$fx/config/config.env"
       grep -qx 'FileDescriptorName=https' "$fx/units/setjoin-https.socket"

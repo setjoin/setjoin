@@ -132,17 +132,51 @@ CONFIG_ENV="$tmp/empty-cache.env" GATEWAY_ENV="$tmp/empty-gateway.env" render_ga
 grep -qx 'ReadWritePaths=-/var/cache/mailserver/autocert' "$tmp/empty-gateway.service"
 
 cat > "$tmp/flow.yaml" <<'YAML'
-tls: { nested: { autocert_cache_dir: /wrong/flow }, autocert_cache_dir: "/var/lib/setjoin/flow-tls" }
+tls: {
+  nested: { autocert_cache_dir: /wrong/flow }, # comment after comma must not hide next entry
+  autocert_cache_dir: "/var/lib/setjoin\/flow-tls"
+}
 worm:
   mode: governance
   retention_days: 730
-  legal_hold_enabled: ""
+  legal_hold_enabled: false
+s3:
+  endpoint: http://127.0.0.1:9100
+  secure: false
+  bucket: yaml-blobs
+  access_key: yaml-ak
+  secret_key: yaml-sk
 YAML
 CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/flow-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 SETJOIN_CONFIG="$tmp/flow.yaml" render_gateway_env "$tmp/flow-gateway.env"
 grep -qx 'TLS_AUTOCERT_CACHE_DIR=/var/lib/setjoin/flow-tls' "$tmp/flow-gateway.env"
 grep -qx 'WORM_MODE=governance' "$tmp/flow-gateway.env"
 grep -qx 'WORM_RETENTION_DAYS=730' "$tmp/flow-gateway.env"
-grep -qx 'WORM_LEGAL_HOLD_ENABLED=' "$tmp/flow-gateway.env"
+# Go overrides YAML worm.legal_hold_enabled unless WORM_LEGAL_HOLD_ENABLED is explicitly set in env.
+if grep -q '^WORM_LEGAL_HOLD_ENABLED=' "$tmp/flow-gateway.env"; then echo 'YAML worm.legal_hold_enabled should not override Go default' >&2; exit 1; fi
 CONFIG_ENV="$tmp/yaml-config.env" GATEWAY_ENV="$tmp/flow-gateway.env" SETJOIN_CONFIG="$tmp/flow.yaml" render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/flow-gateway.service"
 grep -qx 'ReadWritePaths=-/var/lib/setjoin/flow-tls' "$tmp/flow-gateway.service"
+
+# YAML-only S3 settings populate storage.env when config.env has no S3_* literals, and SETJOIN_CONFIG is preserved.
+SETJOIN_CONFIG="$tmp/flow.yaml" render_storage_env "$tmp/yaml-storage.env" "$tmp/yaml-config.env"
+grep -qx 'S3_ENDPOINT=http://127.0.0.1:9100' "$tmp/yaml-storage.env"
+grep -qx 'S3_BUCKET=yaml-blobs' "$tmp/yaml-storage.env"
+grep -qx 'S3_ACCESS_KEY=yaml-ak' "$tmp/yaml-storage.env"
+grep -qx 'S3_SECRET_KEY=yaml-sk' "$tmp/yaml-storage.env"
+SETJOIN_CONFIG="$tmp/flow.yaml" tls_front_preserve_settings "$tmp/yaml-config.env" > "$tmp/yaml-preserved.env"
+grep -qx "SETJOIN_CONFIG=$tmp/flow.yaml" "$tmp/yaml-preserved.env"
+
+# Double-quoted YAML backslash escapes and path traversal rejection.
+cat > "$tmp/esc.yaml" <<'YAML'
+tls:
+  autocert_cache_dir: "/var/lib\\setjoin/cache\ndir"
+YAML
+esc_val=$(yaml_section_value "$tmp/esc.yaml" tls autocert_cache_dir)
+want_esc=$'/var/lib\\setjoin/cache\ndir'
+test "$esc_val" = "$want_esc"
+for bad in / /var/../etc /var/cache/.. relative/path $'/tmp/has\nnewline' '/tmp/has space'; do
+  if validate_tls_cache_dir "$bad" 2>/dev/null; then
+    echo "validate_tls_cache_dir accepted unsafe path: $bad" >&2
+    exit 1
+  fi
+done
 echo 'native TLS release socket: PASS'

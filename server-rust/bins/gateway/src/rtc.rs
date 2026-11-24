@@ -416,7 +416,7 @@ fn redirect(
     query: Option<&str>,
     mut headers: HeaderMap,
 ) -> Response<Body> {
-    let mut location = cleaned.to_owned();
+    let mut location = escape_path(cleaned);
     if let Some(q) = query {
         location.push('?');
         location.push_str(q);
@@ -522,9 +522,28 @@ fn is_unescaped_path_byte(b: u8) -> bool {
         )
 }
 
-/// `net/url`'s `validEncoded(p, encodePath)`.
+/// `net/url`'s `validEncoded(p, encodePath)` (Go 1.26.6 net/url/url.go:665-685).
 fn valid_encoded(p: &str) -> bool {
-    p.bytes().all(|b| b == b'%' || is_unescaped_path_byte(b))
+    p.bytes().all(|c| {
+        matches!(
+            c,
+            b'!' | b'$'
+                | b'&'
+                | b'\''
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b','
+                | b';'
+                | b'='
+                | b':'
+                | b'@'
+                | b'['
+                | b']'
+                | b'%'
+        ) || is_unescaped_path_byte(c)
+    })
 }
 
 /// `url.URL.EscapedPath` of a decoded path with no `RawPath`.
@@ -554,8 +573,9 @@ mod tests {
         assert_eq!(clean_path("/rtc//x/./y/../z/"), "/rtc/x/z/");
         assert_eq!(clean_path("/rtc/.."), "/");
         assert_eq!(clean_path("/rtc/%2e%2e/x"), "/rtc/%2e%2e/x");
-        assert_eq!(clean_path("/rtc//a%20b"), "/rtc/a%20b");
+        assert_eq!(escape_path(&clean_path("/rtc//a%20b")), "/rtc/a%2520b");
         assert!(valid_encoded("/rtc/%2e%2e/x"));
+        assert!(valid_encoded("/rtc/!a'()*[0]%2Fb"));
         assert!(!valid_encoded("/rtc/a b"));
         assert_eq!(unescape("/rtc/a%2Fb").as_deref(), Some("/rtc/a/b"));
         assert_eq!(unescape("/rtc/%zz"), None);

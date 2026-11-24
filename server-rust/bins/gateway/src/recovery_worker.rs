@@ -653,25 +653,22 @@ impl S3Store {
                 Ok(reply) if matches!(reply.status, 200 | 204) => return Ok(()),
                 Ok(reply) => {
                     let reported_region = reply.region.as_deref().map(normalize_s3_region);
-                    let is_region_code = matches!(
-                        reply.code.as_deref(),
-                        Some(
-                            "AuthorizationHeaderMalformed"
-                                | "InvalidRegion"
-                                | "PermanentRedirect"
-                        )
-                    );
-                    if reply.status == 403 {
-                        let changed_region = reported_region
+                    let changed_403 = reply.status == 403
+                        && reported_region
                             .as_ref()
                             .is_some_and(|r| r.as_str() != reply.signed_region.as_str());
-                        if changed_region || is_region_code {
-                            *self.region.lock().await = reported_region;
-                            last = format!("object legal hold failed ({})", reply.status);
-                        } else {
-                            return Err(format!("object legal hold failed ({})", reply.status));
-                        }
-                    } else if reply.status == 301 || reply.status == 307 || is_region_code {
+                    let is_region_error = reply.status == 301
+                        || reply.status == 307
+                        || changed_403
+                        || matches!(
+                            reply.code.as_deref(),
+                            Some(
+                                "AuthorizationHeaderMalformed"
+                                    | "InvalidRegion"
+                                    | "PermanentRedirect"
+                            )
+                        );
+                    if is_region_error {
                         *self.region.lock().await = reported_region;
                         last = format!("object legal hold failed ({})", reply.status);
                     } else if RETRYABLE.contains(&reply.status)
@@ -1404,7 +1401,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legal_hold_403_same_region_with_retryable_code_is_terminal() {
+    async fn legal_hold_403_same_region_access_denied_is_terminal() {
         let hits = Arc::new(AtomicUsize::new(0));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1426,7 +1423,7 @@ mod tests {
                                     .header("x-amz-bucket-region", "eu-west-1")
                                     .header("content-type", "application/xml")
                                     .body(Full::new(Bytes::from_static(
-                                        b"<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
+                                        b"<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
                                     )))
                                     .unwrap(),
                             )
@@ -1445,5 +1442,67 @@ mod tests {
         let err = store.legal_hold_with_retries("key-b", false).await.unwrap_err();
         assert!(err.contains("403"), "expected terminal 403 error, got {err}");
         assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn legal_hold_403_same_region_with_retryable_code_retries() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let auths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits_s = hits.clone();
+        let auths_s = auths.clone();
+        let _server = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let (hits_c, auths_c) = (hits_s.clone(), auths_s.clone());
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req| {
+                        let (hits_r, auths_r) = (hits_c.clone(), auths_c.clone());
+                        async move {
+                            let auth = req
+                                .headers()
+                                .get("authorization")
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("")
+                                .to_owned();
+                            auths_r.lock().unwrap().push(auth);
+                            let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                            let resp = if n == 0 {
+                                Response::builder()
+                                    .status(403)
+                                    .header("x-amz-bucket-region", "eu-west-1")
+                                    .header("content-type", "application/xml")
+                                    .body(Full::new(Bytes::from_static(
+                                        b"<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
+                                    )))
+                                    .unwrap()
+                            } else {
+                                Response::builder()
+                                    .status(204)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            };
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        *store.region.lock().await = Some("eu-west-1".into());
+
+        let res = store.legal_hold_with_retries("key-c", true).await;
+        assert!(res.is_ok(), "expected 403 SlowDownWrite to retry: {res:?}");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        let recorded = auths.lock().unwrap();
+        assert!(recorded[0].contains("/eu-west-1/s3/aws4_request"));
+        assert!(recorded[1].contains("/eu-west-1/s3/aws4_request"));
     }
 }
