@@ -386,6 +386,10 @@ render_auth_deployment() (
     root="$(cd "$(dirname "$0")/../../.." && pwd)"
     source "$root/mailserver/deploy/scripts/lib-livekit.sh" || return 1
     RUNTIME_DIR="${RUNTIME_DIR:-$INSTALL_DIR}"
+    if [ ! -x "$RUNTIME_DIR/setjoin-auth" ]; then
+        echo "missing executable $RUNTIME_DIR/setjoin-auth — refusing to cut over setjoin-auth.service" >&2
+        return 1
+    fi
     AUTHSERVER_URL="$(config_value "$CONFIG_ENV" AUTHSERVER_URL)"
     AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
     AUTH_LISTEN="${AUTHSERVER_URL#http://}"; AUTH_LISTEN="${AUTH_LISTEN#https://}"; AUTH_LISTEN="${AUTH_LISTEN%%/*}"
@@ -438,9 +442,18 @@ render_gateway_deployment() (
     render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
     chown root:setjoin "$TLS_ENV" || return 1
     render_gateway_env "$GATEWAY_ENV" || return 1
-    validate_db_cred_file_posture "$DB_CRED_FILE" || return 1
-    render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
-    chown root:root "$AUTH_ENV" || return 1
+    local render_auth=0
+    if [ -x "$RUNTIME_DIR/setjoin-auth" ]; then
+        render_auth=1
+    elif [ -n "${NEW_AUTH:-}" ]; then
+        echo "missing executable $RUNTIME_DIR/setjoin-auth — refusing to cut over setjoin-auth.service" >&2
+        return 1
+    fi
+    if [ "$render_auth" = 1 ]; then
+        validate_db_cred_file_posture "$DB_CRED_FILE" || return 1
+        render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+        chown root:root "$AUTH_ENV" || return 1
+    fi
     render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$FEDERATION_ENV" || return 1
     render_storage_env "$STORAGE_ENV" "$CONFIG_ENV" || return 1
@@ -452,7 +465,9 @@ render_gateway_deployment() (
     # A descriptor belongs to the matching new binary. Recreate only this
     # release's socket set; snapshots preserve prior bytes, absence and state.
     rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"
-    render_authserver_unit "$root/mailserver/deploy/authserver.service.template" "$SYSTEMD_DIR/setjoin-auth.service" || return 1
+    if [ "$render_auth" = 1 ]; then
+        render_authserver_unit "$root/mailserver/deploy/authserver.service.template" "$SYSTEMD_DIR/setjoin-auth.service" || return 1
+    fi
     render_gateway_unit "$root/mailserver/deploy/setjoin-gateway.service.template" "$SYSTEMD_DIR/setjoin-gateway.service" || return 1
     systemctl daemon-reload || return 1
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
@@ -700,7 +715,7 @@ resolve_schema_dsn() {
     fi
     return 0
 }
-if ! SCHEMA_DSN="$(resolve_schema_dsn "$CONFIG_ENV" "$DB_CRED_FILE")"; then
+if ! SCHEMA_DSN="$(resolve_schema_dsn "$CONFIG_ENV" "$DB_CRED_FILE" "${DB_CRED_WANT_OWNER:-root}" "${DB_CRED_WANT_GROUP:-root}" "${DB_CRED_RUNTIME_GROUP:-setjoin}")"; then
     echo "   ✗ privileged DB credential namespace failed validation — refusing to pick a schema DSN from a substituted store."
     roll_back_and_exit
 fi
@@ -741,7 +756,7 @@ fi
 
 echo "4. Starting services..."
 if [ "$AUTH_WAS_ACTIVE" = "1" ]; then
-    systemctl start setjoin-auth
+    systemctl start setjoin-auth || roll_back_and_exit
 fi
 systemctl start setjoin || roll_back_and_exit
 if [ -n "$NEW_GATEWAY" ]; then

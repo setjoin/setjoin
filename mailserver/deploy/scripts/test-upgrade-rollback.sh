@@ -94,6 +94,8 @@ real_tmp="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$t
 #    no EnvironmentFile={{DB_CREDENTIALS_FILE}}).
 im="$real_tmp/auth-mig"
 mkdir -p "$im/install/releases/r1" "$im/config/db-credentials.d" "$im/units"
+printf '#!/bin/sh\nexit 0\n' >"$im/install/releases/r1/setjoin-auth"
+chmod 755 "$im/install/releases/r1/setjoin-auth"
 ln -s "$im/install/releases/r1" "$im/install/current"
 cat >"$im/config/config.env" <<'ENV'
 DB_DSN=postgres://setjoin_app:apppw@127.0.0.1:5432/mailserver
@@ -172,6 +174,7 @@ printf 'old gateway\n' >"$fl/install/setjoin-gateway"
 printf 'new mailserver\n' >"$fl/new/mailserverd"
 printf 'new setjoin-auth\n' >"$fl/new/setjoin-auth"
 printf 'new gateway\n' >"$fl/new/setjoin-gateway"
+chmod 755 "$fl/install/setjoin-auth" "$fl/new/setjoin-auth"
 printf '#!/bin/sh\nexit 0\n' >"$fl/new/mailctl"
 chmod 755 "$fl/new/mailctl"
 cat >"$fl/config/config.env" <<'ENV'
@@ -201,7 +204,30 @@ if PATH="$fl/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$fl/install" SETJOIN_CON
   echo 'failed readiness flat upgrade reported success' >&2
   exit 1
 fi
+grep -q 'Health check FAILED' "$fl/out" || {
+  cat "$fl/out" >&2
+  echo 'expected readiness failure after auth/gateway render before rollback' >&2
+  exit 1
+}
 cmp -s "$fl/auth.env.before" "$fl/config/auth.env" || { echo 'auth.env was not rolled back after readiness failure' >&2; exit 1; }
 cmp -s "$fl/setjoin-auth.service.before" "$fl/units/setjoin-auth.service" || { echo 'setjoin-auth.service was not rolled back after readiness failure' >&2; exit 1; }
 [ "$(cat "$fl/install/setjoin-auth")" = 'old setjoin-auth' ] || { echo 'setjoin-auth binary was not rolled back' >&2; exit 1; }
+
+# 4. Pre-#359 immutable host without setjoin-auth binary does NOT overwrite setjoin-auth.service.
+rm -f "$im/install/releases/r1/setjoin-auth"
+chmod 600 "$im/config/db-credentials.d/db-credentials.env"
+printf '[Service]\nExecStart=%s/install/current/authserverd\n' "$im" >"$im/units/setjoin-auth.service"
+cp "$im/units/setjoin-auth.service" "$im/units/setjoin-auth.service.pre359"
+PATH="$tmp/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+  SYSTEMD_DIR="$im/units" TLS_AUTOCERT_CACHE_DIR="$im/autocert" UPGRADE_TEST_LOG="$im/systemctl.log" \
+  DB_CRED_WANT_OWNER="$owner" DB_CRED_WANT_GROUP="$group" DB_CRED_RUNTIME_GROUP="$group" \
+  bash "$UPGRADE_SCRIPT" refresh-gateway-env >"$im/pre359.out" 2>&1 || {
+  cat "$im/pre359.out" >&2
+  echo 'pre-#359 refresh-gateway-env failed' >&2
+  exit 1
+}
+cmp -s "$im/units/setjoin-auth.service.pre359" "$im/units/setjoin-auth.service" || {
+  echo 'pre-#359 refresh-gateway-env overwrote setjoin-auth.service without setjoin-auth binary' >&2
+  exit 1
+}
 echo 'upgraded-host auth.env migration + posture check + rollback: PASS'
