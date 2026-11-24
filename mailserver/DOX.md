@@ -1121,7 +1121,8 @@ activation so `gateway.env` carries explicit `WORM_MODE=`/`WORM_MODE=<mode>`,
 configured `LIVEKIT_*` settings (for native `/rtc` and `/api/rtc`); `setjoin-updater`
 preflight checks WORM, storage, and `LIVEKIT_*` parity while systemd-activated
 `setjoin-gateway` startup validates `WORM_MODE` and storage provenance (and
-returns 404 on `/rtc` and `/api/rtc` if `LIVEKIT_*` are absent). The TLS
+without `LIVEKIT_*` returns 404 on `/api/rtc` while `/rtc` falls through to
+the catch-all SPA or 404). The TLS
 import/ACME cache directory (`tls_import_cache_dir`, resolved from
 `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
 `yaml-config.py`) is validated lexically and

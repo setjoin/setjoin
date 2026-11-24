@@ -157,6 +157,72 @@ PY
   done
 done
 
+# Missing intermediate TLS cache parent directories are created traversable (0755) while leaf stays 0700.
+nc="$tmp/nested-cache"
+mkdir -p "$nc/install" "$nc/new" "$nc/config" "$nc/units"
+for artifact in mailserverd setjoin-gateway; do
+  echo "old $artifact" > "$nc/install/$artifact"
+  echo "new $artifact" > "$nc/new/$artifact"
+done
+printf '#!/bin/sh\nexit 0\n' > "$nc/new/mailctl"
+chmod 755 "$nc/new/mailctl"
+cat > "$nc/config/config.env" <<ENV
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+TLS_AUTOCERT_CACHE_DIR=$nc/missing-parent/autocert
+ENV
+echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$nc/config/gateway.env"
+echo 'previous gateway service' > "$nc/units/setjoin-gateway.service"
+echo 'previous gateway socket' > "$nc/units/setjoin-gateway.socket"
+PATH="$tmp/bin:$PATH" INSTALL_DIR="$nc/install" SETJOIN_CONFIG_DIR="$nc/config" \
+  SYSTEMD_DIR="$nc/units" FED_TEST_HEALTH=0 FED_TEST_LOG="$nc/actions" \
+  bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$nc/new/mailserverd" "$nc/new/mailctl" \
+  '' '' "$nc/new/setjoin-gateway" > "$nc/output" 2>&1
+test -d "$nc/missing-parent/autocert"
+test "$(stat -c '%a' "$nc/missing-parent")" = 755
+test "$(stat -c '%a' "$nc/missing-parent/autocert")" = 700
+
+# Failed TLS cache removal rollback surfaces Incomplete rollback without claiming full restore.
+rf="$tmp/rollback-cache-fail"
+mkdir -p "$rf/bin" "$rf/install" "$rf/new" "$rf/config" "$rf/units"
+cp "$tmp/bin/"* "$rf/bin/"
+cat > "$rf/bin/curl" <<MOCK
+#!/usr/bin/env bash
+mkdir -p "$rf/new-parent/autocert"
+: > "$rf/new-parent/autocert/keep"
+exit 1
+MOCK
+chmod 755 "$rf/bin/curl"
+for artifact in mailserverd setjoin-gateway; do
+  echo "old $artifact" > "$rf/install/$artifact"
+  echo "new $artifact" > "$rf/new/$artifact"
+done
+printf '#!/bin/sh\nexit 0\n' > "$rf/new/mailctl"
+chmod 755 "$rf/new/mailctl"
+cat > "$rf/config/config.env" <<ENV
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+TLS_AUTOCERT_CACHE_DIR=$rf/new-parent/autocert
+ENV
+echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$rf/config/gateway.env"
+echo 'previous gateway service' > "$rf/units/setjoin-gateway.service"
+echo 'previous gateway socket' > "$rf/units/setjoin-gateway.socket"
+rf_rc=0
+PATH="$rf/bin:$PATH" INSTALL_DIR="$rf/install" SETJOIN_CONFIG_DIR="$rf/config" \
+  SYSTEMD_DIR="$rf/units" FED_TEST_HEALTH=1 FED_TEST_LOG="$rf/actions" \
+  bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$rf/new/mailserverd" "$rf/new/mailctl" \
+  '' '' "$rf/new/setjoin-gateway" > "$rf/output" 2>&1 || rf_rc=$?
+[ "$rf_rc" != 0 ] || { echo 'expected failed rollback to exit non-zero' >&2; exit 1; }
+grep -q 'Incomplete rollback' "$rf/output"
+if grep -q 'Restored previous version' "$rf/output"; then
+  echo 'unexpected Restored previous version banner after failed TLS cache rollback' >&2
+  exit 1
+fi
+
 # Immutable layout supports refresh-gateway-env without copying binaries.
 im="$tmp/immutable"
 mkdir -p "$im/install/releases/r1" "$im/config" "$im/units"

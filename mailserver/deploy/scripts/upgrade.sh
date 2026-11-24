@@ -157,7 +157,7 @@ restore_tls_cache_meta() {
     if [ -n "$prev_path" ] && [ "$prev_path" != "/" ] && [ ! -L "$prev_path" ] && [ -d "$prev_path" ]; then
         if [ "$prev_exists" = 1 ]; then
             [ -n "$prev_devino" ] || return 0
-            python3 - "$prev_path" "$prev_devino" "$prev_mode" "$prev_owner" <<'PY' || true
+            python3 - "$prev_path" "$prev_devino" "$prev_mode" "$prev_owner" <<'PY' || return 1
 import os, stat, sys
 path, exp_devino, mode_str, owner_str = sys.argv[1].rstrip("/"), sys.argv[2], sys.argv[3], sys.argv[4]
 if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
@@ -190,18 +190,20 @@ if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
         if mode_str and hasattr(os, "fchmod"):
             os.fchmod(fd, int(mode_str, 8))
         if owner_str and ":" in owner_str and hasattr(os, "fchown"):
+            uid, gid = (int(x) for x in owner_str.split(":", 1))
             try:
-                uid, gid = (int(x) for x in owner_str.split(":", 1))
                 os.fchown(fd, uid, gid)
             except PermissionError:
-                pass
-    except OSError:
-        pass
+                if is_root:
+                    raise
+    except OSError as exc:
+        sys.stderr.write(f"   ✗ tls-cache rollback failed for {path}: {exc}\n")
+        sys.exit(1)
     finally:
         os.close(fd)
 PY
         elif [ "$prev_exists" = 0 ] && [ -n "$created_devino" ]; then
-            python3 - "$prev_path" "$created_devino" <<'PY' || true
+            python3 - "$prev_path" "$created_devino" <<'PY' || return 1
 import os, stat, sys
 path, exp_devino = sys.argv[1].rstrip("/"), sys.argv[2]
 if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
@@ -236,8 +238,11 @@ if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
         if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
             sys.exit(0)
         os.rmdir(name, dir_fd=pfd)
-    except OSError:
-        pass
+    except FileNotFoundError:
+        sys.exit(0)
+    except OSError as exc:
+        sys.stderr.write(f"   ✗ tls-cache removal rollback failed for {path}: {exc}\n")
+        sys.exit(1)
     finally:
         os.close(pfd)
 else:
@@ -245,8 +250,11 @@ else:
         st = os.lstat(path)
         if stat.S_ISDIR(st.st_mode) and f"{st.st_dev}:{st.st_ino}" == exp_devino:
             os.rmdir(path)
-    except OSError:
-        pass
+    except FileNotFoundError:
+        sys.exit(0)
+    except OSError as exc:
+        sys.stderr.write(f"   ✗ tls-cache removal rollback failed for {path}: {exc}\n")
+        sys.exit(1)
 PY
         fi
     fi
@@ -414,8 +422,10 @@ if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW") and target.startswit
                 nxt = os.open(part, dir_flags, dir_fd=cur_fd)
             except FileNotFoundError:
                 existed = False
-                os.mkdir(part, 0o700, dir_fd=cur_fd)
+                os.mkdir(part, 0o700 if is_last else 0o755, dir_fd=cur_fd)
                 nxt = os.open(part, dir_flags, dir_fd=cur_fd)
+                if not is_last:
+                    os.fchmod(nxt, 0o755)
             os.close(cur_fd)
             cur_fd = nxt
             if is_last:
@@ -433,7 +443,11 @@ if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW") and target.startswit
         os.close(cur_fd)
 else:
     existed = os.path.isdir(target)
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, mode=0o755, exist_ok=True)
     os.makedirs(target, mode=0o700, exist_ok=True)
+    os.chmod(target, 0o700)
     st = os.lstat(target)
     created_devino = None if existed else f"{st.st_dev}:{st.st_ino}"
 if created_devino and meta_path and os.path.isfile(meta_path):

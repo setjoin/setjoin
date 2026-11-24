@@ -683,14 +683,53 @@ struct YamlWorm {
     retention_days: Option<String>,
 }
 
-fn flow_worm_settings(flow: &str) -> Result<YamlWorm, &'static str> {
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+struct YamlS3 {
+    endpoint: Option<String>,
+    access_key: Option<String>,
+    secret_key: Option<String>,
+    bucket: Option<String>,
+    secure: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ResolvedS3 {
+    endpoint: String,
+    access_key: String,
+    secret_key: String,
+    bucket: String,
+    secure: bool,
+}
+
+fn koanf_bool(raw: &str) -> bool {
+    matches!(raw, "1" | "t" | "T" | "true" | "TRUE" | "True")
+}
+
+fn strict_go_bool(raw: &str, key: &str) -> Result<bool, String> {
+    if koanf_bool(raw) {
+        Ok(true)
+    } else if matches!(raw, "0" | "f" | "F" | "false" | "FALSE" | "False") {
+        Ok(false)
+    } else {
+        Err(format!("invalid boolean for {key}: {raw:?}"))
+    }
+}
+
+fn yaml_value_is_unquoted_null(raw_trim: &str, decoded: &str) -> bool {
+    !(raw_trim.starts_with('"') || raw_trim.starts_with('\'')) && yaml_scalar_is_null(decoded)
+}
+
+fn flow_section_entries(
+    flow: &str,
+    watched_keys: &[&str],
+) -> Result<Vec<(String, Option<String>)>, &'static str> {
     let inner = flow
         .trim()
         .strip_prefix('{')
         .and_then(|s| s.strip_suffix('}'))
         .ok_or("malformed flow mapping")?;
     let entries = split_flow_entries(inner)?;
-    let mut out = YamlWorm::default();
+    let mut out = Vec::new();
     for entry in entries {
         let trimmed = entry.trim();
         if trimmed.is_empty() {
@@ -704,23 +743,23 @@ fn flow_worm_settings(flow: &str) -> Result<YamlWorm, &'static str> {
         }
         let key_clean = strip_yaml_key_props(fk)?;
         let fv_trim = fv.trim();
-        if matches!(key_clean.as_str(), "mode" | "retention_days")
-            && (fv_trim.starts_with('*') || fv_trim.starts_with('&') || fv_trim.starts_with('!'))
-        {
-            return Err("YAML alias/tag in worm setting");
-        }
-        if key_clean == "mode" {
+        if watched_keys.contains(&key_clean.as_str()) {
+            if fv_trim.starts_with('*') || fv_trim.starts_with('&') || fv_trim.starts_with('!') {
+                return Err("YAML alias/tag in section setting");
+            }
             let val = clean_yaml_scalar(fv_trim)?;
-            out.mode = (!yaml_scalar_is_null(&val)).then_some(val);
-        } else if key_clean == "retention_days" {
-            let val = clean_yaml_scalar(fv_trim)?;
-            out.retention_days = (!yaml_scalar_is_null(&val)).then(|| normalize_retention_days(&val));
+            let mapped = (!yaml_value_is_unquoted_null(fv_trim, &val)).then_some(val);
+            out.push((key_clean, mapped));
         }
     }
     Ok(out)
 }
 
-fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
+fn yaml_section_entries(
+    yaml: &str,
+    section: &str,
+    watched_keys: &[&str],
+) -> Result<Vec<(String, Option<String>)>, &'static str> {
     let yaml = yaml.strip_prefix('\u{feff}').unwrap_or(yaml);
     let mut joined_flow = String::new();
     let mut saw_first = false;
@@ -758,23 +797,23 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
             if k.trim() == "<<" {
                 return Err("root YAML merge key");
             }
-            if strip_yaml_key_props(k)? == "worm" {
+            if strip_yaml_key_props(k)? == section {
                 let v_trim = v.trim();
                 if yaml_scalar_is_null(v_trim) {
-                    return Ok(YamlWorm::default());
+                    return Ok(Vec::new());
                 }
-                return flow_worm_settings(v_trim);
+                return flow_section_entries(v_trim, watched_keys);
             }
         }
-        return Ok(YamlWorm::default());
+        return Ok(Vec::new());
     }
 
-    let mut out = YamlWorm::default();
+    let mut out = Vec::new();
     let mut root_ind: Option<usize> = None;
-    let mut in_worm = false;
-    let mut worm_ind = 0usize;
+    let mut in_section = false;
+    let mut section_ind = 0usize;
     let mut child_ind: Option<usize> = None;
-    let mut worm_flow_buf: Option<String> = None;
+    let mut flow_buf: Option<String> = None;
     for raw_line in yaml.lines() {
         let stripped = strip_inline_yaml_comment(raw_line);
         let trimmed = stripped.trim();
@@ -782,50 +821,47 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
             continue;
         }
         let ind = raw_line.len() - raw_line.trim_start_matches(' ').len();
-        if let Some(buf) = worm_flow_buf.as_mut() {
+        if let Some(buf) = flow_buf.as_mut() {
             buf.push(' ');
             buf.push_str(trimmed);
-            if buf.trim_end().ends_with('}') && flow_worm_settings(buf).is_ok() {
-                return flow_worm_settings(buf);
+            if buf.trim_end().ends_with('}') && flow_section_entries(buf, watched_keys).is_ok() {
+                return flow_section_entries(buf, watched_keys);
             }
             continue;
         }
-        if in_worm {
-            if ind <= worm_ind {
-                in_worm = false;
+        if in_section {
+            if ind <= section_ind {
+                in_section = false;
                 child_ind = None;
             } else {
                 if child_ind.is_none() {
                     child_ind = Some(ind);
                     if trimmed.starts_with('{') {
-                        if let Ok(parsed) = flow_worm_settings(trimmed) {
+                        if let Ok(parsed) = flow_section_entries(trimmed, watched_keys) {
                             return Ok(parsed);
                         }
-                        worm_flow_buf = Some(trimmed.to_owned());
+                        flow_buf = Some(trimmed.to_owned());
                         continue;
                     }
                 }
                 if child_ind == Some(ind) {
                     if let Some((k, v)) = trimmed.split_once(':') {
                         if k.trim() == "<<" {
-                            return Err("worm YAML merge key");
+                            return Err("section YAML merge key");
                         }
                         let key_clean = strip_yaml_key_props(k)?;
                         let v_trim = v.trim();
-                        if matches!(key_clean.as_str(), "mode" | "retention_days")
-                            && (v_trim.starts_with('*')
+                        if watched_keys.contains(&key_clean.as_str()) {
+                            if v_trim.starts_with('*')
                                 || v_trim.starts_with('&')
-                                || v_trim.starts_with('!'))
-                        {
-                            return Err("YAML alias/tag in worm setting");
-                        }
-                        if key_clean == "mode" {
+                                || v_trim.starts_with('!')
+                            {
+                                return Err("YAML alias/tag in section setting");
+                            }
                             let val = clean_yaml_scalar(v_trim)?;
-                            out.mode = (!yaml_scalar_is_null(&val)).then_some(val);
-                        } else if key_clean == "retention_days" {
-                            let val = clean_yaml_scalar(v_trim)?;
-                            out.retention_days =
-                                (!yaml_scalar_is_null(&val)).then(|| normalize_retention_days(&val));
+                            let mapped =
+                                (!yaml_value_is_unquoted_null(v_trim, &val)).then_some(val);
+                            out.push((key_clean, mapped));
                         }
                     }
                 }
@@ -841,29 +877,139 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
                 if k.trim() == "<<" {
                     return Err("root YAML merge key");
                 }
-                if strip_yaml_key_props(k)? == "worm" {
+                if strip_yaml_key_props(k)? == section {
                     let rest_trim = rest.trim();
                     if rest_trim.is_empty() {
-                        in_worm = true;
-                        worm_ind = ind;
+                        in_section = true;
+                        section_ind = ind;
                     } else if yaml_scalar_is_null(rest_trim) {
-                        return Ok(YamlWorm::default());
+                        return Ok(Vec::new());
                     } else if rest_trim.starts_with('{') {
-                        if let Ok(parsed) = flow_worm_settings(rest_trim) {
+                        if let Ok(parsed) = flow_section_entries(rest_trim, watched_keys) {
                             return Ok(parsed);
                         }
-                        worm_flow_buf = Some(rest_trim.to_owned());
+                        flow_buf = Some(rest_trim.to_owned());
                     } else {
-                        return Err("unsupported worm YAML value");
+                        return Err("unsupported section YAML value");
                     }
                 }
             }
         }
     }
-    if let Some(buf) = worm_flow_buf {
-        return flow_worm_settings(&buf);
+    if let Some(buf) = flow_buf {
+        return flow_section_entries(&buf, watched_keys);
     }
     Ok(out)
+}
+
+fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
+    let entries = yaml_section_entries(yaml, "worm", &["mode", "retention_days"])?;
+    let mut out = YamlWorm::default();
+    for (k, v) in entries {
+        if k == "mode" {
+            out.mode = v.filter(|s| !s.is_empty());
+        } else if k == "retention_days" {
+            out.retention_days = v
+                .filter(|s| !s.is_empty())
+                .map(|s| normalize_retention_days(&s));
+        }
+    }
+    Ok(out)
+}
+
+fn yaml_s3_settings(yaml: &str) -> Result<YamlS3, &'static str> {
+    let entries = yaml_section_entries(
+        yaml,
+        "s3",
+        &["endpoint", "access_key", "secret_key", "bucket", "secure"],
+    )?;
+    let mut out = YamlS3::default();
+    for (k, v) in entries {
+        match k.as_str() {
+            "endpoint" => out.endpoint = v,
+            "access_key" => out.access_key = v,
+            "secret_key" => out.secret_key = v,
+            "bucket" => out.bucket = v,
+            "secure" => out.secure = v,
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+fn resolve_s3_settings(
+    pairs: &[(String, String)],
+    yaml_s3: Option<&YamlS3>,
+) -> Result<ResolvedS3, String> {
+    let mut endpoint = yaml_s3
+        .and_then(|s| s.endpoint.as_deref())
+        .unwrap_or("127.0.0.1:9000")
+        .to_owned();
+    if let Some(v) = env_lookup(pairs, "S3_ENDPOINT") {
+        endpoint = v;
+    }
+    if endpoint == "127.0.0.1:9000" {
+        if let Some(v) = env_lookup(pairs, "MINIO_ENDPOINT").filter(|v| !v.is_empty()) {
+            endpoint = v;
+        }
+    }
+
+    let mut access_key = yaml_s3
+        .and_then(|s| s.access_key.as_deref())
+        .unwrap_or("")
+        .to_owned();
+    if let Some(v) = env_lookup(pairs, "S3_ACCESS_KEY") {
+        access_key = v;
+    }
+    if access_key.is_empty() {
+        if let Some(v) = env_lookup(pairs, "MINIO_ACCESS_KEY").filter(|v| !v.is_empty()) {
+            access_key = v;
+        }
+    }
+
+    let mut secret_key = yaml_s3
+        .and_then(|s| s.secret_key.as_deref())
+        .unwrap_or("")
+        .to_owned();
+    if let Some(v) = env_lookup(pairs, "S3_SECRET_KEY") {
+        secret_key = v;
+    }
+    if secret_key.is_empty() {
+        if let Some(v) = env_lookup(pairs, "MINIO_SECRET_KEY").filter(|v| !v.is_empty()) {
+            secret_key = v;
+        }
+    }
+
+    let mut bucket = yaml_s3
+        .and_then(|s| s.bucket.as_deref())
+        .unwrap_or("mailblobs")
+        .to_owned();
+    if let Some(v) = env_lookup(pairs, "S3_BUCKET") {
+        bucket = v;
+    }
+    if bucket == "mailblobs" {
+        if let Some(v) = env_lookup(pairs, "MINIO_BUCKET").filter(|v| !v.is_empty()) {
+            bucket = v;
+        }
+    }
+
+    let secure = if let Some(v) = env_lookup(pairs, "MINIO_SECURE").filter(|v| !v.is_empty()) {
+        strict_go_bool(&v, "MINIO_SECURE")?
+    } else if let Some(v) = env_lookup(pairs, "S3_SECURE") {
+        koanf_bool(&v)
+    } else if let Some(v) = yaml_s3.and_then(|s| s.secure.as_deref()) {
+        koanf_bool(v)
+    } else {
+        false
+    };
+
+    Ok(ResolvedS3 {
+        endpoint,
+        access_key,
+        secret_key,
+        bucket,
+        secure,
+    })
 }
 
 const STORAGE_ENV_KEYS: [&str; 8] = [
@@ -938,8 +1084,9 @@ fn systemd_logical_lines(unit: &str) -> Vec<String> {
         if line.trim_start().starts_with('#') || line.trim_start().starts_with(';') {
             continue;
         }
-        if let Some(prefix) = line.strip_suffix('\\') {
-            current.push_str(prefix);
+        let trailing_bs = line.bytes().rev().take_while(|&b| b == b'\\').count();
+        if trailing_bs % 2 == 1 {
+            current.push_str(&line[..line.len() - 1]);
             current.push(' ');
             continuing = true;
         } else {
@@ -1005,6 +1152,33 @@ fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
     }
 }
 
+fn dropin_rel_dirs(unit_name: &str) -> Vec<String> {
+    let mut rels = Vec::new();
+    let Some((stem, unit_type)) = unit_name.rsplit_once('.') else {
+        rels.push(format!("{unit_name}.d"));
+        return rels;
+    };
+    rels.push(format!("{unit_type}.d"));
+    for (idx, _) in stem.match_indices('-') {
+        if idx > 0 {
+            rels.push(format!("{}-.{unit_type}.d", &stem[..idx]));
+        }
+    }
+    if let Some((prefix, _)) = stem.split_once('@') {
+        if !prefix.is_empty() {
+            let tmpl = format!("{prefix}@.{unit_type}.d");
+            if !rels.contains(&tmpl) {
+                rels.push(tmpl);
+            }
+        }
+    }
+    let exact = format!("{unit_name}.d");
+    if !rels.contains(&exact) {
+        rels.push(exact);
+    }
+    rels
+}
+
 fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
     let Some(unit_name) = unit_path.file_name().and_then(|n| n.to_str()) else {
         return Vec::new();
@@ -1012,7 +1186,7 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
     let Some(parent) = unit_path.parent() else {
         return Vec::new();
     };
-    let dropin_rel = format!("{unit_name}.d");
+    let rels = dropin_rel_dirs(unit_name);
     const SYSTEM_UNIT_DIRS: [&str; 5] = [
         "/lib/systemd/system",
         "/usr/lib/systemd/system",
@@ -1020,14 +1194,18 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
         "/run/systemd/system",
         "/etc/systemd/system",
     ];
-    if SYSTEM_UNIT_DIRS.iter().any(|dir| parent == Path::new(dir)) {
-        SYSTEM_UNIT_DIRS
-            .iter()
-            .map(|dir| Path::new(dir).join(&dropin_rel))
-            .collect()
+    let tiers: Vec<&Path> = if SYSTEM_UNIT_DIRS.iter().any(|dir| parent == Path::new(dir)) {
+        SYSTEM_UNIT_DIRS.iter().map(Path::new).collect()
     } else {
-        vec![parent.join(&dropin_rel)]
+        vec![parent]
+    };
+    let mut dirs = Vec::with_capacity(tiers.len() * rels.len());
+    for tier in tiers {
+        for rel in &rels {
+            dirs.push(tier.join(rel));
+        }
     }
+    dirs
 }
 
 fn load_unit_env_spec_with_dirs(
@@ -1161,6 +1339,8 @@ fn gateway_has_worm_settings(
     expected_mode: &str,
     expected_legal_hold: Option<&str>,
     expected_retention_days: Option<&str>,
+    expected_s3: &ResolvedS3,
+    gateway_s3: &ResolvedS3,
 ) -> bool {
     if !gw.has_storage_file || !gw.has_gateway_file {
         return false;
@@ -1169,6 +1349,9 @@ fn gateway_has_worm_settings(
         .iter()
         .any(|k| env_lookup(&gw.pairs, k).is_some_and(|v| !v.is_empty()));
     if !has_storage_setting {
+        return false;
+    }
+    if expected_s3 != gateway_s3 {
         return false;
     }
     if env_lookup(&gw.pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
@@ -1185,6 +1368,31 @@ fn gateway_has_worm_settings(
     true
 }
 
+fn check_db_gateway_startup_prereqs(gw: &EffectiveGatewayEnv) -> Result<()> {
+    let is_db_backed = env_lookup(&gw.pairs, "DB_DSN").is_some_and(|v| !v.is_empty());
+    if !is_db_backed {
+        return Ok(());
+    }
+    let has_gateway_worm = gw.has_gateway_file && gw.gateway_file_worm_mode.is_some();
+    let effective_worm = env_lookup(&gw.pairs, "WORM_MODE");
+    if !has_gateway_worm || effective_worm.is_none() {
+        bail!(
+            "DB-backed setjoin-gateway unit/gateway.env must set explicit WORM_MODE (empty when disabled); run upgrade.sh refresh-gateway-env before activating"
+        );
+    }
+    if effective_worm.as_deref().is_some_and(|v| !v.is_empty()) {
+        let has_storage_setting = STORAGE_ENV_KEYS
+            .iter()
+            .any(|k| env_lookup(&gw.pairs, k).is_some_and(|v| !v.is_empty()));
+        if !gw.has_storage_file || !has_storage_setting {
+            bail!(
+                "DB-backed setjoin-gateway enables WORM_MODE, but lacks storage.env and S3_*/MINIO_* settings; run upgrade.sh refresh-gateway-env before activating"
+            );
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn check_worm_gateway_ready(
     unit_path: &Path,
     explicit_config_env: Option<&Path>,
@@ -1192,6 +1400,7 @@ pub(crate) fn check_worm_gateway_ready(
 ) -> Result<()> {
     let unit_spec = load_unit_env_spec(unit_path)?;
     let gw = load_effective_gateway_env(&unit_spec)?;
+    check_db_gateway_startup_prereqs(&gw)?;
     let unit_cfg = unit_spec
         .env_files
         .iter()
@@ -1215,15 +1424,21 @@ pub(crate) fn check_worm_gateway_ready(
     let expected_legal_hold = env_lookup(&pairs, "WORM_LEGAL_HOLD_ENABLED");
     let config_worm_mode = env_lookup(&pairs, "WORM_MODE");
     let config_retention = env_lookup(&pairs, "WORM_RETENTION_DAYS");
+    let host_yaml_path = env_lookup(&pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty());
+    let mut cached_yaml: Option<(String, String)> = None;
     let need_yaml = config_worm_mode.is_none() || config_retention.is_none();
     let yaml_settings = if need_yaml && config_worm_mode.as_deref() != Some("") {
-        match env_lookup(&pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty()) {
-            Some(yaml_path) => match std::fs::read_to_string(&yaml_path) {
-                Ok(yaml) => Some(yaml_worm_settings(&yaml).map_err(|reason| {
-                    anyhow::anyhow!(
-                        "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM gateway readiness ({reason}); set WORM_MODE explicitly or run upgrade.sh refresh-gateway-env"
-                    )
-                })?),
+        match host_yaml_path.as_ref() {
+            Some(yaml_path) => match std::fs::read_to_string(yaml_path) {
+                Ok(yaml) => {
+                    let parsed = yaml_worm_settings(&yaml).map_err(|reason| {
+                        anyhow::anyhow!(
+                            "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM gateway readiness ({reason}); set WORM_MODE explicitly or run upgrade.sh refresh-gateway-env"
+                        )
+                    })?;
+                    cached_yaml = Some((yaml_path.clone(), yaml));
+                    Some(parsed)
+                }
                 Err(err) => {
                     bail!(
                         "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM gateway readiness: {err}"
@@ -1246,11 +1461,58 @@ pub(crate) fn check_worm_gateway_ready(
             .and_then(|y| y.retention_days.clone()),
     };
     if let Some(mode) = expected_mode {
+        let host_yaml_s3 = match host_yaml_path.as_ref() {
+            Some(yaml_path) => {
+                let yaml = match cached_yaml.as_ref() {
+                    Some((cached_path, src)) if cached_path == yaml_path => src.clone(),
+                    _ => std::fs::read_to_string(yaml_path).map_err(|err| {
+                        anyhow::anyhow!(
+                            "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying S3 storage readiness: {err}"
+                        )
+                    })?,
+                };
+                Some(yaml_s3_settings(&yaml).map_err(|reason| {
+                    anyhow::anyhow!(
+                        "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying S3 storage readiness ({reason}); run upgrade.sh refresh-gateway-env"
+                    )
+                })?)
+            }
+            None => None,
+        };
+        let host_s3 = resolve_s3_settings(&pairs, host_yaml_s3.as_ref()).map_err(|reason| {
+            anyhow::anyhow!(
+                "invalid host S3 storage settings while verifying WORM gateway readiness ({reason})"
+            )
+        })?;
+        let gw_yaml_path = env_lookup(&gw.pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty());
+        let gw_yaml_s3 = match gw_yaml_path.as_ref() {
+            Some(yaml_path) if host_yaml_path.as_ref() == Some(yaml_path) => host_yaml_s3.clone(),
+            Some(yaml_path) => {
+                let yaml = std::fs::read_to_string(yaml_path).map_err(|err| {
+                    anyhow::anyhow!(
+                        "cannot inspect gateway SETJOIN_CONFIG ({yaml_path}) while verifying S3 storage readiness: {err}"
+                    )
+                })?;
+                Some(yaml_s3_settings(&yaml).map_err(|reason| {
+                    anyhow::anyhow!(
+                        "cannot inspect gateway SETJOIN_CONFIG ({yaml_path}) while verifying S3 storage readiness ({reason}); run upgrade.sh refresh-gateway-env"
+                    )
+                })?)
+            }
+            None => None,
+        };
+        let gw_s3 = resolve_s3_settings(&gw.pairs, gw_yaml_s3.as_ref()).map_err(|reason| {
+            anyhow::anyhow!(
+                "invalid gateway S3 storage settings while verifying WORM gateway readiness ({reason})"
+            )
+        })?;
         if !gateway_has_worm_settings(
             &gw,
             &mode,
             expected_legal_hold.as_deref(),
             expected_retention_days.as_deref(),
+            &host_s3,
+            &gw_s3,
         ) {
             bail!(
                 "WORM is enabled in host configuration, but setjoin-gateway unit/gateway.env lacks matching storage.env and WORM_MODE; run upgrade.sh refresh-gateway-env before activating"
@@ -1442,12 +1704,15 @@ mod tests {
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=2557\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
 
-        // Top-level flow YAML -> Err when mismatched, Ok when matched
+        // Top-level flow YAML -> Err when mismatched or S3 bucket differs, Ok when both match
         std::fs::write(&yaml, "{ s3: { bucket: a }, worm: { mode: compliance } }\n").unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        std::fs::write(&storage, "S3_BUCKET=a\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
+        std::fs::write(&storage, "S3_BUCKET=mailblobs\n").unwrap();
 
         // Merge key in YAML fails closed even when gateway sets WORM_MODE -> Err
         std::fs::write(&yaml, "<<: *base\n").unwrap();
@@ -1711,14 +1976,72 @@ mod tests {
         std::fs::write(unset_dir.join("20-reset.conf"), "[Service]\nUnsetEnvironment=\n").unwrap();
         assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_ok());
 
-        // Drop-in section filtering + backslash continuations + UnsetEnvironment=WORM_MODE isolated from LiveKit
+        // Stale S3 settings in storage.env fail preflight even when WORM_MODE matches
+        std::fs::write(
+            &cfg,
+            "WORM_MODE=compliance\nS3_ENDPOINT=https://s3.new.test\nS3_BUCKET=new-blobs\nS3_SECRET_KEY=new-secret\n",
+        )
+        .unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        std::fs::write(
+            &storage,
+            "S3_ENDPOINT=https://s3.old.test\nS3_BUCKET=new-blobs\nS3_SECRET_KEY=new-secret\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(
+            &storage,
+            "S3_ENDPOINT=https://s3.new.test\nS3_BUCKET=new-blobs\nS3_SECRET_KEY=new-secret\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(&cfg, "WORM_MODE=compliance\n").unwrap();
+        std::fs::write(&storage, "S3_BUCKET=mailblobs\n").unwrap();
+
+        // Missing config.env still enforces DB-backed gateway startup prereqs (WORM_MODE + storage.env)
+        let nocfg_dir = dir.path().join("no-cfg-db");
+        std::fs::create_dir_all(&nocfg_dir).unwrap();
+        let nocfg_fed = nocfg_dir.join("federation.env");
+        let nocfg_gw = nocfg_dir.join("gateway.env");
+        let nocfg_storage = nocfg_dir.join("storage.env");
+        let nocfg_unit = nocfg_dir.join("nocfg.service");
+        std::fs::write(&nocfg_fed, "DB_DSN=postgres://app@localhost/mail\n").unwrap();
+        std::fs::write(&nocfg_gw, "GATEWAY_ENABLED=true\n").unwrap();
+        std::fs::write(
+            &nocfg_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                nocfg_fed.display(),
+                nocfg_storage.display(),
+                nocfg_gw.display()
+            ),
+        )
+        .unwrap();
+        let err_nocfg = check_worm_gateway_ready(&nocfg_unit, None, &missing_default).unwrap_err();
+        assert!(err_nocfg.to_string().contains("WORM_MODE"));
+        let err_nocfg_explicit =
+            check_worm_gateway_ready(&nocfg_unit, Some(&missing_default), &missing_default)
+                .unwrap_err();
+        assert!(err_nocfg_explicit.to_string().contains("WORM_MODE"));
+        std::fs::write(&nocfg_gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&nocfg_unit, None, &missing_default).is_err());
+        std::fs::write(&nocfg_storage, "S3_BUCKET=mailblobs\n").unwrap();
+        assert!(check_worm_gateway_ready(&nocfg_unit, None, &missing_default).is_ok());
+        std::fs::write(&nocfg_gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
+        assert!(check_worm_gateway_ready(&nocfg_unit, None, &missing_default).is_ok());
+
+        // Drop-in section filtering, even/odd trailing backslashes, and prefix/type drop-ins
         let db_unset_dir = dir.path().join("db-unset");
-        let db_unset_dropin = db_unset_dir.join("db-unset.service.d");
+        let db_unset_type = db_unset_dir.join("service.d");
+        let db_unset_prefix = db_unset_dir.join("setjoin-.service.d");
+        let db_unset_dropin = db_unset_dir.join("setjoin-gateway.service.d");
+        std::fs::create_dir_all(&db_unset_type).unwrap();
+        std::fs::create_dir_all(&db_unset_prefix).unwrap();
         std::fs::create_dir_all(&db_unset_dropin).unwrap();
         let db_unset_cfg = db_unset_dir.join("config.env");
         let db_unset_fed = db_unset_dir.join("federation.env");
         let db_unset_gw = db_unset_dir.join("gateway.env");
-        let db_unset_unit = db_unset_dir.join("db-unset.service");
+        let db_unset_unit = db_unset_dir.join("setjoin-gateway.service");
         std::fs::write(&db_unset_cfg, "HOSTNAME=mail.test\n").unwrap();
         std::fs::write(&db_unset_fed, "DB_DSN=postgres://app@localhost/mail\n").unwrap();
         std::fs::write(&db_unset_gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
@@ -1739,12 +2062,32 @@ mod tests {
         .unwrap();
         assert!(check_worm_gateway_ready(&db_unset_unit, None, &stale_default).is_ok());
         std::fs::write(
+            db_unset_type.join("12-type.conf"),
+            "[Service]\nUnsetEnvironment=WORM_MODE\n",
+        )
+        .unwrap();
+        let err_type = check_worm_gateway_ready(&db_unset_unit, None, &stale_default).unwrap_err();
+        assert!(err_type.to_string().contains("WORM_MODE"));
+        std::fs::remove_file(db_unset_type.join("12-type.conf")).unwrap();
+        std::fs::write(
+            db_unset_prefix.join("15-prefix.conf"),
+            "[Service]\nUnsetEnvironment=WORM_MODE\n",
+        )
+        .unwrap();
+        let err_prefix =
+            check_worm_gateway_ready(&db_unset_unit, None, &stale_default).unwrap_err();
+        assert!(err_prefix.to_string().contains("WORM_MODE"));
+        std::fs::remove_file(db_unset_prefix.join("15-prefix.conf")).unwrap();
+        std::fs::write(
             db_unset_dropin.join("20-unset-worm.conf"),
-            "[Service]\nUnsetEnvironment=FOO \\\n# comment inside continuation\n  WORM_MODE\n",
+            "[Service]\nDescription=trailing literal \\\\\nUnsetEnvironment=FOO \\\n# comment inside continuation\n  WORM_MODE\n",
         )
         .unwrap();
         let unset_worm_err =
             check_worm_gateway_ready(&db_unset_unit, None, &stale_default).unwrap_err();
-        assert!(unset_worm_err.to_string().contains("WORM_MODE="));
+        assert!(unset_worm_err.to_string().contains("WORM_MODE"));
+        let sys_dirs = default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
+        assert!(sys_dirs.contains(&Path::new("/lib/systemd/system/service.d").to_path_buf()));
+        assert!(sys_dirs.contains(&Path::new("/etc/systemd/system/setjoin-.service.d").to_path_buf()));
     }
 }

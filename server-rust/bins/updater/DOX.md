@@ -57,8 +57,8 @@ followed by `UnsetEnvironment=` (respecting empty resets), and checks that:
   empty effective `WORM_MODE` when WORM is disabled;
 - active WORM settings (`SETJOIN_CONFIG_DIR` or unit-derived `config.env`, plus
   UTF-8-BOM-stripped `SETJOIN_CONFIG` YAML `worm.mode` and `worm.retention_days`)
-  match a present `storage.env`, at least one non-empty effective `S3_*`/`MINIO_*`
-  storage setting, and effective `WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`/`WORM_RETENTION_DAYS`,
+  match a present `storage.env`, matching effective `S3_*`/`MINIO_*` storage
+  settings, and effective `WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`/`WORM_RETENTION_DAYS`,
   failing closed on unreadable, merged, or unparsed YAML constructs in `worm` config;
 - configured `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`/`LIVEKIT_URL` in `config.env`
   match the gateway's effective unit env (`federation.env`).
