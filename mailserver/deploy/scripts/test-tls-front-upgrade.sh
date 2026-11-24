@@ -187,7 +187,7 @@ ENV
   cp "$im/config.before" "$im/config/config.env"
   if command -v flock >/dev/null 2>&1; then
     mkdir -p "$im/updater-journal" "$im/before-im-cfg" "$im/before-im-units"
-    printf '[Service]\nExecStart=/usr/libexec/setjoin-updater run --state-dir=%s/updater-journal --release-store=%s/rel\n' "$im" "$im" > "$im/units/setjoin-updater.service"
+    printf '[Service]\nExecStart=/usr/libexec/setjoin-updater run --state-dir=%s/updater-journal --release-store=%s/rel\n# old --state-dir=/nonexistent/comment\n' "$im" "$im" > "$im/units/setjoin-updater.service"
     cp -a "$im/config/." "$im/before-im-cfg/"
     cp -a "$im/units/." "$im/before-im-units/"
     exec 8>"$im/updater-journal/executor.lock"
@@ -198,7 +198,7 @@ ENV
       bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env >"$im/lock.out" 2>&1 || lock_rc=$?
     exec 8>&-
     [ "$lock_rc" != 0 ] || { echo 'expected executor.lock contention to refuse refresh' >&2; exit 1; }
-    grep -q 'executor\.lock' "$im/lock.out"
+    grep -Eq 'active signed update holds .*executor\.lock' "$im/lock.out"
     diff -ru "$im/before-im-cfg" "$im/config"
     diff -ru "$im/before-im-units" "$im/units"
   fi

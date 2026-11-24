@@ -57,6 +57,19 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let environment = std::env::vars().collect();
+    let explicit_worm_env = environment.contains_key("WORM_MODE");
+    let explicit_storage_env = [
+        "S3_ENDPOINT",
+        "MINIO_ENDPOINT",
+        "S3_BUCKET",
+        "MINIO_BUCKET",
+        "S3_ACCESS_KEY",
+        "MINIO_ACCESS_KEY",
+        "S3_SECRET_KEY",
+        "MINIO_SECRET_KEY",
+    ]
+    .iter()
+    .any(|k| environment.get(*k).is_some_and(|v| !v.is_empty()));
     let settings = match setjoin_gateway::configuration::Settings::load(&environment) {
         Ok(settings) => settings,
         Err(error) => {
@@ -97,7 +110,7 @@ fn main() -> ExitCode {
     if let Err(refusal) = runtime.block_on(setjoin_boot::run()) {
         return ExitCode::from(refusal.exit_code);
     }
-    match runtime.block_on(run(configuration)) {
+    match runtime.block_on(run(configuration, explicit_worm_env, explicit_storage_env)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("setjoin-gateway: {err}");
@@ -106,7 +119,11 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Result<(), String> {
+async fn run(
+    configuration: Arc<setjoin_gateway::configuration::Runtime>,
+    explicit_worm_env: bool,
+    explicit_storage_env: bool,
+) -> Result<(), String> {
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
         .map_err(|e| format!("SIGHUP registration: {e}"))?;
     let mut settings = configuration.startup_settings();
@@ -279,6 +296,8 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
             federation.as_ref().map(|runtime| runtime.service.clone()),
             platform_storage.clone(),
             activated.http.is_some(),
+            explicit_worm_env,
+            explicit_storage_env,
         )
         .await?
     } else {
@@ -1121,6 +1140,8 @@ async fn routes(
     federation: Option<Arc<setjoin_federation::service::Service>>,
     platform_storage: Option<Arc<setjoin_gateway::platform_storage::Runtime>>,
     activated_http: bool,
+    explicit_worm_env: bool,
+    explicit_storage_env: bool,
 ) -> Result<(RouteTable, Option<EdgeLimit>), String> {
     // The final route is the positional catch-all; concrete namespaces must
     // be registered before it in both the public-only and full tables.
@@ -1213,26 +1234,13 @@ async fn routes(
     let office =
         setjoin_gateway::f15::F15Config::from_env(exec.clone(), keys.clone(), issuer.clone())?;
     let compliance_worker_dsn = env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone());
-    if activated_http && std::env::var_os("WORM_MODE").is_none() {
+    if activated_http && !explicit_worm_env {
         return Err(
-            "systemd-activated gateway requires explicit WORM_MODE (empty when disabled) from render_gateway_env and storage.env; run upgrade.sh refresh-gateway-env before activating".into(),
+            "systemd-activated gateway requires explicit WORM_MODE (empty when disabled) in gateway.env; run upgrade.sh refresh-gateway-env before activating".into(),
         );
     }
     let worm = setjoin_gateway::compliance::WormConfig::from_settings(settings);
-    if worm.mode_enabled
-        && ![
-            "S3_ENDPOINT",
-            "MINIO_ENDPOINT",
-            "S3_BUCKET",
-            "MINIO_BUCKET",
-            "S3_ACCESS_KEY",
-            "MINIO_ACCESS_KEY",
-            "S3_SECRET_KEY",
-            "MINIO_SECRET_KEY",
-        ]
-        .iter()
-        .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()))
-    {
+    if worm.mode_enabled && !explicit_storage_env {
         return Err(
             "WORM_MODE is enabled in gateway settings, but no S3_*/MINIO_* storage settings were loaded; run upgrade.sh refresh-gateway-env before activating".into(),
         );

@@ -155,9 +155,21 @@ if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
     parts = [p for p in path.split("/") if p]
     if not path.startswith("/") or not parts:
         sys.exit(0)
+    is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    allowed_owners = {0}
+    if is_root:
+        try:
+            import pwd
+            allowed_owners.add(pwd.getpwnam("setjoin").pw_uid)
+        except KeyError:
+            pass
     fd = os.open("/", flags)
     try:
         for seg in parts:
+            if is_root:
+                pst = os.fstat(fd)
+                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                    sys.exit(0)
             nxt = os.open(seg, flags, dir_fd=fd)
             os.close(fd)
             fd = nxt
@@ -398,7 +410,7 @@ PY
 if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
     _updater_state="${UPDATER_STATE_DIR:-}"
     if [ -z "$_updater_state" ] && [ -f "$SYSTEMD_DIR/setjoin-updater.service" ]; then
-        _updater_state="$(sed -n 's/.*--state-dir=\([^ ]*\).*/\1/p' "$SYSTEMD_DIR/setjoin-updater.service" | tail -1 || true)"
+        _updater_state="$(sed -n '/^[[:space:]]*ExecStart=/s/.*--state-dir=\([^[:space:]]*\).*/\1/p' "$SYSTEMD_DIR/setjoin-updater.service" | tail -1 || true)"
     fi
     if [ -z "$_updater_state" ]; then
         _updater_state="${UPDATER_DATA_DIR:-/var/lib/setjoin-updater}/journal"

@@ -359,7 +359,7 @@ impl S3Store {
             unsigned,
             no_redirect,
             request_timeout: None,
-            region: tokio::sync::Mutex::new(None),
+            region: tokio::sync::Mutex::new(s3_region_from_url(endpoint)),
             small_cache: std::sync::Mutex::new(SmallCache::default()),
         })
     }
@@ -772,8 +772,17 @@ impl S3Store {
             }
         }
         let body = String::from_utf8_lossy(&body_bytes);
-        let xml_code = s3_xml_tag(&body, "Code").map(str::to_owned);
-        let xml_region = s3_xml_tag(&body, "Region").map(str::to_owned);
+        let parsed_xml = quick_xml::de::from_str::<LocationError>(&body).ok();
+        let xml_code = parsed_xml
+            .as_ref()
+            .map(|e| e.code.trim())
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned);
+        let xml_region = parsed_xml
+            .as_ref()
+            .map(|e| e.region.trim())
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned);
         Ok(LegalHoldReply {
             status,
             signed_region,
@@ -1294,8 +1303,52 @@ fn normalize_s3_region(region: &str) -> String {
     }
 }
 
-/// Derives the AWS regional S3 endpoint matching `minio-go` v7.2.1 `getS3Endpoint`,
-/// leaving non-AWS and specialized endpoints untouched.
+fn split_amazon_s3_prefix(host: &str) -> Option<&str> {
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    let prefix = lower
+        .strip_suffix(".amazonaws.com.cn")
+        .or_else(|| lower.strip_suffix(".amazonaws.com"))?;
+    let valid = if matches!(prefix, "s3" | "s3-external-1" | "s3.dualstack") {
+        true
+    } else if let Some(rest) = prefix
+        .strip_prefix("s3.dualstack.")
+        .or_else(|| prefix.strip_prefix("s3."))
+        .or_else(|| prefix.strip_prefix("s3-"))
+    {
+        !rest.is_empty()
+            && !rest.contains('.')
+            && !rest.contains("fips")
+            && !rest.starts_with("control")
+            && !rest.starts_with("accelerate")
+            && !rest.starts_with("outposts")
+    } else {
+        false
+    };
+    valid.then_some(host)
+}
+
+/// Extracts an explicit AWS region from standard, dual-stack, or legacy `s3-<region>`
+/// Amazon S3 endpoints matching `minio-go` v7.2.1 `s3utils.GetRegionFromURL`.
+fn s3_region_from_url(endpoint: &str) -> Option<String> {
+    let url = reqwest::Url::parse(endpoint).ok()?;
+    let host = split_amazon_s3_prefix(url.host_str()?)?;
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    let prefix = lower
+        .strip_suffix(".amazonaws.com.cn")
+        .or_else(|| lower.strip_suffix(".amazonaws.com"))?;
+    if matches!(prefix, "s3" | "s3-external-1" | "s3.dualstack") {
+        return None;
+    }
+    let rest = prefix
+        .strip_prefix("s3.dualstack.")
+        .or_else(|| prefix.strip_prefix("s3."))
+        .or_else(|| prefix.strip_prefix("s3-"))?;
+    (!rest.is_empty()).then(|| rest.to_owned())
+}
+
+/// Derives the dual-stack AWS regional S3 endpoint matching `minio-go` v7.2.1
+/// (`s3DualstackEnabled = true` on `IsAmazonEndpoint`), leaving non-AWS and
+/// specialized endpoints untouched.
 fn regional_s3_endpoint(endpoint: &str, region: &str) -> String {
     if region.is_empty() {
         return endpoint.to_owned();
@@ -1306,45 +1359,15 @@ fn regional_s3_endpoint(endpoint: &str, region: &str) -> String {
     let Some(host) = url.host_str() else {
         return endpoint.to_owned();
     };
-    let lower = host.trim_end_matches('.').to_ascii_lowercase();
-    let base = lower
-        .strip_suffix(".amazonaws.com.cn")
-        .or_else(|| lower.strip_suffix(".amazonaws.com"));
-    let Some(prefix) = base else {
+    if split_amazon_s3_prefix(host).is_none() {
         return endpoint.to_owned();
-    };
-    let dualstack = if prefix == "s3" {
-        false
-    } else if prefix == "s3.dualstack" {
-        true
-    } else if let Some(rest) = prefix.strip_prefix("s3.dualstack.") {
-        if rest.is_empty() || rest.contains('.') || rest.contains("fips") {
-            return endpoint.to_owned();
-        }
-        true
-    } else if let Some(rest) = prefix.strip_prefix("s3.") {
-        if rest.is_empty()
-            || rest.contains('.')
-            || rest.starts_with("fips")
-            || rest.starts_with("control")
-            || rest.starts_with("accelerate")
-        {
-            return endpoint.to_owned();
-        }
-        false
-    } else {
-        return endpoint.to_owned();
-    };
+    }
     let domain = if region.starts_with("cn-") {
         "amazonaws.com.cn"
     } else {
         "amazonaws.com"
     };
-    let regional_host = if dualstack {
-        format!("s3.dualstack.{region}.{domain}")
-    } else {
-        format!("s3.{region}.{domain}")
-    };
+    let regional_host = format!("s3.dualstack.{region}.{domain}");
     if url.set_host(Some(&regional_host)).is_err() {
         return endpoint.to_owned();
     }
@@ -1353,15 +1376,6 @@ fn regional_s3_endpoint(endpoint: &str, region: &str) -> String {
     } else {
         url.to_string()
     }
-}
-
-fn s3_xml_tag<'a>(body: &'a str, tag: &str) -> Option<&'a str> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let start = body.find(&open)? + open.len();
-    let end = body[start..].find(&close)?;
-    let value = body[start..start + end].trim();
-    (!value.is_empty()).then_some(value)
 }
 
 fn is_retryable_s3_code(code: &str) -> bool {
@@ -1722,12 +1736,20 @@ mod tests {
         .await;
     }
 
-    #[test]
-    fn regional_s3_endpoint_rewrites_standard_and_dualstack_aws_hosts() {
-        use super::regional_s3_endpoint;
+    #[tokio::test]
+    async fn regional_s3_endpoint_and_url_region_extraction_match_minio_go() {
+        use super::{regional_s3_endpoint, s3_region_from_url};
         assert_eq!(
             regional_s3_endpoint("https://s3.amazonaws.com", "us-west-2"),
-            "https://s3.us-west-2.amazonaws.com"
+            "https://s3.dualstack.us-west-2.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-external-1.amazonaws.com", "us-east-1"),
+            "https://s3.dualstack.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-eu-west-1.amazonaws.com", "eu-west-1"),
+            "https://s3.dualstack.eu-west-1.amazonaws.com"
         );
         assert_eq!(
             regional_s3_endpoint("https://s3.dualstack.amazonaws.com", "eu-west-1"),
@@ -1735,7 +1757,7 @@ mod tests {
         );
         assert_eq!(
             regional_s3_endpoint("https://s3.amazonaws.com", "cn-north-1"),
-            "https://s3.cn-north-1.amazonaws.com.cn"
+            "https://s3.dualstack.cn-north-1.amazonaws.com.cn"
         );
         assert_eq!(
             regional_s3_endpoint("https://s3-fips.us-east-1.amazonaws.com", "us-west-2"),
@@ -1744,6 +1766,24 @@ mod tests {
         assert_eq!(
             regional_s3_endpoint("http://127.0.0.1:9000", "us-west-2"),
             "http://127.0.0.1:9000"
+        );
+
+        assert_eq!(s3_region_from_url("https://s3.amazonaws.com"), None);
+        assert_eq!(s3_region_from_url("https://s3-external-1.amazonaws.com"), None);
+        assert_eq!(
+            s3_region_from_url("https://s3-us-west-2.amazonaws.com").as_deref(),
+            Some("us-west-2")
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3.dualstack.eu-central-1.amazonaws.com").as_deref(),
+            Some("eu-central-1")
+        );
+
+        let regional_store =
+            S3Store::new("https://s3-us-west-2.amazonaws.com", "mailblobs", "ak", "sk").unwrap();
+        assert_eq!(
+            regional_store.region.lock().await.as_deref(),
+            Some("us-west-2")
         );
     }
 
@@ -1814,7 +1854,15 @@ mod tests {
 
         // Empty 403 defaults to AccessDenied and retries with header region.
         run_retry_case(403, "eu-west-1", b"", "eu-west-1").await;
-        // XML <Region> takes precedence over conflicting x-amz-bucket-region header.
+        // Truncated undecodable 403 XML falls back to AccessDenied + header region.
+        run_retry_case(
+            403,
+            "eu-west-1",
+            b"<Error><Code>InvalidAccessKeyId</Code><Region>wrong-region</Region>",
+            "eu-west-1",
+        )
+        .await;
+        // Complete XML <Region> takes precedence over conflicting x-amz-bucket-region header.
         run_retry_case(
             400,
             "ap-south-1",

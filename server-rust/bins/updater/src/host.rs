@@ -723,6 +723,7 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
     }
 
     let mut out = YamlWorm::default();
+    let mut root_ind: Option<usize> = None;
     let mut in_worm = false;
     let mut worm_ind = 0usize;
     let mut child_ind: Option<usize> = None;
@@ -784,7 +785,11 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
                 continue;
             }
         }
-        if ind == 0 {
+        let root = *root_ind.get_or_insert(ind);
+        if ind < root {
+            return Err("inconsistent root YAML indentation");
+        }
+        if ind == root {
             if let Some((k, rest)) = trimmed.split_once(':') {
                 if k.trim() == "<<" {
                     return Err("root YAML merge key");
@@ -815,34 +820,40 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
 }
 
 fn parse_unit_env_files(unit: &str) -> Vec<(std::path::PathBuf, bool)> {
-    unit.lines()
-        .filter_map(|line| {
-            let t = line.trim();
-            if t.starts_with('#') || t.starts_with(';') {
-                return None;
-            }
-            let rhs = t.strip_prefix("EnvironmentFile=")?.trim();
-            let (optional, rest) = if let Some(after) = rhs.strip_prefix('-') {
-                (true, after.trim())
-            } else {
-                (false, rhs)
-            };
-            let unquoted = rest
-                .strip_prefix('"')
-                .and_then(|s| s.strip_suffix('"'))
-                .or_else(|| rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
-                .unwrap_or(rest);
-            (!unquoted.is_empty()).then(|| (std::path::PathBuf::from(unquoted), optional))
-        })
-        .collect()
+    let mut out = Vec::new();
+    for line in unit.lines() {
+        let t = line.trim();
+        if t.starts_with('#') || t.starts_with(';') {
+            continue;
+        }
+        let Some(raw_rhs) = t.strip_prefix("EnvironmentFile=") else {
+            continue;
+        };
+        let rhs = raw_rhs.trim();
+        if rhs.is_empty() {
+            out.clear();
+            continue;
+        }
+        let (optional, rest) = if let Some(after) = rhs.strip_prefix('-') {
+            (true, after.trim())
+        } else {
+            (false, rhs)
+        };
+        let unquoted = rest
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .or_else(|| rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+            .unwrap_or(rest);
+        if !unquoted.is_empty() {
+            out.push((std::path::PathBuf::from(unquoted), optional));
+        }
+    }
+    out
 }
 
-fn gateway_has_worm_settings(
+fn load_effective_gateway_env(
     env_files: &[(std::path::PathBuf, bool)],
-    expected_mode: &str,
-    expected_legal_hold: Option<&str>,
-    expected_retention_days: Option<&str>,
-) -> bool {
+) -> Option<(Vec<(String, String)>, bool, bool)> {
     let has_storage_file = env_files.iter().any(|(p, _)| {
         p.file_name().and_then(|n| n.to_str()) == Some("storage.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
@@ -851,16 +862,30 @@ fn gateway_has_worm_settings(
         p.file_name().and_then(|n| n.to_str()) == Some("gateway.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
     });
-    if !has_storage_file || !has_gateway_file {
-        return false;
-    }
     let mut effective_gw_pairs = Vec::new();
     for (path, optional) in env_files {
         match std::fs::read_to_string(path) {
             Ok(content) => effective_gw_pairs.extend(parse_env_assignments(&content)),
-            Err(_) if !optional => return false,
+            Err(_) if !optional => return None,
             Err(_) => {}
         }
+    }
+    Some((effective_gw_pairs, has_storage_file, has_gateway_file))
+}
+
+fn gateway_has_worm_settings(
+    env_files: &[(std::path::PathBuf, bool)],
+    expected_mode: &str,
+    expected_legal_hold: Option<&str>,
+    expected_retention_days: Option<&str>,
+) -> bool {
+    let Some((effective_gw_pairs, has_storage_file, has_gateway_file)) =
+        load_effective_gateway_env(env_files)
+    else {
+        return false;
+    };
+    if !has_storage_file || !has_gateway_file {
+        return false;
     }
     if env_lookup(&effective_gw_pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
         return false;
@@ -948,6 +973,16 @@ pub(crate) fn check_worm_gateway_ready(
         ) {
             bail!(
                 "WORM is enabled in host configuration, but setjoin-gateway unit/gateway.env lacks matching storage.env and WORM_MODE; run upgrade.sh refresh-gateway-env before activating"
+            );
+        }
+    } else if let Some((effective_gw_pairs, _, has_gateway_file)) =
+        load_effective_gateway_env(&env_files)
+    {
+        if env_lookup(&effective_gw_pairs, "DB_DSN").is_some_and(|v| !v.is_empty())
+            && (!has_gateway_file || env_lookup(&effective_gw_pairs, "WORM_MODE").is_none())
+        {
+            bail!(
+                "DB-backed setjoin-gateway unit/gateway.env lacks explicit WORM_MODE=; run upgrade.sh refresh-gateway-env before activating"
             );
         }
     }
@@ -1120,6 +1155,45 @@ mod tests {
 
         // Explicit empty WORM_MODE= overrides YAML -> Ok
         std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\nWORM_MODE=\n", yaml.display())).unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
+
+        // Indented YAML root mapping -> detected
+        std::fs::write(&yaml, "  worm:\n    mode: compliance\n").unwrap();
+        std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\n", yaml.display())).unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
+
+        // Empty EnvironmentFile= clears earlier directives in systemd
+        let cleared_unit = dir.path().join("cleared.service");
+        std::fs::write(
+            &cleared_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\nEnvironmentFile=\n",
+                storage.display(),
+                gw.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&cleared_unit, None, &stale_default).is_err());
+
+        // DB-backed non-WORM host requires explicit WORM_MODE= in gateway.env
+        let fed = dir.path().join("federation.env");
+        std::fs::write(&fed, "DB_DSN=postgres://app@localhost/mail\n").unwrap();
+        std::fs::write(
+            &unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                fed.display(),
+                gw.display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(&cfg, "HOSTNAME=mail.test\n").unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
     }
 }

@@ -1111,10 +1111,11 @@ Platform #305. Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
 `WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
 operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows Go's
 env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled; upgrading
-pre-`storage.env` WORM hosts requires `upgrade.sh refresh-gateway-env` for
-immutable installations (or `upgrade.sh` on flat layouts) before activation;
-`setjoin-updater` preflight blocks activation when active WORM settings lack
-`storage.env` in `setjoin-gateway.service` or `WORM_MODE` in `gateway.env`). The TLS
+all DB-backed immutable hosts requires installing the updated `setjoin-updater` and
+running `upgrade.sh refresh-gateway-env` — or `upgrade.sh` on flat layouts — before
+activation so `gateway.env` carries explicit `WORM_MODE=`/`WORM_MODE=<mode>` and
+`setjoin-gateway.service` loads `storage.env`; `setjoin-updater` preflight and
+systemd-activated `setjoin-gateway` startup block activation until refreshed). The TLS
 import/ACME cache directory (`tls_import_cache_dir`, resolved from
 `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
 `yaml-config.py`) is validated lexically and
