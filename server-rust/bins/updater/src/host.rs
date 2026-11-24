@@ -877,7 +877,58 @@ const STORAGE_ENV_KEYS: [&str; 8] = [
     "MINIO_SECRET_KEY",
 ];
 
-fn parse_unit_env_files_into(unit: &str, out: &mut Vec<(std::path::PathBuf, bool)>) {
+#[derive(Default, Debug)]
+struct UnitEnvSpec {
+    env_files: Vec<(std::path::PathBuf, bool)>,
+    unset_env: Vec<String>,
+}
+
+fn split_systemd_words(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut chars = s.chars().peekable();
+    while let Some(&c) = chars.peek() {
+        if c.is_ascii_whitespace() {
+            chars.next();
+            continue;
+        }
+        let mut word = String::new();
+        while let Some(&ch) = chars.peek() {
+            if ch.is_ascii_whitespace() {
+                break;
+            }
+            if ch == '"' || ch == '\'' {
+                let q = ch;
+                chars.next();
+                while let Some(inner) = chars.next() {
+                    if inner == q {
+                        break;
+                    }
+                    if inner == '\\' && q == '"' {
+                        if let Some(esc) = chars.next() {
+                            word.push(esc);
+                        }
+                    } else {
+                        word.push(inner);
+                    }
+                }
+            } else if ch == '\\' {
+                chars.next();
+                if let Some(esc) = chars.next() {
+                    word.push(esc);
+                }
+            } else {
+                word.push(ch);
+                chars.next();
+            }
+        }
+        if !word.is_empty() {
+            out.push(word);
+        }
+    }
+    out
+}
+
+fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
     for line in unit.lines() {
         let t = line.trim();
         if t.starts_with('#') || t.starts_with(';') {
@@ -886,12 +937,21 @@ fn parse_unit_env_files_into(unit: &str, out: &mut Vec<(std::path::PathBuf, bool
         let Some((lhs, raw_rhs)) = t.split_once('=') else {
             continue;
         };
-        if lhs.trim() != "EnvironmentFile" {
+        let key = lhs.trim();
+        let rhs = raw_rhs.trim();
+        if key == "UnsetEnvironment" {
+            if rhs.is_empty() {
+                spec.unset_env.clear();
+            } else {
+                spec.unset_env.extend(split_systemd_words(rhs));
+            }
             continue;
         }
-        let rhs = raw_rhs.trim();
+        if key != "EnvironmentFile" {
+            continue;
+        }
         if rhs.is_empty() {
-            out.clear();
+            spec.env_files.clear();
             continue;
         }
         let (optional, rest) = if let Some(after) = rhs.strip_prefix('-') {
@@ -905,7 +965,8 @@ fn parse_unit_env_files_into(unit: &str, out: &mut Vec<(std::path::PathBuf, bool
             .or_else(|| rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
             .unwrap_or(rest);
         if !unquoted.is_empty() {
-            out.push((std::path::PathBuf::from(unquoted), optional));
+            spec.env_files
+                .push((std::path::PathBuf::from(unquoted), optional));
         }
     }
 }
@@ -935,13 +996,13 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
     }
 }
 
-fn load_unit_env_files_with_dirs(
+fn load_unit_env_spec_with_dirs(
     unit_path: &Path,
     dropin_dirs: &[std::path::PathBuf],
-) -> Result<Vec<(std::path::PathBuf, bool)>> {
-    let mut out = Vec::new();
+) -> Result<UnitEnvSpec> {
+    let mut spec = UnitEnvSpec::default();
     match std::fs::read_to_string(unit_path) {
-        Ok(src) => parse_unit_env_files_into(&src, &mut out),
+        Ok(src) => parse_unit_env_spec_into(&src, &mut spec),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => {
             return Err(err).with_context(|| format!("reading {}", unit_path.display()));
@@ -987,14 +1048,22 @@ fn load_unit_env_files_with_dirs(
     for (_, path) in dropins {
         let src = std::fs::read_to_string(&path)
             .with_context(|| format!("reading drop-in {}", path.display()))?;
-        parse_unit_env_files_into(&src, &mut out);
+        parse_unit_env_spec_into(&src, &mut spec);
     }
-    Ok(out)
+    Ok(spec)
 }
 
-fn load_unit_env_files(unit_path: &Path) -> Result<Vec<(std::path::PathBuf, bool)>> {
+#[cfg(test)]
+fn load_unit_env_files_with_dirs(
+    unit_path: &Path,
+    dropin_dirs: &[std::path::PathBuf],
+) -> Result<Vec<(std::path::PathBuf, bool)>> {
+    Ok(load_unit_env_spec_with_dirs(unit_path, dropin_dirs)?.env_files)
+}
+
+fn load_unit_env_spec(unit_path: &Path) -> Result<UnitEnvSpec> {
     let dropin_dirs = default_dropin_dirs(unit_path);
-    load_unit_env_files_with_dirs(unit_path, &dropin_dirs)
+    load_unit_env_spec_with_dirs(unit_path, &dropin_dirs)
 }
 
 struct EffectiveGatewayEnv {
@@ -1004,20 +1073,18 @@ struct EffectiveGatewayEnv {
     gateway_file_worm_mode: Option<String>,
 }
 
-fn load_effective_gateway_env(
-    env_files: &[(std::path::PathBuf, bool)],
-) -> Option<EffectiveGatewayEnv> {
-    let has_storage_file = env_files.iter().any(|(p, _)| {
+fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv> {
+    let has_storage_file = spec.env_files.iter().any(|(p, _)| {
         p.file_name().and_then(|n| n.to_str()) == Some("storage.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
     });
-    let has_gateway_file = env_files.iter().any(|(p, _)| {
+    let has_gateway_file = spec.env_files.iter().any(|(p, _)| {
         p.file_name().and_then(|n| n.to_str()) == Some("gateway.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
     });
     let mut pairs = Vec::new();
     let mut gateway_file_pairs = Vec::new();
-    for (path, optional) in env_files {
+    for (path, optional) in &spec.env_files {
         match std::fs::read_to_string(path) {
             Ok(content) => {
                 let parsed = parse_env_assignments(&content);
@@ -1026,12 +1093,28 @@ fn load_effective_gateway_env(
                 }
                 pairs.extend(parsed);
             }
-            Err(_) if !optional => return None,
-            Err(_) => {}
+            Err(err) if !optional => {
+                return Err(err)
+                    .with_context(|| format!("reading required EnvironmentFile {}", path.display()));
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(err)
+                    .with_context(|| format!("reading optional EnvironmentFile {}", path.display()));
+            }
+        }
+    }
+    for entry in &spec.unset_env {
+        if let Some((k, v)) = entry.split_once('=') {
+            if env_lookup(&pairs, k).as_deref() == Some(v) {
+                pairs.retain(|(name, _)| name != k);
+            }
+        } else {
+            pairs.retain(|(name, _)| name != entry);
         }
     }
     let gateway_file_worm_mode = env_lookup(&gateway_file_pairs, "WORM_MODE");
-    Some(EffectiveGatewayEnv {
+    Ok(EffectiveGatewayEnv {
         pairs,
         has_storage_file,
         has_gateway_file,
@@ -1040,14 +1123,11 @@ fn load_effective_gateway_env(
 }
 
 fn gateway_has_worm_settings(
-    env_files: &[(std::path::PathBuf, bool)],
+    gw: &EffectiveGatewayEnv,
     expected_mode: &str,
     expected_legal_hold: Option<&str>,
     expected_retention_days: Option<&str>,
 ) -> bool {
-    let Some(gw) = load_effective_gateway_env(env_files) else {
-        return false;
-    };
     if !gw.has_storage_file || !gw.has_gateway_file {
         return false;
     }
@@ -1076,8 +1156,9 @@ pub(crate) fn check_worm_gateway_ready(
     explicit_config_env: Option<&Path>,
     default_config_env: &Path,
 ) -> Result<()> {
-    let env_files = load_unit_env_files(unit_path)?;
-    let unit_cfg = env_files
+    let unit_spec = load_unit_env_spec(unit_path)?;
+    let unit_cfg = unit_spec
+        .env_files
         .iter()
         .rfind(|(p, _)| p.file_name().and_then(|n| n.to_str()) == Some("gateway.env"))
         .and_then(|(p, _)| p.parent().map(|d| d.join("config.env")));
@@ -1129,9 +1210,10 @@ pub(crate) fn check_worm_gateway_ready(
             .as_ref()
             .and_then(|y| y.retention_days.clone()),
     };
+    let gw = load_effective_gateway_env(&unit_spec)?;
     if let Some(mode) = expected_mode {
         if !gateway_has_worm_settings(
-            &env_files,
+            &gw,
             &mode,
             expected_legal_hold.as_deref(),
             expected_retention_days.as_deref(),
@@ -1140,7 +1222,7 @@ pub(crate) fn check_worm_gateway_ready(
                 "WORM is enabled in host configuration, but setjoin-gateway unit/gateway.env lacks matching storage.env and WORM_MODE; run upgrade.sh refresh-gateway-env before activating"
             );
         }
-    } else if let Some(gw) = load_effective_gateway_env(&env_files) {
+    } else {
         let is_db_backed = env_lookup(&gw.pairs, "DB_DSN").is_some_and(|v| !v.is_empty());
         let gateway_has_empty_worm =
             gw.has_gateway_file && gw.gateway_file_worm_mode.as_deref() == Some("");
@@ -1157,11 +1239,6 @@ pub(crate) fn check_worm_gateway_ready(
         env_lookup(&pairs, "LIVEKIT_URL").filter(|v| !v.is_empty()),
     ];
     if let [Some(lk_key), Some(lk_secret), Some(lk_url)] = livekit_expected {
-        let Some(gw) = load_effective_gateway_env(&env_files) else {
-            bail!(
-                "LiveKit is configured in host configuration, but setjoin-gateway unit/federation.env lacks matching LIVEKIT_* settings; run upgrade.sh refresh-gateway-env before activating"
-            );
-        };
         if env_lookup(&gw.pairs, "LIVEKIT_API_KEY").as_deref() != Some(lk_key.as_str())
             || env_lookup(&gw.pairs, "LIVEKIT_API_SECRET").as_deref() != Some(lk_secret.as_str())
             || env_lookup(&gw.pairs, "LIVEKIT_URL").as_deref() != Some(lk_url.as_str())
@@ -1228,7 +1305,11 @@ pub async fn readiness() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_worm_gateway_ready, parse_env_assignments};
+    use std::path::Path;
+    use super::{
+        check_worm_gateway_ready, default_dropin_dirs, load_unit_env_files_with_dirs,
+        parse_env_assignments, yaml_worm_settings,
+    };
 
     #[test]
     fn worm_gateway_ready_checks_unit_and_env() {
@@ -1550,5 +1631,51 @@ mod tests {
             std::os::unix::fs::symlink(loop_dir.join("a.conf"), loop_dir.join("b.conf")).unwrap();
             assert!(load_unit_env_files_with_dirs(&loop_unit, &[loop_dir]).is_err());
         }
+
+        // Missing required EnvironmentFile= fails preflight even when host disables WORM
+        let missing_req_unit = dir.path().join("missing-req.service");
+        let missing_gw = dir.path().join("does-not-exist-gateway.env");
+        std::fs::write(
+            &missing_req_unit,
+            format!("[Service]\nEnvironmentFile={}\n", missing_gw.display()),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&missing_req_unit, Some(&lk_cfg), &stale_default).is_err());
+
+        // Drop-in UnsetEnvironment= removes LiveKit / WORM_MODE after EnvironmentFile=, and empty UnsetEnvironment= resets it
+        let unset_dir = dir.path().join("unset.service.d");
+        std::fs::create_dir_all(&unset_dir).unwrap();
+        let unset_unit = dir.path().join("unset.service");
+        std::fs::write(
+            &unset_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                lk_fed.display(),
+                lk_gw.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_ok());
+        std::fs::write(
+            unset_dir.join("10-unset.conf"),
+            "[Service]\nUnsetEnvironment=LIVEKIT_API_SECRET\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_err());
+        std::fs::write(unset_dir.join("20-reset.conf"), "[Service]\nUnsetEnvironment=\n").unwrap();
+        assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_ok());
+
+        // Drop-in UnsetEnvironment=WORM_MODE on DB-backed non-WORM host fails preflight
+        std::fs::write(
+            &lk_fed,
+            "DB_DSN=postgres://app@localhost/mail\n",
+        )
+        .unwrap();
+        std::fs::write(
+            unset_dir.join("30-unset-worm.conf"),
+            "[Service]\nUnsetEnvironment=WORM_MODE\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unset_unit, None, &stale_default).is_err());
     }
 }

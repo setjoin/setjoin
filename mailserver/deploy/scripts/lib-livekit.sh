@@ -578,35 +578,42 @@ FED
 # Also projects LIVEKIT_* sidecar credentials when present in config.env so
 # setjoin-gateway serves /rtc, /api/rtc, and /api/meet/* without loading config.env.
 render_federation_env() {
-  local outfile="$1" config="$2" credentials="$3" tmp key names allowed livekit_key livekit_val
+  local outfile="$1" config="$2" credentials="$3" tmp key names allowed rc
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
   (
     umask 027
-    if [ -f "$config" ]; then
-      grep -E '^(DB_DSN|DB_DIRECT_DSN|FEDERATION_LOCAL_DOMAIN|FEDERATION_CERT|FEDERATION_KEY|FEDERATION_LISTEN_ADDR)=' "$config" || true
-      for livekit_key in LIVEKIT_API_KEY LIVEKIT_API_SECRET LIVEKIT_URL; do
-        if env_file_try livekit_val "$config" "$livekit_key" && [ -n "$livekit_val" ]; then
-          systemd_env_line "$livekit_key" "$livekit_val" || exit 1
-        fi
-      done
+    if [ -e "$config" ]; then
+      [ -r "$config" ] || exit 1
+      rc=0
+      grep -E '^(DB_DSN|DB_DIRECT_DSN|FEDERATION_LOCAL_DOMAIN|FEDERATION_CERT|FEDERATION_KEY|FEDERATION_LISTEN_ADDR)=' "$config" || rc=$?
+      [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
+      python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-copy "$config" LIVEKIT_API_KEY LIVEKIT_API_SECRET LIVEKIT_URL || exit 1
     fi
-    if [ -f "$credentials" ]; then
-      grep -E '^DB_WORKER_DSN=' "$credentials" || true
-    elif [ -f "$config" ]; then
+    if [ -e "$credentials" ]; then
+      [ -r "$credentials" ] || exit 1
+      rc=0
+      grep -E '^DB_WORKER_DSN=' "$credentials" || rc=$?
+      [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
+    elif [ -e "$config" ]; then
       # Pre-split installations still carry the worker tier in config.env.
-      grep -E '^DB_WORKER_DSN=' "$config" || true
+      rc=0
+      grep -E '^DB_WORKER_DSN=' "$config" || rc=$?
+      [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
     fi
     for key in GO_WORKERS_OFF RUST_WORKERS_ON; do
       allowed='^(federation-residue-reap|cert-monitor|tls-ticket-keys|http-tls|http-h2c|acme-renewal)$'
       if [ "$key" = GO_WORKERS_OFF ]; then allowed='^(federation-(service|residue-reap)|cert-monitor|tls-ticket-keys|http-tls|http-h2c|acme-renewal|http-port80)$'; fi
-      names="$(sed -n "s/^$key=//p" "$config" | tail -1 | tr ',' '\n' |
-        sed 's/^[[:space:]]*//;s/[[:space:]]*$//' |
-        grep -E "$allowed" | paste -sd, - || true)"
+      names=""
+      if [ -e "$config" ]; then
+        names="$(sed -n "s/^$key=//p" "$config" | tail -1 | tr ',' '\n' |
+          sed 's/^[[:space:]]*//;s/[[:space:]]*$//' |
+          grep -E "$allowed" | paste -sd, - || true)"
+      fi
       printf '%s=%s\n' "$key" "$names"
     done
-  ) > "$tmp"
-  chmod 0640 "$tmp"
-  mv -f "$tmp" "$outfile"
+  ) > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 0640 "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$outfile" || { rm -f "$tmp"; return 1; }
 }
 
 # config_env_value FILE KEY — the last KEY=value line, unquoted like systemd's

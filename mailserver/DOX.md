@@ -1039,7 +1039,10 @@ first deploy the updated `setjoin-updater` and run
 WORM legal-hold forward (`setjoin-gateway` also fails closed at startup if
 `WORM_MODE` is enabled without any `S3_*`/`MINIO_*` settings loaded).
 `render_federation_env` copies only DB_DSN, DB_DIRECT_DSN, DB_WORKER_DSN,
-the four static FEDERATION_* settings and federation worker-switch entries.
+the four static FEDERATION_* settings, configured `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`/`LIVEKIT_URL`
+(projected directly from protected `config.env` via `yaml-config.py env-copy`
+so LiveKit secrets never appear on process argv and native `/rtc` / `/api/rtc`
+stay wired), and federation worker-switch entries.
 The file is 0640 root:setjoin, under the root-controlled config directory.
 Owner DSNs and unrelated secrets/switches stay out. gateway.env contains only
 front-door settings and cannot override the federation worker switches.
@@ -1113,9 +1116,11 @@ operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows G
 env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled; upgrading
 all DB-backed immutable hosts requires installing the updated `setjoin-updater` and
 running `upgrade.sh refresh-gateway-env` — or `upgrade.sh` on flat layouts — before
-activation so `gateway.env` carries explicit `WORM_MODE=`/`WORM_MODE=<mode>` and
-`setjoin-gateway.service` loads `storage.env`; `setjoin-updater` preflight and
-systemd-activated `setjoin-gateway` startup block activation until refreshed). The TLS
+activation so `gateway.env` carries explicit `WORM_MODE=`/`WORM_MODE=<mode>`,
+`setjoin-gateway.service` loads `storage.env`, and `federation.env` carries any
+configured `LIVEKIT_*` settings (for native `/rtc` and `/api/rtc`); `setjoin-updater`
+preflight and systemd-activated `setjoin-gateway` startup block activation until
+refreshed). The TLS
 import/ACME cache directory (`tls_import_cache_dir`, resolved from
 `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
 `yaml-config.py`) is validated lexically and

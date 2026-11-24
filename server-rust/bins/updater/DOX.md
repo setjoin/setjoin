@@ -50,8 +50,9 @@ catalog digest and the previous binary's compatibility evidence.
 `host::preflight` evaluates `setjoin-gateway.service` and its systemd `<unit>.d/*.conf`
 drop-ins across system tiers (`/lib`, `/usr/lib`, `/usr/local/lib`, `/run`, `/etc`,
 with higher tiers overriding same-named files and failing closed on unreadable
-drop-ins or metadata errors) in `EnvironmentFile=` order (respecting empty
-`EnvironmentFile=` resets with optional whitespace around `=`), and checks that:
+drop-ins or metadata errors) for `EnvironmentFile=` (respecting empty resets,
+with optional whitespace around `=`, failing closed on unreadable required files)
+followed by `UnsetEnvironment=` (respecting empty resets), and checks that:
 - DB-backed hosts declare explicit empty `WORM_MODE=` in `gateway.env` with an
   empty effective `WORM_MODE` when WORM is disabled;
 - active WORM settings (`SETJOIN_CONFIG_DIR` or unit-derived `config.env`, plus

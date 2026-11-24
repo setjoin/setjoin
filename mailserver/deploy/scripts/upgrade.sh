@@ -273,31 +273,35 @@ restore_socket_enabled_state() {
     [ -f "$marker" ] || return 0
     state="$(cat "$marker" 2>/dev/null || true)"
     if [ "$state" = enabled-runtime ]; then
-        systemctl enable --runtime "$unit" || true
+        systemctl enable --runtime "$unit"
     else
-        systemctl enable "$unit" || true
+        systemctl enable "$unit"
     fi
 }
 restore_gateway_refresh() {
-    local file state=""
+    local file state="" rc=0
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         state="$(cat "$DEPLOYMENT_PREV/$file-enabled" 2>/dev/null || true)"
         if { [ ! -f "$DEPLOYMENT_PREV/$file-enabled" ] || [ "$state" = enabled-runtime ]; } && [ -e "$SYSTEMD_DIR/$file" ]; then
-            systemctl disable "$file" || true
+            systemctl disable "$file" || rc=1
         fi
     done
     state="$(cat "$DEPLOYMENT_PREV/socket-enabled" 2>/dev/null || true)"
     if { [ ! -f "$DEPLOYMENT_PREV/socket-enabled" ] || [ "$state" = enabled-runtime ]; } && [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
-        systemctl disable setjoin-federation.socket || true
+        systemctl disable setjoin-federation.socket || rc=1
     fi
-    restore_gateway_files_only
+    restore_gateway_files_only || rc=1
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled"
+        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled" || rc=1
     done
-    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled"
+    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled" || rc=1
+    if [ "$rc" != 0 ]; then
+        echo "   ✗ Incomplete refresh rollback: failed to restore one or more socket enablement states." >&2
+    fi
+    return "$rc"
 }
 restore_gateway_deployment() {
-    local file
+    local file rc=0
     # Close the new socket before the previous executable can receive its FD.
     systemctl stop setjoin-gateway || true
     systemctl stop setjoin-federation.socket || true
@@ -306,13 +310,14 @@ restore_gateway_deployment() {
         systemctl stop "$file" || true
         systemctl disable "$file" || true
     done
-    restore_gateway_files_only
+    restore_gateway_files_only || rc=1
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled"
-        if [ -f "$DEPLOYMENT_PREV/$file-active" ]; then systemctl start "$file"; fi
+        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled" || rc=1
+        if [ -f "$DEPLOYMENT_PREV/$file-active" ]; then systemctl start "$file" || rc=1; fi
     done
-    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled"
-    if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket; fi
+    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled" || rc=1
+    if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket || rc=1; fi
+    return "$rc"
 }
 
 # Read literal installer EnvironmentFile assignments, without evaluating secrets.
@@ -476,7 +481,7 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
     backup_gateway_deployment
     if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
         echo "   ✗ gateway unit/config refresh failed." >&2
-        restore_gateway_refresh
+        restore_gateway_refresh || true
         exit 1
     fi
     exit 0
@@ -567,8 +572,9 @@ roll_back_and_exit() {
             cp -a "$INSTALL_DIR/webmail.prev" "$INSTALL_DIR/webmail"
         fi
     fi
+    local restore_rc=0
     if [ -n "$NEW_GATEWAY" ]; then
-        restore_gateway_deployment
+        restore_gateway_deployment || restore_rc=$?
     fi
     if [ "$AUTH_WAS_ACTIVE" = "1" ]; then
         systemctl start setjoin-auth || true
@@ -576,6 +582,9 @@ roll_back_and_exit() {
     systemctl start setjoin || true
     if [ -n "$NEW_GATEWAY" ]; then
         systemctl start setjoin-gateway || true
+    fi
+    if [ "$restore_rc" != 0 ]; then
+        echo "   ✗ Incomplete rollback: one or more socket enable/start restorations failed; inspect systemd units before retrying." >&2
     fi
     echo "   Restored previous version. Fix the issue, then re-run the upgrade."
     exit 1

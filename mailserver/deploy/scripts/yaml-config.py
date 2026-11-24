@@ -1050,6 +1050,22 @@ def cmd_env_get(args: list[str]) -> int:
     return 0
 
 
+def cmd_env_copy(args: list[str]) -> int:
+    if len(args) < 2:
+        sys.stderr.write("usage: yaml-config.py env-copy FILE KEY [KEY ...]\n")
+        return 2
+    try:
+        env_map = parse_systemd_env_file(args[0])
+        for key in args[1:]:
+            val = env_map.get(key)
+            if val:
+                sys.stdout.write(fmt_systemd_env_line(key, val))
+    except (OSError, YamlError) as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    return 0
+
+
 def cmd_env_preserve(args: list[str]) -> int:
     if len(args) != 2:
         sys.stderr.write("usage: yaml-config.py env-preserve FILE KEY\n")
@@ -1175,7 +1191,7 @@ def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(newline="\n")
     if len(argv) < 2:
-        sys.stderr.write("usage: yaml-config.py <get|env-line|env-get|env-preserve|render-storage> ...\n")
+        sys.stderr.write("usage: yaml-config.py <get|env-line|env-get|env-copy|env-preserve|render-storage> ...\n")
         return 2
     cmd = argv[1]
     if cmd == "get":
@@ -1184,6 +1200,8 @@ def main(argv: list[str]) -> int:
         return cmd_env_line(argv[2:])
     if cmd == "env-get":
         return cmd_env_get(argv[2:])
+    if cmd == "env-copy":
+        return cmd_env_copy(argv[2:])
     if cmd == "env-preserve":
         return cmd_env_preserve(argv[2:])
     if cmd == "render-storage":
