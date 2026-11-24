@@ -6,11 +6,36 @@ use setjoin_compliance as db;
 use setjoin_pg::{CommandOutcome, ScopedExecutor};
 use std::sync::Arc;
 
+#[derive(Clone, Copy, Debug)]
+pub struct WormConfig {
+    pub mode_enabled: bool,
+    pub legal_hold_enabled: bool,
+}
+
+impl WormConfig {
+    pub fn from_settings(settings: &crate::configuration::Settings) -> Self {
+        let mode_enabled = !settings.string("worm.mode").is_empty();
+        let legal_hold_enabled = mode_enabled && settings.boolean("worm.legal_hold_enabled");
+        Self {
+            mode_enabled,
+            legal_hold_enabled,
+        }
+    }
+
+    pub fn from_env() -> Self {
+        Self {
+            mode_enabled: worm_mode_enabled(),
+            legal_hold_enabled: worm_legal_hold_enabled(),
+        }
+    }
+}
+
 pub struct ComplianceRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
     pub worker: ScopedExecutor,
     pub jobs: SearchJobs,
     pub store: Option<Arc<crate::recovery_worker::S3Store>>,
+    pub worm: Option<WormConfig>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -96,13 +121,14 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, worker, jobs, store) = (
+        let (exec, keys, issuer, worker, jobs, store, worm) = (
             self.exec.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.worker.clone(),
             self.jobs.clone(),
             self.store.clone(),
+            self.worm,
         );
         Box::pin(async move {
             let EdiscoveryMatch {
@@ -323,13 +349,14 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 .await
                 {
                     CommandOutcome::Committed(held) => {
-                        let legal_hold_objects = if !held.is_empty() && worm_mode_enabled() {
+                        let worm = worm.unwrap_or_else(WormConfig::from_env);
+                        let legal_hold_objects = if !held.is_empty() && worm.mode_enabled {
                             apply_legal_hold(
                                 &worker,
                                 store.as_deref(),
                                 &held,
                                 hold,
-                                worm_legal_hold_enabled(),
+                                worm.legal_hold_enabled,
                             )
                             .await
                         } else {

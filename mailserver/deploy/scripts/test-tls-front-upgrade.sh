@@ -129,6 +129,9 @@ ENV
       test "$(stat -c '%a' "$fx/config/config.env")" = 600
       if [ "$previous_socket" = present ]; then
         test "$(stat -c '%a' "$fx/config/federation.env")" = 640
+        test "$(stat -c '%a' "$fx/autocert")" = 755
+      else
+        test ! -e "$fx/autocert"
       fi
       test "$(cat "$fx/install/setjoin-gateway")" = 'old setjoin-gateway'
       # Close the new descriptor before the old gateway is started.

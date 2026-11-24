@@ -181,6 +181,10 @@ class _Parser:
             return True
         if raw in ("false", "False", "FALSE"):
             return False
+        if re.fullmatch(r"[+-]?(?:0|[1-9][0-9]*)", raw):
+            return int(raw)
+        if re.fullmatch(r"[+-]?(?:0|[1-9][0-9]*)\.[0-9]+(?:[eE][+-]?[0-9]+)?", raw):
+            return float(raw)
         return raw
 
     def read_indicator_name(self, sigil: str, in_flow: bool = False) -> str:
@@ -195,7 +199,115 @@ class _Parser:
             raise YamlError(f"empty {sigil!r} name at offset {start}")
         return name
 
-    def parse_plain(self, in_flow: bool = False):
+    def read_tag(self, in_flow: bool = False) -> str:
+        assert self.s[self.i] == "!"
+        start = self.i
+        if self.peek(1) == "<":
+            self.i += 2
+            inner_start = self.i
+            while self.i < self.n and self.s[self.i] not in (">", "\n"):
+                self.i += 1
+            if self.peek() != ">":
+                raise YamlError(f"unterminated verbatim YAML tag at offset {start}")
+            uri = self.s[inner_start : self.i]
+            self.i += 1
+            if uri.startswith("tag:yaml.org,2002:"):
+                short = uri[len("tag:yaml.org,2002:") :]
+            else:
+                raise YamlError(f"unsupported YAML tag <{uri}> at offset {start}")
+        else:
+            self.i += 1
+            tok_start = self.i
+            stops = " \t\n" + (",{}[]" if in_flow else "")
+            while self.i < self.n and self.s[self.i] not in stops:
+                self.i += 1
+            tok = self.s[tok_start : self.i]
+            if not tok.startswith("!") or len(tok) < 2:
+                raise YamlError(f"unsupported YAML tag '!{tok}' at offset {start}")
+            short = tok[1:]
+        if short not in ("str", "bool", "int", "float", "null", "map", "seq"):
+            raise YamlError(f"unsupported YAML tag '{short}' at offset {start}")
+        return short
+
+    def parse_node_props(self, in_flow: bool = False) -> tuple[str | None, str | None]:
+        tag: str | None = None
+        anchor: str | None = None
+        while self.peek() in ("!", "&"):
+            if self.peek() == "!":
+                if tag is not None:
+                    raise YamlError(f"duplicate YAML tag at offset {self.i}")
+                tag = self.read_tag(in_flow=in_flow)
+            else:
+                if anchor is not None:
+                    raise YamlError(f"duplicate YAML anchor at offset {self.i}")
+                anchor = self.read_indicator_name("&", in_flow=in_flow)
+            if in_flow:
+                self.skip_flow_ws_comments()
+            else:
+                self.skip_hws()
+        return tag, anchor
+
+    def apply_tag(self, tag: str | None, val, raw_plain: str | None = None):
+        if tag is None:
+            return val
+        if tag == "str":
+            if isinstance(val, (dict, list)):
+                raise YamlError("cannot tag collection with !!str")
+            if raw_plain is not None:
+                return raw_plain
+            if val is None:
+                return ""
+            if isinstance(val, bool):
+                return "true" if val else "false"
+            return str(val)
+        if tag == "null":
+            if val is None or val in ("", "null", "Null", "NULL", "~"):
+                return None
+            raise YamlError(f"invalid !!null value {val!r}")
+        if tag == "bool":
+            if isinstance(val, bool):
+                return val
+            s = raw_plain if raw_plain is not None else str(val)
+            if s in ("true", "True", "TRUE"):
+                return True
+            if s in ("false", "False", "FALSE"):
+                return False
+            raise YamlError(f"invalid !!bool value {s!r}")
+        if tag == "int":
+            if isinstance(val, bool):
+                raise YamlError("cannot coerce bool to !!int")
+            if isinstance(val, int):
+                return val
+            s = raw_plain if raw_plain is not None else str(val)
+            try:
+                return int(s, 0)
+            except ValueError as exc:
+                raise YamlError(f"invalid !!int value {s!r}") from exc
+        if tag == "float":
+            if isinstance(val, bool):
+                raise YamlError("cannot coerce bool to !!float")
+            if isinstance(val, (int, float)):
+                return float(val)
+            s = raw_plain if raw_plain is not None else str(val)
+            try:
+                return float(s)
+            except ValueError as exc:
+                raise YamlError(f"invalid !!float value {s!r}") from exc
+        if tag == "map":
+            if val is None:
+                return {}
+            if not isinstance(val, dict):
+                raise YamlError("!!map requires a mapping")
+            return val
+        if tag == "seq":
+            if val is None:
+                return []
+            if not isinstance(val, list):
+                raise YamlError("!!seq requires a sequence")
+            return val
+        raise YamlError(f"unsupported YAML tag {tag!r}")
+
+    def parse_plain(self, in_flow: bool = False, coerce: bool = True):
         start = self.i
         stops = ",}]" if in_flow else ""
         last_non_ws = self.i
@@ -218,7 +330,7 @@ class _Parser:
         text = self.s[start:last_non_ws]
         if not in_flow:
             self.skip_comment_eol()
-        return self.coerce_plain(text)
+        return self.coerce_plain(text) if coerce else text
 
     def parse_key(self, in_flow: bool = False) -> str:
         if self.eof():
@@ -271,17 +383,43 @@ class _Parser:
                 continue
             break
 
+    def apply_merge_or_set(
+        self,
+        seen_keys: set[str],
+        merged: dict,
+        explicit: dict,
+        key: str,
+        val,
+    ) -> None:
+        if key in seen_keys:
+            raise YamlError(f"duplicate YAML key {key!r}")
+        seen_keys.add(key)
+        if key == "<<":
+            if isinstance(val, dict):
+                sources = [val]
+            elif isinstance(val, list) and all(isinstance(x, dict) for x in val):
+                sources = val
+            else:
+                raise YamlError("YAML merge key '<<' requires a mapping or list of mappings")
+            for src in sources:
+                for mk, mv in src.items():
+                    merged.setdefault(mk, mv)
+        else:
+            explicit[key] = val
+
     def parse_flow_mapping(self) -> dict:
         assert self.s[self.i] == "{"
         self.i += 1
-        res: dict = {}
+        seen_keys: set[str] = set()
+        merged: dict = {}
+        explicit: dict = {}
         while True:
             self.skip_flow_ws_comments()
             if self.eof():
                 raise YamlError("unterminated flow mapping '{'")
             if self.peek() == "}":
                 self.i += 1
-                return res
+                return {**merged, **explicit}
             k = self.parse_key(in_flow=True)
             self.skip_flow_ws_comments()
             if self.peek() != ":":
@@ -292,14 +430,14 @@ class _Parser:
                 val = None
             else:
                 val = self.parse_flow_value()
-            res[k] = val
+            self.apply_merge_or_set(seen_keys, merged, explicit, k, val)
             self.skip_flow_ws_comments()
             if self.peek() == ",":
                 self.i += 1
                 continue
             if self.peek() == "}":
                 self.i += 1
-                return res
+                return {**merged, **explicit}
             raise YamlError(f"expected ',' or '}}' in flow mapping at offset {self.i}")
 
     def parse_flow_seq(self) -> list:
@@ -325,50 +463,61 @@ class _Parser:
 
     def parse_flow_value(self):
         self.skip_flow_ws_comments()
+        tag, anchor = self.parse_node_props(in_flow=True)
         ch = self.peek()
-        if ch == "!":
-            raise YamlError(f"unsupported YAML tag at offset {self.i}")
         if ch == "*":
+            if tag is not None or anchor is not None:
+                raise YamlError("YAML alias cannot carry an anchor or tag")
             name = self.read_indicator_name("*", in_flow=True)
             if name not in self.anchors:
                 raise YamlError(f"undefined YAML alias '*{name}'")
             return self.anchors[name]
-        if ch == "&":
-            name = self.read_indicator_name("&", in_flow=True)
-            self.skip_flow_ws_comments()
-            if self.peek() in ("", ",", "}", "]"):
-                val = None
-            else:
-                val = self.parse_flow_value()
-            self.anchors[name] = val
-            return val
-        if ch == "{":
-            return self.parse_flow_mapping()
-        if ch == "[":
-            return self.parse_flow_seq()
-        if ch == '"':
-            return self.parse_dquote()
-        if ch == "'":
-            return self.parse_squote()
-        return self.parse_plain(in_flow=True)
+        raw_plain: str | None = None
+        if ch in ("", ",", "}", "]"):
+            val = None
+        elif ch == "{":
+            val = self.parse_flow_mapping()
+        elif ch == "[":
+            val = self.parse_flow_seq()
+        elif ch == '"':
+            val = self.parse_dquote()
+        elif ch == "'":
+            val = self.parse_squote()
+        else:
+            raw_plain = self.parse_plain(in_flow=True, coerce=False)
+            val = raw_plain if tag == "str" else self.coerce_plain(raw_plain)
+        val = self.apply_tag(tag, val, raw_plain=raw_plain)
+        if anchor is not None:
+            self.anchors[anchor] = val
+        return val
 
     def parse_block_scalar(self, parent_indent: int) -> str:
         style = self.s[self.i]
         self.i += 1
         chomp = ""
-        if self.peek() in ("+", "-"):
-            chomp = self.peek()
+        explicit_ind: int | None = None
+        while self.peek() in ("+", "-", "1", "2", "3", "4", "5", "6", "7", "8", "9"):
+            c = self.peek()
+            if c in ("+", "-"):
+                if chomp:
+                    raise YamlError(f"duplicate block scalar chomp indicator at offset {self.i}")
+                chomp = c
+            else:
+                if explicit_ind is not None:
+                    raise YamlError(f"duplicate block scalar indent indicator at offset {self.i}")
+                explicit_ind = int(c)
             self.i += 1
         self.skip_comment_eol()
-        lines: list[str] = []
-        ind: int | None = None
+        raw_lines: list[tuple[str, bool]] = []
+        ind: int | None = (parent_indent + explicit_ind) if explicit_ind is not None else None
         while self.i < self.n:
             line_start = self.i
             nl = self.s.find("\n", self.i)
             line_end = self.n if nl == -1 else nl
             line = self.s[line_start:line_end]
             if line.strip(" ") == "":
-                lines.append("")
+                extra = line[ind:] if (ind is not None and len(line) > ind) else ""
+                raw_lines.append((extra, extra == ""))
                 self.i = self.n if nl == -1 else nl + 1
                 continue
             cur = len(line) - len(line.lstrip(" "))
@@ -378,15 +527,41 @@ class _Parser:
                 ind = cur
             elif cur < ind:
                 raise YamlError("inconsistent block scalar indentation")
-            lines.append(line[ind:])
+            raw_lines.append((line[ind:], False))
             self.i = self.n if nl == -1 else nl + 1
-        while lines and lines[-1] == "":
-            lines.pop()
-        if not lines:
-            return ""
-        body = "\n".join(lines) if style == "|" else " ".join(l if l else "\n" for l in lines)
+        trailing_blanks = 0
+        while raw_lines and raw_lines[-1][1]:
+            raw_lines.pop()
+            trailing_blanks += 1
+        if not raw_lines:
+            return ("\n" * trailing_blanks) if chomp == "+" else ""
+        if style == "|":
+            body = "\n".join(text for text, _ in raw_lines)
+        else:
+            parts: list[str] = []
+            blanks = 0
+            prev_text: str | None = None
+            for text, is_blank in raw_lines:
+                if is_blank:
+                    blanks += 1
+                    continue
+                if prev_text is None:
+                    if blanks > 0:
+                        parts.append("\n" * blanks)
+                elif blanks > 0:
+                    parts.append("\n" * blanks)
+                elif prev_text.startswith((" ", "\t")) or text.startswith((" ", "\t")):
+                    parts.append("\n")
+                else:
+                    parts.append(" ")
+                parts.append(text)
+                prev_text = text
+                blanks = 0
+            body = "".join(parts)
         if chomp == "-":
             return body
+        if chomp == "+":
+            return body + ("\n" * (1 + trailing_blanks))
         return body + "\n"
 
     def skip_block_seq(self, seq_indent: int) -> list:
@@ -442,25 +617,17 @@ class _Parser:
             self.i = self.n if nl == -1 else nl + 1
 
     def parse_block_value(self, parent_indent: int):
-        anchor_name: str | None = None
-        if self.peek() == "!":
-            raise YamlError(f"unsupported YAML tag at offset {self.i}")
-        if self.peek() == "&":
-            anchor_name = self.read_indicator_name("&", in_flow=False)
-            self.skip_hws()
-            if self.peek() == "!":
-                raise YamlError(f"unsupported YAML tag at offset {self.i}")
-            if self.peek() == "&":
-                raise YamlError(f"duplicate YAML anchor at offset {self.i}")
+        tag, anchor_name = self.parse_node_props(in_flow=False)
         ch = self.peek()
         if ch == "*":
-            if anchor_name is not None:
-                raise YamlError("YAML alias cannot carry an anchor")
+            if tag is not None or anchor_name is not None:
+                raise YamlError("YAML alias cannot carry an anchor or tag")
             alias = self.read_indicator_name("*", in_flow=False)
             self.skip_comment_eol()
             if alias not in self.anchors:
                 raise YamlError(f"undefined YAML alias '*{alias}'")
             return self.anchors[alias]
+        raw_plain: str | None = None
         if ch in ("", "\n", "#"):
             self.skip_comment_eol()
             val = self.parse_block_value_node(parent_indent)
@@ -479,7 +646,9 @@ class _Parser:
         elif ch in ("|", ">"):
             val = self.parse_block_scalar(parent_indent)
         else:
-            val = self.parse_plain(in_flow=False)
+            raw_plain = self.parse_plain(in_flow=False, coerce=False)
+            val = raw_plain if tag == "str" else self.coerce_plain(raw_plain)
+        val = self.apply_tag(tag, val, raw_plain=raw_plain)
         if anchor_name is not None:
             self.anchors[anchor_name] = val
         return val
@@ -512,7 +681,9 @@ class _Parser:
         return self.parse_block_mapping(ind)
 
     def parse_block_mapping(self, min_indent: int) -> dict:
-        res: dict = {}
+        seen_keys: set[str] = set()
+        merged: dict = {}
+        explicit: dict = {}
         block_indent: int | None = None
         while True:
             self.skip_blank_and_comments()
@@ -538,8 +709,9 @@ class _Parser:
             if self.peek() not in ("", " ", "\t", "\n"):
                 raise YamlError(f"expected whitespace after ':' for key {k!r}")
             self.skip_hws()
-            res[k] = self.parse_block_value(block_indent)
-        return res
+            val = self.parse_block_value(block_indent)
+            self.apply_merge_or_set(seen_keys, merged, explicit, k, val)
+        return {**merged, **explicit}
 
 
 def parse_yaml_mapping(path: str) -> dict:
@@ -559,15 +731,38 @@ def parse_yaml_mapping(path: str) -> dict:
     if p.eof() or p.at_doc_marker():
         return {}
     ind = p.current_line_indent()
+    root_tag: str | None = None
+    root_anchor: str | None = None
+    if p.s[p.i + ind] in ("!", "&"):
+        p.i += ind
+        root_tag, root_anchor = p.parse_node_props(in_flow=False)
+        if p.peek() in ("", "\n", "#"):
+            p.skip_comment_eol()
+            p.skip_blank_and_comments()
+            if p.eof() or p.at_doc_marker():
+                doc = p.apply_tag(root_tag, None)
+                if not isinstance(doc, dict):
+                    raise YamlError(f"{path}: root must be a YAML mapping")
+                if root_anchor is not None:
+                    p.anchors[root_anchor] = doc
+                return doc
+            ind = p.current_line_indent()
+        else:
+            ind = 0
     first = p.s[p.i + ind]
     if first == "{":
         p.i += ind
         doc = p.parse_flow_mapping()
         p.skip_comment_eol()
-    elif first in ("[", "-", "|", ">", "!", "*"):
+    elif first in ("[", "-", "|", ">", "*"):
         raise YamlError(f"{path}: root must be a YAML mapping")
     else:
         doc = p.parse_block_mapping(ind)
+    doc = p.apply_tag(root_tag, doc)
+    if not isinstance(doc, dict):
+        raise YamlError(f"{path}: root must be a YAML mapping")
+    if root_anchor is not None:
+        p.anchors[root_anchor] = doc
     p.skip_blank_and_comments()
     if not p.eof() and p.s.startswith("...", p.i) and p.peek(3) in ("", " ", "\t", "\n", "#"):
         return doc
@@ -577,7 +772,7 @@ def parse_yaml_mapping(path: str) -> dict:
 
 
 def parse_systemd_env_file(path: str) -> dict[str, str]:
-    """Parse EnvironmentFile= entries as a character stream per systemd.exec(5)."""
+    """Parse EnvironmentFile= entries matching systemd/src/basic/env-file.c."""
     out: dict[str, str] = {}
     if not path or not os.path.isfile(path):
         return out
@@ -612,24 +807,49 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
         i += 1  # consume '='
         while i < n and src[i] in " \t":
             i += 1
-        if i >= n or src[i] == "\n":
-            val = ""
-            if i < n:
-                i += 1
-        elif src[i] == '"':
-            i += 1
-            buf: list[str] = []
-            while i < n:
-                ch = src[i]
-                if ch == '"':
+        quote: str | None = None
+        buf: list[str] = []
+        last_non_ws = 0
+        while i < n:
+            ch = src[i]
+            if quote is None:
+                if ch == "\n":
                     i += 1
                     break
+                if ch in ('"', "'"):
+                    quote = ch
+                    last_non_ws = len(buf)
+                    i += 1
+                    continue
+                if ch == "\\":
+                    if i + 1 < n and src[i + 1] == "\n":
+                        i += 2
+                        continue
+                    if i + 2 < n and src[i + 1] == "\r" and src[i + 2] == "\n":
+                        i += 3
+                        continue
+                    if i + 1 < n:
+                        buf.append(src[i + 1])
+                        i += 2
+                        last_non_ws = len(buf)
+                        continue
+                buf.append(ch)
+                if ch not in (" ", "\t", "\r"):
+                    last_non_ws = len(buf)
+                i += 1
+            elif quote == '"':
+                if ch == '"':
+                    quote = None
+                    last_non_ws = len(buf)
+                    i += 1
+                    continue
                 if ch == "\\" and i + 1 < n:
                     nxt = src[i + 1]
                     # systemd EnvironmentFile double quotes interpret \, ", $, `
                     # and preserve unrecognized backslashes literally.
                     if nxt in ("\\", '"', "$", "`"):
                         buf.append(nxt)
+                        last_non_ws = len(buf)
                         i += 2
                         continue
                     if nxt == "\n":
@@ -639,37 +859,18 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
                         i += 3
                         continue
                 buf.append(ch)
+                last_non_ws = len(buf)
                 i += 1
-            skip_line_rest()
-            val = "".join(buf)
-        elif src[i] == "'":
-            i += 1
-            buf = []
-            while i < n:
-                ch = src[i]
+            else:
                 if ch == "'":
+                    quote = None
+                    last_non_ws = len(buf)
                     i += 1
-                    break
-                buf.append(ch)
-                i += 1
-            skip_line_rest()
-            val = "".join(buf)
-        else:
-            buf = []
-            while i < n:
-                ch = src[i]
-                if ch == "\n":
-                    i += 1
-                    break
-                if ch == "\\" and i + 1 < n and src[i + 1] == "\n":
-                    i += 2
-                    continue
-                if ch == "\\" and i + 2 < n and src[i + 1] == "\r" and src[i + 2] == "\n":
-                    i += 3
                     continue
                 buf.append(ch)
+                last_non_ws = len(buf)
                 i += 1
-            val = "".join(buf).strip(" \t\r")
+        val = "".join(buf[:last_non_ws])
         if key:
             out[key] = val
     return out
@@ -724,10 +925,24 @@ def cmd_env_line(args: list[str]) -> int:
     return 0
 
 
+def cmd_env_get(args: list[str]) -> int:
+    if len(args) != 2:
+        sys.stderr.write("usage: yaml-config.py env-get FILE KEY\n")
+        return 2
+    env_map = parse_systemd_env_file(args[0])
+    key = args[1]
+    if key not in env_map:
+        return 1
+    sys.stdout.write(env_map[key])
+    return 0
+
+
 def _koanf_bool(val) -> bool:
     # Matches koanf v2.3.6 Bool() / strconv.ParseBool returning false on invalid.
     if isinstance(val, bool):
         return val
+    if isinstance(val, (int, float)):
+        return val == 1
     return str(val) in ("1", "t", "T", "true", "TRUE", "True")
 
 
@@ -823,14 +1038,18 @@ def cmd_render_storage(args: list[str]) -> int:
 
 
 def main(argv: list[str]) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(newline="\n")
     if len(argv) < 2:
-        sys.stderr.write("usage: yaml-config.py <get|env-line|render-storage> ...\n")
+        sys.stderr.write("usage: yaml-config.py <get|env-line|env-get|render-storage> ...\n")
         return 2
     cmd = argv[1]
     if cmd == "get":
         return cmd_get(argv[2:])
     if cmd == "env-line":
         return cmd_env_line(argv[2:])
+    if cmd == "env-get":
+        return cmd_env_get(argv[2:])
     if cmd == "render-storage":
         return cmd_render_storage(argv[2:])
     sys.stderr.write(f"unknown subcommand: {cmd}\n")

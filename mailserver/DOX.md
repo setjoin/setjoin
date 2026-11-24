@@ -1086,9 +1086,11 @@ optional federation/ACME sockets through Wants/After, never Requires on Go servi
 `tls.env` is a literal 0640 allowlist of TLS paths/provider credentials; broad
 config.env and owner credentials never enter the internet-facing gateway unit.
 `storage.env` is a dedicated literal 0640 allowlist carrying only S3/MinIO
-endpoint and credentials (resolved via pure-stdlib `deploy/scripts/yaml-config.py`
-merging `s3.*` YAML and `S3_*`/`MINIO_*` config.env with Go's exact precedence
-and systemd `EnvironmentFile` quoting; `smtp.env` emits the identical resolved
+endpoint and credentials (resolved via pure-stdlib `deploy/scripts/yaml-config.py`,
+covering the YAML subset for mappings, anchors/aliases/`<<` merges, standard tags,
+duplicate-key rejection, and flow/block scalars alongside `systemd.exec(5)`
+`EnvironmentFile` parsing, with Go's `s3.*` / `S3_*` / `MINIO_*` precedence;
+`smtp.env` emits the identical resolved
 `S3_*` lines when SMTP is enabled) independent of SMTP enablement (#289 legal
 holds, blobs, attachments), and is rolled back alongside the deployment env files.
 App/worker/LISTEN credentials and the transferred worker names stay in federation.env.
@@ -1100,17 +1102,22 @@ Platform #305. Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
 `INTERNAL_DOMAINS`, `WORM_MODE`, `WORM_RETENTION_DAYS`, and explicit
 `WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
 operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows Go's
-env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled). The TLS
+env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled; upgrading
+pre-`storage.env` WORM hosts requires unit/env refresh via `upgrade.sh` before
+binary-only activation so `gateway.env` and `storage.env` are present). The TLS
 import/ACME cache directory (`tls_import_cache_dir`, resolved from
 `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
-stdlib `yaml-config.py` without external PyYAML) is validated lexically and
-canonically (`validate_tls_cache_target`: rejects control chars, `%` systemd
-specifiers, trailing-slash and intermediate component symlinks outside OS-managed
-`/tmp` and `/var/run`, filesystem roots, `.`/`..` traversal, and top-level
-system directories) before
+`yaml-config.py`) is validated lexically and
+canonically (`validate_tls_cache_target`: rejects control chars, quotes, backslashes,
+`%` systemd specifiers, trailing-slash and intermediate component symlinks outside
+OS-managed `/tmp` and `/var/run`, filesystem roots, `.`/`..` traversal, top-level
+system directories, and shared system directories such as `/var/lib` and
+`/var/cache`) before
 filesystem mutation, provisioned (`0700`, `setjoin:setjoin` enforced on both new
-and existing directories during root install/upgrade; non-root upgrade rehearsals
-skip only host `/var/cache/mailserver/autocert`), emitted solely into `gateway.env`
+and existing directories during root install/upgrade; `upgrade.sh` records prior
+cache directory existence/mode/owner in `tls-cache.meta` for rollback, and
+non-root upgrade rehearsals skip only host `/var/cache/mailserver/autocert`),
+emitted solely into `gateway.env`
 alongside resolved `WORM_*` and Go-matched trace identity (`HOSTNAME`/`INTERNAL_DOMAINS`)
 settings, and granted a narrow `ReadWritePaths` in `setjoin-gateway.service`;
 ACME account-key parent directories gain `ReadWritePaths` when

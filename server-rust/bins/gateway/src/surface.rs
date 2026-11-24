@@ -2,10 +2,9 @@
 //! discovery documents, cert hint, favicon and the telemetry kill-switch path.
 //!
 //! Every response carries the headers Go's listener chain sets (security
-//! headers, the `Cache-Control` policy table, `X-Request-Id`). A request this
-//! adapter cannot answer exactly as Go does is forwarded whole. Discovery,
-//! configured sidecar probes, device-proof telemetry and full-spec permission
-//! denials (including their audits) are native (#406, #417, #457).
+//! headers, the `Cache-Control` policy table, `X-Request-Id`). Unserved auth
+//! refusals delegate through `crate::deny::answer`; surface routes answer
+//! natively without forwarding healthy requests to Go (#406, #417, #457).
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -395,7 +394,7 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                     &*self.keys,
                     &self.issuer,
                     r,
-                    crate::deny::Scope::User,
+                    crate::deny::Scope::Member,
                 )
                 .await
                 {

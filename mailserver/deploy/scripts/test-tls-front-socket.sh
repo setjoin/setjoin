@@ -335,4 +335,95 @@ if validate_tls_cache_target '/tmp/cache%h' 2>/dev/null; then
   echo 'expected % systemd specifier rejection' >&2
   exit 1
 fi
+
+for bad_cache in /var/lib /var/cache '/tmp/a"b' "/tmp/a'b" '/tmp/a\b'; do
+  if validate_tls_cache_target "$bad_cache" 2>/dev/null; then
+    echo "expected rejection for $bad_cache" >&2
+    exit 1
+  fi
+done
+
+cat > "$tmp/merge.yaml" <<'YAML'
+defaults: &p
+  endpoint: 127.0.0.1:9001
+  bucket: merged-bucket
+s3:
+  bucket: override-bucket
+  <<: *p
+YAML
+[ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/merge.yaml" s3 endpoint)" = "127.0.0.1:9001" ]
+[ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/merge.yaml" s3 bucket)" = "override-bucket" ]
+
+cat > "$tmp/dup-key.yaml" <<'YAML'
+tls:
+  a: 1
+  a: 2
+YAML
+rc=0; python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/dup-key.yaml" tls a >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || { echo "expected exit 2 for duplicate YAML key, got $rc" >&2; exit 1; }
+
+cat > "$tmp/tags-blocks.yaml" <<'YAML'
+tls:
+  str_bool: !!str true
+  lit: |2
+      deep
+  keep: |+
+    line1
+
+  fold: >
+    alpha
+    beta
+
+    gamma
+YAML
+[ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tags-blocks.yaml" tls str_bool)" = "true" ]
+python3 - "$ROOT/mailserver/deploy/scripts/yaml-config.py" "$tmp/tags-blocks.yaml" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("yc", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+doc = mod.parse_yaml_mapping(sys.argv[2])["tls"]
+assert doc["str_bool"] == "true" and isinstance(doc["str_bool"], str), doc
+assert doc["lit"] == "  deep\n", repr(doc["lit"])
+assert doc["keep"] == "line1\n\n", repr(doc["keep"])
+assert doc["fold"] == "alpha beta\ngamma\n", repr(doc["fold"])
+PY
+
+printf 's3:\n  secure: 1.0\n' > "$tmp/float-bool.yaml"
+printf 's3:\n  secure: "1.0"\n' > "$tmp/str-float-bool.yaml"
+: > "$tmp/empty-env.env"
+python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" render-storage "$tmp/empty-env.env" "$tmp/float-bool.yaml" | grep -qx 'S3_SECURE=true'
+python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" render-storage "$tmp/empty-env.env" "$tmp/str-float-bool.yaml" | grep -qx 'S3_SECURE=false'
+
+cat > "$tmp/systemd-edge.env" <<'ENV'
+S3_ENDPOINT=127.0.0.1:9000
+S3_SECRET_KEY="part1"part2
+S3_ACCESS_KEY=foo\ bar\\baz
+ENV
+python3 - "$ROOT/mailserver/deploy/scripts/yaml-config.py" "$tmp/systemd-edge.env" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("yc", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+parsed = mod.parse_systemd_env_file(sys.argv[2])
+assert parsed["S3_SECRET_KEY"] == "part1part2", parsed
+assert parsed["S3_ACCESS_KEY"] == "foo bar\\baz", parsed
+PY
+
+cat > "$tmp/ws-worm.env" <<'ENV'
+HOSTNAME=
+  WORM_LEGAL_HOLD_ENABLED = false
+ENV
+cat > "$tmp/yaml-host.yaml" <<'YAML'
+hostname: trace.example.test
+YAML
+(
+  unset HOSTNAME
+  SETJOIN_CONFIG="$tmp/yaml-host.yaml" CONFIG_ENV="$tmp/ws-worm.env" GATEWAY_ENV="$tmp/ws-worm-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/ws-worm-gw.env"
+  SETJOIN_CONFIG="$tmp/yaml-host.yaml" CONFIG_ENV="$tmp/empty-host.env" GATEWAY_ENV="$tmp/yamlonly-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/yamlonly-gw.env"
+)
+grep -qx 'HOSTNAME=' "$tmp/ws-worm-gw.env"
+grep -qx 'WORM_LEGAL_HOLD_ENABLED=false' "$tmp/ws-worm-gw.env"
+grep -qx 'HOSTNAME=trace.example.test' "$tmp/yamlonly-gw.env"
+grep -qx 'INTERNAL_DOMAINS=localhost' "$tmp/yamlonly-gw.env"
 echo 'native TLS release socket: PASS'

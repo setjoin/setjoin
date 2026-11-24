@@ -143,6 +143,15 @@ pub(crate) fn pre_admission_check(
 }
 
 impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
+    fn skips_outer_guest_belt(&self, req: &Request<Body>) -> bool {
+        !self.configured
+            && !req
+                .uri()
+                .path()
+                .strip_prefix("/api")
+                .is_some_and(|rest| rest.starts_with('/'))
+    }
+
     fn matches(&self, req: &Request<Body>) -> bool {
         is_rtc(req.uri().path())
     }
@@ -165,7 +174,30 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                 Ok(decoded) => decoded,
                 Err(response) => return response,
             };
+            let is_api_mount = req
+                .uri()
+                .path()
+                .strip_prefix("/api")
+                .is_some_and(|rest| rest.starts_with('/'));
             if !configured {
+                if is_api_mount {
+                    if check_guest {
+                        if let Some(response) = crate::admission::check_guest_belt(
+                            &exec,
+                            &*keys,
+                            &issuer,
+                            req.headers(),
+                            req.method(),
+                            req.uri().path(),
+                            &c.identity,
+                        )
+                        .await
+                        {
+                            return response;
+                        }
+                    }
+                    return crate::surface::unregistered(&req, c.identity.proto);
+                }
                 return match fallback {
                     Some(fallback) => fallback.handle(req, c).await,
                     None => crate::surface::unregistered(&req, c.identity.proto),

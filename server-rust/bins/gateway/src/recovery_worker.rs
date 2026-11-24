@@ -662,12 +662,10 @@ impl S3Store {
                         || changed_403
                         || matches!(
                             reply.code.as_deref(),
-                            Some(
-                                "AuthorizationHeaderMalformed"
-                                    | "InvalidRegion"
-                                    | "PermanentRedirect"
-                            )
-                        );
+                            Some("InvalidRegion" | "PermanentRedirect")
+                        )
+                        || (reply.code.as_deref() == Some("AuthorizationHeaderMalformed")
+                            && reported_region.is_some());
                     if is_region_error {
                         *self.region.lock().await = reported_region;
                         last = format!("object legal hold failed ({})", reply.status);
@@ -841,8 +839,9 @@ impl S3Store {
         };
         let endpoint = endpoint.trim();
         let endpoint = if endpoint.contains("://") {
-            if (endpoint.starts_with("https://") && !secure)
-                || (endpoint.starts_with("http://") && secure)
+            let lower = endpoint.to_ascii_lowercase();
+            if (lower.starts_with("https://") && !secure)
+                || (lower.starts_with("http://") && secure)
             {
                 return Err("S3_SECURE conflicts with S3_ENDPOINT".into());
             }
@@ -1557,14 +1556,63 @@ mod tests {
         assert!(err.contains("MINIO_SECURE"), "unexpected err: {err}");
 
         assert!(lookup(&[("S3_ENDPOINT", ""), ("MINIO_ENDPOINT", "127.0.0.1:9100")]).is_err());
+        assert!(lookup(&[("S3_BUCKET", ""), ("MINIO_BUCKET", "custom-bucket")]).is_err());
+        assert!(lookup(&[("S3_ENDPOINT", "HTTP://127.0.0.1:9000"), ("S3_SECURE", "true")]).is_err());
 
-        let store = lookup(&[
-            ("S3_BUCKET", ""),
-            ("MINIO_BUCKET", "custom-bucket"),
-            ("S3_SECURE", " true "),
-        ])
-        .unwrap();
-        assert_eq!(store.bucket_name(), "");
+        let store = lookup(&[("S3_SECURE", " true ")]).unwrap();
+        assert_eq!(store.bucket_name(), "mailblobs");
         assert_eq!(store.endpoint(), "http://127.0.0.1:9000");
+    }
+
+    #[tokio::test]
+    async fn legal_hold_malformed_auth_header_without_region_fails_immediately() {
+        use bytes::Bytes;
+        use http_body_util::Full;
+        use hyper::{service::service_fn, Response};
+        use hyper_util::rt::TokioIo;
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_s = hits.clone();
+
+        let _srv = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let hits_c = hits_s.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| {
+                        let hits_r = hits_c.clone();
+                        async move {
+                            hits_r.fetch_add(1, Ordering::SeqCst);
+                            let resp = Response::builder()
+                                .status(400)
+                                .header("content-type", "application/xml")
+                                .body(Full::new(Bytes::from_static(
+                                    b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Malformed header</Message></Error>",
+                                )))
+                                .unwrap();
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        });
+
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        *store.region.lock().await = Some("eu-west-1".into());
+
+        let res = store.legal_hold_with_retries("key-d", true).await;
+        assert!(res.is_err(), "expected terminal 400 without region");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 }

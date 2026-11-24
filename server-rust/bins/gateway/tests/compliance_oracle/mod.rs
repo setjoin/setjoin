@@ -179,7 +179,7 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
         let exec=ScopedExecutor::from_dsn_with(&request_dsn,1,setjoin_pg::Timeouts{pool_wait:patient,create:patient,statement:patient}).map_err(|e|e.0)?.with_audit_keys("22".repeat(32),String::new());
         let worker=ScopedExecutor::from_dsn_with(&worker_dsn,1,setjoin_pg::Timeouts{pool_wait:patient,create:patient,statement:patient}).map_err(|e|e.0)?.with_audit_keys("22".repeat(32),String::new());
         let jobs=setjoin_gateway::compliance::SearchJobs::new(setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,2);
-        let adapter=ComplianceRoute{store:Some(Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{s3}"),"mailblobs","test-access","test-secret")?)),exec,worker,jobs,keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
+        let adapter=ComplianceRoute{store:Some(Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{s3}"),"mailblobs","test-access","test-secret")?)),worm:None,exec,worker,jobs,keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
         let mut inventory:Value=serde_json::from_str(include_str!("../../route-inventory.json"))?;
         for r in inventory["routes"].as_array_mut().unwrap() {if r["family"]=="F04" && r["slice"]=="ediscovery" { if recording {r["state"]=json!("OFF");r["upstream"]=json!("go-mail");}else{assert_eq!(r["state"],"ON");assert_eq!(r["upstream"],"local-rust");}r["oracle_commands"]=json!([""]); }}
         let gateway=Gateway::new(Config{upstream:go.as_ref().map(|g|format!("http://{}",g.address).parse()).transpose()?,trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(mutants::Status{inner:adapter,change:mutant=="status"}))?.with_inventory(&inventory.to_string())?;
@@ -614,6 +614,7 @@ pub async fn forwarding() -> Result<(), BoxError> {
         );
         let adapter = ComplianceRoute {
             store: Some(store),
+            worm: None,
             exec: make(db.app.as_deref().unwrap_or(&db.dsn))?,
             worker: make(&db.dsn)?,
             jobs: setjoin_gateway::compliance::SearchJobs::new(
@@ -962,6 +963,7 @@ pub async fn kill_switch() -> Result<(), BoxError> {
                 1,
             ),
             store: None,
+            worm: None,
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
         };

@@ -99,6 +99,22 @@ backup_gateway_deployment() {
         systemctl is-active --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-active" || true
         systemctl is-enabled --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-enabled" || true
     fi
+    local prev_cache=""
+    prev_cache="$(
+        root="$(cd "$(dirname "$0")/../../.." && pwd)"
+        source "$root/mailserver/deploy/scripts/lib-livekit.sh"
+        tls_import_cache_dir "$CONFIG_ENV"
+    )" || prev_cache=""
+    if [ -n "$prev_cache" ]; then
+        printf 'path=%s\n' "$prev_cache" > "$DEPLOYMENT_PREV/tls-cache.meta"
+        if [ -d "$prev_cache" ]; then
+            printf 'exists=1\nmode=%s\nowner=%s\n' \
+                "$(stat -c '%a' "$prev_cache")" \
+                "$(stat -c '%u:%g' "$prev_cache")" >> "$DEPLOYMENT_PREV/tls-cache.meta"
+        else
+            printf 'exists=0\n' >> "$DEPLOYMENT_PREV/tls-cache.meta"
+        fi
+    fi
 }
 restore_gateway_deployment() {
     local file
@@ -129,6 +145,27 @@ restore_gateway_deployment() {
     done
     if [ -f "$DEPLOYMENT_PREV/socket-enabled" ]; then systemctl enable setjoin-federation.socket; fi
     if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket; fi
+    if [ -f "$DEPLOYMENT_PREV/tls-cache.meta" ]; then
+        local prev_path="" prev_exists="" prev_mode="" prev_owner="" line k v
+        while IFS= read -r line || [ -n "$line" ]; do
+            k="${line%%=*}"
+            v="${line#*=}"
+            case "$k" in
+                path) prev_path="$v" ;;
+                exists) prev_exists="$v" ;;
+                mode) prev_mode="$v" ;;
+                owner) prev_owner="$v" ;;
+            esac
+        done < "$DEPLOYMENT_PREV/tls-cache.meta"
+        if [ -n "$prev_path" ] && [ "$prev_path" != "/" ]; then
+            if [ "$prev_exists" = 1 ] && [ -d "$prev_path" ]; then
+                [ -z "$prev_mode" ] || chmod "$prev_mode" "$prev_path" || true
+                [ -z "$prev_owner" ] || chown "$prev_owner" "$prev_path" || true
+            elif [ "$prev_exists" = 0 ] && [ -d "$prev_path" ]; then
+                rmdir "$prev_path" 2>/dev/null || true
+            fi
+        fi
+    fi
 }
 
 # Read literal installer EnvironmentFile assignments, without evaluating secrets.

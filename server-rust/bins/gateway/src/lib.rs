@@ -530,6 +530,10 @@ async fn handle(
                     return response;
                 }
             }
+            let skip_outer_guest = shared
+                .routes
+                .find(&req)
+                .is_some_and(|h| h.skips_outer_guest_belt(&req));
             let path = req.uri().path();
             let concrete = route.is_some_and(|r| r.path != "/" && r.path != "/api/");
             let legacy = !matches!(*req.method(), Method::GET | Method::HEAD)
@@ -542,13 +546,14 @@ async fn handle(
                         .go_match(req.method(), &format!("{path}/"), None)
                         .is_some());
             // Auth proxy entries and slash-redirect subtree targets are gated too; ordinary SPA GETs and genuinely unclaimed `/auth/*` fallback paths are not.
-            if path.starts_with("/api/")
-                || (auth_path
-                    && (route.is_some()
-                        || unmatched::slash_redirect(&shared.inventory, &req, identity.proto)
-                            .is_some()))
-                || concrete
-                || legacy
+            if !skip_outer_guest
+                && (path.starts_with("/api/")
+                    || (auth_path
+                        && (route.is_some()
+                            || unmatched::slash_redirect(&shared.inventory, &req, identity.proto)
+                                .is_some()))
+                    || concrete
+                    || legacy)
             {
                 if let Some(admission) = &shared.routes.admission {
                     if let Some(response) = admission

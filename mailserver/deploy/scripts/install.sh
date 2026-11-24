@@ -477,7 +477,7 @@ say "setjoin single-node install (scope: <100 users; 100+/HA → docs/guides/HA_
 
 [ "$(id -u)" = "0" ] || die "must run as root (sudo). It installs to $INSTALL_DIR and writes a systemd unit."
 
-for tool in psql openssl curl; do
+for tool in psql openssl curl python3; do
   command -v "$tool" >/dev/null 2>&1 || die "'$tool' not found — install it first (see docs/guides/SINGLE_NODE_SETUP.md prereqs)."
 done
 

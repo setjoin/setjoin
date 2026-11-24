@@ -87,7 +87,7 @@ impl HealthGate {
         }
     }
 
-    /// Run the live probes in each full evaluation instead of leaving the request to Go.
+    /// Run the live probes in each full evaluation instead of returning `Outcome::Defer` (503).
     pub fn with_probes(mut self, probes: Probes) -> Self {
         self.probes = Some(probes);
         self

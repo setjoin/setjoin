@@ -87,6 +87,9 @@ impl Store {
                 bucket = v;
             }
         }
+        if bucket.is_empty() {
+            return Err("object storage bucket is required".into());
+        }
         let creds = if access.is_empty() && secret.is_empty() {
             s3::creds::Credentials::anonymous()
         } else {
@@ -439,14 +442,10 @@ mod tests {
         assert!(err.contains("MINIO_SECURE"), "unexpected err: {err}");
 
         assert!(lookup(&[("S3_ENDPOINT", ""), ("MINIO_ENDPOINT", "127.0.0.1:9100")]).is_err());
+        assert!(lookup(&[("S3_BUCKET", ""), ("MINIO_BUCKET", "custom-bucket")]).is_err());
 
-        let store = lookup(&[
-            ("S3_BUCKET", ""),
-            ("MINIO_BUCKET", "custom-bucket"),
-            ("S3_SECURE", " true "),
-        ])
-        .unwrap();
-        assert_eq!(store.bucket.name(), "");
+        let store = lookup(&[("S3_SECURE", " true ")]).unwrap();
+        assert_eq!(store.bucket.name(), "mailblobs");
         assert_eq!(store.endpoint, "http://127.0.0.1:9000");
     }
 }

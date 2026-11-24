@@ -297,7 +297,7 @@ validate_tls_cache_dir() {
   case "$1" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
   [ -n "${1//\//}" ] || { echo 'ACME cache must not be filesystem root' >&2; return 1; }
   case "/$1/" in */./*|*/../*) echo 'ACME cache must not contain . or .. segments' >&2; return 1;; esac
-  case "$1" in *[[:space:][:cntrl:]#\&%]*) echo 'invalid ACME cache path' >&2; return 1;; esac
+  case "$1" in *[[:space:][:cntrl:]#\&%\"\'\\]*) echo 'invalid ACME cache path' >&2; return 1;; esac
 }
 
 validate_tls_cache_target() {
@@ -341,6 +341,12 @@ validate_tls_cache_target() {
       */?*) ;;
       *) echo "ACME cache resolved target must not be filesystem root or a top-level directory ($resolved)" >&2; return 1 ;;
     esac
+    case "$resolved" in
+      /var/lib|/var/cache|/var/log|/var/run|/var/tmp|/var/spool|/usr/local|/usr/share|/usr/bin|/usr/lib|/etc/systemd|/etc/ssl|/run/systemd)
+        echo "ACME cache resolved target must not be a shared system directory ($resolved)" >&2
+        return 1
+        ;;
+    esac
   fi
 }
 
@@ -348,11 +354,22 @@ systemd_env_line() {
   python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-line "$1" "${2:-}"
 }
 
+env_file_try() {
+  local __var="$1" __file="${2:-}" __key="$3" __val="" __rc=0
+  [ -n "$__file" ] && [ -f "$__file" ] || return 1
+  __val=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-get "$__file" "$__key") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
+}
+
 resolve_setting_yaml_path() {
   local config="${1:-}" cfg=""
   cfg=$(strip_env_quotes "${SETJOIN_CONFIG:-}")
-  [ -n "$cfg" ] || [ -z "$config" ] || cfg=$(strip_env_quotes "$(tls_front_value "$config" SETJOIN_CONFIG)")
-  [ -n "$cfg" ] || cfg=$(strip_env_quotes "$(tls_front_value "${GATEWAY_ENV:-}" SETJOIN_CONFIG)")
+  [ -n "$cfg" ] || env_file_try cfg "$config" SETJOIN_CONFIG || true
+  [ -n "$cfg" ] || env_file_try cfg "${GATEWAY_ENV:-}" SETJOIN_CONFIG || true
   printf '%s' "$cfg"
 }
 
@@ -377,15 +394,22 @@ yaml_section_try() {
 # ProtectSystem=strict ReadWritePaths in setjoin-gateway.service.
 tls_import_cache_dir() {
   local config="${1:-}" cache="" cfg=""
-  [ -n "$config" ] && cache=$(strip_env_quotes "$(tls_front_value "$config" TLS_AUTOCERT_CACHE_DIR)")
-  [ -n "$cache" ] || cache=$(strip_env_quotes "${TLS_AUTOCERT_CACHE_DIR:-}")
-  if [ -z "$cache" ]; then
-    cfg=$(resolve_setting_yaml_path "$config")
-    if [ -n "$cfg" ]; then
-      yaml_section_try cache "$cfg" tls autocert_cache_dir || { [ $? -eq 1 ] || return 1; }
-    fi
+  if env_file_try cache "$config" TLS_AUTOCERT_CACHE_DIR; then
+    printf '%s' "${cache:-/var/cache/mailserver/autocert}"
+    return 0
   fi
-  [ -n "$cache" ] || cache=$(strip_env_quotes "$(tls_front_value "${GATEWAY_ENV:-}" TLS_AUTOCERT_CACHE_DIR)")
+  if [ "${TLS_AUTOCERT_CACHE_DIR+x}" = x ]; then
+    cache=$(strip_env_quotes "$TLS_AUTOCERT_CACHE_DIR")
+    printf '%s' "${cache:-/var/cache/mailserver/autocert}"
+    return 0
+  fi
+  cfg=$(resolve_setting_yaml_path "$config")
+  if [ -n "$cfg" ]; then
+    yaml_section_try cache "$cfg" tls autocert_cache_dir || { [ $? -eq 1 ] || return 1; }
+  fi
+  if [ -z "$cache" ]; then
+    env_file_try cache "${GATEWAY_ENV:-}" TLS_AUTOCERT_CACHE_DIR || true
+  fi
   printf '%s' "${cache:-/var/cache/mailserver/autocert}"
 }
 
@@ -656,7 +680,8 @@ render_gateway_env() {
     *) echo "render_gateway_env: GATEWAY_UPSTREAM must be Go's loopback plain listener (got '$upstream')" >&2; return 1 ;;
   esac
   local trusted="${GATEWAY_TRUSTED_PROXIES:-127.0.0.1}"
-  local cache cfg="" host_name="" internal_domains="" internal_set=0 internal_from_yaml=0
+  local cache cfg="" host_name="" host_set=0 host_from_env=0 host_from_yaml=0
+  local internal_domains="" internal_set=0 internal_from_yaml=0
   local worm_mode="" worm_mode_set=0 worm_days="" worm_legal_hold="" legal_hold_set=0
   cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
   validate_tls_cache_dir "$cache" || return 1
@@ -671,25 +696,27 @@ GATEWAY_LISTEN=${GATEWAY_LISTEN:-127.0.0.1:8090}
 GATEWAY_UPSTREAM=$upstream
 GATEWAY_AUTH_UPSTREAM=$AUTHSERVER_URL
 GATEWAY_TRUSTED_PROXIES=$trusted
-TLS_AUTOCERT_CACHE_DIR=$cache
 ENV
   )
+  systemd_env_line TLS_AUTOCERT_CACHE_DIR "$cache" >> "$outfile" || return 1
   cfg=$(resolve_setting_yaml_path "${CONFIG_ENV:-}")
 
   # Trace server-identity hostnames (Go order: config.env -> exported env -> YAML).
-  host_name=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" HOSTNAME)")
-  if [ -z "$host_name" ]; then
+  if env_file_try host_name "${CONFIG_ENV:-}" HOSTNAME; then
+    host_set=1
+    host_from_env=1
+  elif printenv HOSTNAME >/dev/null 2>&1; then
     host_name=$(strip_env_quotes "$(printenv HOSTNAME 2>/dev/null || true)")
+    host_set=1
+    host_from_env=1
+  elif [ -n "$cfg" ]; then
+    yaml_section_try host_name "$cfg" "" hostname && { host_set=1; host_from_yaml=1; } || { [ $? -eq 1 ] || return 1; }
   fi
-  if [ -z "$host_name" ] && [ -n "$cfg" ]; then
-    yaml_section_try host_name "$cfg" "" hostname || { [ $? -eq 1 ] || return 1; }
-  fi
-  if [ -n "$host_name" ]; then
+  if [ "$host_set" = 1 ]; then
     systemd_env_line HOSTNAME "$host_name" >> "$outfile" || return 1
   fi
 
-  if [ -n "${CONFIG_ENV:-}" ] && [ -f "$CONFIG_ENV" ] && grep -q '^INTERNAL_DOMAINS=' "$CONFIG_ENV"; then
-    internal_domains=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" INTERNAL_DOMAINS)")
+  if env_file_try internal_domains "${CONFIG_ENV:-}" INTERNAL_DOMAINS; then
     internal_set=1
   elif [ "${INTERNAL_DOMAINS+x}" = x ]; then
     internal_domains=$(strip_env_quotes "$INTERNAL_DOMAINS")
@@ -697,8 +724,13 @@ ENV
   elif [ -n "$cfg" ]; then
     yaml_section_try internal_domains "$cfg" internal domains && { internal_set=1; internal_from_yaml=1; } || { [ $? -eq 1 ] || return 1; }
   fi
-  # Go only overrides default internal.domains=="localhost" with HOSTNAME when INTERNAL_DOMAINS is unset in env.
-  if [ "$internal_from_yaml" = 1 ] && [ "$internal_domains" = localhost ] && [ -n "$host_name" ]; then
+  if [ "$host_from_yaml" = 1 ] && [ -n "$host_name" ]; then
+    # Promoting YAML hostname into gateway.env must not overwrite Go's default internal.domains=localhost.
+    if [ "$internal_set" = 0 ] || { [ "$internal_from_yaml" = 1 ] && [ "$internal_domains" = localhost ]; }; then
+      internal_domains=localhost
+      internal_set=1
+    fi
+  elif [ "$host_from_env" = 1 ] && [ -n "$host_name" ] && [ "$internal_from_yaml" = 1 ] && [ "$internal_domains" = localhost ]; then
     internal_set=0
   fi
   if [ "$internal_set" = 1 ]; then
@@ -706,8 +738,7 @@ ENV
   fi
 
   # WORM retention & legal-hold switches (env empty WORM_MODE= overrides YAML).
-  if [ -n "${CONFIG_ENV:-}" ] && [ -f "$CONFIG_ENV" ] && grep -q '^WORM_MODE=' "$CONFIG_ENV"; then
-    worm_mode=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" WORM_MODE)")
+  if env_file_try worm_mode "${CONFIG_ENV:-}" WORM_MODE; then
     worm_mode_set=1
   elif [ "${WORM_MODE+x}" = x ]; then
     worm_mode=$(strip_env_quotes "$WORM_MODE")
@@ -719,17 +750,18 @@ ENV
     systemd_env_line WORM_MODE "$worm_mode" >> "$outfile" || return 1
   fi
 
-  worm_days=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" WORM_RETENTION_DAYS)")
-  [ -n "$worm_days" ] || worm_days=$(strip_env_quotes "${WORM_RETENTION_DAYS:-}")
-  if [ -z "$worm_days" ] && [ -n "$cfg" ]; then
+  if env_file_try worm_days "${CONFIG_ENV:-}" WORM_RETENTION_DAYS; then
+    :
+  elif [ "${WORM_RETENTION_DAYS+x}" = x ]; then
+    worm_days=$(strip_env_quotes "$WORM_RETENTION_DAYS")
+  elif [ -n "$cfg" ]; then
     yaml_section_try worm_days "$cfg" worm retention_days || { [ $? -eq 1 ] || return 1; }
   fi
   if [ -n "$worm_days" ]; then
     systemd_env_line WORM_RETENTION_DAYS "$worm_days" >> "$outfile" || return 1
   fi
 
-  if [ -n "${CONFIG_ENV:-}" ] && [ -f "$CONFIG_ENV" ] && grep -q '^WORM_LEGAL_HOLD_ENABLED=' "$CONFIG_ENV"; then
-    worm_legal_hold=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" WORM_LEGAL_HOLD_ENABLED)")
+  if env_file_try worm_legal_hold "${CONFIG_ENV:-}" WORM_LEGAL_HOLD_ENABLED; then
     legal_hold_set=1
   elif [ "${WORM_LEGAL_HOLD_ENABLED+x}" = x ]; then
     worm_legal_hold=$(strip_env_quotes "$WORM_LEGAL_HOLD_ENABLED")

@@ -1227,6 +1227,7 @@ async fn routes(
         store: Some(Arc::new(
             setjoin_gateway::recovery_worker::S3Store::from_env()?,
         )),
+        worm: Some(setjoin_gateway::compliance::WormConfig::from_settings(settings)),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };

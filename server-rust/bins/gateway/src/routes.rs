@@ -40,6 +40,11 @@ pub trait Intercept: Send + Sync + 'static {
     fn shutdown(&self) {}
     /// Whether Go wraps this matched shape in RequireAuth.
     fn requires_session(&self, _req: &Request<Body>) -> bool { false }
+    /// Whether Go leaves this matched path outside `buildRootDispatch`'s guest
+    /// belt (e.g. bare unconfigured `/rtc`, which falls straight through to SPA).
+    fn skips_outer_guest_belt(&self, _req: &Request<Body>) -> bool {
+        false
+    }
     /// Head-only match (method, URI, headers); the body is not read here.
     fn matches(&self, req: &Request<Body>) -> bool;
     /// Prove Go's guest belt admits this caller before spending a route budget.
