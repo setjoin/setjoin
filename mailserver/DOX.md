@@ -1104,9 +1104,10 @@ env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled). The TL
 import/ACME cache directory (`tls_import_cache_dir`, resolved from
 `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
 stdlib `yaml-config.py` without external PyYAML) is validated lexically and
-canonically (`validate_tls_cache_target`: rejects control chars, trailing-slash
-and intermediate component symlinks outside OS-managed `/tmp` and `/var/run`,
-filesystem roots, `.`/`..` traversal, and top-level system directories) before
+canonically (`validate_tls_cache_target`: rejects control chars, `%` systemd
+specifiers, trailing-slash and intermediate component symlinks outside OS-managed
+`/tmp` and `/var/run`, filesystem roots, `.`/`..` traversal, and top-level
+system directories) before
 filesystem mutation, provisioned (`0700`, `setjoin:setjoin` enforced on both new
 and existing directories during root install/upgrade; non-root upgrade rehearsals
 skip only host `/var/cache/mailserver/autocert`), emitted solely into `gateway.env`

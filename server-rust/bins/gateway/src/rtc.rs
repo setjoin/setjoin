@@ -110,8 +110,11 @@ fn strip_api_prefix(path: &str) -> &str {
 }
 
 fn is_rtc(path: &str) -> bool {
-    let p = strip_api_prefix(path);
-    p == "/rtc" || p.starts_with("/rtc/")
+    let Some(rest) = strip_api_prefix(path).strip_prefix('/') else {
+        return false;
+    };
+    let first = rest.split('/').next().unwrap_or("");
+    crate::inventory::unescape(first) == b"rtc"
 }
 
 /// Go's `net/http` request-line `url.ParseRequestURI` bad-escape rejection
@@ -598,5 +601,11 @@ mod tests {
         assert_eq!(unescape("/rtc/%zz"), None);
         assert_eq!(unescape("/rtc/%+a"), None);
         assert_eq!(unescape("/rtc/%-1"), None);
+        assert!(is_rtc("/rtc"));
+        assert!(is_rtc("/%72tc"));
+        assert!(is_rtc("/api/%72tc/rtc/validate"));
+        assert!(!is_rtc("/api/%72tcx"));
+        assert!(!is_rtc("/%72tc%2Ffoo"));
+        assert!(!is_rtc("/rtcx"));
     }
 }

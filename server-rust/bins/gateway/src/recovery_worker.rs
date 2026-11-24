@@ -814,7 +814,7 @@ impl S3Store {
         F: Fn(&str) -> Option<String>,
     {
         let get = |name: &str| lookup(name).filter(|s| !s.is_empty());
-        let mut endpoint = get("S3_ENDPOINT").unwrap_or_else(|| "127.0.0.1:9000".into());
+        let mut endpoint = lookup("S3_ENDPOINT").unwrap_or_else(|| "127.0.0.1:9000".into());
         if endpoint == "127.0.0.1:9000" {
             if let Some(v) = get("MINIO_ENDPOINT") {
                 endpoint = v;
@@ -826,7 +826,7 @@ impl S3Store {
         let secret = get("S3_SECRET_KEY")
             .or_else(|| get("MINIO_SECRET_KEY"))
             .unwrap_or_default();
-        let mut bucket = get("S3_BUCKET").unwrap_or_else(|| "mailblobs".into());
+        let mut bucket = lookup("S3_BUCKET").unwrap_or_else(|| "mailblobs".into());
         if bucket == "mailblobs" {
             if let Some(v) = get("MINIO_BUCKET") {
                 bucket = v;
@@ -1555,5 +1555,16 @@ mod tests {
 
         let err = lookup(&[("MINIO_SECURE", "maybe")]).err().unwrap();
         assert!(err.contains("MINIO_SECURE"), "unexpected err: {err}");
+
+        assert!(lookup(&[("S3_ENDPOINT", ""), ("MINIO_ENDPOINT", "127.0.0.1:9100")]).is_err());
+
+        let store = lookup(&[
+            ("S3_BUCKET", ""),
+            ("MINIO_BUCKET", "custom-bucket"),
+            ("S3_SECURE", " true "),
+        ])
+        .unwrap();
+        assert_eq!(store.bucket_name(), "");
+        assert_eq!(store.endpoint(), "http://127.0.0.1:9000");
     }
 }

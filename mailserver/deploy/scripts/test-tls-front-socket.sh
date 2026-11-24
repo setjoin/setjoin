@@ -276,7 +276,10 @@ PY
 
 # Explicit empty INTERNAL_DOMAINS= and WORM_MODE= suppress YAML defaults, while exported HOSTNAME beats YAML hostname,
 # and YAML default internal.domains=localhost is omitted when HOSTNAME is set (matching Go config.go).
-SETJOIN_CONFIG="$tmp/tricky-s3.yaml" CONFIG_ENV="$tmp/tricky-config.env" GATEWAY_ENV="$tmp/tricky-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/tricky-gw.env"
+(
+  unset HOSTNAME
+  SETJOIN_CONFIG="$tmp/tricky-s3.yaml" CONFIG_ENV="$tmp/tricky-config.env" GATEWAY_ENV="$tmp/tricky-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/tricky-gw.env"
+)
 grep -qx 'WORM_MODE=' "$tmp/tricky-gw.env"
 grep -qx 'HOSTNAME=trace.example.test' "$tmp/tricky-gw.env"
 grep -qx 'INTERNAL_DOMAINS=' "$tmp/tricky-gw.env"
@@ -288,4 +291,48 @@ grep -qx 'INTERNAL_DOMAINS=' "$tmp/tricky-preserved.env"
 HOSTNAME=env.example.test SETJOIN_CONFIG="$tmp/tricky-s3.yaml" CONFIG_ENV="$tmp/empty-host.env" GATEWAY_ENV="$tmp/envhost-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/envhost-gw.env"
 grep -qx 'HOSTNAME=env.example.test' "$tmp/envhost-gw.env"
 if grep -q '^INTERNAL_DOMAINS=' "$tmp/envhost-gw.env"; then echo 'YAML localhost should defer to HOSTNAME' >&2; exit 1; fi
+
+cat > "$tmp/quoted-root.yaml" <<'YAML'
+"tls":
+  autocert_cache: /fixture/quoted-cache
+YAML
+[ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/quoted-root.yaml" tls autocert_cache)" = "/fixture/quoted-cache" ]
+
+printf 'tls: cache: invalid\n' > "$tmp/bad-plain.yaml"
+rc=0; python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/bad-plain.yaml" tls cache >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || { echo "expected exit 2 for plain ': ', got $rc" >&2; exit 1; }
+
+cat > "$tmp/alias.yaml" <<'YAML'
+defaults: &p
+  autocert_cache: /fixture/alias-cache
+tls: *p
+YAML
+[ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/alias.yaml" tls autocert_cache)" = "/fixture/alias-cache" ]
+
+printf 'tls:\n  autocert_cache: *missing\n' > "$tmp/missing-alias.yaml"
+rc=0; python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/missing-alias.yaml" tls autocert_cache >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || { echo "expected exit 2 for undefined alias, got $rc" >&2; exit 1; }
+
+cat > "$tmp/multiline-s3.env" <<'ENV'
+S3_ENDPOINT=127.0.0.1:9000
+S3_SECURE=" true "
+S3_SECRET_KEY="line1
+line2"
+ENV
+python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" render-storage "$tmp/multiline-s3.env" > "$tmp/multiline-storage.out"
+grep -qx 'S3_SECURE=false' "$tmp/multiline-storage.out"
+python3 - "$ROOT/mailserver/deploy/scripts/yaml-config.py" "$tmp/multiline-storage.out" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("yc", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+parsed = mod.parse_systemd_env_file(sys.argv[2])
+assert parsed.get("S3_SECRET_KEY") == "line1\nline2", parsed
+assert parsed.get("S3_SECURE") == "false", parsed
+PY
+
+if validate_tls_cache_target '/tmp/cache%h' 2>/dev/null; then
+  echo 'expected % systemd specifier rejection' >&2
+  exit 1
+fi
 echo 'native TLS release socket: PASS'

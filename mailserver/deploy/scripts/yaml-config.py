@@ -42,6 +42,7 @@ class _Parser:
             self.s = self.s[1:]
         self.n = len(self.s)
         self.i = 0
+        self.anchors: dict = {}
 
     def eof(self) -> bool:
         return self.i >= self.n
@@ -182,6 +183,18 @@ class _Parser:
             return False
         return raw
 
+    def read_indicator_name(self, sigil: str, in_flow: bool = False) -> str:
+        assert self.s[self.i] == sigil
+        self.i += 1
+        start = self.i
+        stops = " \t\n" + (",{}[]" if in_flow else "")
+        while self.i < self.n and self.s[self.i] not in stops:
+            self.i += 1
+        name = self.s[start : self.i]
+        if not name:
+            raise YamlError(f"empty {sigil!r} name at offset {start}")
+        return name
+
     def parse_plain(self, in_flow: bool = False):
         start = self.i
         stops = ",}]" if in_flow else ""
@@ -194,6 +207,11 @@ class _Parser:
                 break
             if ch == "#" and self.i > start and self.s[self.i - 1] in " \t":
                 break
+            if ch == ":" and (
+                self.peek(1) in ("", " ", "\t", "\n")
+                or (in_flow and self.peek(1) in (",", "}", "]"))
+            ):
+                raise YamlError(f"unexpected ':' in plain scalar at offset {self.i}")
             if ch not in " \t":
                 last_non_ws = self.i + 1
             self.i += 1
@@ -206,6 +224,22 @@ class _Parser:
         if self.eof():
             raise YamlError("unexpected EOF reading key")
         ch = self.peek()
+        if ch == "!":
+            raise YamlError(f"unsupported YAML tag at offset {self.i}")
+        if ch == "*":
+            alias = self.read_indicator_name("*", in_flow=in_flow)
+            if alias not in self.anchors:
+                raise YamlError(f"undefined YAML alias '*{alias}'")
+            val = self.anchors[alias]
+            if not isinstance(val, str):
+                raise YamlError(f"YAML alias '*{alias}' is not a scalar key")
+            return val
+        if ch == "&":
+            name = self.read_indicator_name("&", in_flow=in_flow)
+            self.skip_hws()
+            key = self.parse_key(in_flow=in_flow)
+            self.anchors[name] = key
+            return key
         if ch == '"':
             return self.parse_dquote()
         if ch == "'":
@@ -290,7 +324,24 @@ class _Parser:
             raise YamlError(f"expected ',' or ']' in flow sequence at offset {self.i}")
 
     def parse_flow_value(self):
+        self.skip_flow_ws_comments()
         ch = self.peek()
+        if ch == "!":
+            raise YamlError(f"unsupported YAML tag at offset {self.i}")
+        if ch == "*":
+            name = self.read_indicator_name("*", in_flow=True)
+            if name not in self.anchors:
+                raise YamlError(f"undefined YAML alias '*{name}'")
+            return self.anchors[name]
+        if ch == "&":
+            name = self.read_indicator_name("&", in_flow=True)
+            self.skip_flow_ws_comments()
+            if self.peek() in ("", ",", "}", "]"):
+                val = None
+            else:
+                val = self.parse_flow_value()
+            self.anchors[name] = val
+            return val
         if ch == "{":
             return self.parse_flow_mapping()
         if ch == "[":
@@ -358,6 +409,8 @@ class _Parser:
                     items.append(self.parse_block_value_node(seq_indent))
                 else:
                     items.append(None)
+            elif self.peek() in ("!", "&", "*"):
+                items.append(self.parse_block_value(seq_indent))
             elif self.peek() == "{":
                 items.append(self.parse_flow_mapping())
                 self.skip_comment_eol()
@@ -388,6 +441,49 @@ class _Parser:
             nl = self.s.find("\n", self.i)
             self.i = self.n if nl == -1 else nl + 1
 
+    def parse_block_value(self, parent_indent: int):
+        anchor_name: str | None = None
+        if self.peek() == "!":
+            raise YamlError(f"unsupported YAML tag at offset {self.i}")
+        if self.peek() == "&":
+            anchor_name = self.read_indicator_name("&", in_flow=False)
+            self.skip_hws()
+            if self.peek() == "!":
+                raise YamlError(f"unsupported YAML tag at offset {self.i}")
+            if self.peek() == "&":
+                raise YamlError(f"duplicate YAML anchor at offset {self.i}")
+        ch = self.peek()
+        if ch == "*":
+            if anchor_name is not None:
+                raise YamlError("YAML alias cannot carry an anchor")
+            alias = self.read_indicator_name("*", in_flow=False)
+            self.skip_comment_eol()
+            if alias not in self.anchors:
+                raise YamlError(f"undefined YAML alias '*{alias}'")
+            return self.anchors[alias]
+        if ch in ("", "\n", "#"):
+            self.skip_comment_eol()
+            val = self.parse_block_value_node(parent_indent)
+        elif ch == "{":
+            val = self.parse_flow_mapping()
+            self.skip_comment_eol()
+        elif ch == "[":
+            val = self.parse_flow_seq()
+            self.skip_comment_eol()
+        elif ch == '"':
+            val = self.parse_dquote()
+            self.skip_comment_eol()
+        elif ch == "'":
+            val = self.parse_squote()
+            self.skip_comment_eol()
+        elif ch in ("|", ">"):
+            val = self.parse_block_scalar(parent_indent)
+        else:
+            val = self.parse_plain(in_flow=False)
+        if anchor_name is not None:
+            self.anchors[anchor_name] = val
+        return val
+
     def parse_block_value_node(self, parent_indent: int):
         self.skip_blank_and_comments()
         if self.eof() or self.at_doc_marker():
@@ -398,6 +494,9 @@ class _Parser:
         if ind <= parent_indent:
             return None
         ch = self.s[self.i + ind]
+        if ch in ("!", "&", "*"):
+            self.i += ind
+            return self.parse_block_value(parent_indent)
         if ch == "{":
             self.i += ind
             v = self.parse_flow_mapping()
@@ -439,27 +538,7 @@ class _Parser:
             if self.peek() not in ("", " ", "\t", "\n"):
                 raise YamlError(f"expected whitespace after ':' for key {k!r}")
             self.skip_hws()
-            ch = self.peek()
-            if ch in ("", "\n", "#"):
-                self.skip_comment_eol()
-                val = self.parse_block_value_node(block_indent)
-            elif ch == "{":
-                val = self.parse_flow_mapping()
-                self.skip_comment_eol()
-            elif ch == "[":
-                val = self.parse_flow_seq()
-                self.skip_comment_eol()
-            elif ch == '"':
-                val = self.parse_dquote()
-                self.skip_comment_eol()
-            elif ch == "'":
-                val = self.parse_squote()
-                self.skip_comment_eol()
-            elif ch in ("|", ">"):
-                val = self.parse_block_scalar(block_indent)
-            else:
-                val = self.parse_plain(in_flow=False)
-            res[k] = val
+            res[k] = self.parse_block_value(block_indent)
         return res
 
 
@@ -480,11 +559,12 @@ def parse_yaml_mapping(path: str) -> dict:
     if p.eof() or p.at_doc_marker():
         return {}
     ind = p.current_line_indent()
-    if p.s[p.i + ind] == "{":
+    first = p.s[p.i + ind]
+    if first == "{":
         p.i += ind
         doc = p.parse_flow_mapping()
         p.skip_comment_eol()
-    elif p.s[p.i + ind] in ("[", '"', "'", "-", "|", ">"):
+    elif first in ("[", "-", "|", ">", "!", "*"):
         raise YamlError(f"{path}: root must be a YAML mapping")
     else:
         doc = p.parse_block_mapping(ind)
@@ -496,67 +576,108 @@ def parse_yaml_mapping(path: str) -> dict:
     return doc
 
 
-def unquote_systemd_env(raw: str) -> str:
-    """Parse one EnvironmentFile= RHS per systemd.exec(5)."""
-    s = raw.rstrip("\r\n")
-    lead = s.lstrip(" \t")
-    if lead.startswith('"'):
-        out: list[str] = []
-        i = 1
-        n = len(lead)
-        while i < n:
-            ch = lead[i]
-            if ch == '"':
-                break
-            if ch == "\\" and i + 1 < n:
-                nxt = lead[i + 1]
-                # systemd EnvironmentFile double quotes interpret \, ", $, `
-                # and preserve unrecognized backslashes literally.
-                if nxt in ("\\", '"', "$", "`"):
-                    out.append(nxt)
-                    i += 2
-                    continue
-                if nxt == "\n":
-                    i += 2
-                    continue
-            out.append(ch)
-            i += 1
-        return "".join(out)
-    if lead.startswith("'"):
-        idx = lead.find("'", 1)
-        return lead[1:idx] if idx != -1 else lead[1:]
-    return s.strip(" \t")
-
-
 def parse_systemd_env_file(path: str) -> dict[str, str]:
+    """Parse EnvironmentFile= entries as a character stream per systemd.exec(5)."""
     out: dict[str, str] = {}
     if not path or not os.path.isfile(path):
         return out
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        lines = fh.read().splitlines()
+        src = fh.read()
+    n = len(src)
     i = 0
-    while i < len(lines):
-        line = lines[i]
-        i += 1
-        s = line.lstrip(" \t")
-        if not s or s.startswith("#") or s.startswith(";"):
-            continue
-        while line.endswith("\\") and i < len(lines):
-            line = line[:-1] + lines[i]
+
+    def skip_line_rest() -> None:
+        nonlocal i
+        while i < n and src[i] != "\n":
             i += 1
-        s = line.lstrip(" \t")
-        if "=" not in s:
+        if i < n and src[i] == "\n":
+            i += 1
+
+    while i < n:
+        while i < n and src[i] in " \t\r\n":
+            i += 1
+        if i >= n:
+            break
+        if src[i] in ("#", ";"):
+            skip_line_rest()
             continue
-        k, v = s.split("=", 1)
-        k = k.strip(" \t")
-        if k:
-            out[k] = unquote_systemd_env(v)
+        k_start = i
+        while i < n and src[i] not in ("=", "\n"):
+            i += 1
+        if i >= n or src[i] != "=":
+            if i < n and src[i] == "\n":
+                i += 1
+            continue
+        key = src[k_start:i].strip(" \t\r")
+        i += 1  # consume '='
+        while i < n and src[i] in " \t":
+            i += 1
+        if i >= n or src[i] == "\n":
+            val = ""
+            if i < n:
+                i += 1
+        elif src[i] == '"':
+            i += 1
+            buf: list[str] = []
+            while i < n:
+                ch = src[i]
+                if ch == '"':
+                    i += 1
+                    break
+                if ch == "\\" and i + 1 < n:
+                    nxt = src[i + 1]
+                    # systemd EnvironmentFile double quotes interpret \, ", $, `
+                    # and preserve unrecognized backslashes literally.
+                    if nxt in ("\\", '"', "$", "`"):
+                        buf.append(nxt)
+                        i += 2
+                        continue
+                    if nxt == "\n":
+                        i += 2
+                        continue
+                    if nxt == "\r" and i + 2 < n and src[i + 2] == "\n":
+                        i += 3
+                        continue
+                buf.append(ch)
+                i += 1
+            skip_line_rest()
+            val = "".join(buf)
+        elif src[i] == "'":
+            i += 1
+            buf = []
+            while i < n:
+                ch = src[i]
+                if ch == "'":
+                    i += 1
+                    break
+                buf.append(ch)
+                i += 1
+            skip_line_rest()
+            val = "".join(buf)
+        else:
+            buf = []
+            while i < n:
+                ch = src[i]
+                if ch == "\n":
+                    i += 1
+                    break
+                if ch == "\\" and i + 1 < n and src[i + 1] == "\n":
+                    i += 2
+                    continue
+                if ch == "\\" and i + 2 < n and src[i + 1] == "\r" and src[i + 2] == "\n":
+                    i += 3
+                    continue
+                buf.append(ch)
+                i += 1
+            val = "".join(buf).strip(" \t\r")
+        if key:
+            out[key] = val
     return out
 
 
 def fmt_systemd_env_line(key: str, val: str) -> str:
-    if "\n" in val or "\r" in val:
-        raise YamlError(f"systemd EnvironmentFile: {key} must not contain newlines")
+    if "\r" in val or "\x00" in val:
+        raise YamlError(f"systemd EnvironmentFile: {key} must not contain CR or NUL")
     if val == "" or re.fullmatch(r"[A-Za-z0-9._:/@-]+", val):
         return f"{key}={val}\n"
     esc = (
@@ -607,7 +728,7 @@ def _koanf_bool(val) -> bool:
     # Matches koanf v2.3.6 Bool() / strconv.ParseBool returning false on invalid.
     if isinstance(val, bool):
         return val
-    return str(val).strip() in ("1", "t", "T", "true", "TRUE", "True")
+    return str(val) in ("1", "t", "T", "true", "TRUE", "True")
 
 
 def _strict_go_bool(raw: str, key: str) -> bool:

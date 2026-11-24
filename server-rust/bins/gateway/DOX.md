@@ -251,9 +251,9 @@ Verification after integration changes: replay `rtc_recorded`, `rtc_dispatch`,
 with `REQUIRE_DB=1` and `--test-threads=1`. Reload the assigned disposable database
 from this worktree before each target; clear `GOFREE_RECORD_GO_BINARY` so replay
 cannot overwrite the frozen-Go goldens. `rtc_dispatch` needs loopback port 7880;
-replay peers in `rtc_recorded` use ephemeral ports. Preserve both the `/rtc`
-exception to `/api` mounting in `inventory.rs` and the other families' worker
-registration/shutdown wiring when resolving integration conflicts.
+replay peers in `rtc_recorded` use ephemeral ports. Preserve the other
+families' worker registration/shutdown wiring when resolving integration
+conflicts.
 
 ## Drive workers (#409)
 

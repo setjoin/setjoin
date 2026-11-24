@@ -297,7 +297,7 @@ validate_tls_cache_dir() {
   case "$1" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
   [ -n "${1//\//}" ] || { echo 'ACME cache must not be filesystem root' >&2; return 1; }
   case "/$1/" in */./*|*/../*) echo 'ACME cache must not contain . or .. segments' >&2; return 1;; esac
-  case "$1" in *[[:space:][:cntrl:]#\&]*) echo 'invalid ACME cache path' >&2; return 1;; esac
+  case "$1" in *[[:space:][:cntrl:]#\&%]*) echo 'invalid ACME cache path' >&2; return 1;; esac
 }
 
 validate_tls_cache_target() {
