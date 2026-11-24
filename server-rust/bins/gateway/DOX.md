@@ -606,8 +606,10 @@ uses only the direct DSN for LISTEN. It refreshes on reconnect and joins on drai
 Go keeps its own cache task. Native Drive, CalDAV, and CardDAV authenticate HTTP
 Basic natively (#355a) via `dav_auth::DavBasicAuth` (app passwords only, shared
 `ThreatGate` with `protocol="http"`, and `RuntimeGate::enforce_basic`), with
-`PushIdentity::from_basic` minting 12 h Drive tokens; only `Negotiate` forwards
-to Go until #355b. (`dav_basic_auth` integration tests cover all runtime gates.)
+`PushIdentity::from_basic` minting 12 h Drive tokens; `Negotiate` is handled
+natively (#355b) via `DavBasicAuth::authenticate_negotiate` (`libgssapi` FFI +
+`RuntimeGate::enforce_kerberos`). (`dav_basic_auth` and `dav_negotiate_auth`
+integration tests cover all runtime gates.)
 
 The link-protect oracle accepts GOFREE_LINKPROTECT_DNS_IP (loopback only;
 default 127.0.0.66), so independent workers can own different UDP53 fixtures.
