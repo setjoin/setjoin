@@ -1417,7 +1417,7 @@ _is_empty_preserved_key() {
     IMAP_ADDR|IMAP_TLS_ADDR|SMTP_INBOUND_ADDR|SMTP_INBOUND_TLS_ADDR|SMTP_SUBMISSION_ADDR|WORM_LEGAL_HOLD_ENABLED|INTERNAL_DOMAINS) return 0 ;;
     *)
       case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
-        worm_mode|worm__mode) return 0 ;;
+        worm_mode|worm__mode|worm_retention_days) return 0 ;;
         *) return 1 ;;
       esac
       ;;

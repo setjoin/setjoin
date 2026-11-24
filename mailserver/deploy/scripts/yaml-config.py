@@ -304,8 +304,16 @@ class _Parser:
                 raise YamlError("cannot coerce bool to !!float")
             if isinstance(val, (int, float)):
                 return float(val)
-            s = raw_plain if raw_plain is not None else str(val)
+            s = (raw_plain if raw_plain is not None else str(val)).strip()
             try:
+                if re.fullmatch(r"[+-]?0(?:_?[0-7])+", s):
+                    return float(int(s.replace("_", ""), 8))
+                if re.fullmatch(r"[+-]?0[xX]_?[0-9a-fA-F](?:_?[0-9a-fA-F])*", s):
+                    return float(int(s.replace("_", ""), 16))
+                if re.fullmatch(r"[+-]?0[oO]_?[0-7](?:_?[0-7])*", s):
+                    return float(int(s.replace("_", ""), 8))
+                if re.fullmatch(r"[+-]?0[bB]_?[01](?:_?[01])*", s):
+                    return float(int(s.replace("_", ""), 2))
                 return float(s)
             except ValueError as exc:
                 raise YamlError(f"invalid !!float value {s!r}") from exc
@@ -1119,7 +1127,15 @@ def cmd_normalize_retention(args: list[str]) -> int:
     if not raw:
         sys.stderr.write("invalid WORM_RETENTION_DAYS: empty value\n")
         return 2
-    # Match Go koanf.Int() / strconv.ParseFloat(s, 64) rules.
+    # Match Go koanf.Int() (strconv.ParseInt(s, 10, 64) before strconv.ParseFloat(s, 64)).
+    if re.fullmatch(r"[+-]?[0-9]+", raw):
+        exact = int(raw, 10)
+        if -(1 << 63) <= exact <= (1 << 63) - 1:
+            if exact < 1:
+                sys.stderr.write(f"invalid WORM_RETENTION_DAYS (must be >= 1): {args[0]!r}\n")
+                return 2
+            sys.stdout.write(str(exact))
+            return 0
     if re.fullmatch(
         r"[+-]?0[xX](?:_?[0-9a-fA-F](?:_?[0-9a-fA-F])*(?:\.(?:[0-9a-fA-F](?:_?[0-9a-fA-F])*)?)?|\.[0-9a-fA-F](?:_?[0-9a-fA-F])*)[pP][+-]?[0-9](?:_?[0-9])*",
         raw,

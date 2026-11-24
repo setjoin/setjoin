@@ -522,6 +522,9 @@ fn canonical_worm_retention_value(value: Option<&Value>) -> Option<String> {
             if trimmed.is_empty() {
                 return None;
             }
+            if let Ok(exact) = trimmed.parse::<i64>() {
+                return Some(exact.to_string());
+            }
             parse_go_float64(trimmed)
                 .filter(|f| *f >= (i64::MIN as f64) && *f < 9_223_372_036_854_775_808.0)
                 .map(|f| (f as i64).to_string())
@@ -819,6 +822,15 @@ mod tests {
         assert_eq!(
             super::canonical_worm_retention_value(env_bad_hex.values.get("worm.retention_days")),
             None
+        );
+
+        let mut exact_i64 = BTreeMap::new();
+        exact_i64.insert("WORM_RETENTION_DAYS".into(), "9007199254740993".into());
+        let env_exact_i64 = Settings::parse("", &exact_i64).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(env_exact_i64.values.get("worm.retention_days"))
+                .as_deref(),
+            Some("9007199254740993")
         );
     }
 }

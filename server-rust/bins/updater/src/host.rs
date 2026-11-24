@@ -1038,6 +1038,9 @@ impl<'a> YamlParser<'a> {
                     ) {
                         return Err("cannot coerce bool to YAML !!float");
                     }
+                    if let Some(iv) = Self::parse_yaml_int(s) {
+                        return Ok(YamlNode::Scalar((iv as f64).to_string(), false));
+                    }
                     let v = parse_yaml_float(s).ok_or("invalid YAML !!float value")?;
                     Ok(YamlNode::Scalar(v.to_string(), false))
                 }
@@ -1823,6 +1826,14 @@ fn parse_koanf_env_retention_days(raw: &str) -> Result<i64, String> {
     if s.is_empty() {
         return Err("empty WORM_RETENTION_DAYS".into());
     }
+    if let Ok(days) = s.parse::<i64>() {
+        if days < 1 {
+            return Err(format!(
+                "invalid WORM_RETENTION_DAYS (must be >= 1): {raw:?}"
+            ));
+        }
+        return Ok(days);
+    }
     if let Some(v) = parse_go_float64(s) {
         if v >= (i64::MIN as f64) && v < 9_223_372_036_854_775_808.0 {
             let days = v as i64;
@@ -1861,15 +1872,13 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
         _ => return Err("unsupported worm YAML value"),
     };
     let mode = yaml_section_scalar(entries, "mode")?.filter(|s| !s.is_empty());
-    let retention_days = yaml_section_scalar_meta(entries, "retention_days")?
-        .filter(|(s, _)| !s.is_empty())
-        .map(|(s, quoted)| {
-            if quoted {
-                s
-            } else {
-                normalize_retention_days(&s)
-            }
-        });
+    let retention_days = yaml_section_scalar_meta(entries, "retention_days")?.map(|(s, quoted)| {
+        if quoted {
+            s
+        } else {
+            normalize_retention_days(&s)
+        }
+    });
     Ok(YamlWorm {
         mode,
         retention_days,
@@ -2150,7 +2159,7 @@ fn systemd_logical_lines(unit: &str) -> Vec<String> {
     logical
 }
 
-fn expand_systemd_specifiers(raw: &str, unit_name: &str) -> Result<String> {
+fn expand_systemd_specifiers(raw: &str, unit_name: &str, directive_key: &str) -> Result<String> {
     if !raw.contains('%') {
         return Ok(raw.to_owned());
     }
@@ -2163,7 +2172,7 @@ fn expand_systemd_specifiers(raw: &str, unit_name: &str) -> Result<String> {
         }
         let Some(spec) = chars.next() else {
             bail!(
-                "unsupported trailing systemd specifier in directive {raw:?}; resolve explicitly or run upgrade.sh refresh-gateway-env"
+                "unsupported trailing systemd specifier in {directive_key}= directive; resolve explicitly or run upgrade.sh refresh-gateway-env"
             );
         };
         match spec {
@@ -2171,7 +2180,7 @@ fn expand_systemd_specifiers(raw: &str, unit_name: &str) -> Result<String> {
             'n' => {
                 ensure!(
                     !unit_name.is_empty(),
-                    "cannot expand %n systemd specifier without unit name in directive {raw:?}"
+                    "cannot expand %n systemd specifier without unit name in {directive_key}= directive"
                 );
                 out.push_str(unit_name);
             }
@@ -2182,7 +2191,7 @@ fn expand_systemd_specifiers(raw: &str, unit_name: &str) -> Result<String> {
                     .unwrap_or(unit_name);
                 ensure!(
                     !stem.is_empty(),
-                    "cannot expand %N systemd specifier without unit name in directive {raw:?}"
+                    "cannot expand %N systemd specifier without unit name in {directive_key}= directive"
                 );
                 out.push_str(stem);
             }
@@ -2192,7 +2201,7 @@ fn expand_systemd_specifiers(raw: &str, unit_name: &str) -> Result<String> {
             'C' => out.push_str("/var/cache"),
             'L' => out.push_str("/var/log"),
             _ => bail!(
-                "unsupported systemd specifier %{spec} in directive {raw:?}; resolve explicitly or run upgrade.sh refresh-gateway-env"
+                "unsupported systemd specifier %{spec} in {directive_key}= directive; resolve explicitly or run upgrade.sh refresh-gateway-env"
             ),
         }
     }
@@ -2222,9 +2231,9 @@ fn parse_unit_env_spec_into(unit: &str, unit_name: &str, spec: &mut UnitEnvSpec)
             if rhs.is_empty() {
                 spec.inline_env.clear();
             } else {
-                let expanded_rhs = expand_systemd_specifiers(rhs, unit_name)?;
-                for word in split_systemd_words(&expanded_rhs).map_err(anyhow::Error::msg)? {
-                    if let Some((k, v)) = word.split_once('=') {
+                for word in split_systemd_words(rhs).map_err(anyhow::Error::msg)? {
+                    let expanded = expand_systemd_specifiers(&word, unit_name, "Environment")?;
+                    if let Some((k, v)) = expanded.split_once('=') {
                         if !k.is_empty() {
                             spec.inline_env.push((k.to_owned(), v.to_owned()));
                         }
@@ -2237,9 +2246,10 @@ fn parse_unit_env_spec_into(unit: &str, unit_name: &str, spec: &mut UnitEnvSpec)
             if rhs.is_empty() {
                 spec.unset_env.clear();
             } else {
-                let expanded_rhs = expand_systemd_specifiers(rhs, unit_name)?;
-                spec.unset_env
-                    .extend(split_systemd_words(&expanded_rhs).map_err(anyhow::Error::msg)?);
+                for word in split_systemd_words(rhs).map_err(anyhow::Error::msg)? {
+                    spec.unset_env
+                        .push(expand_systemd_specifiers(&word, unit_name, "UnsetEnvironment")?);
+                }
             }
             continue;
         }
@@ -2258,7 +2268,7 @@ fn parse_unit_env_spec_into(unit: &str, unit_name: &str, spec: &mut UnitEnvSpec)
         if rest.is_empty() {
             continue;
         }
-        let expanded = expand_systemd_specifiers(rest, unit_name)?;
+        let expanded = expand_systemd_specifiers(rest, unit_name, "EnvironmentFile")?;
         if !std::path::Path::new(&expanded).is_absolute() {
             continue;
         }
@@ -2983,7 +2993,7 @@ mod tests {
     use std::path::Path;
     use super::{
         check_worm_gateway_ready, default_dropin_dirs, load_unit_env_files_with_dirs,
-        parse_env_assignments, yaml_worm_settings,
+        parse_env_assignments, parse_koanf_env_retention_days, yaml_worm_settings,
     };
 
     #[test]
@@ -3897,5 +3907,65 @@ mod tests {
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&spec_unit, Some(&cfg), &stale_default).is_err());
+
+        // C-unescaping runs before systemd % expansion, and specifier errors never echo directive values
+        let c_unit = spec_dir.join("c-unescape.service");
+        std::fs::write(
+            &c_unit,
+            format!(
+                "[Service]\nEnvironmentFile={}/%%lit/storage.env\nEnvironmentFile={}/%N/gateway.env\nEnvironment=SETJOIN_CONFIG=\\x25E/setjoin.yml\n",
+                spec_dir.display(),
+                spec_dir.display()
+            ),
+        )
+        .unwrap();
+        let c_spec = super::load_unit_env_spec(&c_unit).unwrap();
+        let c_gw = super::load_effective_gateway_env(&c_spec).unwrap();
+        assert_eq!(
+            super::env_lookup(&c_gw.pairs, "SETJOIN_CONFIG").as_deref(),
+            Some("/etc/setjoin.yml")
+        );
+        std::fs::write(
+            &c_unit,
+            "[Service]\nEnvironment=DB_DSN=postgres://u:supersecret@h/db FOO=%Z\n",
+        )
+        .unwrap();
+        let redaction_err = check_worm_gateway_ready(&c_unit, Some(&cfg), &stale_default)
+            .unwrap_err()
+            .to_string();
+        assert!(redaction_err.contains("Environment="));
+        assert!(!redaction_err.contains("supersecret"));
+        assert!(!redaction_err.contains("DB_DSN"));
+
+        // Explicit YAML worm.retention_days: "" is preserved and rejected even when host config.env is absent
+        let empty_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: \"\"\n").unwrap();
+        assert_eq!(empty_ret_yaml.retention_days.as_deref(), Some(""));
+        std::fs::write(
+            &db_yaml,
+            "db:\n  dsn: postgres://app@localhost/mail\ns3:\n  bucket: mailblobs\nworm:\n  mode: compliance\n  retention_days: \"\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &db_gw,
+            format!(
+                "GATEWAY_ENABLED=true\nSETJOIN_CONFIG={}\nWORM_MODE=compliance\n",
+                db_yaml.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err());
+
+        // !!float / verbatim float tag on legacy octal and exact >2^53 i64 retention match Go
+        let oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \"0_10\"\n").unwrap();
+        assert_eq!(oct_float.retention_days.as_deref(), Some("8"));
+        let verbatim_oct_float = yaml_worm_settings(
+            "worm:\n  retention_days: !<tag:yaml.org,2002:float> \"0_10\"\n",
+        )
+        .unwrap();
+        assert_eq!(verbatim_oct_float.retention_days.as_deref(), Some("8"));
+        assert_eq!(
+            parse_koanf_env_retention_days("9007199254740993").unwrap(),
+            9_007_199_254_740_993
+        );
     }
 }

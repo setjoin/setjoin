@@ -457,6 +457,9 @@ fn parse_worm_retention_days(raw: Option<&str>) -> Result<i64, String> {
     if s.is_empty() {
         return Err("WORM_RETENTION_DAYS is explicitly empty".into());
     }
+    if let Ok(days) = s.parse::<i64>() {
+        return Ok(days);
+    }
     let v = parse_go_float64(s)
         .ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
     if !v.is_finite() || v < (i64::MIN as f64) || v >= 9_223_372_036_854_775_808.0 {
@@ -474,6 +477,10 @@ mod tests {
         assert_eq!(parse_worm_retention_days(None).unwrap(), 2557);
         assert!(parse_worm_retention_days(Some("")).is_err());
         assert_eq!(parse_worm_retention_days(Some("3650")).unwrap(), 3650);
+        assert_eq!(
+            parse_worm_retention_days(Some("9007199254740993")).unwrap(),
+            9_007_199_254_740_993
+        );
         assert_eq!(parse_worm_retention_days(Some("3650.0")).unwrap(), 3650);
         assert_eq!(parse_worm_retention_days(Some("1_000")).unwrap(), 1000);
         assert_eq!(parse_worm_retention_days(Some("0x1p+4")).unwrap(), 16);
