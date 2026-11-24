@@ -178,6 +178,13 @@ fn guest_probes(active_user: i64, inactive_user: i64) -> Vec<Probe> {
             Some("success"),
         ),
         (
+            "GET",
+            "/api/rtc/rtc/validate?access_token=good",
+            vec![("authorization", active_auth.clone())],
+            200,
+            Some("success"),
+        ),
+        (
             "POST",
             "/rtc",
             vec![("authorization", active_auth)],
@@ -598,14 +605,17 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
             Mode::Unconfigured => vec![
                 ("GET", "/rtc/rtc/validate?access_token=good", vec![], 404, Some("404 page not found\n")),
                 ("GET", "/rtc", vec![], 404, Some("404 page not found\n")),
+                ("GET", "/api/rtc/rtc/validate?access_token=good", vec![], 404, Some("404 page not found\n")),
             ],
             Mode::Native => vec![
                 ("GET", "/rtc/rtc/validate?access_token=good", vec![], 200, Some("success")),
                 ("GET", "/rtc", vec![], 200, Some("success")),
+                ("GET", "/api/rtc/rtc/validate?access_token=good", vec![], 200, Some("success")),
             ],
             Mode::Kill | Mode::Rollback => vec![
                 ("GET", "/rtc/rtc/validate?access_token=good", vec![], 218, Some("from go")),
                 ("GET", "/rtc", vec![], 218, Some("from go")),
+                ("GET", "/api/rtc/rtc/validate?access_token=good", vec![], 218, Some("from go")),
             ],
         };
         let (count, expected_sfu) = run_probes(address, &probes).await?;

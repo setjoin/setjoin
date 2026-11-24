@@ -832,13 +832,13 @@ impl S3Store {
                 bucket = v;
             }
         }
-        let mut secure = match get("S3_SECURE") {
-            Some(v) => parse_go_bool(&v).ok_or_else(|| "S3_SECURE must be a boolean".to_owned())?,
-            None => false,
+        let secure = if let Some(v) = get("MINIO_SECURE") {
+            parse_go_bool(&v).ok_or_else(|| "MINIO_SECURE must be a boolean".to_owned())?
+        } else if let Some(v) = get("S3_SECURE") {
+            parse_go_bool(&v).unwrap_or(false)
+        } else {
+            false
         };
-        if let Some(v) = get("MINIO_SECURE") {
-            secure = parse_go_bool(&v).ok_or_else(|| "MINIO_SECURE must be a boolean".to_owned())?;
-        }
         let endpoint = endpoint.trim();
         let endpoint = if endpoint.contains("://") {
             if (endpoint.starts_with("https://") && !secure)
@@ -1546,7 +1546,7 @@ mod tests {
             ("MINIO_ENDPOINT", "127.0.0.1:9100"),
             ("S3_BUCKET", "mailblobs"),
             ("MINIO_BUCKET", "custom-bucket"),
-            ("S3_SECURE", "false"),
+            ("S3_SECURE", "bogus"),
             ("MINIO_SECURE", "true"),
         ])
         .unwrap();

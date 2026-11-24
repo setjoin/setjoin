@@ -103,8 +103,15 @@ impl<K: KeySource + 'static> RtcRoute<K> {
     }
 }
 
+fn strip_api_prefix(path: &str) -> &str {
+    path.strip_prefix("/api")
+        .filter(|rest| rest.starts_with('/'))
+        .unwrap_or(path)
+}
+
 fn is_rtc(path: &str) -> bool {
-    path == "/rtc" || path.starts_with("/rtc/")
+    let p = strip_api_prefix(path);
+    p == "/rtc" || p.starts_with("/rtc/")
 }
 
 /// Go's `net/http` request-line `url.ParseRequestURI` bad-escape rejection
@@ -236,7 +243,17 @@ async fn serve(
     client: &Client<HttpConnector, Body>,
 ) -> Response<Body> {
     let headers = envelope(c, &id);
-    let out_path = match decoded.strip_prefix("/rtc") {
+    let target_decoded = if req
+        .uri()
+        .path()
+        .strip_prefix("/api")
+        .is_some_and(|rest| rest.starts_with('/'))
+    {
+        decoded.strip_prefix("/api").unwrap_or(decoded)
+    } else {
+        decoded
+    };
+    let out_path = match target_decoded.strip_prefix("/rtc") {
         Some("") | None => "/".to_owned(),
         Some(rest) => rest.to_owned(),
     };

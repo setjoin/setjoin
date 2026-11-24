@@ -61,6 +61,7 @@
 # render library (kept as lib-livekit.sh; renaming would be a large-blast-
 # radius change for a comment-only motivation).
 
+_LIB_LIVEKIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIVEKIT_VERSION="1.13.5"
 # Hard-coded SHA-256 digests published for the official v1.13.5 GitHub release
 # assets (verified through the release API on 2026-08-04). Never trust a
@@ -296,25 +297,43 @@ validate_tls_cache_dir() {
   case "$1" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
   [ -n "${1//\//}" ] || { echo 'ACME cache must not be filesystem root' >&2; return 1; }
   case "/$1/" in */./*|*/../*) echo 'ACME cache must not contain . or .. segments' >&2; return 1;; esac
-  case "$1" in *[[:space:]#\&]*|*$'\n'*|*$'\r'*) echo 'invalid ACME cache path' >&2; return 1;; esac
+  case "$1" in *[[:space:][:cntrl:]#\&]*) echo 'invalid ACME cache path' >&2; return 1;; esac
 }
 
 validate_tls_cache_target() {
-  local path="$1" resolved=""
-  validate_tls_cache_dir "$path" || return 1
-  if [ -L "$path" ]; then
-    echo "ACME cache path must not be a symlink: $path" >&2
-    return 1
-  fi
-  if [ -e "$path" ] && [ ! -d "$path" ]; then
-    echo "ACME cache path exists and is not a directory: $path" >&2
+  local trimmed="$1" resolved="" cur="" seg rest
+  validate_tls_cache_dir "$trimmed" || return 1
+  while [ "${#trimmed}" -gt 1 ] && [ "${trimmed%/}" != "$trimmed" ]; do
+    trimmed="${trimmed%/}"
+  done
+  rest="${trimmed#/}"
+  while [ -n "$rest" ]; do
+    if [ "${rest#*/}" != "$rest" ]; then
+      seg="${rest%%/*}"
+      rest="${rest#*/}"
+    else
+      seg="$rest"
+      rest=""
+    fi
+    cur="$cur/$seg"
+    if [ -L "$cur" ]; then
+      # OS-managed symlinks like /tmp or /var/run are allowed strictly as ancestors.
+      if [ -n "$rest" ] && { [ "$cur" = /tmp ] || [ "$cur" = /var/run ]; }; then
+        continue
+      fi
+      echo "ACME cache path component must not be a symlink: $cur" >&2
+      return 1
+    fi
+  done
+  if [ -e "$trimmed" ] && [ ! -d "$trimmed" ]; then
+    echo "ACME cache path exists and is not a directory: $trimmed" >&2
     return 1
   fi
   if command -v readlink >/dev/null 2>&1; then
-    resolved=$(readlink -f "$path" 2>/dev/null || true)
+    resolved=$(readlink -f "$trimmed" 2>/dev/null || true)
   fi
   if [ -z "$resolved" ] && command -v python3 >/dev/null 2>&1; then
-    resolved=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path") || return 1
+    resolved=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$trimmed") || return 1
   fi
   if [ -n "$resolved" ]; then
     validate_tls_cache_dir "$resolved" || return 1
@@ -326,19 +345,7 @@ validate_tls_cache_target() {
 }
 
 systemd_env_line() {
-  local key="$1" value="${2:-}"
-  python3 - "$key" "$value" <<'PY'
-import re, sys
-key, value = sys.argv[1], sys.argv[2]
-if "\n" in value or "\r" in value:
-    sys.stderr.write(f"systemd EnvironmentFile: {key} must not contain newlines\n")
-    sys.exit(1)
-if value == "" or re.fullmatch(r"[A-Za-z0-9._:/@-]+", value):
-    sys.stdout.write(f"{key}={value}\n")
-else:
-    esc = value.replace("\\", "\\\\").replace('"', '\\"')
-    sys.stdout.write(f'{key}="{esc}"\n')
-PY
+  python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-line "$1" "${2:-}"
 }
 
 resolve_setting_yaml_path() {
@@ -350,41 +357,10 @@ resolve_setting_yaml_path() {
 }
 
 # yaml_section_value FILE SECTION KEY — print a direct scalar child of top-level
-# SECTION (or root key when SECTION is empty) using PyYAML.
+# SECTION (or root key when SECTION is empty) using pure-stdlib yaml-config.py.
 # Exit 0 iff present scalar (even empty), 1 when absent/None/non-scalar, 2 on error.
 yaml_section_value() {
-  local file="$1" section="$2" key="$3"
-  [ -n "$file" ] && [ -r "$file" ] || { echo "yaml_section_value: unreadable YAML file: $file" >&2; return 2; }
-  python3 - "$file" "$section" "$key" <<'PY'
-import sys
-try:
-    import yaml
-except Exception as exc:
-    sys.stderr.write(f"yaml_section_value: PyYAML unavailable: {exc}\n")
-    sys.exit(2)
-path, sec, key = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    with open(path, "r", encoding="utf-8") as fh:
-        doc = yaml.safe_load(fh)
-except Exception as exc:
-    sys.stderr.write(f"yaml_section_value: failed to parse {path}: {exc}\n")
-    sys.exit(2)
-if doc is None:
-    sys.exit(1)
-if not isinstance(doc, dict):
-    sys.stderr.write(f"yaml_section_value: {path}: root must be a YAML mapping\n")
-    sys.exit(2)
-container = doc if sec == "" else doc.get(sec)
-if not isinstance(container, dict) or key not in container:
-    sys.exit(1)
-val = container[key]
-if val is None or isinstance(val, (dict, list)):
-    sys.exit(1)
-if isinstance(val, bool):
-    sys.stdout.write("true" if val else "false")
-else:
-    sys.stdout.write(str(val))
-PY
+  python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" get "$1" "$2" "$3"
 }
 
 yaml_section_try() {
@@ -625,131 +601,7 @@ render_storage_env() {
   cfg=$(resolve_setting_yaml_path "$config")
   (
     umask 027
-    python3 - "$config" "$cfg" <<'PY'
-import os, re, sys
-
-config_path, yaml_path = sys.argv[1], sys.argv[2]
-
-def unquote_systemd(raw):
-    s = raw.rstrip("\r\n")
-    lead = s.lstrip()
-    if lead.startswith('"'):
-        out = []
-        esc = False
-        escapes = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\", '"': '"', "'": "'"}
-        for ch in lead[1:]:
-            if esc:
-                out.append(escapes.get(ch, ch))
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                break
-            else:
-                out.append(ch)
-        return "".join(out)
-    if lead.startswith("'"):
-        idx = lead.find("'", 1)
-        return lead[1:idx] if idx != -1 else lead[1:]
-    return s.strip()
-
-def parse_env(path):
-    out = {}
-    if not path or not os.path.isfile(path):
-        return out
-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            s = line.lstrip()
-            if not s or s.startswith("#") or s.startswith(";") or "=" not in s:
-                continue
-            k, v = s.split("=", 1)
-            k = k.strip()
-            if k:
-                out[k] = unquote_systemd(v)
-    return out
-
-def parse_go_bool(val, key):
-    if isinstance(val, bool):
-        return val
-    s = str(val)
-    if s in ("true", "True", "TRUE", "1", "t", "T"):
-        return True
-    if s in ("false", "False", "FALSE", "0", "f", "F"):
-        return False
-    sys.stderr.write(f"storage.env: invalid boolean for {key}: {s!r}\n")
-    sys.exit(1)
-
-def fmt_line(key, val):
-    if "\n" in val or "\r" in val:
-        sys.stderr.write(f"storage.env: {key} must not contain newlines\n")
-        sys.exit(1)
-    if val == "" or re.fullmatch(r"[A-Za-z0-9._:/@-]+", val):
-        return f"{key}={val}\n"
-    esc = val.replace("\\", "\\\\").replace('"', '\\"')
-    return f'{key}="{esc}"\n'
-
-env_map = parse_env(config_path)
-s3_yaml = {}
-if yaml_path:
-    try:
-        import yaml
-    except Exception as exc:
-        sys.stderr.write(f"render_storage_env: PyYAML unavailable: {exc}\n")
-        sys.exit(1)
-    with open(yaml_path, "r", encoding="utf-8") as fh:
-        doc = yaml.safe_load(fh)
-    if isinstance(doc, dict) and isinstance(doc.get("s3"), dict):
-        s3_yaml = doc["s3"]
-
-keys = (
-    "endpoint", "access_key", "secret_key", "bucket", "secure"
-)
-env_keys = (
-    "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_SECURE",
-    "MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET", "MINIO_SECURE",
-)
-if not any(k in s3_yaml for k in keys) and not any(k in env_map for k in env_keys):
-    sys.exit(0)
-
-endpoint = str(s3_yaml.get("endpoint")) if s3_yaml.get("endpoint") is not None else "127.0.0.1:9000"
-if env_map.get("S3_ENDPOINT"):
-    endpoint = env_map["S3_ENDPOINT"]
-if endpoint == "127.0.0.1:9000" and env_map.get("MINIO_ENDPOINT"):
-    endpoint = env_map["MINIO_ENDPOINT"]
-
-access_key = str(s3_yaml.get("access_key")) if s3_yaml.get("access_key") is not None else ""
-if env_map.get("S3_ACCESS_KEY"):
-    access_key = env_map["S3_ACCESS_KEY"]
-if access_key == "" and env_map.get("MINIO_ACCESS_KEY"):
-    access_key = env_map["MINIO_ACCESS_KEY"]
-
-secret_key = str(s3_yaml.get("secret_key")) if s3_yaml.get("secret_key") is not None else ""
-if env_map.get("S3_SECRET_KEY"):
-    secret_key = env_map["S3_SECRET_KEY"]
-if secret_key == "" and env_map.get("MINIO_SECRET_KEY"):
-    secret_key = env_map["MINIO_SECRET_KEY"]
-
-bucket = str(s3_yaml.get("bucket")) if s3_yaml.get("bucket") is not None else "mailblobs"
-if env_map.get("S3_BUCKET"):
-    bucket = env_map["S3_BUCKET"]
-if bucket == "mailblobs" and env_map.get("MINIO_BUCKET"):
-    bucket = env_map["MINIO_BUCKET"]
-
-secure = parse_go_bool(s3_yaml["secure"], "s3.secure") if s3_yaml.get("secure") is not None else False
-if env_map.get("S3_SECURE"):
-    secure = parse_go_bool(env_map["S3_SECURE"], "S3_SECURE")
-if env_map.get("MINIO_SECURE"):
-    secure = parse_go_bool(env_map["MINIO_SECURE"], "MINIO_SECURE")
-
-for k, v in (
-    ("S3_ENDPOINT", endpoint),
-    ("S3_SECURE", "true" if secure else "false"),
-    ("S3_BUCKET", bucket),
-    ("S3_ACCESS_KEY", access_key),
-    ("S3_SECRET_KEY", secret_key),
-):
-    sys.stdout.write(fmt_line(k, v))
-PY
+    python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" render-storage "$config" "$cfg"
   ) > "$tmp" || { rm -f "$tmp"; return 1; }
   chmod 0640 "$tmp"
   mv -f "$tmp" "$outfile"
@@ -761,7 +613,7 @@ PY
 # unrelated credential ever reaches the internet-facing SMTP listeners. The
 # worker DSN comes from the split credential file (or a pre-split config.env).
 render_smtp_env() {
-  local outfile="$1" config="$2" credentials="$3" tmp
+  local outfile="$1" config="$2" credentials="$3" tmp cfg=""
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
   # With SMTP off the file is EMPTY: the internet-facing gateway never receives the
   # encryption/audit/S3 secrets or the worker tier on behalf of a listener that
@@ -772,11 +624,13 @@ render_smtp_env() {
     mv -f "$tmp" "$outfile"
     return 0
   fi
+  cfg=$(resolve_setting_yaml_path "$config")
   (
     umask 027
     if [ -f "$config" ]; then
-      grep -E '^(CLAMAV_ADDR|SANDBOX_(ENABLED|CAPE_URL|CAPE_API_KEY|TIMEOUT|FAIL_MODE)|INTERNAL_DOMAINS|PROTECTED_DOMAINS|ANTIPHISH_(NAME_THRESHOLD|USER_CACHE_TTL)|CRYPTO_ALGORITHM_PROFILE|DB_DSN|DB_DIRECT_DSN|DB_ENCRYPTION_KEY|AUDIT_HMAC_KEY|TLS_CERT|TLS_KEY|SMTP_(INBOUND_(ADDR|TLS_ADDR|TLS_ENFORCE|MAX_CONNS)|SUBMISSION_(ADDR|MAX_CONNS)|PER_USER_MAX_CONNS|TLS_CERT_FILE|TLS_KEY_FILE)|S3_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY)|MINIO_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY)|THREAT_(FEED_ENABLED|SPRAY_WINDOW_SECS|SPRAY_MAX_USERS|SPRAY_LOCKOUT_MINS|RATE_LIMIT_PER_MIN)|GEO_BLOCK_(ENABLED|COUNTRIES)|GEOIP_DB_(PATH|SHA256)|SPRAY_DETECT_ENABLED|CAPTCHA_ENABLED|TARPIT_ENABLED)=' "$config" || true
+      grep -E '^(CLAMAV_ADDR|SANDBOX_(ENABLED|CAPE_URL|CAPE_API_KEY|TIMEOUT|FAIL_MODE)|INTERNAL_DOMAINS|PROTECTED_DOMAINS|ANTIPHISH_(NAME_THRESHOLD|USER_CACHE_TTL)|CRYPTO_ALGORITHM_PROFILE|DB_DSN|DB_DIRECT_DSN|DB_ENCRYPTION_KEY|AUDIT_HMAC_KEY|TLS_CERT|TLS_KEY|SMTP_(INBOUND_(ADDR|TLS_ADDR|TLS_ENFORCE|MAX_CONNS)|SUBMISSION_(ADDR|MAX_CONNS)|PER_USER_MAX_CONNS|TLS_CERT_FILE|TLS_KEY_FILE)|THREAT_(FEED_ENABLED|SPRAY_WINDOW_SECS|SPRAY_MAX_USERS|SPRAY_LOCKOUT_MINS|RATE_LIMIT_PER_MIN)|GEO_BLOCK_(ENABLED|COUNTRIES)|GEOIP_DB_(PATH|SHA256)|SPRAY_DETECT_ENABLED|CAPTCHA_ENABLED|TARPIT_ENABLED)=' "$config" || true
     fi
+    python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" render-storage "$config" "$cfg" || exit 1
     smtp_link_protect_keys "$config" || exit 1
     if [ -f "$credentials" ]; then
       grep -E '^DB_WORKER_DSN=' "$credentials" || true
@@ -802,7 +656,7 @@ render_gateway_env() {
     *) echo "render_gateway_env: GATEWAY_UPSTREAM must be Go's loopback plain listener (got '$upstream')" >&2; return 1 ;;
   esac
   local trusted="${GATEWAY_TRUSTED_PROXIES:-127.0.0.1}"
-  local cache cfg="" host_name="" internal_domains="" internal_set=0
+  local cache cfg="" host_name="" internal_domains="" internal_set=0 internal_from_yaml=0
   local worm_mode="" worm_mode_set=0 worm_days="" worm_legal_hold="" legal_hold_set=0
   cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
   validate_tls_cache_dir "$cache" || return 1
@@ -822,8 +676,11 @@ ENV
   )
   cfg=$(resolve_setting_yaml_path "${CONFIG_ENV:-}")
 
-  # Trace server-identity hostnames (HOSTNAME / INTERNAL_DOMAINS, independent of SMTP).
+  # Trace server-identity hostnames (Go order: config.env -> exported env -> YAML).
   host_name=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" HOSTNAME)")
+  if [ -z "$host_name" ]; then
+    host_name=$(strip_env_quotes "$(printenv HOSTNAME 2>/dev/null || true)")
+  fi
   if [ -z "$host_name" ] && [ -n "$cfg" ]; then
     yaml_section_try host_name "$cfg" "" hostname || { [ $? -eq 1 ] || return 1; }
   fi
@@ -838,7 +695,11 @@ ENV
     internal_domains=$(strip_env_quotes "$INTERNAL_DOMAINS")
     internal_set=1
   elif [ -n "$cfg" ]; then
-    yaml_section_try internal_domains "$cfg" internal domains && internal_set=1 || { [ $? -eq 1 ] || return 1; }
+    yaml_section_try internal_domains "$cfg" internal domains && { internal_set=1; internal_from_yaml=1; } || { [ $? -eq 1 ] || return 1; }
+  fi
+  # Go only overrides default internal.domains=="localhost" with HOSTNAME when INTERNAL_DOMAINS is unset in env.
+  if [ "$internal_from_yaml" = 1 ] && [ "$internal_domains" = localhost ] && [ -n "$host_name" ]; then
+    internal_set=0
   fi
   if [ "$internal_set" = 1 ]; then
     systemd_env_line INTERNAL_DOMAINS "$internal_domains" >> "$outfile" || return 1

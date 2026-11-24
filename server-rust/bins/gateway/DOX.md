@@ -213,7 +213,7 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
 
 ## Meet leftovers (#410)
 
-- **`/rtc`, `/rtc/`** (`src/rtc.rs`, F13, ON): Go's `httputil.ReverseProxy` to the fixed
+- **`/rtc`, `/rtc/`** (plus `/api/rtc`, `/api/rtc/` alias, `src/rtc.rs`, F13, ON): Go's `httputil.ReverseProxy` to the fixed
   `127.0.0.1:7880` SFU signal port, never behind `requireAuth` (LiveKit checks its own
   token). Mirrors prefix strip over the decoded path (re-escaped), `SetXForwarded`, hop-by-hop
   removal, upgrade tunnel (first side to end closes both), Go's transport gzip (`Accept-Encoding:

@@ -9,13 +9,15 @@ pub const BUNDLED: &str = include_str!("../route-inventory.json");
 
 /// Registrations Go pins at the root that its `/api` mount also serves (`StripPrefix`): a
 /// native gateway row claims both spellings, and a subtree row its bare spelling (the mux's
-/// redirect), so neither reaches Go (#363, #364, #365).
-const PINNED_AND_MOUNTED: [&str; 5] = [
+/// redirect), so neither reaches Go (#363, #364, #365, #410).
+const PINNED_AND_MOUNTED: [&str; 7] = [
     "/setup/status",
     "/terms/pending",
     "/terms/accept",
     "/auth/admin/",
     "/auth/admin/users/{id}/impersonate",
+    "/rtc",
+    "/rtc/",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

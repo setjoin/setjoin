@@ -165,10 +165,10 @@ grep -qx 'S3_SECRET_KEY=yaml-sk' "$tmp/yaml-storage.env"
 SETJOIN_CONFIG="$tmp/flow.yaml" tls_front_preserve_settings "$tmp/yaml-config.env" > "$tmp/yaml-preserved.env"
 grep -qx "SETJOIN_CONFIG=$tmp/flow.yaml" "$tmp/yaml-preserved.env"
 
-# Double-quoted YAML backslash/unicode/multiline-hash escapes and single-quoted '' unescaping.
+# Double-quoted YAML backslash/\u0023/\u002f/multiline-hash escapes and single-quoted '' unescaping.
 cat > "$tmp/esc.yaml" <<'YAML'
 tls:
-  autocert_cache_dir: "\u002fvar/lib\\setjoin/cache#hash"
+  autocert_cache_dir: "\u002fvar/lib\\setjoin/cache\u0023hash"
 worm:
   mode: "line1 # keep
     line2"
@@ -182,31 +182,42 @@ test "$hash_val" = 'line1 # keep line2'
 squote_val=$(yaml_section_value "$tmp/esc.yaml" s3 bucket)
 test "$squote_val" = "it's-blobs"
 
-# validate_tls_cache_target rejects symlinks (including parent-dir symlinks) and top-level system directories.
-mkdir -p "$tmp/real-dir"
+# Missing or syntactically invalid YAML fails closed (exit status 2).
+printf 'tls: [unclosed\n' > "$tmp/bad.yaml"
+rc=0; yaml_section_value "$tmp/bad.yaml" tls autocert_cache_dir 2>/dev/null || rc=$?
+test "$rc" = 2
+rc=0; yaml_section_value "$tmp/does-not-exist.yaml" tls autocert_cache_dir 2>/dev/null || rc=$?
+test "$rc" = 2
+
+# validate_tls_cache_target rejects control chars, trailing-slash symlinks, intermediate parent symlinks, and top-level dirs.
+mkdir -p "$tmp/real-dir/sub1/sub2"
 ln -s "$tmp/real-dir" "$tmp/sym-dir" 2>/dev/null || true
+if [ "$(uname -s)" = Linux ] && [ ! -L "$tmp/sym-dir" ]; then
+  echo 'expected symlink creation on Linux' >&2
+  exit 1
+fi
 if [ -L "$tmp/sym-dir" ]; then
   ln -s / "$tmp/sym-root"
-  for bad_sym in "$tmp/sym-root" "$tmp/sym-root/autocert" "$tmp/sym-dir"; do
+  for bad_sym in "$tmp/sym-root" "$tmp/sym-root/" "$tmp/sym-root/autocert" "$tmp/sym-dir" "$tmp/sym-dir/" "$tmp/sym-dir/sub1/sub2"; do
     if validate_tls_cache_target "$bad_sym" 2>/dev/null; then
       echo "validate_tls_cache_target accepted symlink: $bad_sym" >&2
       exit 1
     fi
   done
 fi
-for bad in / /etc /var/../etc /var/cache/.. relative/path $'/tmp/has\nnewline' '/tmp/has space'; do
+for bad in / /etc /var/../etc /var/cache/.. relative/path $'/tmp/has\nnewline' $'/tmp/ctrl\x01char' '/tmp/has space'; do
   if validate_tls_cache_target "$bad" 2>/dev/null; then
     echo "validate_tls_cache_target accepted unsafe path: $bad" >&2
     exit 1
   fi
 done
 
-# YAML S3 secret with leading/trailing spaces, \, ", # round-trips cleanly via systemd EnvironmentFile,
-# and MINIO_* overrides match Go config.go precedence.
+# systemd EnvironmentFile parser + Go config.go S3/MINIO precedence (including bogus S3_SECURE + MINIO_SECURE,
+# explicit empty S3_ACCESS_KEY=, and double-quoted unrecognized backslash preservation in config.env).
 cat > "$tmp/tricky-s3.yaml" <<'YAML'
 hostname: trace.example.test
 internal:
-  domains: corp.example.test, mail.example.test
+  domains: localhost
 s3:
   endpoint: 127.0.0.1:9000
   bucket: mailblobs
@@ -219,42 +230,62 @@ YAML
 cat > "$tmp/tricky-config.env" <<'ENV'
 S3_BUCKET=mailblobs
 MINIO_BUCKET=minio-override
+S3_SECURE=bogus
 MINIO_SECURE=true
+S3_ACCESS_KEY=
 WORM_MODE=
+INTERNAL_DOMAINS=
 ENV
 SETJOIN_CONFIG="$tmp/tricky-s3.yaml" render_storage_env "$tmp/tricky-storage.env" "$tmp/tricky-config.env"
 grep -qx 'S3_BUCKET=minio-override' "$tmp/tricky-storage.env"
 grep -qx 'S3_SECURE=true' "$tmp/tricky-storage.env"
-python3 - "$tmp/tricky-storage.env" <<'PY'
+grep -qx 'S3_ACCESS_KEY=' "$tmp/tricky-storage.env"
+
+cat > "$tmp/bs-config.env" <<'ENV'
+S3_ENDPOINT=127.0.0.1:9000
+S3_SECRET_KEY="abc\def\\g\"h\$i"
+ENV
+render_storage_env "$tmp/bs-storage.env" "$tmp/bs-config.env"
+python3 - "$tmp/tricky-storage.env" "$tmp/bs-storage.env" <<'PY'
 import sys
-parsed = {}
-for line in open(sys.argv[1], encoding="utf-8"):
-    s = line.strip()
-    if not s or s.startswith("#") or "=" not in s:
-        continue
-    k, raw = s.split("=", 1)
-    if raw.startswith('"'):
-        out, esc = [], False
-        maps = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\", '"': '"'}
-        for ch in raw[1:]:
-            if esc:
-                out.append(maps.get(ch, ch)); esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                break
-            else:
-                out.append(ch)
-        parsed[k] = "".join(out)
-    else:
-        parsed[k] = raw
-assert parsed["S3_SECRET_KEY"] == '  lead\\mid"quote#hash  ', parsed
+def parse_systemd(path):
+    parsed = {}
+    for line in open(path, encoding="utf-8"):
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k, raw = s.split("=", 1)
+        if raw.startswith('"'):
+            out, i = [], 1
+            while i < len(raw):
+                ch = raw[i]
+                if ch == '"':
+                    break
+                if ch == "\\" and i + 1 < len(raw) and raw[i + 1] in ("\\", '"', "$", "`"):
+                    out.append(raw[i + 1]); i += 2; continue
+                out.append(ch); i += 1
+            parsed[k] = "".join(out)
+        else:
+            parsed[k] = raw
+    return parsed
+tricky = parse_systemd(sys.argv[1])
+assert tricky["S3_SECRET_KEY"] == '  lead\\mid"quote#hash  ', tricky
+bs = parse_systemd(sys.argv[2])
+assert bs["S3_SECRET_KEY"] == 'abc\\def\\g"h$i', bs
 PY
 
+# Explicit empty INTERNAL_DOMAINS= and WORM_MODE= suppress YAML defaults, while exported HOSTNAME beats YAML hostname,
+# and YAML default internal.domains=localhost is omitted when HOSTNAME is set (matching Go config.go).
 SETJOIN_CONFIG="$tmp/tricky-s3.yaml" CONFIG_ENV="$tmp/tricky-config.env" GATEWAY_ENV="$tmp/tricky-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/tricky-gw.env"
 grep -qx 'WORM_MODE=' "$tmp/tricky-gw.env"
 grep -qx 'HOSTNAME=trace.example.test' "$tmp/tricky-gw.env"
-grep -qx 'INTERNAL_DOMAINS="corp.example.test, mail.example.test"' "$tmp/tricky-gw.env"
+grep -qx 'INTERNAL_DOMAINS=' "$tmp/tricky-gw.env"
 CONFIG_ENV="$tmp/tricky-config.env" tls_front_preserve_settings "$tmp/tricky-config.env" > "$tmp/tricky-preserved.env"
 grep -qx 'WORM_MODE=' "$tmp/tricky-preserved.env"
+grep -qx 'INTERNAL_DOMAINS=' "$tmp/tricky-preserved.env"
+
+: > "$tmp/empty-host.env"
+HOSTNAME=env.example.test SETJOIN_CONFIG="$tmp/tricky-s3.yaml" CONFIG_ENV="$tmp/empty-host.env" GATEWAY_ENV="$tmp/envhost-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/envhost-gw.env"
+grep -qx 'HOSTNAME=env.example.test' "$tmp/envhost-gw.env"
+if grep -q '^INTERNAL_DOMAINS=' "$tmp/envhost-gw.env"; then echo 'YAML localhost should defer to HOSTNAME' >&2; exit 1; fi
 echo 'native TLS release socket: PASS'

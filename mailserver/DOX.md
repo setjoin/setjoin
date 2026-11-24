@@ -1086,10 +1086,11 @@ optional federation/ACME sockets through Wants/After, never Requires on Go servi
 `tls.env` is a literal 0640 allowlist of TLS paths/provider credentials; broad
 config.env and owner credentials never enter the internet-facing gateway unit.
 `storage.env` is a dedicated literal 0640 allowlist carrying only S3/MinIO
-endpoint and credentials (merging `s3.*` YAML and `S3_*`/`MINIO_*` config.env
-with Go's exact precedence and systemd `EnvironmentFile` quoting) independent of
-SMTP enablement (#289 legal holds, blobs, attachments), and is rolled back
-alongside the deployment env files.
+endpoint and credentials (resolved via pure-stdlib `deploy/scripts/yaml-config.py`
+merging `s3.*` YAML and `S3_*`/`MINIO_*` config.env with Go's exact precedence
+and systemd `EnvironmentFile` quoting; `smtp.env` emits the identical resolved
+`S3_*` lines when SMTP is enabled) independent of SMTP enablement (#289 legal
+holds, blobs, attachments), and is rolled back alongside the deployment env files.
 App/worker/LISTEN credentials and the transferred worker names stay in federation.env.
 
 Managed TLS-ALPN-01 (default) and DNS-01 move `acme-renewal` with the TLS listener.
@@ -1101,13 +1102,15 @@ Platform #305. Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
 operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows Go's
 env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled). The TLS
 import/ACME cache directory (`tls_import_cache_dir`, resolved from
-`TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir`) is
-validated lexically and canonically (`validate_tls_cache_target`: rejects symlinks,
+`TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
+stdlib `yaml-config.py` without external PyYAML) is validated lexically and
+canonically (`validate_tls_cache_target`: rejects control chars, trailing-slash
+and intermediate component symlinks outside OS-managed `/tmp` and `/var/run`,
 filesystem roots, `.`/`..` traversal, and top-level system directories) before
 filesystem mutation, provisioned (`0700`, `setjoin:setjoin` enforced on both new
 and existing directories during root install/upgrade; non-root upgrade rehearsals
 skip only host `/var/cache/mailserver/autocert`), emitted solely into `gateway.env`
-alongside resolved `WORM_*` and trace identity (`HOSTNAME`/`INTERNAL_DOMAINS`)
+alongside resolved `WORM_*` and Go-matched trace identity (`HOSTNAME`/`INTERNAL_DOMAINS`)
 settings, and granted a narrow `ReadWritePaths` in `setjoin-gateway.service`;
 ACME account-key parent directories gain `ReadWritePaths` when
 `TLS_AUTOCERT_DOMAINS` is set. Static certificates remain read-only.
