@@ -16,6 +16,7 @@ pub mod csrf;
 pub mod es256;
 pub mod gates;
 pub mod jwks;
+pub mod kerberos;
 pub mod mailbox;
 pub mod numeric_date;
 pub mod legacy_jwt;

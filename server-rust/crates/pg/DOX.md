@@ -236,13 +236,14 @@ blocked backend disappears before its statement deadline.
 
 ## Protocol authentication writes (#343)
 
-`ScopedExecutor::record_protocol_auth_event` and `touch_app_password` are the only
+`ScopedExecutor::record_protocol_auth_event` (and `record_protocol_auth_event_with_details` for
+Kerberos JSONB failure reasons, #355b) and `touch_app_password` are the only
 pre-authentication writes: one autocommit statement each on the pool credential,
 no tenant scope, fixed SQL (`auth_event_log` insert with the IP cast through text
 to INET as Go's text parameter behaves; `app_passwords.last_used_at` and
 `users.last_login_at` guarded by the verified user and token hash). Callers
 ignore failures, as `pwhash.LogAuthEvent` does. Called through
-`setjoin_authz::basic` (#355-0); new protocol listeners reuse that module.
+`setjoin_authz::basic` (#355-0) and `setjoin_authz::kerberos` (#355b); new protocol listeners reuse those modules.
 
 `ScopedExecutor::record_mailbox_audit` (#344) is the post-authentication twin: one
 autocommit `mailbox_audit_log` insert (mailbox and actor from the authenticated

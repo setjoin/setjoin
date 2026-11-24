@@ -14,7 +14,8 @@ snapshots `feature.carddav` as Go does. A disabled bridge uses the native root
 mux (including website/SPA behavior); it never becomes a Go rollback.
 GAL visibility is a live flag.
 Basic auth is handled natively via `DavBasicAuth` + `authorize_basic_member`
-(#355a); `Negotiate` proof remains forwarded to Go until #355b, as in CalDAV.
+(#355a); `Negotiate` proof is handled natively via
+`DavBasicAuth::authenticate_negotiate` (#355b, zero Go hops), as in CalDAV.
 
 Personal CardDAV reads use verified-user predicates through the owning mailbox.
 GET and PROPFIND reuse the CAL2 vCard serializer, retaining Go's projection and

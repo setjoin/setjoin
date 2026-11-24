@@ -43,6 +43,19 @@ pub trait ThreatGate: Send + Sync {
         &'a self,
         meta: &'a mut ConnectionMeta,
     ) -> BoxFuture<'a, (ThreatAction, String)>;
+    /// Targeted account-lockout check (`user:` + `ip_user:` + `ip:`) without
+    /// incrementing `rate_limit_counters` or re-running feed/geo/spray/CA (#355b).
+    fn check_account_lockout<'a>(
+        &'a self,
+        _meta: &'a ConnectionMeta,
+    ) -> BoxFuture<'a, (ThreatAction, Duration)> {
+        Box::pin(async { (ThreatAction::Allow, Duration::ZERO) })
+    }
+    /// Record an unattributed IP-level authentication failure (e.g. invalid SPNEGO)
+    /// and escalate the `ip:` lockout key without tripping multi-user spray (#355b).
+    fn record_ip_failure<'a>(&'a self, _meta: &'a ConnectionMeta) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
 }
 #[derive(Clone)]
 pub struct Config {
@@ -694,6 +707,38 @@ impl ThreatGate for Gate {
         m: &'a mut ConnectionMeta,
     ) -> BoxFuture<'a, (ThreatAction, String)> {
         Box::pin(self.post_auth(m))
+    }
+    fn check_account_lockout<'a>(
+        &'a self,
+        m: &'a ConnectionMeta,
+    ) -> BoxFuture<'a, (ThreatAction, Duration)> {
+        Box::pin(async move {
+            match self.lockout_state(m).await {
+                Ok(None) => (ThreatAction::Allow, Duration::ZERO),
+                Ok(Some(secs)) => (ThreatAction::Reject, lockout_delay(secs)),
+                Err(()) => {
+                    eprintln!("threat gate: account lockout check unavailable; failing closed");
+                    (ThreatAction::Reject, Duration::ZERO)
+                }
+            }
+        })
+    }
+    fn record_ip_failure<'a>(&'a self, m: &'a ConnectionMeta) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            self.attempt(m, "failure").await;
+            if !m.source_ip.is_empty() {
+                let ip_key = format!("ip:{}", m.source_ip);
+                if self
+                    .worker
+                    .record
+                    .protocol_statement("SELECT lockout_escalate($1)", &[(&ip_key, Type::TEXT)])
+                    .await
+                    .is_err()
+                {
+                    eprintln!("threat gate: ip lockout escalate failed");
+                }
+            }
+        })
     }
 }
 /// Go stepIPRules (shared/threat/interceptor.go:652): first rule by action, 3 s
