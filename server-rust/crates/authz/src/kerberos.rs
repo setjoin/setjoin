@@ -331,6 +331,14 @@ struct GssApi {
 unsafe impl Send for GssApi {}
 unsafe impl Sync for GssApi {}
 
+impl std::fmt::Debug for GssApi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GssApi")
+            .field("has_acquire_cred_from", &self.acquire_cred_from.is_some())
+            .finish()
+    }
+}
+
 static GSSAPI: OnceLock<Result<GssApi, &'static str>> = OnceLock::new();
 
 #[cfg(target_os = "macos")]
