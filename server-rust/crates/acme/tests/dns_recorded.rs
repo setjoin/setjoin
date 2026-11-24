@@ -168,7 +168,11 @@ async fn dns01_provider_ticks_match_frozen_go() -> Result<(), BoxError> {
         } else {
             provider
         };
-        let _env = (provider == "route53-env").then(Env::fixture_aws);
+        let _env = if provider == "route53-env" {
+            Some(Env::fixture_aws().await)
+        } else {
+            None
+        };
         let mut credentials = config(kind, &api.dns_addr);
         if provider == "route53-env" {
             credentials = json!({});
@@ -222,9 +226,15 @@ async fn dns01_provider_ticks_match_frozen_go() -> Result<(), BoxError> {
     Ok(())
 }
 
-struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct Env {
+    _guard: tokio::sync::MutexGuard<'static, ()>,
+    old: Vec<(&'static str, Option<std::ffi::OsString>)>,
+}
 impl Env {
-    fn fixture_aws() -> Self {
+    async fn fixture_aws() -> Self {
+        let guard = ENV_LOCK.lock().await;
         let mut old = Vec::new();
         for (name, value) in [
             ("AWS_ACCESS_KEY_ID", "public-access"),
@@ -234,12 +244,12 @@ impl Env {
             old.push((name, std::env::var_os(name)));
             std::env::set_var(name, value);
         }
-        Self(old)
+        Self { _guard: guard, old }
     }
 }
 impl Drop for Env {
     fn drop(&mut self) {
-        for (name, value) in &self.0 {
+        for (name, value) in &self.old {
             match value {
                 Some(v) => std::env::set_var(name, v),
                 None => std::env::remove_var(name),
@@ -323,7 +333,11 @@ async fn dns_fake_provider_roundtrips_match_golden_events() -> Result<(), BoxErr
         } else {
             provider
         };
-        let _env = (provider == "route53-env").then(Env::fixture_aws);
+        let _env = if provider == "route53-env" {
+            Some(Env::fixture_aws().await)
+        } else {
+            None
+        };
         let mut credentials = config(kind, &api.dns_addr);
         if provider == "route53-env" {
             credentials = json!({});
