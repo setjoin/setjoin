@@ -549,7 +549,7 @@ async fn drive_native_basic_disabled() {
 
 mod basic_tests {
     use super::*;
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use base64::engine::general_purpose::STANDARD;
     use futures_util::FutureExt;
     use setjoin_gateway::dav_auth::DavBasicAuth;
     use setjoin_threat::{ConnectionMeta, ThreatAction, ThreatGate};
@@ -800,6 +800,7 @@ mod basic_tests {
                 password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                 threat: Some(threat.clone()),
                 runtime: None,
+                kerberos: None,
             });
             let mut basic_headers = hyper::HeaderMap::new();
             basic_headers.insert(
@@ -890,6 +891,7 @@ mod basic_tests {
                 password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                 threat: Some(threat.clone()),
                 runtime: None,
+                kerberos: None,
             });
             let server = start_native(None, RouteTable::proxy_all().with(route)).await;
 
@@ -1011,6 +1013,7 @@ mod basic_tests {
                     password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                     threat: Some(threat.clone()),
                     runtime: None,
+                kerberos: None,
                 });
                 let server = start_native(None, RouteTable::proxy_all().with(route)).await;
                 let started = std::time::Instant::now();
@@ -1033,7 +1036,7 @@ mod basic_tests {
                 server.close().await;
             }
 
-            // Negotiate forwards to Go without calling ThreatGate
+            // Negotiate handled natively (401 with challenge, zero Go forwards when Kerberos disabled)
             let go_hits = Arc::new(AtomicUsize::new(0));
             let hits = go_hits.clone();
             let go = common::fake_upstream(move |_| {
@@ -1059,12 +1062,16 @@ mod basic_tests {
                 password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                 threat: Some(threat.clone()),
                 runtime: None,
+                kerberos: None,
             });
             let server = start_native(Some(go), RouteTable::proxy_all().with(route)).await;
-            let (status, _, body) = send_auth(server.addr, Some("Negotiate YII=")).await?;
-            assert_eq!(status, 218);
-            assert_eq!(body, "go-negotiate");
-            assert_eq!(go_hits.load(Ordering::SeqCst), 1);
+            let (status, www, _) = send_auth(server.addr, Some("Negotiate YII=")).await?;
+            assert_eq!(status, 401);
+            assert_eq!(
+                www.as_deref(),
+                Some("Negotiate, Bearer realm=\"mailserver\"")
+            );
+            assert_eq!(go_hits.load(Ordering::SeqCst), 0);
             assert!(threat.intercepts.lock().unwrap().is_empty());
             server.close().await;
             Ok(())

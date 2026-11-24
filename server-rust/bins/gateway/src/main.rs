@@ -1258,11 +1258,34 @@ async fn routes(
         ),
     );
     let denylist = runtime.session_cache();
+    let kerberos: Option<Arc<dyn setjoin_authz::kerberos::KerberosValidator>> =
+        if settings.boolean("kerberos.enabled") {
+            let configured_keytab = settings.string("kerberos.keytab");
+            let keytab = if !configured_keytab.is_empty() {
+                std::path::PathBuf::from(configured_keytab)
+            } else {
+                let config_dir = env("CONFIG_DIR").unwrap_or_else(|| "/etc/mail".into());
+                std::path::PathBuf::from(config_dir).join("mail.keytab")
+            };
+            let realm = settings.string("kerberos.realm");
+            match setjoin_authz::kerberos::GssapiVerifier::new(
+                setjoin_authz::kerberos::KerberosConfig { keytab, realm },
+            ) {
+                Ok(verifier) => Some(Arc::new(verifier)),
+                Err(err) => {
+                    eprintln!("setjoin-gateway: kerberos enabled but unavailable (fail closed): {err}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
     let dav_basic = setjoin_gateway::dav_auth::DavBasicAuth {
         chain: chain.clone(),
         password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
         threat: threat.map(|gate| gate as Arc<dyn setjoin_threat::ThreatGate>),
         runtime: Some(runtime.clone() as Arc<dyn setjoin_gateway::runtime_access::RuntimeGate>),
+        kerberos,
     };
     let chat_compliance = setjoin_gateway::chat_compliance::ChatComplianceRoute {
         exec: exec.clone(),

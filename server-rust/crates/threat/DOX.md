@@ -99,3 +99,5 @@ The OP oracle pins the same anonymous `agent|masked-IP` attempt metadata.
 `decide_with(CaptchaStep)` serves HTTP (#349): `Full` without a captcha token, `Skip` for a verified and claimed token (Go), `TarpitOnly` for a token that fails; `decide(_, true)` stays `Skip` for protocol listeners. HTTP lockout checks the `ip:` key even without a username (#349 divergence).
 
 `Gate::engine(&self) -> &Engine` exposes the watcher-invalidated `conditional_access` policy engine so `setjoin-auth` can evaluate login/issuance CA policies without a second engine or cache (#351).
+
+`ThreatGate::check_account_lockout` (#355b) checks `lockout_state` (`user:`/`ip_user:`/`ip:`) for a resolved Kerberos user without double-incrementing `rate_limit_counters`; `ThreatGate::record_ip_failure` records an unattributed SPNEGO failure in `auth_attempts` and escalates `ip:` lockout on the reserved record pool.

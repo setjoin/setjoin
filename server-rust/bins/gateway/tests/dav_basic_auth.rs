@@ -198,6 +198,7 @@ async fn spawn_gateway_with_runtime(
         password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
         threat: Some(threat),
         runtime: Some(runtime.clone()),
+                kerberos: None,
     };
     let caldav = CalDavRoute::new(exec.clone(), keys.clone(), "mailserver".into())
         .await
@@ -597,17 +598,22 @@ async fn dav_and_drive_native_basic_auth_runtime_gates() -> Result<(), BoxError>
         assert_eq!(v["detail"], "Authentication required.");
         assert_eq!(non_dav_hits.load(Ordering::SeqCst), 0);
 
+        //   7) Negotiate on DAV/Drive is handled natively (401 with challenge, zero Go forwards).
         for (method, uri, body) in [
             ("OPTIONS", "/caldav/", b"".as_slice()),
             ("OPTIONS", "/carddav/", b"".as_slice()),
             ("POST", "/api/drive/native-token", b"{}".as_slice()),
         ] {
-            let (status, _, bytes) =
+            let (status, www, _) =
                 send_request(srv.addr, method, uri, "Negotiate YII=", body, None).await?;
-            assert_eq!(status, 218, "Negotiate forward on {method} {uri}");
-            assert_eq!(bytes, b"go-negotiate");
+            assert_eq!(status, 401, "Negotiate native 401 on {method} {uri}");
+            assert_eq!(
+                www.as_deref(),
+                Some("Negotiate, Bearer realm=\"mailserver\""),
+                "www-authenticate on {method} {uri}"
+            );
         }
-        assert_eq!(go_hits.load(Ordering::SeqCst), 3);
+        assert_eq!(go_hits.load(Ordering::SeqCst), 0);
 
         srv.close().await;
         Ok::<_, BoxError>(())

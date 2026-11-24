@@ -143,3 +143,7 @@ tokio = { version = "=1.54.1", features = ["test-util"] }
 # Independent SSH peer for the deploy wizard's wire oracle.
 russh = { version = "=0.65.1", default-features = false, features = ["ring"] }
 ssh-key = { version = "=0.7.0-rc.11", default-features = false, features = ["rsa"] }
+# Real SPNEGO/AP-REQ test minter for #355b libgssapi integration tests (pinned to Cargo.lock).
+aes = "=0.8.4"
+sha1 = "=0.10.7"
+tempfile = "=3.27.0"

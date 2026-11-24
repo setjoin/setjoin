@@ -119,7 +119,10 @@ impl<K: KeySource + 'static> Intercept for NativeTokenRoute<K> {
                     }
                 }
                 None if crate::dav_auth::has_scheme(r.headers(), b"Negotiate ") => {
-                    return context.upstream.forward(r, &context.identity).await; // Kerberos proof #355b
+                    match basic.authenticate_negotiate(&exec, &mut r, &context).await {
+                        Ok(user) => push::PushIdentity::from_basic(user.user_id, user.email),
+                        Err(resp) => return resp,
+                    }
                 }
                 None => return denied(),
             };

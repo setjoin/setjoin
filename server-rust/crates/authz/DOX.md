@@ -214,18 +214,21 @@ Go's distinct middleware map projection, rather than the credential-error body.
 
 ## Chain configuration listener (#333)
 
-`auth_chain::Chain` publishes Basic admission generations from `auth_methods`
-and `feature.disable_basic_auth`. Missing toggle/read failure disables password
+`auth_chain::Chain` publishes Basic and Kerberos admission generations from
+`auth_methods` (`slug='kerberos'`) and `feature.disable_basic_auth`. Missing
+toggle/read failure or initial `LISTEN` failure disables both Basic and Kerberos
 admission; signed-token verification remains installed independently. Success
 publishes atomically. A dedicated `DB_DIRECT_DSN` listener subscribes before each
 refresh and refreshes after reconnect to repair missed changes. Socket loss
-retains the last snapshot as Go does; a failed query removes password authority.
-The gateway starts this process-local task by default with request/direct DSNs,
-joins it on shutdown, and keeps Go's copy running until Go deletion. No DB writes,
-singleton or GO_WORKERS_OFF handover applies. Native Drive consumes the cache:
-disabled Basic denies locally; enabled Basic proof stays with #420, Kerberos
-with #339. Certificate/password strategy implementations are not duplicated by
-this cache. `chain_worker` replays actual frozen Chain admission through durable
+retains the last snapshot as Go does; a failed query removes password and
+Kerberos authority. The gateway starts this process-local task by default with
+request/direct DSNs, joins it on shutdown, and keeps Go's copy running until Go
+deletion. No DB writes, singleton or GO_WORKERS_OFF handover applies. Native
+DAV and Drive routes consume the cache (`#355a` Basic app-passwords, `#355b`
+Kerberos/SPNEGO via `kerberos::GssapiVerifier` dynamic `libgssapi` MIT krb5 FFI,
+`gss_acquire_cred_from` with `FILE:` keytab store, `desired_mechs = {SPNEGO, KRB5}`,
+`actual_mech == KRB5`, `Proof::kerberos`, fail-closed guest & TOTP refusal).
+`chain_worker` replays actual frozen Chain admission through durable
 notifications, missing config, connection termination/reconnect and read failure.
 Password writes (#332): `password::hash` reproduces Go's 72-byte boundary,
 bcrypt 2a/cost10 and SMx/hybrid PBKDF2-HMAC-SM3/100000/salt16/key32 envelope.

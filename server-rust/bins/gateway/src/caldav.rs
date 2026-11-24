@@ -68,28 +68,44 @@ impl<K: KeySource + 'static> Intercept for CalDavRoute<K> {
             self.basic.clone(),
         );
         Box::pin(async move {
-            let auth = if crate::dav_auth::has_scheme(r.headers(), b"Negotiate ") {
-                // Kerberos/SPNEGO proof remains owned by #355b.
-                return c.upstream.forward(r, &c.identity).await;
-            } else if crate::dav_auth::has_scheme(r.headers(), b"Basic ") {
-                let user = match basic.authenticate(&exec, &mut r, &c).await {
-                    Ok(user) => user,
-                    Err(response) => return response,
-                };
-                match setjoin_authz::authorize_basic_member(&exec, user.user_id, user.email).await {
-                    Ok(auth) => auth,
-                    Err(refusal) => {
-                        return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+            let auth = match crate::deny::admit(&exec, &*keys, &issuer, &r, crate::deny::Scope::User)
+                .await
+            {
+                Ok(auth) => auth,
+                Err(crate::deny::Refusal::AlternativeCredential)
+                    if crate::dav_auth::has_scheme(r.headers(), b"Negotiate ") =>
+                {
+                    let user = match basic.authenticate_negotiate(&exec, &mut r, &c).await {
+                        Ok(user) => user,
+                        Err(response) => return response,
+                    };
+                    match setjoin_authz::authorize_basic_member(&exec, user.user_id, user.email)
+                        .await
+                    {
+                        Ok(auth) => auth,
+                        Err(refusal) => {
+                            return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+                        }
                     }
                 }
-            } else {
-                match crate::deny::admit(&exec, &*keys, &issuer, &r, crate::deny::Scope::User)
-                    .await
+                Err(crate::deny::Refusal::AlternativeCredential)
+                    if crate::dav_auth::has_scheme(r.headers(), b"Basic ") =>
                 {
-                    Ok(auth) => auth,
-                    Err(refusal) => {
-                        return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+                    let user = match basic.authenticate(&exec, &mut r, &c).await {
+                        Ok(user) => user,
+                        Err(response) => return response,
+                    };
+                    match setjoin_authz::authorize_basic_member(&exec, user.user_id, user.email)
+                        .await
+                    {
+                        Ok(auth) => auth,
+                        Err(refusal) => {
+                            return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
+                        }
                     }
+                }
+                Err(refusal) => {
+                    return crate::deny::native_or_unauthorized(refusal, r.headers(), &c);
                 }
             };
             if !setjoin_calendar::entitled(&exec, auth.context())

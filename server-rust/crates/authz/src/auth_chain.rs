@@ -1,4 +1,4 @@
-//! Process-local chain configuration; Basic password proof stays with #420.
+//! Process-local chain configuration for Basic and Kerberos admission (#420, #355b).
 //! This cache has no shared effects and runs alongside Go's copy until deletion.
 use setjoin_pg::{workers::DirectListener, ScopedExecutor};
 use std::sync::{
@@ -8,28 +8,52 @@ use std::sync::{
 #[derive(Default)]
 pub struct Chain {
     basic: AtomicBool,
+    kerberos: AtomicBool,
 }
 impl Chain {
     pub fn basic_allowed(&self) -> bool {
         self.basic.load(Ordering::Acquire)
     }
+    pub fn kerberos_allowed(&self) -> bool {
+        self.kerberos.load(Ordering::Acquire)
+    }
     /// Read the same two authoritative configuration statements as Go. JWT stays
     /// installed independently of this snapshot, including query and scan failures.
     pub async fn reload(&self, db: &ScopedExecutor) -> Result<(), String> {
-        let loaded=async {
-   db.read("SELECT slug,priority,config_json::text FROM auth_methods WHERE enabled=TRUE ORDER BY priority ASC",&[]).await.map_err(|e|format!("auth methods: {}",e.message))?;
-   let rows=db.read("SELECT enabled FROM feature_toggles WHERE key='feature.disable_basic_auth'",&[]).await.map_err(|e|format!("basic toggle: {}",e.message))?;
-   Ok::<_,String>(rows.first().is_some_and(|r|!r.get::<_,bool>(0)))
-  }.await;
-        // Publish a complete generation; a successful refresh has no deny window.
-        self.basic
-            .store(loaded.as_ref().copied().unwrap_or(false), Ordering::Release);
+        let loaded = async {
+            let method_rows = db
+                .read(
+                    "SELECT slug,priority,config_json::text FROM auth_methods WHERE enabled=TRUE ORDER BY priority ASC",
+                    &[],
+                )
+                .await
+                .map_err(|e| format!("auth methods: {}", e.message))?;
+            let kerberos = method_rows.iter().any(|row| {
+                row.try_get::<_, String>(0)
+                    .is_ok_and(|slug| slug == "kerberos")
+            });
+            let rows = db
+                .read(
+                    "SELECT enabled FROM feature_toggles WHERE key='feature.disable_basic_auth'",
+                    &[],
+                )
+                .await
+                .map_err(|e| format!("basic toggle: {}", e.message))?;
+            let basic = rows.first().is_some_and(|r| !r.get::<_, bool>(0));
+            Ok::<_, String>((basic, kerberos))
+        }
+        .await;
+        // Publish a complete generation; a successful refresh has no deny window,
+        // and any error clears both Basic and Kerberos (fail-closed).
+        let (basic, kerberos) = loaded.as_ref().copied().unwrap_or((false, false));
+        self.basic.store(basic, Ordering::Release);
+        self.kerberos.store(kerberos, Ordering::Release);
         loaded?;
         Ok(())
     }
     /// Every connection subscribes before refreshing, repairing notifications lost
     /// during connection loss. A socket loss retains the last snapshot as Go does;
-    /// a failed authoritative refresh removes password admission until recovery.
+    /// a failed authoritative refresh removes password and Kerberos admission until recovery.
     pub async fn listen(
         self: Arc<Self>,
         db: ScopedExecutor,
@@ -52,6 +76,7 @@ impl Chain {
                 }
             } else if !subscribed {
                 self.basic.store(false, Ordering::Release);
+                self.kerberos.store(false, Ordering::Release);
             }
             tokio::select! {_=&mut stop=>return,_=tokio::time::sleep(std::time::Duration::from_secs(1))=>{}}
         }
