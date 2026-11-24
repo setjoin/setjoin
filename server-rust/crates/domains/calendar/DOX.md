@@ -96,8 +96,8 @@ ON; all methods have native dispatch. Qualification lives in `--test caldav`;
 [recording contract](../../../tests/conformance/caldav/README.md). DAV roots stay pinned
 outside `/api` even for ON entries; the original generic LocalRust fallback
 incorrectly overrode that exception. Basic auth is handled natively via
-`DavBasicAuth` + `authorize_basic_member` (#355a); `Negotiate` proof remains
-forwarded to Go until #355b.
+`DavBasicAuth` + `authorize_basic_member` (#355a); `Negotiate` proof is handled
+natively via `DavBasicAuth::authenticate_negotiate` (#355b, zero Go hops).
 
 CAL4 preserves Go's timezone catalog keyed solely by TZID, including foreign
 stored definitions (Go `caldav.go:75–94,254–269`). The isolated-calendar fix is

@@ -610,8 +610,10 @@ uses only the direct DSN for LISTEN. It refreshes on reconnect and joins on drai
 Go keeps its own cache task. Native Drive, CalDAV, and CardDAV authenticate HTTP
 Basic natively (#355a) via `dav_auth::DavBasicAuth` (app passwords only, shared
 `ThreatGate` with `protocol="http"`, and `RuntimeGate::enforce_basic`), with
-`PushIdentity::from_basic` minting 12 h Drive tokens; only `Negotiate` forwards
-to Go until #355b. (`dav_basic_auth` integration tests cover all runtime gates.)
+`PushIdentity::from_basic` minting 12 h Drive tokens; `Negotiate` is handled
+natively (#355b) via `DavBasicAuth::authenticate_negotiate` (`libgssapi` FFI +
+`RuntimeGate::enforce_kerberos`). (`dav_basic_auth` and `dav_negotiate_auth`
+integration tests cover all runtime gates.)
 
 The link-protect oracle accepts GOFREE_LINKPROTECT_DNS_IP (loopback only;
 default 127.0.0.66), so independent workers can own different UDP53 fixtures.
@@ -1168,3 +1170,19 @@ and oracle cases/catalog entries live in `tests/jmap_family_373.rs` and
 - **Zero JMAP Go forwards (#356 Wave 3, #97):** Every registered JMAP call—including empty-`ids` `Email/recover`/`Email/purge`, `#`-result-referenced calls, Unicode case-folded or duplicate struct keys, `Continuity/*` without a loaded signer (`forbidden`), and `Request` frames on `/jmap/ws` (returning RFC 8887 `RequestError` with `status` 400/500 via `request_error_status`)—executes natively without `DeferToGo`, `preflight_batch`, `forward_unported`, `unported_push_target`, or raw WS `client_async`.
 - **Non-Family delegated accounts:** `jmap/account.rs` (`resolve_account`, shared by `family::seam::account::resolve`) re-reads the primary mailbox, queries `mailbox_delegates` under `exec.read_user_scoped(ActorId(user_id), ...)` (V090 FORCE-RLS), enforces `Gate` (`Personal` on `Identity/set`, `Read`/`Mutate`/`Submit` per method; `Identity/{get,changes}`, `Core/echo`, `Blob/*` keep primary-only `Gate::Personal` without `resolve_account`; `Email/recoveryReceipt` checks its toggle first), checks `mailbox_lifecycle_access_allowed`, and scopes domain calls by `target_auth`.
 - **Widened classifiers:** `struct_arguments` (exact or Unicode case-folded, unknown/non-ASCII keys ignored, last duplicate wins), `go_string`-escaped arbitrary `client_id`s, `raw_account_id` echoing, removed 256-item destroy/recover/purge caps, and shared HTTP/WS `createdIds` envelope collection (`reply::http_batch_response` always includes `methodResponses`). Tests: `tests/jmap_batch_delegate.rs`.
+
+## Native DAV and Drive Kerberos/SPNEGO (`Authorization: Negotiate`, #355b)
+
+`DavBasicAuth::authenticate_negotiate` (`src/dav_auth.rs`) serves `Authorization: Negotiate`
+natively on `/caldav/*`, `/carddav/*`, and `POST /api/drive/native-token` (zero Go forwards;
+`DELETE-GATE-MATRIX` `gateway` Hop cells = 0). `caldav.rs` and `carddav.rs` evaluate
+`deny::admit` (Bearer/Cookie priority 10) before falling through on `Refusal::AlternativeCredential`
+to Negotiate (priority 20) or Basic (priority 30), matching Go's chain precedence. Kerberos
+requires `kerberos.enabled` + readable keytab (`kerberos.keytab`, fallback
+`${CONFIG_DIR:-/etc/mail}/mail.keytab`) + live `auth_chain::Chain::kerberos_allowed()`
+(`chain: None` fails closed), verifies tokens via `setjoin_authz::kerberos::GssapiVerifier`
+(dynamic `libgssapi` MIT krb5 FFI, `FILE:` keytab store, `KRB5` mech only), enforces single-burn
+`ThreatGate::intercept`, IP lockout escalation on bad SPNEGO (`record_ip_failure`), targeted
+account lockout (`check_account_lockout`), fail-closed guest refusal before `event='login'`,
+TOTP refusal, and `RuntimeGate::enforce_kerberos` (`Proof::kerberos`). Tests:
+`tests/dav_negotiate_auth.rs`, `tests/delete_gate.rs`.

@@ -16,6 +16,16 @@ impl Proof {
         }))
     }
 
+    /// Verified Kerberos/SPNEGO member proof (#355b). Mirrors Go's `kerberosAuthMethod`
+    /// (`AuthMethod: "kerberos"`, `mailserver/internal/auth/chain.go:600`) so CA
+    /// policies distinguish Kerberos from `basic_auth` and `jwt_bearer`.
+    pub fn kerberos(user_id: i64) -> Self {
+        Self(serde_json::json!({
+            "uid": user_id,
+            "auth_method": "kerberos",
+        }))
+    }
+
     /// Dedicated attachment credential, for the attachment HTTP surface only.
     /// This seals the same signed device/session claims as an ordinary proof;
     /// it grants no blob or mailbox authority.

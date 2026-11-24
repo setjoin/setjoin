@@ -6148,6 +6148,7 @@ dependencies = [
 name = "setjoin-authz"
 version = "0.0.0"
 dependencies = [
+ "aes 0.8.4",
  "base64 0.22.1",
  "bcrypt",
  "bytes",
@@ -6160,6 +6161,7 @@ dependencies = [
  "hyper-util",
  "icu_casemap",
  "ipnet",
+ "libc",
  "mailparse",
  "maxminddb",
  "p256",
@@ -6170,10 +6172,12 @@ dependencies = [
  "setjoin-conformance",
  "setjoin-contracts",
  "setjoin-pg",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "sm2",
  "sm3 0.4.2",
  "subtle",
+ "tempfile",
  "tokio",
  "zeroize",
 ]
@@ -6427,6 +6431,7 @@ dependencies = [
 name = "setjoin-gateway"
 version = "0.0.0"
 dependencies = [
+ "aes 0.8.4",
  "aes-gcm 0.10.3",
  "async_zip",
  "base64 0.22.1",
@@ -6510,9 +6515,11 @@ dependencies = [
  "setjoin-threat",
  "setjoin-tls",
  "setjoin-user-settings",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "sm4",
  "ssh-key",
+ "tempfile",
  "tokio",
  "tokio-postgres",
  "tokio-rustls",

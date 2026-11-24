@@ -355,15 +355,31 @@ impl ScopedExecutor {
         email: Option<&str>,
         ip: Option<&str>,
     ) -> Result<(), StatementFailure> {
+        self.record_protocol_auth_event_with_details(user, event, provider, email, ip, None)
+            .await
+    }
+
+    /// Pre-authentication protocol audit row with optional JSONB `details`
+    /// (`pwhash.LogAuthEvent`, e.g. Kerberos `{"reason":"spnego_validation_failed"}`).
+    pub async fn record_protocol_auth_event_with_details(
+        &self,
+        user: Option<i64>,
+        event: &str,
+        provider: &str,
+        email: Option<&str>,
+        ip: Option<&str>,
+        details: Option<&str>,
+    ) -> Result<(), StatementFailure> {
         self.protocol_write(
             "INSERT INTO auth_event_log (user_id, event, provider, email, ip_address, details) \
-             VALUES ($1, $2, $3, $4, $5::text::inet, NULL)",
+             VALUES ($1, $2, $3, $4, $5::text::inet, $6::text::jsonb)",
             &[
                 (&user, Type::INT8),
                 (&event, Type::TEXT),
                 (&provider, Type::TEXT),
                 (&email, Type::TEXT),
                 (&ip, Type::TEXT),
+                (&details, Type::TEXT),
             ],
         )
         .await

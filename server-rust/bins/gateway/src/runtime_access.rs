@@ -33,6 +33,14 @@ pub trait RuntimeGate: Send + Sync + 'static {
     ) -> Check<'a> {
         Box::pin(async { None })
     }
+    fn enforce_kerberos<'a>(
+        &'a self,
+        _r: &'a mut Request<Body>,
+        _c: &'a RequestContext,
+        _user_id: i64,
+    ) -> Check<'a> {
+        Box::pin(async { None })
+    }
     fn initialize(&self) -> Task<'_> {
         Box::pin(async {})
     }
@@ -51,6 +59,14 @@ impl<T: RuntimeGate + ?Sized> RuntimeGate for Arc<T> {
         user_id: i64,
     ) -> Check<'a> {
         (**self).enforce_basic(r, c, user_id)
+    }
+    fn enforce_kerberos<'a>(
+        &'a self,
+        r: &'a mut Request<Body>,
+        c: &'a RequestContext,
+        user_id: i64,
+    ) -> Check<'a> {
+        (**self).enforce_kerberos(r, c, user_id)
     }
     fn initialize(&self) -> Task<'_> {
         (**self).initialize()
@@ -693,6 +709,22 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
                 Err(_) => return Some(unavailable(r, c)),
             };
             self.enforce_proof(r, c, &flags, Proof::basic(user_id), None)
+                .await
+        })
+    }
+
+    fn enforce_kerberos<'a>(
+        &'a self,
+        r: &'a mut Request<Body>,
+        c: &'a RequestContext,
+        user_id: i64,
+    ) -> Check<'a> {
+        Box::pin(async move {
+            let flags = match self.read_flags().await {
+                Ok(flags) => flags,
+                Err(_) => return Some(unavailable(r, c)),
+            };
+            self.enforce_proof(r, c, &flags, Proof::kerberos(user_id), None)
                 .await
         })
     }

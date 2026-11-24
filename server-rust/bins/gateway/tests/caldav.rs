@@ -687,6 +687,7 @@ mod basic_tests {
                     password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                     threat: Some(threat.clone()),
                     runtime: None,
+                kerberos: None,
                 });
             let mut basic_headers = hyper::HeaderMap::new();
             basic_headers.insert(
@@ -762,6 +763,7 @@ mod basic_tests {
                     password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                     threat: Some(threat.clone()),
                     runtime: None,
+                kerberos: None,
                 });
             let (addr, server) = spawn_gateway(None, route).await?;
 
@@ -868,6 +870,7 @@ mod basic_tests {
                         password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                         threat: Some(threat.clone()),
                         runtime: None,
+                kerberos: None,
                     });
                 let (addr, server) = spawn_gateway(None, route).await?;
                 let started = std::time::Instant::now();
@@ -891,6 +894,7 @@ mod basic_tests {
                     password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                     threat: None,
                     runtime: None,
+                kerberos: None,
                 });
             let (addr, server) = spawn_gateway(None, no_threat).await?;
             let (status, _, _) =
@@ -899,7 +903,7 @@ mod basic_tests {
             server.abort();
             let _ = server.await;
 
-            // Negotiate forwards to Go
+            // Negotiate handled natively (401 with challenge, zero Go forwards when Kerberos disabled)
             let go_hits = Arc::new(AtomicUsize::new(0));
             let hits = go_hits.clone();
             let go = common::fake_upstream(move |_| {
@@ -921,13 +925,17 @@ mod basic_tests {
                     password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
                     threat: Some(threat.clone()),
                     runtime: None,
+                    kerberos: None,
                 });
             let (addr, server) = spawn_gateway(Some(go), route).await?;
-            let (status, _, body) =
+            let (status, www, _) =
                 send_caldav(addr, "OPTIONS", Some("Negotiate YII="), None).await?;
-            assert_eq!(status, 218);
-            assert_eq!(body, "go-negotiate");
-            assert_eq!(go_hits.load(Ordering::SeqCst), 1);
+            assert_eq!(status, 401);
+            assert_eq!(
+                www.as_deref(),
+                Some("Negotiate, Bearer realm=\"mailserver\"")
+            );
+            assert_eq!(go_hits.load(Ordering::SeqCst), 0);
             assert!(threat.intercepts.lock().unwrap().is_empty());
             server.abort();
             let _ = server.await;

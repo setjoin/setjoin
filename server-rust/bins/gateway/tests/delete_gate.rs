@@ -51,6 +51,7 @@ const SHAPES: [&str; 10] = [
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Outcome {
+    #[allow(dead_code)]
     Hop(&'static str),
     Native(u16),
 }
@@ -72,33 +73,21 @@ const DT_OFF: &[&str] = &[
     "token-binding",
 ];
 const DT_ON: &[&str] = &["device-trust"];
-/// Reviewed outcomes. Hop cells only shrink (guard: MATRIX_HOPS = 15).
-/// `#355a` (`runtime_access.rs:665`) lets DAV/Drive Basic & Negotiate past
-/// `RuntimeAccess::check` in all cells: Basic is rejected natively (`401`,
-/// app-password-only), while Negotiate still forwards to Go (`#355b`) in all 5 cells.
+/// Reviewed outcomes. Hop cells only shrink (guard: MATRIX_HOPS = 0 — absolute ban).
+/// `#355a` + `#355b` (`runtime_access.rs:665`) let DAV/Drive Basic & Negotiate past
+/// `RuntimeAccess::check` in all cells: Basic (app-password-only) and Negotiate
+/// (Kerberos/SPNEGO via libgssapi) are both rejected natively (`401`) with zero Go hops.
 const EXPECT: &[(&[&str], &str, Outcome)] = &[
     (ALL, "caldav-basic", Native(401)),
-    (
-        ALL,
-        "caldav-negotiate",
-        Hop("#355b DAV Negotiate (caldav.rs:73)"),
-    ),
+    (ALL, "caldav-negotiate", Native(401)),
     (DT_OFF, "caldav-member", Native(207)),
     (DT_ON, "caldav-member", Native(403)),
     (ALL, "carddav-basic", Native(401)),
-    (
-        ALL,
-        "carddav-negotiate",
-        Hop("#355b DAV Negotiate (carddav.rs:60)"),
-    ),
+    (ALL, "carddav-negotiate", Native(401)),
     (DT_OFF, "carddav-member", Native(207)),
     (DT_ON, "carddav-member", Native(403)),
     (ALL, "drive-basic", Native(401)),
-    (
-        ALL,
-        "drive-negotiate",
-        Hop("#355b native-token Negotiate (drive_native.rs:122)"),
-    ),
+    (ALL, "drive-negotiate", Native(401)),
     (ALL, "drive-guest", Native(404)),
     (DT_OFF, "drive-member", Native(200)),
     (DT_ON, "drive-member", Native(403)),

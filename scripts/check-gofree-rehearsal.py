@@ -73,14 +73,14 @@ RUST_TO_RUST_CALL = re.compile(r"^let mut response = (\w+)\.forward\(req, &ident
 # 0 = absolute ban.
 MATRIX_HOPS = {
     "server-rust/bins/auth/tests/delete_gate.rs": 0,
-    "server-rust/bins/gateway/tests/delete_gate.rs": 15,
+    "server-rust/bins/gateway/tests/delete_gate.rs": 0,
 }
 HOP_ENTRY = re.compile(r'\bHop\s*\("')
 HOP_ROW = re.compile(r'\(\s*(&\[[^\]]*\]|[A-Z_]+)\s*,\s*"[^"]+"\s*,\s*Hop\s*\("')
 CELL_GROUP = re.compile(r'const\s+([A-Z_]+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];', re.S)
 FORWARD_SITES = {
     ("auth", "go_upstream"): 3,
-    ("gateway", "forward"): 12,  # 13 minus exempt RUST_TO_RUST_CALL (lib.rs:704)
+    ("gateway", "forward"): 9,  # 10 minus exempt RUST_TO_RUST_CALL (lib.rs:704)
     ("gateway", "go_counter"): 2,
     ("gateway", "go_target"): 11,
 }
