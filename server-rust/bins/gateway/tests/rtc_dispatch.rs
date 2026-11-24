@@ -161,7 +161,15 @@ type Probe = (&'static str, &'static str, Vec<(&'static str, String)>, u16, Opti
 
 fn guest_probes(active_user: i64, inactive_user: i64) -> Vec<Probe> {
     let active_auth = format!("Bearer {}", common::recovery_token(active_user));
+    let scoped_active_auth = format!(
+        "Bearer {}",
+        common::recovery_token_with(active_user, serde_json::json!({"scp": "rtc"}))
+    );
     let inactive_auth = format!("Bearer {}", common::recovery_token(inactive_user));
+    let scoped_inactive_auth = format!(
+        "Bearer {}",
+        common::recovery_token_with(inactive_user, serde_json::json!({"scp": "rtc"}))
+    );
     vec![
         (
             "GET",
@@ -190,6 +198,20 @@ fn guest_probes(active_user: i64, inactive_user: i64) -> Vec<Probe> {
             vec![("authorization", active_auth.clone())],
             200,
             Some("success"),
+        ),
+        (
+            "GET",
+            "/api/%72tc/rtc/validate?access_token=good",
+            vec![("authorization", scoped_active_auth)],
+            200,
+            Some("success"),
+        ),
+        (
+            "GET",
+            "/api/%72tc/rtc/validate?access_token=good",
+            vec![("authorization", scoped_inactive_auth)],
+            401,
+            None,
         ),
         (
             "POST",
@@ -555,8 +577,16 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
                 }
             }
             let spa_dir = dir.join(format!("spa-{tag}"));
-            std::fs::create_dir_all(&spa_dir)?;
+            std::fs::create_dir_all(spa_dir.join("_app"))?;
             std::fs::write(spa_dir.join("index.html"), "<html>spa</html>")?;
+            std::fs::write(
+                spa_dir.join("_app/version.json"),
+                r#"{"version":"rtc-test-1"}"#,
+            )?;
+            std::fs::write(
+                spa_dir.join("static-representations.v1.json"),
+                r#"{"schemaVersion":1,"buildId":"rtc-test-1","assets":[{"path":"/index.html","identityBytes":16,"identitySha256":"188de08849366011502c4c7899a28cea27d7895d8ae936327be5febcc8103b0e"},{"path":"/_app/version.json","identityBytes":24,"identitySha256":"33b90da906b6b41be35ccdad735e0c5aa9b7cd1228cdb46e75815b28d66892a8"}]}"#,
+            )?;
             command.env("WEBSITE_DIR", &spa_dir);
             _spa_guard = Some(RemoveDir(spa_dir));
         } else {

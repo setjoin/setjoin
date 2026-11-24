@@ -110,7 +110,7 @@ backup_gateway_deployment() {
         systemctl is-active --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-active" || true
         systemctl is-enabled --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-enabled" || true
     fi
-    local prev_cache=""
+    local prev_cache="" prev_devino=""
     prev_cache="$(
         root="$(cd "$(dirname "$0")/../../.." && pwd)"
         source "$root/mailserver/deploy/scripts/lib-livekit.sh"
@@ -119,25 +119,86 @@ backup_gateway_deployment() {
     if [ -n "$prev_cache" ]; then
         printf 'path=%s\n' "$prev_cache" > "$DEPLOYMENT_PREV/tls-cache.meta"
         if [ ! -L "$prev_cache" ] && [ -d "$prev_cache" ]; then
+            prev_devino="$(python3 -c 'import os,sys; s=os.lstat(sys.argv[1]); print(f"{s.st_dev}:{s.st_ino}")' "$prev_cache" 2>/dev/null || true)"
             printf 'exists=1\nmode=%s\nowner=%s\ndevino=%s\n' \
                 "$(stat -c '%a' "$prev_cache")" \
                 "$(stat -c '%u:%g' "$prev_cache")" \
-                "$(stat -c '%d:%i' "$prev_cache")" >> "$DEPLOYMENT_PREV/tls-cache.meta"
+                "$prev_devino" >> "$DEPLOYMENT_PREV/tls-cache.meta"
         else
             printf 'exists=0\n' >> "$DEPLOYMENT_PREV/tls-cache.meta"
         fi
     fi
 }
-restore_gateway_deployment() {
+restore_tls_cache_meta() {
+    [ -f "$DEPLOYMENT_PREV/tls-cache.meta" ] || return 0
+    local prev_path="" prev_exists="" prev_mode="" prev_owner="" prev_devino="" created_devino="" line k v
+    while IFS= read -r line || [ -n "$line" ]; do
+        k="${line%%=*}"
+        v="${line#*=}"
+        case "$k" in
+            path) prev_path="$v" ;;
+            exists) prev_exists="$v" ;;
+            mode) prev_mode="$v" ;;
+            owner) prev_owner="$v" ;;
+            devino) prev_devino="$v" ;;
+            created_devino) created_devino="$v" ;;
+        esac
+    done < "$DEPLOYMENT_PREV/tls-cache.meta"
+    if [ -n "$prev_path" ] && [ "$prev_path" != "/" ] && [ ! -L "$prev_path" ] && [ -d "$prev_path" ]; then
+        if [ "$prev_exists" = 1 ]; then
+            [ -n "$prev_devino" ] || return 0
+            python3 - "$prev_path" "$prev_devino" "$prev_mode" "$prev_owner" <<'PY' || true
+import os, stat, sys
+path, exp_devino, mode_str, owner_str = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+fd = os.open(path, flags)
+try:
+    st = os.fstat(fd)
+    if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
+        sys.stderr.write(f"   ! skipping tls-cache rollback for {path}: directory identity changed ({st.st_dev}:{st.st_ino} != {exp_devino})\n")
+        sys.exit(0)
+    if mode_str and hasattr(os, "fchmod"):
+        os.fchmod(fd, int(mode_str, 8))
+    if owner_str and ":" in owner_str and hasattr(os, "fchown"):
+        try:
+            uid, gid = (int(x) for x in owner_str.split(":", 1))
+            os.fchown(fd, uid, gid)
+        except PermissionError:
+            pass
+finally:
+    os.close(fd)
+PY
+        elif [ "$prev_exists" = 0 ] && [ -n "$created_devino" ]; then
+            python3 - "$prev_path" "$created_devino" <<'PY' || true
+import os, stat, sys
+path, exp_devino = sys.argv[1].rstrip("/"), sys.argv[2]
+parent, name = os.path.split(path)
+if not parent or not name:
+    sys.exit(0)
+if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
+    pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        st = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+        if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
+            sys.exit(0)
+        os.rmdir(name, dir_fd=pfd)
+    except OSError:
+        pass
+    finally:
+        os.close(pfd)
+else:
+    try:
+        st = os.lstat(path)
+        if stat.S_ISDIR(st.st_mode) and f"{st.st_dev}:{st.st_ino}" == exp_devino:
+            os.rmdir(path)
+    except OSError:
+        pass
+PY
+        fi
+    fi
+}
+restore_gateway_files_only() {
     local file
-    # Close the new socket before the previous executable can receive its FD.
-    systemctl stop setjoin-gateway || true
-    systemctl stop setjoin-federation.socket || true
-    systemctl disable setjoin-federation.socket || true
-    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        systemctl stop "$file" || true
-        systemctl disable "$file" || true
-    done
     for file in setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         rm -f "$SYSTEMD_DIR/$file"
         if [ -e "$DEPLOYMENT_PREV/units/$file" ] || [ -L "$DEPLOYMENT_PREV/units/$file" ]; then
@@ -151,39 +212,25 @@ restore_gateway_deployment() {
         fi
     done
     systemctl daemon-reload
+    restore_tls_cache_meta
+}
+restore_gateway_deployment() {
+    local file
+    # Close the new socket before the previous executable can receive its FD.
+    systemctl stop setjoin-gateway || true
+    systemctl stop setjoin-federation.socket || true
+    systemctl disable setjoin-federation.socket || true
+    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+        systemctl stop "$file" || true
+        systemctl disable "$file" || true
+    done
+    restore_gateway_files_only
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -f "$DEPLOYMENT_PREV/$file-enabled" ]; then systemctl enable "$file"; fi
         if [ -f "$DEPLOYMENT_PREV/$file-active" ]; then systemctl start "$file"; fi
     done
     if [ -f "$DEPLOYMENT_PREV/socket-enabled" ]; then systemctl enable setjoin-federation.socket; fi
     if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket; fi
-    if [ -f "$DEPLOYMENT_PREV/tls-cache.meta" ]; then
-        local prev_path="" prev_exists="" prev_mode="" prev_owner="" prev_devino="" cur_devino="" line k v
-        while IFS= read -r line || [ -n "$line" ]; do
-            k="${line%%=*}"
-            v="${line#*=}"
-            case "$k" in
-                path) prev_path="$v" ;;
-                exists) prev_exists="$v" ;;
-                mode) prev_mode="$v" ;;
-                owner) prev_owner="$v" ;;
-                devino) prev_devino="$v" ;;
-            esac
-        done < "$DEPLOYMENT_PREV/tls-cache.meta"
-        if [ -n "$prev_path" ] && [ "$prev_path" != "/" ] && [ ! -L "$prev_path" ] && [ -d "$prev_path" ]; then
-            if [ "$prev_exists" = 1 ]; then
-                cur_devino="$(stat -c '%d:%i' "$prev_path" 2>/dev/null || true)"
-                if [ -n "$prev_devino" ] && [ "$cur_devino" = "$prev_devino" ]; then
-                    [ -z "$prev_mode" ] || chmod "$prev_mode" "$prev_path" || true
-                    [ -z "$prev_owner" ] || chown "$prev_owner" "$prev_path" || true
-                else
-                    echo "   ! skipping tls-cache rollback for $prev_path: directory identity changed ($cur_devino != $prev_devino)" >&2
-                fi
-            elif [ "$prev_exists" = 0 ]; then
-                rmdir "$prev_path" 2>/dev/null || true
-            fi
-        fi
-    fi
 }
 
 # Read literal installer EnvironmentFile assignments, without evaluating secrets.
@@ -228,18 +275,10 @@ render_gateway_deployment() (
     configure_tls_front "$CONFIG_ENV" || return 1
     configure_imap_front "$CONFIG_ENV" || return 1
     configure_smtp_front "$CONFIG_ENV" || return 1
-    render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
-    chown root:setjoin "$TLS_ENV" || return 1
     _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
     validate_tls_cache_target "$_tls_cache" || return 1
-    if [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; then
-        mkdir -p "$_tls_cache" || return 1
-        chmod 0700 "$_tls_cache" || return 1
-        chown setjoin:setjoin "$_tls_cache" || return 1
-    fi
-    # A descriptor belongs to the matching new binary. Recreate only this
-    # release's socket set; snapshots preserve prior bytes, absence and state.
-    rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"
+    render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
+    chown root:setjoin "$TLS_ENV" || return 1
     render_gateway_env "$GATEWAY_ENV" || return 1
     render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$FEDERATION_ENV" || return 1
@@ -248,6 +287,19 @@ render_gateway_deployment() (
     # SMTP (#501): its own allow-listed file, re-rendered with the unit set.
     render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$SMTP_ENV" || return 1
+    if [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; then
+        if [ ! -d "$_tls_cache" ]; then
+            mkdir -p "$_tls_cache" || return 1
+            if [ -f "${DEPLOYMENT_PREV:-}/tls-cache.meta" ] && grep -qx 'exists=0' "$DEPLOYMENT_PREV/tls-cache.meta" && ! grep -q '^created_devino=' "$DEPLOYMENT_PREV/tls-cache.meta"; then
+                printf 'created_devino=%s\n' "$(python3 -c 'import os,sys; s=os.lstat(sys.argv[1]); print(f"{s.st_dev}:{s.st_ino}")' "$_tls_cache" 2>/dev/null || true)" >> "$DEPLOYMENT_PREV/tls-cache.meta"
+            fi
+        fi
+        chmod 0700 "$_tls_cache" || return 1
+        chown setjoin:setjoin "$_tls_cache" || return 1
+    fi
+    # A descriptor belongs to the matching new binary. Recreate only this
+    # release's socket set; snapshots preserve prior bytes, absence and state.
+    rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"
     render_gateway_unit "$root/mailserver/deploy/setjoin-gateway.service.template" "$SYSTEMD_DIR/setjoin-gateway.service" || return 1
     systemctl daemon-reload || return 1
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
@@ -259,11 +311,23 @@ render_gateway_deployment() (
 )
 
 if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
+    _updater_state="${UPDATER_STATE_DIR:-/var/lib/setjoin/updater}"
+    if [ -d "$_updater_state" ] && command -v flock >/dev/null 2>&1; then
+        # Append mode preserves the executor.lock inode shared with setjoin-updater.
+        _old_umask=$(umask)
+        umask 077
+        exec 9>>"$_updater_state/executor.lock"
+        umask "$_old_umask"
+        if ! flock -n 9; then
+            echo "   ✗ active signed update holds $_updater_state/executor.lock; refusing concurrent refresh." >&2
+            exit 1
+        fi
+    fi
     RUNTIME_DIR="$INSTALL_DIR/current"
     backup_gateway_deployment
     if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
         echo "   ✗ gateway unit/config refresh failed." >&2
-        restore_gateway_deployment
+        restore_gateway_files_only
         exit 1
     fi
     exit 0

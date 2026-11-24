@@ -14,7 +14,7 @@ TLS_KEY=/fixture/leaf.key
 TLS_AUTOCERT_DOMAINS=mail.example.test
 TLS_AUTOCERT_CHALLENGE=tls-alpn-01
 TLS_AUTOCERT_EMAIL=ops@example.test
-TLS_AUTOCERT_CACHE_DIR=/fixture/autocert
+TLS_AUTOCERT_CACHE_DIR=/var/cache/mailserver/fixture-autocert
 TLS_SESSION_TICKET_KEY_ROTATE_SECS=60
 TLS_DNS_PROVIDER=cloudflare
 TLS_DNS_CONFIG={"CF_API_TOKEN":"literal-$-value"}
@@ -39,7 +39,7 @@ grep -qx 'ListenStream=443' "$tmp/setjoin-https.socket"
 grep -qx 'Service=setjoin-gateway.service' "$tmp/setjoin-https.socket"
 grep -qx 'Wants=setjoin-https.socket' "$tmp/setjoin-gateway.service"
 grep -qx "EnvironmentFile=-$TLS_ENV" "$tmp/setjoin-gateway.service"
-grep -qx 'ReadWritePaths=-/fixture/autocert' "$tmp/setjoin-gateway.service"
+grep -qx 'ReadWritePaths=-/var/cache/mailserver/fixture-autocert' "$tmp/setjoin-gateway.service"
 grep -qx 'CapabilityBoundingSet=' "$tmp/setjoin-gateway.service"
 grep -qx 'LISTEN_ADDR=127.0.0.1:0' "$CONFIG_ENV"
 for name in cert-monitor tls-ticket-keys http-tls http-h2c acme-renewal; do
@@ -474,12 +474,45 @@ for fval in 1e0 1.; do
   python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" render-storage "$tmp/empty-env.env" "$tmp/fbool-str.yaml" | grep -qx 'S3_SECURE=false'
 done
 
-printf '  WORM_LEGAL_HOLD_ENABLED = false\n  WORM_MODE = \n' > "$tmp/preserve-ws.env"
-tls_front_preserve_settings "$tmp/preserve-ws.env" > "$tmp/preserve-ws.out"
-grep -qx 'WORM_LEGAL_HOLD_ENABLED=false' "$tmp/preserve-ws.out"
-grep -qx 'WORM_MODE=' "$tmp/preserve-ws.out"
+for days in 3650. 3.65e3; do
+  printf 'worm:\n  mode: compliance\n  retention_days: %s\n' "$days" > "$tmp/worm-float.yaml"
+  [ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/worm-float.yaml" worm retention_days)" = 3650 ]
+done
 
-for bad_dir in /var/lib/postgresql /var/cache/apt /etc/ssh; do
+cat > "$tmp/merge-flow-in-seq.yaml" <<'YAML'
+!!str s3:
+  !!str access_key: top-ak
+  <<:
+    - { endpoint: http://127.0.0.1:9200, bucket: seq-flow-bucket }
+YAML
+python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" render-storage "$tmp/empty-env.env" "$tmp/merge-flow-in-seq.yaml" > "$tmp/merge-flow-storage.env"
+grep -qx 'S3_ENDPOINT=http://127.0.0.1:9200' "$tmp/merge-flow-storage.env"
+grep -qx 'S3_BUCKET=seq-flow-bucket' "$tmp/merge-flow-storage.env"
+grep -qx 'S3_ACCESS_KEY=top-ak' "$tmp/merge-flow-storage.env"
+
+cat > "$tmp/adjacent-quotes.env" <<'ENV'
+WORM_MODE="com""pliance"
+WORM_LEGAL_HOLD_ENABLED="tr"'ue'
+ENV
+python3 - "$ROOT/mailserver/deploy/scripts/yaml-config.py" "$tmp/adjacent-quotes.env" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("yc", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+parsed = mod.parse_systemd_env_file(sys.argv[2])
+assert parsed["WORM_MODE"] == "compliance", parsed
+assert parsed["WORM_LEGAL_HOLD_ENABLED"] == "true", parsed
+PY
+
+printf 'WORM_MODE=governance\n  WORM_MODE = compliance\n  WORM_LEGAL_HOLD_ENABLED = false\n' > "$tmp/preserve-ws.env"
+tls_front_preserve_settings "$tmp/preserve-ws.env" > "$tmp/preserve-ws.out"
+grep -qx 'WORM_MODE=compliance' "$tmp/preserve-ws.out"
+grep -qx 'WORM_LEGAL_HOLD_ENABLED=false' "$tmp/preserve-ws.out"
+printf 'WORM_MODE=compliance\n  WORM_MODE = \n' > "$tmp/preserve-empty.env"
+tls_front_preserve_settings "$tmp/preserve-empty.env" > "$tmp/preserve-empty.out"
+grep -qx 'WORM_MODE=' "$tmp/preserve-empty.out"
+
+for bad_dir in /var/lib/postgresql /var/cache/apt /etc/ssh /srv/postgres /opt/other /var/lib/setjoin; do
   if validate_tls_cache_target "$bad_dir" 2>/dev/null; then
     echo "expected rejection for $bad_dir" >&2
     exit 1

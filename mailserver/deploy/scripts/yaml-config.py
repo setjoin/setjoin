@@ -5,6 +5,7 @@ Used by mailserver/deploy/scripts/lib-livekit.sh so install/upgrade and CI deplo
 guards require only Python 3 stdlib (no external PyYAML dependency).
 """
 
+import math
 import os
 import re
 import sys
@@ -356,6 +357,8 @@ class _Parser:
         elif ch == "'":
             val = self.parse_squote()
             is_plain_untagged = False
+        elif ch in ("{", "["):
+            raise YamlError(f"flow collection cannot be a block/plain mapping key at offset {self.i}")
         else:
             start = self.i
             while self.i < self.n:
@@ -584,7 +587,8 @@ class _Parser:
         return body + "\n"
 
     def _starts_block_mapping_entry(self) -> bool:
-        save = self.i
+        save_i = self.i
+        save_anchors = dict(self.anchors)
         try:
             self.parse_key(in_flow=False)
             self.skip_hws()
@@ -592,7 +596,8 @@ class _Parser:
         except YamlError:
             return False
         finally:
-            self.i = save
+            self.i = save_i
+            self.anchors = save_anchors
 
     def skip_block_seq(self, seq_indent: int) -> list:
         items: list = []
@@ -614,10 +619,16 @@ class _Parser:
                     items.append(self.parse_block_value_node(seq_indent))
                 else:
                     items.append(None)
+            elif self.peek() == "{":
+                items.append(self.parse_flow_mapping())
+                self.skip_comment_eol()
+            elif self.peek() == "[":
+                items.append(self.parse_flow_seq())
+                self.skip_comment_eol()
             elif self._starts_block_mapping_entry():
                 ls = self.s.rfind("\n", 0, self.i)
                 item_indent = self.i - (0 if ls == -1 else ls + 1)
-                seen_keys: set[str] = set()
+                seen_keys: set[tuple[str, bool]] = set()
                 merged: dict = {}
                 explicit: dict = {}
                 k, allow_merge = self.parse_key(in_flow=False)
@@ -630,12 +641,6 @@ class _Parser:
                 items.append(rest)
             elif self.peek() in ("!", "&", "*"):
                 items.append(self.parse_block_value(seq_indent))
-            elif self.peek() == "{":
-                items.append(self.parse_flow_mapping())
-                self.skip_comment_eol()
-            elif self.peek() == "[":
-                items.append(self.parse_flow_seq())
-                self.skip_comment_eol()
             elif self.peek() == '"':
                 items.append(self.parse_dquote())
                 self.skip_comment_eol()
@@ -704,7 +709,11 @@ class _Parser:
             return None
         ch = self.s[self.i + ind]
         if ch in ("!", "&", "*"):
+            saved = self.i
             self.i += ind
+            if self._starts_block_mapping_entry():
+                self.i = saved
+                return self.parse_block_mapping(ind)
             return self.parse_block_value(parent_indent)
         if ch == "{":
             self.i += ind
@@ -783,21 +792,25 @@ def parse_yaml_mapping(path: str) -> dict:
     root_tag: str | None = None
     root_anchor: str | None = None
     if p.s[p.i + ind] in ("!", "&"):
+        saved = p.i
         p.i += ind
-        root_tag, root_anchor = p.parse_node_props(in_flow=False)
-        if p.peek() in ("", "\n", "#"):
-            p.skip_comment_eol()
-            p.skip_blank_and_comments()
-            if p.eof() or p.at_doc_marker():
-                doc = p.apply_tag(root_tag, None)
-                if not isinstance(doc, dict):
-                    raise YamlError(f"{path}: root must be a YAML mapping")
-                if root_anchor is not None:
-                    p.anchors[root_anchor] = doc
-                return doc
-            ind = p.current_line_indent()
+        if p._starts_block_mapping_entry():
+            p.i = saved
         else:
-            ind = 0
+            root_tag, root_anchor = p.parse_node_props(in_flow=False)
+            if p.peek() in ("", "\n", "#"):
+                p.skip_comment_eol()
+                p.skip_blank_and_comments()
+                if p.eof() or p.at_doc_marker():
+                    doc = p.apply_tag(root_tag, None)
+                    if not isinstance(doc, dict):
+                        raise YamlError(f"{path}: root must be a YAML mapping")
+                    if root_anchor is not None:
+                        p.anchors[root_anchor] = doc
+                    return doc
+                ind = p.current_line_indent()
+            else:
+                ind = 0
     first = p.s[p.i + ind]
     if first == "{":
         p.i += ind
@@ -820,9 +833,9 @@ def parse_yaml_mapping(path: str) -> dict:
     return doc
 
 
-def parse_systemd_env_file(path: str) -> dict[str, str]:
-    """Parse EnvironmentFile= entries matching systemd/src/basic/env-file.c."""
-    out: dict[str, str] = {}
+def parse_systemd_env_entries(path: str) -> dict[str, tuple[str, str | None]]:
+    """Parse EnvironmentFile= entries matching systemd/src/basic/env-file.c v255."""
+    out: dict[str, tuple[str, str | None]] = {}
     if not path or not os.path.isfile(path):
         return out
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -852,19 +865,50 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
             if i < n and src[i] == "\n":
                 i += 1
             continue
-        key = src[k_start:i].strip(" \t\r")
+        raw_key = src[k_start:i]
+        key = raw_key.strip(" \t\r")
         i += 1  # consume '='
-        while i < n and src[i] in " \t":
-            i += 1
-        quote: str | None = None
-        if i < n and src[i] in ('"', "'"):
-            quote = src[i]
-            i += 1
+        state = "PRE_VALUE"
         buf: list[str] = []
         last_non_ws = 0
         while i < n:
             ch = src[i]
-            if quote is None:
+            if state == "PRE_VALUE":
+                if ch == "\n":
+                    i += 1
+                    break
+                if ch in (" ", "\t", "\r"):
+                    i += 1
+                    continue
+                if ch == '"':
+                    state = "DQUOTE"
+                    i += 1
+                    continue
+                if ch == "'":
+                    state = "SQUOTE"
+                    i += 1
+                    continue
+                if ch == "\\":
+                    if i + 1 < n and src[i + 1] == "\n":
+                        i += 2
+                        continue
+                    if i + 2 < n and src[i + 1] == "\r" and src[i + 2] == "\n":
+                        i += 3
+                        continue
+                    if i + 1 < n:
+                        buf.append(src[i + 1])
+                        i += 2
+                        last_non_ws = len(buf)
+                        state = "VALUE"
+                        continue
+                    i += 1
+                    state = "VALUE"
+                    continue
+                buf.append(ch)
+                last_non_ws = len(buf)
+                i += 1
+                state = "VALUE"
+            elif state == "VALUE":
                 if ch == "\n":
                     i += 1
                     break
@@ -884,9 +928,9 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
                 if ch not in (" ", "\t", "\r"):
                     last_non_ws = len(buf)
                 i += 1
-            elif quote == '"':
+            elif state == "DQUOTE":
                 if ch == '"':
-                    quote = None
+                    state = "PRE_VALUE"
                     last_non_ws = len(buf)
                     i += 1
                     continue
@@ -910,7 +954,7 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
                 i += 1
             else:
                 if ch == "'":
-                    quote = None
+                    state = "PRE_VALUE"
                     last_non_ws = len(buf)
                     i += 1
                     continue
@@ -918,9 +962,23 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
                 last_non_ws = len(buf)
                 i += 1
         val = "".join(buf[:last_non_ws])
+        end_pos = i - 1 if (i > k_start and src[i - 1] == "\n") else i
+        raw_slice = src[k_start:end_pos].rstrip("\r")
+        raw_line = (
+            raw_slice
+            if (k_start == 0 or src[k_start - 1] == "\n")
+            and raw_key == key
+            and "\n" not in raw_slice
+            else None
+        )
         if key:
-            out[key] = val
+            out[key] = (val, raw_line)
     return out
+
+
+def parse_systemd_env_file(path: str) -> dict[str, str]:
+    """Parse EnvironmentFile= entries matching systemd/src/basic/env-file.c v255."""
+    return {k: val for k, (val, _) in parse_systemd_env_entries(path).items()}
 
 
 def fmt_systemd_env_line(key: str, val: str) -> str:
@@ -955,6 +1013,8 @@ def cmd_get(args: list[str]) -> int:
         return 1
     if isinstance(val, bool):
         sys.stdout.write("true" if val else "false")
+    elif isinstance(val, float) and math.isfinite(val) and val.is_integer():
+        sys.stdout.write(str(int(val)))
     else:
         sys.stdout.write(str(val))
     return 0
@@ -981,6 +1041,27 @@ def cmd_env_get(args: list[str]) -> int:
     if key not in env_map:
         return 1
     sys.stdout.write(env_map[key])
+    return 0
+
+
+def cmd_env_preserve(args: list[str]) -> int:
+    if len(args) != 2:
+        sys.stderr.write("usage: yaml-config.py env-preserve FILE KEY\n")
+        return 2
+    entries = parse_systemd_env_entries(args[0])
+    key = args[1]
+    if key not in entries:
+        return 1
+    val, raw_line = entries[key]
+    if "\n" in val or "\r" in val:
+        sys.stderr.write(f"TLS setting {key} must be one EnvironmentFile line (use a config file for JSON)\n")
+        return 2
+    if val == "":
+        return 3
+    if raw_line is not None:
+        sys.stdout.write(f"{raw_line}\n")
+    else:
+        sys.stdout.write(fmt_systemd_env_line(key, val))
     return 0
 
 
@@ -1088,7 +1169,7 @@ def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(newline="\n")
     if len(argv) < 2:
-        sys.stderr.write("usage: yaml-config.py <get|env-line|env-get|render-storage> ...\n")
+        sys.stderr.write("usage: yaml-config.py <get|env-line|env-get|env-preserve|render-storage> ...\n")
         return 2
     cmd = argv[1]
     if cmd == "get":
@@ -1097,6 +1178,8 @@ def main(argv: list[str]) -> int:
         return cmd_env_line(argv[2:])
     if cmd == "env-get":
         return cmd_env_get(argv[2:])
+    if cmd == "env-preserve":
+        return cmd_env_preserve(argv[2:])
     if cmd == "render-storage":
         return cmd_render_storage(argv[2:])
     sys.stderr.write(f"unknown subcommand: {cmd}\n")

@@ -657,17 +657,14 @@ impl S3Store {
                         .as_ref()
                         .is_some_and(|r| r.as_str() != reply.signed_region.as_str());
                     let is_region_error = changed_region
-                        && (reply.status == 301
-                            || reply.status == 307
-                            || reply.status == 403
-                            || matches!(
-                                reply.code.as_deref(),
-                                Some(
-                                    "AuthorizationHeaderMalformed"
-                                        | "InvalidRegion"
-                                        | "PermanentRedirect"
-                                )
-                            ));
+                        && matches!(
+                            reply.code.as_deref(),
+                            Some(
+                                "AccessDenied"
+                                    | "InvalidRegion"
+                                    | "AuthorizationHeaderMalformed"
+                            )
+                        );
                     if is_region_error {
                         *self.region.lock().await = reported_region;
                         last = format!("object legal hold failed ({})", reply.status);
@@ -1578,6 +1575,7 @@ mod tests {
         };
 
         async fn run_case(
+            status: u16,
             header_region: Option<&'static str>,
             body: &'static [u8],
         ) {
@@ -1598,7 +1596,7 @@ mod tests {
                             async move {
                                 hits_r.fetch_add(1, Ordering::SeqCst);
                                 let mut builder = Response::builder()
-                                    .status(400)
+                                    .status(status)
                                     .header("content-type", "application/xml");
                                 if let Some(region) = header_region {
                                     builder = builder.header("x-amz-bucket-region", region);
@@ -1619,26 +1617,43 @@ mod tests {
 
             let res = store.legal_hold_with_retries("key-d", true).await;
             drop(srv);
-            assert!(res.is_err(), "expected terminal 400 error");
+            assert!(res.is_err(), "expected terminal {status} error");
             assert_eq!(hits.load(Ordering::SeqCst), 1);
+            assert_eq!(store.region.lock().await.as_deref(), Some("eu-west-1"));
         }
 
         // AuthorizationHeaderMalformed without region
         run_case(
+            400,
             None,
             b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Malformed</Message></Error>",
         )
         .await;
         // AuthorizationHeaderMalformed with same region as signed request
         run_case(
+            400,
             Some("eu-west-1"),
             b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Same region</Message><Region>eu-west-1</Region></Error>",
         )
         .await;
         // InvalidRegion without region
         run_case(
+            400,
             None,
             b"<Error><Code>InvalidRegion</Code><Message>Invalid</Message></Error>",
+        )
+        .await;
+        // Unrelated terminal 403 or 301/307 PermanentRedirect with changed region must not retry or mutate cache.
+        run_case(
+            403,
+            Some("ap-southeast-1"),
+            b"<Error><Code>AccountProblem</Code><Message>Account problem</Message></Error>",
+        )
+        .await;
+        run_case(
+            301,
+            Some("ap-southeast-1"),
+            b"<Error><Code>PermanentRedirect</Code><Message>Moved</Message></Error>",
         )
         .await;
     }

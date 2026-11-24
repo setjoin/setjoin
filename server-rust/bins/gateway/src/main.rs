@@ -1211,6 +1211,25 @@ async fn routes(
     let office =
         setjoin_gateway::f15::F15Config::from_env(exec.clone(), keys.clone(), issuer.clone())?;
     let compliance_worker_dsn = env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone());
+    let worm = setjoin_gateway::compliance::WormConfig::from_settings(settings);
+    if worm.mode_enabled
+        && ![
+            "S3_ENDPOINT",
+            "MINIO_ENDPOINT",
+            "S3_BUCKET",
+            "MINIO_BUCKET",
+            "S3_ACCESS_KEY",
+            "MINIO_ACCESS_KEY",
+            "S3_SECRET_KEY",
+            "MINIO_SECRET_KEY",
+        ]
+        .iter()
+        .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()))
+    {
+        return Err(
+            "WORM_MODE is enabled in gateway settings, but no S3_*/MINIO_* storage settings were loaded; run upgrade.sh refresh-gateway-env before activating".into(),
+        );
+    }
     let compliance = setjoin_gateway::compliance::ComplianceRoute {
         exec: exec.clone(),
         worker: ScopedExecutor::from_dsn(&compliance_worker_dsn, pool)
@@ -1227,7 +1246,7 @@ async fn routes(
         store: Some(Arc::new(
             setjoin_gateway::recovery_worker::S3Store::from_env()?,
         )),
-        worm: Some(setjoin_gateway::compliance::WormConfig::from_settings(settings)),
+        worm: Some(worm),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };

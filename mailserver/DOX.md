@@ -1028,8 +1028,16 @@ running. Detailed Rust contract: `server-rust/crates/backup/DOX.md`.
 
 ## Native federation deployment (#347)
 
-`render_gateway_unit` loads only gateway.env and a dedicated federation.env;
+`render_gateway_unit` loads only the five dedicated allowlisted files
+(`federation.env`, `storage.env`, `smtp.env`, `gateway.env`, and `tls.env`);
 it never injects config.env or db-credentials.env into the front door.
+`render_storage_env` projects S3/MinIO endpoint, bucket, and credentials into
+0640 `storage.env` independently of SMTP enablement. Because `setjoin-updater`
+upgrades the gateway separately from host unit/env rendering on immutable hosts,
+first deploy the updated `setjoin-updater` and run
+`upgrade.sh refresh-gateway-env` before activating a release that retires Go's
+WORM legal-hold forward (`setjoin-gateway` also fails closed at startup if
+`WORM_MODE` is enabled without any `S3_*`/`MINIO_*` settings loaded).
 `render_federation_env` copies only DB_DSN, DB_DIRECT_DSN, DB_WORKER_DSN,
 the four static FEDERATION_* settings and federation worker-switch entries.
 The file is 0640 root:setjoin, under the root-controlled config directory.

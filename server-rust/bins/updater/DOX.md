@@ -47,6 +47,11 @@ signed DDL preserves Go's one-transaction-per-migration schema/evidence contract
 ambiguous completion requires exact durable checksum evidence before success.
 Feature-registry contracts bind preflight, commit and rollback to live mode,
 catalog digest and the previous binary's compatibility evidence.
+`host::preflight` also checks that active host `WORM_MODE` settings match a
+present `storage.env` and `gateway.env` in `setjoin-gateway.service` (failing
+closed on ambiguous YAML merges or missing files); upgrade `setjoin-updater`
+and run `upgrade.sh refresh-gateway-env` on immutable WORM hosts before
+activating a gateway release that retires Go's legal-hold forward.
 
 The Rust-only versioned hash-chain journal uses `rust-events.jsonl`,
 `rust-tip.json` and `rust-last-terminal.json` with a private `executor.lock`.
