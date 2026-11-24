@@ -508,29 +508,6 @@ fn env_lookup(pairs: &[(String, String)], target: &str) -> Option<String> {
         .map(|(_, v)| v.clone())
 }
 
-fn strip_inline_yaml_comment(s: &str) -> &str {
-    let bytes = s.as_bytes();
-    let mut in_sq = false;
-    let mut in_dq = false;
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\'' if !in_dq => in_sq = !in_sq,
-            b'"' if !in_sq => in_dq = !in_dq,
-            b'\\' if in_dq => {
-                i += 2;
-                continue;
-            }
-            b'#' if !in_sq && !in_dq && (i == 0 || matches!(bytes[i - 1], b' ' | b'\t')) => {
-                return &s[..i];
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    s
-}
-
 fn decode_yaml_hex(chars: &mut std::str::Chars<'_>, count: usize) -> Result<char, &'static str> {
     let mut val = 0u32;
     for _ in 0..count {
@@ -577,95 +554,8 @@ fn decode_yaml_double_quoted(inner: &str) -> Result<String, &'static str> {
     Ok(out)
 }
 
-fn clean_yaml_scalar(s: &str) -> Result<String, &'static str> {
-    let t = strip_inline_yaml_comment(s).trim();
-    if let Some(inner) = t.strip_prefix('"').and_then(|v| v.strip_suffix('"')) {
-        decode_yaml_double_quoted(inner)
-    } else if let Some(inner) = t.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')) {
-        Ok(inner.replace("''", "'"))
-    } else {
-        Ok(t.to_owned())
-    }
-}
-
 fn yaml_scalar_is_null(val: &str) -> bool {
     val.is_empty() || matches!(val, "null" | "Null" | "NULL" | "~")
-}
-
-fn split_flow_entries(body: &str) -> Result<Vec<&str>, &'static str> {
-    let mut parts = Vec::new();
-    let bytes = body.as_bytes();
-    let mut depth_brace = 0usize;
-    let mut depth_bracket = 0usize;
-    let mut in_sq = false;
-    let mut in_dq = false;
-    let mut start = 0usize;
-    let mut i = 0usize;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if in_sq {
-            if b == b'\'' {
-                if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                    i += 2;
-                    continue;
-                }
-                in_sq = false;
-            }
-            i += 1;
-            continue;
-        }
-        if in_dq {
-            if b == b'\\' {
-                i += 2;
-                continue;
-            }
-            if b == b'"' {
-                in_dq = false;
-            }
-            i += 1;
-            continue;
-        }
-        match b {
-            b'\'' => in_sq = true,
-            b'"' => in_dq = true,
-            b'{' => depth_brace += 1,
-            b'}' => {
-                depth_brace = depth_brace.checked_sub(1).ok_or("unbalanced flow brace")?;
-            }
-            b'[' => depth_bracket += 1,
-            b']' => {
-                depth_bracket = depth_bracket
-                    .checked_sub(1)
-                    .ok_or("unbalanced flow bracket")?;
-            }
-            b',' if depth_brace == 0 && depth_bracket == 0 => {
-                parts.push(&body[start..i]);
-                start = i + 1;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    if in_sq || in_dq || depth_brace != 0 || depth_bracket != 0 {
-        return Err("unterminated flow construct");
-    }
-    parts.push(&body[start..]);
-    Ok(parts)
-}
-
-fn strip_yaml_key_props(k: &str) -> Result<String, &'static str> {
-    let mut t = k.trim();
-    if let Some(rest) = t.strip_prefix("!!str") {
-        if let Some(first) = rest.chars().next() {
-            if first == ' ' || first == '\t' {
-                t = rest.trim_start_matches([' ', '\t']);
-            }
-        }
-    }
-    if t.starts_with('!') || t.starts_with('&') || t.starts_with('*') {
-        return Err("unsupported YAML key property or alias");
-    }
-    clean_yaml_scalar(t)
 }
 
 fn normalize_retention_days(raw: &str) -> String {
@@ -715,226 +605,960 @@ fn strict_go_bool(raw: &str, key: &str) -> Result<bool, String> {
     }
 }
 
-fn yaml_value_is_unquoted_null(raw_trim: &str, decoded: &str) -> bool {
-    !(raw_trim.starts_with('"') || raw_trim.starts_with('\'')) && yaml_scalar_is_null(decoded)
+#[derive(Clone, Debug)]
+enum YamlNode {
+    Null,
+    Scalar(String),
+    Seq(Vec<YamlNode>),
+    Map(Vec<(String, YamlNode)>),
 }
 
-fn flow_section_entries(
-    flow: &str,
-    watched_keys: &[&str],
-) -> Result<Vec<(String, Option<String>)>, &'static str> {
-    let inner = flow
-        .trim()
-        .strip_prefix('{')
-        .and_then(|s| s.strip_suffix('}'))
-        .ok_or("malformed flow mapping")?;
-    let entries = split_flow_entries(inner)?;
-    let mut out = Vec::new();
-    for entry in entries {
-        let trimmed = entry.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let Some((fk, fv)) = trimmed.split_once(':') else {
-            continue;
-        };
-        if fk.trim() == "<<" {
-            return Err("YAML merge key in flow mapping");
-        }
-        let key_clean = strip_yaml_key_props(fk)?;
-        let fv_trim = fv.trim();
-        if watched_keys.contains(&key_clean.as_str()) {
-            if fv_trim.starts_with('*') || fv_trim.starts_with('&') || fv_trim.starts_with('!') {
-                return Err("YAML alias/tag in section setting");
-            }
-            let val = clean_yaml_scalar(fv_trim)?;
-            let mapped = (!yaml_value_is_unquoted_null(fv_trim, &val)).then_some(val);
-            out.push((key_clean, mapped));
-        }
+fn map_insert(entries: &mut Vec<(String, YamlNode)>, key: String, val: YamlNode) {
+    if let Some((_, existing)) = entries.iter_mut().find(|(k, _)| k == &key) {
+        *existing = val;
+    } else {
+        entries.push((key, val));
     }
-    Ok(out)
 }
 
-fn yaml_section_entries(
-    yaml: &str,
-    section: &str,
-    watched_keys: &[&str],
-) -> Result<Vec<(String, Option<String>)>, &'static str> {
-    let yaml = yaml.strip_prefix('\u{feff}').unwrap_or(yaml);
-    let mut joined_flow = String::new();
-    let mut saw_first = false;
-    let mut top_flow = false;
-    for raw_line in yaml.lines() {
-        let stripped = strip_inline_yaml_comment(raw_line).trim();
-        if stripped.is_empty() || stripped == "---" || stripped == "..." {
-            continue;
-        }
-        if !saw_first {
-            saw_first = true;
-            top_flow = stripped.starts_with('{');
-        }
-        if top_flow {
-            if !joined_flow.is_empty() {
-                joined_flow.push(' ');
-            }
-            joined_flow.push_str(stripped);
+fn map_lookup<'a>(entries: &'a [(String, YamlNode)], key: &str) -> Option<&'a YamlNode> {
+    entries.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v)
+}
+
+struct YamlParser<'a> {
+    s: &'a str,
+    b: &'a [u8],
+    n: usize,
+    i: usize,
+    anchors: std::collections::HashMap<String, YamlNode>,
+}
+
+impl<'a> YamlParser<'a> {
+    fn new(s: &'a str) -> Self {
+        let b = s.as_bytes();
+        Self {
+            s,
+            b,
+            n: b.len(),
+            i: 0,
+            anchors: std::collections::HashMap::new(),
         }
     }
-    if top_flow {
-        let inner = joined_flow
-            .trim()
-            .strip_prefix('{')
-            .and_then(|s| s.strip_suffix('}'))
-            .ok_or("unterminated top-level flow mapping")?;
-        for entry in split_flow_entries(inner)? {
-            let trimmed = entry.trim();
-            if trimmed.is_empty() {
-                continue;
+
+    fn peek(&self) -> Option<u8> {
+        self.b.get(self.i).copied()
+    }
+
+    fn skip_hws(&mut self) {
+        while let Some(b' ' | b'\t') = self.peek() {
+            self.i += 1;
+        }
+    }
+
+    fn at_doc_marker_at(&self, pos: usize) -> bool {
+        let rest = &self.b[pos..];
+        let is_marker = rest.starts_with(b"---") || rest.starts_with(b"...");
+        is_marker
+            && rest
+                .get(3)
+                .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n' | b'#'))
+    }
+
+    fn skip_comment_eol(&mut self) -> Result<(), &'static str> {
+        self.skip_hws();
+        if self.peek() == Some(b'#') {
+            while self.i < self.n && self.b[self.i] != b'\n' {
+                self.i += 1;
             }
-            let Some((k, v)) = trimmed.split_once(':') else {
-                continue;
-            };
-            if k.trim() == "<<" {
-                return Err("root YAML merge key");
+        }
+        match self.peek() {
+            None => Ok(()),
+            Some(b'\n') => {
+                self.i += 1;
+                Ok(())
             }
-            if strip_yaml_key_props(k)? == section {
-                let v_trim = v.trim();
-                if yaml_scalar_is_null(v_trim) {
-                    return Ok(Vec::new());
+            Some(_) => Err("unexpected trailing YAML content"),
+        }
+    }
+
+    fn skip_blank_and_comments(&mut self) {
+        while self.i < self.n {
+            let line_start = self.i;
+            self.skip_hws();
+            if self.i >= self.n {
+                break;
+            }
+            match self.b[self.i] {
+                b'\n' => self.i += 1,
+                b'#' => {
+                    while self.i < self.n && self.b[self.i] != b'\n' {
+                        self.i += 1;
+                    }
+                    if self.i < self.n {
+                        self.i += 1;
+                    }
                 }
-                return flow_section_entries(v_trim, watched_keys);
+                _ if self.i == line_start && self.at_doc_marker_at(self.i) => {
+                    while self.i < self.n && self.b[self.i] != b'\n' {
+                        self.i += 1;
+                    }
+                    if self.i < self.n {
+                        self.i += 1;
+                    }
+                }
+                _ => {
+                    self.i = line_start;
+                    break;
+                }
             }
         }
-        return Ok(Vec::new());
     }
 
-    let mut out = Vec::new();
-    let mut root_ind: Option<usize> = None;
-    let mut in_section = false;
-    let mut section_ind = 0usize;
-    let mut child_ind: Option<usize> = None;
-    let mut flow_buf: Option<String> = None;
-    for raw_line in yaml.lines() {
-        let stripped = strip_inline_yaml_comment(raw_line);
-        let trimmed = stripped.trim();
-        if trimmed.is_empty() || trimmed == "---" || trimmed == "..." {
-            continue;
-        }
-        let ind = raw_line.len() - raw_line.trim_start_matches(' ').len();
-        if let Some(buf) = flow_buf.as_mut() {
-            buf.push(' ');
-            buf.push_str(trimmed);
-            if buf.trim_end().ends_with('}') && flow_section_entries(buf, watched_keys).is_ok() {
-                return flow_section_entries(buf, watched_keys);
+    fn skip_flow_ws(&mut self) {
+        while self.i < self.n {
+            match self.b[self.i] {
+                b' ' | b'\t' | b'\n' => self.i += 1,
+                b'#' if self.i == 0 || matches!(self.b[self.i - 1], b' ' | b'\t' | b'\n') => {
+                    while self.i < self.n && self.b[self.i] != b'\n' {
+                        self.i += 1;
+                    }
+                }
+                _ => break,
             }
-            continue;
         }
-        if in_section {
-            if ind <= section_ind {
-                in_section = false;
-                child_ind = None;
-            } else {
-                if child_ind.is_none() {
-                    child_ind = Some(ind);
-                    if trimmed.starts_with('{') {
-                        if let Ok(parsed) = flow_section_entries(trimmed, watched_keys) {
-                            return Ok(parsed);
-                        }
-                        flow_buf = Some(trimmed.to_owned());
+    }
+
+    fn current_line_indent(&self) -> usize {
+        let mut ind = 0usize;
+        while self.i + ind < self.n && self.b[self.i + ind] == b' ' {
+            ind += 1;
+        }
+        ind
+    }
+
+    fn is_prop_char(b: u8) -> bool {
+        !matches!(
+            b,
+            b' ' | b'\t' | b'\n' | b',' | b'[' | b']' | b'{' | b'}'
+        )
+    }
+
+    fn read_indicator_name(&mut self, prefix: u8) -> Result<String, &'static str> {
+        if self.peek() != Some(prefix) {
+            return Err("expected YAML indicator");
+        }
+        self.i += 1;
+        let start = self.i;
+        while self.i < self.n && Self::is_prop_char(self.b[self.i]) {
+            self.i += 1;
+        }
+        if self.i == start {
+            return Err("empty YAML anchor/alias/tag");
+        }
+        Ok(self.s[start..self.i].to_owned())
+    }
+
+    fn parse_node_props(&mut self) -> Result<(Option<String>, Option<String>), &'static str> {
+        let mut tag: Option<String> = None;
+        let mut anchor: Option<String> = None;
+        loop {
+            self.skip_hws();
+            match self.peek() {
+                Some(b'!') if tag.is_none() => {
+                    tag = Some(self.read_indicator_name(b'!')?);
+                }
+                Some(b'&') if anchor.is_none() => {
+                    anchor = Some(self.read_indicator_name(b'&')?);
+                }
+                _ => break,
+            }
+        }
+        self.skip_hws();
+        Ok((tag, anchor))
+    }
+
+    fn apply_tag(tag: Option<&str>, node: YamlNode) -> Result<YamlNode, &'static str> {
+        let Some(tag_val) = tag else {
+            return Ok(node);
+        };
+        if tag_val == "!str" {
+            return match node {
+                YamlNode::Null => Ok(YamlNode::Scalar(String::new())),
+                YamlNode::Scalar(s) => Ok(YamlNode::Scalar(s)),
+                _ => Err("YAML !!str tag requires scalar"),
+            };
+        }
+        Err("unsupported YAML tag")
+    }
+
+    fn parse_dquote(&mut self, multiline: bool) -> Result<String, &'static str> {
+        self.i += 1; // '"'
+        let start = self.i;
+        while self.i < self.n {
+            let ch = self.b[self.i];
+            if ch == b'\\' {
+                self.i += 1;
+                if self.i < self.n {
+                    let step = self.s[self.i..].chars().next().map_or(1, char::len_utf8);
+                    self.i += step;
+                }
+                continue;
+            }
+            if ch == b'\n' && !multiline {
+                return Err("unterminated double-quoted YAML scalar");
+            }
+            if ch == b'"' {
+                let inner = &self.s[start..self.i];
+                self.i += 1;
+                return decode_yaml_double_quoted(inner);
+            }
+            self.i += 1;
+        }
+        Err("unterminated double-quoted YAML scalar")
+    }
+
+    fn parse_squote(&mut self, multiline: bool) -> Result<String, &'static str> {
+        self.i += 1; // '\''
+        let start = self.i;
+        while self.i < self.n {
+            let ch = self.b[self.i];
+            if ch == b'\'' {
+                if self.i + 1 < self.n && self.b[self.i + 1] == b'\'' {
+                    self.i += 2;
+                    continue;
+                }
+                let inner = &self.s[start..self.i];
+                self.i += 1;
+                return Ok(inner.replace("''", "'"));
+            }
+            if ch == b'\n' && !multiline {
+                return Err("unterminated single-quoted YAML scalar");
+            }
+            self.i += 1;
+        }
+        Err("unterminated single-quoted YAML scalar")
+    }
+
+    fn parse_plain_token(&mut self, in_flow: bool) -> Result<(String, bool), &'static str> {
+        let start = self.i;
+        let mut end = start;
+        while self.i < self.n {
+            let ch = self.b[self.i];
+            if ch == b'\n' {
+                break;
+            }
+            if in_flow && matches!(ch, b',' | b'}' | b']') {
+                break;
+            }
+            if ch == b':'
+                && self
+                    .b
+                    .get(self.i + 1)
+                    .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n') || (in_flow && matches!(c, b',' | b'}' | b']')))
+            {
+                break;
+            }
+            if ch == b'#' && (self.i == start || matches!(self.b[self.i - 1], b' ' | b'\t')) {
+                break;
+            }
+            let step = self.s[self.i..].chars().next().map_or(1, char::len_utf8);
+            self.i += step;
+            end = self.i;
+        }
+        let raw = self.s[start..end].trim();
+        let is_null = yaml_scalar_is_null(raw);
+        if !in_flow {
+            self.skip_comment_eol()?;
+        }
+        Ok((raw.to_owned(), is_null))
+    }
+
+    fn parse_key(&mut self, in_flow: bool) -> Result<(String, bool), &'static str> {
+        let (tag, anchor) = self.parse_node_props()?;
+        if anchor.is_some() {
+            return Err("YAML anchor on mapping key unsupported");
+        }
+        let (raw_key, quoted) = match self.peek() {
+            Some(b'"') => (self.parse_dquote(in_flow)?, true),
+            Some(b'\'') => (self.parse_squote(in_flow)?, true),
+            _ => {
+                let start = self.i;
+                let mut found = None;
+                while self.i < self.n {
+                    let ch = self.b[self.i];
+                    if ch == b'\n' || (in_flow && matches!(ch, b',' | b'}' | b']')) {
+                        break;
+                    }
+                    if ch == b':'
+                        && self.b.get(self.i + 1).is_none_or(|c| {
+                            matches!(c, b' ' | b'\t' | b'\n')
+                                || (in_flow && matches!(c, b',' | b'}' | b']'))
+                        })
+                    {
+                        found = Some(self.s[start..self.i].trim().to_owned());
+                        break;
+                    }
+                    let step = self.s[self.i..].chars().next().map_or(1, char::len_utf8);
+                    self.i += step;
+                }
+                let k = found.ok_or("expected ':' after YAML mapping key")?;
+                (k, false)
+            }
+        };
+        if let Some(ref t) = tag {
+            if t != "!str" {
+                return Err("unsupported YAML key tag");
+            }
+        }
+        self.skip_hws();
+        if self.peek() != Some(b':') {
+            return Err("expected ':' after YAML mapping key");
+        }
+        let allow_merge = !quoted && tag.is_none();
+        Ok((raw_key, allow_merge))
+    }
+
+    fn starts_block_mapping_entry(&self) -> bool {
+        let mut p = self.i;
+        while p < self.n && matches!(self.b[p], b' ' | b'\t') {
+            p += 1;
+        }
+        if p >= self.n {
+            return false;
+        }
+        match self.b[p] {
+            b'-' if self
+                .b
+                .get(p + 1)
+                .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n')) =>
+            {
+                false
+            }
+            b'{' | b'[' | b'*' | b'#' => false,
+            b'"' => {
+                p += 1;
+                while p < self.n && self.b[p] != b'\n' {
+                    if self.b[p] == b'\\' {
+                        p += 2;
                         continue;
                     }
-                }
-                if child_ind == Some(ind) {
-                    if let Some((k, v)) = trimmed.split_once(':') {
-                        if k.trim() == "<<" {
-                            return Err("section YAML merge key");
+                    if self.b[p] == b'"' {
+                        p += 1;
+                        while p < self.n && matches!(self.b[p], b' ' | b'\t') {
+                            p += 1;
                         }
-                        let key_clean = strip_yaml_key_props(k)?;
-                        let v_trim = v.trim();
-                        if watched_keys.contains(&key_clean.as_str()) {
-                            if v_trim.starts_with('*')
-                                || v_trim.starts_with('&')
-                                || v_trim.starts_with('!')
-                            {
-                                return Err("YAML alias/tag in section setting");
-                            }
-                            let val = clean_yaml_scalar(v_trim)?;
-                            let mapped =
-                                (!yaml_value_is_unquoted_null(v_trim, &val)).then_some(val);
-                            out.push((key_clean, mapped));
+                        return self.b.get(p) == Some(&b':')
+                            && self
+                                .b
+                                .get(p + 1)
+                                .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n'));
+                    }
+                    p += 1;
+                }
+                false
+            }
+            b'\'' => {
+                p += 1;
+                while p < self.n && self.b[p] != b'\n' {
+                    if self.b[p] == b'\'' {
+                        if self.b.get(p + 1) == Some(&b'\'') {
+                            p += 2;
+                            continue;
+                        }
+                        p += 1;
+                        while p < self.n && matches!(self.b[p], b' ' | b'\t') {
+                            p += 1;
+                        }
+                        return self.b.get(p) == Some(&b':')
+                            && self
+                                .b
+                                .get(p + 1)
+                                .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n'));
+                    }
+                    p += 1;
+                }
+                false
+            }
+            _ => {
+                while p < self.n && self.b[p] != b'\n' {
+                    if self.b[p] == b':'
+                        && self
+                            .b
+                            .get(p + 1)
+                            .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n'))
+                    {
+                        return true;
+                    }
+                    if self.b[p] == b'#' && matches!(self.b.get(p.wrapping_sub(1)), Some(b' ' | b'\t')) {
+                        return false;
+                    }
+                    p += 1;
+                }
+                false
+            }
+        }
+    }
+
+    fn apply_merge_or_set(
+        merged: &mut Vec<(String, YamlNode)>,
+        explicit: &mut Vec<(String, YamlNode)>,
+        key: String,
+        val: YamlNode,
+        allow_merge: bool,
+    ) -> Result<(), &'static str> {
+        if allow_merge && key == "<<" {
+            match val {
+                YamlNode::Map(entries) => {
+                    for (mk, mv) in entries {
+                        if !merged.iter().any(|(k, _)| k == &mk) {
+                            merged.push((mk, mv));
                         }
                     }
                 }
+                YamlNode::Seq(items) => {
+                    for item in items {
+                        let YamlNode::Map(entries) = item else {
+                            return Err("YAML merge sequence item must be mapping");
+                        };
+                        for (mk, mv) in entries {
+                            if !merged.iter().any(|(k, _)| k == &mk) {
+                                merged.push((mk, mv));
+                            }
+                        }
+                    }
+                }
+                _ => return Err("YAML merge key requires mapping or mapping sequence"),
+            }
+        } else {
+            map_insert(explicit, key, val);
+        }
+        Ok(())
+    }
+
+    fn finalize_map(
+        mut merged: Vec<(String, YamlNode)>,
+        explicit: Vec<(String, YamlNode)>,
+    ) -> YamlNode {
+        for (k, v) in explicit {
+            map_insert(&mut merged, k, v);
+        }
+        YamlNode::Map(merged)
+    }
+
+    fn parse_flow_value(&mut self) -> Result<YamlNode, &'static str> {
+        self.skip_flow_ws();
+        let (tag, anchor) = self.parse_node_props()?;
+        self.skip_flow_ws();
+        if self.peek() == Some(b'*') {
+            if tag.is_some() || anchor.is_some() {
+                return Err("YAML alias cannot carry anchor or tag");
+            }
+            let alias = self.read_indicator_name(b'*')?;
+            return self
+                .anchors
+                .get(&alias)
+                .cloned()
+                .ok_or("undefined YAML alias");
+        }
+        let val = match self.peek() {
+            Some(b'{') => self.parse_flow_mapping()?,
+            Some(b'[') => self.parse_flow_seq()?,
+            Some(b'"') => YamlNode::Scalar(self.parse_dquote(true)?),
+            Some(b'\'') => YamlNode::Scalar(self.parse_squote(true)?),
+            _ => {
+                let (plain, is_null) = self.parse_plain_token(true)?;
+                if is_null {
+                    YamlNode::Null
+                } else {
+                    YamlNode::Scalar(plain)
+                }
+            }
+        };
+        let tagged = Self::apply_tag(tag.as_deref(), val)?;
+        if let Some(name) = anchor {
+            self.anchors.insert(name, tagged.clone());
+        }
+        Ok(tagged)
+    }
+
+    fn parse_flow_mapping(&mut self) -> Result<YamlNode, &'static str> {
+        self.i += 1; // '{'
+        let mut merged = Vec::new();
+        let mut explicit = Vec::new();
+        loop {
+            self.skip_flow_ws();
+            if self.i >= self.n {
+                return Err("unterminated flow mapping");
+            }
+            if self.peek() == Some(b'}') {
+                self.i += 1;
+                break;
+            }
+            let (key, allow_merge) = self.parse_key(true)?;
+            self.i += 1; // ':'
+            self.skip_flow_ws();
+            let val = if matches!(self.peek(), Some(b',' | b'}')) {
+                YamlNode::Null
+            } else {
+                self.parse_flow_value()?
+            };
+            Self::apply_merge_or_set(&mut merged, &mut explicit, key, val, allow_merge)?;
+            self.skip_flow_ws();
+            match self.peek() {
+                Some(b',') => {
+                    self.i += 1;
+                }
+                Some(b'}') => {
+                    self.i += 1;
+                    break;
+                }
+                _ => return Err("expected ',' or '}' in flow mapping"),
+            }
+        }
+        Ok(Self::finalize_map(merged, explicit))
+    }
+
+    fn parse_flow_seq(&mut self) -> Result<YamlNode, &'static str> {
+        self.i += 1; // '['
+        let mut items = Vec::new();
+        loop {
+            self.skip_flow_ws();
+            if self.i >= self.n {
+                return Err("unterminated flow sequence");
+            }
+            if self.peek() == Some(b']') {
+                self.i += 1;
+                break;
+            }
+            items.push(self.parse_flow_value()?);
+            self.skip_flow_ws();
+            match self.peek() {
+                Some(b',') => {
+                    self.i += 1;
+                }
+                Some(b']') => {
+                    self.i += 1;
+                    break;
+                }
+                _ => return Err("expected ',' or ']' in flow sequence"),
+            }
+        }
+        Ok(YamlNode::Seq(items))
+    }
+
+    fn parse_block_scalar(&mut self, parent_indent: isize) -> Result<String, &'static str> {
+        let style = self.b[self.i];
+        self.i += 1;
+        let mut chomp: Option<u8> = None;
+        let mut explicit_ind: Option<isize> = None;
+        while let Some(c) = self.peek() {
+            match c {
+                b'+' | b'-' => {
+                    if chomp.is_some() {
+                        return Err("duplicate YAML block scalar chomp");
+                    }
+                    chomp = Some(c);
+                    self.i += 1;
+                }
+                b'1'..=b'9' => {
+                    if explicit_ind.is_some() {
+                        return Err("duplicate YAML block scalar indent");
+                    }
+                    explicit_ind = Some((c - b'0') as isize);
+                    self.i += 1;
+                }
+                _ => break,
+            }
+        }
+        self.skip_comment_eol()?;
+        let mut raw_lines: Vec<(String, bool)> = Vec::new();
+        let mut ind: Option<isize> = explicit_ind.map(|e| parent_indent + e);
+        while self.i < self.n {
+            let line_start = self.i;
+            let nl = self.s[self.i..].find('\n').map(|o| self.i + o);
+            let line_end = nl.unwrap_or(self.n);
+            let line = &self.s[line_start..line_end];
+            if line.bytes().all(|b| b == b' ') {
+                let extra = match ind {
+                    Some(d) if (line.len() as isize) > d => line[(d as usize)..].to_owned(),
+                    _ => String::new(),
+                };
+                let is_empty = extra.is_empty();
+                raw_lines.push((extra, is_empty));
+                self.i = nl.map_or(self.n, |p| p + 1);
                 continue;
             }
-        }
-        let root = *root_ind.get_or_insert(ind);
-        if ind < root {
-            return Err("inconsistent root YAML indentation");
-        }
-        if ind == root {
-            if let Some((k, rest)) = trimmed.split_once(':') {
-                if k.trim() == "<<" {
-                    return Err("root YAML merge key");
+            let cur = line.bytes().take_while(|&b| b == b' ').count() as isize;
+            if cur <= parent_indent {
+                break;
+            }
+            let block_ind = match ind {
+                Some(d) => {
+                    if cur < d {
+                        return Err("inconsistent block scalar indentation");
+                    }
+                    d
                 }
-                if strip_yaml_key_props(k)? == section {
-                    let rest_trim = rest.trim();
-                    if rest_trim.is_empty() {
-                        in_section = true;
-                        section_ind = ind;
-                    } else if yaml_scalar_is_null(rest_trim) {
-                        return Ok(Vec::new());
-                    } else if rest_trim.starts_with('{') {
-                        if let Ok(parsed) = flow_section_entries(rest_trim, watched_keys) {
-                            return Ok(parsed);
+                None => {
+                    ind = Some(cur);
+                    cur
+                }
+            };
+            raw_lines.push((line[(block_ind as usize)..].to_owned(), false));
+            self.i = nl.map_or(self.n, |p| p + 1);
+        }
+        let mut trailing_blanks = 0usize;
+        while raw_lines.last().is_some_and(|(_, is_blank)| *is_blank) {
+            raw_lines.pop();
+            trailing_blanks += 1;
+        }
+        if raw_lines.is_empty() {
+            return Ok(if chomp == Some(b'+') {
+                "\n".repeat(trailing_blanks)
+            } else {
+                String::new()
+            });
+        }
+        let body = if style == b'|' {
+            raw_lines
+                .into_iter()
+                .map(|(t, _)| t)
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            let mut out = String::new();
+            let mut blanks = 0usize;
+            let mut prev_text: Option<String> = None;
+            for (text, is_blank) in raw_lines {
+                if is_blank {
+                    blanks += 1;
+                    continue;
+                }
+                if let Some(ref prev) = prev_text {
+                    let more_indented = prev.starts_with([' ', '\t']) || text.starts_with([' ', '\t']);
+                    if blanks > 0 {
+                        let count = if more_indented { blanks + 1 } else { blanks };
+                        for _ in 0..count {
+                            out.push('\n');
                         }
-                        flow_buf = Some(rest_trim.to_owned());
+                    } else if more_indented {
+                        out.push('\n');
                     } else {
-                        return Err("unsupported section YAML value");
+                        out.push(' ');
+                    }
+                } else if blanks > 0 {
+                    for _ in 0..blanks {
+                        out.push('\n');
                     }
                 }
+                out.push_str(&text);
+                prev_text = Some(text);
+                blanks = 0;
+            }
+            out
+        };
+        match chomp {
+            Some(b'-') => Ok(body),
+            Some(b'+') => Ok(format!("{body}{}", "\n".repeat(1 + trailing_blanks))),
+            _ => Ok(format!("{body}\n")),
+        }
+    }
+
+    fn parse_block_value(&mut self, parent_indent: isize) -> Result<YamlNode, &'static str> {
+        let (tag, anchor) = self.parse_node_props()?;
+        if self.peek() == Some(b'*') {
+            if tag.is_some() || anchor.is_some() {
+                return Err("YAML alias cannot carry anchor or tag");
+            }
+            let alias = self.read_indicator_name(b'*')?;
+            self.skip_comment_eol()?;
+            return self
+                .anchors
+                .get(&alias)
+                .cloned()
+                .ok_or("undefined YAML alias");
+        }
+        let val = match self.peek() {
+            None | Some(b'\n' | b'#') => {
+                self.skip_comment_eol()?;
+                self.parse_block_value_node(parent_indent)?
+            }
+            Some(b'|' | b'>') => YamlNode::Scalar(self.parse_block_scalar(parent_indent)?),
+            Some(b'{') => {
+                let node = self.parse_flow_mapping()?;
+                self.skip_comment_eol()?;
+                node
+            }
+            Some(b'[') => {
+                let node = self.parse_flow_seq()?;
+                self.skip_comment_eol()?;
+                node
+            }
+            Some(b'"') => {
+                let node = YamlNode::Scalar(self.parse_dquote(false)?);
+                self.skip_comment_eol()?;
+                node
+            }
+            Some(b'\'') => {
+                let node = YamlNode::Scalar(self.parse_squote(false)?);
+                self.skip_comment_eol()?;
+                node
+            }
+            _ => {
+                let (plain, is_null) = self.parse_plain_token(false)?;
+                if is_null {
+                    YamlNode::Null
+                } else {
+                    YamlNode::Scalar(plain)
+                }
+            }
+        };
+        let tagged = Self::apply_tag(tag.as_deref(), val)?;
+        if let Some(name) = anchor {
+            self.anchors.insert(name, tagged.clone());
+        }
+        Ok(tagged)
+    }
+
+    fn parse_block_value_node(&mut self, parent_indent: isize) -> Result<YamlNode, &'static str> {
+        self.skip_blank_and_comments();
+        if self.i >= self.n {
+            return Ok(YamlNode::Null);
+        }
+        let ind = self.current_line_indent() as isize;
+        let line_rest = &self.b[self.i + (ind as usize)..];
+        let is_seq_dash = line_rest.starts_with(b"- ")
+            || line_rest == b"-"
+            || line_rest.starts_with(b"-\n")
+            || line_rest.starts_with(b"-#");
+        if is_seq_dash && ind >= parent_indent {
+            return self.parse_block_seq(ind as usize);
+        }
+        if ind <= parent_indent {
+            return Ok(YamlNode::Null);
+        }
+        match self.b.get(self.i + (ind as usize)).copied() {
+            Some(b'{') => {
+                self.i += ind as usize;
+                let node = self.parse_flow_mapping()?;
+                self.skip_comment_eol()?;
+                Ok(node)
+            }
+            Some(b'[') => {
+                self.i += ind as usize;
+                let node = self.parse_flow_seq()?;
+                self.skip_comment_eol()?;
+                Ok(node)
+            }
+            _ if self.starts_block_mapping_entry() => self.parse_block_mapping(ind as usize),
+            _ => {
+                self.i += ind as usize;
+                let (tag, anchor) = self.parse_node_props()?;
+                if self.peek() == Some(b'*') {
+                    if tag.is_some() || anchor.is_some() {
+                        return Err("YAML alias cannot carry anchor or tag");
+                    }
+                    let alias = self.read_indicator_name(b'*')?;
+                    self.skip_comment_eol()?;
+                    return self
+                        .anchors
+                        .get(&alias)
+                        .cloned()
+                        .ok_or("undefined YAML alias");
+                }
+                let node = match self.peek() {
+                    Some(b'"') => {
+                        let s = self.parse_dquote(false)?;
+                        self.skip_comment_eol()?;
+                        YamlNode::Scalar(s)
+                    }
+                    Some(b'\'') => {
+                        let s = self.parse_squote(false)?;
+                        self.skip_comment_eol()?;
+                        YamlNode::Scalar(s)
+                    }
+                    Some(b'|' | b'>') => YamlNode::Scalar(self.parse_block_scalar(parent_indent)?),
+                    _ => {
+                        let (plain, is_null) = self.parse_plain_token(false)?;
+                        if is_null {
+                            YamlNode::Null
+                        } else {
+                            YamlNode::Scalar(plain)
+                        }
+                    }
+                };
+                let tagged = Self::apply_tag(tag.as_deref(), node)?;
+                if let Some(name) = anchor {
+                    self.anchors.insert(name, tagged.clone());
+                }
+                Ok(tagged)
             }
         }
     }
-    if let Some(buf) = flow_buf {
-        return flow_section_entries(&buf, watched_keys);
+
+    fn parse_block_mapping(&mut self, indent: usize) -> Result<YamlNode, &'static str> {
+        let mut merged = Vec::new();
+        let mut explicit = Vec::new();
+        loop {
+            self.skip_blank_and_comments();
+            if self.i >= self.n {
+                break;
+            }
+            let ind = self.current_line_indent();
+            if ind < indent {
+                break;
+            }
+            if ind > indent {
+                return Err("inconsistent YAML indentation");
+            }
+            self.i += indent;
+            if self.peek() == Some(b'-')
+                && self
+                    .b
+                    .get(self.i + 1)
+                    .is_none_or(|c| matches!(c, b' ' | b'\t' | b'\n'))
+            {
+                return Err("unexpected sequence entry in YAML mapping");
+            }
+            let (key, allow_merge) = self.parse_key(false)?;
+            self.i += 1; // ':'
+            let val = self.parse_block_value(indent as isize)?;
+            Self::apply_merge_or_set(&mut merged, &mut explicit, key, val, allow_merge)?;
+        }
+        Ok(Self::finalize_map(merged, explicit))
     }
-    Ok(out)
+
+    fn parse_block_seq(&mut self, seq_indent: usize) -> Result<YamlNode, &'static str> {
+        let mut items = Vec::new();
+        loop {
+            self.skip_blank_and_comments();
+            if self.i >= self.n {
+                break;
+            }
+            let ind = self.current_line_indent();
+            if ind != seq_indent {
+                break;
+            }
+            let rest = &self.b[self.i + ind..];
+            if !(rest.starts_with(b"- ") || rest == b"-" || rest.starts_with(b"-\n")) {
+                break;
+            }
+            self.i += ind + 1;
+            self.skip_hws();
+            if matches!(self.peek(), None | Some(b'\n' | b'#')) {
+                self.skip_comment_eol()?;
+                self.skip_blank_and_comments();
+                if self.i < self.n && self.current_line_indent() > seq_indent {
+                    items.push(self.parse_block_value_node(seq_indent as isize)?);
+                } else {
+                    items.push(YamlNode::Null);
+                }
+            } else if self.starts_block_mapping_entry() {
+                let ls = self.s[..self.i].rfind('\n').map_or(0, |p| p + 1);
+                let item_indent = self.i - ls;
+                let (k, allow_merge) = self.parse_key(false)?;
+                self.i += 1; // ':'
+                let v = self.parse_block_value(item_indent as isize)?;
+                let mut merged = Vec::new();
+                let mut explicit = Vec::new();
+                Self::apply_merge_or_set(&mut merged, &mut explicit, k, v, allow_merge)?;
+                if let YamlNode::Map(rest_entries) = self.parse_block_mapping(item_indent)? {
+                    for (rk, rv) in rest_entries {
+                        map_insert(&mut explicit, rk, rv);
+                    }
+                }
+                items.push(Self::finalize_map(merged, explicit));
+            } else {
+                items.push(self.parse_block_value(seq_indent as isize)?);
+            }
+        }
+        Ok(YamlNode::Seq(items))
+    }
+
+    fn parse_root_map(&mut self) -> Result<Vec<(String, YamlNode)>, &'static str> {
+        self.skip_blank_and_comments();
+        if self.i >= self.n {
+            return Ok(Vec::new());
+        }
+        let ind = self.current_line_indent();
+        let node = match self.b.get(self.i + ind).copied() {
+            Some(b'{') => {
+                self.i += ind;
+                let m = self.parse_flow_mapping()?;
+                self.skip_blank_and_comments();
+                if self.i < self.n {
+                    return Err("unexpected trailing YAML content");
+                }
+                m
+            }
+            _ => self.parse_block_mapping(ind)?,
+        };
+        self.skip_blank_and_comments();
+        if self.i < self.n {
+            return Err("unexpected trailing YAML content");
+        }
+        match node {
+            YamlNode::Map(entries) => Ok(entries),
+            _ => Err("expected top-level YAML mapping"),
+        }
+    }
+}
+
+fn parse_yaml_root_map(yaml: &str) -> Result<Vec<(String, YamlNode)>, &'static str> {
+    let trimmed = yaml.strip_prefix('\u{feff}').unwrap_or(yaml);
+    let normalized = trimmed.replace("\r\n", "\n");
+    let mut parser = YamlParser::new(&normalized);
+    parser.parse_root_map()
+}
+
+fn yaml_section_scalar(
+    section_entries: &[(String, YamlNode)],
+    key: &str,
+) -> Result<Option<String>, &'static str> {
+    match map_lookup(section_entries, key) {
+        None | Some(YamlNode::Null) => Ok(None),
+        Some(YamlNode::Scalar(s)) => Ok(Some(s.clone())),
+        Some(_) => Err("non-scalar YAML section setting"),
+    }
 }
 
 fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
-    let entries = yaml_section_entries(yaml, "worm", &["mode", "retention_days"])?;
-    let mut out = YamlWorm::default();
-    for (k, v) in entries {
-        if k == "mode" {
-            out.mode = v.filter(|s| !s.is_empty());
-        } else if k == "retention_days" {
-            out.retention_days = v
-                .filter(|s| !s.is_empty())
-                .map(|s| normalize_retention_days(&s));
-        }
-    }
-    Ok(out)
+    let root = parse_yaml_root_map(yaml)?;
+    let Some(section) = map_lookup(&root, "worm") else {
+        return Ok(YamlWorm::default());
+    };
+    let entries = match section {
+        YamlNode::Null => return Ok(YamlWorm::default()),
+        YamlNode::Map(entries) => entries,
+        _ => return Err("unsupported worm YAML value"),
+    };
+    let mode = yaml_section_scalar(entries, "mode")?.filter(|s| !s.is_empty());
+    let retention_days = yaml_section_scalar(entries, "retention_days")?
+        .filter(|s| !s.is_empty())
+        .map(|s| normalize_retention_days(&s));
+    Ok(YamlWorm {
+        mode,
+        retention_days,
+    })
 }
 
 fn yaml_s3_settings(yaml: &str) -> Result<YamlS3, &'static str> {
-    let entries = yaml_section_entries(
-        yaml,
-        "s3",
-        &["endpoint", "access_key", "secret_key", "bucket", "secure"],
-    )?;
-    let mut out = YamlS3::default();
-    for (k, v) in entries {
-        match k.as_str() {
-            "endpoint" => out.endpoint = v,
-            "access_key" => out.access_key = v,
-            "secret_key" => out.secret_key = v,
-            "bucket" => out.bucket = v,
-            "secure" => out.secure = v,
-            _ => {}
-        }
-    }
-    Ok(out)
+    let root = parse_yaml_root_map(yaml)?;
+    let Some(section) = map_lookup(&root, "s3") else {
+        return Ok(YamlS3::default());
+    };
+    let entries = match section {
+        YamlNode::Null => return Ok(YamlS3::default()),
+        YamlNode::Map(entries) => entries,
+        _ => return Err("unsupported s3 YAML value"),
+    };
+    Ok(YamlS3 {
+        endpoint: yaml_section_scalar(entries, "endpoint")?,
+        access_key: yaml_section_scalar(entries, "access_key")?,
+        secret_key: yaml_section_scalar(entries, "secret_key")?,
+        bucket: yaml_section_scalar(entries, "bucket")?,
+        secure: yaml_section_scalar(entries, "secure")?,
+    })
 }
 
 fn resolve_s3_settings(
@@ -1025,6 +1649,7 @@ const STORAGE_ENV_KEYS: [&str; 8] = [
 
 #[derive(Default, Debug)]
 struct UnitEnvSpec {
+    inline_env: Vec<(String, String)>,
     env_files: Vec<(std::path::PathBuf, bool)>,
     unset_env: Vec<String>,
 }
@@ -1120,6 +1745,20 @@ fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
         };
         let key = lhs.trim();
         let rhs = raw_rhs.trim();
+        if key == "Environment" {
+            if rhs.is_empty() {
+                spec.inline_env.clear();
+            } else {
+                for word in split_systemd_words(rhs) {
+                    if let Some((k, v)) = word.split_once('=') {
+                        if !k.is_empty() {
+                            spec.inline_env.push((k.to_owned(), v.to_owned()));
+                        }
+                    }
+                }
+            }
+            continue;
+        }
         if key == "UnsetEnvironment" {
             if rhs.is_empty() {
                 spec.unset_env.clear();
@@ -1200,8 +1839,8 @@ fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
         vec![parent]
     };
     let mut dirs = Vec::with_capacity(tiers.len() * rels.len());
-    for tier in tiers {
-        for rel in &rels {
+    for rel in &rels {
+        for tier in &tiers {
             dirs.push(tier.join(rel));
         }
     }
@@ -1294,7 +1933,7 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
         p.file_name().and_then(|n| n.to_str()) == Some("gateway.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
     });
-    let mut pairs = Vec::new();
+    let mut pairs = spec.inline_env.clone();
     let mut gateway_file_pairs = Vec::new();
     for (path, optional) in &spec.env_files {
         match std::fs::read_to_string(path) {
@@ -2087,7 +2726,66 @@ mod tests {
             check_worm_gateway_ready(&db_unset_unit, None, &stale_default).unwrap_err();
         assert!(unset_worm_err.to_string().contains("WORM_MODE"));
         let sys_dirs = default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
+        let etc_type_pos = sys_dirs
+            .iter()
+            .position(|p| p == Path::new("/etc/systemd/system/service.d"))
+            .unwrap();
+        let lib_unit_pos = sys_dirs
+            .iter()
+            .position(|p| p == Path::new("/usr/lib/systemd/system/setjoin-gateway.service.d"))
+            .unwrap();
+        assert!(etc_type_pos < lib_unit_pos);
         assert!(sys_dirs.contains(&Path::new("/lib/systemd/system/service.d").to_path_buf()));
         assert!(sys_dirs.contains(&Path::new("/etc/systemd/system/setjoin-.service.d").to_path_buf()));
+
+        // Cross-tier precedence: unit-specific /usr/lib/<unit>.d overrides same-named /etc/service.d
+        let xtier = dir.path().join("xtier");
+        let x_etc_type = xtier.join("etc-service.d");
+        let x_lib_unit = xtier.join("lib-unit.d");
+        std::fs::create_dir_all(&x_etc_type).unwrap();
+        std::fs::create_dir_all(&x_lib_unit).unwrap();
+        let x_unit = xtier.join("setjoin-gateway.service");
+        std::fs::write(&x_unit, "[Service]\n").unwrap();
+        std::fs::write(x_etc_type.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", gw.display())).unwrap();
+        std::fs::write(x_lib_unit.join("40-worm.conf"), format!("[Service]\nEnvironmentFile={}\n", storage.display())).unwrap();
+        let x_merged = load_unit_env_files_with_dirs(&x_unit, &[x_etc_type, x_lib_unit]).unwrap();
+        assert_eq!(x_merged, vec![(storage.clone(), false)]);
+
+        // Inline [Service] Environment= supplies DB_DSN (caught even without config.env) and Environment= resets it
+        let inline_dir = dir.path().join("inline-env");
+        let inline_dropin = inline_dir.join("inline.service.d");
+        std::fs::create_dir_all(&inline_dropin).unwrap();
+        let inline_gw = inline_dir.join("gateway.env");
+        let inline_unit = inline_dir.join("inline.service");
+        std::fs::write(&inline_gw, "GATEWAY_ENABLED=true\n").unwrap();
+        std::fs::write(
+            &inline_unit,
+            format!(
+                "[Service]\nEnvironment=\"DB_DSN=postgres://app@localhost/mail\"\nEnvironmentFile={}\n",
+                inline_gw.display()
+            ),
+        )
+        .unwrap();
+        let inline_err = check_worm_gateway_ready(&inline_unit, None, &missing_default).unwrap_err();
+        assert!(inline_err.to_string().contains("WORM_MODE"));
+        std::fs::write(inline_dropin.join("10-reset.conf"), "[Service]\nEnvironment=\n").unwrap();
+        assert!(check_worm_gateway_ready(&inline_unit, None, &missing_default).is_ok());
+
+        // YAML block scalars (|-) and merge keys (<<: *base / <<: [*a, *b]) in s3: match render-storage
+        std::fs::write(
+            &yaml,
+            "x_s3_base: &s3_base\n  endpoint: https://s3.base.test\n  secret_key: |-\n    block-secret\ns3:\n  <<: *s3_base\n  bucket: merged-blobs\nworm:\n  mode: compliance\n",
+        )
+        .unwrap();
+        std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\n", yaml.display())).unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        std::fs::write(&storage, "S3_BUCKET=merged-blobs\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(
+            &storage,
+            "S3_ENDPOINT=https://s3.base.test\nS3_SECURE=false\nS3_BUCKET=merged-blobs\nS3_ACCESS_KEY=\nS3_SECRET_KEY=block-secret\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
     }
 }

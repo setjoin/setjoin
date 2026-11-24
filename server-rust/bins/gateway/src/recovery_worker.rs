@@ -657,14 +657,17 @@ impl S3Store {
                         .as_ref()
                         .is_some_and(|r| r.as_str() != reply.signed_region.as_str());
                     let is_region_error = changed_region
-                        && matches!(
-                            reply.code.as_deref(),
-                            Some(
-                                "AccessDenied"
-                                    | "InvalidRegion"
-                                    | "AuthorizationHeaderMalformed"
-                            )
-                        );
+                        && (matches!(reply.status, 301 | 307)
+                            || matches!(
+                                reply.code.as_deref(),
+                                Some(
+                                    "AccessDenied"
+                                        | "InvalidRegion"
+                                        | "AuthorizationHeaderMalformed"
+                                        | "PermanentRedirect"
+                                        | "TemporaryRedirect"
+                                )
+                            ));
                     if is_region_error {
                         *self.region.lock().await = reported_region;
                         last = format!("object legal hold failed ({})", reply.status);
@@ -786,9 +789,12 @@ impl S3Store {
         Ok(LegalHoldReply {
             status,
             signed_region,
-            code: header_code
-                .or(xml_code)
-                .or_else(|| (status == 403).then(|| "AccessDenied".to_owned())),
+            code: header_code.or(xml_code).or_else(|| match status {
+                403 => Some("AccessDenied".to_owned()),
+                301 => Some("PermanentRedirect".to_owned()),
+                307 => Some("TemporaryRedirect".to_owned()),
+                _ => None,
+            }),
             region: xml_region.or(header_region),
         })
     }
