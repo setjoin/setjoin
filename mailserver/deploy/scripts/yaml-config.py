@@ -300,20 +300,12 @@ class _Parser:
             except ValueError as exc:
                 raise YamlError(f"invalid !!int value {s!r}") from exc
         if tag == "float":
-            if isinstance(val, bool):
-                raise YamlError("cannot coerce bool to !!float")
-            if isinstance(val, (int, float)):
-                return float(val)
+            if isinstance(val, bool) or val is None or isinstance(val, (dict, list)):
+                raise YamlError(f"cannot coerce value {val!r} to !!float")
             s = (raw_plain if raw_plain is not None else str(val)).strip()
             try:
                 if re.fullmatch(r"[+-]?0(?:_?[0-7])+", s):
                     return float(int(s.replace("_", ""), 8))
-                if re.fullmatch(r"[+-]?0[xX]_?[0-9a-fA-F](?:_?[0-9a-fA-F])*", s):
-                    return float(int(s.replace("_", ""), 16))
-                if re.fullmatch(r"[+-]?0[oO]_?[0-7](?:_?[0-7])*", s):
-                    return float(int(s.replace("_", ""), 8))
-                if re.fullmatch(r"[+-]?0[bB]_?[01](?:_?[01])*", s):
-                    return float(int(s.replace("_", ""), 2))
                 return float(s)
             except ValueError as exc:
                 raise YamlError(f"invalid !!float value {s!r}") from exc

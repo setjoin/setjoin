@@ -709,7 +709,7 @@ fn normalize_retention_days(raw: &str) -> String {
         return v.to_string();
     }
     if let Some(v) = parse_yaml_float(raw) {
-        if v.fract() == 0.0 && v >= (i64::MIN as f64) && v <= (i64::MAX as f64) {
+        if v.fract() == 0.0 && v >= (i64::MIN as f64) && v < 9_223_372_036_854_775_808.0 {
             return (v as i64).to_string();
         }
     }
@@ -994,6 +994,22 @@ impl<'a> YamlParser<'a> {
         cleaned.parse::<i64>().ok()
     }
 
+    fn parse_legacy_yaml_octal(raw: &str) -> Option<i64> {
+        let cleaned = strip_yaml_underscores(raw)?;
+        let (neg, unsigned) = if let Some(rest) = cleaned.strip_prefix('-') {
+            (true, rest)
+        } else if let Some(rest) = cleaned.strip_prefix('+') {
+            (false, rest)
+        } else {
+            (false, cleaned.as_str())
+        };
+        if unsigned.starts_with('0') && unsigned.len() > 1 {
+            let v = i64::from_str_radix(&unsigned[1..], 8).ok()?;
+            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+        }
+        None
+    }
+
     fn apply_tag(tag: Option<&str>, node: YamlNode) -> Result<YamlNode, &'static str> {
         let Some(tag_val) = tag else {
             return Ok(node);
@@ -1038,7 +1054,7 @@ impl<'a> YamlParser<'a> {
                     ) {
                         return Err("cannot coerce bool to YAML !!float");
                     }
-                    if let Some(iv) = Self::parse_yaml_int(s) {
+                    if let Some(iv) = Self::parse_legacy_yaml_octal(s) {
                         return Ok(YamlNode::Scalar((iv as f64).to_string(), false));
                     }
                     let v = parse_yaml_float(s).ok_or("invalid YAML !!float value")?;
@@ -1872,13 +1888,16 @@ fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
         _ => return Err("unsupported worm YAML value"),
     };
     let mode = yaml_section_scalar(entries, "mode")?.filter(|s| !s.is_empty());
-    let retention_days = yaml_section_scalar_meta(entries, "retention_days")?.map(|(s, quoted)| {
-        if quoted {
-            s
+    let retention_days = match map_lookup(entries, "retention_days") {
+        None => None,
+        Some(YamlNode::Null) => Some(String::new()),
+        Some(YamlNode::Scalar(s, quoted)) => Some(if *quoted {
+            s.clone()
         } else {
-            normalize_retention_days(&s)
-        }
-    });
+            normalize_retention_days(s)
+        }),
+        Some(_) => return Err("non-scalar YAML section setting"),
+    };
     Ok(YamlWorm {
         mode,
         retention_days,
@@ -2993,7 +3012,8 @@ mod tests {
     use std::path::Path;
     use super::{
         check_worm_gateway_ready, default_dropin_dirs, load_unit_env_files_with_dirs,
-        parse_env_assignments, parse_koanf_env_retention_days, yaml_worm_settings,
+        load_unit_env_spec_with_dirs, parse_env_assignments, parse_koanf_env_retention_days,
+        split_systemd_words, yaml_worm_settings,
     };
 
     #[test]
@@ -3909,6 +3929,13 @@ mod tests {
         assert!(check_worm_gateway_ready(&spec_unit, Some(&cfg), &stale_default).is_err());
 
         // C-unescaping runs before systemd % expansion, and specifier errors never echo directive values
+        let c_name_dir = spec_dir.join("c-unescape");
+        std::fs::create_dir_all(&c_name_dir).unwrap();
+        std::fs::write(
+            c_name_dir.join("gateway.env"),
+            "GATEWAY_ENABLED=true\nDB_DSN=postgres://app@localhost/mail\nWORM_MODE=compliance\n",
+        )
+        .unwrap();
         let c_unit = spec_dir.join("c-unescape.service");
         std::fs::write(
             &c_unit,
@@ -3930,32 +3957,41 @@ mod tests {
             "[Service]\nEnvironment=DB_DSN=postgres://u:supersecret@h/db FOO=%Z\n",
         )
         .unwrap();
-        let redaction_err = check_worm_gateway_ready(&c_unit, Some(&cfg), &stale_default)
-            .unwrap_err()
-            .to_string();
+        let redaction_err = format!(
+            "{:#}",
+            check_worm_gateway_ready(&c_unit, Some(&cfg), &stale_default).unwrap_err()
+        );
         assert!(redaction_err.contains("Environment="));
         assert!(!redaction_err.contains("supersecret"));
         assert!(!redaction_err.contains("DB_DSN"));
 
-        // Explicit YAML worm.retention_days: "" is preserved and rejected even when host config.env is absent
+        // Explicit YAML worm.retention_days: "" / null and overflowing 9223372036854775808 fail closed even when host config.env is absent
         let empty_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: \"\"\n").unwrap();
         assert_eq!(empty_ret_yaml.retention_days.as_deref(), Some(""));
-        std::fs::write(
-            &db_yaml,
-            "db:\n  dsn: postgres://app@localhost/mail\ns3:\n  bucket: mailblobs\nworm:\n  mode: compliance\n  retention_days: \"\"\n",
-        )
-        .unwrap();
-        std::fs::write(
-            &db_gw,
-            format!(
-                "GATEWAY_ENABLED=true\nSETJOIN_CONFIG={}\nWORM_MODE=compliance\n",
-                db_yaml.display()
-            ),
-        )
-        .unwrap();
-        assert!(check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err());
+        let null_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: null\n").unwrap();
+        assert_eq!(null_ret_yaml.retention_days.as_deref(), Some(""));
+        let overflow_ret_yaml = yaml_worm_settings("worm:\n  mode: compliance\n  retention_days: 9223372036854775808\n").unwrap();
+        assert_eq!(overflow_ret_yaml.retention_days.as_deref(), Some("9223372036854775808"));
+        for bad_ret in ["\"\"", "null", "9223372036854775808"] {
+            std::fs::write(
+                &db_yaml,
+                format!(
+                    "db:\n  dsn: postgres://app@localhost/mail\ns3:\n  bucket: mailblobs\nworm:\n  mode: compliance\n  retention_days: {bad_ret}\n"
+                ),
+            )
+            .unwrap();
+            std::fs::write(
+                &db_gw,
+                format!(
+                    "GATEWAY_ENABLED=true\nSETJOIN_CONFIG={}\nWORM_MODE=compliance\n",
+                    db_yaml.display()
+                ),
+            )
+            .unwrap();
+            assert!(check_worm_gateway_ready(&db_unit, Some(&db_missing_cfg), &stale_default).is_err());
+        }
 
-        // !!float / verbatim float tag on legacy octal and exact >2^53 i64 retention match Go
+        // !!float / verbatim float tag on legacy octal and exact >2^53 i64 retention match Go, while tagged 0x/0o/0b radix floats fail closed
         let oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \"0_10\"\n").unwrap();
         assert_eq!(oct_float.retention_days.as_deref(), Some("8"));
         let verbatim_oct_float = yaml_worm_settings(
@@ -3963,6 +3999,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(verbatim_oct_float.retention_days.as_deref(), Some("8"));
+        for tagged_radix in [
+            "worm:\n  retention_days: !!float \"0x10\"\n",
+            "worm:\n  retention_days: !!float \"0o20\"\n",
+            "worm:\n  retention_days: !!float \"0b10000\"\n",
+        ] {
+            assert!(yaml_worm_settings(tagged_radix).is_err());
+        }
         assert_eq!(
             parse_koanf_env_retention_days("9007199254740993").unwrap(),
             9_007_199_254_740_993
