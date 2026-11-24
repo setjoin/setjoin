@@ -199,7 +199,7 @@ impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
                     return crate::surface::unregistered(&req, c.identity.proto);
                 }
                 return match fallback {
-                    Some(fallback) => fallback.handle(req, c).await,
+                    Some(fallback) => fallback.serve_spa_or_404(req, c).await,
                     None => crate::surface::unregistered(&req, c.identity.proto),
                 };
             }

@@ -183,7 +183,10 @@ class _Parser:
             return False
         if re.fullmatch(r"[+-]?(?:0|[1-9][0-9]*)", raw):
             return int(raw)
-        if re.fullmatch(r"[+-]?(?:0|[1-9][0-9]*)\.[0-9]+(?:[eE][+-]?[0-9]+)?", raw):
+        if re.fullmatch(
+            r"[+-]?(?:(?:0|[1-9][0-9]*)\.[0-9]*(?:[eE][+-]?[0-9]+)?|\.[0-9]+(?:[eE][+-]?[0-9]+)?|(?:0|[1-9][0-9]*)[eE][+-]?[0-9]+)",
+            raw,
+        ):
             return float(raw)
         return raw
 
@@ -332,46 +335,56 @@ class _Parser:
             self.skip_comment_eol()
         return self.coerce_plain(text) if coerce else text
 
-    def parse_key(self, in_flow: bool = False) -> str:
+    def parse_key(self, in_flow: bool = False) -> tuple[str, bool]:
         if self.eof():
             raise YamlError("unexpected EOF reading key")
+        tag, anchor = self.parse_node_props(in_flow=in_flow)
         ch = self.peek()
-        if ch == "!":
-            raise YamlError(f"unsupported YAML tag at offset {self.i}")
+        raw_plain: str | None = None
+        is_plain_untagged = tag is None
         if ch == "*":
+            if tag is not None or anchor is not None:
+                raise YamlError("YAML alias cannot carry an anchor or tag")
             alias = self.read_indicator_name("*", in_flow=in_flow)
             if alias not in self.anchors:
                 raise YamlError(f"undefined YAML alias '*{alias}'")
             val = self.anchors[alias]
-            if not isinstance(val, str):
-                raise YamlError(f"YAML alias '*{alias}' is not a scalar key")
-            return val
-        if ch == "&":
-            name = self.read_indicator_name("&", in_flow=in_flow)
-            self.skip_hws()
-            key = self.parse_key(in_flow=in_flow)
-            self.anchors[name] = key
-            return key
-        if ch == '"':
-            return self.parse_dquote()
-        if ch == "'":
-            return self.parse_squote()
-        start = self.i
-        while self.i < self.n:
-            c = self.s[self.i]
-            if c == "\n":
-                raise YamlError(f"unexpected newline in mapping key at offset {self.i}")
-            if c == ":" and (
-                self.peek(1) in ("", " ", "\t", "\n") or (in_flow and self.peek(1) in ",}]")
-            ):
-                break
-            if in_flow and c in ",{}[]":
-                raise YamlError(f"invalid character {c!r} in flow key at offset {self.i}")
-            self.i += 1
-        key = self.s[start : self.i].strip()
-        if not key:
-            raise YamlError(f"empty mapping key at offset {start}")
-        return key
+            is_plain_untagged = False
+        elif ch == '"':
+            val = self.parse_dquote()
+            is_plain_untagged = False
+        elif ch == "'":
+            val = self.parse_squote()
+            is_plain_untagged = False
+        else:
+            start = self.i
+            while self.i < self.n:
+                c = self.s[self.i]
+                if c == "\n":
+                    raise YamlError(f"unexpected newline in mapping key at offset {self.i}")
+                if c == ":" and (
+                    self.peek(1) in ("", " ", "\t", "\n") or (in_flow and self.peek(1) in ",}]")
+                ):
+                    break
+                if in_flow and c in ",{}[]":
+                    raise YamlError(f"invalid character {c!r} in flow key at offset {self.i}")
+                self.i += 1
+            raw_plain = self.s[start : self.i].strip()
+            if not raw_plain and tag is None:
+                raise YamlError(f"empty mapping key at offset {start}")
+            val = raw_plain if tag == "str" else self.coerce_plain(raw_plain)
+        val = self.apply_tag(tag, val, raw_plain=raw_plain)
+        if isinstance(val, (dict, list)):
+            raise YamlError("collection mapping keys are unsupported")
+        if val is None:
+            key = ""
+        elif isinstance(val, bool):
+            key = "true" if val else "false"
+        else:
+            key = str(val)
+        if anchor is not None:
+            self.anchors[anchor] = key
+        return key, is_plain_untagged
 
     def skip_flow_ws_comments(self) -> None:
         while self.i < self.n:
@@ -385,16 +398,19 @@ class _Parser:
 
     def apply_merge_or_set(
         self,
-        seen_keys: set[str],
+        seen_keys: set[tuple[str, bool]],
         merged: dict,
         explicit: dict,
         key: str,
         val,
+        allow_merge: bool = True,
     ) -> None:
-        if key in seen_keys:
+        is_merge = key == "<<" and allow_merge
+        token = (key, is_merge)
+        if token in seen_keys:
             raise YamlError(f"duplicate YAML key {key!r}")
-        seen_keys.add(key)
-        if key == "<<":
+        seen_keys.add(token)
+        if is_merge:
             if isinstance(val, dict):
                 sources = [val]
             elif isinstance(val, list) and all(isinstance(x, dict) for x in val):
@@ -420,7 +436,7 @@ class _Parser:
             if self.peek() == "}":
                 self.i += 1
                 return {**merged, **explicit}
-            k = self.parse_key(in_flow=True)
+            k, allow_merge = self.parse_key(in_flow=True)
             self.skip_flow_ws_comments()
             if self.peek() != ":":
                 raise YamlError(f"expected ':' after flow key {k!r}")
@@ -430,7 +446,7 @@ class _Parser:
                 val = None
             else:
                 val = self.parse_flow_value()
-            self.apply_merge_or_set(seen_keys, merged, explicit, k, val)
+            self.apply_merge_or_set(seen_keys, merged, explicit, k, val, allow_merge=allow_merge)
             self.skip_flow_ws_comments()
             if self.peek() == ",":
                 self.i += 1
@@ -549,7 +565,10 @@ class _Parser:
                     if blanks > 0:
                         parts.append("\n" * blanks)
                 elif blanks > 0:
-                    parts.append("\n" * blanks)
+                    if prev_text.startswith((" ", "\t")) or text.startswith((" ", "\t")):
+                        parts.append("\n" * (blanks + 1))
+                    else:
+                        parts.append("\n" * blanks)
                 elif prev_text.startswith((" ", "\t")) or text.startswith((" ", "\t")):
                     parts.append("\n")
                 else:
@@ -563,6 +582,17 @@ class _Parser:
         if chomp == "+":
             return body + ("\n" * (1 + trailing_blanks))
         return body + "\n"
+
+    def _starts_block_mapping_entry(self) -> bool:
+        save = self.i
+        try:
+            self.parse_key(in_flow=False)
+            self.skip_hws()
+            return self.peek() == ":" and self.peek(1) in ("", " ", "\t", "\n")
+        except YamlError:
+            return False
+        finally:
+            self.i = save
 
     def skip_block_seq(self, seq_indent: int) -> list:
         items: list = []
@@ -584,6 +614,20 @@ class _Parser:
                     items.append(self.parse_block_value_node(seq_indent))
                 else:
                     items.append(None)
+            elif self._starts_block_mapping_entry():
+                ls = self.s.rfind("\n", 0, self.i)
+                item_indent = self.i - (0 if ls == -1 else ls + 1)
+                seen_keys: set[str] = set()
+                merged: dict = {}
+                explicit: dict = {}
+                k, allow_merge = self.parse_key(in_flow=False)
+                self.skip_hws()
+                self.i += 1  # consume ':'
+                self.skip_hws()
+                val = self.parse_block_value(item_indent)
+                self.apply_merge_or_set(seen_keys, merged, explicit, k, val, allow_merge=allow_merge)
+                rest = self.parse_block_mapping(item_indent, seen_keys=seen_keys, merged=merged, explicit=explicit)
+                items.append(rest)
             elif self.peek() in ("!", "&", "*"):
                 items.append(self.parse_block_value(seq_indent))
             elif self.peek() == "{":
@@ -599,11 +643,7 @@ class _Parser:
                 items.append(self.parse_squote())
                 self.skip_comment_eol()
             else:
-                # Could be `- key: val` compact mapping; skip item lines > seq_indent cleanly.
-                nl = self.s.find("\n", self.i)
-                self.i = self.n if nl == -1 else nl + 1
-                self.skip_indented_rest(seq_indent)
-                items.append(object())
+                items.append(self.parse_plain(in_flow=False))
         return items
 
     def skip_indented_rest(self, min_indent: int) -> None:
@@ -680,10 +720,19 @@ class _Parser:
             return self.skip_block_seq(ind)
         return self.parse_block_mapping(ind)
 
-    def parse_block_mapping(self, min_indent: int) -> dict:
-        seen_keys: set[str] = set()
-        merged: dict = {}
-        explicit: dict = {}
+    def parse_block_mapping(
+        self,
+        min_indent: int,
+        seen_keys: set[str] | None = None,
+        merged: dict | None = None,
+        explicit: dict | None = None,
+    ) -> dict:
+        if seen_keys is None:
+            seen_keys = set()
+        if merged is None:
+            merged = {}
+        if explicit is None:
+            explicit = {}
         block_indent: int | None = None
         while True:
             self.skip_blank_and_comments()
@@ -701,7 +750,7 @@ class _Parser:
             if self.s[self.i + ind :].startswith(("- ", "-\n")) or self.s[self.i + ind :] == "-":
                 break
             self.i += ind
-            k = self.parse_key(in_flow=False)
+            k, allow_merge = self.parse_key(in_flow=False)
             self.skip_hws()
             if self.peek() != ":":
                 raise YamlError(f"expected ':' after key {k!r}")
@@ -710,7 +759,7 @@ class _Parser:
                 raise YamlError(f"expected whitespace after ':' for key {k!r}")
             self.skip_hws()
             val = self.parse_block_value(block_indent)
-            self.apply_merge_or_set(seen_keys, merged, explicit, k, val)
+            self.apply_merge_or_set(seen_keys, merged, explicit, k, val, allow_merge=allow_merge)
         return {**merged, **explicit}
 
 
@@ -808,6 +857,9 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
         while i < n and src[i] in " \t":
             i += 1
         quote: str | None = None
+        if i < n and src[i] in ('"', "'"):
+            quote = src[i]
+            i += 1
         buf: list[str] = []
         last_non_ws = 0
         while i < n:
@@ -816,11 +868,6 @@ def parse_systemd_env_file(path: str) -> dict[str, str]:
                 if ch == "\n":
                     i += 1
                     break
-                if ch in ('"', "'"):
-                    quote = ch
-                    last_non_ws = len(buf)
-                    i += 1
-                    continue
                 if ch == "\\":
                     if i + 1 < n and src[i + 1] == "\n":
                         i += 2

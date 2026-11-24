@@ -653,19 +653,21 @@ impl S3Store {
                 Ok(reply) if matches!(reply.status, 200 | 204) => return Ok(()),
                 Ok(reply) => {
                     let reported_region = reply.region.as_deref().map(normalize_s3_region);
-                    let changed_403 = reply.status == 403
-                        && reported_region
-                            .as_ref()
-                            .is_some_and(|r| r.as_str() != reply.signed_region.as_str());
-                    let is_region_error = reply.status == 301
-                        || reply.status == 307
-                        || changed_403
-                        || matches!(
-                            reply.code.as_deref(),
-                            Some("InvalidRegion" | "PermanentRedirect")
-                        )
-                        || (reply.code.as_deref() == Some("AuthorizationHeaderMalformed")
-                            && reported_region.is_some());
+                    let changed_region = reported_region
+                        .as_ref()
+                        .is_some_and(|r| r.as_str() != reply.signed_region.as_str());
+                    let is_region_error = changed_region
+                        && (reply.status == 301
+                            || reply.status == 307
+                            || reply.status == 403
+                            || matches!(
+                                reply.code.as_deref(),
+                                Some(
+                                    "AuthorizationHeaderMalformed"
+                                        | "InvalidRegion"
+                                        | "PermanentRedirect"
+                                )
+                            ));
                     if is_region_error {
                         *self.region.lock().await = reported_region;
                         last = format!("object legal hold failed ({})", reply.status);
@@ -1565,7 +1567,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legal_hold_malformed_auth_header_without_region_fails_immediately() {
+    async fn legal_hold_terminal_region_errors_do_not_retry() {
         use bytes::Bytes;
         use http_body_util::Full;
         use hyper::{service::service_fn, Response};
@@ -1575,44 +1577,69 @@ mod tests {
             Arc,
         };
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let hits = Arc::new(AtomicUsize::new(0));
-        let hits_s = hits.clone();
+        async fn run_case(
+            header_region: Option<&'static str>,
+            body: &'static [u8],
+        ) {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let hits_s = hits.clone();
 
-        let _srv = tokio::spawn(async move {
-            loop {
-                let Ok((stream, _)) = listener.accept().await else {
-                    break;
-                };
-                let hits_c = hits_s.clone();
-                tokio::spawn(async move {
-                    let svc = service_fn(move |_req| {
-                        let hits_r = hits_c.clone();
-                        async move {
-                            hits_r.fetch_add(1, Ordering::SeqCst);
-                            let resp = Response::builder()
-                                .status(400)
-                                .header("content-type", "application/xml")
-                                .body(Full::new(Bytes::from_static(
-                                    b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Malformed header</Message></Error>",
-                                )))
-                                .unwrap();
-                            Ok::<_, std::convert::Infallible>(resp)
-                        }
+            let srv = AbortServer(tokio::spawn(async move {
+                loop {
+                    let Ok((stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let hits_c = hits_s.clone();
+                    tokio::spawn(async move {
+                        let svc = service_fn(move |_req| {
+                            let hits_r = hits_c.clone();
+                            async move {
+                                hits_r.fetch_add(1, Ordering::SeqCst);
+                                let mut builder = Response::builder()
+                                    .status(400)
+                                    .header("content-type", "application/xml");
+                                if let Some(region) = header_region {
+                                    builder = builder.header("x-amz-bucket-region", region);
+                                }
+                                let resp = builder.body(Full::new(Bytes::from_static(body))).unwrap();
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), svc)
+                            .await;
                     });
-                    let _ = hyper::server::conn::http1::Builder::new()
-                        .serve_connection(TokioIo::new(stream), svc)
-                        .await;
-                });
-            }
-        });
+                }
+            }));
 
-        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
-        *store.region.lock().await = Some("eu-west-1".into());
+            let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+            *store.region.lock().await = Some("eu-west-1".into());
 
-        let res = store.legal_hold_with_retries("key-d", true).await;
-        assert!(res.is_err(), "expected terminal 400 without region");
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+            let res = store.legal_hold_with_retries("key-d", true).await;
+            drop(srv);
+            assert!(res.is_err(), "expected terminal 400 error");
+            assert_eq!(hits.load(Ordering::SeqCst), 1);
+        }
+
+        // AuthorizationHeaderMalformed without region
+        run_case(
+            None,
+            b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Malformed</Message></Error>",
+        )
+        .await;
+        // AuthorizationHeaderMalformed with same region as signed request
+        run_case(
+            Some("eu-west-1"),
+            b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Same region</Message><Region>eu-west-1</Region></Error>",
+        )
+        .await;
+        // InvalidRegion without region
+        run_case(
+            None,
+            b"<Error><Code>InvalidRegion</Code><Message>Invalid</Message></Error>",
+        )
+        .await;
     }
 }

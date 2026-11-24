@@ -219,9 +219,7 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
   removal, upgrade tunnel (first side to end closes both), Go's transport gzip (`Accept-Encoding:
   gzip` added and the answer decoded when the client sent neither it nor `Range`), empty 502 on
   failure, `ServeMux` 307 for unclean paths, and Go's middleware envelope (security headers,
-  `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). Falls back natively via
-  `CatchallRoute` (SPA fallback with a website, 404 without) when LiveKit is not configured, and
-  enforces Go's guest belt natively: the production executable enforces it once at the front door
+  `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). When LiveKit is not configured, bare `/rtc` skips the outer guest belt and delegates to `CatchallRoute::serve_spa_or_404` (SPA fallback with a website, 404 without, and no non-GET 308 redirect), while `/api/rtc` (including `%72tc`) runs the guest belt and answers native API 404. When configured, it enforces Go's guest belt natively: the production executable enforces it once at the front door
   via `SessionAdmission` (`RtcRoute::without_guest_belt`), while standalone `RtcRoute` runs
   `admission::check_guest_belt` (active guests follow `guest_allowlist`; disallowed or off-program
   guests answer 404, inactive guests 401, unavailable state 503; unauthenticated or invalid JWTs

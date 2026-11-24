@@ -1103,21 +1103,24 @@ Platform #305. Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
 `WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
 operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows Go's
 env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled; upgrading
-pre-`storage.env` WORM hosts requires unit/env refresh via `upgrade.sh` before
-binary-only activation so `gateway.env` and `storage.env` are present). The TLS
+pre-`storage.env` WORM hosts requires `upgrade.sh refresh-gateway-env` for
+immutable installations (or `upgrade.sh` on flat layouts) before activation;
+`setjoin-updater` preflight blocks activation when active WORM settings lack
+`storage.env` in `setjoin-gateway.service` or `WORM_MODE` in `gateway.env`). The TLS
 import/ACME cache directory (`tls_import_cache_dir`, resolved from
 `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
 `yaml-config.py`) is validated lexically and
 canonically (`validate_tls_cache_target`: rejects control chars, quotes, backslashes,
 `%` systemd specifiers, trailing-slash and intermediate component symlinks outside
 OS-managed `/tmp` and `/var/run`, filesystem roots, `.`/`..` traversal, top-level
-system directories, and shared system directories such as `/var/lib` and
-`/var/cache`) before
+system directories, unrelated system/service paths outside dedicated
+`setjoin`/`mailserver` or temp trees, and non-empty directories owned by another user
+under root) before
 filesystem mutation, provisioned (`0700`, `setjoin:setjoin` enforced on both new
 and existing directories during root install/upgrade; `upgrade.sh` records prior
-cache directory existence/mode/owner in `tls-cache.meta` for rollback, and
-non-root upgrade rehearsals skip only host `/var/cache/mailserver/autocert`),
-emitted solely into `gateway.env`
+cache directory existence/mode/owner/`dev:ino` in `tls-cache.meta` and verifies
+matching `dev:ino` before rollback mutation, while non-root upgrade rehearsals
+skip only host `/var/cache/mailserver/autocert`), emitted solely into `gateway.env`
 alongside resolved `WORM_*` and Go-matched trace identity (`HOSTNAME`/`INTERNAL_DOMAINS`)
 settings, and granted a narrow `ReadWritePaths` in `setjoin-gateway.service`;
 ACME account-key parent directories gain `ReadWritePaths` when

@@ -144,4 +144,30 @@ PY
     fi
   done
 done
+
+# Immutable layout supports refresh-gateway-env without copying binaries.
+im="$tmp/immutable"
+mkdir -p "$im/install/releases/r1" "$im/config" "$im/units"
+if ln -s "$im/install/releases/r1" "$im/install/current" 2>/dev/null && [ -L "$im/install/current" ]; then
+  echo 'immut gateway' > "$im/install/current/setjoin-gateway"
+  cat > "$im/config/config.env" <<'ENV'
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+  WORM_MODE = compliance
+  WORM_LEGAL_HOLD_ENABLED = false
+S3_BUCKET=immut-blobs
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+ENV
+  printf 'TLS_AUTOCERT_CACHE_DIR=%s/autocert\n' "$im" >> "$im/config/config.env"
+  echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$im/config/gateway.env"
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env
+  grep -qx 'WORM_MODE=compliance' "$im/config/gateway.env"
+  grep -qx 'WORM_LEGAL_HOLD_ENABLED=false' "$im/config/gateway.env"
+  grep -qx 'S3_BUCKET=immut-blobs' "$im/config/storage.env"
+  grep -qx "EnvironmentFile=-$im/config/storage.env" "$im/units/setjoin-gateway.service"
+  grep -qx "ExecStart=$im/install/current/setjoin-gateway" "$im/units/setjoin-gateway.service"
+fi
 echo 'TLS front upgrade activation and previous-release rollback: PASS'

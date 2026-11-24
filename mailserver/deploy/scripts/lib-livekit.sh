@@ -342,11 +342,20 @@ validate_tls_cache_target() {
       *) echo "ACME cache resolved target must not be filesystem root or a top-level directory ($resolved)" >&2; return 1 ;;
     esac
     case "$resolved" in
-      /var/lib|/var/cache|/var/log|/var/run|/var/tmp|/var/spool|/usr/local|/usr/share|/usr/bin|/usr/lib|/etc/systemd|/etc/ssl|/run/systemd)
-        echo "ACME cache resolved target must not be a shared system directory ($resolved)" >&2
+      /var/lib/setjoin|/var/lib/setjoin/*|/var/lib/mailserver|/var/lib/mailserver/*|/var/cache/setjoin|/var/cache/setjoin/*|/var/cache/mailserver|/var/cache/mailserver/*|/etc/setjoin/*|/etc/mailserver/*) ;;
+      /var/lib|/var/lib/*|/var/cache|/var/cache/*|/var/log|/var/log/*|/var/run|/var/run/*|/var/tmp|/var/spool|/var/spool/*|/etc|/etc/*|/usr|/usr/*|/boot|/boot/*|/proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run/systemd|/run/systemd/*)
+        echo "ACME cache resolved target must be a dedicated setjoin/mailserver directory ($resolved)" >&2
         return 1
         ;;
     esac
+  fi
+  if [ -d "$trimmed" ] && [ "$(id -u)" = 0 ]; then
+    local cur_owner=""
+    cur_owner=$(stat -c '%U' "$trimmed" 2>/dev/null || true)
+    if [ "$cur_owner" != setjoin ] && [ -n "$(ls -A "$trimmed" 2>/dev/null || true)" ]; then
+      echo "ACME cache target $trimmed already exists with non-empty data owned by $cur_owner" >&2
+      return 1
+    fi
   fi
 }
 
@@ -1257,7 +1266,19 @@ tls_front_probe_url() {
 tls_front_preserve_settings() {
   local config="$1" key value
   for key in SETJOIN_CONFIG INTERNAL_DOMAINS SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
-    if [ "${!key+x}" = x ]; then value="${!key}"; else value=$(tls_front_value "$config" "$key"); fi
+    if [ "${!key+x}" = x ]; then
+      value="${!key}"
+    elif [ -f "$config" ] && grep -q "^$key=" "$config"; then
+      value=$(tls_front_value "$config" "$key")
+    elif env_file_try value "$config" "$key"; then
+      case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
+      if [ -n "$value" ] || [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ] || [ "$key" = WORM_MODE ] || [ "$key" = WORM_LEGAL_HOLD_ENABLED ] || [ "$key" = INTERNAL_DOMAINS ]; then
+        systemd_env_line "$key" "$value"
+      fi
+      continue
+    else
+      value=""
+    fi
     case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
     if [ -n "$value" ]; then
       printf '%s=%s\n' "$key" "$value"

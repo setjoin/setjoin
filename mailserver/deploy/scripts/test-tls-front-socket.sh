@@ -426,4 +426,65 @@ grep -qx 'HOSTNAME=' "$tmp/ws-worm-gw.env"
 grep -qx 'WORM_LEGAL_HOLD_ENABLED=false' "$tmp/ws-worm-gw.env"
 grep -qx 'HOSTNAME=trace.example.test' "$tmp/yamlonly-gw.env"
 grep -qx 'INTERNAL_DOMAINS=localhost' "$tmp/yamlonly-gw.env"
+
+cat > "$tmp/unquoted-quotes.env" <<'ENV'
+S3_SECRET_KEY=foo"bar"baz
+S3_ACCESS_KEY=foo'bar'
+ENV
+python3 - "$ROOT/mailserver/deploy/scripts/yaml-config.py" "$tmp/unquoted-quotes.env" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("yc", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+parsed = mod.parse_systemd_env_file(sys.argv[2])
+assert parsed["S3_SECRET_KEY"] == 'foo"bar"baz', parsed
+assert parsed["S3_ACCESS_KEY"] == "foo'bar'", parsed
+PY
+
+cat > "$tmp/merge-compact.yaml" <<'YAML'
+s3:
+  "<<": /ignored/literal
+  !!str endpoint: 127.0.0.1:9002
+  <<:
+    - endpoint: 127.0.0.1:9003
+      bucket: compact-b
+  fold_more: >
+    a
+
+      more
+
+    b
+YAML
+python3 - "$ROOT/mailserver/deploy/scripts/yaml-config.py" "$tmp/merge-compact.yaml" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("yc", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+s3 = mod.parse_yaml_mapping(sys.argv[2])["s3"]
+assert s3["<<"] == "/ignored/literal", s3
+assert s3["endpoint"] == "127.0.0.1:9002", s3
+assert s3["bucket"] == "compact-b", s3
+assert s3["fold_more"] == "a\n\n  more\n\nb\n", repr(s3["fold_more"])
+PY
+
+for fval in 1e0 1.; do
+  printf 's3:\n  secure: %s\n' "$fval" > "$tmp/fbool.yaml"
+  python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" render-storage "$tmp/empty-env.env" "$tmp/fbool.yaml" | grep -qx 'S3_SECURE=true'
+  printf 's3:\n  secure: "%s"\n' "$fval" > "$tmp/fbool-str.yaml"
+  python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" render-storage "$tmp/empty-env.env" "$tmp/fbool-str.yaml" | grep -qx 'S3_SECURE=false'
+done
+
+printf '  WORM_LEGAL_HOLD_ENABLED = false\n  WORM_MODE = \n' > "$tmp/preserve-ws.env"
+tls_front_preserve_settings "$tmp/preserve-ws.env" > "$tmp/preserve-ws.out"
+grep -qx 'WORM_LEGAL_HOLD_ENABLED=false' "$tmp/preserve-ws.out"
+grep -qx 'WORM_MODE=' "$tmp/preserve-ws.out"
+
+for bad_dir in /var/lib/postgresql /var/cache/apt /etc/ssh; do
+  if validate_tls_cache_target "$bad_dir" 2>/dev/null; then
+    echo "expected rejection for $bad_dir" >&2
+    exit 1
+  fi
+done
+validate_tls_cache_target /var/lib/setjoin/custom-tls
+validate_tls_cache_target /var/cache/mailserver/autocert
 echo 'native TLS release socket: PASS'

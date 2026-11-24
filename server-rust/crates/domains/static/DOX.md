@@ -38,7 +38,7 @@ centralized `deny::answer`:
   for signed admins; non-admin signed grants preserve Go's semantics, including
   domain-scoped `system.config`. Console denials write the exact durable audit.
 - Full OpenAPI spec (`Kind::FullYaml | Kind::FullJson`) admits via `deny::admit_console`
-  (`Scope::User`, omitting redundant role pre-reads so console `system.config` denials own their
+  (`Scope::Member`, omitting redundant role pre-reads so console `system.config` denials own their
   403/audit path) and delegates refusals (such as `AlternativeCredential`) to `deny::answer`.
 - `/health` with SFU/egress/ASR sidecars configured (`LIVEKIT_*`, `ASR_URL`) when the gate has
   no probe runner (the gateway always supplies one: #457); `Outcome::Defer` fails closed with 503.

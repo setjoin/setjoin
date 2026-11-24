@@ -54,6 +54,25 @@ impl CatchallRoute {
             })
         }));self
     }
+
+    /// Fallback for unconfigured bare `/rtc`, matching Go's root SPA/404 branch without forwarding or 308 redirects.
+    pub(crate) fn serve_spa_or_404(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
+        let exec = self.exec.clone();
+        let website = self.website.clone();
+        Box::pin(async move {
+            if let Some(website) = website {
+                if r.uri().path() == "/" && matches!(*r.method(), Method::GET | Method::HEAD) {
+                    if let Some(exec) = exec.as_ref() {
+                        if setjoin_static::website::needs_setup(exec).await {
+                            return redirect(&r, &c, 302, "/setup");
+                        }
+                    }
+                }
+                return static_file::serve(&website, &r, &c).await;
+            }
+            plain(&r, &c, 404, "404 page not found\n")
+        })
+    }
 }
 impl Intercept for CatchallRoute {
     fn requires_session(&self,r:&Request<Body>)->bool{

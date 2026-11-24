@@ -13,47 +13,58 @@ set -euo pipefail
 # the health-check rollback below are the backstop.
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/setjoin}"
+REFRESH_GATEWAY_ENV=0
 if [ -L "$INSTALL_DIR/current" ]; then
     case "${1:-}" in
         status|evidence|activate-previous)
             action="$1"; shift
             exec /usr/libexec/setjoin-recovery "$action" "$@"
             ;;
+        refresh-gateway-env)
+            REFRESH_GATEWAY_ENV=1
+            ;;
         *)
             echo "This installation uses the transactional immutable layout; positional artifact-copy upgrades are disabled." >&2
-            echo "Use the signed Updates workflow. For recovery only: sudo $0 status | evidence | activate-previous --reason TEXT" >&2
+            echo "Use the signed Updates workflow, or 'sudo $0 refresh-gateway-env' to regenerate gateway unit/env files; for recovery: sudo $0 status | evidence | activate-previous --reason TEXT" >&2
             exit 2
             ;;
     esac
 fi
 
-NEW_BIN="${1:-}"
-NEW_MAILCTL="${2:-}"
-NEW_WEBMAIL="${3:-}"
-NEW_AUTH="${4:-}"
+NEW_BIN=""
+NEW_MAILCTL=""
+NEW_WEBMAIL=""
+NEW_AUTH=""
 # The Rust front door (#264): replaced, backed up as setjoin-gateway.prev and
 # restored on rollback exactly like the Go binaries.
-NEW_GATEWAY="${5:-}"
-if [ ! -f "$NEW_BIN" ]; then
-    echo "Usage: $0 /path/to/new/mailserverd [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/authserverd] [/path/to/new/setjoin-gateway]"
-    echo "  1. Build: cd mailserver && go build -o mailserverd ./cmd/mailserverd"
-    echo "           cd authserver && go build -o authserverd ./cmd/authserverd"
-    echo "           cd server-rust && cargo build --release --locked -p setjoin-mailctl   — Rust schema CLI"
-    echo "  2. Deploy: scp mailserverd authserverd mailctl user@host:/tmp/ && \\"
-    echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/mailserverd /tmp/mailctl /tmp/webmail-build /tmp/authserverd'"
-    exit 1
-fi
-if [ -n "$NEW_WEBMAIL" ] && [ ! -f "$NEW_WEBMAIL/index.html" ]; then
-    echo "Webmail build must be a directory containing index.html: $NEW_WEBMAIL"
-    exit 1
-fi
-if [ -n "$NEW_AUTH" ] && [ ! -f "$NEW_AUTH" ]; then
-    echo "Authserver binary does not exist: $NEW_AUTH"
-    exit 1
-fi
-if [ -n "$NEW_GATEWAY" ] && [ ! -f "$NEW_GATEWAY" ]; then
-    echo "Gateway binary does not exist: $NEW_GATEWAY"
-    exit 1
+NEW_GATEWAY=""
+if [ "$REFRESH_GATEWAY_ENV" = 0 ]; then
+    NEW_BIN="${1:-}"
+    NEW_MAILCTL="${2:-}"
+    NEW_WEBMAIL="${3:-}"
+    NEW_AUTH="${4:-}"
+    NEW_GATEWAY="${5:-}"
+    if [ ! -f "$NEW_BIN" ]; then
+        echo "Usage: $0 /path/to/new/mailserverd [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/authserverd] [/path/to/new/setjoin-gateway]"
+        echo "  1. Build: cd mailserver && go build -o mailserverd ./cmd/mailserverd"
+        echo "           cd authserver && go build -o authserverd ./cmd/authserverd"
+        echo "           cd server-rust && cargo build --release --locked -p setjoin-mailctl   — Rust schema CLI"
+        echo "  2. Deploy: scp mailserverd authserverd mailctl user@host:/tmp/ && \\"
+        echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/mailserverd /tmp/mailctl /tmp/webmail-build /tmp/authserverd'"
+        exit 1
+    fi
+    if [ -n "$NEW_WEBMAIL" ] && [ ! -f "$NEW_WEBMAIL/index.html" ]; then
+        echo "Webmail build must be a directory containing index.html: $NEW_WEBMAIL"
+        exit 1
+    fi
+    if [ -n "$NEW_AUTH" ] && [ ! -f "$NEW_AUTH" ]; then
+        echo "Authserver binary does not exist: $NEW_AUTH"
+        exit 1
+    fi
+    if [ -n "$NEW_GATEWAY" ] && [ ! -f "$NEW_GATEWAY" ]; then
+        echo "Gateway binary does not exist: $NEW_GATEWAY"
+        exit 1
+    fi
 fi
 
 CONFIG_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/config.env"
@@ -107,10 +118,11 @@ backup_gateway_deployment() {
     )" || prev_cache=""
     if [ -n "$prev_cache" ]; then
         printf 'path=%s\n' "$prev_cache" > "$DEPLOYMENT_PREV/tls-cache.meta"
-        if [ -d "$prev_cache" ]; then
-            printf 'exists=1\nmode=%s\nowner=%s\n' \
+        if [ ! -L "$prev_cache" ] && [ -d "$prev_cache" ]; then
+            printf 'exists=1\nmode=%s\nowner=%s\ndevino=%s\n' \
                 "$(stat -c '%a' "$prev_cache")" \
-                "$(stat -c '%u:%g' "$prev_cache")" >> "$DEPLOYMENT_PREV/tls-cache.meta"
+                "$(stat -c '%u:%g' "$prev_cache")" \
+                "$(stat -c '%d:%i' "$prev_cache")" >> "$DEPLOYMENT_PREV/tls-cache.meta"
         else
             printf 'exists=0\n' >> "$DEPLOYMENT_PREV/tls-cache.meta"
         fi
@@ -146,7 +158,7 @@ restore_gateway_deployment() {
     if [ -f "$DEPLOYMENT_PREV/socket-enabled" ]; then systemctl enable setjoin-federation.socket; fi
     if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket; fi
     if [ -f "$DEPLOYMENT_PREV/tls-cache.meta" ]; then
-        local prev_path="" prev_exists="" prev_mode="" prev_owner="" line k v
+        local prev_path="" prev_exists="" prev_mode="" prev_owner="" prev_devino="" cur_devino="" line k v
         while IFS= read -r line || [ -n "$line" ]; do
             k="${line%%=*}"
             v="${line#*=}"
@@ -155,13 +167,19 @@ restore_gateway_deployment() {
                 exists) prev_exists="$v" ;;
                 mode) prev_mode="$v" ;;
                 owner) prev_owner="$v" ;;
+                devino) prev_devino="$v" ;;
             esac
         done < "$DEPLOYMENT_PREV/tls-cache.meta"
-        if [ -n "$prev_path" ] && [ "$prev_path" != "/" ]; then
-            if [ "$prev_exists" = 1 ] && [ -d "$prev_path" ]; then
-                [ -z "$prev_mode" ] || chmod "$prev_mode" "$prev_path" || true
-                [ -z "$prev_owner" ] || chown "$prev_owner" "$prev_path" || true
-            elif [ "$prev_exists" = 0 ] && [ -d "$prev_path" ]; then
+        if [ -n "$prev_path" ] && [ "$prev_path" != "/" ] && [ ! -L "$prev_path" ] && [ -d "$prev_path" ]; then
+            if [ "$prev_exists" = 1 ]; then
+                cur_devino="$(stat -c '%d:%i' "$prev_path" 2>/dev/null || true)"
+                if [ -n "$prev_devino" ] && [ "$cur_devino" = "$prev_devino" ]; then
+                    [ -z "$prev_mode" ] || chmod "$prev_mode" "$prev_path" || true
+                    [ -z "$prev_owner" ] || chown "$prev_owner" "$prev_path" || true
+                else
+                    echo "   ! skipping tls-cache rollback for $prev_path: directory identity changed ($cur_devino != $prev_devino)" >&2
+                fi
+            elif [ "$prev_exists" = 0 ]; then
                 rmdir "$prev_path" 2>/dev/null || true
             fi
         fi
@@ -176,8 +194,8 @@ render_gateway_deployment() (
     local root key names file tmp _tls_cache
     root="$(cd "$(dirname "$0")/../../.." && pwd)"
     source "$root/mailserver/deploy/scripts/lib-livekit.sh" || return 1
-    # This is the legacy flat layout. Immutable installations use signed Updates.
-    RUNTIME_DIR="$INSTALL_DIR"
+    # Use caller's RUNTIME_DIR for immutable refresh, or INSTALL_DIR on legacy flat layout.
+    RUNTIME_DIR="${RUNTIME_DIR:-$INSTALL_DIR}"
     AUTHSERVER_URL="$(config_value "$CONFIG_ENV" AUTHSERVER_URL)"
     AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
     GATEWAY_LISTEN="$(config_value "$GATEWAY_ENV" GATEWAY_LISTEN)"
@@ -239,6 +257,17 @@ render_gateway_deployment() (
         systemctl enable setjoin-federation.socket || return 1
     fi
 )
+
+if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
+    RUNTIME_DIR="$INSTALL_DIR/current"
+    backup_gateway_deployment
+    if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
+        echo "   ✗ gateway unit/config refresh failed." >&2
+        restore_gateway_deployment
+        exit 1
+    fi
+    exit 0
+fi
 
 if [ -n "$NEW_GATEWAY" ]; then
     backup_gateway_deployment

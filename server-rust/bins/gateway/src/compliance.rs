@@ -732,3 +732,33 @@ impl hyper::body::Body for UnknownLength {
         self.0.is_end_stream()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::WormConfig;
+    use crate::configuration::Settings;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn worm_config_from_settings_tracks_yaml_and_env_overrides() {
+        let yaml = "worm:\n  mode: compliance\n";
+        let settings = Settings::parse(yaml, &BTreeMap::new()).unwrap();
+        let cfg = WormConfig::from_settings(&settings);
+        assert!(cfg.mode_enabled);
+        assert!(cfg.legal_hold_enabled);
+
+        let mut env = BTreeMap::new();
+        env.insert("WORM_LEGAL_HOLD_ENABLED".into(), "false".into());
+        let settings = Settings::parse(yaml, &env).unwrap();
+        let cfg = WormConfig::from_settings(&settings);
+        assert!(cfg.mode_enabled);
+        assert!(!cfg.legal_hold_enabled);
+
+        let mut env = BTreeMap::new();
+        env.insert("WORM_MODE".into(), String::new());
+        let settings = Settings::parse(yaml, &env).unwrap();
+        let cfg = WormConfig::from_settings(&settings);
+        assert!(!cfg.mode_enabled);
+        assert!(!cfg.legal_hold_enabled);
+    }
+}

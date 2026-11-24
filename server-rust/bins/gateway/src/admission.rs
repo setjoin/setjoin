@@ -120,12 +120,13 @@ async fn valid_claims(
     let token = setjoin_authz::token::presented(headers)?;
     let claims = setjoin_authz::token::validate_first_party(&token, issuer, now, keys).await?;
     let scope = claims.get("scp").and_then(|v| v.as_str()).unwrap_or("");
+    let decoded = String::from_utf8_lossy(&crate::inventory::unescape(path));
     let ok = claims.get("typ").and_then(|v| v.as_str()) == Some("access")
         && (scope.is_empty()
-            || path == format!("/{scope}")
-            || path.starts_with(&format!("/{scope}/"))
-            || path == format!("/api/{scope}")
-            || path.starts_with(&format!("/api/{scope}/")));
+            || decoded == format!("/{scope}")
+            || decoded.starts_with(&format!("/{scope}/"))
+            || decoded == format!("/api/{scope}")
+            || decoded.starts_with(&format!("/api/{scope}/")));
     ok.then_some(claims)
 }
 

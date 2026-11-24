@@ -185,6 +185,13 @@ fn guest_probes(active_user: i64, inactive_user: i64) -> Vec<Probe> {
             Some("success"),
         ),
         (
+            "GET",
+            "/api/%72tc/rtc/validate?access_token=good",
+            vec![("authorization", active_auth.clone())],
+            200,
+            Some("success"),
+        ),
+        (
             "POST",
             "/rtc",
             vec![("authorization", active_auth)],
@@ -449,7 +456,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         return Ok(());
     };
     let to_go = matches!(mode, Mode::Kill | Mode::Rollback);
-    let owner = if mode == Mode::ActiveGuest {
+    let owner = if matches!(mode, Mode::ActiveGuest | Mode::Unconfigured) {
         Some(db.connect().await?)
     } else {
         None
@@ -539,7 +546,20 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         ] {
             command.env(key, value);
         }
-        if mode != Mode::Unconfigured {
+        let mut _spa_guard = None;
+        if mode == Mode::Unconfigured {
+            struct RemoveDir(std::path::PathBuf);
+            impl Drop for RemoveDir {
+                fn drop(&mut self) {
+                    let _ = std::fs::remove_dir_all(&self.0);
+                }
+            }
+            let spa_dir = dir.join(format!("spa-{tag}"));
+            std::fs::create_dir_all(&spa_dir)?;
+            std::fs::write(spa_dir.join("index.html"), "<html>spa</html>")?;
+            command.env("WEBSITE_DIR", &spa_dir);
+            _spa_guard = Some(RemoveDir(spa_dir));
+        } else {
             command
                 .env("LIVEKIT_API_KEY", "meet5-key")
                 .env("LIVEKIT_API_SECRET", "meet5-secret-meet5-secret-meet5-secret")
@@ -602,12 +622,42 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
                 let (active_user, inactive_user) = guest_ids.unwrap();
                 guest_probes(active_user, inactive_user)
             }
-            Mode::Unconfigured => vec![
-                ("GET", "/rtc/rtc/validate?access_token=good", vec![], 404, Some("404 page not found\n")),
-                ("GET", "/rtc", vec![], 404, Some("404 page not found\n")),
-                ("GET", "/api/rtc/rtc/validate?access_token=good", vec![], 404, Some("404 page not found\n")),
-                ("GET", "/api/%72tc/rtc/validate?access_token=good", vec![], 404, Some("404 page not found\n")),
-            ],
+            Mode::Unconfigured => {
+                let (_, inactive_user) = guest_ids.unwrap();
+                let inactive_auth = format!("Bearer {}", common::recovery_token(inactive_user));
+                vec![
+                    ("GET", "/rtc", vec![], 200, Some("<html>spa</html>")),
+                    (
+                        "GET",
+                        "/rtc/rtc/validate?access_token=good",
+                        vec![("authorization", inactive_auth.clone())],
+                        200,
+                        Some("<html>spa</html>"),
+                    ),
+                    ("POST", "/%72tc", vec![], 404, Some("404 page not found\n")),
+                    (
+                        "GET",
+                        "/api/rtc/rtc/validate?access_token=good",
+                        vec![],
+                        404,
+                        Some("404 page not found\n"),
+                    ),
+                    (
+                        "GET",
+                        "/api/%72tc/rtc/validate?access_token=good",
+                        vec![],
+                        404,
+                        Some("404 page not found\n"),
+                    ),
+                    (
+                        "GET",
+                        "/api/rtc/rtc/validate?access_token=good",
+                        vec![("authorization", inactive_auth)],
+                        401,
+                        None,
+                    ),
+                ]
+            }
             Mode::Native => vec![
                 ("GET", "/rtc/rtc/validate?access_token=good", vec![], 200, Some("success")),
                 ("GET", "/rtc", vec![], 200, Some("success")),
@@ -637,6 +687,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         if go_hits.load(Ordering::SeqCst) != if to_go { count } else { 0 } {
             return Err("unexpected Go request count".into());
         }
+        let expected_sfu = if mode == Mode::Unconfigured { 0 } else { expected_sfu };
         if sfu_hits.load(Ordering::SeqCst) != expected_sfu {
             return Err("unexpected SFU request count".into());
         }
