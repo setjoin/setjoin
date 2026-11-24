@@ -25,7 +25,7 @@ pub async fn account_upload(
     quota: i64,
 ) -> CommandOutcome<String, StatementFailure> {
     run_receipted_command(exec,ReceiptCommand{family:"jmap",command:"blob.upload"},envelope,auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
-        "SELECT blob_upload_account($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint>0 AND $3::text<>''",&[(&hash,Type::TEXT),(&reference,Type::TEXT),(&size,Type::INT8),(&content_type,Type::TEXT),(&grace,Type::INT4),(&quota,Type::INT8)],
+        "SELECT blob_upload_account($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&hash,Type::TEXT),(&reference,Type::TEXT),(&size,Type::INT8),(&content_type,Type::TEXT),(&grace,Type::INT4),(&quota,Type::INT8)],
         |rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint:None,sqlstate:None,message:"missing upload accounting".into()})).await
 }
 
@@ -45,7 +45,7 @@ pub async fn download_allowed(
     let delegated = if let Some(account) = account
         .parse::<i64>()
         .ok()
-        .filter(|n| *n > 0 && *n != auth.mailbox().get())
+        .filter(|n| *n > 0 && auth.mailbox_optional().is_none_or(|m| m.get() != *n))
     {
         if account_read(exec, auth, account).await.unwrap_or(false) {
             account

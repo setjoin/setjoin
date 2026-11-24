@@ -391,9 +391,16 @@ Evaluation order follows Go: credential, then token validation (`verify_detailed
 one signature check for Member/Drive; User and DriveUser verify twice, a follow-up;
 the refusal class named by the first rule tripped), then live
 reads. Only `InvalidToken` is remapped to `AlternativeCredential`, and only when the
-first Authorization value is `Basic ` or `Negotiate `. `AlternativeCredential`,
-`Impersonation`, `Guest`, `NoPrimaryMailbox` and `MailboxBlocked` are never native
-denials; the gateway forwards them from one site (`bins/gateway/src/deny.rs`). A
+first Authorization value is `Basic ` or `Negotiate `. Under #359 Part A, `admit`
+handles every frozen-Go outcome natively without Go forwarding: positive `act`
+impersonation tokens are admitted with `AuthContext::actor_id` provenance (non-positive
+or non-integer `act` is rejected as `InvalidToken` before guest return; attachment tokens
+still reject `act`), non-guest members without a primary mailbox (`mailbox_id == 0`) and
+suspended mailboxes (`AuthContext::mailbox_blocked() == true`) are admitted like Go
+`RequireAuth` (`authorize_attachment`/`admit_attachment` still require `mailbox > 0` and
+`!mailbox_blocked`), `Guest` is answered natively with 404 by `deny::native` (`401` on
+`deny::native_or_unauthorized`), and non-DAV `AlternativeCredential` is answered 401
+(owner-approved divergence `non-dav-alternative-credential-401`). A
 verify timeout is `Unavailable` (503); an unknown kid, including inside the JWKS
 refresh cooldown, is `InvalidToken` (401). The flagged `authorize_*` helpers are
 unchanged for the callers that still use them.

@@ -67,35 +67,14 @@ async fn listener() -> TcpListener {
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[tokio::test]
-async fn activation_is_refused_without_go_off_or_the_threat_gate() {
+async fn activation_is_refused_without_the_threat_gate() {
     let _serial = SERIAL.lock().await;
     let dsn = "postgres://nobody@127.0.0.1:9/none";
-    let base = [("DB_DSN", dsn), ("GO_LISTENERS_OFF", "imap")];
-    // No sockets handed over: Go still owns IMAP, nothing starts.
+    let base = [("DB_DSN", dsn)];
+    // No sockets handed over: nothing starts.
     assert!(imap_runtime::start(None, None, &env(&base), None, hooks())
         .unwrap()
         .is_none());
-    // Go's copy still on.
-    let err = imap_runtime::start(
-        Some(listener().await),
-        None,
-        &env(&[("DB_DSN", dsn)]),
-        gate(),
-        hooks(),
-    )
-    .err()
-    .unwrap();
-    assert!(err.contains("GO_LISTENERS_OFF"), "{err}");
-    let err = imap_runtime::start(
-        Some(listener().await),
-        None,
-        &env(&[("DB_DSN", dsn), ("GO_LISTENERS_OFF", "imaps,smtp")]),
-        gate(),
-        hooks(),
-    )
-    .err()
-    .unwrap();
-    assert!(err.contains("GO_LISTENERS_OFF"), "{err}");
     // No threat gate (#420 is absent): refused, never an allow-all fallback.
     let err = imap_runtime::start(Some(listener().await), None, &env(&base), None, hooks())
         .err()
@@ -145,12 +124,10 @@ async fn activation_is_refused_without_go_off_or_the_threat_gate() {
 /// The executable, given the three named descriptors, refuses to start while the
 /// policy subscription is unavailable or Go's copy is on; neither can serve auth.
 #[test]
-fn executable_refuses_imap_sockets_without_go_off_and_live_admission() {
+fn executable_refuses_imap_sockets_without_live_admission() {
     use std::os::fd::AsRawFd;
-    for (go_off, needle) in [
-        (None, "GO_LISTENERS_OFF"),
-        (Some("imap"), "setjoin-gateway: error connecting to server"),
-    ] {
+    let needle = "setjoin-gateway: error connecting to server";
+    {
         let sockets: Vec<std::net::TcpListener> = (0..3)
             .map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap())
             .collect();
@@ -158,7 +135,6 @@ fn executable_refuses_imap_sockets_without_go_off_and_live_admission() {
         let mut command = Command::new("bash");
         command
             .env_clear()
-            .env("GATEWAY_ENABLED", "false")
             .env("DB_DSN", &std::env::var("TEST_DB_DSN").expect("disposable boot database"))
             .env("WORM_MODE", "")
             // BOOT needs a live request database. The independent direct
@@ -171,9 +147,6 @@ fn executable_refuses_imap_sockets_without_go_off_and_live_admission() {
             .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
-        if let Some(go_off) = go_off {
-            command.env("GO_LISTENERS_OFF", go_off);
-        }
         unsafe {
             command.pre_exec(move || {
                 unsafe extern "C" {
@@ -196,10 +169,10 @@ fn executable_refuses_imap_sockets_without_go_off_and_live_admission() {
             });
         }
         let output = command.output_boot().unwrap();
-        assert!(!output.status.success(), "go_off={go_off:?} started");
+        assert!(!output.status.success(), "IMAP started without live admission");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("server boot checks completed"), "{stderr}");
-        assert!(stderr.contains(needle), "go_off={go_off:?}: {stderr}");
+        assert!(stderr.contains(needle), "{stderr}");
     }
 }
 
@@ -299,18 +272,15 @@ async fn gateway_wiring_serves_logins_on_the_request_role_and_enforces_limits() 
 #[tokio::test]
 async fn http_descriptor_named_after_its_unit_is_still_served() {
     let _serial = SERIAL.lock().await;
-    use common::{body_bytes, fake_upstream, full, send};
-    use hyper::{Request, Response};
+    use common::{body_bytes, full, send};
+    use hyper::Request;
     use std::os::fd::AsRawFd;
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
     let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = socket.local_addr().unwrap();
     let fd = socket.as_raw_fd();
     let mut command = Command::new("bash");
     command
         .env_clear()
-        .env("GATEWAY_ENABLED", "false")
-        .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
         .env("LISTEN_FDNAMES", "setjoin-gateway")
         .arg("-c")
         .arg("export LISTEN_PID=$$ LISTEN_FDS=1; exec -a gofree-authrt-gateway \"$1\"")
@@ -339,11 +309,11 @@ async fn http_descriptor_named_after_its_unit_is_still_served() {
     let _child = Reaped(command.spawn_boot().unwrap());
     let response = tokio::time::timeout(
         Duration::from_secs(10),
-        send(addr, Request::get("/").body(full("")).unwrap()),
+        send(addr, Request::get("/_gateway/healthz").body(full("")).unwrap()),
     )
     .await
     .expect("named HTTP descriptor was not served");
-    assert_eq!(body_bytes(response).await, "mail");
+    assert_eq!(body_bytes(response).await, "ok\n");
 }
 
 #[tokio::test]

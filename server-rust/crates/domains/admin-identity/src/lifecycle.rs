@@ -409,7 +409,7 @@ pub async fn create(
         &envelope(&auth, operation, &payload),
         &auth,
         deadline(),
-        "SELECT rust_admin_user_create($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_user_create($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&raw_email, Type::TEXT),
             (&email, Type::TEXT),
@@ -450,7 +450,7 @@ pub async fn update(
         &envelope(&auth, operation, &payload),
         &auth,
         deadline(),
-        "SELECT rust_admin_user_update($2,$4,$5,$6,$7,$8)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_user_update($2,$4,$5,$6,$7,$8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&id, Type::INT8),
             (&domain_scope, Type::INT8),
@@ -481,7 +481,7 @@ pub async fn delete(
         &envelope(&auth, operation, &format!("{id}:{domain_scope}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_user_delete($2,$4,$5)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_user_delete($2,$4,$5)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
         |rows| {
             let v = verdict(rows, 204)?;
@@ -512,7 +512,7 @@ pub async fn reset_password(
         ),
         &auth,
         deadline(),
-        "SELECT admin_reset_password($2,$4,$5,$6,$7) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT admin_reset_password($2,$4,$5,$6,$7) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&id, Type::INT8),
             (&domain_scope, Type::INT8),
@@ -545,7 +545,7 @@ pub async fn secure(
         &envelope(&auth, operation, &format!("{id}:{domain_scope}")),
         &auth,
         deadline(),
-        "SELECT count(*)::bigint FROM (SELECT rust_admin_user_secure($2,$4,$6,$5) WHERE $1::bigint > 0 AND $3::text <> '') w",
+        "SELECT count(*)::bigint FROM (SELECT rust_admin_user_secure($2,$4,$6,$5) WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&id, Type::INT8), (&domain_scope, Type::INT8), (&ip, Type::TEXT)],
         |rows| {
             if rows.len() == 1 {
@@ -581,7 +581,7 @@ pub async fn revoke_app_password(
         ),
         &auth,
         deadline(),
-        "SELECT rust_admin_app_password_revoke($2,$4,$5,$6,$7,$8) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_app_password_revoke($2,$4,$5,$6,$7,$8) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&user, Type::INT8),
             (&app_password, Type::INT8),
@@ -631,7 +631,7 @@ pub async fn import_row(
         deadline(),
         "SELECT provision_account(p_email => $4, p_display_name => $5, p_password_hash => $6, p_is_local_admin => $7, \
          p_enabled => TRUE, p_sync_source => 'local', p_department_id => $8, p_quota_bytes => $9, p_create_only => TRUE, \
-         p_actor => $10)::text WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         p_actor => $10)::text WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&email, Type::TEXT),
             (&display_name, Type::TEXT),

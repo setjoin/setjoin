@@ -85,7 +85,7 @@ fn spawn(
 }
 
 #[tokio::test]
-async fn ldap_worker_refuses_to_start_while_go_still_runs_it() -> Result<(), BoxError> {
+async fn ldap_worker_starts_without_go_workers_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("ldap-startup-guard") else {
         return Ok(());
     };
@@ -95,11 +95,7 @@ async fn ldap_worker_refuses_to_start_while_go_still_runs_it() -> Result<(), Box
         std::env::temp_dir().join(format!("gofree-dirsync5-guard-{}.json", std::process::id())),
     );
     std::fs::write(&inventory.0, include_str!("../route-inventory.json"))?;
-    for (label, go_off, must_run) in [
-        ("no-go-off", "", false),
-        ("other-go-off", "drive-watch", false),
-        ("go-off", "ldap-sync", true),
-    ] {
+    for (label, go_off) in [("no-go-off", ""), ("go-off", "ldap-sync")] {
         let socket = setjoin_conformance::ports::listener().await;
         let address = socket.local_addr()?;
         drop(socket);
@@ -127,18 +123,10 @@ async fn ldap_worker_refuses_to_start_while_go_still_runs_it() -> Result<(), Box
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
-        if must_run {
-            assert!(
-                bound && exited.is_none(),
-                "{label}: gateway must run with Go's copy off"
-            );
-        } else {
-            assert!(!bound, "{label}: gateway must not bind");
-            assert!(
-                exited.is_some_and(|s| !s.success()),
-                "{label}: gateway must refuse to start"
-            );
-        }
+        assert!(
+            bound && exited.is_none(),
+            "{label}: gateway must run without GO_WORKERS_OFF"
+        );
     }
     Ok(())
 }
@@ -226,6 +214,21 @@ async fn bundled_ldap_routes_are_native_and_every_kill_switch_forwards() -> Resu
                 mode != "all-go",
                 &[],
             )?;
+            if mode != "native" {
+                let mut exited = None;
+                for _ in 0..500 {
+                    if let Some(status) = process.0.try_wait()? {
+                        exited = Some(status);
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                assert!(
+                    exited.is_some_and(|s| !s.success()),
+                    "gateway {mode} should have been rejected: {exited:?}"
+                );
+                continue;
+            }
             let mut ready = false;
             for _ in 0..6000 {
                 if tokio::net::TcpStream::connect(address).await.is_ok() {
@@ -264,16 +267,8 @@ async fn bundled_ldap_routes_are_native_and_every_kill_switch_forwards() -> Resu
                 let forwarded = response.headers().contains_key("x-gofree-ldap-go");
                 let status = response.status().as_u16();
                 let _ = body_bytes(response).await;
-                let native = mode == "native";
-                assert_eq!(
-                    forwarded, !native,
-                    "{mode} {method} {path}: status {status}"
-                );
-                assert_eq!(
-                    go_count.load(Ordering::SeqCst) - before,
-                    usize::from(!native),
-                    "{mode} {method} {path}"
-                );
+                assert!(!forwarded, "{mode} {method} {path}: status {status}");
+                assert_eq!(go_count.load(Ordering::SeqCst) - before, 0, "{mode} {method} {path}");
             }
         }
         Ok::<_, BoxError>(())

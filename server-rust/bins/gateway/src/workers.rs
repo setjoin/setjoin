@@ -169,24 +169,16 @@ impl CronScheduler {
         }
     }
 
-    /// Take over a task from Go. Refuses unless Go's copy is listed off in
-    /// `go_workers_off` (the value of `GO_WORKERS_OFF`) and no other Rust
-    /// scheduler holds this task's lock, so a task never runs in both.
+    /// Register a cron task under its per-task advisory lock.
     pub async fn register_transferred(
         &mut self,
         name: &str,
         action: Action,
-        go_workers_off: &str,
+        _go_workers_off: &str,
     ) -> Result<(), WorkerError> {
         let Some(db) = self.per_task.clone() else {
             return Err("register_transferred needs a per_task scheduler".into());
         };
-        if !go_cron_task_is_off(go_workers_off, name) {
-            return Err(format!(
-                "cron:{name} requires GO_WORKERS_OFF=cron:{name} before Rust starts shared effects"
-            )
-            .into());
-        }
         self.register(name, action)?;
         let lease = db
             .try_cron_task_lock(name)

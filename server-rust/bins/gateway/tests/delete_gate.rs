@@ -1,5 +1,4 @@
-//! #358 DELETE gate, gateway half: the real executable with GATEWAY_UPSTREAM unset
-//! (GATEWAY_AUTH_UPSTREAM is the dead :1 the binary requires; its hops are counted).
+//! #358 DELETE gate, gateway half: the real executable with zero Go upstreams configured.
 //! A Go hop is a rise in setjoin_gateway_proxied_to_go_total. Every (cell, shape)
 //! has a reviewed outcome, `Native(status)` or `Hop(owner)`, reviewed against
 //! caldav.rs:71-94, carddav.rs:58-81, drive_native.rs:96-128 (#355a native Basic
@@ -141,7 +140,6 @@ impl Process {
         cmd.arg0("gofree-delete-gate-gateway").env_clear();
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),
-            ("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1".into()),
             ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn).into()),
             ("DB_WORKER_DSN", db.dsn.clone()),
             ("DB_OWNER_DSN", db.dsn.clone()),

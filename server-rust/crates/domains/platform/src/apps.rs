@@ -49,7 +49,7 @@ pub async fn request(
         &auth,
         deadline(),
         "SELECT office_app_operation_request($2, $4, $5, $6, $7::text::uuid, $8::text::jsonb, $9)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&kind, Type::TEXT),
             (&provider, Type::TEXT),
@@ -80,7 +80,7 @@ pub async fn recover(
         &auth,
         deadline(),
         "SELECT office_app_operation_recover_request($2, $4::text::uuid, $5, $6)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&operation_id, Type::TEXT),
             (&generation, Type::INT8),
@@ -119,7 +119,7 @@ pub async fn reason_missing(
         &auth,
         deadline(),
         "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,$4::text::inet,'apps.manage','core') \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&ip, Type::TEXT)],
         |_| Ok(()),
     )

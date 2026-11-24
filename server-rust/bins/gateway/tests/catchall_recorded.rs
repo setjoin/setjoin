@@ -892,3 +892,151 @@ async fn chat_not_entitled_read_fault() -> Result<(), BoxError> {
 async fn chat_toggle_read_fault() -> Result<(), BoxError> {
     run("chat_toggle_read_fault").await
 }
+
+#[tokio::test]
+async fn catchall_answers_credentials_natively_without_go() -> Result<(), BoxError> {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(db) = Db::for_case("catchall-native-auth") else {
+        return Ok(());
+    };
+    let owner = db.connect().await?;
+    let actor = setjoin_conformance::fixture::account(&owner, "catchall-native").await?;
+    let no_mb_email: String = owner
+        .query_one(
+            "SELECT 'catchall-nomb-'||replace(gen_random_uuid()::text,'-','')||'@example.test'",
+            &[],
+        )
+        .await?
+        .get(0);
+    let no_mb_user: i64 = owner
+        .query_one(
+            "INSERT INTO users(username,domain_id,email,display_name,password_hash) VALUES($1,$2,$1,'No Mailbox','x') RETURNING id",
+            &[&no_mb_email, &actor.domain],
+        )
+        .await?
+        .get(0);
+    let saved_toggles: Vec<(String, Option<bool>)> = {
+        let mut v = Vec::new();
+        for key in ["feature.chat", "feature.drive", "feature.meet"] {
+            let old = owner
+                .query_opt("SELECT enabled FROM feature_toggles WHERE key=$1", &[&key])
+                .await?
+                .map(|r| r.get(0));
+            owner
+                .execute(
+                    "INSERT INTO feature_toggles(key,enabled) VALUES($1,true) ON CONFLICT(key) DO UPDATE SET enabled=true",
+                    &[&key],
+                )
+                .await?;
+            v.push((key.to_owned(), old));
+        }
+        v
+    };
+    let result = std::panic::AssertUnwindSafe(async {
+        let exec = setjoin_pg::ScopedExecutor::from_dsn(
+            db.app.as_deref().unwrap_or(&db.dsn),
+            2,
+        )
+        .map_err(|e| e.0)?;
+        let mut catchall = setjoin_gateway::catchall::CatchallRoute::new().with_auth(
+            exec,
+            Arc::new(common::recovery_keys()),
+            "mailserver".into(),
+        );
+        catchall.meet_configured = true;
+        let gateway = Gateway::new(
+            Config {
+                upstream: None,
+                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                trusted_proxies: TrustedProxies::parse("").unwrap(),
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with_catchall(catchall),
+        )?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(gateway.serve_until(listener, async {
+            let _ = stopped.await;
+        }));
+        let drive_tok = format!(
+            "Bearer {}",
+            common::recovery_token_with(actor.user, json!({"scp": "drive"}))
+        );
+        let act_tok = format!(
+            "Bearer {}",
+            common::recovery_token_with(actor.user, json!({"act": actor.user}))
+        );
+        let bad_act_tok = format!(
+            "Bearer {}",
+            common::recovery_token_with(actor.user, json!({"act": 0}))
+        );
+        let no_mb_tok = format!(
+            "Bearer {}",
+            common::recovery_token_with(no_mb_user, json!({"email": &no_mb_email}))
+        );
+        for (label, path, auth, want_status) in [
+            ("basic chat", "/api/chat/phantom", "Basic Zm9vOmJhcg==", 401u16),
+            ("negotiate drive", "/api/drive/phantom", "Negotiate YII=", 401),
+            ("invalid jwt meet", "/api/meet/phantom/path", "Bearer not-a-jwt", 401),
+            ("drive scp on drive", "/api/drive/phantom", drive_tok.as_str(), 404),
+            ("drive scp on chat", "/api/chat/phantom", drive_tok.as_str(), 401),
+            ("drive scp on meet", "/api/meet/phantom/path", drive_tok.as_str(), 401),
+            ("valid act on chat", "/api/chat/phantom", act_tok.as_str(), 404),
+            ("bad act=0 on chat", "/api/chat/phantom", bad_act_tok.as_str(), 401),
+            ("no-mailbox on chat", "/api/chat/phantom", no_mb_tok.as_str(), 404),
+        ] {
+            let resp = common::send(
+                addr,
+                Request::get(path)
+                    .header("host", "mail.test")
+                    .header("authorization", auth)
+                    .body(common::full(""))?,
+            )
+            .await;
+            let status = resp.status().as_u16();
+            let body = common::body_bytes(resp).await;
+            assert_eq!(
+                status,
+                want_status,
+                "{label} ({path}): body={}",
+                String::from_utf8_lossy(&body)
+            );
+        }
+        let metrics = common::send(addr, Request::get("/_gateway/metrics").body(common::full(""))?).await;
+        let text = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
+        assert!(
+            text.lines().any(|l| l == "setjoin_gateway_proxied_to_go_total 0"),
+            "{text}"
+        );
+        let _ = stop.send(());
+        task.await?;
+        Ok::<_, BoxError>(())
+    })
+    .catch_unwind()
+    .await;
+    for (key, old) in saved_toggles {
+        match old {
+            Some(v) => {
+                let _ = owner
+                    .execute("UPDATE feature_toggles SET enabled=$2 WHERE key=$1", &[&key, &v])
+                    .await;
+            }
+            None => {
+                let _ = owner
+                    .execute("DELETE FROM feature_toggles WHERE key=$1", &[&key])
+                    .await;
+            }
+        }
+    }
+    let _ = owner
+        .execute("DELETE FROM users WHERE id=$1", &[&no_mb_user])
+        .await;
+    setjoin_conformance::fixture::remove(&owner, &actor).await?;
+    match result {
+        Ok(r) => r,
+        Err(p) => std::panic::resume_unwind(p),
+    }
+}

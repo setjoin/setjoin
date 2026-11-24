@@ -45,7 +45,7 @@ pub async fn put(
         deadline(),
         "SELECT (SELECT count(*) FROM public.set_system_config('jit.default_max_minutes', to_jsonb($4::bigint::int))) \
          + (SELECT count(*) FROM public.set_system_config('jit.default_require_justification', to_jsonb($5::bool))) \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&minutes, Type::INT8), (&required, Type::BOOL)],
         |rows| {
             if rows.len() == 1 {

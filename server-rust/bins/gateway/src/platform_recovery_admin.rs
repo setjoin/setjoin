@@ -279,8 +279,8 @@ async fn incident_mutation(
     let user = actor.user_id();
     let reason = body.reason.trim();
     let (command, sql) = match kind {
-        Kind::Approve => ("mail_recovery_incident_approve", "SELECT mail_recovery_incident_approve($4::bigint,$5::text::uuid,$6::text)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''"),
-        Kind::Close => ("mail_recovery_incident_close", "SELECT mail_recovery_incident_close($4::bigint,$5::text::uuid,$6::text)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''"),
+        Kind::Approve => ("mail_recovery_incident_approve", "SELECT mail_recovery_incident_approve($4::bigint,$5::text::uuid,$6::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''"),
+        Kind::Close => ("mail_recovery_incident_close", "SELECT mail_recovery_incident_close($4::bigint,$5::text::uuid,$6::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''"),
         _ => unreachable!("incident mutation kind"),
     };
     match setjoin_platform::upgrades::write(
@@ -532,7 +532,7 @@ async fn open(
     let expires = expires.timestamp_micros();
     let reason = body.reason.trim();
     let outcome=setjoin_platform::upgrades::write(&service.worker,actor,"mail_recovery_incident_open",
-        "SELECT mail_recovery_incident_open($4::bigint,$5::text::uuid,$6::bigint[],$7::text::jsonb,$8::bigint,$9::bigint,'epoch'::timestamptz+$10::bigint*interval '1 microsecond',$11::text,$12::boolean,$13::bytea,$14::text::uuid)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT mail_recovery_incident_open($4::bigint,$5::text::uuid,$6::bigint[],$7::text::jsonb,$8::bigint,$9::bigint,'epoch'::timestamptz+$10::bigint*interval '1 microsecond',$11::text,$12::boolean,$13::bytea,$14::text::uuid)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&user,Type::INT8),(&incident,Type::TEXT),(&mailboxes,Type::INT8_ARRAY),(&evidence,Type::TEXT),(&minimum,Type::INT8),(&maximum,Type::INT8),(&expires,Type::INT8),(&reason,Type::TEXT),(&body.approval,Type::BOOL),(&binding,Type::BYTEA),(&key,Type::TEXT)],operation,
     ).await;
     match outcome {
@@ -586,7 +586,7 @@ async fn accept(
     let user = actor.user_id();
     let reason = body.reason.trim();
     match setjoin_platform::upgrades::write(&service.worker,actor,"mail_recovery_artifact_ingest",
-        "SELECT mail_recovery_artifact_ingest($4::bigint,$5::text::uuid,$6::text,$7::text)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT mail_recovery_artifact_ingest($4::bigint,$5::text::uuid,$6::text,$7::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&user,Type::INT8),(&artifact,Type::TEXT),(&body.resolution,Type::TEXT),(&reason,Type::TEXT)],operation,
     ).await {
         setjoin_pg::CommandOutcome::Committed(body)=>crate::jmap::reply::response(body.unwrap_or_default(),c.identity.proto,id.to_owned()),

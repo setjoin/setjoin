@@ -37,7 +37,7 @@ use serde_json::json;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
     CommandOutcome, MailboxAuthContext, ReceiptCommand, Row, ScopedExecutor, StatementFailure, Type,
@@ -110,11 +110,7 @@ pub(crate) fn fold_key(key: &str) -> String {
 pub const FEDERATION_MANAGE: [&str; 1] = ["federation.manage"];
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
@@ -282,7 +278,7 @@ pub async fn console_denied(
         &envelope(&auth, operation, &before),
         &auth,
         deadline(),
-        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&before, Type::TEXT), (&path, Type::TEXT)],
         |rows| {
             if rows.len() == 1 {
@@ -352,7 +348,7 @@ pub async fn missing_reason(
         &auth,
         deadline(),
         "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,$5::text,'core') \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&ip, Type::TEXT), (&perm, Type::TEXT)],
         |rows| {
             if rows.len() == 1 {

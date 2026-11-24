@@ -44,6 +44,8 @@ pub struct Session {
     pub(crate) amr: Vec<String>,
     /// Signed `device.id` (Go's `Claims.Device.ID`), empty when the token carries no device.
     pub(crate) device_id: String,
+    /// Signed `act` impersonation actor (`> 0`), if present, for provenance.
+    pub actor_id: Option<i64>,
 }
 
 /// The token Go's `jwt_bearer` method reads: `Authorization: Bearer <t>`
@@ -138,15 +140,26 @@ pub(crate) fn go_accepts(claims:&Map<String,Value>,issuer:&str,now_unix:f64,driv
         && str_claim(claims,"typ")=="access" && scope_admits(str_claim(claims,"scp"),drive,path)
 }
 
+/// Validate optional `act` impersonation claim: absent/null is `Ok(None)`, a
+/// positive integer is `Ok(Some(id))`, and any non-positive or non-integer value is `Err(())`.
+pub(crate) fn actor_id_from(claims: &Map<String, Value>) -> Result<Option<i64>, ()> {
+    match claims.get("act") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_i64() {
+            Some(id) if id > 0 => Ok(Some(id)),
+            _ => Err(()),
+        },
+    }
+}
+
 /// The refusal class `admit` reports for [`decoded_claims`] (Go rule order).
 pub(crate) fn session_detailed(claims:&Map<String,Value>,issuer:&str,now_unix:f64,drive:bool,path:Option<&[u8]>)
     ->Result<Session,crate::Refusal>{
     use crate::Refusal;
     if let Some(session)=session_from(claims,issuer,now_unix,drive,path){return Ok(session);}
-    if !go_accepts(claims,issuer,now_unix,drive,path) {
+    if !go_accepts(claims,issuer,now_unix,drive,path) || actor_id_from(claims).is_err() {
         return Err(Refusal::InvalidToken);
     }
-    if claims.get("act").is_some_and(|v|!v.is_null()) {return Err(Refusal::Impersonation);}
     if claims.get("iat").is_none_or(Value::is_null) {return Err(Refusal::MissingIssuedAt);}
     if claims.get("uid").and_then(Value::as_i64).is_none_or(|u|u<=0) {return Err(Refusal::UnservedSubject);}
     if str_claim(claims,"acct")=="guest" {return Err(Refusal::Guest);}
@@ -187,9 +200,7 @@ fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive:
     if !scope_admits(scope, drive, path) || str_claim(claims,"acct")=="guest" {
         return None;
     }
-    if claims.get("act").is_some_and(|v| !v.is_null()) {
-        return None;
-    }
+    let actor_id = actor_id_from(claims).ok()?;
     let user_id = claims.get("uid")?.as_i64().filter(|u| *u > 0)?;
     let issued_at = claims.get("iat")?.as_i64()?;
     Some(Session {
@@ -230,6 +241,7 @@ fn session_from(claims: &Map<String, Value>, issuer: &str, now_unix: f64, drive:
                     .collect()
             },
         ),
+        actor_id,
     })
 }
 
@@ -449,6 +461,7 @@ pub(crate) fn attachment(
             acr: String::new(),
             amr: Vec::new(),
             device_id: String::new(),
+            actor_id: None,
         },
         claims,
     ))
@@ -529,8 +542,13 @@ pub(crate) mod tests {
                 acr: String::new(),
                 amr: vec![],
                 device_id: String::new(),
+                actor_id: None,
             })
         );
+        let mut imp = claims();
+        imp["act"] = json!(3);
+        let imp_session = check(es256(), imp).await.expect("impersonation admitted");
+        assert_eq!(imp_session.actor_id, Some(3));
     }
 
     #[tokio::test]
@@ -555,7 +573,8 @@ pub(crate) mod tests {
             ("mfa pending", es256(), with("typ", json!("mfa_pending"))),
             ("scoped mirror", es256(), with("scp", json!("drive"))),
             ("guest claim", es256(), with("acct", json!("guest"))),
-            ("impersonation", es256(), with("act", json!(3))),
+            ("act zero", es256(), with("act", json!(0))),
+            ("act negative", es256(), with("act", json!(-1))),
             ("no iat", es256(), without("iat")),
             ("uid as string", es256(), with("uid", json!("7"))),
             ("case variant", es256(), with("UID", json!(9))),
@@ -902,8 +921,10 @@ mod verify_detailed_tests {
         };
         let cases: Vec<(&str, Value, Value, bool, Result<(), Refusal>)> = vec![
             ("valid", claims(), es256(), false, Ok(())),
-            ("act", with("act", json!(3)), es256(), false, Err(Refusal::Impersonation)),
-            ("act without iat", act_without_iat, es256(), false, Err(Refusal::Impersonation)),
+            ("act positive", with("act", json!(3)), es256(), false, Ok(())),
+            ("act zero", with("act", json!(0)), es256(), false, Err(Refusal::InvalidToken)),
+            ("act negative", with("act", json!(-1)), es256(), false, Err(Refusal::InvalidToken)),
+            ("act without iat", act_without_iat, es256(), false, Err(Refusal::MissingIssuedAt)),
             ("no iat", without("iat"), es256(), false, Err(Refusal::MissingIssuedAt)),
             ("acct guest", with("acct", json!("guest")), es256(), false, Err(Refusal::Guest)),
             ("acct guest without iat", guest_without_iat, es256(), false, Err(Refusal::MissingIssuedAt)),

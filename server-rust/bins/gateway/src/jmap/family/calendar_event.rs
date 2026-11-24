@@ -943,55 +943,98 @@ fn extract_invite_payload(result: &str) -> Option<String> {
 
 // ---- iMIP MIME construction (caldav/imip.go + calendar.go + calendar_a3.go) ----
 
+fn null_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + serde::Deserialize<'de>,
+{
+    Ok(<Option<T> as serde::Deserialize>::deserialize(d)?.unwrap_or_default())
+}
+
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct InvitePayload {
-    #[serde(rename = "type")]
+    #[serde(rename = "type", deserialize_with = "null_default")]
     kind: String,
+    #[serde(deserialize_with = "null_default")]
     method: String,
+    #[serde(deserialize_with = "null_default")]
     uid: String,
+    #[serde(deserialize_with = "null_default")]
     title: String,
+    #[serde(deserialize_with = "null_default")]
     description: String,
+    #[serde(deserialize_with = "null_default")]
     location: String,
+    #[serde(deserialize_with = "null_default")]
     start: String,
+    #[serde(deserialize_with = "null_default")]
     end: String,
+    #[serde(deserialize_with = "null_default")]
     all_day: bool,
+    #[serde(deserialize_with = "null_default")]
     timezone: String,
+    #[serde(deserialize_with = "null_default")]
     rrule: String,
+    #[serde(deserialize_with = "null_default")]
     recurrence_id: String,
+    #[serde(deserialize_with = "null_default")]
     sequence: i64,
+    #[serde(deserialize_with = "null_default")]
     status: String,
+    #[serde(deserialize_with = "null_default")]
     organizer_email: String,
+    #[serde(deserialize_with = "null_default")]
     organizer_name: String,
+    #[serde(deserialize_with = "null_default")]
     attendees: Vec<PayloadAttendee>,
 }
 
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct PayloadAttendee {
+    #[serde(deserialize_with = "null_default")]
     email: String,
+    #[serde(deserialize_with = "null_default")]
     name: String,
+    #[serde(deserialize_with = "null_default")]
     role: String,
+    #[serde(deserialize_with = "null_default")]
     participation_status: String,
+    #[serde(deserialize_with = "null_default")]
     expect_reply: bool,
+    #[serde(deserialize_with = "null_default")]
     delegated_from: String,
 }
 
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct CounterPayload {
+    #[serde(deserialize_with = "null_default")]
     uid: String,
+    #[serde(deserialize_with = "null_default")]
     title: String,
+    #[serde(deserialize_with = "null_default")]
     description: String,
+    #[serde(deserialize_with = "null_default")]
     location: String,
+    #[serde(deserialize_with = "null_default")]
     start: String,
+    #[serde(deserialize_with = "null_default")]
     end: String,
+    #[serde(deserialize_with = "null_default")]
     all_day: bool,
+    #[serde(deserialize_with = "null_default")]
     timezone: String,
+    #[serde(deserialize_with = "null_default")]
     sequence: i64,
+    #[serde(deserialize_with = "null_default")]
     organizer_email: String,
+    #[serde(deserialize_with = "null_default")]
     organizer_name: String,
+    #[serde(deserialize_with = "null_default")]
     attendee_email: String,
+    #[serde(deserialize_with = "null_default")]
     attendee_name: String,
 }
 
@@ -1750,5 +1793,56 @@ mod tests {
         assert_eq!(clean_rrule("COUNT=2;FREQ=DAILY"), None);
         assert_eq!(clean_rrule("FREQ=DAILY;BAD=a;b"), None);
         assert_eq!(param_value("a\\b;c"), "\"a\\\\b;c\"");
+    }
+
+    #[test]
+    fn build_invite_and_counter_accept_explicit_json_null_fields() {
+        let invite = r#"{
+            "type": null,
+            "method": "REQUEST",
+            "uid": "evt-null@setjoin.test",
+            "title": "Optional Attendee Sync",
+            "description": null,
+            "location": null,
+            "start": "2026-11-25T10:00:00Z",
+            "end": "2026-11-25T11:00:00Z",
+            "allDay": null,
+            "timezone": null,
+            "rrule": null,
+            "recurrenceId": null,
+            "sequence": null,
+            "status": null,
+            "organizerEmail": "org@setjoin.test",
+            "organizerName": null,
+            "attendees": [{
+                "email": "opt@setjoin.test",
+                "name": null,
+                "role": "optional",
+                "participationStatus": "needs-action",
+                "expectReply": null,
+                "delegatedFrom": null
+            }]
+        }"#;
+        let built = build_invite_mime(invite).unwrap().unwrap();
+        assert_eq!(built.recipients, vec!["opt@setjoin.test"]);
+        assert!(built.mime.contains("ROLE=OPT-PARTICIPANT"));
+
+        let counter = r#"{
+            "uid": "evt-null@setjoin.test",
+            "title": "Counter",
+            "description": null,
+            "location": null,
+            "start": "2026-11-25T12:00:00Z",
+            "end": "2026-11-25T13:00:00Z",
+            "allDay": null,
+            "timezone": null,
+            "sequence": null,
+            "organizerEmail": "org@setjoin.test",
+            "organizerName": null,
+            "attendeeEmail": "opt@setjoin.test",
+            "attendeeName": null
+        }"#;
+        let built = build_counter_mime(counter).unwrap();
+        assert_eq!(built.recipients, vec!["org@setjoin.test"]);
     }
 }

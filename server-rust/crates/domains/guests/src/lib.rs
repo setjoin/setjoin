@@ -1,15 +1,10 @@
 //! Guests (F11): verified actors and canonical reducer authority.
 #![forbid(unsafe_code)]
 use setjoin_authz::AuthContext;
-use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
 use setjoin_pg::{MailboxAuthContext, ScopedExecutor, StatementFailure, Type};
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified user"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 fn invalid() -> StatementFailure {
     StatementFailure {
@@ -113,7 +108,7 @@ pub async fn save_profile(
         payload_digest: Digest(Sha256::digest(body.as_bytes()).into()),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_profile_save"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"SELECT rust_guest_profile_save($2,$4,$5::text::jsonb)::text WHERE $1::bigint>0 AND $3::text<>''",&[(&id,Type::INT8),(&body,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_profile_save"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"SELECT rust_guest_profile_save($2,$4,$5::text::jsonb)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&id,Type::INT8),(&body,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 
 pub async fn delete_profile(
@@ -144,7 +139,7 @@ pub async fn delete_profile(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT guest_profile_delete($2,$4) WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT guest_profile_delete($2,$4) WHERE $1::bigint>=0 AND $3::text<>''",
         &[(&id, Type::INT8)],
         |rows| {
             if rows.len() == 1 {
@@ -231,7 +226,7 @@ pub async fn set_status(
         payload_digest: Digest(Sha256::digest(format!("{id}:{action}:{expires:?}")).into()),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_status"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"SELECT rust_guest_status($2,$4,$5,$6::text::timestamptz) WHERE $1::bigint>0 AND $3::text<>''",&[(&id,Type::INT8),(&action,Type::TEXT),(&expires,Type::TEXT)],|rows|match rows.first().and_then(|r|r.try_get::<_,bool>(0).ok()){Some(true)=>Ok(()),Some(false)=>Err(StatementFailure{sqlstate:None,hint:None,message:"guest target not found".into()}),None=>Err(invalid())}).await
+    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_status"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"SELECT rust_guest_status($2,$4,$5,$6::text::timestamptz) WHERE $1::bigint>=0 AND $3::text<>''",&[(&id,Type::INT8),(&action,Type::TEXT),(&expires,Type::TEXT)],|rows|match rows.first().and_then(|r|r.try_get::<_,bool>(0).ok()){Some(true)=>Ok(()),Some(false)=>Err(StatementFailure{sqlstate:None,hint:None,message:"guest target not found".into()}),None=>Err(invalid())}).await
 }
 
 pub async fn assign_profile(
@@ -263,7 +258,7 @@ pub async fn assign_profile(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT guest_profile_apply($2,$4,$5) WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT guest_profile_apply($2,$4,$5) WHERE $1::bigint>=0 AND $3::text<>''",
         &[(&id, Type::INT8), (&profile, Type::INT8)],
         |rows| {
             if rows.len() == 1 {
@@ -305,7 +300,7 @@ pub async fn transfer(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT guest_transfer($2,$4,$5)::text WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT guest_transfer($2,$4,$5)::text WHERE $1::bigint>=0 AND $3::text<>''",
         &[(&id, Type::INT8), (&sponsor, Type::INT8)],
         |rows| {
             rows.first()
@@ -369,7 +364,7 @@ pub async fn set_domain(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT guest_invite_domain_set($2,$4,$5,$6,$7) WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT guest_invite_domain_set($2,$4,$5,$6,$7) WHERE $1::bigint>=0 AND $3::text<>''",
         &[
             (&domain, Type::TEXT),
             (&host, Type::INT8),
@@ -411,7 +406,7 @@ pub async fn console_denied(
         command: (),
     };
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"console.denied"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",&[(&before,Type::TEXT),(&path,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+ "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",&[(&before,Type::TEXT),(&path,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }
 
 /// Go's preflight and canonical revoke share one wrapper transaction.
@@ -444,7 +439,7 @@ pub async fn revoke(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT rust_guest_invite_revoke($2,$4,$5) WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT rust_guest_invite_revoke($2,$4,$5) WHERE $1::bigint>=0 AND $3::text<>''",
         &[(&id, Type::INT8), (&invite, Type::INT8)],
         |rows| {
             let result: String = rows
@@ -504,7 +499,7 @@ pub async fn submit(
         &envelope,
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT guest_invite_request_create($2,$4,$5) WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT guest_invite_request_create($2,$4,$5) WHERE $1::bigint>=0 AND $3::text<>''",
         &[(&email, Type::TEXT), (&message, Type::TEXT)],
         |rows| {
             rows.first()
@@ -624,9 +619,9 @@ pub async fn invite(
         )
     };
     match input{
-  Invitation::Create{email,name,expires,profile}=>setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_invite"},&envelope,&auth,deadline,"SELECT rust_guest_invite($2,$4,$5,$6::text::timestamptz,$7,$8)::text WHERE $1::bigint>0 AND $3::text<>''",&[(&email,Type::TEXT),(&name,Type::TEXT),(&expires,Type::TEXT),(&profile,Type::INT8),(&hash,Type::TEXT)],decode).await,
-  Invitation::Reinvite{guest,expires}=>setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_reinvite"},&envelope,&auth,deadline,"SELECT rust_guest_reinvite($2,$4,$5::text::timestamptz,$6)::text WHERE $1::bigint>0 AND $3::text<>''",&[(&guest,Type::INT8),(&expires,Type::TEXT),(&hash,Type::TEXT)],decode).await,
-  Invitation::Approval{request,decision,comment}=>setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"guest_invite_approval"},&envelope,&auth,deadline,"SELECT rust_guest_approval_decide($4,$2,$5,$6,$7)::text WHERE $1::bigint>0 AND $3::text<>''",&[(&request,Type::INT8),(&decision,Type::TEXT),(&comment,Type::TEXT),(&hash,Type::TEXT)],decode).await,
+  Invitation::Create{email,name,expires,profile}=>setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_invite"},&envelope,&auth,deadline,"SELECT rust_guest_invite($2,$4,$5,$6::text::timestamptz,$7,$8)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&email,Type::TEXT),(&name,Type::TEXT),(&expires,Type::TEXT),(&profile,Type::INT8),(&hash,Type::TEXT)],decode).await,
+  Invitation::Reinvite{guest,expires}=>setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_reinvite"},&envelope,&auth,deadline,"SELECT rust_guest_reinvite($2,$4,$5::text::timestamptz,$6)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&guest,Type::INT8),(&expires,Type::TEXT),(&hash,Type::TEXT)],decode).await,
+  Invitation::Approval{request,decision,comment}=>setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F10",command:"guest_invite_approval"},&envelope,&auth,deadline,"SELECT rust_guest_approval_decide($4,$2,$5,$6,$7)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&request,Type::INT8),(&decision,Type::TEXT),(&comment,Type::TEXT),(&hash,Type::TEXT)],decode).await,
  }
 }
 
@@ -653,5 +648,5 @@ pub async fn enqueue(
         payload_digest: Digest(Sha256::digest(key.as_bytes()).into()),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_invite_enqueue"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"INSERT INTO outbound_queue(message_id,from_addr,rcpt_addrs,raw_ref,status) SELECT $4,$5,ARRAY[$6],$7,'pending' WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",&[(&message,Type::TEXT),(&from,Type::TEXT),(&to,Type::TEXT),(&key,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+    setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F11",command:"guest_invite_enqueue"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),"INSERT INTO outbound_queue(message_id,from_addr,rcpt_addrs,raw_ref,status) SELECT $4,$5,ARRAY[$6],$7,'pending' WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",&[(&message,Type::TEXT),(&from,Type::TEXT),(&to,Type::TEXT),(&key,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }

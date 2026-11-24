@@ -411,32 +411,33 @@ for _var in INSTALL_DIR DATA_DIR CONFIG_ENV DB_CREDENTIALS_FILE; do
   export "$_var=$_saved"
 done
 
-# ── Case 14: render_authserver_unit — order-sensitive EnvironmentFile pair
-#    (config.env must render BEFORE auth.env — later EnvironmentFile wins) ──
+# ── Case 14: render_authserver_unit — Rust setjoin-auth (#359b) ──
 export AUTH_ENV="/etc/setjoin/auth.env"
 render_authserver_unit "$AUTHSERVER_UNIT_TMPL" "$WORK/authserver.service"
-assert_contains "$WORK/authserver.service" "WorkingDirectory=/opt/setjoin/current" "authserver unit points at immutable current (WorkingDirectory)"
-assert_contains "$WORK/authserver.service" "ExecStart=/opt/setjoin/current/authserverd" "authserver unit points at immutable current (ExecStart)"
-assert_contains "$WORK/authserver.service" "ReadWritePaths=/tmp" "authserver unit cannot write the immutable release"
-assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/config.env" "authserver unit substitutes CONFIG_ENV"
-assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env" "authserver unit substitutes DB_CREDENTIALS_FILE (worker tier preserved, DEPLOY-004 r2-2)"
-assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/auth.env" "authserver unit substitutes AUTH_ENV"
-assert_contains "$WORK/authserver.service" "User=setjoin" "authserver unit defaults USER to setjoin"
-assert_contains "$WORK/authserver.service" "Group=setjoin" "authserver unit defaults GROUP to setjoin"
+assert_contains "$WORK/authserver.service" "WorkingDirectory=/opt/setjoin/current" "auth unit points at immutable current (WorkingDirectory)"
+assert_contains "$WORK/authserver.service" "ExecStart=/opt/setjoin/current/setjoin-auth" "auth unit runs the Rust setjoin-auth from immutable current"
+assert_contains "$WORK/authserver.service" "ReadWritePaths=/tmp" "auth unit cannot write the immutable release"
+assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/config.env" "auth unit substitutes CONFIG_ENV"
+assert_contains "$WORK/authserver.service" "EnvironmentFile=/etc/setjoin/auth.env" "auth unit substitutes AUTH_ENV"
+assert_not_contains "$WORK/authserver.service" "db-credentials" "Rust auth unit never loads the privileged credential file"
+assert_not_contains "$WORK/authserver.service" "setjoin-authserverd" "Rust auth unit has zero Go authserverd chaining"
+assert_not_contains "$WORK/authserver.service" "AUTHSERVER_GO_UPSTREAM" "Rust auth unit has no Go upstream reference"
+assert_contains "$WORK/authserver.service" 'http://${LISTEN_ADDR}/health' "readiness checks setjoin-auth /health directly"
+assert_not_contains "$WORK/authserver.service" "auth/login" "readiness sends no credential request"
+assert_contains "$WORK/authserver.service" "User=setjoin" "auth unit defaults USER to setjoin"
+assert_contains "$WORK/authserver.service" "Group=setjoin" "auth unit defaults GROUP to setjoin"
 assert_not_contains "$WORK/authserver.service" "{{" "no leftover {{...}} placeholders (authserver.service)"
 assert_unit_section_has_startlimit "$WORK/authserver.service" "authserver.service: StartLimit* lives in [Unit] (rendered)"
 _cfg_line="$(grep -n '^EnvironmentFile=/etc/setjoin/config.env$' "$WORK/authserver.service" | cut -d: -f1)"
-_cred_line="$(grep -n '^EnvironmentFile=/etc/setjoin/db-credentials.d/db-credentials.env$' "$WORK/authserver.service" | cut -d: -f1)"
 _auth_line="$(grep -n '^EnvironmentFile=/etc/setjoin/auth.env$' "$WORK/authserver.service" | cut -d: -f1)"
-if [ -n "$_cfg_line" ] && [ -n "$_cred_line" ] && [ -n "$_auth_line" ] \
-   && [ "$_cfg_line" -lt "$_cred_line" ] && [ "$_cred_line" -lt "$_auth_line" ]; then
-  printf 'ok   - %s\n' "authserver unit: config.env < db-credentials < auth.env EnvironmentFile order (later wins)"
+if [ -n "$_cfg_line" ] && [ -n "$_auth_line" ] && [ "$_cfg_line" -lt "$_auth_line" ]; then
+  printf 'ok   - %s\n' "auth unit: config.env < auth.env EnvironmentFile order (later wins)"
 else
-  printf 'FAIL - %s (cfg_line=%s cred_line=%s auth_line=%s)\n' "authserver unit: config.env < db-credentials < auth.env EnvironmentFile order" "$_cfg_line" "$_cred_line" "$_auth_line"
+  printf 'FAIL - %s (cfg_line=%s auth_line=%s)\n' "auth unit: config.env < auth.env EnvironmentFile order" "$_cfg_line" "$_auth_line"
   fail=1
 fi
 
-for _var in INSTALL_DIR CONFIG_ENV AUTH_ENV DB_CREDENTIALS_FILE; do
+for _var in INSTALL_DIR CONFIG_ENV AUTH_ENV; do
   _saved="$(eval "echo \${$_var}")"
   unset "$_var"
   if render_authserver_unit "$AUTHSERVER_UNIT_TMPL" "$WORK/should-not-exist-12-$_var.service" 2>"$WORK/err12-$_var.txt"; then
@@ -447,6 +448,50 @@ for _var in INSTALL_DIR CONFIG_ENV AUTH_ENV DB_CREDENTIALS_FILE; do
   fi
   export "$_var=$_saved"
 done
+
+# ── Case 14b: render_auth_env — root-0600 temp-renamed auth.env (#359b) ──
+mkdir -p "$WORK/auth-env-test"
+cat > "$WORK/auth-env-test/config.env" <<'ENV'
+AUTHSERVER_URL=http://127.0.0.1:8443
+DB_DSN=postgres://setjoin_app:apppw@127.0.0.1:5432/mailserver
+ENV
+cat > "$WORK/auth-env-test/db-credentials.env" <<'ENV'
+DB_WORKER_DSN=postgres://setjoin_worker:workerpw@127.0.0.1:5432/mailserver
+DB_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver
+DB_DIRECT_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver
+ENV
+chmod 0600 "$WORK/auth-env-test/db-credentials.env"
+AUTH_LISTEN="" AUTHSERVER_URL="" render_auth_env "$WORK/auth-env-test/auth.env" "$WORK/auth-env-test/config.env" "$WORK/auth-env-test/db-credentials.env"
+assert_contains "$WORK/auth-env-test/auth.env" "LISTEN_ADDR=127.0.0.1:8443" "auth.env sets LISTEN_ADDR from AUTHSERVER_URL"
+assert_contains "$WORK/auth-env-test/auth.env" "TLS_CERT=" "auth.env clears TLS_CERT"
+assert_contains "$WORK/auth-env-test/auth.env" "TLS_KEY=" "auth.env clears TLS_KEY"
+assert_contains "$WORK/auth-env-test/auth.env" "TRUSTED_PROXY_IP=127.0.0.1" "auth.env pins TRUSTED_PROXY_IP=127.0.0.1"
+assert_contains "$WORK/auth-env-test/auth.env" "DB_WORKER_DSN=postgres://setjoin_worker:workerpw@127.0.0.1:5432/mailserver" "auth.env extracts DB_WORKER_DSN from split credential file"
+assert_not_contains "$WORK/auth-env-test/auth.env" "DB_OWNER_DSN" "auth.env never exposes DB_OWNER_DSN"
+assert_not_contains "$WORK/auth-env-test/auth.env" "DB_DIRECT_OWNER_DSN" "auth.env never exposes DB_DIRECT_OWNER_DSN"
+assert_not_contains "$WORK/auth-env-test/auth.env" "AUTHSERVER_GO_UPSTREAM" "auth.env never emits AUTHSERVER_GO_UPSTREAM"
+_auth_mode="$(stat -f %Lp "$WORK/auth-env-test/auth.env" 2>/dev/null || stat -c %a "$WORK/auth-env-test/auth.env")"
+if [ "$_auth_mode" = "600" ]; then
+  printf 'ok   - %s\n' "auth.env mode is 0600"
+else
+  printf 'FAIL - %s (got %s)\n' "auth.env mode is 0600" "$_auth_mode"
+  fail=1
+fi
+for _bad_listen in "localhost:8443" "[::1]:8443" "0.0.0.0:8443"; do
+  if AUTH_LISTEN="$_bad_listen" render_auth_env "$WORK/auth-env-test/bad.env" "$WORK/auth-env-test/config.env" "$WORK/auth-env-test/db-credentials.env" 2>/dev/null; then
+    printf 'FAIL - %s\n' "render_auth_env must refuse non-127.0.0.1 listen $_bad_listen"
+    fail=1
+  else
+    printf 'ok   - %s\n' "render_auth_env refuses $_bad_listen"
+  fi
+done
+ln -s "$WORK/auth-env-test/db-credentials.env" "$WORK/auth-env-test/cred.link"
+if AUTH_LISTEN="127.0.0.1:8443" render_auth_env "$WORK/auth-env-test/bad-link.env" "$WORK/auth-env-test/config.env" "$WORK/auth-env-test/cred.link" 2>/dev/null; then
+  printf 'FAIL - %s\n' "render_auth_env must refuse symlinked credential file"
+  fail=1
+else
+  printf 'ok   - %s\n' "render_auth_env refuses symlinked credential file"
+fi
 
 # ── Case 15: render_sfu_unit — INSTALL_DIR + LIVEKIT_YAML (default + override) ──
 render_sfu_unit "$SFU_UNIT_TMPL" "$WORK/setjoin-sfu.service"

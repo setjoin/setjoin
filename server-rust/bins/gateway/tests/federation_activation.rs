@@ -252,41 +252,22 @@ async fn executable_uses_inherited_socket_for_recorded_delivery_and_graceful_shu
 }
 
 #[tokio::test]
-async fn executable_refuses_a_duplicate_worker_and_a_duplicate_federation_service() {
+async fn executable_starts_federation_service_and_reaper_without_go_workers_off() {
     let _serial = SERIAL.lock().await;
-    use std::io::Read;
     let Some(db) = setjoin_conformance::harness::Db::for_case("federation-startup-guards") else {
         return;
     };
-    for (off, worker, needle) in [
-        ("", "", "GO_WORKERS_OFF=federation-service"),
-        (
-            "federation-service",
-            "federation-residue-reap",
-            "GO_WORKERS_OFF=federation-residue-reap",
-        ),
-    ] {
+    for (off, worker) in [("", ""), ("", "federation-residue-reap")] {
         let (mut child, _) = launch(&db, off, worker);
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let Some(status) = child.0.try_wait().unwrap() {
-                    assert!(!status.success());
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .unwrap();
-        let mut stderr = String::new();
-        child
-            .0
-            .stderr
-            .take()
-            .unwrap()
-            .read_to_string(&mut stderr)
-            .unwrap();
-        assert!(stderr.contains(needle), "{stderr}");
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert_running(
+            &mut child,
+            "federation service and reaper must start without GO_WORKERS_OFF",
+        );
+        unsafe {
+            libc::kill(child.0.id() as i32, libc::SIGTERM);
+        }
+        let _ = child.0.wait();
     }
 }
 

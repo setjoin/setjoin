@@ -1,6 +1,6 @@
 //! Shared shapes of the `remaining` slice's writes: one receipted command calling a reducer
 //! Go calls, with the verified actor as `$2` and the operation text as `$3`. Parameters the
-//! caller supplies start at `$4`. Every statement ends in the `WHERE $1 > 0 AND $3 <> ''`
+//! caller supplies start at `$4`. Every statement ends in the `WHERE $1 >= 0 AND $3 <> ''`
 //! guard so the helper-supplied scope and operation id are always consumed.
 use super::{command, deadline, envelope, invalid, scope};
 use setjoin_authz::AuthContext;

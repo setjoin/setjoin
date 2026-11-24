@@ -67,7 +67,7 @@ pub async fn save(
             strength.slug, strength.name, strength.min_acr
         ),
         "SELECT ca_auth_strength_set($4,$5,$6,$7::text::jsonb,$8,false,$2,$9::text::inet) \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&id, Type::INT8),
             (&strength.slug, Type::TEXT),
@@ -96,7 +96,7 @@ pub async fn delete(
         operation,
         &format!("{id}:{ip}"),
         "SELECT count(*)::bigint FROM (SELECT ca_auth_strength_set($4,NULL,NULL,NULL,NULL,true,$2,$5::text::inet) \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&id, Type::INT8), (&ip, Type::TEXT)],
         counted,
     )

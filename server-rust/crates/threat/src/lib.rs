@@ -78,21 +78,9 @@ impl RuntimeTasks {
     }
 }
 
-/// Shared effects are opt-in until the auth binary replaces authserverd on its
-/// existing listener. GO_WORKERS_OFF attests that whole-process retirement;
-/// Go auth tasks have no per-task launcher switch. Local caches never use it.
-pub fn admit_runtime(rust_on: &str, go_off: &str) -> Result<bool, String> {
-    let listed = |value: &str| value.split(',').any(|v| v.trim() == "auth-runtime");
-    if !listed(rust_on) {
-        return Ok(false);
-    }
-    if !listed(go_off) {
-        return Err(
-            "auth-runtime requires GO_WORKERS_OFF=auth-runtime after the authserverd process swap"
-                .into(),
-        );
-    }
-    Ok(true)
+/// Shared auth runtime tasks are opt-in via `RUST_WORKERS_ON=auth-runtime`.
+pub fn admit_runtime(rust_on: &str, _go_off: &str) -> Result<bool, String> {
+    Ok(rust_on.split(',').any(|v| v.trim() == "auth-runtime"))
 }
 impl RuntimeTasks {
     pub async fn run(&self) {

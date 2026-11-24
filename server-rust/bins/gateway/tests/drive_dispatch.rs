@@ -79,10 +79,19 @@ async fn run(kill: bool, rollback: bool) -> Result<(), BoxError> {
             ("DB_ENCRYPTION_KEY","22".repeat(32)),("AUTHSERVER_JWKS_URL",format!("http://{jwks}/.well-known/jwks.json")),("CORE_RATE_LIMIT","100000".into()),("ADMIN_RATE_LIMIT","100000".into()),
         ]{command.env(key,value);}
         if kill||rollback{command.env("GATEWAY_UPSTREAM",format!("http://{go}"));}
-        if rollback{let mut inventory:Value=serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;for row in inventory["routes"].as_array_mut().unwrap(){if row["family"]=="F14"&&row["slice"]=="golden-routes"{row["state"]="OFF".into();row["upstream"]="go-mail".into();}}let file=dir.join(format!("gofree-drive1-rollback-{}.json",a.user));std::fs::write(&file,inventory.to_string())?;command.env("GATEWAY_ROUTE_INVENTORY",file);}
+        let rollback_file=dir.join(format!("gofree-drive1-rollback-{}.json",a.user));
+        if rollback{let mut inventory:Value=serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;for row in inventory["routes"].as_array_mut().unwrap(){if row["family"]=="F14"&&row["slice"]=="golden-routes"{row["state"]="OFF".into();row["upstream"]="go-mail".into();}}std::fs::write(&rollback_file,inventory.to_string())?;command.env("GATEWAY_ROUTE_INVENTORY",&rollback_file);}
         if let Ok(path)=std::env::var("LLVM_PROFILE_FILE"){command.env("LLVM_PROFILE_FILE",path);}
         ledger(&format!("Plan gofree-drive1-gateway executable at {address}, assigned DB only"))?;
         let mut child=Owned(command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log)).spawn_boot()?);ledger(&format!("Started gofree-drive1-gateway PID {}",child.0.id()))?;
+        if kill||rollback{
+            let mut exited=None;for _ in 0..500{if let Some(status)=child.0.try_wait()?{exited=Some(status);break}tokio::time::sleep(Duration::from_millis(10)).await;}
+            if !exited.is_some_and(|s|!s.success()){return Err(format!("gateway kill={kill} rollback={rollback} should have been rejected: {exited:?}").into())}
+            let pid=child.0.id();drop(child);ledger(&format!("Stopped/reaped gofree-drive1-gateway PID {pid}"))?;
+            if rollback&&rollback_file.exists(){std::fs::remove_file(rollback_file)?;}
+            if hits.load(Ordering::SeqCst)!=0{return Err("unexpected Go request count".into())}
+            return Ok::<_,BoxError>(());
+        }
         let deadline=tokio::time::Instant::now()+Duration::from_secs(60);
         loop{if let Some(status)=child.0.try_wait()?{return Err(format!("gateway exited: {status}").into())}if tokio::net::TcpStream::connect(address).await.is_ok(){break}if tokio::time::Instant::now()>deadline{return Err("gateway startup timeout".into())}tokio::time::sleep(Duration::from_millis(20)).await;}
         let requests=vec![

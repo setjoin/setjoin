@@ -77,7 +77,7 @@ pub async fn activate(
 ) -> CommandOutcome<String, StatementFailure> {
     let auth = scope(actor);
     let sql = format!(
-        "SELECT {} FROM (SELECT admin_role_activate($2, $4, $5, $6) AS u WHERE $1::bigint > 0 AND $3::text <> '') r",
+        "SELECT {} FROM (SELECT admin_role_activate($2, $4, $5, $6) AS u WHERE $1::bigint >= 0 AND $3::text <> '') r",
         nano("r.u")
     );
     setjoin_pg::run_receipted_command(
@@ -126,7 +126,7 @@ pub async fn deactivate(
         &envelope(&auth, operation, &role.to_string()),
         &auth,
         deadline(),
-        "SELECT count(*)::bigint FROM (SELECT admin_role_deactivate($2, $4) WHERE $1::bigint > 0 AND $3::text <> '') r",
+        "SELECT count(*)::bigint FROM (SELECT admin_role_deactivate($2, $4) WHERE $1::bigint >= 0 AND $3::text <> '') r",
         &[(&role, Type::INT8)],
         |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
     )
@@ -224,7 +224,7 @@ pub async fn put_policy(
         deadline(),
 &format!(
             "INSERT INTO admin_role_activation_policy (role_group_id, max_duration_minutes, require_justification) \
-             SELECT $4, $5, $6 WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+             SELECT $4, $5, $6 WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
              AND {} \
              ON CONFLICT (role_group_id) DO UPDATE \
              SET max_duration_minutes = EXCLUDED.max_duration_minutes, \

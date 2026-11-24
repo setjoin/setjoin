@@ -100,7 +100,7 @@ pub async fn lock(
     let launch = p["launchId"].as_str().unwrap_or("");
     let hash = token_hash(token);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_wopi_lock_apply"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_wopi_lock_apply($4::text::uuid,$5,$6,$7,$8,1800)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text IS NOT NULL",
+ "SELECT office_wopi_lock_apply($4::text::uuid,$5,$6,$7,$8,1800)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text IS NOT NULL",
  &[(&launch,Type::TEXT),(&hash,Type::TEXT),(&operation,Type::TEXT),(&value,Type::TEXT),(&old,Type::TEXT)],decode).await
 }
 
@@ -176,16 +176,12 @@ pub async fn save(
     let base = p["versionId"].as_i64().unwrap_or(0);
     let content_type = p["contentType"].as_str();
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_save_accept"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_save_accept($4::text::uuid,$5,$6,$7,$8,$9,$10,$11::text::jsonb,$12)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text IS NOT NULL",
+ "SELECT office_save_accept($4::text::uuid,$5,$6,$7,$8,$9,$10,$11::text::jsonb,$12)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text IS NOT NULL",
  &[(&launch,Type::TEXT),(&hash,Type::TEXT),(&s.key,Type::TEXT),(&base,Type::INT8),(&s.sha,Type::TEXT),(&s.size,Type::INT8),(&content_type,Type::TEXT),(&s.manifest,Type::TEXT),(&s.lock,Type::TEXT)],decode).await
 }
 
 fn actor_auth(actor: &setjoin_authz::AuthContext) -> setjoin_pg::MailboxAuthContext {
-    setjoin_pg::MailboxAuthContext::from_authenticated_session(
-        setjoin_contracts::ids::ActorId::new(actor.user_id()).expect("verified actor"),
-        setjoin_contracts::ids::MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        setjoin_contracts::ids::Generation(1),
-    )
+    actor.database_scope()
 }
 pub struct Configure<'a> {
     pub provider: &'a str,
@@ -204,7 +200,7 @@ pub async fn configure(
 ) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
     let auth = actor_auth(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_provider_configure"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_provider_configure($2,$4,$5,$6,$7,$8,$9::text::jsonb,$10)::text WHERE $1::bigint>0 AND $3::text IS NOT NULL",
+ "SELECT office_provider_configure($2,$4,$5,$6,$7,$8,$9::text::jsonb,$10)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
  &[(&p.provider,Type::TEXT),(&p.generation,Type::INT8),(&p.profile,Type::TEXT),(&p.entitlement,Type::TEXT),(&p.build,Type::TEXT),(&p.config,Type::TEXT),(&p.reason,Type::TEXT)],decode).await
 }
 
@@ -220,7 +216,7 @@ pub async fn activate(
 ) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
     let auth = actor_auth(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_provider_activate"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_provider_activate($2,$4,$5,$6::text::uuid,$7::text::jsonb,$8)::text WHERE $1::bigint>0 AND $3::text IS NOT NULL",
+ "SELECT office_provider_activate($2,$4,$5,$6::text::uuid,$7::text::jsonb,$8)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
  &[(&provider,Type::TEXT),(&generation,Type::INT8),(&qualification,Type::TEXT),(&scope,Type::TEXT),(&reason,Type::TEXT)],decode).await
 }
 /// Google UUID Parse forms, including the zero UUID accepted by Go's admin edge.
@@ -276,7 +272,7 @@ pub async fn remove(
         &envelope(&auth, id),
         &auth,
         std::time::Instant::now() + std::time::Duration::from_secs(30),
-        "SELECT office_provider_remove($2,$4,$5)::text WHERE $1::bigint>0 AND $3::text IS NOT NULL",
+        "SELECT office_provider_remove($2,$4,$5)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
         &[(&provider, Type::TEXT), (&reason, Type::TEXT)],
         decode,
     )
@@ -294,7 +290,7 @@ pub async fn console_denied(
 ) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
     let auth = actor_auth(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"console.denied"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text IS NOT NULL",&[(&before,Type::TEXT),(&path,Type::TEXT)],|_|Ok(())).await
+ "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text IS NOT NULL",&[(&before,Type::TEXT),(&path,Type::TEXT)],|_|Ok(())).await
 }
 
 pub async fn qualification_target(
@@ -336,7 +332,7 @@ pub async fn qualify(
 ) -> setjoin_pg::CommandOutcome<Value, StatementFailure> {
     let auth = actor_auth(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"office_provider_qualify"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT office_provider_qualify($2,$4,$5,$6,$7,$8::text::jsonb,$9,$10,$11,$12,$13)::text WHERE $1::bigint>0 AND $3::text IS NOT NULL",
+ "SELECT office_provider_qualify($2,$4,$5,$6,$7,$8::text::jsonb,$9,$10,$11,$12,$13)::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",
  &[(&p.provider,Type::TEXT),(&p.generation,Type::INT8),(&p.profile,Type::TEXT),(&p.config_sha,Type::TEXT),(&p.checks,Type::TEXT),(&p.fingerprint,Type::TEXT),(&p.build,Type::TEXT),(&p.route_revision,Type::INT8),(&p.receipt,Type::INT8),(&p.reason,Type::TEXT)],decode).await
 }
 
@@ -348,5 +344,5 @@ pub async fn reason_missing(
 ) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
     let auth = actor_auth(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:"F15",command:"sensitive_action.reason_missing"},&envelope(&auth,id),&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,$4::text::inet,'office.manage','core') WHERE $1::bigint>0 AND $3::text IS NOT NULL",&[(&ip,Type::TEXT)],|_|Ok(())).await
+ "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,$4::text::inet,'office.manage','core') WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[(&ip,Type::TEXT)],|_|Ok(())).await
 }

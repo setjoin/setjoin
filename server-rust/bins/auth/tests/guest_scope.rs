@@ -554,7 +554,7 @@ impl Case {
         cfg.signing_alg = "ES256".into();
         cfg.db_encryption_key = ENC.into();
         cfg.vapid_private_key = VAPID.into();
-        cfg.go_upstream = upstream;
+        let _ = upstream;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
         let auth = AuthServer::load(exec, cfg)

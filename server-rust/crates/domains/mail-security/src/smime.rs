@@ -101,7 +101,7 @@ pub async fn import(
         &auth,
         deadline(),
         "SELECT rust_mailsec_smime_anchor_import($4::text,$5::text::jsonb,$6::bigint,$2::bigint) \
-         WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[
             (&label, Type::TEXT),
             (&document, Type::TEXT),
@@ -136,7 +136,7 @@ pub async fn delete(
         &auth,
         deadline(),
         "SELECT rust_mailsec_smime_anchor_delete($4::bigint,$5::bigint) \
-         WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
         |rows| {
             rows.first()

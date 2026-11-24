@@ -84,7 +84,7 @@ async fn mdm_notify_seed_plus_one_tick_and_go_off_switch() -> Result<(), BoxErro
  let path=Log(std::env::temp_dir().join(format!("gofree-devices3-mdm-{}-{enabled}.log",std::process::id())));
  if let Ok(ledger)=std::env::var("GOFREE_RESOURCE_LEDGER"){use std::io::Write;writeln!(std::fs::OpenOptions::new().append(true).open(ledger)?,"Planned owned gofree-devices3-mdm-{enabled}, log {}",path.0.display())?;}
  let output=std::fs::File::create(&path.0)?;
- let mut p=Process(Command::new(env!("CARGO_BIN_EXE_setjoin-gateway")).arg0("gofree-devices3-mdm").env_clear().env("GATEWAY_LISTEN",address.to_string()).env("GATEWAY_ENABLED","false").env("RUST_WORKERS_ON",if enabled{"mdm-notify"}else{""}).env("GO_WORKERS_OFF",if enabled{"mdm-notify"}else{""}).stdout(Stdio::null()).stderr(output).spawn()?);
+ let mut p=Process(Command::new(env!("CARGO_BIN_EXE_setjoin-gateway")).arg0("gofree-devices3-mdm").env_clear().env("GATEWAY_LISTEN",address.to_string()).env("RUST_WORKERS_ON",if enabled{"mdm-notify"}else{""}).env("GO_WORKERS_OFF",if enabled{"mdm-notify"}else{""}).stdout(Stdio::null()).stderr(output).spawn()?);
  let mut ready=false;
  for _ in 0..300{if tokio::net::TcpStream::connect(address).await.is_ok(){ready=true;break;}if let Some(status)=p.0.try_wait()?{return Err(format!("Rust mdm-notify exited {status}: {}",std::fs::read_to_string(&path.0)?).into());}tokio::time::sleep(std::time::Duration::from_millis(10)).await;}
  if !ready{return Err("Rust mdm-notify did not bind".into());}

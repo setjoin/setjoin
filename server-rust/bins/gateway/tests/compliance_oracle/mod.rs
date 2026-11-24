@@ -988,9 +988,19 @@ pub async fn kill_switch() -> Result<(), BoxError> {
                 edge_limit: None,
             },
             RouteTable::proxy_all().with(adapter),
-        )?
-        .with_inventory(&inventory.to_string())?
-        .with_enabled(!global);
+        )?;
+        if !global {
+            assert!(
+                gateway.with_inventory(&inventory.to_string()).is_err(),
+                "OFF/go-mail F04 ediscovery inventory must be rejected"
+            );
+            assert!(calls.lock().unwrap().is_empty());
+            assert_eq!(before, snapshot(&owner, None).await?);
+            continue;
+        }
+        let gateway = gateway
+            .with_inventory(&inventory.to_string())?
+            .with_enabled(false);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let server = tokio::spawn(gateway.serve(listener));
@@ -1005,11 +1015,7 @@ pub async fn kill_switch() -> Result<(), BoxError> {
                     .body(common::full("{}"))?,
             )
             .await;
-            assert_eq!(response.status().as_u16(), 299, "{method} {path}");
-            assert_eq!(
-                common::body_bytes(response).await.as_ref(),
-                b"kill switch\n"
-            );
+            assert_eq!(response.status().as_u16(), 401, "{method} {path}");
         }
         let metrics = common::send(
             addr,
@@ -1018,27 +1024,13 @@ pub async fn kill_switch() -> Result<(), BoxError> {
         .await;
         let status = metrics.status().as_u16();
         let text = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
-        if global {
-            // The global switch intentionally bypasses local probes too.
-            assert_eq!(status, 299);
-            assert_eq!(text, "kill switch\n");
-            assert_eq!(
-                calls.lock().unwrap().last().unwrap(),
-                &("GET".into(), "/_gateway/metrics".into())
-            );
-        } else {
-            assert_eq!(status, 200);
-            assert!(
-                text.contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 12")
-            );
-        }
-        let actual = calls.lock().unwrap();
-        assert_eq!(actual.len(), if global { 13 } else { 12 });
-        for ((method, path), (actual_method, actual_path)) in routes.iter().zip(actual.iter()) {
-            assert_eq!(method, actual_method);
-            assert_eq!(format!("/api{path}"), *actual_path);
-        }
-        drop(actual);
+        assert_eq!(status, 200);
+        assert!(text.contains("setjoin_gateway_proxied_to_go_total 0\n"), "{text}");
+        assert!(
+            text.contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0\n"),
+            "{text}"
+        );
+        assert!(calls.lock().unwrap().is_empty());
         assert_eq!(before, snapshot(&owner, None).await?);
         server.abort();
     }

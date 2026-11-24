@@ -116,9 +116,7 @@ pub struct Config {
 }
 
 struct Shared {
-    enabled: bool,
     upstream: Upstream,
-    auth_upstream: Option<Upstream>,
     rust_auth_upstream: Option<Upstream>,
     inventory: inventory::Inventory,
     go_proxies: Arc<metrics::GoProxies>,
@@ -144,9 +142,7 @@ impl Gateway {
         .with_header_timeout(config.upstream_header_timeout);
         Ok(Self {
             shared: Arc::new(Shared {
-                enabled: true,
                 upstream,
-                auth_upstream: None,
                 rust_auth_upstream: None,
                 inventory: inventory::Inventory::parse(inventory::BUNDLED)?,
                 go_proxies: Arc::new(metrics::GoProxies::default()),
@@ -179,11 +175,8 @@ impl Gateway {
         self
     }
 
-    /// Configure a direct authserver upstream for `/auth/` requests.
-    pub fn with_auth_upstream(mut self, uri: Uri) -> Result<Self, String> {
-        let shared = Arc::get_mut(&mut self.shared).expect("new gateway is unshared");
-        shared.auth_upstream =
-            Some(Upstream::new(uri)?.with_header_timeout(shared.upstream_header_timeout));
+    /// Deprecated no-op: Go authserver forwarding has been retired (#359).
+    pub fn with_auth_upstream(self, _uri: Uri) -> Result<Self, String> {
         Ok(self)
     }
 
@@ -203,11 +196,8 @@ impl Gateway {
         Ok(self)
     }
 
-    /// Kill switch: bypass all Rust dispatch, probes and edge limiting.
-    pub fn with_enabled(mut self, enabled: bool) -> Self {
-        Arc::get_mut(&mut self.shared)
-            .expect("new gateway is unshared")
-            .enabled = enabled;
+    /// Deprecated no-op: legacy Go proxy-all kill switch has been retired (#359).
+    pub fn with_enabled(self, _enabled: bool) -> Self {
         self
     }
 
@@ -444,23 +434,8 @@ async fn handle(
     // Direct authserver recordings retain its per-route CSRF ordering/headers.
     // Gateway traffic, including both auth upstreams, has mailserver's outer CSRF.
     let auth_listener = shared.inventory.auth_only();
-    let auth_target = route.map_or(auth_path, |r| {
-        matches!(
-            r.target,
-            inventory::Target::RustAuth | inventory::Target::GoAuth
-        )
-    });
-    let family = shared
-        .inventory
-        .proxy_family(req.method(), req.uri().path(), route)
-        .unwrap_or(if auth_path { 21 } else { 0 });
-    let go_mail = shared
-        .upstream
-        .clone()
-        .with_go_counter(shared.go_proxies.clone(), family);
-    if !shared.enabled {
-        return go_mail.forward(req, &identity).await;
-    }
+    let auth_target = route.map_or(auth_path, |r| r.target == inventory::Target::RustAuth);
+    let go_mail = shared.upstream.clone();
     if req.uri().path() == HEALTH_PATH {
         return match *req.method() {
             Method::GET | Method::HEAD => proxy::status(StatusCode::OK, "ok\n"),
@@ -668,30 +643,14 @@ async fn handle(
     }
     let target = route.map_or(
         if auth_path {
-            inventory::Target::GoAuth
+            inventory::Target::RustAuth
         } else {
-            inventory::Target::GoMail
+            inventory::Target::LocalRust
         },
         |r| r.target,
     );
-    // Qualified auth routes reach setjoin-auth. That process owns the
-    // credential-route threat admission and forwards only shapes awaiting #420.
+    // Qualified auth routes reach setjoin-auth.
     match target {
-        inventory::Target::GoAuth => {
-            return match &shared.auth_upstream {
-                Some(upstream) => {
-                    upstream
-                        .clone()
-                        .with_go_counter(shared.go_proxies.clone(), family)
-                        .forward(req, &identity)
-                        .await
-                }
-                None => proxy::status(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "Go auth upstream unavailable\n",
-                ),
-            }
-        }
         inventory::Target::RustAuth => {
             if route.is_some_and(|r| {
                 r.target == inventory::Target::RustAuth
@@ -721,7 +680,6 @@ async fn handle(
                 ),
             };
         }
-        inventory::Target::GoMail => return go_mail.forward(req, &identity).await,
         inventory::Target::LocalRust => {}
     }
     // The wildcard subtree rows (F22 `/` and `/api/`; F12 `/chat/`, F14 `/drive/`, F13
@@ -771,7 +729,13 @@ async fn handle(
             };
             route.handle(req, ctx).await
         }
-        None => go_mail.forward(req, &identity).await,
+        None => catchall::not_found(
+            &req,
+            &RequestContext {
+                identity,
+                upstream: go_mail,
+            },
+        ),
     }
 }
 

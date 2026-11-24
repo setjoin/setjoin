@@ -81,7 +81,13 @@ async fn run(kill: bool, rollback: bool) -> Result<(), common::BoxError> {
                     r["upstream"] = "go-mail".into();
                 }
             }
-            gateway.with_inventory(&inventory.to_string())?
+            if gateway.with_inventory(&inventory.to_string()).is_ok() {
+                return Err("F15 OFF/go-mail inventory should have been rejected".into());
+            }
+            if hits.load(Ordering::SeqCst) != 0 {
+                return Err("wrong Go rollback count".into());
+            }
+            return Ok::<_, common::BoxError>(());
         } else {
             gateway
         };
@@ -133,26 +139,24 @@ async fn run(kill: bool, rollback: bool) -> Result<(), common::BoxError> {
             .await;
             let actual = response.status().as_u16();
             let bytes = common::body_bytes(response).await;
-            if actual != if kill || rollback { 202 } else { status } {
+            if actual != status {
                 task.abort();
                 return Err(
                     format!("{method} {path}: expected {status}, got {actual} {bytes:?}").into(),
                 );
             }
         }
-        if !kill && !rollback {
-            let response = common::send(
-                address,
-                Request::get("/_gateway/metrics").body(common::full(""))?,
-            )
-            .await;
-            let text = String::from_utf8(common::body_bytes(response).await.to_vec())?;
-            if !text.contains("setjoin_gateway_proxied_to_go_total 0") {
-                return Err(format!("native family reached Go: {text}").into());
-            }
+        let response = common::send(
+            address,
+            Request::get("/_gateway/metrics").body(common::full(""))?,
+        )
+        .await;
+        let text = String::from_utf8(common::body_bytes(response).await.to_vec())?;
+        if !text.contains("setjoin_gateway_proxied_to_go_total 0") {
+            return Err(format!("native family reached Go: {text}").into());
         }
         task.abort();
-        if hits.load(Ordering::SeqCst) != if kill || rollback { 9 } else { 0 } {
+        if hits.load(Ordering::SeqCst) != 0 {
             return Err("wrong Go rollback count".into());
         }
         Ok::<_, common::BoxError>(())

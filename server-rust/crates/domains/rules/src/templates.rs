@@ -91,7 +91,7 @@ pub async fn create(
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let sort = t.sort.unwrap_or(0);
-    super::write(exec,a,op,"template.create","INSERT INTO rule_templates(name,description,category,conditions,actions,parameters,sort_order) SELECT $4,$5,$6,$7::text::jsonb,$8::text::jsonb,$9::text::jsonb,$10::bigint::int WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id::text",&[(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&sort,Type::INT8)]).await
+    super::write(exec,a,op,"template.create","INSERT INTO rule_templates(name,description,category,conditions,actions,parameters,sort_order) SELECT $4,$5,$6,$7::text::jsonb,$8::text::jsonb,$9::text::jsonb,$10::bigint::int WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id::text",&[(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&sort,Type::INT8)]).await
 }
 pub async fn update(
     exec: &ScopedExecutor,
@@ -100,7 +100,7 @@ pub async fn update(
     t: &super::input::Template,
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    super::write(exec,a,op,"template.update","WITH changed AS(UPDATE rule_templates SET name=COALESCE(NULLIF($5,''),name),description=COALESCE($6,description),category=COALESCE(NULLIF($7,''),category),conditions=COALESCE($8::text::jsonb,conditions),actions=COALESCE($9::text::jsonb,actions),parameters=COALESCE($10::text::jsonb,parameters),enabled=COALESCE($11,enabled),sort_order=COALESCE($12::bigint::int,sort_order),updated_at=now() WHERE id=$4 AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&t.enabled,Type::BOOL),(&t.sort,Type::INT8)]).await
+    super::write(exec,a,op,"template.update","WITH changed AS(UPDATE rule_templates SET name=COALESCE(NULLIF($5,''),name),description=COALESCE($6,description),category=COALESCE(NULLIF($7,''),category),conditions=COALESCE($8::text::jsonb,conditions),actions=COALESCE($9::text::jsonb,actions),parameters=COALESCE($10::text::jsonb,parameters),enabled=COALESCE($11,enabled),sort_order=COALESCE($12::bigint::int,sort_order),updated_at=now() WHERE id=$4 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&t.name,Type::TEXT),(&t.description,Type::TEXT),(&t.category,Type::TEXT),(&t.conditions.0,Type::TEXT),(&t.actions.0,Type::TEXT),(&t.parameters.0,Type::TEXT),(&t.enabled,Type::BOOL),(&t.sort,Type::INT8)]).await
 }
 pub async fn delete(
     exec: &ScopedExecutor,
@@ -108,7 +108,7 @@ pub async fn delete(
     id: i64,
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
-    super::write(exec,a,op,"template.delete","WITH changed AS(DELETE FROM rule_templates WHERE id=$4 AND NOT is_system AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
+    super::write(exec,a,op,"template.delete","WITH changed AS(DELETE FROM rule_templates WHERE id=$4 AND NOT is_system AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
 }
 pub async fn visibility(exec: &ScopedExecutor, id: i64) -> Result<String, StatementFailure> {
     let rows = exec
@@ -139,9 +139,9 @@ pub async fn set_visibility(
     op: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let sql = if t.hidden {
-        "INSERT INTO rule_template_visibility(template_id,user_id,hidden) SELECT $4,$5,TRUE WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(template_id,COALESCE(user_id,-1)) DO UPDATE SET hidden=TRUE RETURNING 'true'::text"
+        "INSERT INTO rule_template_visibility(template_id,user_id,hidden) SELECT $4,$5,TRUE WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(template_id,COALESCE(user_id,-1)) DO UPDATE SET hidden=TRUE RETURNING 'true'::text"
     } else {
-        "WITH changed AS(DELETE FROM rule_template_visibility WHERE template_id=$4 AND user_id IS NOT DISTINCT FROM $5 AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING template_id) SELECT 'true'::text"
+        "WITH changed AS(DELETE FROM rule_template_visibility WHERE template_id=$4 AND user_id IS NOT DISTINCT FROM $5 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING template_id) SELECT 'true'::text"
     };
     super::write(
         exec,
@@ -168,5 +168,5 @@ pub async fn instantiate(
         conditions = conditions.replace(&needle, &encoded);
         actions = actions.replace(&needle, &encoded);
     }
-    super::write(exec,a,op,"admin.from-template","SELECT rule_config_template_create($2,$1,$4,$5::text::jsonb,$6::text::jsonb)::text WHERE $3::text<>''",&[(&t.name,Type::TEXT),(&conditions,Type::TEXT),(&actions,Type::TEXT)]).await
+    super::write(exec,a,op,"admin.from-template","SELECT rule_config_template_create($2,NULLIF($1,0),$4,$5::text::jsonb,$6::text::jsonb)::text WHERE $3::text<>''",&[(&t.name,Type::TEXT),(&conditions,Type::TEXT),(&actions,Type::TEXT)]).await
 }

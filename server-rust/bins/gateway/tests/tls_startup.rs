@@ -3,14 +3,16 @@ use std::process::{Command, Stdio};
 
 fn base() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
-    c.env_clear()
-        .env("GATEWAY_ENABLED", "false")
-        .env("GATEWAY_LISTEN", "127.0.0.1:0");
+    c.env_clear().env("GATEWAY_LISTEN", "127.0.0.1:0");
     c
 }
 #[test]
-fn tls_workers_require_their_go_copies_off() {
-    for name in ["cert-monitor", "tls-ticket-keys", "http-tls", "http-h2c"] {
+fn tls_workers_require_the_activated_https_listener() {
+    for (name, needle) in [
+        ("cert-monitor", "TLS workers require the activated https listener"),
+        ("tls-ticket-keys", "TLS workers require the activated https listener"),
+        ("http-tls", "http-tls requires the socket-activated descriptor named `https`"),
+    ] {
         let output = base()
             .env("RUST_WORKERS_ON", name)
             .stdout(Stdio::null())
@@ -19,10 +21,7 @@ fn tls_workers_require_their_go_copies_off() {
             .unwrap();
         assert!(!output.status.success());
         let error = String::from_utf8_lossy(&output.stderr);
-        assert!(
-            error.contains(&format!("{name} requires GO_WORKERS_OFF={name}")),
-            "{name}: {error}"
-        );
+        assert!(error.contains(needle), "{name}: {error}");
     }
 }
 

@@ -16,7 +16,7 @@ use serde_json::Value;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{MailboxAuthContext, ReceiptCommand, Row, StatementFailure};
 use sha2::{Digest as _, Sha256};
@@ -24,11 +24,7 @@ use sha2::{Digest as _, Sha256};
 pub const FAMILY: &str = "F19";
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {

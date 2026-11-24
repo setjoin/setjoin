@@ -52,16 +52,12 @@ pub async fn personal_list(
 pub mod input;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{CommandOutcome, MailboxAuthContext, Param, ReceiptCommand};
 use sha2::{Digest as _, Sha256};
 fn scope(a: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(a.user_id()).expect("actor"),
-        MailboxId::new(a.mailbox_id()).expect("mailbox"),
-        Generation(1),
-    )
+    a.database_scope()
 }
 pub async fn write(
     exec: &ScopedExecutor,
@@ -184,7 +180,7 @@ pub async fn personal_update(
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"personal.update","WITH changed AS(UPDATE rules SET name=COALESCE(NULLIF($5,''),name),enabled=$6,priority=$7::bigint::int,run_on=$8,conditions=COALESCE($9::text::jsonb,conditions),actions=COALESCE($10::text::jsonb,actions),stop_processing=$11,updated_at=now() WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    write(exec,a,op,"personal.update","WITH changed AS(UPDATE rules SET name=COALESCE(NULLIF($5,''),name),enabled=$6,priority=$7::bigint::int,run_on=$8,conditions=COALESCE($9::text::jsonb,conditions),actions=COALESCE($10::text::jsonb,actions),stop_processing=$11,updated_at=now() WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
 }
 pub async fn personal_delete(
     exec: &ScopedExecutor,
@@ -192,7 +188,7 @@ pub async fn personal_delete(
     id: i64,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"personal.delete","WITH changed AS(DELETE FROM rules WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
+    write(exec,a,op,"personal.delete","WITH changed AS(DELETE FROM rules WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
 }
 pub async fn active_sweeps(
     exec: &ScopedExecutor,
@@ -305,7 +301,7 @@ pub async fn admin_create(
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"admin.create","SELECT rule_config_create($2,$4,$5,$6,$7::bigint::int,$8,$9,$10::text::jsonb,$11::text::jsonb,$12)::text WHERE $1::bigint>0 AND $3::text<>''",&[(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    write(exec,a,op,"admin.create","SELECT rule_config_create($2,$4,$5,$6,$7::bigint::int,$8,$9,$10::text::jsonb,$11::text::jsonb,$12)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
 }
 pub async fn admin_update(
     exec: &ScopedExecutor,
@@ -314,7 +310,7 @@ pub async fn admin_update(
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"admin.update","SELECT rule_config_update($2,$4,$5,$6,$7,$8::bigint::int,$9,$10,$11::text::jsonb,$12::text::jsonb,$13)::text WHERE $1::bigint>0 AND $3::text<>''",&[(&id,Type::INT8),(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    write(exec,a,op,"admin.update","SELECT rule_config_update($2,$4,$5,$6,$7,$8::bigint::int,$9,$10,$11::text::jsonb,$12::text::jsonb,$13)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&id,Type::INT8),(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
 }
 pub async fn admin_delete(
     exec: &ScopedExecutor,
@@ -327,7 +323,7 @@ pub async fn admin_delete(
         a,
         op,
         "admin.delete",
-        "SELECT rule_config_delete($2,$4)::text WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT rule_config_delete($2,$4)::text WHERE $1::bigint>=0 AND $3::text<>''",
         &[(&id, Type::INT8)],
     )
     .await

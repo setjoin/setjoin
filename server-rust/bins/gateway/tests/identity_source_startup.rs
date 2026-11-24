@@ -63,7 +63,7 @@ fn spawn(
 }
 
 #[tokio::test]
-async fn identity_source_runtime_refuses_to_start_while_go_still_runs_it() -> Result<(), BoxError> {
+async fn identity_source_runtime_starts_without_go_workers_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("identity-source-startup-guard") else {
         return Ok(());
     };
@@ -73,35 +73,20 @@ async fn identity_source_runtime_refuses_to_start_while_go_still_runs_it() -> Re
         std::env::temp_dir().join(format!("gofree-dirsync7-guard-{}.json", std::process::id())),
     );
     std::fs::write(&inventory.0, include_str!("../route-inventory.json"))?;
-    // (label, RUST_WORKERS_ON, GO_WORKERS_OFF, must run)
     let cases = [
-        ("no-go-off", "identity-source-runtime", "", false),
+        ("no-go-off", "identity-source-runtime", ""),
         (
-            "other-go-off",
-            "identity-source-runtime",
-            "identity-toggle-observer",
-            false,
+            "with-observer-no-go-off",
+            "identity-source-runtime,identity-toggle-observer",
+            "",
         ),
         (
-            "go-off",
-            "identity-source-runtime",
-            "identity-source-runtime",
-            true,
-        ),
-        (
-            "with-observer",
+            "with-observer-go-off",
             "identity-source-runtime,identity-toggle-observer",
             "identity-source-runtime,identity-toggle-observer",
-            true,
-        ),
-        (
-            "observer-without-go-off",
-            "identity-source-runtime,identity-toggle-observer",
-            "identity-source-runtime",
-            false,
         ),
     ];
-    for (label, rust_on, go_off, must_run) in cases {
+    for (label, rust_on, go_off) in cases {
         let socket = setjoin_conformance::ports::listener().await;
         let address = socket.local_addr()?;
         drop(socket);
@@ -121,18 +106,10 @@ async fn identity_source_runtime_refuses_to_start_while_go_still_runs_it() -> Re
             }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
-        if must_run {
-            assert!(
-                bound && exited.is_none(),
-                "{label}: gateway must run with Go's copy off"
-            );
-        } else {
-            assert!(!bound, "{label}: gateway must not bind");
-            assert!(
-                exited.is_some_and(|s| !s.success()),
-                "{label}: gateway must refuse to start"
-            );
-        }
+        assert!(
+            bound && exited.is_none(),
+            "{label}: gateway must run without GO_WORKERS_OFF"
+        );
     }
     Ok(())
 }

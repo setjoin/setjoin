@@ -125,6 +125,11 @@ async fn run(kill: bool, rollback: bool) -> Result<(), BoxError> {
   if let Ok(profile)=std::env::var("LLVM_PROFILE_FILE"){command.env("LLVM_PROFILE_FILE",profile);}
   ledger(&format!("Plan gofree-drive2-gateway executable at {address}; own assigned DB only"))?;
   let mut child=Owned(command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log)).spawn_boot()?);ledger(&format!("Started gofree-drive2-gateway PID {} at {:?}",child.0.id(),std::time::SystemTime::now()))?;
+  if kill||rollback{
+   let mut exited=None;for _ in 0..500{if let Some(status)=child.0.try_wait()?{exited=Some(status);break}tokio::time::sleep(Duration::from_millis(10)).await;}
+   if !exited.is_some_and(|s|!s.success()){return Err(format!("gateway kill={kill} rollback={rollback} should have been rejected: {exited:?}").into())}
+   assert_eq!(hits.load(Ordering::SeqCst),0);assert_eq!(io.load(Ordering::SeqCst),0);let pid=child.0.id();drop(child);ledger(&format!("Stopped/reaped gofree-drive2-gateway PID {pid}"))?;return Ok::<_,BoxError>(());
+  }
   let deadline=tokio::time::Instant::now()+Duration::from_secs(60);loop{if let Some(status)=child.0.try_wait()?{return Err(format!("gateway exited: {status}").into())}if tokio::net::TcpStream::connect(address).await.is_ok(){break}if tokio::time::Instant::now()>deadline{return Err("gateway startup timeout".into())}tokio::time::sleep(Duration::from_millis(20)).await;}
   let requests=vec![
    ("GET","/drive/spaces","/api/drive/spaces".to_owned(),String::new(),200),

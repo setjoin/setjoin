@@ -67,17 +67,13 @@ impl<K: KeySource> JmapCommands<K> {
         let Some(email_id) = email_id else {
             return crate::mailboxes::bare(400, "invalid message id", ctx, &request_id);
         };
-        let (Ok(actor_id), Ok(mailbox_id)) = (
-            ActorId::new(identity.user_id()),
-            MailboxId::new(identity.mailbox_id()),
-        ) else {
+        if ActorId::new(identity.user_id()).is_err() {
             return crate::mailboxes::bare(500, "internal error", ctx, &request_id);
-        };
-        let auth = MailboxAuthContext::from_authenticated_session(
-            actor_id,
-            mailbox_id,
-            super::REQUEST_AUTHORITY_GENERATION,
-        );
+        }
+        if action == Action::Undo && identity.mailbox_id() == 0 {
+            return crate::mailboxes::bare(404, "mailbox not found", ctx, &request_id);
+        }
+        let auth = identity.database_scope();
         let Ok(op_bytes) = super::random_bytes() else {
             return crate::mailboxes::bare(500, "internal error", ctx, &request_id);
         };

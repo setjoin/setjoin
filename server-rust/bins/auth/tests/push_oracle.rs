@@ -3908,7 +3908,6 @@ async fn dpop_push_bound_routes_and_possession_fallthrough() {
         cfg.signing_alg = "ES256".into();
         cfg.db_encryption_key = "2".repeat(64);
         cfg.vapid_private_key = VAPID.into();
-        cfg.go_upstream = None;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
         let srv = auth_server(
@@ -4278,7 +4277,6 @@ async fn dpop_backup_verify_and_push_status_issuance() {
         cfg.signing_alg = "ES256".into();
         cfg.db_encryption_key = "2".repeat(64);
         cfg.vapid_private_key = VAPID.into();
-        cfg.go_upstream = None;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
         let srv = auth_server(

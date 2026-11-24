@@ -20,7 +20,9 @@ impl Intercept for Local {
 
 #[tokio::test]
 async fn recovery_api_mount_does_not_transfer_the_bare_spa_path() {
-    let upstream = common::fake_upstream(|_| async { Response::new(common::full("go")) }).await;
+    let upstream =
+        common::fake_upstream(|_| async { panic!("legacy Go upstream must never be reached") })
+            .await;
     let mut inventory: serde_json::Value =
         serde_json::from_str(include_str!("../route-inventory.json")).unwrap();
     let original = inventory["routes"]
@@ -48,24 +50,24 @@ async fn recovery_api_mount_does_not_transfer_the_bare_spa_path() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(gateway.serve(listener));
-    for (path, expected) in [
-        ("/recovery/incidents", "go"),
-        ("/api/recovery/incidents", "rust"),
+    for (path, status, expected) in [
+        ("/recovery/incidents", 404, "404 page not found\n"),
+        ("/api/recovery/incidents", 200, "rust"),
     ] {
         let response =
             common::send(address, Request::get(path).body(common::full("")).unwrap()).await;
-        assert_eq!(common::body_bytes(response).await, expected);
+        assert_eq!(response.status().as_u16(), status, "{path}");
+        assert_eq!(common::body_bytes(response).await, expected, "{path}");
     }
     task.abort();
 
-    // Go checks a literal /api registration before stripping the mount.
-    // A distinct literal route must beat the mounted recovery adapter.
+    // Post-#359: OFF/go-mail inventory entries are rejected at startup.
     let mut literal = original_entry();
     literal["path"] = "/api/recovery/incidents".into();
     literal["state"] = "OFF".into();
     literal["upstream"] = "go-mail".into();
     inventory["routes"].as_array_mut().unwrap().push(literal);
-    let gateway = Gateway::new(
+    let rejected = Gateway::new(
         Config {
             upstream: Some(format!("http://{upstream}").parse().unwrap()),
             trusted_proxies: TrustedProxies::parse("").unwrap(),
@@ -75,20 +77,8 @@ async fn recovery_api_mount_does_not_transfer_the_bare_spa_path() {
         RouteTable::proxy_all().with(Local),
     )
     .unwrap()
-    .with_inventory(&inventory.to_string())
-    .unwrap();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let task = tokio::spawn(gateway.serve(listener));
-    let response = common::send(
-        address,
-        Request::get("/api/recovery/incidents")
-            .body(common::full(""))
-            .unwrap(),
-    )
-    .await;
-    assert_eq!(common::body_bytes(response).await, "go");
-    task.abort();
+    .with_inventory(&inventory.to_string());
+    assert!(rejected.is_err(), "OFF/go-mail inventory row must be rejected");
 }
 
 fn original_entry() -> serde_json::Value {
@@ -107,7 +97,9 @@ fn original_entry() -> serde_json::Value {
 
 #[tokio::test]
 async fn blob_download_api_mount_preserves_the_bare_spa_path() {
-    let upstream = common::fake_upstream(|_| async { Response::new(common::full("go")) }).await;
+    let upstream =
+        common::fake_upstream(|_| async { panic!("legacy Go upstream must never be reached") })
+            .await;
     let mut inventory: serde_json::Value =
         serde_json::from_str(include_str!("../route-inventory.json")).unwrap();
     let entry = inventory["routes"]
@@ -137,9 +129,13 @@ async fn blob_download_api_mount_preserves_the_bare_spa_path() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(gateway.serve(listener));
-    for (path, expected) in [("/blobs/abc", "go"), ("/api/blobs/abc", "rust")] {
+    for (path, status, expected) in [
+        ("/blobs/abc", 404, "404 page not found\n"),
+        ("/api/blobs/abc", 200, "rust"),
+    ] {
         let response =
             common::send(address, Request::get(path).body(common::full("")).unwrap()).await;
+        assert_eq!(response.status().as_u16(), status, "{path}");
         assert_eq!(common::body_bytes(response).await, expected, "{path}");
     }
     task.abort();

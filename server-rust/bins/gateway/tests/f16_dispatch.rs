@@ -43,13 +43,18 @@ async fn run(kill: bool) -> Result<(), common::BoxError> {
  let exec=ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),4).map_err(|e|e.0)?;
  let route=F16Route::new(F16Config{exec,worker_exec:ScopedExecutor::from_dsn(&db.dsn,4).map_err(|e|e.0)?,keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into(),denylist:None,store:Arc::new(S3Store::new(&format!("http://{s3}"),"mailblobs","test-access","test-secret")?),continuity:Some(Arc::new(ReceiptKeys::single("test",vec![0;32]))),scanner:None,attachment_secret:b"blobs1-test-jwt-secret-for-recording".to_vec(),attachment_previous_secret:None});
  let g=Gateway::new(Config{upstream:if kill{Some(format!("http://{go}").parse()?)}else{None},trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(route))?.with_inventory(include_str!("../route-inventory.json"))?.with_enabled(!kill);
+ if kill{
+  let mut off:serde_json::Value=serde_json::from_str(include_str!("../route-inventory.json"))?;
+  for r in off["routes"].as_array_mut().unwrap(){if r["family"]=="F16"{r["state"]="OFF".into();r["upstream"]="go-mail".into();}}
+  assert!(Gateway::new(Config{upstream:None,trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all())?.with_inventory(&off.to_string()).is_err());
+ }
  let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let addr=listener.local_addr()?;let server=tokio::spawn(g.serve(listener));
  for(method,path,body,status)in[("GET","/mail-attachment/invalid","",401),("GET","/api/blobs/invalid","",404),("PUT","/api/blobs/invalid","",400),("GET","/api/recovery/incidents","",200),("POST","/api/recovery/uploads","{}",400),("PUT","/api/recovery/uploads/invalid/items/raw","",400),("POST","/api/recovery/uploads/invalid/items/raw/commit","",400),("POST","/api/recovery/uploads/invalid/finalize","",400),("DELETE","/api/recovery/uploads/invalid","",400),("POST","/api/recovery/artifacts/invalid/fork-consent","{}",400)]{
  let response=common::send(addr,Request::builder().method(method).uri(path).header("host","mail.test").header("origin","http://mail.test").header("authorization",format!("Bearer {}",if path.starts_with("/mail-attachment/"){attachment_token(a.user)}else{common::recovery_token(a.user)})).body(common::full(body))?).await;
- let actual=response.status().as_u16();let bytes=common::body_bytes(response).await;if actual!=if kill{202}else{status}{server.abort();return Err(format!("{method} {path}: {actual} {bytes:?}").into());}
+ let actual=response.status().as_u16();let bytes=common::body_bytes(response).await;if actual!=status{server.abort();return Err(format!("{method} {path}: {actual} {bytes:?}").into());}
  }
- if !kill{let response=common::send(addr,Request::get("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(response).await.to_vec())?;if !metrics.contains("setjoin_gateway_proxied_to_go_total 0"){return Err(format!("native calls reached Go: {metrics}").into());}}
- server.abort();assert_eq!(count.load(Ordering::SeqCst),if kill{10}else{0});Ok::<_,common::BoxError>(())
+ let response=common::send(addr,Request::get("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(response).await.to_vec())?;if !metrics.contains("setjoin_gateway_proxied_to_go_total 0"){return Err(format!("native calls reached Go: {metrics}").into());}
+ server.abort();assert_eq!(count.load(Ordering::SeqCst),0);Ok::<_,common::BoxError>(())
  }.await;
     common::remove_blob_account(&owner, &a).await?;
     if let Some(v) = previous {

@@ -90,12 +90,12 @@ backup_gateway_deployment() {
     [ ! -L "$DEPLOYMENT_PREV" ] || return 1
     rm -rf "$DEPLOYMENT_PREV"
     ( umask 077; mkdir -p "$DEPLOYMENT_PREV/units" "$DEPLOYMENT_PREV/config" )
-    for file in setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -e "$SYSTEMD_DIR/$file" ] || [ -L "$SYSTEMD_DIR/$file" ]; then
             cp -a "$SYSTEMD_DIR/$file" "$DEPLOYMENT_PREV/units/"
         fi
     done
-    for file in config.env gateway.env federation.env tls.env smtp.env storage.env; do
+    for file in config.env auth.env gateway.env federation.env tls.env smtp.env storage.env; do
         if [ -e "${CONFIG_ENV%/*}/$file" ]; then
             cp -a "${CONFIG_ENV%/*}/$file" "$DEPLOYMENT_PREV/config/"
         fi
@@ -131,8 +131,8 @@ backup_gateway_deployment() {
         if [ ! -L "$prev_cache" ] && [ -d "$prev_cache" ]; then
             prev_devino="$(python3 -c 'import os,sys; s=os.lstat(sys.argv[1]); print(f"{s.st_dev}:{s.st_ino}")' "$prev_cache" 2>/dev/null || true)"
             printf 'exists=1\nmode=%s\nowner=%s\ndevino=%s\n' \
-                "$(stat -c '%a' "$prev_cache")" \
-                "$(stat -c '%u:%g' "$prev_cache")" \
+                "$(stat -c '%a' "$prev_cache" 2>/dev/null || stat -f '%Lp' "$prev_cache")" \
+                "$(stat -c '%u:%g' "$prev_cache" 2>/dev/null || stat -f '%u:%g' "$prev_cache")" \
                 "$prev_devino" >> "$DEPLOYMENT_PREV/tls-cache.meta"
         else
             printf 'exists=0\n' >> "$DEPLOYMENT_PREV/tls-cache.meta"
@@ -261,13 +261,13 @@ PY
 }
 restore_gateway_files_only() {
     local file rc=0
-    for file in setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         rm -f "$SYSTEMD_DIR/$file" || rc=1
         if [ -e "$DEPLOYMENT_PREV/units/$file" ] || [ -L "$DEPLOYMENT_PREV/units/$file" ]; then
             cp -a "$DEPLOYMENT_PREV/units/$file" "$SYSTEMD_DIR/" || rc=1
         fi
     done
-    for file in config.env gateway.env federation.env tls.env smtp.env storage.env; do
+    for file in config.env auth.env gateway.env federation.env tls.env smtp.env storage.env; do
         rm -f "${CONFIG_ENV%/*}/$file" || rc=1
         if [ -e "$DEPLOYMENT_PREV/config/$file" ]; then
             cp -a "$DEPLOYMENT_PREV/config/$file" "${CONFIG_ENV%/*}/" || rc=1
@@ -339,6 +339,62 @@ restore_gateway_deployment() {
 config_value() {
     sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -1 || true
 }
+# Validate DB_CRED_FILE ownership/mode/symlink posture (matching resolve_schema_dsn)
+# before extracting DB_WORKER_DSN into root-0600 auth.env.
+validate_db_cred_file_posture() {
+    local cred_file="$1"
+    local want_owner="${2:-${DB_CRED_WANT_OWNER:-root}}"
+    local want_group="${3:-${DB_CRED_WANT_GROUP:-root}}"
+    local runtime_group="${4:-${DB_CRED_RUNTIME_GROUP:-setjoin}}"
+    local cred_dir st want
+    cred_dir="$(dirname "$cred_file")"
+    if [ ! -L "$cred_file" ] && [ ! -e "$cred_file" ]; then
+        return 0
+    fi
+    if [ -L "$cred_file" ] || [ ! -f "$cred_file" ]; then
+        echo "privileged credential file $cred_file is a symlink or not a regular file — possible plant" >&2
+        return 1
+    fi
+    st="$(stat -c '%U %G %a' "$cred_file" 2>/dev/null)" \
+      || st="$(stat -f '%Su %Sg %Lp' "$cred_file" 2>/dev/null)" \
+      || { echo "cannot stat $cred_file" >&2; return 1; }
+    want="$want_owner $want_group 600"
+    if [ "$st" != "$want" ]; then
+        echo "privileged credential file $cred_file is '$st', want '$want' — posture does not match the installed store" >&2
+        return 1
+    fi
+    st="$(stat -c '%U %G %a' "$cred_dir" 2>/dev/null)" \
+      || st="$(stat -f '%Su %Sg %Lp' "$cred_dir" 2>/dev/null)" \
+      || { echo "cannot stat $cred_dir" >&2; return 1; }
+    want="$want_owner $runtime_group 750"
+    if [ -L "$cred_dir" ] || [ ! -d "$cred_dir" ] || [ "$st" != "$want" ]; then
+        echo "credential directory $cred_dir is '${st:-missing}', want '$want' — possible whole-directory replacement (the real directory was renamed aside and a substitute planted); refusing the substitute" >&2
+        return 1
+    fi
+    st="$(stat -c '%U %G %a' "$(dirname "$cred_dir")" 2>/dev/null)" \
+      || st="$(stat -f '%Su %Sg %Lp' "$(dirname "$cred_dir")" 2>/dev/null)" \
+      || { echo "cannot stat the credential ancestor" >&2; return 1; }
+    want="$want_owner $want_group 755"
+    if [ "$st" != "$want" ]; then
+        echo "credential ancestor $(dirname "$cred_dir") is '$st', want '$want' — a runtime-writable ancestor permits whole-directory replacement; refusing" >&2
+        return 1
+    fi
+    return 0
+}
+render_auth_deployment() (
+    local root
+    root="$(cd "$(dirname "$0")/../../.." && pwd)"
+    source "$root/mailserver/deploy/scripts/lib-livekit.sh" || return 1
+    RUNTIME_DIR="${RUNTIME_DIR:-$INSTALL_DIR}"
+    AUTHSERVER_URL="$(config_value "$CONFIG_ENV" AUTHSERVER_URL)"
+    AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
+    AUTH_LISTEN="${AUTHSERVER_URL#http://}"; AUTH_LISTEN="${AUTH_LISTEN#https://}"; AUTH_LISTEN="${AUTH_LISTEN%%/*}"
+    validate_db_cred_file_posture "$DB_CRED_FILE" || return 1
+    render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+    chown root:root "$AUTH_ENV" || return 1
+    render_authserver_unit "$root/mailserver/deploy/authserver.service.template" "$SYSTEMD_DIR/setjoin-auth.service" || return 1
+    systemctl daemon-reload || return 1
+)
 render_gateway_deployment() (
     local root key names file tmp _tls_cache
     root="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -347,8 +403,8 @@ render_gateway_deployment() (
     RUNTIME_DIR="${RUNTIME_DIR:-$INSTALL_DIR}"
     AUTHSERVER_URL="$(config_value "$CONFIG_ENV" AUTHSERVER_URL)"
     AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
+    AUTH_LISTEN="${AUTHSERVER_URL#http://}"; AUTH_LISTEN="${AUTH_LISTEN#https://}"; AUTH_LISTEN="${AUTH_LISTEN%%/*}"
     GATEWAY_LISTEN="$(config_value "$GATEWAY_ENV" GATEWAY_LISTEN)"
-    GATEWAY_UPSTREAM="$(config_value "$GATEWAY_ENV" GATEWAY_UPSTREAM)"
     GATEWAY_TRUSTED_PROXIES="$(config_value "$GATEWAY_ENV" GATEWAY_TRUSTED_PROXIES)"
     FEDERATION_ENABLED="$(config_value "$CONFIG_ENV" FEDERATION_ENABLED)"
     FEDERATION_LISTEN_ADDR="$(config_value "$CONFIG_ENV" FEDERATION_LISTEN_ADDR)"
@@ -382,6 +438,9 @@ render_gateway_deployment() (
     render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
     chown root:setjoin "$TLS_ENV" || return 1
     render_gateway_env "$GATEWAY_ENV" || return 1
+    validate_db_cred_file_posture "$DB_CRED_FILE" || return 1
+    render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+    chown root:root "$AUTH_ENV" || return 1
     render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$FEDERATION_ENV" || return 1
     render_storage_env "$STORAGE_ENV" "$CONFIG_ENV" || return 1
@@ -393,6 +452,7 @@ render_gateway_deployment() (
     # A descriptor belongs to the matching new binary. Recreate only this
     # release's socket set; snapshots preserve prior bytes, absence and state.
     rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"
+    render_authserver_unit "$root/mailserver/deploy/authserver.service.template" "$SYSTEMD_DIR/setjoin-auth.service" || return 1
     render_gateway_unit "$root/mailserver/deploy/setjoin-gateway.service.template" "$SYSTEMD_DIR/setjoin-gateway.service" || return 1
     systemctl daemon-reload || return 1
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
@@ -440,7 +500,7 @@ if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
     exit 0
 fi
 
-if [ -n "$NEW_GATEWAY" ]; then
+if [ -n "$NEW_GATEWAY" ] || [ -n "$NEW_AUTH" ]; then
     backup_gateway_deployment
 fi
 
@@ -469,6 +529,9 @@ cp "$INSTALL_DIR/mailserverd" "$INSTALL_DIR/mailserverd.prev"
 if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd" ]; then
     cp "$INSTALL_DIR/authserverd" "$INSTALL_DIR/authserverd.prev"
 fi
+if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/setjoin-auth" ]; then
+    cp "$INSTALL_DIR/setjoin-auth" "$INSTALL_DIR/setjoin-auth.prev"
+fi
 if [ -n "$NEW_GATEWAY" ] && [ -f "$INSTALL_DIR/setjoin-gateway" ]; then
     cp "$INSTALL_DIR/setjoin-gateway" "$INSTALL_DIR/setjoin-gateway.prev"
 fi
@@ -491,6 +554,9 @@ if [ -n "$NEW_AUTH" ]; then
     cp "$NEW_AUTH" "$INSTALL_DIR/authserverd"
     chmod 755 "$INSTALL_DIR/authserverd"
     chown setjoin:setjoin "$INSTALL_DIR/authserverd"
+    cp "$NEW_AUTH" "$INSTALL_DIR/setjoin-auth"
+    chmod 755 "$INSTALL_DIR/setjoin-auth"
+    chown setjoin:setjoin "$INSTALL_DIR/setjoin-auth"
 fi
 if [ -n "$NEW_GATEWAY" ]; then
     cp "$NEW_GATEWAY" "$INSTALL_DIR/setjoin-gateway"
@@ -516,6 +582,13 @@ roll_back_and_exit() {
     if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd.prev" ]; then
         cp "$INSTALL_DIR/authserverd.prev" "$INSTALL_DIR/authserverd"
     fi
+    if [ -n "$NEW_AUTH" ]; then
+        if [ -f "$INSTALL_DIR/setjoin-auth.prev" ]; then
+            cp "$INSTALL_DIR/setjoin-auth.prev" "$INSTALL_DIR/setjoin-auth"
+        else
+            rm -f "$INSTALL_DIR/setjoin-auth"
+        fi
+    fi
     if [ -n "$NEW_GATEWAY" ] && [ -f "$INSTALL_DIR/setjoin-gateway.prev" ]; then
         cp "$INSTALL_DIR/setjoin-gateway.prev" "$INSTALL_DIR/setjoin-gateway"
     fi
@@ -528,6 +601,8 @@ roll_back_and_exit() {
     local restore_rc=0
     if [ -n "$NEW_GATEWAY" ]; then
         restore_gateway_deployment || restore_rc=$?
+    elif [ -n "$NEW_AUTH" ]; then
+        restore_gateway_files_only || restore_rc=$?
     fi
     if [ "$AUTH_WAS_ACTIVE" = "1" ]; then
         systemctl start setjoin-auth || restore_rc=1
@@ -655,6 +730,11 @@ fi
 if [ -n "$NEW_GATEWAY" ]; then
     if ! render_gateway_deployment; then
         echo "   ✗ gateway unit/config render failed."
+        roll_back_and_exit
+    fi
+elif [ -n "$NEW_AUTH" ]; then
+    if ! render_auth_deployment; then
+        echo "   ✗ auth unit/config render failed."
         roll_back_and_exit
     fi
 fi

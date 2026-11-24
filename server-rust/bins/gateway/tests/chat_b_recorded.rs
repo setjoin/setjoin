@@ -1223,10 +1223,13 @@ async fn part_b_rollbacks_and_deferred_routes_preserve_requests() -> Result<(), 
     let Some(db) = Db::for_case("chat3-rollback") else {
         return Ok(());
     };
-    let endpoint=common::fake_upstream(|request|async move{
+    let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = hits.clone();
+    let endpoint=common::fake_upstream(move |request|{let seen=seen.clone();async move{
+  seen.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
   let method=request.method().to_string();let uri=request.uri().to_string();let trace=request.headers()["x-chat3-trace"].to_str().unwrap().to_owned();let bytes=request.into_body().collect().await.unwrap().to_bytes();
   Response::builder().status(418).header("x-chat3-go","yes").body(common::full(json!({"method":method,"uri":uri,"body":String::from_utf8_lossy(&bytes),"trace":trace}).to_string())).unwrap()
- }).await;
+ }}).await;
     for mode in ["inventory", "global", "deferred"] {
         let mut inventory: Value = serde_json::from_str(include_str!("../route-inventory.json"))?;
         let routes = inventory["routes"]
@@ -1236,9 +1239,6 @@ async fn part_b_rollbacks_and_deferred_routes_preserve_requests() -> Result<(), 
             .filter(|r| {
                 r["family"] == "F12"
                     && r["slice"] == "sub-router-b"
-                    // /chat/ is now ON as the shared catch-all mount. This
-                    // harness installs only Chat B's 17 concrete handlers; its
-                    // unmatched mount still checks whole-request transport.
                     && ((r["path"] == "/chat/") == (mode == "deferred"))
             })
             .cloned()
@@ -1267,9 +1267,19 @@ async fn part_b_rollbacks_and_deferred_routes_preserve_requests() -> Result<(), 
                 edge_limit: None,
             },
             RouteTable::proxy_all().with(adapter),
-        )?
-        .with_inventory(&inventory.to_string())?
-        .with_enabled(mode != "global");
+        )?;
+        let gateway = if mode == "inventory" {
+            assert!(
+                gateway.with_inventory(&inventory.to_string()).is_err(),
+                "OFF/go-mail F12 sub-router-b inventory must be rejected"
+            );
+            assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+            continue;
+        } else {
+            gateway
+                .with_inventory(&inventory.to_string())?
+                .with_enabled(mode != "global")
+        };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let task = tokio::spawn(gateway.serve(listener));
@@ -1302,37 +1312,37 @@ async fn part_b_rollbacks_and_deferred_routes_preserve_requests() -> Result<(), 
                         .body(common::full(body))?,
                 )
                 .await;
-                assert_eq!(response.status(), 418, "{mode}: {method} {path}");
-                assert_eq!(response.headers()["x-chat3-go"], "yes");
-                let observed: Value = serde_json::from_slice(&common::body_bytes(response).await)?;
-                assert_eq!(
-                    observed,
-                    json!({"method":method,"uri":path,"body":body,"trace":"preserved"})
-                );
-            }
-            if mode != "global" {
-                let response = common::send(
-                    address,
-                    Request::builder()
-                        .uri("/_gateway/metrics")
-                        .body(common::full(""))?,
-                )
-                .await;
-                let metrics = String::from_utf8(common::body_bytes(response).await.to_vec())?;
                 assert!(
-                    metrics.lines().any(|line| line
-                        == format!("setjoin_gateway_proxied_to_go_total {}", routes.len())),
-                    "{metrics}"
+                    !response.headers().contains_key("x-chat3-go"),
+                    "{mode}: {method} {path} reached Go"
                 );
-                assert!(
-                    metrics.lines().any(|line| line
-                        == format!(
-                            "setjoin_gateway_proxied_to_go_by_family_total{{family=\"F12\"}} {}",
-                            routes.len()
-                        )),
-                    "{metrics}"
-                );
+                if mode == "deferred" {
+                    assert_eq!(response.status().as_u16(), 404, "{mode}: {method} {path}");
+                } else {
+                    assert_ne!(response.status().as_u16(), 418, "{mode}: {method} {path}");
+                }
             }
+            let response = common::send(
+                address,
+                Request::builder()
+                    .uri("/_gateway/metrics")
+                    .body(common::full(""))?,
+            )
+            .await;
+            let metrics = String::from_utf8(common::body_bytes(response).await.to_vec())?;
+            assert!(
+                metrics
+                    .lines()
+                    .any(|line| line == "setjoin_gateway_proxied_to_go_total 0"),
+                "{metrics}"
+            );
+            assert!(
+                metrics
+                    .lines()
+                    .any(|line| line == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 0"),
+                "{metrics}"
+            );
+            assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);
             Ok::<_, BoxError>(())
         }
         .await;

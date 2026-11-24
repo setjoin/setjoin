@@ -183,9 +183,10 @@ struct SmallBlob {
     expires: std::time::Instant,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
 struct LocationReply {
-    #[serde(rename = "$value", default)]
+    #[serde(rename = "$text", default)]
     region: String,
 }
 
@@ -995,9 +996,10 @@ impl S3Store {
                         .unwrap_or_default();
                 }
                 match parsed.code.as_str() {
-                    "AccessDenied" | "AuthorizationHeaderMalformed" | "InvalidRegion" => {
-                        parsed.region
-                    }
+                    "AccessDenied"
+                    | "AuthorizationHeaderMalformed"
+                    | "InvalidRegion"
+                    | "NoSuchBucket" => parsed.region,
                     "PermanentRedirect" | "TemporaryRedirect" => {
                         if parsed.region.is_empty() {
                             return Err(format!(
@@ -1017,6 +1019,7 @@ impl S3Store {
                     {
                         "us-east-1".into()
                     }
+                    _ if status == 404 => String::new(),
                     _ => return Err(format!("S3 bucket location failed: {}", parsed.code)),
                 }
             };
@@ -2224,5 +2227,27 @@ mod tests {
             "eu-central-1",
         )
         .await;
+    }
+
+    #[test]
+    fn location_reply_parses_empty_and_regional_seaweedfs_xml() {
+        use super::{normalize_s3_region, LocationReply};
+        let empty: LocationReply = quick_xml::de::from_str(
+            r#"<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>"#,
+        )
+        .unwrap();
+        assert_eq!(normalize_s3_region(&empty.region), "us-east-1");
+
+        let blank: LocationReply = quick_xml::de::from_str(
+            r#"<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></LocationConstraint>"#,
+        )
+        .unwrap();
+        assert_eq!(normalize_s3_region(&blank.region), "us-east-1");
+
+        let named: LocationReply = quick_xml::de::from_str(
+            r#"<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">eu-west-1</LocationConstraint>"#,
+        )
+        .unwrap();
+        assert_eq!(normalize_s3_region(&named.region), "eu-west-1");
     }
 }

@@ -1,8 +1,7 @@
-//! Native answers for `setjoin_authz::admit` refusals (#354). Adapters call
-//! [`admit`] where they used `authorize_*` and return [`answer`] on refusal.
-//! Only refusal classes Go would still authenticate or serve reach Go, from this
-//! one site; each names its owner. Surfaces that must never reach Go (#365
-//! AuthAdmin) use [`native_or_unauthorized`], never [`answer`].
+//! Native answers for `setjoin_authz::admit` refusals (#354, #359 Part A).
+//! Adapters call [`admit`] and return [`answer`] on refusal; zero Go forwarding
+//! remains. Surfaces that must keep strict 401/503 fail-closed behavior (#365
+//! AuthAdmin, CalDAV, CardDAV) use [`native_or_unauthorized`].
 use crate::routes::RequestContext;
 use crate::Body;
 use hyper::{HeaderMap, Request, Response};
@@ -57,36 +56,58 @@ pub(crate) fn unauthorized(headers: &HeaderMap, c: &RequestContext) -> Response<
     response
 }
 
-/// Go's bytes for a refusal; `None` = Go would still authenticate or serve it.
+/// Native HTTP answer for every `Refusal` class (total — zero Go forwarding).
 pub(crate) fn native(
     refusal: Refusal,
     headers: &HeaderMap,
     c: &RequestContext,
-) -> Option<Response<Body>> {
-    Some(match refusal {
+) -> Response<Body> {
+    match refusal {
         Refusal::NoCredential | Refusal::InvalidToken => unauthorized(headers, c),
         // Approved divergences (tests/conformance/authz-deny/divergences.json): Go's REST chain
         // accepts these signed tokens; every first-party mint sets iat and uid>0.
         Refusal::MissingIssuedAt | Refusal::UnservedSubject => unauthorized(headers, c),
-        Refusal::GuestInactive => crate::admission::problem(headers, &c.identity, 401, "Unauthorized"),
-        Refusal::Revoked => crate::admission::revoked_problem(headers, &c.identity, "Session has been revoked. Sign in again."),
+        // Owner-approved divergence (2026-11-25, non-dav-alternative-credential-401):
+        // non-DAV REST routes challenge Basic/Negotiate with RequireAuth 401.
+        Refusal::AlternativeCredential => unauthorized(headers, c),
+        // Fail-closed if ever constructed (ordinary `admit` admits positive `act` and mailbox-less members).
+        Refusal::Impersonation | Refusal::NoPrimaryMailbox => unauthorized(headers, c),
+        // Go guestgate.Middleware returns 404 plain text for disallowed guest routes.
+        Refusal::Guest => crate::admission::not_found(headers, &c.identity),
+        // Go httputil.WriteProblem 403 about:blank for suspended mailboxes.
+        Refusal::MailboxBlocked => {
+            crate::admission::problem(headers, &c.identity, 403, "mailbox access is suspended")
+        }
+        Refusal::GuestInactive => {
+            crate::admission::problem(headers, &c.identity, 401, "Unauthorized")
+        }
+        Refusal::Revoked => crate::admission::revoked_problem(
+            headers,
+            &c.identity,
+            "Session has been revoked. Sign in again.",
+        ),
         // Approved divergence: Go has no such read; fail closed with guestgate's 503.
-        Refusal::Unavailable => crate::admission::problem(headers, &c.identity, 503, "service unavailable"),
-        Refusal::AlternativeCredential   // #355a DAV/Drive handle Basic natively; non-DAV stays Go until #420/#339/#355b
-        | Refusal::Impersonation         // follow-up: native impersonation sessions
-        | Refusal::Guest                 // guest-scope owner
-        | Refusal::NoPrimaryMailbox      // follow-up: mailbox-less members per family
-        | Refusal::MailboxBlocked => return None,
-    })
+        Refusal::Unavailable => {
+            crate::admission::problem(headers, &c.identity, 503, "service unavailable")
+        }
+    }
 }
 
-/// Fail-closed mapping for surfaces Go must never see (#365 AuthAdmin).
+/// Strict 401/503 fail-closed mapping for surfaces that never admit guests or
+/// suspended/mailbox-less fallback semantics (#365 AuthAdmin, CalDAV, CardDAV).
 pub(crate) fn native_or_unauthorized(
     refusal: Refusal,
     headers: &HeaderMap,
     c: &RequestContext,
 ) -> Response<Body> {
-    native(refusal, headers, c).unwrap_or_else(|| unauthorized(headers, c))
+    match refusal {
+        Refusal::Guest
+        | Refusal::MailboxBlocked
+        | Refusal::NoPrimaryMailbox
+        | Refusal::Impersonation
+        | Refusal::AlternativeCredential => unauthorized(headers, c),
+        other => native(other, headers, c),
+    }
 }
 
 pub(crate) async fn answer(
@@ -94,10 +115,7 @@ pub(crate) async fn answer(
     r: Request<Body>,
     c: &RequestContext,
 ) -> Response<Body> {
-    if let Some(response) = native(refusal, r.headers(), c) {
-        return response;
-    }
-    c.upstream.forward(r, &c.identity).await
+    native(refusal, r.headers(), c)
 }
 
 #[cfg(test)]
@@ -133,9 +151,7 @@ mod tests {
         let c = context();
         let headers = HeaderMap::new();
         for refusal in Refusal::ALL {
-            let Some(response) = native(refusal, &headers, &c) else {
-                continue;
-            };
+            let response = native(refusal, &headers, &c);
             let (status, h, body) = parts(response).await;
             let challenge = h
                 .get("www-authenticate")
@@ -146,6 +162,9 @@ mod tests {
                     | Refusal::InvalidToken
                     | Refusal::MissingIssuedAt
                     | Refusal::UnservedSubject
+                    | Refusal::AlternativeCredential
+                    | Refusal::Impersonation
+                    | Refusal::NoPrimaryMailbox
             );
             assert_eq!(
                 challenge.as_deref(),
@@ -153,6 +172,28 @@ mod tests {
                 "{refusal:?}"
             );
             match refusal {
+                Refusal::Guest => {
+                    assert_eq!(status, 404, "{refusal:?}");
+                    assert_eq!(body, "404 page not found\n", "{refusal:?}");
+                    assert_eq!(
+                        h.get("content-type").and_then(|v| v.to_str().ok()),
+                        Some("text/plain; charset=utf-8"),
+                        "{refusal:?}"
+                    );
+                }
+                Refusal::MailboxBlocked => {
+                    assert_eq!(status, 403, "{refusal:?}");
+                    assert!(
+                        body.contains("\"type\":\"about:blank\"")
+                            && body.contains("\"detail\":\"mailbox access is suspended\""),
+                        "{body}"
+                    );
+                    assert_eq!(
+                        h.get("content-type").and_then(|v| v.to_str().ok()),
+                        Some("application/problem+json"),
+                        "{refusal:?}"
+                    );
+                }
                 Refusal::Unavailable => {
                     assert_eq!(status, 503, "{refusal:?}");
                     assert!(
@@ -160,41 +201,32 @@ mod tests {
                             && body.contains("\"detail\":\"service unavailable\""),
                         "{body}"
                     );
+                    assert_eq!(
+                        h.get("content-type").and_then(|v| v.to_str().ok()),
+                        Some("application/problem+json"),
+                        "{refusal:?}"
+                    );
                 }
                 Refusal::Revoked => {
                     assert_eq!(status, 401);
                     assert!(body.contains("session_revoked"), "{body}");
+                    assert_eq!(
+                        h.get("content-type").and_then(|v| v.to_str().ok()),
+                        Some("application/problem+json"),
+                        "{refusal:?}"
+                    );
                 }
                 _ => {
                     assert_eq!(status, 401, "{refusal:?}");
                     assert_eq!(body, RA_BODY, "{refusal:?}");
+                    assert_eq!(
+                        h.get("content-type").and_then(|v| v.to_str().ok()),
+                        Some("application/problem+json"),
+                        "{refusal:?}"
+                    );
                 }
             }
-            assert_eq!(
-                h.get("content-type").and_then(|v| v.to_str().ok()),
-                Some("application/problem+json"),
-                "{refusal:?}"
-            );
         }
-    }
-
-    #[tokio::test]
-    async fn only_the_five_owned_classes_are_left_to_go() {
-        let c = context();
-        let owned: Vec<Refusal> = Refusal::ALL
-            .into_iter()
-            .filter(|r| native(*r, &HeaderMap::new(), &c).is_none())
-            .collect();
-        assert_eq!(
-            owned,
-            vec![
-                Refusal::AlternativeCredential,
-                Refusal::Impersonation,
-                Refusal::Guest,
-                Refusal::NoPrimaryMailbox,
-                Refusal::MailboxBlocked,
-            ]
-        );
     }
 
     #[tokio::test]

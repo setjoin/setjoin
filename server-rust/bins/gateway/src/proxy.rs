@@ -42,7 +42,6 @@ pub struct Upstream {
     base: Option<Uri>,
     client: Client<HttpConnector, Body>,
     header_timeout: Duration,
-    go_counter: Option<(std::sync::Arc<crate::metrics::GoProxies>, usize)>,
 }
 
 impl Upstream {
@@ -76,32 +75,18 @@ impl Upstream {
             base,
             client,
             header_timeout: DEFAULT_HEADER_TIMEOUT,
-            go_counter: None,
         }
     }
 
-    /// Bound on waiting for Go's response headers (then `504`).
+    /// Bound on waiting for upstream response headers (then `504`).
     pub fn with_header_timeout(mut self, timeout: Duration) -> Self {
         self.header_timeout = timeout;
         self
     }
 
-    /// Attach this request's Go attribution; clones share the HTTP pool.
-    pub(crate) fn with_go_counter(
-        mut self,
-        counters: std::sync::Arc<crate::metrics::GoProxies>,
-        family: usize,
-    ) -> Self {
-        self.go_counter = Some((counters, family));
-        self
-    }
-
-    /// Forwards `req` to Go and returns Go's response (502 if Go is
+    /// Forwards `req` to the configured upstream and returns its response (502 if
     /// unreachable). Never partially answers a request itself.
     pub async fn forward(&self, mut req: Request<Body>, id: &ClientIdentity) -> Response<Body> {
-        if let Some((counters, family)) = &self.go_counter {
-            counters.increment(*family);
-        }
         let Some(base) = &self.base else {
             return status(StatusCode::BAD_GATEWAY, "bad gateway\n");
         };

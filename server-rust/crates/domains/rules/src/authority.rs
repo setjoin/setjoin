@@ -63,5 +63,5 @@ pub async fn denied(
 ) {
     let before =
         serde_json::json!({"actor":a.email(),"target":path,"missingPermission":detail}).to_string();
-    let _=write(exec,a,op,"console.denied","SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core')::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",&[(&before,Type::TEXT),(&path,Type::TEXT)]).await;
+    let _=write(exec,a,op,"console.denied","SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core')::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",&[(&before,Type::TEXT),(&path,Type::TEXT)]).await;
 }

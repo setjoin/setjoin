@@ -152,7 +152,7 @@ pub async fn notification_put(
          SELECT $2::bigint, $4::text::uuid, $5::boolean, $6::text, $7::boolean, $8::text::time, $9::text::time, \
                 $10::bigint::smallint, $11::text, $12::boolean, $13::boolean, \
                 COALESCE(NULLIF($14::text, ''), 'ask'), COALESCE(NULLIF($15::text, ''), 'all'), now() \
-         WHERE $1::bigint > 0 AND $3::text <> '' \
+         WHERE $1::bigint >= 0 AND $3::text <> '' \
          ON CONFLICT (user_id, device_fingerprint) DO UPDATE SET \
             push_enabled = $5::boolean, push_sound = $6::text, stop_push_when_desktop_online = $7::boolean, \
             dnd_start = $8::text::time, dnd_end = $9::text::time, dnd_days = $10::bigint::smallint, \
@@ -231,7 +231,7 @@ pub async fn vip_put(
         &envelope(&auth, operation, &format!("vip.put:{email}:{vip}")),
         &auth,
         deadline(),
-        "SELECT rust_vip_sender_set($2::bigint, $4::text, $5::boolean)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_vip_sender_set($2::bigint, $4::text, $5::boolean)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&email, Type::TEXT), (&vip, Type::BOOL)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -336,7 +336,7 @@ pub async fn vacation_put(
         deadline(),
         "SELECT set_vacation((SELECT id FROM mailboxes WHERE user_id = $2::bigint AND is_primary = TRUE LIMIT 1), \
          $4::boolean, $5::text, $6::text, $7::text, $8::text, $9::text, $10::text::date, $11::text::date, $12::text)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&b.enabled, Type::BOOL),
             (&b.subject, Type::TEXT),
@@ -411,7 +411,7 @@ pub async fn delegation_put(
         &auth,
         deadline(),
         "SELECT set_approval_delegation($2::bigint, $4::bigint, $5::text::timestamptz, $6::text::timestamptz)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&delegate, Type::INT8),
             (starts, Type::TEXT),

@@ -598,6 +598,7 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
         if to_go {
             command.env("GATEWAY_UPSTREAM", format!("http://{go}"));
         }
+        let rollback_file = dir.join(format!("gofree-meet5-rollback-{tag}.json"));
         if mode == Mode::Rollback {
             let mut inventory: Value = serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;
             let mut flipped = 0;
@@ -612,9 +613,8 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
                 }
             }
             assert_eq!(flipped, 2, "both /rtc rows are ON in the bundled inventory");
-            let file = dir.join(format!("gofree-meet5-rollback-{tag}.json"));
-            std::fs::write(&file, inventory.to_string())?;
-            command.env("GATEWAY_ROUTE_INVENTORY", file);
+            std::fs::write(&rollback_file, inventory.to_string())?;
+            command.env("GATEWAY_ROUTE_INVENTORY", &rollback_file);
         }
         if let Ok(path) = std::env::var("LLVM_PROFILE_FILE") {
             command.env("LLVM_PROFILE_FILE", path);
@@ -627,6 +627,31 @@ async fn run(mode: Mode) -> Result<(), BoxError> {
                 .spawn_boot()?,
         );
         ledger(&format!("Started gofree-meet5-gateway PID {}", child.0.id()))?;
+        if to_go {
+            let mut exited = None;
+            for _ in 0..500 {
+                if let Some(status) = child.0.try_wait()? {
+                    exited = Some(status);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let pid = child.0.id();
+            drop(child);
+            sfu.abort();
+            let _ = sfu.await;
+            if mode == Mode::Rollback && rollback_file.exists() {
+                std::fs::remove_file(&rollback_file)?;
+            }
+            ledger(&format!("Stopped/reaped gofree-meet5-gateway PID {pid}; fake SFU closed"))?;
+            if !exited.is_some_and(|s| !s.success()) {
+                return Err(format!("gateway rollback/kill should have been rejected: {exited:?}").into());
+            }
+            if go_hits.load(Ordering::SeqCst) != 0 || sfu_hits.load(Ordering::SeqCst) != 0 {
+                return Err("unexpected Go or SFU request count".into());
+            }
+            return Ok::<_, BoxError>(());
+        }
         let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
         loop {
             if let Some(status) = child.0.try_wait()? {

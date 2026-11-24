@@ -78,12 +78,7 @@ MATRIX_HOPS = {
 HOP_ENTRY = re.compile(r'\bHop\s*\("')
 HOP_ROW = re.compile(r'\(\s*(&\[[^\]]*\]|[A-Z_]+)\s*,\s*"[^"]+"\s*,\s*Hop\s*\("')
 CELL_GROUP = re.compile(r'const\s+([A-Z_]+)\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];', re.S)
-FORWARD_SITES = {
-    ("auth", "go_upstream"): 3,
-    ("gateway", "forward"): 9,  # 10 minus exempt RUST_TO_RUST_CALL (lib.rs:704)
-    ("gateway", "go_counter"): 2,
-    ("gateway", "go_target"): 11,
-}
+FORWARD_SITES = {}
 # The Go background workers (worker_semantics.json). The owner counted 49 on 2026-11-02; the file now
 # lists 51. A change here goes with the #141 evidence checklist.
 EXPECTED_WORKERS = 51

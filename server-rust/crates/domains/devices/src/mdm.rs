@@ -194,7 +194,7 @@ pub async fn arm_wipe(
         &auth,
         deadline(),
         "SELECT mdm_device_wipe_arm($4::text::uuid, $5::text, $6::bigint, $2::bigint, NULLIF($7::text, '')::inet)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&device, Type::TEXT),
             (&level, Type::TEXT),
@@ -442,7 +442,7 @@ pub async fn create_policy(
          $10::bigint::int4, $11::text, $12::bigint::int4, $13::bigint::int4, $14::bigint::int4, \
          $15::bigint::int4, $16::boolean, $17::boolean, $18::boolean, $19::text, $20::text, $21::text, \
          $22::bigint::int4, $23::bigint::int4 \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
         &params,
         |rows| match rows {
             [row] => row.try_get(0).map_err(|_| invalid()),
@@ -509,7 +509,7 @@ pub async fn update_policy(
          jailbreak_action = COALESCE($22::text, jailbreak_action), \
          heartbeat_interval_secs = COALESCE($23::bigint::int4, heartbeat_interval_secs), \
          grace_period_mins = COALESCE($24::bigint::int4, grace_period_mins), updated_at = now() \
-         WHERE id = $4::bigint AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) \
+         WHERE id = $4::bigint AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) \
          SELECT count(*)::bigint FROM u",
         &params,
         |rows| match rows {
@@ -546,7 +546,7 @@ pub async fn delete_policy(
         &envelope(&auth, operation, &id.to_string()),
         &auth,
         deadline(),
-        "SELECT (rust_mdm_policy_delete($4::bigint)->>'status') WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT (rust_mdm_policy_delete($4::bigint)->>'status') WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&id, Type::INT8)],
         |rows| match rows {
             [row] => match row.try_get::<_, String>(0).map_err(|_| invalid())?.as_str() {
@@ -577,7 +577,7 @@ pub async fn reorder_policies(
         &envelope(&auth, operation, &format!("{ids:?}")),
         &auth,
         deadline(),
-        "SELECT rust_mdm_policy_reorder($4::bigint[])::text WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_mdm_policy_reorder($4::bigint[])::text WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&list, Type::INT8_ARRAY)],
         |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
     )

@@ -75,7 +75,7 @@ pub async fn update(
     }
     params.push((&slug, Type::TEXT));
     let sql = format!(
-        "UPDATE auth_methods SET {} WHERE slug = ${next}::text AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING slug",
+        "UPDATE auth_methods SET {} WHERE slug = ${next}::text AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING slug",
         sets.join(", ")
     );
     setjoin_pg::run_receipted_command(

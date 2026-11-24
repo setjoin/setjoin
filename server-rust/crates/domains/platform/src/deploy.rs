@@ -462,7 +462,7 @@ impl Inner {
             return false;
         }
         let detail = "deployment cancelled with unconfirmed remote command termination";
-        matches!(crate::upgrades::write(&self.worker,actor,"deploy_fence_set","INSERT INTO deploy_remote_fence(id,actor_user_id,detail) SELECT true,$1::bigint,$4::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(id) DO UPDATE SET detail=EXCLUDED.detail RETURNING 'null'::text",&[(&detail,Type::TEXT)],operation).await,setjoin_pg::CommandOutcome::Committed(_))
+        matches!(crate::upgrades::write(&self.worker,actor,"deploy_fence_set","INSERT INTO deploy_remote_fence(id,actor_user_id,detail) SELECT true,$2::bigint,$4::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(id) DO UPDATE SET detail=EXCLUDED.detail RETURNING 'null'::text",&[(&detail,Type::TEXT)],operation).await,setjoin_pg::CommandOutcome::Committed(_))
     }
     async fn persist(&self, step: &Step, actor: &AuthContext, nodes: &[Node]) {
         let secret = secrets(nodes);
@@ -472,7 +472,7 @@ impl Inner {
         if getrandom::getrandom(&mut operation).is_err() {
             return;
         }
-        let _=crate::upgrades::write(&self.worker,actor,"deployment_step_upsert","INSERT INTO deployment_steps(step_name,status,output,error,started_at,completed_at) SELECT $4::text,$5::text,convert_from($6::bytea,'UTF8'),convert_from($7::bytea,'UTF8'),now(),CASE WHEN $5::text IN ('done','failed') THEN now() END WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(step_name) DO UPDATE SET status=EXCLUDED.status,output=EXCLUDED.output,error=EXCLUDED.error,started_at=COALESCE(deployment_steps.started_at,EXCLUDED.started_at),completed_at=CASE WHEN EXCLUDED.status IN ('done','failed') THEN now() ELSE deployment_steps.completed_at END RETURNING 'null'::text",&[(&step.name,Type::TEXT),(&step.status,Type::TEXT),(&output,Type::BYTEA),(&error,Type::BYTEA)],operation).await;
+        let _=crate::upgrades::write(&self.worker,actor,"deployment_step_upsert","INSERT INTO deployment_steps(step_name,status,output,error,started_at,completed_at) SELECT $4::text,$5::text,convert_from($6::bytea,'UTF8'),convert_from($7::bytea,'UTF8'),now(),CASE WHEN $5::text IN ('done','failed') THEN now() END WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' ON CONFLICT(step_name) DO UPDATE SET status=EXCLUDED.status,output=EXCLUDED.output,error=EXCLUDED.error,started_at=COALESCE(deployment_steps.started_at,EXCLUDED.started_at),completed_at=CASE WHEN EXCLUDED.status IN ('done','failed') THEN now() ELSE deployment_steps.completed_at END RETURNING 'null'::text",&[(&step.name,Type::TEXT),(&step.status,Type::TEXT),(&output,Type::BYTEA),(&error,Type::BYTEA)],operation).await;
     }
     async fn execute(self: &Arc<Self>, nodes: Vec<Node>, actor: AuthContext, run: Run) {
         for (index, (name, description)) in commands::STAGES.iter().enumerate() {

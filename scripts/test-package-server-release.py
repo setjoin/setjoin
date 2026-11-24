@@ -31,6 +31,7 @@ class ServerRelease(unittest.TestCase):
             go = root / "go"
             go.mkdir()
             rust = root / "setjoin-gateway"
+            rustauth = root / "rust-auth"
             mailctl = root / "rust-mailctl"
             asrbotd = root / "rust-asrbotd"
             updater = root / "rust-updater"
@@ -42,6 +43,7 @@ class ServerRelease(unittest.TestCase):
                     for name in BINARIES:
                         (go / name).write_bytes(elf(arch, "go:" + name))
                     rust.write_bytes(elf(arch, "rust:gateway"))
+                    rustauth.write_bytes(elf(arch, "rust:auth"))
                     mailctl.write_bytes(elf(arch, "rust:mailctl"))
                     asrbotd.write_bytes(elf(arch, "rust:asrbotd"))
                     updater.write_bytes(elf(arch, "rust:updater"))
@@ -53,6 +55,7 @@ class ServerRelease(unittest.TestCase):
                         "mailctl/mailctl": elf(arch, "rust:mailctl"),
                         "server-rust/mailctl": elf(arch, "rust:mailctl"),
                         "server-rust/setjoin-gateway": elf(arch, "rust:gateway"),
+                        "server-rust/setjoin-auth": elf(arch, "rust:auth"),
                         "server-rust/setjoin-updater": elf(arch, "rust:updater"),
                         "server-rust/asrbotd": elf(arch, "rust:asrbotd"),
                         "mailserver/webmail/build/index.html": b"webmail",
@@ -65,6 +68,7 @@ class ServerRelease(unittest.TestCase):
                             arch,
                             str(go),
                             str(rust),
+                            str(rustauth),
                             str(mailctl),
                             str(asrbotd),
                             str(updater),
@@ -92,6 +96,7 @@ class ServerRelease(unittest.TestCase):
                         self.assertEqual(found[name][0], content)
                     self.assertTrue(found["mailserver/mailserverd"][1] & 0o111)
                     self.assertTrue(found["server-rust/setjoin-gateway"][1] & 0o111)
+                    self.assertTrue(found["server-rust/setjoin-auth"][1] & 0o111)
                     self.assertIn("mailserver/deploy/scripts/install.sh", found)
 
     def test_source_build_installs_rust_cli_over_a_stale_go_artifact(self):
@@ -137,7 +142,7 @@ class ServerRelease(unittest.TestCase):
         go.mkdir(exist_ok=True)
         for name in BINARIES:
             (go / name).write_bytes(elf("amd64", name))
-        for name in ("gateway", "mailctl", "asrbotd", "updater"):
+        for name in ("gateway", "setjoin-auth", "mailctl", "asrbotd", "updater"):
             (root / name).write_bytes(elf("amd64", name))
         webmail = root / "webmail"
         webmail.mkdir(exist_ok=True)
@@ -147,7 +152,7 @@ class ServerRelease(unittest.TestCase):
         env.update(roots_env)
         result = subprocess.run(
             ["bash", str(ROOT / "scripts/package-server-release.sh"), "amd64", str(go),
-             str(root / "gateway"), str(root / "mailctl"), str(root / "asrbotd"),
+             str(root / "gateway"), str(root / "setjoin-auth"), str(root / "mailctl"), str(root / "asrbotd"),
              str(root / "updater"), str(webmail), str(out)],
             capture_output=True, text=True, check=False, env=env)
         return result, out
@@ -190,10 +195,12 @@ class ServerRelease(unittest.TestCase):
             for name in BINARIES:
                 (go / name).write_bytes(elf("amd64", name))
             rust = root / "setjoin-gateway"
+            rustauth = root / "rust-auth"
             mailctl = root / "rust-mailctl"
             asrbotd = root / "rust-asrbotd"
             updater = root / "rust-updater"
             rust.write_bytes(elf("amd64", "gateway"))
+            rustauth.write_bytes(elf("amd64", "rust:auth"))
             mailctl.write_bytes(elf("amd64", "rust:mailctl"))
             asrbotd.write_bytes(elf("amd64", "rust:asrbotd"))
             updater.write_bytes(elf("amd64", "rust:updater"))
@@ -201,7 +208,7 @@ class ServerRelease(unittest.TestCase):
             webmail.mkdir()
             (webmail / "index.html").write_text("webmail")
             output = root / "release.tar.gz"
-            for binary in [*(go / name for name in BINARIES), rust, mailctl, asrbotd, updater]:
+            for binary in [*(go / name for name in BINARIES), rust, rustauth, mailctl, asrbotd, updater]:
                 with self.subTest(binary=binary.name):
                     original = binary.read_bytes()
                     binary.write_bytes(elf("arm64", "wrong architecture"))
@@ -212,6 +219,7 @@ class ServerRelease(unittest.TestCase):
                             "amd64",
                             str(go),
                             str(rust),
+                            str(rustauth),
                             str(mailctl),
                             str(asrbotd),
                             str(updater),

@@ -36,13 +36,12 @@ async fn check_unmatched_handoff() -> Result<(), Error> {
         .query_one("SELECT email FROM users WHERE id=$1", &[&a.user])
         .await?
         .get(0);
-    let (listener_addr, mut seen, spy) = spy().await?;
+    let (_listener_addr, mut seen, spy) = spy().await?;
     let result = async {
         let f: Value = serde_json::from_str(include_str!(
             "../../../tests/conformance/identity-login/keys.json"
         ))?;
-        let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
-        cfg.go_upstream = Some(format!("http://{listener_addr}"));
+        let cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
             .map_err(|e| e.0)?;
         let server = AuthServer::load(exec, cfg)
@@ -202,7 +201,6 @@ async fn check_unmatched_handoff() -> Result<(), Error> {
 
         let mut internal_cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
         internal_cfg.internal_api_key = "handoff-internal-key".into();
-        internal_cfg.go_upstream = Some(format!("http://{listener_addr}"));
         let exec2 = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
             .map_err(|e| e.0)?;
         let internal_server = AuthServer::load(exec2, internal_cfg)
@@ -359,10 +357,9 @@ async fn device_proof_login_resolves_natively_without_forwarding() {
         .await
         .unwrap()
         .get(0);
-    let (listener_addr, mut seen, spy) = spy().await.unwrap();
+    let (_listener_addr, mut seen, spy) = spy().await.unwrap();
     let result: Result<(), Error> = async {
-        let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
-        cfg.go_upstream = Some(format!("http://{listener_addr}"));
+        let cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
             .map_err(|e| e.0)?;
         let server = AuthServer::load(exec, cfg)
@@ -492,13 +489,12 @@ async fn duplicate_dpop_map_binds_natively_without_forwarding() {
         .await
         .unwrap()
         .get(0);
-    let (listener_addr, mut seen, spy) = spy().await.unwrap();
+    let (_listener_addr, mut seen, spy) = spy().await.unwrap();
     let result: Result<(), Error> = async {
         let f: Value = serde_json::from_str(include_str!(
             "../../../tests/conformance/identity-login/keys.json"
         ))?;
-        let mut cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
-        cfg.go_upstream = Some(format!("http://{listener_addr}"));
+        let cfg = Config::for_secret(f["secret"].as_str().unwrap().into());
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2)
             .map_err(|e| e.0)?;
         let server = AuthServer::load(exec, cfg)

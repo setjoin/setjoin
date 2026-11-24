@@ -377,12 +377,14 @@ this gateway boundary. More-specific family handlers retain their authority.
 
 `RouteTable::with_catchall` installs the last adapter and enables the root mux's
 clean-path redirects before concrete dispatch. The six structural registrations
-are ON by default, with the usual inventory and global rollback. API unknowns
-have Go's outer guest belt; Chat/Drive/Meet additionally require authentication,
-live feature state and app entitlement before their inner 404/405. Authenticated
-identity checks that the foundation cannot prove stay forwarded (Identity
-#331–#333), as do entitlement denials with Go-owned audit effects. No catch-all
-request writes business data. Headers and problem bodies use shared gateway helpers.
+are ON unconditionally (#359; Go forwarding and `GATEWAY_ENABLED=false` are
+retired, and `REHEARSAL-FORWARD-SITES = 0`). API unknowns have Go's outer guest
+belt; Chat/Drive/Meet additionally require authentication (`deny::admit` with
+`Scope::DriveUser` for `/drive/` and `Scope::User` for `/chat/`, `/meet`,
+`/meet/`), live feature state, and app entitlement before their inner 404/405.
+All credential refusals answer natively via total `deny::native` with zero Go
+forwarding. No catch-all request writes business data. Headers and problem
+bodies use shared gateway helpers.
 
 `WEBSITE_DIR` build validation, streamed representations, cache/validator rules
 and the public bootstrap predicate: [static contract](../../crates/domains/static/DOX.md#webmail-representations-and-catch-all-416).
@@ -764,22 +766,25 @@ outcomes finish locally. Its RequireAuth classification names only the outer
 Chat/Drive/Meet mounts. The existing injected with_auth builder retains its
 member-only contract; no deployment rollback control is added.
 
-## Native refusals for `admit` (#354)
+## Native refusals for `admit` (#354, #359)
 
-`bins/gateway/src/deny.rs` maps each `setjoin_authz::Refusal` to Go's bytes: 401 RA
-with `WWW-Authenticate` for no or invalid credentials and the approved missing-`iat`
-and `uid<=0` divergences; `GuestInactive` as the plain 401; `Revoked` as
-`session_revoked`; `Unavailable` as 503. The five owned classes return `None` and
-forward from `answer` only. `native_or_unauthorized` is the fail-closed mapping for
-surfaces Go must never see (#365). The front-door revocation read now fails closed
-(503) after the CAE cold-denylist answer, so `denylist-cold.json` keeps its bytes.
-Adapters move from `authorize_*` to `deny::admit` in the #354 B1-B5 sweep batches; `grep deny::admit` shows which have landed. A token with a non-empty
-`scp` is admitted when Go's handler path (decoded, `/api` stripped as mailserverd's root
-dispatch does) is `/<scp>` or under it (Go chain.go:434), else 401, on every scope;
-`exp`/`nbf`/`iat` decode exactly like Go's jwt NumericDate (fractions, quoted numbers;
-authz `numeric_date`);
-the `access_token` cookie follows Go's `readCookies` (first match wins, even empty);
-the route's permission check then answers 403 as in Go. The four approved divergences are
+`bins/gateway/src/deny.rs` maps every `setjoin_authz::Refusal` natively (zero Go
+forwarding; `REHEARSAL-FORWARD-SITES = 0`): 401 RA with `WWW-Authenticate` for
+no/invalid credentials, the approved missing-`iat` and `uid<=0` divergences,
+and the owner-approved non-DAV `AlternativeCredential` divergence
+(`non-dav-alternative-credential-401`; DAV and Drive native-token keep native
+Basic + Negotiate via `#355a`/`#355b`); `Guest` as Go's plain 404;
+`GuestInactive` as plain 401; `Revoked` as `session_revoked`; `MailboxBlocked`
+as 403 `about:blank` `"mailbox access is suspended"`; `Unavailable` as 503.
+`setjoin_authz::admit` natively admits positive-integer `act` impersonation,
+mailbox-less members (with per-handler Go parity across JMAP, messages, offline,
+calendar, and rules), and suspended mailboxes (enforced on JMAP only).
+`native_or_unauthorized` stays strictly fail-closed (`401`/`503`) for DAV and
+AuthAdmin surfaces. `main.rs` resolves `GATEWAY_RUST_AUTH_UPSTREAM` (falling
+back to legacy `GATEWAY_AUTH_UPSTREAM` with a deprecation warning on pre-#359
+upgraded hosts), ignores stale `GATEWAY_UPSTREAM`, rejects
+`GATEWAY_ENABLED=false`, and starts Rust workers/listeners without requiring
+`GO_WORKERS_OFF`/`GO_LISTENERS_OFF`. The five approved divergences are
 registered in `tests/conformance/authz-deny/divergences.json`.
 
 ## Gateway configuration (#414)

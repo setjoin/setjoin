@@ -175,7 +175,7 @@ pub async fn import_message(
          $17::bigint, FALSE, FALSE, $18::text, \
          (TIMESTAMPTZ 'epoch' + $19::bigint * INTERVAL '1 second' + $20::integer * INTERVAL '1 microsecond'), \
          p_actor_id => $21::bigint, p_domain_scope => $22::bigint) \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&mailbox, Type::INT8),
             (&tag, Type::INT8),
@@ -223,7 +223,7 @@ pub async fn audit_import(
         &auth,
         deadline(),
         "SELECT audit_write($4::bigint, 'mailbox.import', 'mailbox', $5::bigint, NULL, $6::text::jsonb, NULLIF($7::text, '')::inet, '', 'core') \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&actor_id, Type::INT8),
             (&mailbox, Type::INT8),

@@ -239,20 +239,13 @@ impl<K: KeySource> JmapCommands<K> {
         };
         let request_id = reply::request_id(parts.headers.get("x-request-id"), rand_bytes);
         let identity = authorized.context();
-        let (Ok(actor_id), Ok(mailbox_id)) = (
-            ActorId::new(identity.user_id()),
-            MailboxId::new(identity.mailbox_id()),
-        ) else {
+        if ActorId::new(identity.user_id()).is_err() {
             return crate::mailboxes::bare(500, "internal error", &ctx, &request_id);
-        };
+        }
         let a = Admitted {
             user: identity.user_id(),
             mailbox: identity.mailbox_id(),
-            auth: MailboxAuthContext::from_authenticated_session(
-                actor_id,
-                mailbox_id,
-                super::REQUEST_AUTHORITY_GENERATION,
-            ),
+            auth: identity.database_scope(),
             request_id,
         };
         let bytes = if route == Route::Focus {

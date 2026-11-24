@@ -77,33 +77,18 @@ async fn rust_runs_a_task_under_its_own_lock_while_go_holds_the_scheduler_lock(
 }
 
 #[tokio::test]
-async fn rust_refuses_a_task_unless_go_lists_its_copy_off() -> Result<(), BoxError> {
+async fn rust_registers_task_without_go_workers_off() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     let Some(db) = Db::for_case("cron-handover-guard") else {
         return Ok(());
     };
     let worker = WorkerDatabase::new(&db.dsn)?;
-    let (send, mut receive) = tokio::sync::mpsc::unbounded_channel();
+    let (send, _receive) = tokio::sync::mpsc::unbounded_channel();
     let mut rust = CronScheduler::per_task(worker.clone());
-    for go_off in ["", "cron:chat-chain-anchor", "chat-purge-expired"] {
-        let error = rust
-            .register_transferred(TASK, counting(send.clone()), go_off)
-            .await
-            .expect_err("Go copy still on");
-        assert!(
-            error
-                .to_string()
-                .contains("GO_WORKERS_OFF=cron:chat-purge-expired"),
-            "{error}"
-        );
-    }
-    rust.tick(at_0250()).await?;
-    rust.wait_idle().await;
-    assert!(receive.try_recv().is_err(), "a refused task never runs");
-    // The refusal did not leave a lock behind.
+    rust.register_transferred(TASK, counting(send), "").await?;
+    rust.shutdown().await?;
     let lease = worker.try_cron_task_lock(TASK).await?.expect("lock free");
     lease.release().await?;
-    rust.shutdown().await?;
     Ok(())
 }
 
@@ -193,8 +178,8 @@ fn gateway(db: &Db, rust_on: &str, go_off: Option<&str>) -> std::io::Result<crat
         .stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("GATEWAY_ENABLED", "false"),
         ("DB_DSN", db.dsn.as_str()),
+        ("DB_DIRECT_DSN", db.dsn.as_str()),
         ("RUST_WORKERS_ON", rust_on),
     ] {
         command.env(k, v);
@@ -220,32 +205,15 @@ async fn refused(db: &Db, rust_on: &str, go_off: Option<&str>, want: &str) -> Re
 }
 
 #[tokio::test]
-async fn executable_refuses_cron_tasks_unless_go_is_off_and_ported() -> Result<(), BoxError> {
+async fn executable_refuses_unported_cron_tasks() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     let Some(db) = Db::for_case("cron-handover-startup-refusals") else {
         return Ok(());
     };
-    let want = "cron:chat-chain-anchor requires GO_WORKERS_OFF=cron:chat-chain-anchor";
-    refused(&db, "cron:chat-chain-anchor", None, want).await?;
-    refused(
-        &db,
-        "cron:chat-chain-anchor",
-        Some("cron:chat-purge-expired"),
-        want,
-    )
-    .await?;
-    // Every Go task has a Rust callback since #407, so the guard is the only refusal.
-    refused(
-        &db,
-        "cron:prune-spam",
-        None,
-        "cron:prune-spam requires GO_WORKERS_OFF=cron:prune-spam",
-    )
-    .await?;
     refused(
         &db,
         "cron:no-such-task",
-        Some("cron"),
+        None,
         "no Rust implementation",
     )
     .await?;

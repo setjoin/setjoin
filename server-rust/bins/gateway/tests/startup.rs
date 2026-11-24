@@ -34,7 +34,6 @@ fn executable_rejects_unqualified_routes_in_a_custom_inventory() {
         Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
             .env_clear()
             .env("GATEWAY_LISTEN", "127.0.0.1:0")
-            .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
             .env("GATEWAY_ROUTE_INVENTORY", &path.0)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -61,7 +60,7 @@ fn executable_rejects_unqualified_routes_in_a_custom_inventory() {
 }
 
 #[tokio::test]
-async fn executable_accepts_qualified_custom_inventory_and_rollback() {
+async fn executable_accepts_qualified_custom_inventory_and_rejects_go_rollback() {
     for demote in [false, true] {
         let mut inventory: serde_json::Value =
             serde_json::from_str(include_str!("../route-inventory.json")).unwrap();
@@ -90,13 +89,29 @@ async fn executable_accepts_qualified_custom_inventory_and_rollback() {
             Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
                 .env_clear()
                 .env("GATEWAY_LISTEN", addr.to_string())
-                .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
                 .env("GATEWAY_ROUTE_INVENTORY", &path.0)
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(Stdio::piped())
                 .spawn_boot()
                 .unwrap(),
         );
+        if demote {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+            let status = loop {
+                if let Some(status) = process.0.try_wait().unwrap() {
+                    break Some(status);
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    break None;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            };
+            assert!(
+                status.is_some_and(|s| !s.success()),
+                "Go rollback OFF route started the executable"
+            );
+            continue;
+        }
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
             assert!(
@@ -136,14 +151,27 @@ fn executable_prints_version_without_configuration() {
 }
 
 #[tokio::test]
-async fn executable_defaults_on_and_environment_kill_switch_restores_go() {
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("auth")) }).await;
+async fn executable_defaults_on_rejects_kill_switch_and_upgrades_legacy_auth_env() {
+    let legacy = fake_upstream(|_| async { Response::new(full("legacy auth")) }).await;
     let native = fake_upstream(|_| async { Response::new(full("rust auth")) }).await;
-    for (flag, expected) in [
-        (None, "rust auth"),
-        (Some("false"), "mail"),
-        (Some("true"), "rust auth"),
+    // GATEWAY_ENABLED=false is rejected with a clear error.
+    let output = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+        .env_clear()
+        .env("GATEWAY_LISTEN", "127.0.0.1:0")
+        .env("GATEWAY_ENABLED", "false")
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "GATEWAY_ENABLED=false started");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("GATEWAY_ENABLED=false is no longer supported"),
+        "{stderr}"
+    );
+    // Unset / true + upgrade-safe legacy GATEWAY_AUTH_UPSTREAM fallback + ignored stale GATEWAY_UPSTREAM.
+    for (flag, rust_auth, legacy_auth, expected) in [
+        (None, Some(native), None, "rust auth"),
+        (Some("true"), Some(native), Some(legacy), "rust auth"),
+        (None, None, Some(legacy), "legacy auth"),
     ] {
         let reserved = setjoin_conformance::ports::listener().await;
         let addr = reserved.local_addr().unwrap();
@@ -152,13 +180,17 @@ async fn executable_defaults_on_and_environment_kill_switch_restores_go() {
         command
             .env_clear()
             .env("GATEWAY_LISTEN", addr.to_string())
-            .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
-            .env("GATEWAY_AUTH_UPSTREAM", format!("http://{auth}"))
-            .env("GATEWAY_RUST_AUTH_UPSTREAM", format!("http://{native}"))
+            .env("GATEWAY_UPSTREAM", "http://127.0.0.1:1")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         if let Some(flag) = flag {
             command.env("GATEWAY_ENABLED", flag);
+        }
+        if let Some(u) = rust_auth {
+            command.env("GATEWAY_RUST_AUTH_UPSTREAM", format!("http://{u}"));
+        }
+        if let Some(u) = legacy_auth {
+            command.env("GATEWAY_AUTH_UPSTREAM", format!("http://{u}"));
         }
         let mut process = Process(command.spawn_boot().unwrap());
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -190,58 +222,45 @@ async fn executable_defaults_on_and_environment_kill_switch_restores_go() {
 }
 
 #[tokio::test]
-async fn executable_enforces_core_budget_without_jmap_and_kill_switch_bypasses_it() {
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("auth")) }).await;
-    for enabled in [true, false] {
-        let reserved = setjoin_conformance::ports::listener().await;
-        let addr = reserved.local_addr().unwrap();
-        drop(reserved);
-        let mut process = Process(
-            Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
-                .env_clear()
-                .env("GATEWAY_LISTEN", addr.to_string())
-                .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
-                .env("GATEWAY_AUTH_UPSTREAM", format!("http://{auth}"))
-                .env("GATEWAY_ENABLED", enabled.to_string())
-                .env("CORE_RATE_LIMIT", "0")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn_boot()
-                .unwrap(),
+async fn executable_enforces_core_budget_without_go_upstreams() {
+    let reserved = setjoin_conformance::ports::listener().await;
+    let addr = reserved.local_addr().unwrap();
+    drop(reserved);
+    let mut process = Process(
+        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            .env_clear()
+            .env("GATEWAY_LISTEN", addr.to_string())
+            .env("CORE_RATE_LIMIT", "0")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn_boot()
+            .unwrap(),
+    );
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        assert!(
+            process.0.try_wait().unwrap().is_none(),
+            "gateway exited before listening"
         );
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-        loop {
-            assert!(
-                process.0.try_wait().unwrap().is_none(),
-                "gateway exited before listening"
-            );
-            if tokio::net::TcpStream::connect(addr).await.is_ok() {
-                break;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "gateway never listened"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        if tokio::net::TcpStream::connect(addr).await.is_ok() {
+            break;
         }
-        let response = send(addr, Request::post("/auth/login").body(full("{}")).unwrap()).await;
-        if enabled {
-            assert_eq!(response.status(), hyper::StatusCode::TOO_MANY_REQUESTS);
-            assert_eq!(
-                &body_bytes(response).await[..],
-                include_bytes!("golden/go-rate-limited.json")
-            );
-        } else {
-            assert_eq!(body_bytes(response).await, "mail");
-        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "gateway never listened"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
+    let response = send(addr, Request::post("/auth/login").body(full("{}")).unwrap()).await;
+    assert_eq!(response.status(), hyper::StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        &body_bytes(response).await[..],
+        include_bytes!("golden/go-rate-limited.json")
+    );
 }
 
 #[tokio::test]
 async fn executable_honors_route_budget_overrides_on_the_served_paths() {
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("auth")) }).await;
     let reserved = setjoin_conformance::ports::listener().await;
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
@@ -249,8 +268,6 @@ async fn executable_honors_route_budget_overrides_on_the_served_paths() {
     command
         .env_clear()
         .env("GATEWAY_LISTEN", addr.to_string())
-        .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
-        .env("GATEWAY_AUTH_UPSTREAM", format!("http://{auth}"))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     for name in [
@@ -312,8 +329,6 @@ async fn executable_honors_route_budget_overrides_on_the_served_paths() {
 
 #[tokio::test]
 async fn scim_rate_budget_only_applies_when_scim_is_enabled() {
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("auth")) }).await;
     for enabled in [true, false] {
         let reserved = setjoin_conformance::ports::listener().await;
         let addr = reserved.local_addr().unwrap();
@@ -322,8 +337,6 @@ async fn scim_rate_budget_only_applies_when_scim_is_enabled() {
             Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
                 .env_clear()
                 .env("GATEWAY_LISTEN", addr.to_string())
-                .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
-                .env("GATEWAY_AUTH_UPSTREAM", format!("http://{auth}"))
                 .env("SCIM_ENABLED", enabled.to_string())
                 .env("SCIM_RATE_LIMIT", "0")
                 .stdout(Stdio::null())
@@ -367,8 +380,6 @@ async fn executable_starts_the_transferred_worker_using_its_direct_connection() 
     let listener_name=format!("{prefix}-gateway-listener-{}",std::process::id());
     let separator = if direct.contains('?') { '&' } else { '?' };
     let direct = format!("{direct}{separator}application_name={listener_name}");
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("auth")) }).await;
     let reserved = setjoin_conformance::ports::listener().await;
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
@@ -377,8 +388,6 @@ async fn executable_starts_the_transferred_worker_using_its_direct_connection() 
         .arg0(format!("{prefix}-gateway"))
         .env_clear()
         .env("GATEWAY_LISTEN", addr.to_string())
-        .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
-        .env("GATEWAY_AUTH_UPSTREAM", format!("http://{auth}"))
         .env("RUST_WORKERS_ON", "session-denylist-refresh")
         // The auth-chain cache also needs a working request pool at startup.
         .env("DB_DSN", &request)
@@ -415,7 +424,6 @@ async fn activated_listener_keeps_connections_queued_across_restart() {
     use std::os::fd::AsRawFd;
     use std::time::Duration;
 
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
     let auth = fake_upstream(|_| async { Response::new(full("auth")) }).await;
     // This parent-owned socket stands in for systemd's retained listener.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -425,8 +433,6 @@ async fn activated_listener_keeps_connections_queued_across_restart() {
         let mut command = Command::new("bash");
         command
             .env_clear()
-            .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
-            .env("GATEWAY_AUTH_UPSTREAM", format!("http://{auth}"))
             .env("GATEWAY_RUST_AUTH_UPSTREAM", format!("http://{auth}"))
             .arg("-c")
             .arg("export LISTEN_PID=$$ LISTEN_FDS=1; exec -a gofree-t13-gateway \"$1\"")
@@ -485,7 +491,6 @@ fn activation_rejects_missing_listener_and_multiple_descriptors() {
     for count in ["1", "2"] {
         let output = Command::new("bash")
             .env_clear()
-            .env("GATEWAY_ENABLED", "false")
             .env("LISTEN_FDS", count)
             .arg("-c")
             .arg("export LISTEN_PID=$$; exec -a gofree-t13-gateway \"$1\"")
@@ -506,7 +511,7 @@ async fn sigterm_drains_an_in_flight_http_response() {
 
     let entered = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
-    let mail = fake_upstream({
+    let auth = fake_upstream({
         let entered = entered.clone();
         let release = release.clone();
         move |_| {
@@ -528,8 +533,7 @@ async fn sigterm_drains_an_in_flight_http_response() {
             .arg0("gofree-t13-gateway")
             .env_clear()
             .env("GATEWAY_LISTEN", addr.to_string())
-            .env("GATEWAY_ENABLED", "false")
-            .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
+            .env("GATEWAY_RUST_AUTH_UPSTREAM", format!("http://{auth}"))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn_boot()
@@ -544,7 +548,7 @@ async fn sigterm_drains_an_in_flight_http_response() {
     .await
     .expect("gateway did not listen");
     let response = tokio::spawn(async move {
-        let response = send(addr, Request::get("/").body(full("")).unwrap()).await;
+        let response = send(addr, Request::post("/auth/login").body(full("")).unwrap()).await;
         body_bytes(response).await
     });
     tokio::time::timeout(Duration::from_secs(10), entered.notified())
@@ -584,7 +588,6 @@ async fn sigterm_drains_an_in_flight_http_response() {
 
 #[tokio::test]
 async fn activation_for_another_pid_does_not_replace_configured_listener() {
-    let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
     let reserved = setjoin_conformance::ports::listener().await;
     let addr = reserved.local_addr().unwrap();
     drop(reserved);
@@ -595,8 +598,6 @@ async fn activation_for_another_pid_does_not_replace_configured_listener() {
             .env("LISTEN_PID", "0")
             .env("LISTEN_FDS", "1")
             .env("GATEWAY_LISTEN", addr.to_string())
-            .env("GATEWAY_ENABLED", "false")
-            .env("GATEWAY_UPSTREAM", format!("http://{mail}"))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn_boot()
@@ -614,6 +615,6 @@ async fn activation_for_another_pid_does_not_replace_configured_listener() {
         );
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    let response = send(addr, Request::get("/").body(full("")).unwrap()).await;
-    assert_eq!(body_bytes(response).await, "mail");
+    let response = send(addr, Request::get("/_gateway/healthz").body(full("")).unwrap()).await;
+    assert_eq!(body_bytes(response).await, "ok\n");
 }

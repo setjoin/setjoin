@@ -1796,10 +1796,7 @@ async fn setup_terms_gateway_fixture(
         "../../../tests/conformance/identity-login/keys.json"
     ))?;
     let secret = keys["secret"].as_str().unwrap().to_owned();
-    let mut cfg = Config::for_secret(secret.clone());
-    if let Some(addr) = go_auth {
-        cfg.go_upstream = Some(format!("http://{addr}"));
-    }
+    let cfg = Config::for_secret(secret.clone());
     let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
         .map_err(|e| e.0)?;
     let auth = auth_server(Arc::new(AuthServer::load(exec.clone(), cfg).await?), false).await;
@@ -2477,7 +2474,6 @@ async fn dpop_issuance_bound_routes_and_uri_edge_cases() {
         let mut cfg = Config::for_secret(secret.into());
         cfg.db_encryption_key = "22".repeat(32);
         cfg.signing_alg = "ES256".into();
-        cfg.go_upstream = None;
         for key in ["threat_feed", "geo_block", "spray_detect", "captcha", "tarpit"] {
             cfg.threat.overrides.insert(format!("feature.{key}"), false);
         }

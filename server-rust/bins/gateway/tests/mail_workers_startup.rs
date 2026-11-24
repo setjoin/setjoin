@@ -36,9 +36,9 @@ impl Process {
             .stderr(Stdio::piped());
         for (k, v) in [
             ("GATEWAY_LISTEN", "127.0.0.1:0"),
-            ("GATEWAY_ENABLED", "false"),
             ("DB_DSN", request),
             ("DB_WORKER_DSN", worker),
+            ("DB_DIRECT_DSN", worker),
             ("RUST_WORKERS_ON", on),
             ("GO_WORKERS_OFF", off),
             ("AUDIT_HMAC_KEY", "gofree-mbox4-audit-hmac"),
@@ -92,38 +92,20 @@ impl Process {
 }
 
 #[tokio::test]
-async fn refuses_shared_effects_without_go_off() -> Result<(), BoxError> {
-    // Each refused boot still runs the startup partition DDL, which locks `tags` before
-    // `mailboxes`; a fixture mailbox insert locks them in the opposite order, and on a fresh
-    // database the two deadlocked (40P01 in create_system_tags). Serialize with the other cases.
+async fn starts_shared_effects_without_go_off() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     let Some(db) = Db::for_case("mail-worker-startup") else {
         return Ok(());
     };
     for name in ["mail-work", "mailbox-lifecycle"] {
-        for off in [
-            String::new(),
-            format!("{name}-x"),
-            name.to_uppercase(),
-            if name == "mail-work" {
-                "mailbox-lifecycle".into()
-            } else {
-                "mail-work".into()
-            },
-        ] {
-            let mut process = Process::start(&db.dsn, &db.dsn, name, &off, &[])?;
-            let status = process.exited(Duration::from_secs(2)).await?;
-            assert!(
-                status.is_some(),
-                "{name} started with GO_WORKERS_OFF={off:?}"
-            );
-            assert!(!status.unwrap().success());
-            let err = process.stderr()?;
-            assert!(
-                err.contains(&format!("GO_WORKERS_OFF={name}")),
-                "wrong startup refusal: {err}"
-            );
-        }
+        let mut process = Process::start(&db.dsn, &db.dsn, name, "", &[])?;
+        let status = process.exited(Duration::from_millis(1200)).await?;
+        assert!(
+            status.is_none(),
+            "{name} exited without GO_WORKERS_OFF: {}",
+            process.stderr()?
+        );
+        process.stop().await?;
     }
     Ok(())
 }

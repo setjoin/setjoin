@@ -542,24 +542,86 @@ async fn member_scope_names_every_live_state() {
             "guest claim",
         );
 
+        // Under #359 Part A, non-guest members without a primary mailbox are admitted
+        // with mailbox_id == 0 (matching Go RequireAuth).
         let nobody = ctx.no_mailbox_user().await?;
-        refused(
+        let no_mb = admitted(
             run(&ctx, &keys, &bearer(&claims(nobody)), PLAIN, Scope::Member).await,
-            Refusal::NoPrimaryMailbox,
-            "no mailbox",
+            "no mailbox admitted like Go RequireAuth",
         );
+        assert_eq!(no_mb.context().user_id(), nobody);
+        assert_eq!(no_mb.context().mailbox_id(), 0);
+        assert!(!no_mb.context().mailbox_blocked());
+        assert!(!no_mb.context().is_guest());
 
+        // Suspended primary mailboxes are admitted on ordinary scopes with
+        // mailbox_blocked() == true (JMAP enforces 403/forbidden).
         let suspended = ctx.member().await?;
         let h = bearer(&claims(suspended.user));
-        admitted(
+        let before = admitted(
             run(&ctx, &keys, &h, PLAIN, Scope::Member).await,
             "before suspension",
         );
+        assert!(!before.context().mailbox_blocked());
         ctx.suspend(suspended.mailbox).await?;
-        refused(
+        let after = admitted(
             run(&ctx, &keys, &h, PLAIN, Scope::Member).await,
-            Refusal::MailboxBlocked,
-            "suspended lifecycle",
+            "suspended lifecycle admitted with mailbox_blocked",
+        );
+        assert_eq!(after.context().mailbox_id(), suspended.mailbox);
+        assert!(after.context().mailbox_blocked());
+
+        // Attachment admission explicitly keeps requiring mailbox > 0 and !mailbox_blocked.
+        let att_token = |uid: i64| {
+            use hmac::{Hmac, Mac};
+            use sha2::Sha256;
+            let mut extract = Hmac::<Sha256>::new_from_slice(b"mailserver-mail-attachment-token-v1")
+                .expect("hmac");
+            extract.update(SECRET);
+            let prk = extract.finalize().into_bytes();
+            let mut expand = Hmac::<Sha256>::new_from_slice(&prk).expect("hmac");
+            expand.update(&[1]);
+            let key = expand.finalize().into_bytes();
+            let header = B64.encode(br#"{"alg":"HS256","kid":"mailserver-mail-attachment-1","typ":"JWT"}"#);
+            let payload = B64.encode(
+                json!({
+                    "uid": uid,
+                    "email": "admitdb@example.test",
+                    "typ": "access",
+                    "scp": "mail-attachment",
+                    "jti": jti(uid),
+                    "fam": family(uid),
+                    "iss": ISSUER,
+                    "aud": ["mailserver-gateway"],
+                    "iat": now() - 10,
+                    "exp": now() + 300,
+                })
+                .to_string(),
+            );
+            let input = format!("{header}.{payload}");
+            let mut mac = Hmac::<Sha256>::new_from_slice(&key).expect("hmac");
+            mac.update(input.as_bytes());
+            let sig = B64.encode(mac.finalize().into_bytes());
+            bearer_token(&format!("{input}.{sig}"))
+        };
+        assert_eq!(
+            setjoin_authz::admit_attachment(&ctx.exec, &att_token(nobody), ISSUER, &[SECRET])
+                .await
+                .err(),
+            Some(Refusal::NoPrimaryMailbox),
+            "admit_attachment refuses mailbox_id == 0"
+        );
+        assert_eq!(
+            setjoin_authz::admit_attachment(
+                &ctx.exec,
+                &att_token(suspended.user),
+                ISSUER,
+                &[SECRET]
+            )
+            .await
+            .err(),
+            Some(Refusal::MailboxBlocked),
+            "admit_attachment refuses suspended mailbox"
         );
         Ok::<(), BoxError>(())
     })
@@ -601,7 +663,7 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                 Refusal::Revoked,
                 &format!("{at}: revoked guest"),
             );
-            refused(
+            let imp_guest = admitted(
                 run(
                     &ctx,
                     &keys,
@@ -610,10 +672,11 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                     scope,
                 )
                 .await,
-                Refusal::Impersonation,
                 &format!("{at}: act + guest"),
             );
-            refused(
+            assert!(imp_guest.context().is_guest());
+            assert_eq!(imp_guest.context().actor_id(), Some(1));
+            let imp_member = admitted(
                 run(
                     &ctx,
                     &keys,
@@ -622,9 +685,10 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                     scope,
                 )
                 .await,
-                Refusal::Impersonation,
                 &format!("{at}: act + member"),
             );
+            assert_eq!(imp_member.context().user_id(), member.user);
+            assert_eq!(imp_member.context().actor_id(), Some(1));
             admitted(
                 run(&ctx, &keys, &bearer(&claims(member.user)), path, scope).await,
                 &format!("{at}: plain member"),
@@ -676,6 +740,8 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                 &format!("{scope:?}: guest with non-numeric iat"),
             );
             for (label, act) in [
+                ("zero", json!(0)),
+                ("negative", json!(-1)),
                 ("string", json!("admin")),
                 ("float", json!(1.5)),
                 ("object", json!({})),
@@ -684,13 +750,25 @@ async fn user_and_drive_user_scopes_name_guest_states() {
                     run(
                         &ctx,
                         &keys,
-                        &bearer(&with(guest_claims(active), "act", act)),
+                        &bearer(&with(guest_claims(active), "act", act.clone())),
                         PLAIN,
                         scope,
                     )
                     .await,
                     Refusal::InvalidToken,
                     &format!("{scope:?}: guest with {label} act"),
+                );
+                refused(
+                    run(
+                        &ctx,
+                        &keys,
+                        &bearer(&with(claims(member.user), "act", act)),
+                        PLAIN,
+                        scope,
+                    )
+                    .await,
+                    Refusal::InvalidToken,
+                    &format!("{scope:?}: member with {label} act"),
                 );
             }
         }

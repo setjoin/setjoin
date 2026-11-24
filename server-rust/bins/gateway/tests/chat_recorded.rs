@@ -728,11 +728,14 @@ async fn run_inner(
             worker_dsn=format!("{}?options=-csearch_path%3D{schema}%2Cpublic",db.dsn);mutant_schema=Some(schema);
         }
         let rollback=matches!(case,"kill-switch"|"inventory-kill-switch");
-        let endpoint=common::fake_upstream(move |request|async move {
+        let go_hits=std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed_hits=go_hits.clone();
+        let endpoint=common::fake_upstream(move |request|{let observed_hits=observed_hits.clone();async move {
             if !rollback{return Response::new(common::full("unused"))}
+            observed_hits.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
             let method=request.method().to_string();let uri=request.uri().to_string();let body=request.into_body().collect().await.unwrap().to_bytes();
             Response::builder().status(418).header("x-gofree-chat1-go","yes").body(common::full(json!({"method":method,"uri":uri,"body":String::from_utf8_lossy(&body)}).to_string())).unwrap()
-        }).await;
+        }}).await;
         let oracle_db=Db{dsn:worker_dsn.clone(),direct:db.direct.clone(),app:db.app.clone()};
         let oracle=common::go_oracle::start(&oracle_db,endpoint).await?;
         let recording=oracle.is_some();
@@ -742,13 +745,19 @@ async fn run_inner(
             let adapter=setjoin_gateway::chat::ChatRoute{exec:loaded_host_exec(&app_dsn)?.with_audit_keys("22".repeat(32),String::new()),worker:loaded_host_exec(&worker_dsn)?.with_audit_keys("22".repeat(32),String::new()),keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
             if mutant{RouteTable::proxy_all().with(ChangedStatus(adapter))}else{RouteTable::proxy_all().with(adapter)}
         })?.with_enabled(case!="kill-switch");
-        let gateway=if case=="inventory-kill-switch" {
+        if case=="inventory-kill-switch" {
             let mut inventory:Value=serde_json::from_str(include_str!("../route-inventory.json"))?;
             for r in inventory["routes"].as_array_mut().unwrap() {
                 if r["family"]=="F12" && r["slice"]=="golden-routes" {r["state"]="OFF".into();r["upstream"]="go-mail".into();}
             }
-            gateway.with_inventory(&inventory.to_string())?
-        }else{gateway};
+            if gateway.with_inventory(&inventory.to_string()).is_ok() {
+                return Err("OFF/go-mail F12 golden-routes inventory should have been rejected".into());
+            }
+            if go_hits.load(std::sync::atomic::Ordering::SeqCst)!=0 {return Err("rejected inventory reached Go".into());}
+            let audits:i64=owner.query_one("SELECT count(*) FROM admin_audit_log WHERE id>$1",&[&before]).await?.get(0);
+            if audits!=0{return Err("rejected inventory ran native auditing".into());}
+            return Ok(());
+        }
         let listen=tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address=listen.local_addr()?;
         let server=tokio::spawn(gateway.serve(listen));
@@ -769,21 +778,16 @@ async fn run_inner(
             let date=value.strip_prefix(&format!("attachment; filename=chat-audit-{channel}-")).and_then(|v|v.strip_suffix(".csv")).ok_or("bad CSV disposition")?;
             if date.len()!=8||!date.bytes().all(|b|b.is_ascii_digit()){return Err("bad CSV date".into());}headers.insert("content-disposition".into(),"attachment; filename=chat-audit-<channel>-<date>.csv".into());}
         let bytes=common::body_bytes(response).await;
-        if !recording&&!rollback{
+        if !recording {
             let response=common::send(address,Request::builder().uri("/_gateway/metrics").body(common::full(""))?).await;
             let metrics=String::from_utf8(common::body_bytes(response).await.to_vec())?;
             if !metrics.lines().any(|l|l=="setjoin_gateway_proxied_to_go_total 0")||!metrics.lines().any(|l|l=="setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 0"){return Err(format!("native Chat forwarded to Go: {metrics}").into());}
         }
-        if case=="inventory-kill-switch" {
-            let response=common::send(address,Request::builder().uri("/_gateway/metrics").body(common::full(""))?).await;
-            let metrics=String::from_utf8(common::body_bytes(response).await.to_vec())?;
-            if !metrics.lines().any(|l|l=="setjoin_gateway_proxied_to_go_total 1")||!metrics.lines().any(|l|l=="setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 1"){return Err(format!("Chat rollback did not count exactly one F12 Go forward: {metrics}").into());}
-        }
         server.abort(); let _=server.await;
-        if rollback {
-            let echo:Value=serde_json::from_slice(&bytes)?;
-            if status!=418||headers.get("x-gofree-chat1-go").and_then(Value::as_str)!=Some("yes")||echo["method"]!=method||echo["uri"]!=path||echo["body"]!=body{return Err("kill switch did not forward the original Chat request".into());}
-            let audits:i64=owner.query_one("SELECT count(*) FROM admin_audit_log WHERE id>$1",&[&before]).await?.get(0);if audits!=0{return Err("kill switch ran native authorization/auditing".into());}
+        if case=="kill-switch" {
+            if status==418||headers.contains_key("x-gofree-chat1-go")||status!=expected_status(route,"success")||go_hits.load(std::sync::atomic::Ordering::SeqCst)!=0{
+                return Err(format!("legacy with_enabled(false) did not stay native on {route}: status={status} body={}",String::from_utf8_lossy(&bytes)).into());
+            }
             return Ok(());
         }
         if case=="request-ids" {

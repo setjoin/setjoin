@@ -13,7 +13,7 @@ use serde_json::{json, Map, Value};
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
     CommandOutcome, MailboxAuthContext, Param, ReceiptCommand, ScopedExecutor, StatementFailure,
@@ -38,11 +38,7 @@ const FIELD_UPSERT: &str = include_str!("field_policy_upsert.sql");
 const TIMESTAMP: &str = "to_char(l.sync_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', l.sync_at AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char(l.sync_at AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z'";
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
@@ -127,7 +123,7 @@ pub async fn console_denied(
         &envelope,
         &auth,
         deadline(),
-        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&before, Type::TEXT), (&path, Type::TEXT)],
         |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
     )
@@ -520,7 +516,7 @@ pub async fn set_principal(
         &envelope(&auth, operation, &format!("{target}:{new_principal}")),
         &auth,
         deadline(),
-        "SELECT ad_principal_set($2,$4,$5,$6,$7::text::inet) WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT ad_principal_set($2,$4,$5,$6,$7::text::inet) WHERE $1::bigint>=0 AND $3::text<>''",
         &[
             (&target, Type::INT8),
             (&new_principal, Type::TEXT),

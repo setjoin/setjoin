@@ -126,7 +126,9 @@ async fn health_fails_closed_when_live_probes_unwired() -> Result<(), BoxError> 
 
 #[tokio::test]
 async fn a_path_go_would_redirect_to_its_clean_form_stays_on_go() -> Result<(), BoxError> {
-    assert_eq!(call(config(|_| {}), "/downloads/asset/.").await?, (418, 1));
+    // Post-#359: without CatchallRoute mounted, SurfaceRoute declines unclean paths and
+    // the gateway fails closed natively with 404 (zero Go hits).
+    assert_eq!(call(config(|_| {}), "/downloads/asset/.").await?, (404, 0));
     // Escaped dots are ordinary bytes to Go's mux (it cleans the escaped
     // path): the handler answers.
     assert_eq!(
@@ -234,9 +236,19 @@ async fn both_kill_switches_return_every_route_to_go() -> Result<(), BoxError> {
                 edge_limit: None,
             },
             RouteTable::proxy_all().with(surface).with(assist),
-        )?
-        .with_inventory(&inventory.to_string())?
-        .with_enabled(mode != "global");
+        )?;
+        let gateway = if mode == "inventory" {
+            assert!(
+                gateway.with_inventory(&inventory.to_string()).is_err(),
+                "OFF/go-mail F20/F22 inventory must be rejected"
+            );
+            assert!(seen.lock().unwrap().is_empty());
+            continue;
+        } else {
+            gateway
+                .with_inventory(&inventory.to_string())?
+                .with_enabled(false)
+        };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let task = tokio::spawn(gateway.serve(listener));
@@ -263,27 +275,24 @@ async fn both_kill_switches_return_every_route_to_go() -> Result<(), BoxError> {
                         .body(common::full(""))?,
                 )
                 .await;
-                assert_eq!(response.status(), 418, "{mode}: {method} {path}");
+                assert_ne!(response.status(), 418, "{mode}: {method} {path} reached Go");
             }
-            if mode == "inventory" {
-                let response = common::send(
-                    address,
-                    Request::builder()
-                        .uri("/_gateway/metrics")
-                        .body(common::full(""))?,
-                )
-                .await;
-                let metrics = String::from_utf8(common::body_bytes(response).await.to_vec())?;
-                let want = |family: &str| slice.iter().filter(|r| r["family"] == family).count();
-                for family in ["F20", "F22"] {
-                    let line = format!(
-                        "setjoin_gateway_proxied_to_go_by_family_total{{family=\"{family}\"}} {}",
-                        want(family)
-                    );
-                    assert!(metrics.lines().any(|l| l == line), "{line}\n{metrics}");
-                }
+            let response = common::send(
+                address,
+                Request::builder()
+                    .uri("/_gateway/metrics")
+                    .body(common::full(""))?,
+            )
+            .await;
+            let metrics = String::from_utf8(common::body_bytes(response).await.to_vec())?;
+            for line in [
+                "setjoin_gateway_proxied_to_go_total 0",
+                "setjoin_gateway_proxied_to_go_by_family_total{family=\"F20\"} 0",
+                "setjoin_gateway_proxied_to_go_by_family_total{family=\"F22\"} 0",
+            ] {
+                assert!(metrics.lines().any(|l| l == line), "{line}\n{metrics}");
             }
-            assert_eq!(seen.lock().unwrap().len(), slice.len(), "{mode}");
+            assert!(seen.lock().unwrap().is_empty(), "{mode}");
             Ok::<_, BoxError>(())
         }
         .await;

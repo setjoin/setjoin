@@ -117,9 +117,9 @@ async fn executable_answers_all_six_catchalls_without_go_and_global_rollback_pre
             .unwrap()
     })
     .await;
-    for enabled in [true, false] {
+    {
         let address = reserve().await;
-        let mut process = start(address, go, (!enabled).then_some(go), enabled, None, false);
+        let mut process = start(address, go, None, true, None, false);
         ready(&mut process, address).await;
         for (method, path, status) in [
             ("GET", "/catchall-unknown", 404),
@@ -138,89 +138,9 @@ async fn executable_answers_all_six_catchalls_without_go_and_global_rollback_pre
                     .body(common::full("opaque"))?,
             )
             .await;
-            if enabled {
-                assert_eq!(reply.status().as_u16(), status, "{method} {path}");
-                common::body_bytes(reply).await;
-            } else {
-                assert_eq!(reply.status().as_u16(), 207);
-                assert_eq!(
-                    common::body_bytes(reply).await,
-                    format!("{method} {path} opaque")
-                );
-            }
+            assert_eq!(reply.status().as_u16(), status, "{method} {path}");
+            common::body_bytes(reply).await;
         }
-        if enabled {
-            let response = common::send(
-                address,
-                Request::get("/_gateway/metrics").body(common::full(""))?,
-            )
-            .await;
-            let metrics = String::from_utf8(common::body_bytes(response).await.to_vec())?;
-            assert!(
-                metrics
-                    .lines()
-                    .any(|s| s == "setjoin_gateway_proxied_to_go_total 0"),
-                "{metrics}"
-            );
-        }
-    }
-    Ok(())
-}
-#[tokio::test]
-async fn inventory_rollback_forwards_each_fallback_and_counts_its_family() -> Result<(), BoxError> {
-    let go = common::fake_upstream(|r| async move {
-        Response::builder()
-            .status(207)
-            .body(common::full(format!("{} {}", r.method(), r.uri())))
-            .unwrap()
-    })
-    .await;
-    for (logical, method, path, family) in [
-        ("/", "GET", "/a//b?x=1", "F22"),
-        ("/api/", "PATCH", "/api/phantom", "F22"),
-        ("/chat/", "GET", "/api/chat/phantom", "F12"),
-        ("/drive/", "GET", "/api/drive/phantom", "F14"),
-        ("/meet/", "GET", "/api/meet/phantom/path", "F13"),
-        ("/meet", "PATCH", "/api/meet", "F13"),
-    ] {
-        let mut inventory: Value = serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;
-        let row = inventory["routes"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|r| r["listener"] == "gateway" && r["method"] == "*" && r["path"] == logical)
-            .unwrap();
-        row["state"] = json!("OFF");
-        row["upstream"] = json!("go-mail");
-        let gateway = Gateway::new(
-            Config {
-                upstream: Some(format!("http://{go}").parse()?),
-                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-                trusted_proxies: TrustedProxies::parse("")?,
-                edge_limit: None,
-            },
-            RouteTable::proxy_all().with_catchall(setjoin_gateway::catchall::CatchallRoute::new()),
-        )?
-        .with_inventory(&inventory.to_string())?;
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let address = listener.local_addr()?;
-        let (stop, stopped) = tokio::sync::oneshot::channel();
-        let task = tokio::spawn(gateway.serve_until(listener, async {
-            let _ = stopped.await;
-        }));
-        let response = common::send(
-            address,
-            Request::builder()
-                .method(method)
-                .uri(path)
-                .body(common::full(""))?,
-        )
-        .await;
-        assert_eq!(response.status().as_u16(), 207, "{logical}");
-        assert_eq!(
-            common::body_bytes(response).await,
-            format!("{method} {path}")
-        );
         let response = common::send(
             address,
             Request::get("/_gateway/metrics").body(common::full(""))?,
@@ -230,17 +150,66 @@ async fn inventory_rollback_forwards_each_fallback_and_counts_its_family() -> Re
         assert!(
             metrics
                 .lines()
-                .any(|s| s == "setjoin_gateway_proxied_to_go_total 1"),
+                .any(|s| s == "setjoin_gateway_proxied_to_go_total 0"),
             "{metrics}"
         );
+    }
+    // #359 cutover: GATEWAY_ENABLED=false is rejected at startup.
+    let address = reserve().await;
+    let mut disabled = start(address, go, Some(go), false, None, false);
+    let end = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let exited = loop {
+        if let Some(status) = disabled.child.try_wait()? {
+            break Some(status);
+        }
+        if tokio::time::Instant::now() >= end {
+            break None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    };
+    assert!(
+        exited.is_some_and(|s| !s.success()),
+        "GATEWAY_ENABLED=false must be rejected"
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn inventory_rollback_to_go_is_rejected_for_every_fallback() -> Result<(), BoxError> {
+    let go = common::fake_upstream(|r| async move {
+        Response::builder()
+            .status(207)
+            .body(common::full(format!("{} {}", r.method(), r.uri())))
+            .unwrap()
+    })
+    .await;
+    for logical in ["/", "/api/", "/chat/", "/drive/", "/meet/", "/meet"] {
+        let mut inventory: Value = serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;
+        let row = inventory["routes"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|r| r["listener"] == "gateway" && r["method"] == "*" && r["path"] == logical)
+            .unwrap();
+        row["state"] = json!("OFF");
+        row["upstream"] = json!("go-mail");
+        let err = Gateway::new(
+            Config {
+                upstream: Some(format!("http://{go}").parse()?),
+                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                trusted_proxies: TrustedProxies::parse("")?,
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with_catchall(setjoin_gateway::catchall::CatchallRoute::new()),
+        )?
+        .with_inventory(&inventory.to_string())
+        .err()
+        .expect("OFF/go-mail fallback row must be rejected");
         assert!(
-            metrics.contains(&format!(
-                "setjoin_gateway_proxied_to_go_by_family_total{{family=\"{family}\"}} 1"
-            )),
-            "{metrics}"
+            err.to_string().contains("invalid inventory upstream/state")
+                || err.to_string().contains("go-mail")
+                || err.to_string().contains("OFF"),
+            "{logical}: unexpected error: {err}"
         );
-        let _ = stop.send(());
-        task.await?;
     }
     Ok(())
 }

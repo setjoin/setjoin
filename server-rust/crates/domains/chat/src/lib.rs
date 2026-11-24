@@ -7,10 +7,10 @@ pub mod channels;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
-    CommandOutcome, MailboxAuthContext, ReceiptCommand, ScopedExecutor, StatementFailure, Type,
+    CommandOutcome, ReceiptCommand, ScopedExecutor, StatementFailure, Type,
 };
 use sha2::{Digest as _, Sha256};
 use std::time::{Duration, Instant};
@@ -76,11 +76,7 @@ async fn command(
     sql: &str,
     params: &[setjoin_pg::Param<'_>],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(scope.actor.user_id()).expect("verified actor"),
-        MailboxId::new(scope.actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    );
+    let auth = scope.actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -325,11 +321,7 @@ async fn compliance_read(
     extra: &[setjoin_pg::Param<'_>],
 ) -> Result<Vec<setjoin_pg::Row>, StatementFailure> {
     let actor = scope.actor.user_id();
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor).expect("verified actor"),
-        MailboxId::new(scope.actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    );
+    let auth = scope.actor.database_scope();
     let mut params: Vec<setjoin_pg::Param<'_>> = vec![
         (&channel, Type::INT8),
         (&actor, Type::INT8),

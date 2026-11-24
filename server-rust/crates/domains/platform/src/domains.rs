@@ -126,7 +126,7 @@ pub async fn create(
         deadline(),
         "INSERT INTO domains (name, is_local, is_primary, dmarc_policy, mta_sts_policy, max_message_bytes, quota_bytes) \
          SELECT $4::text, $5::bool, $6::bool, $7::text, $8::text, $9::bigint, $10::bigint \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
         &[
             (&d.name, Type::TEXT),
             (&d.is_local, Type::BOOL),
@@ -278,7 +278,7 @@ pub async fn update(
     let sql = format!(
         "UPDATE domains SET {}, updated_at = now() WHERE id = ${at}::bigint \
          AND (${}::bigint = 0 OR id = ${}::bigint) \
-         AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
+         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
         sets.join(", "),
         at + 1,
         at + 1
@@ -317,7 +317,7 @@ pub async fn delete(
         &auth,
         deadline(),
         "DELETE FROM domains WHERE id = $4::bigint AND ($5::bigint = 0 OR id = $5::bigint) \
-         AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
+         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
         &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
         |_| Ok(()),
     )

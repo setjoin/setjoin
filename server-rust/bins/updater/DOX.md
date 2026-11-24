@@ -206,8 +206,8 @@ never promoted into a complete rollback cohort. Its immutable Go recording is
 its manifest and ignores manifest.digest and installed.evidence.json; Rust no longer
 does (see SECURITY.md). The frozen-Go recording of that gap was removed.
 
-`package-server-release.sh` now takes eight inputs: architecture, Go binary dir,
-Rust gateway, Rust mailctl, Rust asrbotd, Rust updater, webmail build and output.
+`package-server-release.sh` now takes nine inputs (setjoin-auth added, #359b): architecture, Go binary dir,
+Rust gateway, Rust setjoin-auth, Rust mailctl, Rust asrbotd, Rust updater, webmail build and output.
 Only Go mailserverd/authserverd and the temporary Office-runner source remain Go
 binary inputs; Go recovery is not required or staged. `build.sh` stages the native
 updater at its canonical Rust path. Floor builds discover this existing workspace
@@ -231,3 +231,10 @@ Owner-approved security fixes (2026-11-05, tickets #506, #505, #507) live in
 recovery wrapper path, ownership checks, `sslmode`, debug-only verify flags and the
 raise-only `--minimum-threshold`. `scripts/test-updater-secfix-mutants.py` restores
 each gap and requires its test to fail.
+
+#359b: `core_setjoin_auth` is an optional staged executable (`setjoin-auth`, mode 0500); adoption
+captures an optional flat `setjoin-auth` (4–6 entries) and quarantines `setjoin-auth.prev`.
+`stage_release` and rollback call `host::require_unit_binaries` over `START` units only, refusing
+before stop/migration or rollback switch if any fixed core unit executes a binary from `current/`
+that is absent from the target release. `setjoin-auth.service` executes `setjoin-auth` directly
+without Go `authserverd` chaining, so `START`/`STOP` and the login probe are unchanged.

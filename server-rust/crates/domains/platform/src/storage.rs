@@ -227,7 +227,7 @@ pub async fn reimport_blob(
         &auth,
         super::deadline(),
         "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) \
-         SELECT $4,$5,$6,$7,0 WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' \
+         SELECT $4,$5,$6,$7,0 WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' \
          ON CONFLICT(sha256) DO NOTHING",
         &[
             (&sha, Type::TEXT),
@@ -255,7 +255,7 @@ pub async fn reconcile_count(
         &auth,
         super::deadline(),
         "UPDATE storage_dr_scans SET reimported_count=$5 WHERE id=$4 \
-         AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+         AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&id, Type::INT8), (&count, Type::INT8)],
         |_| Ok(()),
     )
@@ -290,7 +290,7 @@ pub async fn begin_scan(
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec, super::command("storage.scan_start"),
         &super::envelope(&auth, operation, "scan_start"), &auth, super::deadline(),
-        "INSERT INTO storage_dr_scans(status) SELECT 'running' WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "INSERT INTO storage_dr_scans(status) SELECT 'running' WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[], |rows| rows.first().and_then(|r| r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 
@@ -373,7 +373,7 @@ pub async fn begin_migration(
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,super::command("storage.migration_start"),
         &super::envelope(&auth,operation,&format!("migration:{target}")),&auth,super::deadline(),
-        "INSERT INTO storage_migrations(source_driver,target_driver,status) SELECT 's3',$4,'dual_write' WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "INSERT INTO storage_migrations(source_driver,target_driver,status) SELECT 's3',$4,'dual_write' WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[(&target,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 pub async fn migration_rows(
