@@ -71,7 +71,11 @@ done
   echo 'webmail.prev does not contain previous content' >&2
   exit 1
 }
-expected=$'stop setjoin-gateway\nstop setjoin-federation.socket\nstop setjoin-https.socket\ndisable setjoin-https.socket\nstop setjoin-acme.socket\ndisable setjoin-acme.socket\nstop setjoin-imap.socket\ndisable setjoin-imap.socket\nstop setjoin-imaps.socket\ndisable setjoin-imaps.socket\nstop setjoin-smtp.socket\ndisable setjoin-smtp.socket\nstop setjoin-smtps.socket\ndisable setjoin-smtps.socket\nstop setjoin-submission.socket\ndisable setjoin-submission.socket\nstop setjoin\nis-active --quiet setjoin-auth\nstop setjoin-auth\nstop setjoin-gateway\nstop setjoin-federation.socket\ndisable setjoin-federation.socket\nstop setjoin-https.socket\ndisable setjoin-https.socket\nstop setjoin-acme.socket\ndisable setjoin-acme.socket\nstop setjoin-imap.socket\ndisable setjoin-imap.socket\nstop setjoin-imaps.socket\ndisable setjoin-imaps.socket\nstop setjoin-smtp.socket\ndisable setjoin-smtp.socket\nstop setjoin-smtps.socket\ndisable setjoin-smtps.socket\nstop setjoin-submission.socket\ndisable setjoin-submission.socket\ndaemon-reload\nstart setjoin-auth\nstart setjoin\nstart setjoin-gateway'
+# Note: `$tmp/units` has no installed unit files, so `restore_gateway_deployment`
+# guards its secondary `stop`/`disable` calls with `[ -e "$SYSTEMD_DIR/$unit" ]`
+# (avoiding false rollback errors on uninstalled sockets) and proceeds straight
+# to `daemon-reload` + service restart.
+expected=$'stop setjoin-gateway\nstop setjoin-federation.socket\nstop setjoin-https.socket\ndisable setjoin-https.socket\nstop setjoin-acme.socket\ndisable setjoin-acme.socket\nstop setjoin-imap.socket\ndisable setjoin-imap.socket\nstop setjoin-imaps.socket\ndisable setjoin-imaps.socket\nstop setjoin-smtp.socket\ndisable setjoin-smtp.socket\nstop setjoin-smtps.socket\ndisable setjoin-smtps.socket\nstop setjoin-submission.socket\ndisable setjoin-submission.socket\nstop setjoin\nis-active --quiet setjoin-auth\nstop setjoin-auth\ndaemon-reload\nstart setjoin-auth\nstart setjoin\nstart setjoin-gateway'
 [ "$(cat "$tmp/systemctl.log")" = "$expected" ] || {
   echo 'unexpected stop/restart actions' >&2
   cat "$tmp/systemctl.log" >&2
