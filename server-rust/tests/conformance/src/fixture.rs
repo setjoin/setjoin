@@ -171,7 +171,8 @@ pub async fn message(
             "INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, size_bytes, \
              thread_id, raw_ref, received_at, is_read) \
              SELECT $1, $2, '<' || u || '@oracle.test>', 'oracle', 'oracle@example.test', 10, \
-                    'thr-' || u, 'raw-' || u, now(), $3 \
+                    'thr-' || u, 'raw-' || u, \
+                    GREATEST(clock_timestamp(), COALESCE((SELECT max(received_at) + interval '1 microsecond' FROM messages WHERE mailbox_id = $1), clock_timestamp())), $3 \
              FROM (SELECT gen_random_uuid()::text AS u) g \
              RETURNING id",
             &[(&mailbox, Type::INT8), (&folder, Type::INT8), (&is_read, Type::BOOL)],
