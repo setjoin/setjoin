@@ -278,6 +278,7 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
             webhook.clone(),
             federation.as_ref().map(|runtime| runtime.service.clone()),
             platform_storage.clone(),
+            activated.http.is_some(),
         )
         .await?
     } else {
@@ -1119,6 +1120,7 @@ async fn routes(
     webhook: Option<setjoin_gateway::webhook::Dispatcher>,
     federation: Option<Arc<setjoin_federation::service::Service>>,
     platform_storage: Option<Arc<setjoin_gateway::platform_storage::Runtime>>,
+    activated_http: bool,
 ) -> Result<(RouteTable, Option<EdgeLimit>), String> {
     // The final route is the positional catch-all; concrete namespaces must
     // be registered before it in both the public-only and full tables.
@@ -1211,6 +1213,11 @@ async fn routes(
     let office =
         setjoin_gateway::f15::F15Config::from_env(exec.clone(), keys.clone(), issuer.clone())?;
     let compliance_worker_dsn = env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone());
+    if activated_http && std::env::var_os("WORM_MODE").is_none() {
+        return Err(
+            "systemd-activated gateway requires explicit WORM_MODE (empty when disabled) from render_gateway_env and storage.env; run upgrade.sh refresh-gateway-env before activating".into(),
+        );
+    }
     let worm = setjoin_gateway::compliance::WormConfig::from_settings(settings);
     if worm.mode_enabled
         && ![

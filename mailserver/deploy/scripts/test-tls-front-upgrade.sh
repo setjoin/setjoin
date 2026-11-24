@@ -172,6 +172,7 @@ ENV
 
   # Failed refresh-gateway-env rolls back unit/config files without stopping setjoin-gateway.
   : > "$im/actions"
+  cp "$im/config/config.env" "$im/config.before"
   cp "$im/config/gateway.env" "$im/gateway.before"
   printf 'TLS_AUTOCERT_CACHE_DIR=/srv/postgres/bad\n' >> "$im/config/config.env"
   bad_rc=0
@@ -182,17 +183,24 @@ ENV
   if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'refresh-gateway-env rollback stopped setjoin-gateway' >&2; exit 1; fi
   diff -u "$im/gateway.before" "$im/config/gateway.env"
 
-  # Active executor.lock blocks concurrent refresh-gateway-env when flock is available.
+  # Restore valid config.env before testing lock contention with valid inputs.
+  cp "$im/config.before" "$im/config/config.env"
   if command -v flock >/dev/null 2>&1; then
-    mkdir -p "$im/updater"
-    exec 8>"$im/updater/executor.lock"
+    mkdir -p "$im/updater-journal" "$im/before-im-cfg" "$im/before-im-units"
+    printf '[Service]\nExecStart=/usr/libexec/setjoin-updater run --state-dir=%s/updater-journal --release-store=%s/rel\n' "$im" "$im" > "$im/units/setjoin-updater.service"
+    cp -a "$im/config/." "$im/before-im-cfg/"
+    cp -a "$im/units/." "$im/before-im-units/"
+    exec 8>"$im/updater-journal/executor.lock"
     flock 8
     lock_rc=0
     PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
-      SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
-      bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env 2>/dev/null || lock_rc=$?
+      SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" \
+      bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env >"$im/lock.out" 2>&1 || lock_rc=$?
     exec 8>&-
     [ "$lock_rc" != 0 ] || { echo 'expected executor.lock contention to refuse refresh' >&2; exit 1; }
+    grep -q 'executor\.lock' "$im/lock.out"
+    diff -ru "$im/before-im-cfg" "$im/config"
+    diff -ru "$im/before-im-units" "$im/units"
   fi
 fi
 echo 'TLS front upgrade activation and previous-release rollback: PASS'

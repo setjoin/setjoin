@@ -891,9 +891,11 @@ def parse_systemd_env_entries(path: str) -> dict[str, tuple[str, str | None]]:
                 if ch == "\\":
                     if i + 1 < n and src[i + 1] == "\n":
                         i += 2
+                        state = "VALUE"
                         continue
                     if i + 2 < n and src[i + 1] == "\r" and src[i + 2] == "\n":
                         i += 3
+                        state = "VALUE"
                         continue
                     if i + 1 < n:
                         buf.append(src[i + 1])
@@ -915,9 +917,11 @@ def parse_systemd_env_entries(path: str) -> dict[str, tuple[str, str | None]]:
                 if ch == "\\":
                     if i + 1 < n and src[i + 1] == "\n":
                         i += 2
+                        state = "VALUE"
                         continue
                     if i + 2 < n and src[i + 1] == "\r" and src[i + 2] == "\n":
                         i += 3
+                        state = "VALUE"
                         continue
                     if i + 1 < n:
                         buf.append(src[i + 1])

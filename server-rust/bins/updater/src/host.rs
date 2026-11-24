@@ -323,14 +323,13 @@ pub async fn preflight() -> Result<()> {
     let mut args = vec!["is-enabled"];
     args.extend(STOP);
     fixed("systemctl", &args).await?;
-    let config_dir = std::env::var_os("SETJOIN_CONFIG_DIR")
+    let explicit_cfg = std::env::var_os("SETJOIN_CONFIG_DIR")
         .filter(|v| !v.is_empty())
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("/etc/setjoin"));
+        .map(|d| std::path::PathBuf::from(d).join("config.env"));
     check_worm_gateway_ready(
         Path::new("/etc/systemd/system/setjoin-gateway.service"),
-        &config_dir.join("config.env"),
-        &config_dir.join("gateway.env"),
+        explicit_cfg.as_deref(),
+        Path::new("/etc/setjoin/config.env"),
     )
 }
 
@@ -399,10 +398,12 @@ fn parse_env_assignments(src: &str) -> Vec<(String, String)> {
                     if ch == b'\\' {
                         if i + 1 < n && bytes[i + 1] == b'\n' {
                             i += 2;
+                            state = State::Value;
                             continue;
                         }
                         if i + 2 < n && bytes[i + 1] == b'\r' && bytes[i + 2] == b'\n' {
                             i += 3;
+                            state = State::Value;
                             continue;
                         }
                         if i + 1 < n {
@@ -429,10 +430,12 @@ fn parse_env_assignments(src: &str) -> Vec<(String, String)> {
                     if ch == b'\\' {
                         if i + 1 < n && bytes[i + 1] == b'\n' {
                             i += 2;
+                            state = State::Value;
                             continue;
                         }
                         if i + 2 < n && bytes[i + 1] == b'\r' && bytes[i + 2] == b'\n' {
                             i += 3;
+                            state = State::Value;
                             continue;
                         }
                         if i + 1 < n {
@@ -604,26 +607,44 @@ fn split_flow_entries(body: &str) -> Result<Vec<&str>, &'static str> {
     Ok(parts)
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum YamlWormMode {
-    Disabled,
-    Active(String),
-    Unsupported(&'static str),
+fn strip_yaml_key_props(k: &str) -> Result<String, &'static str> {
+    let mut t = k.trim();
+    if let Some(rest) = t.strip_prefix("!!str") {
+        if let Some(first) = rest.chars().next() {
+            if first == ' ' || first == '\t' {
+                t = rest.trim_start_matches([' ', '\t']);
+            }
+        }
+    }
+    if t.starts_with('!') || t.starts_with('&') || t.starts_with('*') {
+        return Err("unsupported YAML key property or alias");
+    }
+    Ok(clean_yaml_scalar(t))
 }
 
-fn flow_worm_mode(flow: &str) -> YamlWormMode {
-    let inner = match flow
+fn normalize_retention_days(raw: &str) -> String {
+    if let Ok(v) = raw.parse::<f64>() {
+        if v.is_finite() && v.fract() == 0.0 && v >= (i64::MIN as f64) && v <= (i64::MAX as f64) {
+            return (v as i64).to_string();
+        }
+    }
+    raw.to_owned()
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
+struct YamlWorm {
+    mode: Option<String>,
+    retention_days: Option<String>,
+}
+
+fn flow_worm_settings(flow: &str) -> Result<YamlWorm, &'static str> {
+    let inner = flow
         .trim()
         .strip_prefix('{')
         .and_then(|s| s.strip_suffix('}'))
-    {
-        Some(inner) => inner,
-        None => return YamlWormMode::Unsupported("malformed flow mapping"),
-    };
-    let entries = match split_flow_entries(inner) {
-        Ok(entries) => entries,
-        Err(reason) => return YamlWormMode::Unsupported(reason),
-    };
+        .ok_or("malformed flow mapping")?;
+    let entries = split_flow_entries(inner)?;
+    let mut out = YamlWorm::default();
     for entry in entries {
         let trimmed = entry.trim();
         if trimmed.is_empty() {
@@ -632,27 +653,28 @@ fn flow_worm_mode(flow: &str) -> YamlWormMode {
         let Some((fk, fv)) = trimmed.split_once(':') else {
             continue;
         };
-        let key_clean = clean_yaml_scalar(fk);
         if fk.trim() == "<<" {
-            return YamlWormMode::Unsupported("YAML merge key in flow mapping");
+            return Err("YAML merge key in flow mapping");
+        }
+        let key_clean = strip_yaml_key_props(fk)?;
+        let fv_trim = fv.trim();
+        if matches!(key_clean.as_str(), "mode" | "retention_days")
+            && (fv_trim.starts_with('*') || fv_trim.starts_with('&') || fv_trim.starts_with('!'))
+        {
+            return Err("YAML alias/tag in worm setting");
         }
         if key_clean == "mode" {
-            let fv_trim = fv.trim();
-            if fv_trim.starts_with('*') || fv_trim.starts_with('&') || fv_trim.starts_with('!') {
-                return YamlWormMode::Unsupported("YAML alias/tag in worm.mode");
-            }
             let val = clean_yaml_scalar(fv_trim);
-            return if yaml_scalar_is_null(&val) {
-                YamlWormMode::Disabled
-            } else {
-                YamlWormMode::Active(val)
-            };
+            out.mode = (!yaml_scalar_is_null(&val)).then_some(val);
+        } else if key_clean == "retention_days" {
+            let val = clean_yaml_scalar(fv_trim);
+            out.retention_days = (!yaml_scalar_is_null(&val)).then(|| normalize_retention_days(&val));
         }
     }
-    YamlWormMode::Disabled
+    Ok(out)
 }
 
-fn yaml_worm_mode(yaml: &str) -> YamlWormMode {
+fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
     let mut joined_flow = String::new();
     let mut saw_first = false;
     let mut top_flow = false;
@@ -673,19 +695,12 @@ fn yaml_worm_mode(yaml: &str) -> YamlWormMode {
         }
     }
     if top_flow {
-        let inner = match joined_flow
+        let inner = joined_flow
             .trim()
             .strip_prefix('{')
             .and_then(|s| s.strip_suffix('}'))
-        {
-            Some(inner) => inner,
-            None => return YamlWormMode::Unsupported("unterminated top-level flow mapping"),
-        };
-        let entries = match split_flow_entries(inner) {
-            Ok(entries) => entries,
-            Err(reason) => return YamlWormMode::Unsupported(reason),
-        };
-        for entry in entries {
+            .ok_or("unterminated top-level flow mapping")?;
+        for entry in split_flow_entries(inner)? {
             let trimmed = entry.trim();
             if trimmed.is_empty() {
                 continue;
@@ -694,18 +709,24 @@ fn yaml_worm_mode(yaml: &str) -> YamlWormMode {
                 continue;
             };
             if k.trim() == "<<" {
-                return YamlWormMode::Unsupported("root YAML merge key");
+                return Err("root YAML merge key");
             }
-            if clean_yaml_scalar(k) == "worm" {
-                return flow_worm_mode(v);
+            if strip_yaml_key_props(k)? == "worm" {
+                let v_trim = v.trim();
+                if yaml_scalar_is_null(v_trim) {
+                    return Ok(YamlWorm::default());
+                }
+                return flow_worm_settings(v_trim);
             }
         }
-        return YamlWormMode::Disabled;
+        return Ok(YamlWorm::default());
     }
 
+    let mut out = YamlWorm::default();
     let mut in_worm = false;
     let mut worm_ind = 0usize;
     let mut child_ind: Option<usize> = None;
+    let mut worm_flow_buf: Option<String> = None;
     for raw_line in yaml.lines() {
         let stripped = strip_inline_yaml_comment(raw_line);
         let trimmed = stripped.trim();
@@ -713,6 +734,14 @@ fn yaml_worm_mode(yaml: &str) -> YamlWormMode {
             continue;
         }
         let ind = raw_line.len() - raw_line.trim_start_matches(' ').len();
+        if let Some(buf) = worm_flow_buf.as_mut() {
+            buf.push(' ');
+            buf.push_str(trimmed);
+            if buf.trim_end().ends_with('}') && flow_worm_settings(buf).is_ok() {
+                return flow_worm_settings(buf);
+            }
+            continue;
+        }
         if in_worm {
             if ind <= worm_ind {
                 in_worm = false;
@@ -720,23 +749,35 @@ fn yaml_worm_mode(yaml: &str) -> YamlWormMode {
             } else {
                 if child_ind.is_none() {
                     child_ind = Some(ind);
+                    if trimmed.starts_with('{') {
+                        if let Ok(parsed) = flow_worm_settings(trimmed) {
+                            return Ok(parsed);
+                        }
+                        worm_flow_buf = Some(trimmed.to_owned());
+                        continue;
+                    }
                 }
                 if child_ind == Some(ind) {
                     if let Some((k, v)) = trimmed.split_once(':') {
                         if k.trim() == "<<" {
-                            return YamlWormMode::Unsupported("worm YAML merge key");
+                            return Err("worm YAML merge key");
                         }
-                        if clean_yaml_scalar(k) == "mode" {
-                            let v_trim = v.trim();
-                            if v_trim.starts_with('*') {
-                                return YamlWormMode::Unsupported("YAML alias in worm.mode");
-                            }
+                        let key_clean = strip_yaml_key_props(k)?;
+                        let v_trim = v.trim();
+                        if matches!(key_clean.as_str(), "mode" | "retention_days")
+                            && (v_trim.starts_with('*')
+                                || v_trim.starts_with('&')
+                                || v_trim.starts_with('!'))
+                        {
+                            return Err("YAML alias/tag in worm setting");
+                        }
+                        if key_clean == "mode" {
                             let val = clean_yaml_scalar(v_trim);
-                            return if yaml_scalar_is_null(&val) {
-                                YamlWormMode::Disabled
-                            } else {
-                                YamlWormMode::Active(val)
-                            };
+                            out.mode = (!yaml_scalar_is_null(&val)).then_some(val);
+                        } else if key_clean == "retention_days" {
+                            let val = clean_yaml_scalar(v_trim);
+                            out.retention_days =
+                                (!yaml_scalar_is_null(&val)).then(|| normalize_retention_days(&val));
                         }
                     }
                 }
@@ -746,26 +787,34 @@ fn yaml_worm_mode(yaml: &str) -> YamlWormMode {
         if ind == 0 {
             if let Some((k, rest)) = trimmed.split_once(':') {
                 if k.trim() == "<<" {
-                    return YamlWormMode::Unsupported("root YAML merge key");
+                    return Err("root YAML merge key");
                 }
-                if clean_yaml_scalar(k) == "worm" {
+                if strip_yaml_key_props(k)? == "worm" {
                     let rest_trim = rest.trim();
                     if rest_trim.is_empty() {
                         in_worm = true;
                         worm_ind = ind;
+                    } else if yaml_scalar_is_null(rest_trim) {
+                        return Ok(YamlWorm::default());
                     } else if rest_trim.starts_with('{') {
-                        return flow_worm_mode(rest_trim);
+                        if let Ok(parsed) = flow_worm_settings(rest_trim) {
+                            return Ok(parsed);
+                        }
+                        worm_flow_buf = Some(rest_trim.to_owned());
                     } else {
-                        return YamlWormMode::Unsupported("unsupported worm YAML value");
+                        return Err("unsupported worm YAML value");
                     }
                 }
             }
         }
     }
-    YamlWormMode::Disabled
+    if let Some(buf) = worm_flow_buf {
+        return flow_worm_settings(&buf);
+    }
+    Ok(out)
 }
 
-fn parse_unit_env_files(unit: &str) -> Vec<std::path::PathBuf> {
+fn parse_unit_env_files(unit: &str) -> Vec<(std::path::PathBuf, bool)> {
     unit.lines()
         .filter_map(|line| {
             let t = line.trim();
@@ -773,69 +822,84 @@ fn parse_unit_env_files(unit: &str) -> Vec<std::path::PathBuf> {
                 return None;
             }
             let rhs = t.strip_prefix("EnvironmentFile=")?.trim();
-            let rhs = rhs.strip_prefix('-').unwrap_or(rhs).trim();
-            let unquoted = rhs
+            let (optional, rest) = if let Some(after) = rhs.strip_prefix('-') {
+                (true, after.trim())
+            } else {
+                (false, rhs)
+            };
+            let unquoted = rest
                 .strip_prefix('"')
                 .and_then(|s| s.strip_suffix('"'))
-                .or_else(|| rhs.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
-                .unwrap_or(rhs);
-            (!unquoted.is_empty()).then(|| std::path::PathBuf::from(unquoted))
+                .or_else(|| rest.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')))
+                .unwrap_or(rest);
+            (!unquoted.is_empty()).then(|| (std::path::PathBuf::from(unquoted), optional))
         })
         .collect()
 }
 
 fn gateway_has_worm_settings(
-    env_files: &[std::path::PathBuf],
-    gateway_env_path: &Path,
+    env_files: &[(std::path::PathBuf, bool)],
     expected_mode: &str,
     expected_legal_hold: Option<&str>,
     expected_retention_days: Option<&str>,
 ) -> bool {
-    let has_storage_file = env_files.iter().any(|p| {
+    let has_storage_file = env_files.iter().any(|(p, _)| {
         p.file_name().and_then(|n| n.to_str()) == Some("storage.env")
             && std::fs::metadata(p).is_ok_and(|m| m.is_file())
     });
-    if !has_storage_file {
+    let has_gateway_file = env_files.iter().any(|(p, _)| {
+        p.file_name().and_then(|n| n.to_str()) == Some("gateway.env")
+            && std::fs::metadata(p).is_ok_and(|m| m.is_file())
+    });
+    if !has_storage_file || !has_gateway_file {
         return false;
     }
-    let Ok(gw_env) = std::fs::read_to_string(gateway_env_path) else {
-        return false;
-    };
-    let gw_pairs = parse_env_assignments(&gw_env);
-    if env_lookup(&gw_pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
-        return false;
-    }
-    if env_lookup(&gw_pairs, "WORM_LEGAL_HOLD_ENABLED").as_deref() != expected_legal_hold {
-        return false;
-    }
-    if let Some(days) = expected_retention_days.filter(|v| !v.is_empty()) {
-        if env_lookup(&gw_pairs, "WORM_RETENTION_DAYS").as_deref() != Some(days) {
-            return false;
+    let mut effective_gw_pairs = Vec::new();
+    for (path, optional) in env_files {
+        match std::fs::read_to_string(path) {
+            Ok(content) => effective_gw_pairs.extend(parse_env_assignments(&content)),
+            Err(_) if !optional => return false,
+            Err(_) => {}
         }
+    }
+    if env_lookup(&effective_gw_pairs, "WORM_MODE").as_deref() != Some(expected_mode) {
+        return false;
+    }
+    if env_lookup(&effective_gw_pairs, "WORM_LEGAL_HOLD_ENABLED").as_deref() != expected_legal_hold
+    {
+        return false;
+    }
+    let gw_retention = env_lookup(&effective_gw_pairs, "WORM_RETENTION_DAYS");
+    let gw_retention_nonempty = gw_retention.as_deref().filter(|v| !v.is_empty());
+    if gw_retention_nonempty != expected_retention_days {
+        return false;
     }
     true
 }
 
 pub(crate) fn check_worm_gateway_ready(
     unit_path: &Path,
-    config_env_path: &Path,
-    gateway_env_path: &Path,
+    explicit_config_env: Option<&Path>,
+    default_config_env: &Path,
 ) -> Result<()> {
     let unit_src = std::fs::read_to_string(unit_path).ok();
     let env_files = unit_src
         .as_deref()
         .map(parse_unit_env_files)
         .unwrap_or_default();
-    let resolved_gw = env_files
+    let unit_cfg = env_files
         .iter()
-        .rfind(|p| p.file_name().and_then(|n| n.to_str()) == Some("gateway.env"))
-        .map(std::path::PathBuf::as_path)
-        .unwrap_or(gateway_env_path);
-    let custom_cfg = resolved_gw.parent().map(|d| d.join("config.env"));
-    let resolved_cfg = if config_env_path.exists() {
-        config_env_path
-    } else if custom_cfg.as_ref().is_some_and(|p| p.exists()) {
-        custom_cfg.as_deref().unwrap()
+        .rfind(|(p, _)| p.file_name().and_then(|n| n.to_str()) == Some("gateway.env"))
+        .and_then(|(p, _)| p.parent().map(|d| d.join("config.env")));
+    let resolved_cfg = if let Some(explicit) = explicit_config_env {
+        if !explicit.exists() {
+            return Ok(());
+        }
+        explicit
+    } else if unit_cfg.as_ref().is_some_and(|p| p.exists()) {
+        unit_cfg.as_deref().unwrap()
+    } else if default_config_env.exists() {
+        default_config_env
     } else {
         return Ok(());
     };
@@ -843,20 +907,17 @@ pub(crate) fn check_worm_gateway_ready(
         .with_context(|| format!("reading {}", resolved_cfg.display()))?;
     let pairs = parse_env_assignments(&config_src);
     let expected_legal_hold = env_lookup(&pairs, "WORM_LEGAL_HOLD_ENABLED");
-    let expected_retention_days = env_lookup(&pairs, "WORM_RETENTION_DAYS");
-    let expected_mode = match env_lookup(&pairs, "WORM_MODE") {
-        Some(v) => (!v.is_empty()).then_some(v),
-        None => match env_lookup(&pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty()) {
+    let config_worm_mode = env_lookup(&pairs, "WORM_MODE");
+    let config_retention = env_lookup(&pairs, "WORM_RETENTION_DAYS");
+    let need_yaml = config_worm_mode.is_none() || config_retention.is_none();
+    let yaml_settings = if need_yaml && config_worm_mode.as_deref() != Some("") {
+        match env_lookup(&pairs, "SETJOIN_CONFIG").filter(|p| !p.is_empty()) {
             Some(yaml_path) => match std::fs::read_to_string(&yaml_path) {
-                Ok(yaml) => match yaml_worm_mode(&yaml) {
-                    YamlWormMode::Disabled => None,
-                    YamlWormMode::Active(mode) => Some(mode),
-                    YamlWormMode::Unsupported(reason) => {
-                        bail!(
-                            "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM gateway readiness ({reason}); set WORM_MODE explicitly or run upgrade.sh refresh-gateway-env"
-                        );
-                    }
-                },
+                Ok(yaml) => Some(yaml_worm_settings(&yaml).map_err(|reason| {
+                    anyhow::anyhow!(
+                        "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM gateway readiness ({reason}); set WORM_MODE explicitly or run upgrade.sh refresh-gateway-env"
+                    )
+                })?),
                 Err(err) => {
                     bail!(
                         "cannot inspect SETJOIN_CONFIG ({yaml_path}) while verifying WORM gateway readiness: {err}"
@@ -864,12 +925,23 @@ pub(crate) fn check_worm_gateway_ready(
                 }
             },
             None => None,
-        },
+        }
+    } else {
+        None
+    };
+    let expected_mode = match config_worm_mode {
+        Some(v) => (!v.is_empty()).then_some(v),
+        None => yaml_settings.as_ref().and_then(|y| y.mode.clone()),
+    };
+    let expected_retention_days = match config_retention {
+        Some(v) => (!v.is_empty()).then_some(v),
+        None => yaml_settings
+            .as_ref()
+            .and_then(|y| y.retention_days.clone()),
     };
     if let Some(mode) = expected_mode {
         if !gateway_has_worm_settings(
             &env_files,
-            resolved_gw,
             &mode,
             expected_legal_hold.as_deref(),
             expected_retention_days.as_deref(),
@@ -936,13 +1008,16 @@ pub async fn readiness() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::check_worm_gateway_ready;
+    use super::{check_worm_gateway_ready, parse_env_assignments};
 
     #[test]
     fn worm_gateway_ready_checks_unit_and_env() {
         let dir = tempfile::tempdir().unwrap();
         let unit = dir.path().join("setjoin-gateway.service");
         let cfg = dir.path().join("config.env");
+        let stale_default = dir.path().join("default/config.env");
+        std::fs::create_dir_all(stale_default.parent().unwrap()).unwrap();
+        std::fs::write(&stale_default, "HOSTNAME=stale.test\n").unwrap();
         let gw = dir.path().join("gateway.env");
         let storage = dir.path().join("storage.env");
         let yaml = dir.path().join("setjoin.yaml");
@@ -955,13 +1030,25 @@ mod tests {
         )
         .unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_ok());
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
 
-        // WORM enabled in config.env, missing storage.env and WORM_MODE -> Err
+        // Unit-derived custom config.env takes precedence over an existing default config.env
         std::fs::write(&cfg, "WORM_MODE=compliance\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_err());
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+
+        // Unit lacking EnvironmentFile=gateway.env fails even when gw exists on disk
+        let no_gw_unit = dir.path().join("no-gw.service");
+        std::fs::write(
+            &no_gw_unit,
+            format!("[Service]\nEnvironmentFile=-{}\n", storage.display()),
+        )
+        .unwrap();
+        std::fs::write(&storage, "S3_BUCKET=mailblobs\n").unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&no_gw_unit, Some(&cfg), &stale_default).is_err());
 
         // Unit references storage.env, gateway.env has WORM_MODE, but storage.env file is absent on disk -> Err
+        std::fs::remove_file(&storage).unwrap();
         std::fs::write(
             &unit,
             format!(
@@ -971,59 +1058,68 @@ mod tests {
             ),
         )
         .unwrap();
-        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_err());
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
 
         // Creating storage.env on disk satisfies readiness -> Ok
         std::fs::write(&storage, "S3_BUCKET=mailblobs\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_ok());
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
 
         // Mismatched WORM_MODE or WORM_LEGAL_HOLD_ENABLED -> Err
         std::fs::write(&cfg, "WORM_MODE=governance\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_err());
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
         std::fs::write(&cfg, "WORM_MODE=compliance\nWORM_LEGAL_HOLD_ENABLED=false\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_err());
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
         std::fs::write(
             &gw,
             "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_LEGAL_HOLD_ENABLED=false\n",
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_ok());
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
 
-        // Adjacent quoted env spans match systemd env-file rules -> Ok
+        // Adjacent quoted env spans match systemd env-file rules, while leading continuation enters VALUE
         std::fs::write(
             &cfg,
             "WORM_MODE=\"com\"'pli'\"ance\"\nWORM_LEGAL_HOLD_ENABLED=false\n",
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_ok());
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        let cont_pairs = parse_env_assignments("WORM_MODE=\\\n\"compliance\"\n");
+        assert_eq!(cont_pairs, vec![("WORM_MODE".into(), "\"compliance\"".into())]);
 
-        // Custom config dir discovered from EnvironmentFile=gateway.env parent -> Err/Ok
-        let missing_default_cfg = dir.path().join("missing/config.env");
-        let missing_default_gw = dir.path().join("missing/gateway.env");
-        assert!(check_worm_gateway_ready(&unit, &missing_default_cfg, &missing_default_gw).is_ok());
-        std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
-        assert!(
-            check_worm_gateway_ready(&unit, &missing_default_cfg, &missing_default_gw).is_err()
-        );
-
-        // WORM in SETJOIN_CONFIG block or top-level flow YAML -> Err when mismatched, Ok when matched
-        std::fs::write(&yaml, "worm:\n  mode: compliance\n").unwrap();
+        // Tagged worm key + retention_days normalization and indented flow mapping beneath worm:
+        std::fs::write(&yaml, "!!str worm: {mode: compliance, retention_days: 3650.}\n").unwrap();
         std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\n", yaml.display())).unwrap();
-        std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_err());
-
-        std::fs::write(&yaml, "{ s3: { bucket: a }, worm: { mode: compliance } }\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_err());
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_ok());
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        std::fs::write(
+            &gw,
+            "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=3650\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
+
+        std::fs::write(
+            &yaml,
+            "worm:\n  { mode: compliance, retention_days: 3.65e3 }\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=2557\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+
+        // Top-level flow YAML -> Err when mismatched, Ok when matched
+        std::fs::write(&yaml, "{ s3: { bucket: a }, worm: { mode: compliance } }\n").unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
 
         // Merge key in YAML fails closed even when gateway sets WORM_MODE -> Err
         std::fs::write(&yaml, "<<: *base\n").unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_err());
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_err());
 
         // Explicit empty WORM_MODE= overrides YAML -> Ok
         std::fs::write(&cfg, format!("SETJOIN_CONFIG={}\nWORM_MODE=\n", yaml.display())).unwrap();
-        assert!(check_worm_gateway_ready(&unit, &cfg, &gw).is_ok());
+        assert!(check_worm_gateway_ready(&unit, None, &stale_default).is_ok());
     }
 }

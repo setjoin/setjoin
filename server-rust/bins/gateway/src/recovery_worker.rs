@@ -772,11 +772,15 @@ impl S3Store {
             }
         }
         let body = String::from_utf8_lossy(&body_bytes);
+        let xml_code = s3_xml_tag(&body, "Code").map(str::to_owned);
+        let xml_region = s3_xml_tag(&body, "Region").map(str::to_owned);
         Ok(LegalHoldReply {
             status,
             signed_region,
-            code: header_code.or_else(|| s3_xml_tag(&body, "Code").map(str::to_owned)),
-            region: header_region.or_else(|| s3_xml_tag(&body, "Region").map(str::to_owned)),
+            code: header_code
+                .or(xml_code)
+                .or_else(|| (status == 403).then(|| "AccessDenied".to_owned())),
+            region: xml_region.or(header_region),
         })
     }
 
@@ -960,11 +964,10 @@ impl S3Store {
             };
             *cached = Some(normalize_s3_region(&region));
         }
+        let region = cached.as_ref().unwrap().clone();
+        let endpoint = regional_s3_endpoint(&self.endpoint, &region);
         let mut bucket = (*self.bucket).clone();
-        bucket.region = s3::Region::Custom {
-            region: cached.as_ref().unwrap().clone(),
-            endpoint: self.endpoint.clone(),
-        };
+        bucket.region = s3::Region::Custom { region, endpoint };
         Ok(bucket)
     }
 }
@@ -1288,6 +1291,67 @@ fn normalize_s3_region(region: &str) -> String {
         "" => "us-east-1".to_owned(),
         "EU" => "eu-west-1".to_owned(),
         _ => region.to_owned(),
+    }
+}
+
+/// Derives the AWS regional S3 endpoint matching `minio-go` v7.2.1 `getS3Endpoint`,
+/// leaving non-AWS and specialized endpoints untouched.
+fn regional_s3_endpoint(endpoint: &str, region: &str) -> String {
+    if region.is_empty() {
+        return endpoint.to_owned();
+    }
+    let Ok(mut url) = reqwest::Url::parse(endpoint) else {
+        return endpoint.to_owned();
+    };
+    let Some(host) = url.host_str() else {
+        return endpoint.to_owned();
+    };
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    let base = lower
+        .strip_suffix(".amazonaws.com.cn")
+        .or_else(|| lower.strip_suffix(".amazonaws.com"));
+    let Some(prefix) = base else {
+        return endpoint.to_owned();
+    };
+    let dualstack = if prefix == "s3" {
+        false
+    } else if prefix == "s3.dualstack" {
+        true
+    } else if let Some(rest) = prefix.strip_prefix("s3.dualstack.") {
+        if rest.is_empty() || rest.contains('.') || rest.contains("fips") {
+            return endpoint.to_owned();
+        }
+        true
+    } else if let Some(rest) = prefix.strip_prefix("s3.") {
+        if rest.is_empty()
+            || rest.contains('.')
+            || rest.starts_with("fips")
+            || rest.starts_with("control")
+            || rest.starts_with("accelerate")
+        {
+            return endpoint.to_owned();
+        }
+        false
+    } else {
+        return endpoint.to_owned();
+    };
+    let domain = if region.starts_with("cn-") {
+        "amazonaws.com.cn"
+    } else {
+        "amazonaws.com"
+    };
+    let regional_host = if dualstack {
+        format!("s3.dualstack.{region}.{domain}")
+    } else {
+        format!("s3.{region}.{domain}")
+    };
+    if url.set_host(Some(&regional_host)).is_err() {
+        return endpoint.to_owned();
+    }
+    if !endpoint.ends_with('/') {
+        url.as_str().trim_end_matches('/').to_owned()
+    } else {
+        url.to_string()
     }
 }
 
@@ -1654,6 +1718,108 @@ mod tests {
             301,
             Some("ap-southeast-1"),
             b"<Error><Code>PermanentRedirect</Code><Message>Moved</Message></Error>",
+        )
+        .await;
+    }
+
+    #[test]
+    fn regional_s3_endpoint_rewrites_standard_and_dualstack_aws_hosts() {
+        use super::regional_s3_endpoint;
+        assert_eq!(
+            regional_s3_endpoint("https://s3.amazonaws.com", "us-west-2"),
+            "https://s3.us-west-2.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3.dualstack.amazonaws.com", "eu-west-1"),
+            "https://s3.dualstack.eu-west-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3.amazonaws.com", "cn-north-1"),
+            "https://s3.cn-north-1.amazonaws.com.cn"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-fips.us-east-1.amazonaws.com", "us-west-2"),
+            "https://s3-fips.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("http://127.0.0.1:9000", "us-west-2"),
+            "http://127.0.0.1:9000"
+        );
+    }
+
+    #[tokio::test]
+    async fn legal_hold_empty_403_and_xml_region_precedence_match_minio_go() {
+        async fn run_retry_case(
+            status: u16,
+            header_region: &'static str,
+            body: &'static [u8],
+            expected_second_region: &'static str,
+        ) {
+            let hits = Arc::new(AtomicUsize::new(0));
+            let auths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits_s = hits.clone();
+            let auths_s = auths.clone();
+            let _server = AbortServer(tokio::spawn(async move {
+                loop {
+                    let Ok((stream, _)) = listener.accept().await else {
+                        return;
+                    };
+                    let (hits_c, auths_c) = (hits_s.clone(), auths_s.clone());
+                    tokio::spawn(async move {
+                        let svc = service_fn(move |req| {
+                            let (hits_r, auths_r) = (hits_c.clone(), auths_c.clone());
+                            async move {
+                                let auth = req
+                                    .headers()
+                                    .get("authorization")
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("")
+                                    .to_owned();
+                                auths_r.lock().unwrap().push(auth);
+                                let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                                let resp = if n == 0 {
+                                    Response::builder()
+                                        .status(status)
+                                        .header("x-amz-bucket-region", header_region)
+                                        .header("content-type", "application/xml")
+                                        .body(Full::new(Bytes::from_static(body)))
+                                        .unwrap()
+                                } else {
+                                    Response::builder()
+                                        .status(204)
+                                        .body(Full::new(Bytes::new()))
+                                        .unwrap()
+                                };
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), svc)
+                            .await;
+                    });
+                }
+            }));
+
+            let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+            *store.region.lock().await = Some("us-east-1".into());
+            let res = store.legal_hold_with_retries("key-e", true).await;
+            assert!(res.is_ok(), "expected region retry to succeed: {res:?}");
+            assert_eq!(hits.load(Ordering::SeqCst), 2);
+            let recorded = auths.lock().unwrap();
+            assert!(recorded[0].contains("/us-east-1/s3/aws4_request"));
+            assert!(recorded[1].contains(&format!("/{expected_second_region}/s3/aws4_request")));
+        }
+
+        // Empty 403 defaults to AccessDenied and retries with header region.
+        run_retry_case(403, "eu-west-1", b"", "eu-west-1").await;
+        // XML <Region> takes precedence over conflicting x-amz-bucket-region header.
+        run_retry_case(
+            400,
+            "ap-south-1",
+            b"<Error><Code>AuthorizationHeaderMalformed</Code><Region>eu-central-1</Region></Error>",
+            "eu-central-1",
         )
         .await;
     }

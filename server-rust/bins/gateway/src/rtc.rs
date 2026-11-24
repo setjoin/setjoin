@@ -227,7 +227,7 @@ fn canonical_check(
     req: &Request<Body>,
     c: &RequestContext,
     id: &str,
-) -> Result<String, Response<Body>> {
+) -> Result<Vec<u8>, Response<Body>> {
     let raw = req.uri().path();
     let Some(decoded) = unescape(raw) else {
         // Go rejects a malformed escape while parsing the request line.
@@ -273,7 +273,7 @@ async fn serve(
     mut req: Request<Body>,
     c: &RequestContext,
     id: String,
-    decoded: &str,
+    decoded: &[u8],
     upstream: SocketAddr,
     client: &Client<HttpConnector, Body>,
 ) -> Response<Body> {
@@ -284,15 +284,15 @@ async fn serve(
         .strip_prefix("/api")
         .is_some_and(|rest| rest.starts_with('/'))
     {
-        decoded.strip_prefix("/api").unwrap_or(decoded)
+        decoded.strip_prefix(b"/api").unwrap_or(decoded)
     } else {
         decoded
     };
-    let out_path = match target_decoded.strip_prefix("/rtc") {
-        Some("") | None => "/".to_owned(),
-        Some(rest) => rest.to_owned(),
+    let out_path: &[u8] = match target_decoded.strip_prefix(b"/rtc") {
+        Some(b"") | None => b"/",
+        Some(rest) => rest,
     };
-    let mut target = escape_path(&out_path);
+    let mut target = escape_path(out_path);
     if let Some(q) = req.uri().query() {
         target.push('?');
         target.push_str(q);
@@ -468,7 +468,7 @@ fn redirect(
     query: Option<&str>,
     mut headers: HeaderMap,
 ) -> Response<Body> {
-    let mut location = escape_path(cleaned);
+    let mut location = escape_path(cleaned.as_bytes());
     if let Some(q) = query {
         location.push('?');
         location.push_str(q);
@@ -537,7 +537,7 @@ fn from_hex(b: u8) -> Option<u8> {
 }
 
 /// `url.PathUnescape` over the request path: `None` on a malformed escape.
-fn unescape(p: &str) -> Option<String> {
+fn unescape(p: &str) -> Option<Vec<u8>> {
     let bytes = p.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -552,7 +552,7 @@ fn unescape(p: &str) -> Option<String> {
             i += 1;
         }
     }
-    Some(String::from_utf8_lossy(&out).into_owned())
+    Some(out)
 }
 
 fn is_unescaped_path_byte(b: u8) -> bool {
@@ -598,13 +598,13 @@ fn valid_encoded(p: &str) -> bool {
     })
 }
 
-/// `url.URL.EscapedPath` of a decoded path with no `RawPath`.
-fn escape_path(p: &str) -> String {
-    if p == "*" {
+/// `url.URL.EscapedPath` of decoded path bytes with no `RawPath`.
+fn escape_path(p: &[u8]) -> String {
+    if p == b"*" {
         return "*".into();
     }
     let mut out = String::with_capacity(p.len());
-    for b in p.bytes() {
+    for &b in p {
         if is_unescaped_path_byte(b) {
             out.push(b as char);
         } else {
@@ -620,16 +620,24 @@ mod tests {
 
     #[test]
     fn mount_prefix_and_escaping_follow_go() {
-        assert_eq!(escape_path("/a b/é?x"), "/a%20b/%C3%A9%3Fx");
-        assert_eq!(escape_path("/v1/!*'()"), "/v1/%21%2A%27%28%29");
+        assert_eq!(escape_path("/a b/é?x".as_bytes()), "/a%20b/%C3%A9%3Fx");
+        assert_eq!(escape_path(b"/\xff"), "/%FF");
+        assert_eq!(escape_path(b"/v1/!*'()"), "/v1/%21%2A%27%28%29");
         assert_eq!(clean_path("/rtc//x/./y/../z/"), "/rtc/x/z/");
         assert_eq!(clean_path("/rtc/.."), "/");
         assert_eq!(clean_path("/rtc/%2e%2e/x"), "/rtc/%2e%2e/x");
-        assert_eq!(escape_path(&clean_path("/rtc//a%20b")), "/rtc/a%2520b");
+        assert_eq!(
+            escape_path(clean_path("/rtc//a%20b").as_bytes()),
+            "/rtc/a%2520b"
+        );
         assert!(valid_encoded("/rtc/%2e%2e/x"));
         assert!(valid_encoded("/rtc/!a'()*[0]%2Fb"));
         assert!(!valid_encoded("/rtc/a b"));
-        assert_eq!(unescape("/rtc/a%2Fb").as_deref(), Some("/rtc/a/b"));
+        assert_eq!(unescape("/rtc/a%2Fb").as_deref(), Some(b"/rtc/a/b".as_slice()));
+        assert_eq!(
+            unescape("/api/%72tc/%FF").as_deref(),
+            Some(b"/api/rtc/\xff".as_slice())
+        );
         assert_eq!(unescape("/rtc/%zz"), None);
         assert_eq!(unescape("/rtc/%+a"), None);
         assert_eq!(unescape("/rtc/%-1"), None);

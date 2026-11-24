@@ -342,9 +342,15 @@ validate_tls_cache_target() {
       *) echo "ACME cache resolved target must not be filesystem root or a top-level directory ($resolved)" >&2; return 1 ;;
     esac
     case "$resolved" in
-      /var/lib/setjoin/*|/var/lib/mailserver/*|/var/cache/setjoin/*|/var/cache/mailserver/*|/etc/setjoin/*|/etc/mailserver/*|/tmp/*/autocert|/var/tmp/*/autocert) ;;
+      /var/lib/setjoin/*|/var/lib/mailserver/*|/var/cache/setjoin/*|/var/cache/mailserver/*|/etc/setjoin/*|/etc/mailserver/*) ;;
+      /tmp/*/autocert|/var/tmp/*/autocert)
+        if [ "$(id -u)" = 0 ]; then
+          echo "ACME cache resolved target must be a dedicated setjoin/mailserver directory ($resolved)" >&2
+          return 1
+        fi
+        ;;
       *)
-        if [ -n "${TMPDIR:-}" ] && [ "${TMPDIR#/}" != "$TMPDIR" ] && [ "${TMPDIR%/}" != "" ]; then
+        if [ "$(id -u)" != 0 ] && [ -n "${TMPDIR:-}" ] && [ "${TMPDIR#/}" != "$TMPDIR" ] && [ "${TMPDIR%/}" != "" ]; then
           case "$resolved" in
             "${TMPDIR%/}"/*/autocert) ;;
             *)
@@ -701,7 +707,7 @@ render_gateway_env() {
   local trusted="${GATEWAY_TRUSTED_PROXIES:-127.0.0.1}"
   local cache cfg="" host_name="" host_set=0 host_from_env=0 host_from_yaml=0
   local internal_domains="" internal_set=0 internal_from_yaml=0
-  local worm_mode="" worm_mode_set=0 worm_days="" worm_legal_hold="" legal_hold_set=0
+  local worm_mode="" worm_days="" worm_legal_hold="" legal_hold_set=0
   cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
   validate_tls_cache_dir "$cache" || return 1
   ( umask 022; cat > "$outfile" <<ENV
@@ -756,18 +762,15 @@ ENV
     systemd_env_line INTERNAL_DOMAINS "$internal_domains" >> "$outfile" || return 1
   fi
 
-  # WORM retention & legal-hold switches (env empty WORM_MODE= overrides YAML).
+  # WORM retention & legal-hold switches (always emit WORM_MODE so systemd-activated gateway verifies render).
   if env_file_try worm_mode "${CONFIG_ENV:-}" WORM_MODE; then
-    worm_mode_set=1
+    :
   elif [ "${WORM_MODE+x}" = x ]; then
     worm_mode=$(strip_env_quotes "$WORM_MODE")
-    worm_mode_set=1
   elif [ -n "$cfg" ]; then
-    yaml_section_try worm_mode "$cfg" worm mode && [ -n "$worm_mode" ] && worm_mode_set=1 || { [ $? -eq 1 ] || return 1; }
+    yaml_section_try worm_mode "$cfg" worm mode || { [ $? -eq 1 ] || return 1; }
   fi
-  if [ "$worm_mode_set" = 1 ]; then
-    systemd_env_line WORM_MODE "$worm_mode" >> "$outfile" || return 1
-  fi
+  systemd_env_line WORM_MODE "$worm_mode" >> "$outfile" || return 1
 
   if env_file_try worm_days "${CONFIG_ENV:-}" WORM_RETENTION_DAYS; then
     :

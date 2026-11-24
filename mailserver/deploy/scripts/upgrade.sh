@@ -149,35 +149,67 @@ restore_tls_cache_meta() {
             [ -n "$prev_devino" ] || return 0
             python3 - "$prev_path" "$prev_devino" "$prev_mode" "$prev_owner" <<'PY' || true
 import os, stat, sys
-path, exp_devino, mode_str, owner_str = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-fd = os.open(path, flags)
-try:
-    st = os.fstat(fd)
-    if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
-        sys.stderr.write(f"   ! skipping tls-cache rollback for {path}: directory identity changed ({st.st_dev}:{st.st_ino} != {exp_devino})\n")
+path, exp_devino, mode_str, owner_str = sys.argv[1].rstrip("/"), sys.argv[2], sys.argv[3], sys.argv[4]
+if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parts = [p for p in path.split("/") if p]
+    if not path.startswith("/") or not parts:
         sys.exit(0)
-    if mode_str and hasattr(os, "fchmod"):
-        os.fchmod(fd, int(mode_str, 8))
-    if owner_str and ":" in owner_str and hasattr(os, "fchown"):
-        try:
-            uid, gid = (int(x) for x in owner_str.split(":", 1))
-            os.fchown(fd, uid, gid)
-        except PermissionError:
-            pass
-finally:
-    os.close(fd)
+    fd = os.open("/", flags)
+    try:
+        for seg in parts:
+            nxt = os.open(seg, flags, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        st = os.fstat(fd)
+        if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
+            sys.stderr.write(f"   ! skipping tls-cache rollback for {path}: directory identity changed ({st.st_dev}:{st.st_ino} != {exp_devino})\n")
+            sys.exit(0)
+        if mode_str and hasattr(os, "fchmod"):
+            os.fchmod(fd, int(mode_str, 8))
+        if owner_str and ":" in owner_str and hasattr(os, "fchown"):
+            try:
+                uid, gid = (int(x) for x in owner_str.split(":", 1))
+                os.fchown(fd, uid, gid)
+            except PermissionError:
+                pass
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
 PY
         elif [ "$prev_exists" = 0 ] && [ -n "$created_devino" ]; then
             python3 - "$prev_path" "$created_devino" <<'PY' || true
 import os, stat, sys
 path, exp_devino = sys.argv[1].rstrip("/"), sys.argv[2]
-parent, name = os.path.split(path)
-if not parent or not name:
-    sys.exit(0)
 if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
-    pfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    parts = [p for p in path.split("/") if p]
+    if not path.startswith("/") or not parts:
+        sys.exit(0)
+    is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    allowed_owners = {0}
+    if is_root:
+        try:
+            import pwd
+            allowed_owners.add(pwd.getpwnam("setjoin").pw_uid)
+        except KeyError:
+            pass
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    pfd = os.open("/", flags)
     try:
+        for seg in parts[:-1]:
+            if is_root:
+                pst = os.fstat(pfd)
+                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                    sys.exit(0)
+            nxt = os.open(seg, flags, dir_fd=pfd)
+            os.close(pfd)
+            pfd = nxt
+        if is_root:
+            pst = os.fstat(pfd)
+            if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                sys.exit(0)
+        name = parts[-1]
         st = os.stat(name, dir_fd=pfd, follow_symlinks=False)
         if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
             sys.exit(0)
@@ -288,14 +320,67 @@ render_gateway_deployment() (
     render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$SMTP_ENV" || return 1
     if [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; then
-        if [ ! -d "$_tls_cache" ]; then
-            mkdir -p "$_tls_cache" || return 1
-            if [ -f "${DEPLOYMENT_PREV:-}/tls-cache.meta" ] && grep -qx 'exists=0' "$DEPLOYMENT_PREV/tls-cache.meta" && ! grep -q '^created_devino=' "$DEPLOYMENT_PREV/tls-cache.meta"; then
-                printf 'created_devino=%s\n' "$(python3 -c 'import os,sys; s=os.lstat(sys.argv[1]); print(f"{s.st_dev}:{s.st_ino}")' "$_tls_cache" 2>/dev/null || true)" >> "$DEPLOYMENT_PREV/tls-cache.meta"
-            fi
-        fi
-        chmod 0700 "$_tls_cache" || return 1
-        chown setjoin:setjoin "$_tls_cache" || return 1
+        python3 - "$_tls_cache" "${DEPLOYMENT_PREV:-}/tls-cache.meta" <<'PY' || return 1
+import os, stat, sys
+target = sys.argv[1].rstrip("/")
+meta_path = sys.argv[2] if len(sys.argv) > 2 else ""
+if not target or target == "/":
+    sys.exit(1)
+is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+setjoin_uid = setjoin_gid = None
+if is_root:
+    import grp, pwd
+    setjoin_uid = pwd.getpwnam("setjoin").pw_uid
+    setjoin_gid = grp.getgrnam("setjoin").gr_gid
+if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW") and target.startswith("/"):
+    parts = [p for p in target.split("/") if p]
+    dir_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    cur_fd = os.open("/", dir_flags)
+    created_devino = None
+    try:
+        for idx, part in enumerate(parts):
+            is_last = idx == len(parts) - 1
+            if is_root:
+                pst = os.fstat(cur_fd)
+                allowed_owners = {0}
+                if setjoin_uid is not None:
+                    allowed_owners.add(setjoin_uid)
+                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                    raise PermissionError(f"untrusted parent directory before {part!r}")
+            existed = True
+            try:
+                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
+            except FileNotFoundError:
+                existed = False
+                os.mkdir(part, 0o700, dir_fd=cur_fd)
+                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
+            os.close(cur_fd)
+            cur_fd = nxt
+            if is_last:
+                st = os.fstat(cur_fd)
+                if not stat.S_ISDIR(st.st_mode):
+                    raise NotADirectoryError(target)
+                if is_root and existed and st.st_uid != setjoin_uid and os.listdir(cur_fd):
+                    raise PermissionError(f"non-empty directory {target} not owned by setjoin")
+                os.fchmod(cur_fd, 0o700)
+                if is_root:
+                    os.fchown(cur_fd, setjoin_uid, setjoin_gid)
+                if not existed:
+                    created_devino = f"{st.st_dev}:{st.st_ino}"
+    finally:
+        os.close(cur_fd)
+else:
+    existed = os.path.isdir(target)
+    os.makedirs(target, mode=0o700, exist_ok=True)
+    st = os.lstat(target)
+    created_devino = None if existed else f"{st.st_dev}:{st.st_ino}"
+if created_devino and meta_path and os.path.isfile(meta_path):
+    with open(meta_path, "r", encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    if "exists=0" in lines and not any(line.startswith("created_devino=") for line in lines):
+        with open(meta_path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f"created_devino={created_devino}\n")
+PY
     fi
     # A descriptor belongs to the matching new binary. Recreate only this
     # release's socket set; snapshots preserve prior bytes, absence and state.
@@ -311,8 +396,22 @@ render_gateway_deployment() (
 )
 
 if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
-    _updater_state="${UPDATER_STATE_DIR:-/var/lib/setjoin/updater}"
-    if [ -d "$_updater_state" ] && command -v flock >/dev/null 2>&1; then
+    _updater_state="${UPDATER_STATE_DIR:-}"
+    if [ -z "$_updater_state" ] && [ -f "$SYSTEMD_DIR/setjoin-updater.service" ]; then
+        _updater_state="$(sed -n 's/.*--state-dir=\([^ ]*\).*/\1/p' "$SYSTEMD_DIR/setjoin-updater.service" | tail -1 || true)"
+    fi
+    if [ -z "$_updater_state" ]; then
+        _updater_state="${UPDATER_DATA_DIR:-/var/lib/setjoin-updater}/journal"
+    fi
+    if [ -d "$_updater_state" ] || [ -f "$SYSTEMD_DIR/setjoin-updater.service" ]; then
+        [ -d "$_updater_state" ] || {
+            echo "   ✗ updater state directory $_updater_state missing; cannot verify executor.lock." >&2
+            exit 1
+        }
+        command -v flock >/dev/null 2>&1 || {
+            echo "   ✗ flock is required to coordinate refresh with setjoin-updater." >&2
+            exit 1
+        }
         # Append mode preserves the executor.lock inode shared with setjoin-updater.
         _old_umask=$(umask)
         umask 077
