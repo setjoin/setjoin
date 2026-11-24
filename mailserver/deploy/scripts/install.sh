@@ -1623,7 +1623,7 @@ render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || die "failed to render TLS setti
 chown root:setjoin "$TLS_ENV"
 _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
 validate_tls_cache_target "$_tls_cache" || die "invalid TLS cache directory: $_tls_cache"
-install -d -m 0700 -o setjoin -g setjoin "$_tls_cache"
+ensure_tls_cache_dir "$_tls_cache" || die "failed to prepare TLS cache directory: $_tls_cache"
 if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
   _tls_account=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)")
   if [ -n "$_tls_account" ] && [ ! -d "${_tls_account%/*}" ]; then

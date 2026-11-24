@@ -288,6 +288,12 @@ pub async fn close_case(
         &[(&id,Type::INT8),(&reason,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct HeldMessage {
+    pub id: i64,
+    pub received_at: String,
+}
+
 pub async fn hold(
     exec: &ScopedExecutor,
     actor: &AuthContext,
@@ -295,11 +301,28 @@ pub async fn hold(
     on: bool,
     ip: &str,
     operation: [u8; 16],
-) -> CommandOutcome<Vec<i64>, StatementFailure> {
+) -> CommandOutcome<Vec<HeldMessage>, StatementFailure> {
     let auth = scope(actor);
-    setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:if on{"message.hold"}else{"message.release"}},&envelope(&auth,operation,&json!([ids,on]).to_string()),&auth,deadline(),
-        "SELECT rust_compliance_message_hold($2,$4,$5,$6) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
-        &[(ids,Type::INT8_ARRAY),(&on,Type::BOOL),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+    setjoin_pg::run_receipted_command(
+        exec,
+        ReceiptCommand {
+            family: FAMILY,
+            command: if on { "message.hold" } else { "message.release" },
+        },
+        &envelope(&auth, operation, &json!([ids, on]).to_string()),
+        &auth,
+        deadline(),
+        "SELECT rust_compliance_message_hold($2,$4,$5,$6,true)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        &[(ids, Type::INT8_ARRAY), (&on, Type::BOOL), (&ip, Type::TEXT)],
+        |rows| {
+            let raw = rows
+                .first()
+                .and_then(|r| r.try_get::<_, String>(0).ok())
+                .ok_or_else(invalid)?;
+            serde_json::from_str::<Vec<HeldMessage>>(&raw).map_err(|_| invalid())
+        },
+    )
+    .await
 }
 
 /// Go's GetSearch uses the worker credential and only reads persisted bindings.

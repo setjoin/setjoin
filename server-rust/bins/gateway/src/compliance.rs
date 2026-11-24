@@ -684,18 +684,25 @@ fn worm_legal_hold_enabled() -> bool {
 async fn apply_legal_hold(
     worker: &ScopedExecutor,
     store: Option<&crate::recovery_worker::S3Store>,
-    msg_ids: &[i64],
+    held: &[db::HeldMessage],
     on: bool,
     legal_hold_enabled: bool,
 ) -> usize {
     let Some(store) = store else {
         return 0;
     };
-    let ids = msg_ids.to_vec();
+    let ids: Vec<i64> = held.iter().map(|m| m.id).collect();
+    let received_ats: Vec<String> = held.iter().map(|m| m.received_at.clone()).collect();
     let rows = match worker
         .read(
-            "SELECT DISTINCT blob_sha256 FROM message_attachments WHERE message_id = ANY($1)",
-            &[(&ids, setjoin_pg::Type::INT8_ARRAY)],
+            "SELECT DISTINCT ma.blob_sha256 \
+             FROM unnest($1::bigint[], $2::text[]::timestamptz[]) AS target(message_id, received_at) \
+             JOIN message_attachments ma \
+               ON ma.message_id = target.message_id AND ma.received_at = target.received_at",
+            &[
+                (&ids, setjoin_pg::Type::INT8_ARRAY),
+                (&received_ats, setjoin_pg::Type::TEXT_ARRAY),
+            ],
         )
         .await
     {

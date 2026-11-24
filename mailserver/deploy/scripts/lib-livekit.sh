@@ -753,7 +753,7 @@ render_gateway_env() {
   local trusted="${GATEWAY_TRUSTED_PROXIES:-127.0.0.1}"
   local cache cfg="" host_name="" host_set=0 host_from_env=0 host_from_yaml=0
   local internal_domains="" internal_set=0 internal_from_yaml=0
-  local worm_mode="" worm_days="" worm_legal_hold="" legal_hold_set=0
+  local worm_mode="" worm_days="" worm_days_set=0 worm_legal_hold="" legal_hold_set=0
   cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
   validate_tls_cache_dir "$cache" || return 1
   ( umask 022; cat > "$outfile" <<ENV
@@ -821,19 +821,27 @@ ENV
   systemd_env_line WORM_MODE "$worm_mode" >> "$outfile" || return 1
 
   if env_file_try_any_ci worm_days "${CONFIG_ENV:-}" WORM_RETENTION_DAYS; then
-    :
+    worm_days_set=1
   elif [ "${WORM_RETENTION_DAYS+x}" = x ]; then
     worm_days=$(strip_env_quotes "$WORM_RETENTION_DAYS")
+    worm_days_set=1
   elif [ -n "$cfg" ]; then
-    yaml_section_try worm_days "$cfg" worm retention_days || { [ $? -eq 1 ] || return 1; }
+    yaml_section_try worm_days "$cfg" worm retention_days && worm_days_set=1 || { [ $? -eq 1 ] || return 1; }
   fi
-  if [ -n "$worm_days" ]; then
-    if [ -n "$worm_mode" ]; then
-      worm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days") || return 1
-    elif norm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days" 2>/dev/null); then
-      worm_days="$norm_days"
+  if [ "$worm_days_set" = 1 ]; then
+    if [ -z "$worm_days" ]; then
+      if [ -n "$worm_mode" ]; then
+        echo "render_gateway_env: WORM_RETENTION_DAYS must not be empty when WORM_MODE is set" >&2
+        return 1
+      fi
+    else
+      if [ -n "$worm_mode" ]; then
+        worm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days") || return 1
+      elif norm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days" 2>/dev/null); then
+        worm_days="$norm_days"
+      fi
+      systemd_env_line WORM_RETENTION_DAYS "$worm_days" >> "$outfile" || return 1
     fi
-    systemd_env_line WORM_RETENTION_DAYS "$worm_days" >> "$outfile" || return 1
   fi
 
   if env_file_try worm_legal_hold "${CONFIG_ENV:-}" WORM_LEGAL_HOLD_ENABLED; then
@@ -1327,10 +1335,99 @@ tls_front_probe_url() {
   printf 'https://%s/_gateway/healthz\n' "$address"
 }
 
+# Descriptor-relative TLS cache directory creation shared by install.sh and upgrade.sh.
+# Creates missing parents (0755) and leaf (0700) without following untrusted symlinks,
+# optionally recording created_devino into a rollback metadata file.
+ensure_tls_cache_dir() {
+  local target="$1" meta_path="${2:-}"
+  if [ "$(id -u)" != 0 ] && [ "$target" = /var/cache/mailserver/autocert ]; then
+    return 0
+  fi
+  python3 - "$target" "$meta_path" <<'PY' || return 1
+import os, stat, sys
+target = sys.argv[1].rstrip("/")
+meta_path = sys.argv[2] if len(sys.argv) > 2 else ""
+if not target or target == "/":
+    sys.exit(1)
+is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+setjoin_uid = setjoin_gid = None
+if is_root:
+    import grp, pwd
+    setjoin_uid = pwd.getpwnam("setjoin").pw_uid
+    setjoin_gid = grp.getgrnam("setjoin").gr_gid
+if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW") and target.startswith("/"):
+    parts = [p for p in target.split("/") if p]
+    dir_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    cur_fd = os.open("/", dir_flags)
+    created_devino = None
+    try:
+        for idx, part in enumerate(parts):
+            is_last = idx == len(parts) - 1
+            if is_root:
+                pst = os.fstat(cur_fd)
+                allowed_owners = {0}
+                if setjoin_uid is not None:
+                    allowed_owners.add(setjoin_uid)
+                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                    raise PermissionError(f"untrusted parent directory before {part!r}")
+            existed = True
+            try:
+                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
+            except FileNotFoundError:
+                existed = False
+                os.mkdir(part, 0o700 if is_last else 0o755, dir_fd=cur_fd)
+                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
+                if not is_last:
+                    os.fchmod(nxt, 0o755)
+            os.close(cur_fd)
+            cur_fd = nxt
+            if is_last:
+                st = os.fstat(cur_fd)
+                if not stat.S_ISDIR(st.st_mode):
+                    raise NotADirectoryError(target)
+                if is_root and existed and st.st_uid != setjoin_uid and os.listdir(cur_fd):
+                    raise PermissionError(f"non-empty directory {target} not owned by setjoin")
+                os.fchmod(cur_fd, 0o700)
+                if is_root:
+                    os.fchown(cur_fd, setjoin_uid, setjoin_gid)
+                if not existed:
+                    created_devino = f"{st.st_dev}:{st.st_ino}"
+    finally:
+        os.close(cur_fd)
+else:
+    existed = os.path.isdir(target)
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, mode=0o755, exist_ok=True)
+    os.makedirs(target, mode=0o700, exist_ok=True)
+    os.chmod(target, 0o700)
+    st = os.lstat(target)
+    created_devino = None if existed else f"{st.st_dev}:{st.st_ino}"
+if created_devino and meta_path and os.path.isfile(meta_path):
+    with open(meta_path, "r", encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    if "exists=0" in lines and not any(line.startswith("created_devino=") for line in lines):
+        with open(meta_path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f"created_devino={created_devino}\n")
+PY
+}
+
+_is_empty_preserved_key() {
+  case "$1" in
+    IMAP_ADDR|IMAP_TLS_ADDR|SMTP_INBOUND_ADDR|SMTP_INBOUND_TLS_ADDR|SMTP_SUBMISSION_ADDR|WORM_LEGAL_HOLD_ENABLED|INTERNAL_DOMAINS) return 0 ;;
+    *)
+      case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        worm_mode|worm__mode) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+}
+
 # Preserve the managed TLS settings across install's config.env regeneration,
 # honoring explicit environment assignments without evaluating any value.
 tls_front_preserve_settings() {
-  local config="$1" key value rc=0 line="" ordered=""
+  local config="$1" key value rc=0 line="" ordered="" extra_key="" seen=0 existing=""
   local keys=(SETJOIN_CONFIG INTERNAL_DOMAINS SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM__MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53)
   if [ -f "$config" ]; then
     ordered=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-order --ci-keys WORM_MODE,WORM__MODE,WORM_RETENTION_DAYS "$config" "${keys[@]}") || return 1
@@ -1345,28 +1442,39 @@ tls_front_preserve_settings() {
         0) printf '%s\n' "$line" ;;
         1) ;;
         3)
-          case "$key" in
-            IMAP_ADDR|IMAP_TLS_ADDR|SMTP_INBOUND_ADDR|SMTP_INBOUND_TLS_ADDR|SMTP_SUBMISSION_ADDR|WORM_LEGAL_HOLD_ENABLED|INTERNAL_DOMAINS)
-              printf '%s=\n' "$key"
-              ;;
-            *)
-              case "$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')" in
-                worm_mode|worm__mode) printf '%s=\n' "$key" ;;
-              esac
-              ;;
-          esac
+          if _is_empty_preserved_key "$key"; then
+            printf '%s=\n' "$key"
+          fi
           ;;
         *) return 1 ;;
       esac
     done <<< "$ordered"
   fi
-  for key in "${keys[@]}"; do
+  local shell_keys=("${keys[@]}")
+  while IFS= read -r extra_key; do
+    [ -n "$extra_key" ] || continue
+    case "$(printf '%s' "$extra_key" | tr '[:upper:]' '[:lower:]')" in
+      worm_mode|worm__mode|worm_retention_days)
+        seen=0
+        for existing in "${shell_keys[@]}"; do
+          if [ "$existing" = "$extra_key" ]; then
+            seen=1
+            break
+          fi
+        done
+        if [ "$seen" = 0 ]; then
+          shell_keys+=("$extra_key")
+        fi
+        ;;
+    esac
+  done < <(compgen -v)
+  for key in "${shell_keys[@]}"; do
     if [ "${!key+x}" = x ]; then
       value="${!key}"
       case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
       if [ -n "$value" ]; then
         printf '%s=%s\n' "$key" "$value"
-      elif [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ] || [ "$key" = WORM_MODE ] || [ "$key" = WORM__MODE ] || [ "$key" = WORM_LEGAL_HOLD_ENABLED ] || [ "$key" = INTERNAL_DOMAINS ]; then
+      elif _is_empty_preserved_key "$key"; then
         printf '%s=\n' "$key"
       fi
     fi

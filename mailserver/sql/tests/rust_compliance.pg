@@ -1,6 +1,6 @@
 -- Public reducer seam: verified actor, idempotent close and committed audit.
 BEGIN;
-SELECT plan(27);
+SELECT plan(28);
 CREATE TEMP TABLE compl1_actor(mailbox_id bigint,user_id bigint);
 INSERT INTO compl1_actor(mailbox_id) VALUES(mk_account('compl1-sql'));
 UPDATE compl1_actor a SET user_id=m.user_id FROM mailboxes m WHERE m.id=a.mailbox_id;
@@ -73,5 +73,12 @@ SELECT is((SELECT count(*)::int FROM admin_audit_log WHERE user_id=(SELECT user_
 SELECT rust_compliance_search_complete((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_search),
  'm.subject_tsv @@ plainto_tsquery(''simple'',($1::text[])[1])',ARRAY['Hold']);
 SELECT is(rust_compliance_export_authorize((SELECT user_id FROM compl1_actor),(SELECT id FROM compl1_case),ARRAY[(SELECT id FROM compl1_message)],'["bound"]','127.0.0.1'),'','bound export commits its audit');
+SELECT ok(EXISTS(
+ SELECT 1 FROM jsonb_array_elements(
+  rust_compliance_message_hold((SELECT user_id FROM compl1_actor), ARRAY[(SELECT id FROM compl1_message)], true, '127.0.0.1', true)
+ ) AS elem
+ WHERE (elem->>'id')::bigint = (SELECT id FROM compl1_message)
+   AND (elem->>'received_at')::timestamptz = (SELECT received_at FROM messages WHERE id = (SELECT id FROM compl1_message))
+), '5-arg hold returns exact (id, received_at) reference');
 SELECT * FROM finish();
 ROLLBACK;

@@ -389,75 +389,7 @@ render_gateway_deployment() (
     # SMTP (#501): its own allow-listed file, re-rendered with the unit set.
     render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$SMTP_ENV" || return 1
-    if [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; then
-        python3 - "$_tls_cache" "${DEPLOYMENT_PREV:-}/tls-cache.meta" <<'PY' || return 1
-import os, stat, sys
-target = sys.argv[1].rstrip("/")
-meta_path = sys.argv[2] if len(sys.argv) > 2 else ""
-if not target or target == "/":
-    sys.exit(1)
-is_root = hasattr(os, "geteuid") and os.geteuid() == 0
-setjoin_uid = setjoin_gid = None
-if is_root:
-    import grp, pwd
-    setjoin_uid = pwd.getpwnam("setjoin").pw_uid
-    setjoin_gid = grp.getgrnam("setjoin").gr_gid
-if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW") and target.startswith("/"):
-    parts = [p for p in target.split("/") if p]
-    dir_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    cur_fd = os.open("/", dir_flags)
-    created_devino = None
-    try:
-        for idx, part in enumerate(parts):
-            is_last = idx == len(parts) - 1
-            if is_root:
-                pst = os.fstat(cur_fd)
-                allowed_owners = {0}
-                if setjoin_uid is not None:
-                    allowed_owners.add(setjoin_uid)
-                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
-                    raise PermissionError(f"untrusted parent directory before {part!r}")
-            existed = True
-            try:
-                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
-            except FileNotFoundError:
-                existed = False
-                os.mkdir(part, 0o700 if is_last else 0o755, dir_fd=cur_fd)
-                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
-                if not is_last:
-                    os.fchmod(nxt, 0o755)
-            os.close(cur_fd)
-            cur_fd = nxt
-            if is_last:
-                st = os.fstat(cur_fd)
-                if not stat.S_ISDIR(st.st_mode):
-                    raise NotADirectoryError(target)
-                if is_root and existed and st.st_uid != setjoin_uid and os.listdir(cur_fd):
-                    raise PermissionError(f"non-empty directory {target} not owned by setjoin")
-                os.fchmod(cur_fd, 0o700)
-                if is_root:
-                    os.fchown(cur_fd, setjoin_uid, setjoin_gid)
-                if not existed:
-                    created_devino = f"{st.st_dev}:{st.st_ino}"
-    finally:
-        os.close(cur_fd)
-else:
-    existed = os.path.isdir(target)
-    parent = os.path.dirname(target)
-    if parent:
-        os.makedirs(parent, mode=0o755, exist_ok=True)
-    os.makedirs(target, mode=0o700, exist_ok=True)
-    os.chmod(target, 0o700)
-    st = os.lstat(target)
-    created_devino = None if existed else f"{st.st_dev}:{st.st_ino}"
-if created_devino and meta_path and os.path.isfile(meta_path):
-    with open(meta_path, "r", encoding="utf-8") as fh:
-        lines = fh.read().splitlines()
-    if "exists=0" in lines and not any(line.startswith("created_devino=") for line in lines):
-        with open(meta_path, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(f"created_devino={created_devino}\n")
-PY
-    fi
+    ensure_tls_cache_dir "$_tls_cache" "${DEPLOYMENT_PREV:-}/tls-cache.meta" || return 1
     # A descriptor belongs to the matching new binary. Recreate only this
     # release's socket set; snapshots preserve prior bytes, absence and state.
     rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"

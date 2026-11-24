@@ -231,12 +231,124 @@ fn valid_underscore_digits(s: &str, pred: fn(u8) -> bool) -> bool {
     saw_digit
 }
 
-fn normalize_go_yaml_number(raw: &str) -> Option<String> {
-    if !raw.contains('_') {
+fn parse_go_hex_float64(s: &str) -> Option<f64> {
+    let (neg, rest) = if let Some(r) = s.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = s.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, s)
+    };
+    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let p_idx = rest.find(['p', 'P'])?;
+    let mant_raw = &rest[..p_idx];
+    let exp_raw = &rest[p_idx + 1..];
+    let (exp_neg, exp_digits) = if let Some(r) = exp_raw.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = exp_raw.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, exp_raw)
+    };
+    if !valid_underscore_digits(exp_digits, |b| b.is_ascii_digit()) {
         return None;
     }
+    let exp_mag: i32 = exp_digits.replace('_', "").parse().ok()?;
+    let exp_p = if exp_neg { -exp_mag } else { exp_mag };
+    let (int_hex, frac_hex) = match mant_raw.split_once('.') {
+        Some((i, f)) => {
+            if !i.is_empty()
+                && !valid_underscore_digits(
+                    i.strip_prefix('_').unwrap_or(i),
+                    |b| b.is_ascii_hexdigit(),
+                )
+            {
+                return None;
+            }
+            if !f.is_empty() && !valid_underscore_digits(f, |b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            (i, f)
+        }
+        None => {
+            if !valid_underscore_digits(
+                mant_raw.strip_prefix('_').unwrap_or(mant_raw),
+                |b| b.is_ascii_hexdigit(),
+            ) {
+                return None;
+            }
+            (mant_raw, "")
+        }
+    };
+    let int_clean = int_hex.replace('_', "");
+    let frac_clean = frac_hex.replace('_', "");
+    if int_clean.is_empty() && frac_clean.is_empty() {
+        return None;
+    }
+    let mut val = 0.0_f64;
+    for b in int_clean.bytes() {
+        val = val * 16.0 + (b as char).to_digit(16)? as f64;
+    }
+    let mut frac_scale = 1.0_f64 / 16.0;
+    for b in frac_clean.bytes() {
+        val += ((b as char).to_digit(16)? as f64) * frac_scale;
+        frac_scale /= 16.0;
+    }
+    let scaled = val * 2.0_f64.powi(exp_p);
+    let result = if neg { -scaled } else { scaled };
+    result.is_finite().then_some(result)
+}
+
+fn parse_go_float64(raw: &str) -> Option<f64> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+    if unsigned.starts_with("0x") || unsigned.starts_with("0X") {
+        return parse_go_hex_float64(s);
+    }
+    let mantissa = match unsigned.find(['e', 'E']) {
+        Some(idx) => {
+            let exp_raw = &unsigned[idx + 1..];
+            let exp_digits = exp_raw.strip_prefix(['+', '-']).unwrap_or(exp_raw);
+            if !valid_underscore_digits(exp_digits, |b| b.is_ascii_digit()) {
+                return None;
+            }
+            &unsigned[..idx]
+        }
+        None => unsigned,
+    };
+    match mantissa.split_once('.') {
+        Some((int_part, frac_part)) => {
+            if int_part.is_empty() && frac_part.is_empty() {
+                return None;
+            }
+            if !int_part.is_empty() && !valid_underscore_digits(int_part, |b| b.is_ascii_digit()) {
+                return None;
+            }
+            if !frac_part.is_empty() && !valid_underscore_digits(frac_part, |b| b.is_ascii_digit())
+            {
+                return None;
+            }
+        }
+        None => {
+            if !valid_underscore_digits(mantissa, |b| b.is_ascii_digit()) {
+                return None;
+            }
+        }
+    }
+    let v: f64 = s.replace('_', "").parse().ok()?;
+    v.is_finite().then_some(v)
+}
+
+fn normalize_go_yaml_number(raw: &str) -> Option<String> {
+    let sign = if raw.starts_with('-') { "-" } else { "" };
     let unsigned = raw.strip_prefix(['+', '-']).unwrap_or(raw);
     if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+        if !raw.contains('_') {
+            return None;
+        }
         let digits = hex.strip_prefix('_').unwrap_or(hex);
         if valid_underscore_digits(digits, |b| b.is_ascii_hexdigit()) {
             return Some(raw.replace('_', ""));
@@ -244,6 +356,9 @@ fn normalize_go_yaml_number(raw: &str) -> Option<String> {
         return None;
     }
     if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+        if !raw.contains('_') {
+            return None;
+        }
         let digits = oct.strip_prefix('_').unwrap_or(oct);
         if valid_underscore_digits(digits, |b| matches!(b, b'0'..=b'7')) {
             return Some(raw.replace('_', ""));
@@ -251,10 +366,25 @@ fn normalize_go_yaml_number(raw: &str) -> Option<String> {
         return None;
     }
     if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+        if !raw.contains('_') {
+            return None;
+        }
         let digits = bin.strip_prefix('_').unwrap_or(bin);
         if valid_underscore_digits(digits, |b| matches!(b, b'0' | b'1')) {
             return Some(raw.replace('_', ""));
         }
+        return None;
+    }
+    if unsigned.starts_with('0') && unsigned.len() > 1 && !unsigned.contains(['.', 'e', 'E']) {
+        let digits = unsigned[1..].strip_prefix('_').unwrap_or(&unsigned[1..]);
+        if valid_underscore_digits(digits, |b| matches!(b, b'0'..=b'7')) {
+            if let Ok(v) = i64::from_str_radix(&digits.replace('_', ""), 8) {
+                return Some(format!("{sign}{v}"));
+            }
+        }
+        return None;
+    }
+    if !raw.contains('_') {
         return None;
     }
     let (mantissa, exponent) = match unsigned.find(['e', 'E']) {
@@ -302,13 +432,21 @@ fn normalize_yaml_underscore_numbers(yaml: &str) -> String {
         let Ok((event, span)) = item else {
             return yaml.to_owned();
         };
-        let Event::Scalar(text, ScalarStyle::Plain, _, tag) = event else {
+        let Event::Scalar(text, style, _, tag) = event else {
             continue;
         };
-        let tag_ok = tag.as_ref().is_none_or(|t| {
-            t.handle() == "tag:yaml.org,2002:" && matches!(t.suffix(), "int" | "float")
+        let is_numeric_tag = tag.as_ref().is_some_and(|t| {
+            (t.handle() == "tag:yaml.org,2002:" && matches!(t.suffix(), "int" | "float"))
+                || (t.handle().is_empty()
+                    && matches!(
+                        t.suffix(),
+                        "tag:yaml.org,2002:int" | "tag:yaml.org,2002:float"
+                    ))
         });
-        if !tag_ok {
+        if tag.is_some() && !is_numeric_tag {
+            continue;
+        }
+        if tag.is_none() && style != ScalarStyle::Plain {
             continue;
         }
         let Some(normalized) = normalize_go_yaml_number(text.as_ref()) else {
@@ -317,8 +455,31 @@ fn normalize_yaml_underscore_numbers(yaml: &str) -> String {
         let (Some(start), Some(end)) = (span.start.byte_offset(), span.end.byte_offset()) else {
             continue;
         };
-        if yaml.get(start..end) == Some(text.as_ref()) {
-            edits.push((start, end, normalized));
+        match style {
+            ScalarStyle::Plain => {
+                if yaml.get(start..end) == Some(text.as_ref()) {
+                    edits.push((start, end, normalized));
+                }
+            }
+            ScalarStyle::DoubleQuoted => {
+                if end >= start + 2
+                    && yaml.as_bytes().get(start) == Some(&b'"')
+                    && yaml.as_bytes().get(end - 1) == Some(&b'"')
+                    && yaml.get(start + 1..end - 1) == Some(text.as_ref())
+                {
+                    edits.push((start, end, format!("\"{normalized}\"")));
+                }
+            }
+            ScalarStyle::SingleQuoted => {
+                if end >= start + 2
+                    && yaml.as_bytes().get(start) == Some(&b'\'')
+                    && yaml.as_bytes().get(end - 1) == Some(&b'\'')
+                    && yaml.get(start + 1..end - 1) == Some(text.as_ref())
+                {
+                    edits.push((start, end, format!("'{normalized}'")));
+                }
+            }
+            _ => {}
         }
     }
     if edits.is_empty() {
@@ -361,44 +522,8 @@ fn canonical_worm_retention_value(value: Option<&Value>) -> Option<String> {
             if trimmed.is_empty() {
                 return None;
             }
-            let normalized = normalize_go_yaml_number(trimmed).unwrap_or_else(|| trimmed.to_owned());
-            let (neg, unsigned) = if let Some(rest) = normalized.strip_prefix('-') {
-                (true, rest)
-            } else if let Some(rest) = normalized.strip_prefix('+') {
-                (false, rest)
-            } else {
-                (false, normalized.as_str())
-            };
-            let parsed = if let Some(hex) =
-                unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X"))
-            {
-                i64::from_str_radix(hex, 16)
-                    .ok()
-                    .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
-            } else if let Some(oct) =
-                unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O"))
-            {
-                i64::from_str_radix(oct, 8)
-                    .ok()
-                    .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
-            } else if let Some(bin) =
-                unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B"))
-            {
-                i64::from_str_radix(bin, 2)
-                    .ok()
-                    .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
-            } else {
-                normalized.parse::<i64>().ok()
-            };
-            if let Some(days) = parsed {
-                return Some(days.to_string());
-            }
-            normalized
-                .parse::<f64>()
-                .ok()
-                .filter(|f| {
-                    f.is_finite() && *f >= (i64::MIN as f64) && *f < 9_223_372_036_854_775_808.0
-                })
+            parse_go_float64(trimmed)
+                .filter(|f| *f >= (i64::MIN as f64) && *f < 9_223_372_036_854_775_808.0)
                 .map(|f| (f as i64).to_string())
         }
         _ => None,
@@ -642,8 +767,30 @@ mod tests {
         let hex_one = Settings::parse("s3:\n  secure: 0x_1\n", &BTreeMap::new()).unwrap();
         assert!(hex_one.boolean("s3.secure"));
 
+        let legacy_oct_one = Settings::parse("s3:\n  secure: 0_1\n", &BTreeMap::new()).unwrap();
+        assert!(legacy_oct_one.boolean("s3.secure"));
+
+        let verbatim_float =
+            Settings::parse("s3:\n  secure: !<tag:yaml.org,2002:float> 1_0e-1\n", &BTreeMap::new())
+                .unwrap();
+        assert!(verbatim_float.boolean("s3.secure"));
+
+        let tagged_quoted_float =
+            Settings::parse("s3:\n  secure: !!float \"1_0e-1\"\n", &BTreeMap::new()).unwrap();
+        assert!(tagged_quoted_float.boolean("s3.secure"));
+
+        let verbatim_squote = Settings::parse(
+            "s3:\n  secure: !<tag:yaml.org,2002:float> '1_0e-1'\n",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(verbatim_squote.boolean("s3.secure"));
+
         let quoted = Settings::parse("s3:\n  secure: \"1_0e-1\"\n", &BTreeMap::new()).unwrap();
         assert!(!quoted.boolean("s3.secure"));
+
+        let quoted_oct = Settings::parse("s3:\n  secure: \"0_1\"\n", &BTreeMap::new()).unwrap();
+        assert!(!quoted_oct.boolean("s3.secure"));
 
         let str_tagged =
             Settings::parse("s3:\n  secure: !!str 1_0e-1\n", &BTreeMap::new()).unwrap();
@@ -658,12 +805,20 @@ mod tests {
         );
 
         let mut env = BTreeMap::new();
-        env.insert("WORM_RETENTION_DAYS".into(), "3650.0".into());
+        env.insert("WORM_RETENTION_DAYS".into(), "0x1p+4".into());
         let env_retention = Settings::parse("", &env).unwrap();
         assert_eq!(
             super::canonical_worm_retention_value(env_retention.values.get("worm.retention_days"))
                 .as_deref(),
-            Some("3650")
+            Some("16")
+        );
+
+        let mut bad_hex = BTreeMap::new();
+        bad_hex.insert("WORM_RETENTION_DAYS".into(), "0x10".into());
+        let env_bad_hex = Settings::parse("", &bad_hex).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(env_bad_hex.values.get("worm.retention_days")),
+            None
         );
     }
 }

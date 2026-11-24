@@ -192,6 +192,8 @@ class _Parser:
             return int(raw.replace("_", ""), 8)
         if re.fullmatch(r"[+-]?0[bB]_?[01](?:_?[01])*", raw):
             return int(raw.replace("_", ""), 2)
+        if re.fullmatch(r"[+-]?0(?:_?[0-7])+", raw):
+            return int(raw.replace("_", ""), 8)
         if re.fullmatch(
             r"[+-]?(?:(?:0|[1-9](?:_?[0-9])*)\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?|\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?|(?:0|[1-9](?:_?[0-9])*)[eE][+-]?[0-9](?:_?[0-9])*)",
             raw,
@@ -292,6 +294,8 @@ class _Parser:
                 return val
             s = raw_plain if raw_plain is not None else str(val)
             try:
+                if re.fullmatch(r"[+-]?0(?:_?[0-7])+", s.strip()):
+                    return int(s.strip().replace("_", ""), 8)
                 return int(s, 0)
             except ValueError as exc:
                 raise YamlError(f"invalid !!int value {s!r}") from exc
@@ -1113,19 +1117,34 @@ def cmd_normalize_retention(args: list[str]) -> int:
         return 2
     raw = args[0].strip()
     if not raw:
-        return 0
-    try:
-        days = int(raw, 0)
-    except ValueError:
+        sys.stderr.write("invalid WORM_RETENTION_DAYS: empty value\n")
+        return 2
+    # Match Go koanf.Int() / strconv.ParseFloat(s, 64) rules.
+    if re.fullmatch(
+        r"[+-]?0[xX](?:_?[0-9a-fA-F](?:_?[0-9a-fA-F])*(?:\.(?:[0-9a-fA-F](?:_?[0-9a-fA-F])*)?)?|\.[0-9a-fA-F](?:_?[0-9a-fA-F])*)[pP][+-]?[0-9](?:_?[0-9])*",
+        raw,
+    ):
         try:
-            val = float(raw)
+            val = float.fromhex(raw.replace("_", ""))
         except ValueError:
             sys.stderr.write(f"invalid WORM_RETENTION_DAYS: {args[0]!r}\n")
             return 2
-        if not math.isfinite(val) or val < -(1 << 63) or val >= float(1 << 63):
+    elif re.fullmatch(
+        r"[+-]?(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?",
+        raw,
+    ):
+        try:
+            val = float(raw.replace("_", ""))
+        except ValueError:
             sys.stderr.write(f"invalid WORM_RETENTION_DAYS: {args[0]!r}\n")
             return 2
-        days = int(val)
+    else:
+        sys.stderr.write(f"invalid WORM_RETENTION_DAYS: {args[0]!r}\n")
+        return 2
+    if not math.isfinite(val) or val < -(1 << 63) or val >= float(1 << 63):
+        sys.stderr.write(f"invalid WORM_RETENTION_DAYS: {args[0]!r}\n")
+        return 2
+    days = int(val)
     if days < 1:
         sys.stderr.write(f"invalid WORM_RETENTION_DAYS (must be >= 1): {args[0]!r}\n")
         return 2

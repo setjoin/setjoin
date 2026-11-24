@@ -314,74 +314,151 @@ fn resolve_worm_mode_from_env() -> String {
         .unwrap_or_default()
 }
 
-fn strip_numeric_underscores(raw: &str) -> Option<String> {
+fn valid_digits_with_underscores(s: &str, allow_leading: bool, pred: fn(u8) -> bool) -> bool {
+    let s = if allow_leading {
+        s.strip_prefix('_').unwrap_or(s)
+    } else {
+        s
+    };
+    let bytes = s.as_bytes();
+    let mut saw_digit = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'_' {
+            if i == 0 || i + 1 == bytes.len() || bytes[i - 1] == b'_' || bytes[i + 1] == b'_' {
+                return false;
+            }
+        } else if pred(b) {
+            saw_digit = true;
+        } else {
+            return false;
+        }
+    }
+    saw_digit
+}
+
+fn parse_go_hex_float64(s: &str) -> Option<f64> {
+    let (neg, rest) = if let Some(r) = s.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = s.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, s)
+    };
+    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let p_idx = rest.find(['p', 'P'])?;
+    let mant_raw = &rest[..p_idx];
+    let exp_raw = &rest[p_idx + 1..];
+    let (exp_neg, exp_digits) = if let Some(r) = exp_raw.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = exp_raw.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, exp_raw)
+    };
+    if !valid_digits_with_underscores(exp_digits, false, |b| b.is_ascii_digit()) {
+        return None;
+    }
+    let exp_mag: i32 = exp_digits.replace('_', "").parse().ok()?;
+    let exp_p = if exp_neg { -exp_mag } else { exp_mag };
+    let (int_hex, frac_hex) = match mant_raw.split_once('.') {
+        Some((i, f)) => {
+            if !i.is_empty()
+                && !valid_digits_with_underscores(i, true, |b| b.is_ascii_hexdigit())
+            {
+                return None;
+            }
+            if !f.is_empty()
+                && !valid_digits_with_underscores(f, false, |b| b.is_ascii_hexdigit())
+            {
+                return None;
+            }
+            (i, f)
+        }
+        None => {
+            if !valid_digits_with_underscores(mant_raw, true, |b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            (mant_raw, "")
+        }
+    };
+    let int_clean = int_hex.replace('_', "");
+    let frac_clean = frac_hex.replace('_', "");
+    if int_clean.is_empty() && frac_clean.is_empty() {
+        return None;
+    }
+    let mut val = 0.0_f64;
+    for b in int_clean.bytes() {
+        let d = (b as char).to_digit(16)? as f64;
+        val = val * 16.0 + d;
+    }
+    let mut frac_scale = 1.0_f64 / 16.0;
+    for b in frac_clean.bytes() {
+        let d = (b as char).to_digit(16)? as f64;
+        val += d * frac_scale;
+        frac_scale /= 16.0;
+    }
+    let scaled = val * 2.0_f64.powi(exp_p);
+    let result = if neg { -scaled } else { scaled };
+    result.is_finite().then_some(result)
+}
+
+fn parse_go_float64(raw: &str) -> Option<f64> {
     let s = raw.trim();
-    if s.is_empty() || s.starts_with('_') || s.ends_with('_') || s.contains("__") {
+    if s.is_empty() {
         return None;
     }
     let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
-    let hex_prefixed = unsigned.starts_with("0x") || unsigned.starts_with("0X");
-    let oct_or_bin = unsigned.starts_with("0o")
-        || unsigned.starts_with("0O")
-        || unsigned.starts_with("0b")
-        || unsigned.starts_with("0B");
-    let bytes = s.as_bytes();
-    for (idx, &ch) in bytes.iter().enumerate() {
-        if ch == b'_' {
-            let prev = bytes[idx - 1];
-            let next = bytes[idx + 1];
-            if !prev.is_ascii_alphanumeric() && prev != b'_' {
+    if unsigned.starts_with("0x") || unsigned.starts_with("0X") {
+        return parse_go_hex_float64(s);
+    }
+    let (mantissa, has_exp) = match unsigned.find(['e', 'E']) {
+        Some(idx) => {
+            let exp_raw = &unsigned[idx + 1..];
+            let exp_digits = exp_raw.strip_prefix(['+', '-']).unwrap_or(exp_raw);
+            if !valid_digits_with_underscores(exp_digits, false, |b| b.is_ascii_digit()) {
                 return None;
             }
-            if !next.is_ascii_hexdigit() {
+            (&unsigned[..idx], true)
+        }
+        None => (unsigned, false),
+    };
+    let _ = has_exp;
+    match mantissa.split_once('.') {
+        Some((int_part, frac_part)) => {
+            if int_part.is_empty() && frac_part.is_empty() {
                 return None;
             }
-            if !hex_prefixed && (matches!(prev, b'e' | b'E') || matches!(next, b'e' | b'E')) {
+            if !int_part.is_empty()
+                && !valid_digits_with_underscores(int_part, false, |b| b.is_ascii_digit())
+            {
                 return None;
             }
-            if !hex_prefixed && !oct_or_bin && !next.is_ascii_digit() {
+            if !frac_part.is_empty()
+                && !valid_digits_with_underscores(frac_part, false, |b| b.is_ascii_digit())
+            {
+                return None;
+            }
+        }
+        None => {
+            if !valid_digits_with_underscores(mantissa, false, |b| b.is_ascii_digit()) {
                 return None;
             }
         }
     }
-    Some(s.replace('_', ""))
+    let v: f64 = s.replace('_', "").parse().ok()?;
+    v.is_finite().then_some(v)
 }
 
 fn parse_worm_retention_days(raw: Option<&str>) -> Result<i64, String> {
-    let Some(s) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
+    let Some(raw_str) = raw else {
         return Ok(2557);
     };
-    let clean = strip_numeric_underscores(s)
-        .ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
-    let (neg, unsigned) = if let Some(rest) = clean.strip_prefix('-') {
-        (true, rest)
-    } else if let Some(rest) = clean.strip_prefix('+') {
-        (false, rest)
-    } else {
-        (false, clean.as_str())
-    };
-    let parsed_int =
-        if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
-            i64::from_str_radix(hex, 16)
-                .ok()
-                .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
-        } else if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
-            i64::from_str_radix(oct, 8)
-                .ok()
-                .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
-        } else if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
-            i64::from_str_radix(bin, 2)
-                .ok()
-                .and_then(|v| if neg { v.checked_neg() } else { Some(v) })
-        } else {
-            clean.parse::<i64>().ok()
-        };
-    if let Some(days) = parsed_int {
-        return Ok(days);
+    let s = raw_str.trim();
+    if s.is_empty() {
+        return Err("WORM_RETENTION_DAYS is explicitly empty".into());
     }
-    let v: f64 = clean
-        .parse()
-        .map_err(|_| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
+    let v = parse_go_float64(s)
+        .ok_or_else(|| format!("invalid WORM_RETENTION_DAYS: {s:?}"))?;
     if !v.is_finite() || v < (i64::MIN as f64) || v >= 9_223_372_036_854_775_808.0 {
         return Err(format!("invalid WORM_RETENTION_DAYS: {s:?}"));
     }
@@ -395,11 +472,12 @@ mod tests {
     #[test]
     fn worm_retention_days_matches_koanf_int_and_rejects_malformed() {
         assert_eq!(parse_worm_retention_days(None).unwrap(), 2557);
-        assert_eq!(parse_worm_retention_days(Some("")).unwrap(), 2557);
+        assert!(parse_worm_retention_days(Some("")).is_err());
         assert_eq!(parse_worm_retention_days(Some("3650")).unwrap(), 3650);
         assert_eq!(parse_worm_retention_days(Some("3650.0")).unwrap(), 3650);
         assert_eq!(parse_worm_retention_days(Some("1_000")).unwrap(), 1000);
-        assert_eq!(parse_worm_retention_days(Some("0x10")).unwrap(), 16);
+        assert_eq!(parse_worm_retention_days(Some("0x1p+4")).unwrap(), 16);
+        assert!(parse_worm_retention_days(Some("0x10")).is_err());
         assert!(parse_worm_retention_days(Some("bad")).is_err());
         assert!(parse_worm_retention_days(Some("NaN")).is_err());
     }
