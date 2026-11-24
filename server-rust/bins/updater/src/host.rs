@@ -928,10 +928,44 @@ fn split_systemd_words(s: &str) -> Vec<String> {
     out
 }
 
+fn systemd_logical_lines(unit: &str) -> Vec<String> {
+    let unit = unit.strip_prefix('\u{feff}').unwrap_or(unit);
+    let mut logical = Vec::new();
+    let mut current = String::new();
+    let mut continuing = false;
+    for raw_line in unit.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        if line.trim_start().starts_with('#') || line.trim_start().starts_with(';') {
+            continue;
+        }
+        if let Some(prefix) = line.strip_suffix('\\') {
+            current.push_str(prefix);
+            current.push(' ');
+            continuing = true;
+        } else {
+            current.push_str(line);
+            logical.push(std::mem::take(&mut current));
+            continuing = false;
+        }
+    }
+    if continuing {
+        logical.push(current);
+    }
+    logical
+}
+
 fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
-    for line in unit.lines() {
+    let mut in_service = false;
+    for line in systemd_logical_lines(unit) {
         let t = line.trim();
-        if t.starts_with('#') || t.starts_with(';') {
+        if t.is_empty() {
+            continue;
+        }
+        if t.starts_with('[') && t.ends_with(']') {
+            in_service = t == "[Service]";
+            continue;
+        }
+        if !in_service {
             continue;
         }
         let Some((lhs, raw_rhs)) = t.split_once('=') else {
@@ -1157,6 +1191,7 @@ pub(crate) fn check_worm_gateway_ready(
     default_config_env: &Path,
 ) -> Result<()> {
     let unit_spec = load_unit_env_spec(unit_path)?;
+    let gw = load_effective_gateway_env(&unit_spec)?;
     let unit_cfg = unit_spec
         .env_files
         .iter()
@@ -1210,7 +1245,6 @@ pub(crate) fn check_worm_gateway_ready(
             .as_ref()
             .and_then(|y| y.retention_days.clone()),
     };
-    let gw = load_effective_gateway_env(&unit_spec)?;
     if let Some(mode) = expected_mode {
         if !gateway_has_worm_settings(
             &gw,
@@ -1632,17 +1666,27 @@ mod tests {
             assert!(load_unit_env_files_with_dirs(&loop_unit, &[loop_dir]).is_err());
         }
 
-        // Missing required EnvironmentFile= fails preflight even when host disables WORM
+        // Missing required EnvironmentFile= fails preflight even when host has no config.env
         let missing_req_unit = dir.path().join("missing-req.service");
         let missing_gw = dir.path().join("does-not-exist-gateway.env");
+        let missing_default = dir.path().join("no-such-dir/config.env");
         std::fs::write(
             &missing_req_unit,
             format!("[Service]\nEnvironmentFile={}\n", missing_gw.display()),
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&missing_req_unit, Some(&lk_cfg), &stale_default).is_err());
+        let err_default =
+            check_worm_gateway_ready(&missing_req_unit, None, &missing_default).unwrap_err();
+        assert!(err_default.to_string().contains("reading required EnvironmentFile"));
+        let err_explicit = check_worm_gateway_ready(
+            &missing_req_unit,
+            Some(&missing_default),
+            &missing_default,
+        )
+        .unwrap_err();
+        assert!(err_explicit.to_string().contains("reading required EnvironmentFile"));
 
-        // Drop-in UnsetEnvironment= removes LiveKit / WORM_MODE after EnvironmentFile=, and empty UnsetEnvironment= resets it
+        // Drop-in UnsetEnvironment= removes LiveKit after EnvironmentFile=, and empty UnsetEnvironment= resets it
         let unset_dir = dir.path().join("unset.service.d");
         std::fs::create_dir_all(&unset_dir).unwrap();
         let unset_unit = dir.path().join("unset.service");
@@ -1661,21 +1705,46 @@ mod tests {
             "[Service]\nUnsetEnvironment=LIVEKIT_API_SECRET\n",
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_err());
+        let unset_lk_err =
+            check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).unwrap_err();
+        assert!(unset_lk_err.to_string().contains("LIVEKIT_*"));
         std::fs::write(unset_dir.join("20-reset.conf"), "[Service]\nUnsetEnvironment=\n").unwrap();
         assert!(check_worm_gateway_ready(&unset_unit, Some(&lk_cfg), &stale_default).is_ok());
 
-        // Drop-in UnsetEnvironment=WORM_MODE on DB-backed non-WORM host fails preflight
+        // Drop-in section filtering + backslash continuations + UnsetEnvironment=WORM_MODE isolated from LiveKit
+        let db_unset_dir = dir.path().join("db-unset");
+        let db_unset_dropin = db_unset_dir.join("db-unset.service.d");
+        std::fs::create_dir_all(&db_unset_dropin).unwrap();
+        let db_unset_cfg = db_unset_dir.join("config.env");
+        let db_unset_fed = db_unset_dir.join("federation.env");
+        let db_unset_gw = db_unset_dir.join("gateway.env");
+        let db_unset_unit = db_unset_dir.join("db-unset.service");
+        std::fs::write(&db_unset_cfg, "HOSTNAME=mail.test\n").unwrap();
+        std::fs::write(&db_unset_fed, "DB_DSN=postgres://app@localhost/mail\n").unwrap();
+        std::fs::write(&db_unset_gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
         std::fs::write(
-            &lk_fed,
-            "DB_DSN=postgres://app@localhost/mail\n",
+            &db_unset_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                db_unset_fed.display(),
+                db_unset_gw.display()
+            ),
         )
         .unwrap();
+        assert!(check_worm_gateway_ready(&db_unset_unit, None, &stale_default).is_ok());
         std::fs::write(
-            unset_dir.join("30-unset-worm.conf"),
-            "[Service]\nUnsetEnvironment=WORM_MODE\n",
+            db_unset_dropin.join("10-install.conf"),
+            "[Install]\nUnsetEnvironment=WORM_MODE\n",
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&unset_unit, None, &stale_default).is_err());
+        assert!(check_worm_gateway_ready(&db_unset_unit, None, &stale_default).is_ok());
+        std::fs::write(
+            db_unset_dropin.join("20-unset-worm.conf"),
+            "[Service]\nUnsetEnvironment=FOO \\\n# comment inside continuation\n  WORM_MODE\n",
+        )
+        .unwrap();
+        let unset_worm_err =
+            check_worm_gateway_ready(&db_unset_unit, None, &stale_default).unwrap_err();
+        assert!(unset_worm_err.to_string().contains("WORM_MODE="));
     }
 }

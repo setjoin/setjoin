@@ -9,6 +9,9 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/systemctl" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FED_TEST_LOG"
+if [ "${1:-}" = daemon-reload ] && [ "${FED_TEST_FAIL_DAEMON_RELOAD:-0}" = 1 ]; then
+  exit 1
+fi
 if [ "${1:-}" = enable ] && [ -n "${FED_TEST_FAIL_ENABLE:-}" ] && [ "${2:-}" = "$FED_TEST_FAIL_ENABLE" ]; then
   exit 1
 fi
@@ -238,6 +241,16 @@ ENV
   grep -qx 'enable --runtime setjoin-https.socket' "$im/actions"
   test "$(grep -xc 'enable setjoin-https.socket' "$im/actions")" = 1
   diff -ru "$im/before-enable-units" "$im/units"
+
+  # Failed daemon-reload during refresh-gateway-env rollback surfaces Incomplete refresh rollback.
+  cp "$im/config.before" "$im/config/config.env"
+  dr_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
+    FED_TEST_FAIL_DAEMON_RELOAD=1 \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env >"$im/dr.out" 2>&1 || dr_rc=$?
+  [ "$dr_rc" != 0 ] || { echo 'expected daemon-reload failure in refresh-gateway-env' >&2; exit 1; }
+  grep -q 'Incomplete refresh rollback' "$im/dr.out"
 
   # Restore valid config.env before testing lock contention with valid inputs.
   cp "$im/config.before" "$im/config/config.env"

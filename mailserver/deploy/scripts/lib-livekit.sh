@@ -578,7 +578,7 @@ FED
 # Also projects LIVEKIT_* sidecar credentials when present in config.env so
 # setjoin-gateway serves /rtc, /api/rtc, and /api/meet/* without loading config.env.
 render_federation_env() {
-  local outfile="$1" config="$2" credentials="$3" tmp key names allowed rc
+  local outfile="$1" config="$2" credentials="$3" tmp key names allowed rc raw_val split_val trimmed_val matched_val
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
   (
     umask 027
@@ -605,11 +605,19 @@ render_federation_env() {
       if [ "$key" = GO_WORKERS_OFF ]; then allowed='^(federation-(service|residue-reap)|cert-monitor|tls-ticket-keys|http-tls|http-h2c|acme-renewal|http-port80)$'; fi
       names=""
       if [ -e "$config" ]; then
-        names="$(sed -n "s/^$key=//p" "$config" | tail -1 | tr ',' '\n' |
-          sed 's/^[[:space:]]*//;s/[[:space:]]*$//' |
-          grep -E "$allowed" | paste -sd, - || true)"
+        raw_val="$(sed -n "s/^$key=//p" "$config")" || exit 1
+        raw_val="$(printf '%s\n' "$raw_val" | tail -1)" || exit 1
+        split_val="$(printf '%s\n' "$raw_val" | tr ',' '\n')" || exit 1
+        trimmed_val="$(printf '%s\n' "$split_val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')" || exit 1
+        matched_val=""
+        rc=0
+        matched_val="$(printf '%s\n' "$trimmed_val" | grep -E "$allowed")" || rc=$?
+        [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
+        if [ -n "$matched_val" ]; then
+          names="$(printf '%s\n' "$matched_val" | paste -sd, -)" || exit 1
+        fi
       fi
-      printf '%s=%s\n' "$key" "$names"
+      printf '%s=%s\n' "$key" "$names" || exit 1
     done
   ) > "$tmp" || { rm -f "$tmp"; return 1; }
   chmod 0640 "$tmp" || { rm -f "$tmp"; return 1; }

@@ -835,11 +835,15 @@ def parse_yaml_mapping(path: str) -> dict:
     return doc
 
 
-def parse_systemd_env_entries(path: str) -> dict[str, tuple[str, str | None]]:
+def parse_systemd_env_entries(
+    path: str, *, require_file: bool = False
+) -> dict[str, tuple[str, str | None]]:
     """Parse EnvironmentFile= entries matching systemd/src/basic/env-file.c v255."""
     out: dict[str, tuple[str, str | None]] = {}
-    if not path or not os.path.isfile(path):
+    if not require_file and (not path or not os.path.isfile(path)):
         return out
+    if not path:
+        raise FileNotFoundError("empty systemd environment file path")
     with open(path, "r", encoding="utf-8", errors="replace") as fh:
         src = fh.read()
     n = len(src)
@@ -982,9 +986,12 @@ def parse_systemd_env_entries(path: str) -> dict[str, tuple[str, str | None]]:
     return out
 
 
-def parse_systemd_env_file(path: str) -> dict[str, str]:
+def parse_systemd_env_file(path: str, *, require_file: bool = False) -> dict[str, str]:
     """Parse EnvironmentFile= entries matching systemd/src/basic/env-file.c v255."""
-    return {k: val for k, (val, _) in parse_systemd_env_entries(path).items()}
+    return {
+        k: val
+        for k, (val, _) in parse_systemd_env_entries(path, require_file=require_file).items()
+    }
 
 
 def fmt_systemd_env_line(key: str, val: str) -> str:
@@ -1055,7 +1062,7 @@ def cmd_env_copy(args: list[str]) -> int:
         sys.stderr.write("usage: yaml-config.py env-copy FILE KEY [KEY ...]\n")
         return 2
     try:
-        env_map = parse_systemd_env_file(args[0])
+        env_map = parse_systemd_env_file(args[0], require_file=True)
         for key in args[1:]:
             val = env_map.get(key)
             if val:
