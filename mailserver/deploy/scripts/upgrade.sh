@@ -176,7 +176,7 @@ render_gateway_deployment() (
     render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
     chown root:setjoin "$TLS_ENV" || return 1
     _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
-    validate_tls_cache_dir "$_tls_cache" || return 1
+    validate_tls_cache_target "$_tls_cache" || return 1
     if [ "$(id -u)" = 0 ] || [ "$_tls_cache" != /var/cache/mailserver/autocert ]; then
         mkdir -p "$_tls_cache" || return 1
         chmod 0700 "$_tls_cache" || return 1

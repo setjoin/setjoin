@@ -390,6 +390,8 @@ bash "$ROOT/mailserver/deploy/scripts/test-setjoin-lifecycle.sh" >/dev/null
 bash "$ROOT/mailserver/deploy/scripts/test-upgrade-rollback.sh" >/dev/null
 bash "$ROOT/mailserver/deploy/scripts/test-install-front-door.sh" >/dev/null
 bash "$ROOT/mailserver/deploy/scripts/test-imap-sockets.sh" >/dev/null
+bash "$ROOT/mailserver/deploy/scripts/test-tls-front-socket.sh" >/dev/null
+bash "$ROOT/mailserver/deploy/scripts/test-tls-front-upgrade.sh" >/dev/null
 for lifecycle_contract in \
   'install -o root -g root -m 0755' \
   '/usr/local/sbin/setjoinctl restart'; do

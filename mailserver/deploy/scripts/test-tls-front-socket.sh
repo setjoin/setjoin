@@ -165,18 +165,96 @@ grep -qx 'S3_SECRET_KEY=yaml-sk' "$tmp/yaml-storage.env"
 SETJOIN_CONFIG="$tmp/flow.yaml" tls_front_preserve_settings "$tmp/yaml-config.env" > "$tmp/yaml-preserved.env"
 grep -qx "SETJOIN_CONFIG=$tmp/flow.yaml" "$tmp/yaml-preserved.env"
 
-# Double-quoted YAML backslash escapes and path traversal rejection.
+# Double-quoted YAML backslash/unicode/multiline-hash escapes and single-quoted '' unescaping.
 cat > "$tmp/esc.yaml" <<'YAML'
 tls:
-  autocert_cache_dir: "/var/lib\\setjoin/cache\ndir"
+  autocert_cache_dir: "\u002fvar/lib\\setjoin/cache#hash"
+worm:
+  mode: "line1 # keep
+    line2"
+s3:
+  bucket: 'it''s-blobs'
 YAML
 esc_val=$(yaml_section_value "$tmp/esc.yaml" tls autocert_cache_dir)
-want_esc=$'/var/lib\\setjoin/cache\ndir'
-test "$esc_val" = "$want_esc"
-for bad in / /var/../etc /var/cache/.. relative/path $'/tmp/has\nnewline' '/tmp/has space'; do
-  if validate_tls_cache_dir "$bad" 2>/dev/null; then
-    echo "validate_tls_cache_dir accepted unsafe path: $bad" >&2
+test "$esc_val" = '/var/lib\setjoin/cache#hash'
+hash_val=$(yaml_section_value "$tmp/esc.yaml" worm mode)
+test "$hash_val" = 'line1 # keep line2'
+squote_val=$(yaml_section_value "$tmp/esc.yaml" s3 bucket)
+test "$squote_val" = "it's-blobs"
+
+# validate_tls_cache_target rejects symlinks (including parent-dir symlinks) and top-level system directories.
+mkdir -p "$tmp/real-dir"
+ln -s "$tmp/real-dir" "$tmp/sym-dir" 2>/dev/null || true
+if [ -L "$tmp/sym-dir" ]; then
+  ln -s / "$tmp/sym-root"
+  for bad_sym in "$tmp/sym-root" "$tmp/sym-root/autocert" "$tmp/sym-dir"; do
+    if validate_tls_cache_target "$bad_sym" 2>/dev/null; then
+      echo "validate_tls_cache_target accepted symlink: $bad_sym" >&2
+      exit 1
+    fi
+  done
+fi
+for bad in / /etc /var/../etc /var/cache/.. relative/path $'/tmp/has\nnewline' '/tmp/has space'; do
+  if validate_tls_cache_target "$bad" 2>/dev/null; then
+    echo "validate_tls_cache_target accepted unsafe path: $bad" >&2
     exit 1
   fi
 done
+
+# YAML S3 secret with leading/trailing spaces, \, ", # round-trips cleanly via systemd EnvironmentFile,
+# and MINIO_* overrides match Go config.go precedence.
+cat > "$tmp/tricky-s3.yaml" <<'YAML'
+hostname: trace.example.test
+internal:
+  domains: corp.example.test, mail.example.test
+s3:
+  endpoint: 127.0.0.1:9000
+  bucket: mailblobs
+  secure: false
+  access_key: ak-yaml
+  secret_key: '  lead\mid"quote#hash  '
+worm:
+  mode: compliance
+YAML
+cat > "$tmp/tricky-config.env" <<'ENV'
+S3_BUCKET=mailblobs
+MINIO_BUCKET=minio-override
+MINIO_SECURE=true
+WORM_MODE=
+ENV
+SETJOIN_CONFIG="$tmp/tricky-s3.yaml" render_storage_env "$tmp/tricky-storage.env" "$tmp/tricky-config.env"
+grep -qx 'S3_BUCKET=minio-override' "$tmp/tricky-storage.env"
+grep -qx 'S3_SECURE=true' "$tmp/tricky-storage.env"
+python3 - "$tmp/tricky-storage.env" <<'PY'
+import sys
+parsed = {}
+for line in open(sys.argv[1], encoding="utf-8"):
+    s = line.strip()
+    if not s or s.startswith("#") or "=" not in s:
+        continue
+    k, raw = s.split("=", 1)
+    if raw.startswith('"'):
+        out, esc = [], False
+        maps = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\", '"': '"'}
+        for ch in raw[1:]:
+            if esc:
+                out.append(maps.get(ch, ch)); esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                break
+            else:
+                out.append(ch)
+        parsed[k] = "".join(out)
+    else:
+        parsed[k] = raw
+assert parsed["S3_SECRET_KEY"] == '  lead\\mid"quote#hash  ', parsed
+PY
+
+SETJOIN_CONFIG="$tmp/tricky-s3.yaml" CONFIG_ENV="$tmp/tricky-config.env" GATEWAY_ENV="$tmp/tricky-gw.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/tricky-gw.env"
+grep -qx 'WORM_MODE=' "$tmp/tricky-gw.env"
+grep -qx 'HOSTNAME=trace.example.test' "$tmp/tricky-gw.env"
+grep -qx 'INTERNAL_DOMAINS="corp.example.test, mail.example.test"' "$tmp/tricky-gw.env"
+CONFIG_ENV="$tmp/tricky-config.env" tls_front_preserve_settings "$tmp/tricky-config.env" > "$tmp/tricky-preserved.env"
+grep -qx 'WORM_MODE=' "$tmp/tricky-preserved.env"
 echo 'native TLS release socket: PASS'

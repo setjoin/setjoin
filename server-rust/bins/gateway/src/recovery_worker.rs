@@ -803,19 +803,42 @@ impl S3Store {
     }
 
     pub fn from_env() -> Result<Self, String> {
-        let value = |name: &str, legacy: &str, default: &str| {
-            std::env::var(name)
-                .ok()
-                .filter(|s| !s.is_empty())
-                .or_else(|| std::env::var(legacy).ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| default.into())
+        Self::from_lookup(|name| std::env::var(name).ok())
+    }
+
+    /// Resolve S3/MinIO settings matching Go's `config.go` precedence (`MINIO_ENDPOINT`
+    /// overrides default `127.0.0.1:9000`, `MINIO_BUCKET` overrides default `mailblobs`,
+    /// `MINIO_SECURE` overrides when non-empty).
+    pub(crate) fn from_lookup<F>(lookup: F) -> Result<Self, String>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let get = |name: &str| lookup(name).filter(|s| !s.is_empty());
+        let mut endpoint = get("S3_ENDPOINT").unwrap_or_else(|| "127.0.0.1:9000".into());
+        if endpoint == "127.0.0.1:9000" {
+            if let Some(v) = get("MINIO_ENDPOINT") {
+                endpoint = v;
+            }
+        }
+        let access = get("S3_ACCESS_KEY")
+            .or_else(|| get("MINIO_ACCESS_KEY"))
+            .unwrap_or_default();
+        let secret = get("S3_SECRET_KEY")
+            .or_else(|| get("MINIO_SECRET_KEY"))
+            .unwrap_or_default();
+        let mut bucket = get("S3_BUCKET").unwrap_or_else(|| "mailblobs".into());
+        if bucket == "mailblobs" {
+            if let Some(v) = get("MINIO_BUCKET") {
+                bucket = v;
+            }
+        }
+        let mut secure = match get("S3_SECURE") {
+            Some(v) => parse_go_bool(&v).ok_or_else(|| "S3_SECURE must be a boolean".to_owned())?,
+            None => false,
         };
-        let endpoint = value("S3_ENDPOINT", "MINIO_ENDPOINT", "127.0.0.1:9000");
-        let secure = match value("S3_SECURE", "MINIO_SECURE", "false").as_str() {
-            "true" | "True" | "TRUE" | "1" | "t" | "T" => true,
-            "false" | "False" | "FALSE" | "0" | "f" | "F" => false,
-            _ => return Err("S3_SECURE must be a boolean".into()),
-        };
+        if let Some(v) = get("MINIO_SECURE") {
+            secure = parse_go_bool(&v).ok_or_else(|| "MINIO_SECURE must be a boolean".to_owned())?;
+        }
         let endpoint = endpoint.trim();
         let endpoint = if endpoint.contains("://") {
             if (endpoint.starts_with("https://") && !secure)
@@ -827,12 +850,7 @@ impl S3Store {
         } else {
             format!("{}://{endpoint}", if secure { "https" } else { "http" })
         };
-        Self::new(
-            &endpoint,
-            &value("S3_BUCKET", "MINIO_BUCKET", "mailblobs"),
-            &value("S3_ACCESS_KEY", "MINIO_ACCESS_KEY", ""),
-            &value("S3_SECRET_KEY", "MINIO_SECRET_KEY", ""),
-        )
+        Self::new(&endpoint, &bucket, &access, &secret)
     }
 
     fn object_url(&self, key: &str) -> Result<reqwest::Url, String> {
@@ -1259,6 +1277,14 @@ struct LegalHoldReply {
     region: Option<String>,
 }
 
+fn parse_go_bool(v: &str) -> Option<bool> {
+    match v {
+        "true" | "True" | "TRUE" | "1" | "t" | "T" => Some(true),
+        "false" | "False" | "FALSE" | "0" | "f" | "F" => Some(false),
+        _ => None,
+    }
+}
+
 fn normalize_s3_region(region: &str) -> String {
     match region {
         "" => "us-east-1".to_owned(),
@@ -1504,5 +1530,30 @@ mod tests {
         let recorded = auths.lock().unwrap();
         assert!(recorded[0].contains("/eu-west-1/s3/aws4_request"));
         assert!(recorded[1].contains("/eu-west-1/s3/aws4_request"));
+    }
+
+    #[test]
+    fn from_lookup_matches_go_minio_overrides() {
+        let lookup = |pairs: &[(&str, &str)]| {
+            let entries: Vec<(String, String)> =
+                pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
+            S3Store::from_lookup(move |k| {
+                entries.iter().find(|(name, _)| name == k).map(|(_, v)| v.clone())
+            })
+        };
+        let store = lookup(&[
+            ("S3_ENDPOINT", "127.0.0.1:9000"),
+            ("MINIO_ENDPOINT", "127.0.0.1:9100"),
+            ("S3_BUCKET", "mailblobs"),
+            ("MINIO_BUCKET", "custom-bucket"),
+            ("S3_SECURE", "false"),
+            ("MINIO_SECURE", "true"),
+        ])
+        .unwrap();
+        assert_eq!(store.bucket_name(), "custom-bucket");
+        assert_eq!(store.endpoint(), "https://127.0.0.1:9100");
+
+        let err = lookup(&[("MINIO_SECURE", "maybe")]).err().unwrap();
+        assert!(err.contains("MINIO_SECURE"), "unexpected err: {err}");
     }
 }

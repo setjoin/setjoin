@@ -1086,25 +1086,31 @@ optional federation/ACME sockets through Wants/After, never Requires on Go servi
 `tls.env` is a literal 0640 allowlist of TLS paths/provider credentials; broad
 config.env and owner credentials never enter the internet-facing gateway unit.
 `storage.env` is a dedicated literal 0640 allowlist carrying only S3/MinIO
-endpoint and credentials (including YAML `s3.*` values when absent from `config.env`)
-independent of SMTP enablement (#289 legal holds, blobs, attachments), and is
-rolled back alongside the deployment env files.
+endpoint and credentials (merging `s3.*` YAML and `S3_*`/`MINIO_*` config.env
+with Go's exact precedence and systemd `EnvironmentFile` quoting) independent of
+SMTP enablement (#289 legal holds, blobs, attachments), and is rolled back
+alongside the deployment env files.
 App/worker/LISTEN credentials and the transferred worker names stay in federation.env.
 
 Managed TLS-ALPN-01 (default) and DNS-01 move `acme-renewal` with the TLS listener.
 HTTP-01 also transfers `http-port80` and renders `setjoin-acme.socket` (FD `acme`)
 only for HTTP_MODE=redirect (including unset). Go :80 proxy/serve remains owned by
-Platform #305. Managed settings (including `SETJOIN_CONFIG`, `WORM_MODE`, `WORM_RETENTION_DAYS`,
-and explicit `WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
+Platform #305. Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
+`INTERNAL_DOMAINS`, `WORM_MODE`, `WORM_RETENTION_DAYS`, and explicit
+`WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
 operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows Go's
-env-only override semantics). The TLS import/ACME cache directory (`tls_import_cache_dir`,
-resolved from `TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir`)
-is validated against filesystem roots and `.`/`..` traversal before filesystem mutation,
-provisioned (`0700`, `setjoin:setjoin` enforced on both new and existing directories
-during root install/upgrade; non-root upgrade rehearsals skip only host `/var/cache/mailserver/autocert`),
-emitted solely into `gateway.env` alongside resolved `WORM_*` settings, and granted a
-narrow `ReadWritePaths` in `setjoin-gateway.service`; ACME account-key parent directories
-gain `ReadWritePaths` when `TLS_AUTOCERT_DOMAINS` is set. Static certificates remain read-only.
+env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled). The TLS
+import/ACME cache directory (`tls_import_cache_dir`, resolved from
+`TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir`) is
+validated lexically and canonically (`validate_tls_cache_target`: rejects symlinks,
+filesystem roots, `.`/`..` traversal, and top-level system directories) before
+filesystem mutation, provisioned (`0700`, `setjoin:setjoin` enforced on both new
+and existing directories during root install/upgrade; non-root upgrade rehearsals
+skip only host `/var/cache/mailserver/autocert`), emitted solely into `gateway.env`
+alongside resolved `WORM_*` and trace identity (`HOSTNAME`/`INTERNAL_DOMAINS`)
+settings, and granted a narrow `ReadWritePaths` in `setjoin-gateway.service`;
+ACME account-key parent directories gain `ReadWritePaths` when
+`TLS_AUTOCERT_DOMAINS` is set. Static certificates remain read-only.
 
 Install and flat upgrade require a real local TLS handshake plus the native
 /_gateway/healthz response. The local probe accepts the installation's self-signed
@@ -1114,7 +1120,8 @@ Recovery reinstalls a complete matching release (binaries, units, socket set,
 configuration and active/enabled state from federation-deploy.prev, as above).
 No runtime switch back to Go is installed (owner decision 2026-11-04).
 Checks: `deploy/scripts/test-tls-front-socket.sh`, `test-tls-front-upgrade.sh`,
-`test-setjoin-lifecycle.sh`, `test-install-front-door.sh`, `test-install-provision-render.sh`.
+`test-setjoin-lifecycle.sh`, `test-install-front-door.sh`, `test-install-provision-render.sh`
+(the TLS front socket/upgrade scripts run under `scripts/check-upgrade-contracts.sh`).
 The root/systemd rehearsal `python3 scripts/test-tls-front-systemd.py <gateway>` renders the
 actual hardened HTTPS unit, proves empty capabilities and queued TLS restart, and occupies
 the optional federation port to prove its bind failure leaves HTTPS serving. All resources

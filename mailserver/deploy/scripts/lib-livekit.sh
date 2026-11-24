@@ -299,6 +299,48 @@ validate_tls_cache_dir() {
   case "$1" in *[[:space:]#\&]*|*$'\n'*|*$'\r'*) echo 'invalid ACME cache path' >&2; return 1;; esac
 }
 
+validate_tls_cache_target() {
+  local path="$1" resolved=""
+  validate_tls_cache_dir "$path" || return 1
+  if [ -L "$path" ]; then
+    echo "ACME cache path must not be a symlink: $path" >&2
+    return 1
+  fi
+  if [ -e "$path" ] && [ ! -d "$path" ]; then
+    echo "ACME cache path exists and is not a directory: $path" >&2
+    return 1
+  fi
+  if command -v readlink >/dev/null 2>&1; then
+    resolved=$(readlink -f "$path" 2>/dev/null || true)
+  fi
+  if [ -z "$resolved" ] && command -v python3 >/dev/null 2>&1; then
+    resolved=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$path") || return 1
+  fi
+  if [ -n "$resolved" ]; then
+    validate_tls_cache_dir "$resolved" || return 1
+    case "${resolved#/}" in
+      */?*) ;;
+      *) echo "ACME cache resolved target must not be filesystem root or a top-level directory ($resolved)" >&2; return 1 ;;
+    esac
+  fi
+}
+
+systemd_env_line() {
+  local key="$1" value="${2:-}"
+  python3 - "$key" "$value" <<'PY'
+import re, sys
+key, value = sys.argv[1], sys.argv[2]
+if "\n" in value or "\r" in value:
+    sys.stderr.write(f"systemd EnvironmentFile: {key} must not contain newlines\n")
+    sys.exit(1)
+if value == "" or re.fullmatch(r"[A-Za-z0-9._:/@-]+", value):
+    sys.stdout.write(f"{key}={value}\n")
+else:
+    esc = value.replace("\\", "\\\\").replace('"', '\\"')
+    sys.stdout.write(f'{key}="{esc}"\n')
+PY
+}
+
 resolve_setting_yaml_path() {
   local config="${1:-}" cfg=""
   cfg=$(strip_env_quotes "${SETJOIN_CONFIG:-}")
@@ -308,251 +350,51 @@ resolve_setting_yaml_path() {
 }
 
 # yaml_section_value FILE SECTION KEY — print a direct scalar child of top-level
-# SECTION in YAML FILE (block or flow mapping), unquoted. Returns 0 iff KEY is present.
+# SECTION (or root key when SECTION is empty) using PyYAML.
+# Exit 0 iff present scalar (even empty), 1 when absent/None/non-scalar, 2 on error.
 yaml_section_value() {
   local file="$1" section="$2" key="$3"
-  [ -n "$file" ] && [ -r "$file" ] || return 1
-  awk -v sec="$section" -v key="$key" '
-    function trim(s) {
-      sub(/^[[:space:]]+/, "", s)
-      sub(/[[:space:]]+$/, "", s)
-      return s
-    }
-    function unquote_key(s,    q) {
-      s = trim(s)
-      if (length(s) >= 2) {
-        q = substr(s, 1, 1)
-        if ((q == "\"" || q == "'\''") && substr(s, length(s), 1) == q) {
-          return substr(s, 2, length(s) - 2)
-        }
-      }
-      return s
-    }
-    function strip_line_comment(s,    i, c, prev, in_s, in_d, esc) {
-      in_s = 0; in_d = 0; esc = 0
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (in_d) {
-          if (esc) esc = 0
-          else if (c == "\\") esc = 1
-          else if (c == "\"") in_d = 0
-          continue
-        }
-        if (in_s) {
-          if (c == "'\''") {
-            if (substr(s, i + 1, 1) == "'\''") { i++; continue }
-            in_s = 0
-          }
-          continue
-        }
-        if (c == "\"") { in_d = 1; continue }
-        if (c == "'\''") { in_s = 1; continue }
-        if (c == "#") {
-          prev = (i == 1) ? " " : substr(s, i - 1, 1)
-          if (prev ~ /[[:space:]]/) return substr(s, 1, i - 1)
-        }
-      }
-      return s
-    }
-    function decode_dquoted(v,    i, c, esc, out) {
-      out = ""; esc = 0
-      for (i = 2; i <= length(v); i++) {
-        c = substr(v, i, 1)
-        if (esc) {
-          if (c == "n") out = out "\n"
-          else if (c == "r") out = out "\r"
-          else if (c == "t") out = out "\t"
-          else if (c == "\\" || c == "\"" || c == "/") out = out c
-          else out = out "\\" c
-          esc = 0
-          continue
-        }
-        if (c == "\\") { esc = 1; continue }
-        if (c == "\"") break
-        out = out c
-      }
-      return out
-    }
-    function decode_squoted(v,    i, c, out) {
-      out = ""
-      for (i = 2; i <= length(v); i++) {
-        c = substr(v, i, 1)
-        if (c == "'\''") {
-          if (substr(v, i + 1, 1) == "'\''") {
-            out = out "'\''"
-            i++
-            continue
-          }
-          break
-        }
-        out = out c
-      }
-      return out
-    }
-    function extract_scalar(v, is_flow) {
-      sub(/^[[:space:]]*/, "", v)
-      if (substr(v, 1, 1) == "\"") return decode_dquoted(v)
-      if (substr(v, 1, 1) == "'\''") return decode_squoted(v)
-      if (is_flow) {
-        sub(/[[:space:]]*[,}].*$/, "", v)
-      }
-      sub(/[[:space:]]+#.*$/, "", v)
-      sub(/^#.*$/, "", v)
-      return trim(v)
-    }
-    function parse_flow(txt,    i, n, c, in_s, in_d, esc, depth, colon, k, v, part) {
-      n = length(txt)
-      in_s = 0; in_d = 0; esc = 0; depth = 0
-      part = ""
-      for (i = 1; i <= n + 1; i++) {
-        c = (i <= n) ? substr(txt, i, 1) : ","
-        if (i <= n) {
-          if (in_d) {
-            part = part c
-            if (esc) esc = 0
-            else if (c == "\\") esc = 1
-            else if (c == "\"") in_d = 0
-            continue
-          }
-          if (in_s) {
-            part = part c
-            if (c == "'\''") {
-              if (substr(txt, i + 1, 1) == "'\''") {
-                part = part "'\''"
-                i++
-              } else {
-                in_s = 0
-              }
-            }
-            continue
-          }
-          if (c == "\"") { in_d = 1; part = part c; continue }
-          if (c == "'\''") { in_s = 1; part = part c; continue }
-          if (c == "{" || c == "[") { depth++; part = part c; continue }
-          if (c == "}" || c == "]") {
-            if (depth == 0) {
-              i = n + 1
-              c = ","
-            } else {
-              depth--
-              part = part c
-              continue
-            }
-          }
-          if (c != "," || depth > 0) { part = part c; continue }
-        }
-        part = trim(part)
-        if (part != "") {
-          colon = index(part, ":")
-          if (colon > 0) {
-            k = unquote_key(substr(part, 1, colon - 1))
-            v = substr(part, colon + 1)
-            if (k == key && v !~ /^[[:space:]]*[\{\[]/) {
-              last = extract_scalar(v, 1)
-              found = 1
-            }
-          }
-        }
-        part = ""
-      }
-    }
-    function flow_done(s,    i, c, in_s, in_d, esc, depth) {
-      depth = 1; in_s = 0; in_d = 0; esc = 0
-      for (i = 1; i <= length(s); i++) {
-        c = substr(s, i, 1)
-        if (in_d) {
-          if (esc) esc = 0
-          else if (c == "\\") esc = 1
-          else if (c == "\"") in_d = 0
-          continue
-        }
-        if (in_s) {
-          if (c == "'\''") {
-            if (substr(s, i + 1, 1) == "'\''") i++
-            else in_s = 0
-          }
-          continue
-        }
-        if (c == "\"") in_d = 1
-        else if (c == "'\''") in_s = 1
-        else if (c == "{") depth++
-        else if (c == "}") {
-          depth--
-          if (depth == 0) return i
-        }
-      }
-      return 0
-    }
-    function match_section_header(line,    colon, rest, k) {
-      if (line ~ /^[[:space:]]/) return -1
-      colon = index(line, ":")
-      if (colon == 0) return -1
-      k = unquote_key(substr(line, 1, colon - 1))
-      if (k != sec) return 0
-      rest = substr(line, colon + 1)
-      if (rest ~ /^[[:space:]]*(#.*)?$/) return 1
-      if (rest ~ /^[[:space:]]*\{/) return 2
-      return 0
-    }
-    {
-      raw = $0
-      sub(/\r$/, "", raw)
-      if (in_flow) {
-        flow_buf = flow_buf " " strip_line_comment(raw)
-        end_pos = flow_done(flow_buf)
-        if (end_pos > 0) {
-          parse_flow(substr(flow_buf, 1, end_pos - 1))
-          in_flow = 0
-          flow_buf = ""
-        }
-        next
-      }
-      indent_str = raw
-      sub(/[^ ].*$/, "", indent_str)
-      indent = length(indent_str)
-      trimmed = raw
-      sub(/^[[:space:]]+/, "", trimmed)
-      if (trimmed == "" || trimmed ~ /^#/) next
+  [ -n "$file" ] && [ -r "$file" ] || { echo "yaml_section_value: unreadable YAML file: $file" >&2; return 2; }
+  python3 - "$file" "$section" "$key" <<'PY'
+import sys
+try:
+    import yaml
+except Exception as exc:
+    sys.stderr.write(f"yaml_section_value: PyYAML unavailable: {exc}\n")
+    sys.exit(2)
+path, sec, key = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path, "r", encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+except Exception as exc:
+    sys.stderr.write(f"yaml_section_value: failed to parse {path}: {exc}\n")
+    sys.exit(2)
+if doc is None:
+    sys.exit(1)
+if not isinstance(doc, dict):
+    sys.stderr.write(f"yaml_section_value: {path}: root must be a YAML mapping\n")
+    sys.exit(2)
+container = doc if sec == "" else doc.get(sec)
+if not isinstance(container, dict) or key not in container:
+    sys.exit(1)
+val = container[key]
+if val is None or isinstance(val, (dict, list)):
+    sys.exit(1)
+if isinstance(val, bool):
+    sys.stdout.write("true" if val else "false")
+else:
+    sys.stdout.write(str(val))
+PY
+}
 
-      hdr = match_section_header(raw)
-      if (hdr == 1) { in_sec = 1; child_indent = -1; next }
-      if (hdr == 2) {
-        in_sec = 0; child_indent = -1
-        cpos = index(raw, "{")
-        flow_buf = strip_line_comment(substr(raw, cpos + 1))
-        end_pos = flow_done(flow_buf)
-        if (end_pos > 0) {
-          parse_flow(substr(flow_buf, 1, end_pos - 1))
-          flow_buf = ""
-        } else {
-          in_flow = 1
-        }
-        next
-      }
-      if (hdr == 0) { in_sec = 0; child_indent = -1; next }
-
-      if (!in_sec) next
-      if (indent == 0) { in_sec = 0; child_indent = -1; next }
-      if (child_indent < 0) child_indent = indent
-      if (indent != child_indent) next
-
-      colon = index(trimmed, ":")
-      if (colon == 0) next
-      k = unquote_key(substr(trimmed, 1, colon - 1))
-      v = substr(trimmed, colon + 1)
-      if (k == key && (v == "" || v ~ /^[[:space:]]/)) {
-        last = extract_scalar(v, 0)
-        found = 1
-      }
-    }
-    END {
-      if (found) {
-        print last
-        exit 0
-      }
-      exit 1
-    }
-  ' "$file"
+yaml_section_try() {
+  local __var="$1" __file="$2" __sec="$3" __key="$4" __val="" __rc=0
+  __val=$(yaml_section_value "$__file" "$__sec" "$__key") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
 }
 
 # tls_import_cache_dir CONFIG_ENV — resolve Go's tls.autocert_cache_dir for
@@ -563,7 +405,9 @@ tls_import_cache_dir() {
   [ -n "$cache" ] || cache=$(strip_env_quotes "${TLS_AUTOCERT_CACHE_DIR:-}")
   if [ -z "$cache" ]; then
     cfg=$(resolve_setting_yaml_path "$config")
-    [ -z "$cfg" ] || cache=$(yaml_section_value "$cfg" tls autocert_cache_dir || true)
+    if [ -n "$cfg" ]; then
+      yaml_section_try cache "$cfg" tls autocert_cache_dir || { [ $? -eq 1 ] || return 1; }
+    fi
   fi
   [ -n "$cache" ] || cache=$(strip_env_quotes "$(tls_front_value "${GATEWAY_ENV:-}" TLS_AUTOCERT_CACHE_DIR)")
   printf '%s' "${cache:-/var/cache/mailserver/autocert}"
@@ -772,30 +616,140 @@ smtp_link_protect_keys() {
 }
 
 # render_storage_env OUTFILE CONFIG_ENV — S3/MinIO endpoint and credentials only,
-# loaded by the gateway unit independent of SMTP enablement (#289 legal holds,
-# blobs, attachments). Literal assignments only, never sourced.
+# resolved with Go config.go precedence (defaults -> YAML s3.* -> S3_* ->
+# MINIO_*) and serialized with systemd EnvironmentFile quoting, independent of
+# SMTP enablement (#289 legal holds, blobs, attachments).
 render_storage_env() {
-  local outfile="$1" config="$2" tmp cfg="" pair ykey envkey val
+  local outfile="$1" config="$2" tmp cfg=""
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
   cfg=$(resolve_setting_yaml_path "$config")
   (
     umask 027
-    if [ -n "$cfg" ]; then
-      for pair in endpoint:S3_ENDPOINT secure:S3_SECURE bucket:S3_BUCKET access_key:S3_ACCESS_KEY secret_key:S3_SECRET_KEY; do
-        ykey="${pair%%:*}"
-        envkey="${pair#*:}"
-        if [ -f "$config" ] && grep -q "^${envkey}=" "$config"; then
-          continue
-        fi
-        if val=$(yaml_section_value "$cfg" s3 "$ykey") && [ -n "$val" ]; then
-          case "$val" in *$'\n'*|*$'\r'*) echo "storage.env: s3.$ykey must be one line" >&2; exit 1;; esac
-          printf '%s=%s\n' "$envkey" "$val"
-        fi
-      done
-    fi
-    if [ -f "$config" ]; then
-      grep -E '^(S3_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY)|MINIO_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY))=' "$config" || true
-    fi
+    python3 - "$config" "$cfg" <<'PY'
+import os, re, sys
+
+config_path, yaml_path = sys.argv[1], sys.argv[2]
+
+def unquote_systemd(raw):
+    s = raw.rstrip("\r\n")
+    lead = s.lstrip()
+    if lead.startswith('"'):
+        out = []
+        esc = False
+        escapes = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\", '"': '"', "'": "'"}
+        for ch in lead[1:]:
+            if esc:
+                out.append(escapes.get(ch, ch))
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                break
+            else:
+                out.append(ch)
+        return "".join(out)
+    if lead.startswith("'"):
+        idx = lead.find("'", 1)
+        return lead[1:idx] if idx != -1 else lead[1:]
+    return s.strip()
+
+def parse_env(path):
+    out = {}
+    if not path or not os.path.isfile(path):
+        return out
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            s = line.lstrip()
+            if not s or s.startswith("#") or s.startswith(";") or "=" not in s:
+                continue
+            k, v = s.split("=", 1)
+            k = k.strip()
+            if k:
+                out[k] = unquote_systemd(v)
+    return out
+
+def parse_go_bool(val, key):
+    if isinstance(val, bool):
+        return val
+    s = str(val)
+    if s in ("true", "True", "TRUE", "1", "t", "T"):
+        return True
+    if s in ("false", "False", "FALSE", "0", "f", "F"):
+        return False
+    sys.stderr.write(f"storage.env: invalid boolean for {key}: {s!r}\n")
+    sys.exit(1)
+
+def fmt_line(key, val):
+    if "\n" in val or "\r" in val:
+        sys.stderr.write(f"storage.env: {key} must not contain newlines\n")
+        sys.exit(1)
+    if val == "" or re.fullmatch(r"[A-Za-z0-9._:/@-]+", val):
+        return f"{key}={val}\n"
+    esc = val.replace("\\", "\\\\").replace('"', '\\"')
+    return f'{key}="{esc}"\n'
+
+env_map = parse_env(config_path)
+s3_yaml = {}
+if yaml_path:
+    try:
+        import yaml
+    except Exception as exc:
+        sys.stderr.write(f"render_storage_env: PyYAML unavailable: {exc}\n")
+        sys.exit(1)
+    with open(yaml_path, "r", encoding="utf-8") as fh:
+        doc = yaml.safe_load(fh)
+    if isinstance(doc, dict) and isinstance(doc.get("s3"), dict):
+        s3_yaml = doc["s3"]
+
+keys = (
+    "endpoint", "access_key", "secret_key", "bucket", "secure"
+)
+env_keys = (
+    "S3_ENDPOINT", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_BUCKET", "S3_SECURE",
+    "MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_BUCKET", "MINIO_SECURE",
+)
+if not any(k in s3_yaml for k in keys) and not any(k in env_map for k in env_keys):
+    sys.exit(0)
+
+endpoint = str(s3_yaml.get("endpoint")) if s3_yaml.get("endpoint") is not None else "127.0.0.1:9000"
+if env_map.get("S3_ENDPOINT"):
+    endpoint = env_map["S3_ENDPOINT"]
+if endpoint == "127.0.0.1:9000" and env_map.get("MINIO_ENDPOINT"):
+    endpoint = env_map["MINIO_ENDPOINT"]
+
+access_key = str(s3_yaml.get("access_key")) if s3_yaml.get("access_key") is not None else ""
+if env_map.get("S3_ACCESS_KEY"):
+    access_key = env_map["S3_ACCESS_KEY"]
+if access_key == "" and env_map.get("MINIO_ACCESS_KEY"):
+    access_key = env_map["MINIO_ACCESS_KEY"]
+
+secret_key = str(s3_yaml.get("secret_key")) if s3_yaml.get("secret_key") is not None else ""
+if env_map.get("S3_SECRET_KEY"):
+    secret_key = env_map["S3_SECRET_KEY"]
+if secret_key == "" and env_map.get("MINIO_SECRET_KEY"):
+    secret_key = env_map["MINIO_SECRET_KEY"]
+
+bucket = str(s3_yaml.get("bucket")) if s3_yaml.get("bucket") is not None else "mailblobs"
+if env_map.get("S3_BUCKET"):
+    bucket = env_map["S3_BUCKET"]
+if bucket == "mailblobs" and env_map.get("MINIO_BUCKET"):
+    bucket = env_map["MINIO_BUCKET"]
+
+secure = parse_go_bool(s3_yaml["secure"], "s3.secure") if s3_yaml.get("secure") is not None else False
+if env_map.get("S3_SECURE"):
+    secure = parse_go_bool(env_map["S3_SECURE"], "S3_SECURE")
+if env_map.get("MINIO_SECURE"):
+    secure = parse_go_bool(env_map["MINIO_SECURE"], "MINIO_SECURE")
+
+for k, v in (
+    ("S3_ENDPOINT", endpoint),
+    ("S3_SECURE", "true" if secure else "false"),
+    ("S3_BUCKET", bucket),
+    ("S3_ACCESS_KEY", access_key),
+    ("S3_SECRET_KEY", secret_key),
+):
+    sys.stdout.write(fmt_line(k, v))
+PY
   ) > "$tmp" || { rm -f "$tmp"; return 1; }
   chmod 0640 "$tmp"
   mv -f "$tmp" "$outfile"
@@ -848,7 +802,8 @@ render_gateway_env() {
     *) echo "render_gateway_env: GATEWAY_UPSTREAM must be Go's loopback plain listener (got '$upstream')" >&2; return 1 ;;
   esac
   local trusted="${GATEWAY_TRUSTED_PROXIES:-127.0.0.1}"
-  local cache cfg="" worm_mode="" worm_days="" worm_legal_hold="" legal_hold_set=0
+  local cache cfg="" host_name="" internal_domains="" internal_set=0
+  local worm_mode="" worm_mode_set=0 worm_days="" worm_legal_hold="" legal_hold_set=0
   cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
   validate_tls_cache_dir "$cache" || return 1
   ( umask 022; cat > "$outfile" <<ENV
@@ -866,19 +821,51 @@ TLS_AUTOCERT_CACHE_DIR=$cache
 ENV
   )
   cfg=$(resolve_setting_yaml_path "${CONFIG_ENV:-}")
-  worm_mode=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" WORM_MODE)")
-  [ -n "$worm_mode" ] || worm_mode=$(strip_env_quotes "${WORM_MODE:-}")
-  if [ -z "$worm_mode" ] && [ -n "$cfg" ]; then
-    worm_mode=$(yaml_section_value "$cfg" worm mode || true)
+
+  # Trace server-identity hostnames (HOSTNAME / INTERNAL_DOMAINS, independent of SMTP).
+  host_name=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" HOSTNAME)")
+  if [ -z "$host_name" ] && [ -n "$cfg" ]; then
+    yaml_section_try host_name "$cfg" "" hostname || { [ $? -eq 1 ] || return 1; }
   fi
-  [ -z "$worm_mode" ] || printf 'WORM_MODE=%s\n' "$worm_mode" >> "$outfile"
+  if [ -n "$host_name" ]; then
+    systemd_env_line HOSTNAME "$host_name" >> "$outfile" || return 1
+  fi
+
+  if [ -n "${CONFIG_ENV:-}" ] && [ -f "$CONFIG_ENV" ] && grep -q '^INTERNAL_DOMAINS=' "$CONFIG_ENV"; then
+    internal_domains=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" INTERNAL_DOMAINS)")
+    internal_set=1
+  elif [ "${INTERNAL_DOMAINS+x}" = x ]; then
+    internal_domains=$(strip_env_quotes "$INTERNAL_DOMAINS")
+    internal_set=1
+  elif [ -n "$cfg" ]; then
+    yaml_section_try internal_domains "$cfg" internal domains && internal_set=1 || { [ $? -eq 1 ] || return 1; }
+  fi
+  if [ "$internal_set" = 1 ]; then
+    systemd_env_line INTERNAL_DOMAINS "$internal_domains" >> "$outfile" || return 1
+  fi
+
+  # WORM retention & legal-hold switches (env empty WORM_MODE= overrides YAML).
+  if [ -n "${CONFIG_ENV:-}" ] && [ -f "$CONFIG_ENV" ] && grep -q '^WORM_MODE=' "$CONFIG_ENV"; then
+    worm_mode=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" WORM_MODE)")
+    worm_mode_set=1
+  elif [ "${WORM_MODE+x}" = x ]; then
+    worm_mode=$(strip_env_quotes "$WORM_MODE")
+    worm_mode_set=1
+  elif [ -n "$cfg" ]; then
+    yaml_section_try worm_mode "$cfg" worm mode && [ -n "$worm_mode" ] && worm_mode_set=1 || { [ $? -eq 1 ] || return 1; }
+  fi
+  if [ "$worm_mode_set" = 1 ]; then
+    systemd_env_line WORM_MODE "$worm_mode" >> "$outfile" || return 1
+  fi
 
   worm_days=$(strip_env_quotes "$(tls_front_value "${CONFIG_ENV:-}" WORM_RETENTION_DAYS)")
   [ -n "$worm_days" ] || worm_days=$(strip_env_quotes "${WORM_RETENTION_DAYS:-}")
   if [ -z "$worm_days" ] && [ -n "$cfg" ]; then
-    worm_days=$(yaml_section_value "$cfg" worm retention_days || true)
+    yaml_section_try worm_days "$cfg" worm retention_days || { [ $? -eq 1 ] || return 1; }
   fi
-  [ -z "$worm_days" ] || printf 'WORM_RETENTION_DAYS=%s\n' "$worm_days" >> "$outfile"
+  if [ -n "$worm_days" ]; then
+    systemd_env_line WORM_RETENTION_DAYS "$worm_days" >> "$outfile" || return 1
+  fi
 
   if [ -n "${CONFIG_ENV:-}" ] && [ -f "$CONFIG_ENV" ] && grep -q '^WORM_LEGAL_HOLD_ENABLED=' "$CONFIG_ENV"; then
     worm_legal_hold=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" WORM_LEGAL_HOLD_ENABLED)")
@@ -887,7 +874,9 @@ ENV
     worm_legal_hold=$(strip_env_quotes "$WORM_LEGAL_HOLD_ENABLED")
     legal_hold_set=1
   fi
-  [ "$legal_hold_set" = 0 ] || printf 'WORM_LEGAL_HOLD_ENABLED=%s\n' "$worm_legal_hold" >> "$outfile"
+  if [ "$legal_hold_set" = 1 ]; then
+    systemd_env_line WORM_LEGAL_HOLD_ENABLED "$worm_legal_hold" >> "$outfile" || return 1
+  fi
   local off_names=""
   if imap_front_enabled "${CONFIG_ENV:-}"; then off_names=imap; fi
   if smtp_front_enabled "${CONFIG_ENV:-}"; then
@@ -1374,12 +1363,12 @@ tls_front_probe_url() {
 # honoring explicit environment assignments without evaluating any value.
 tls_front_preserve_settings() {
   local config="$1" key value
-  for key in SETJOIN_CONFIG SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
+  for key in SETJOIN_CONFIG INTERNAL_DOMAINS SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
     if [ "${!key+x}" = x ]; then value="${!key}"; else value=$(tls_front_value "$config" "$key"); fi
     case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
     if [ -n "$value" ]; then
       printf '%s=%s\n' "$key" "$value"
-    elif [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ] || [ "$key" = WORM_LEGAL_HOLD_ENABLED ]; then
+    elif [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ] || [ "$key" = WORM_MODE ] || [ "$key" = WORM_LEGAL_HOLD_ENABLED ] || [ "$key" = INTERNAL_DOMAINS ]; then
       # Empty is the explicit listener-disable value, distinct from omission.
       if [ "${!key+x}" = x ] || { [ -f "$config" ] && grep -q "^$key=" "$config"; }; then
         printf '%s=\n' "$key"

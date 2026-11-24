@@ -1622,7 +1622,7 @@ configure_smtp_front "$CONFIG_ENV" || die "failed to transfer native SMTP owners
 render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || die "failed to render TLS settings"
 chown root:setjoin "$TLS_ENV"
 _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
-validate_tls_cache_dir "$_tls_cache" || die "invalid TLS cache directory: $_tls_cache"
+validate_tls_cache_target "$_tls_cache" || die "invalid TLS cache directory: $_tls_cache"
 install -d -m 0700 -o setjoin -g setjoin "$_tls_cache"
 if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
   _tls_account=$(strip_env_quotes "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)")
