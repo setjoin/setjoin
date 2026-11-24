@@ -706,11 +706,11 @@ fn valid_dec_underscores(s: &str) -> bool {
 }
 
 fn parse_yaml_float(raw: &str) -> Option<f64> {
-    let s = raw.trim();
-    if s.is_empty() {
-        return None;
-    }
-    if s.contains('_') {
+    if raw.contains('_') {
+        if raw != raw.trim() || raw.is_empty() {
+            return None;
+        }
+        let s = raw;
         let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
         let mantissa = match unsigned.find(['e', 'E']) {
             Some(idx) => {
@@ -748,6 +748,10 @@ fn parse_yaml_float(raw: &str) -> Option<f64> {
         }
         let v: f64 = s.replace('_', "").parse().ok()?;
         return v.is_finite().then_some(v);
+    }
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
     }
     let v: f64 = s.parse().ok()?;
     v.is_finite().then_some(v)
@@ -1057,6 +1061,9 @@ impl<'a> YamlParser<'a> {
     }
 
     fn parse_legacy_yaml_octal(raw: &str) -> Option<i64> {
+        if raw != raw.trim() {
+            return None;
+        }
         let cleaned = strip_yaml_underscores(raw)?;
         let (neg, unsigned) = if let Some(rest) = cleaned.strip_prefix('-') {
             (true, rest)
@@ -4072,9 +4079,19 @@ mod tests {
             "worm:\n  retention_days: !!float \"0+10\"\n",
             "worm:\n  retention_days: !!float \"0_8\"\n",
             "worm:\n  retention_days: !!float \"0_8.5\"\n",
+            "worm:\n  retention_days: !!float \" 0_10 \"\n",
+            "worm:\n  retention_days: !!float \" 1_000 \"\n",
+            "worm:\n  retention_days: !!float \"0_1000000000000000000000\"\n",
+            "worm:\n  retention_days: !!int \"0+10\"\n",
+            "worm:\n  retention_days: !!int \"0-10\"\n",
+            "worm:\n  retention_days: !!int \"0x+10\"\n",
+            "worm:\n  retention_days: !!int \"0o+10\"\n",
+            "worm:\n  retention_days: !!int \"0b+10\"\n",
         ] {
             assert!(yaml_worm_settings(tagged_radix).is_err());
         }
+        let padded_oct_float = yaml_worm_settings("worm:\n  retention_days: !!float \" 010 \"\n").unwrap();
+        assert_eq!(padded_oct_float.retention_days.as_deref(), Some("10"));
         assert_eq!(
             parse_koanf_env_retention_days("9007199254740993").unwrap(),
             9_007_199_254_740_993

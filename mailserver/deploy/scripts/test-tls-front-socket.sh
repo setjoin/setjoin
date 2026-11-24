@@ -544,4 +544,31 @@ if grep -q '^LIVEKIT_API_SECRET=' "$tmp/livekit-gateway.env"; then echo 'LIVEKIT
 render_storage_env "$tmp/livekit-storage.env" "$tmp/livekit-config.env"
 if grep -q '^LIVEKIT_API_SECRET=' "$tmp/livekit-storage.env"; then echo 'LIVEKIT_API_SECRET leaked to storage.env' >&2; exit 1; fi
 
+# Tagged-float parity and stderr secret redaction in yaml-config.py
+printf 'worm:\n  retention_days: !!float "0_10"\n' > "$tmp/tag-oct.yaml"
+[ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-oct.yaml" worm retention_days)" = 8 ]
+printf 'worm:\n  retention_days: !!float " 010 "\n' > "$tmp/tag-padded-oct.yaml"
+[ "$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-padded-oct.yaml" worm retention_days)" = 10 ]
+big_oct="0_$(printf '1%.0s' $(seq 1 400))"
+for bad_tag in '!!float " 0_10 "' '!!float "0+10"' '!!float "0_8"' '!!float "0_1000000000000000000000"' "!!float \"$big_oct\""; do
+  printf 'worm:\n  retention_days: %s\n' "$bad_tag" > "$tmp/tag-bad.yaml"
+  rc=0
+  err=$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-bad.yaml" worm retention_days 2>&1) || rc=$?
+  [ "$rc" -eq 2 ]
+  if printf '%s' "$err" | grep -qiE 'OverflowError|Traceback'; then
+    echo "unexpected traceback on $bad_tag: $err" >&2
+    exit 1
+  fi
+done
+for leak_case in '!!float "super-secret-scalar-val"' '!!int "super-secret-scalar-val"' '!!bool "super-secret-scalar-val"' '!!null "super-secret-scalar-val"' '!!float {secret_key: "super-secret-dict-val"}'; do
+  printf 's3:\n  secret_key: %s\n' "$leak_case" > "$tmp/tag-secret.yaml"
+  rc=0
+  err=$(python3 "$ROOT/mailserver/deploy/scripts/yaml-config.py" get "$tmp/tag-secret.yaml" s3 secret_key 2>&1) || rc=$?
+  [ "$rc" -ne 0 ]
+  if printf '%s' "$err" | grep -q 'super-secret-'; then
+    echo "tagged error leaked secret for $leak_case: $err" >&2
+    exit 1
+  fi
+done
+
 echo 'native TLS release socket: PASS'
