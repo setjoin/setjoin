@@ -92,32 +92,7 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-http").ok_or("DB required")?;
     let owner = db.connect().await?;
-    let commands: Vec<&str> = match action {
-        "create" => vec!["case.create", "console.denied"],
-        "update" => vec!["case.update", "console.denied"],
-        "delete" => vec!["case.delete", "console.denied"],
-        "associate" => vec!["search.associate", "console.denied"],
-        "close" => vec!["case.close", "console.denied"],
-        "hold" => vec!["message.hold", "console.denied"],
-        "release" => vec!["message.release", "console.denied"],
-        "export" => vec!["export.authorize", "console.denied"],
-        "start" => vec!["search.start", "console.denied"],
-        _ if matches!(label, "denied" | "foreign") => vec!["console.denied"],
-        _ => Vec::new(),
-    };
-    let receipts: Vec<String> = if commands.is_empty() || mutant.starts_with("commit-") {
-        Vec::new()
-    } else {
-        owner
-            .query(
-                "SELECT operation_id::text FROM rust_operation_receipts WHERE family='F04' AND command = ANY($1)",
-                &[&commands],
-            )
-            .await?
-            .into_iter()
-            .map(|row| row.get(0))
-            .collect()
-    };
+    let recorded_ops = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let mut commit_operation: Option<String> = None;
     let a = fixture::account(&owner, "compl1-admin").await?;
     let role:i64=owner.query_one("INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES ('compl1-oracle',$1,$2) RETURNING id", &[&if label=="denied" {vec!["users.read"]} else {vec!["domains.read","compliance.write","mail.export"]}, &if label=="foreign" {Some(a.domain)} else {None}]).await?.get(0);
@@ -167,9 +142,23 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
         let go=common::go_oracle::start_named(&db,s3,None,"gofree-compl1").await?;
         let recording=go.is_some();
         let patient=std::time::Duration::from_secs(30);
-        let proxy=if mutant=="no-tenant-filter"{Some(mutants::tenant_proxy(db.app.as_deref().unwrap_or(&db.dsn)).await?)}else{None};
-        let mut request_dsn=proxy.as_ref().map(|p|p.dsn.clone()).unwrap_or_else(||db.app.clone().unwrap_or_else(||db.dsn.clone()));
-        let mut worker_dsn=db.dsn.clone();let mut commit_wire=None;
+        let mut request_dsn = db.app.clone().unwrap_or_else(|| db.dsn.clone());
+        let mut worker_dsn = db.dsn.clone();
+        let mut commit_wire = None;
+        let (_req_proxy, _worker_proxy) = if !recording && !mutant.starts_with("commit-") {
+            let rp = mutants::db_proxy(
+                &request_dsn,
+                mutant == "no-tenant-filter",
+                recorded_ops.clone(),
+            )
+            .await?;
+            let wp = mutants::db_proxy(&worker_dsn, false, recorded_ops.clone()).await?;
+            request_dsn = rp.dsn.clone();
+            worker_dsn = wp.dsn.clone();
+            (Some(rp), Some(wp))
+        } else {
+            (None, None)
+        };
         if mutant.starts_with("commit-") {
             if recording{return Err("COMMIT fault cannot be Go-recorded".into());}
             let cut=if mutant=="commit-after"{common::commit::CommitCut::AfterCommit}else{common::commit::CommitCut::BeforeCommit};
@@ -359,20 +348,17 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
         .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
         .await?;
     owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",a.user)).await?;
-    if mutant.starts_with("commit-") {
-        if let Some(op) = commit_operation {
-            owner
-                .execute(
-                    "DELETE FROM rust_operation_receipts WHERE operation_id=$1::text::uuid",
-                    &[&op],
-                )
-                .await?;
+    let mut ops_to_delete: Vec<String> = recorded_ops.lock().unwrap().drain(..).collect();
+    if let Some(op) = commit_operation {
+        if !ops_to_delete.contains(&op) {
+            ops_to_delete.push(op);
         }
-    } else if !commands.is_empty() {
+    }
+    for op in ops_to_delete {
         owner
             .execute(
-                "DELETE FROM rust_operation_receipts WHERE family='F04' AND command = ANY($1) AND operation_id::text<>ALL($2)",
-                &[&commands, &receipts],
+                "DELETE FROM rust_operation_receipts WHERE operation_id=$1::text::uuid",
+                &[&op],
             )
             .await?;
     }

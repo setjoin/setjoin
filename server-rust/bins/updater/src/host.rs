@@ -558,9 +558,45 @@ fn yaml_scalar_is_null(val: &str) -> bool {
     val.is_empty() || matches!(val, "null" | "Null" | "NULL" | "~")
 }
 
+fn strip_yaml_underscores(raw: &str) -> Option<String> {
+    let s = raw.trim();
+    if s.is_empty() || s.starts_with('_') || s.ends_with('_') || s.contains("__") {
+        return None;
+    }
+    let hex_prefixed = s.starts_with("0x")
+        || s.starts_with("0X")
+        || s.starts_with("+0x")
+        || s.starts_with("+0X")
+        || s.starts_with("-0x")
+        || s.starts_with("-0X");
+    let bytes = s.as_bytes();
+    for (idx, &ch) in bytes.iter().enumerate() {
+        if ch == b'_' {
+            let prev = bytes[idx - 1];
+            let next = bytes[idx + 1];
+            if !prev.is_ascii_alphanumeric() && prev != b'_' {
+                return None;
+            }
+            if !next.is_ascii_hexdigit() {
+                return None;
+            }
+            if !hex_prefixed && (matches!(prev, b'e' | b'E') || matches!(next, b'e' | b'E')) {
+                return None;
+            }
+        }
+    }
+    Some(s.replace('_', ""))
+}
+
+fn parse_yaml_float(raw: &str) -> Option<f64> {
+    let cleaned = strip_yaml_underscores(raw)?;
+    let v: f64 = cleaned.parse().ok()?;
+    v.is_finite().then_some(v)
+}
+
 fn normalize_retention_days(raw: &str) -> String {
-    if let Ok(v) = raw.parse::<f64>() {
-        if v.is_finite() && v.fract() == 0.0 && v >= (i64::MIN as f64) && v <= (i64::MAX as f64) {
+    if let Some(v) = parse_yaml_float(raw) {
+        if v.fract() == 0.0 && v >= (i64::MIN as f64) && v <= (i64::MAX as f64) {
             return (v as i64).to_string();
         }
     }
@@ -596,7 +632,8 @@ fn koanf_bool(raw: &str) -> bool {
 }
 
 fn yaml_koanf_bool(raw: &str, quoted: bool) -> bool {
-    koanf_bool(raw) || (!quoted && raw.parse::<f64>().is_ok_and(|v| v.is_finite() && v == 1.0))
+    koanf_bool(raw)
+        || (!quoted && parse_yaml_float(raw).is_some_and(|v| v == 1.0))
 }
 
 fn strict_go_bool(raw: &str, key: &str) -> Result<bool, String> {
@@ -762,6 +799,39 @@ impl<'a> YamlParser<'a> {
         Ok(self.s[start..self.i].to_owned())
     }
 
+    fn read_tag(&mut self) -> Result<String, &'static str> {
+        if self.peek() != Some(b'!') {
+            return Err("expected YAML tag");
+        }
+        self.i += 1;
+        if self.peek() == Some(b'<') {
+            self.i += 1;
+            let uri_start = self.i;
+            while self.i < self.n && !matches!(self.b[self.i], b'>' | b' ' | b'\t' | b'\n') {
+                self.i += 1;
+            }
+            if self.peek() != Some(b'>') {
+                return Err("unterminated verbatim YAML tag");
+            }
+            let uri = &self.s[uri_start..self.i];
+            self.i += 1;
+            if let Some(short) = uri.strip_prefix("tag:yaml.org,2002:") {
+                if !short.is_empty() {
+                    return Ok(format!("!{short}"));
+                }
+            }
+            return Ok(format!("<{uri}>"));
+        }
+        let start = self.i;
+        while self.i < self.n && Self::is_prop_char(self.b[self.i]) {
+            self.i += 1;
+        }
+        if self.i == start {
+            return Err("empty YAML anchor/alias/tag");
+        }
+        Ok(self.s[start..self.i].to_owned())
+    }
+
     fn parse_node_props(&mut self) -> Result<(Option<String>, Option<String>), &'static str> {
         let mut tag: Option<String> = None;
         let mut anchor: Option<String> = None;
@@ -769,7 +839,7 @@ impl<'a> YamlParser<'a> {
             self.skip_hws();
             match self.peek() {
                 Some(b'!') if tag.is_none() => {
-                    tag = Some(self.read_indicator_name(b'!')?);
+                    tag = Some(self.read_tag()?);
                 }
                 Some(b'&') if anchor.is_none() => {
                     anchor = Some(self.read_indicator_name(b'&')?);
@@ -781,18 +851,29 @@ impl<'a> YamlParser<'a> {
         Ok((tag, anchor))
     }
 
-fn parse_yaml_int(raw: &str) -> Option<i64> {
-    let s = raw.trim();
-    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        i64::from_str_radix(hex, 16).ok()
-    } else if let Some(oct) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
-        i64::from_str_radix(oct, 8).ok()
-    } else if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
-        i64::from_str_radix(bin, 2).ok()
-    } else {
-        s.parse::<i64>().ok()
+    fn parse_yaml_int(raw: &str) -> Option<i64> {
+        let cleaned = strip_yaml_underscores(raw)?;
+        let (neg, unsigned) = if let Some(rest) = cleaned.strip_prefix('-') {
+            (true, rest)
+        } else if let Some(rest) = cleaned.strip_prefix('+') {
+            (false, rest)
+        } else {
+            (false, cleaned.as_str())
+        };
+        if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+            let v = i64::from_str_radix(hex, 16).ok()?;
+            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+        }
+        if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+            let v = i64::from_str_radix(oct, 8).ok()?;
+            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+        }
+        if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+            let v = i64::from_str_radix(bin, 2).ok()?;
+            return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
+        }
+        cleaned.parse::<i64>().ok()
     }
-}
 
     fn apply_tag(tag: Option<&str>, node: YamlNode) -> Result<YamlNode, &'static str> {
         let Some(tag_val) = tag else {
@@ -838,10 +919,7 @@ fn parse_yaml_int(raw: &str) -> Option<i64> {
                     ) {
                         return Err("cannot coerce bool to YAML !!float");
                     }
-                    let v: f64 = s.parse().map_err(|_| "invalid YAML !!float value")?;
-                    if !v.is_finite() {
-                        return Err("invalid YAML !!float value");
-                    }
+                    let v = parse_yaml_float(s).ok_or("invalid YAML !!float value")?;
                     Ok(YamlNode::Scalar(v.to_string(), false))
                 }
                 _ => Err("invalid YAML !!float value"),
@@ -1600,8 +1678,25 @@ fn yaml_section_scalar(
     Ok(yaml_section_scalar_meta(section_entries, key)?.map(|(s, _)| s))
 }
 
+fn systemd_env_merge(pairs: &[(String, String)]) -> Vec<(String, String)> {
+    let mut merged: Vec<(String, String)> = Vec::new();
+    for (k, v) in pairs {
+        if let Some((_, slot)) = merged.iter_mut().find(|(name, _)| name == k) {
+            *slot = v.clone();
+        } else {
+            merged.push((k.clone(), v.clone()));
+        }
+    }
+    merged
+}
+
 fn env_lookup_precedence(pairs: &[(String, String)], keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|k| env_lookup(pairs, k))
+    let merged = systemd_env_merge(pairs);
+    merged
+        .into_iter()
+        .rev()
+        .find(|(k, _)| keys.contains(&k.as_str()))
+        .map(|(_, v)| v)
 }
 
 fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
@@ -1741,50 +1836,80 @@ struct UnitEnvSpec {
 fn decode_systemd_hex(
     chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
     count: usize,
-) -> Option<char> {
+) -> Result<u32, &'static str> {
     let mut val = 0u32;
     for _ in 0..count {
-        let d = chars.peek().and_then(|c| c.to_digit(16))?;
-        chars.next();
+        let Some(d) = chars.next().and_then(|c| c.to_digit(16)) else {
+            return Err("invalid or truncated hex escape in systemd directive");
+        };
         val = (val << 4) | d;
     }
-    char::from_u32(val)
+    Ok(val)
 }
 
-fn decode_systemd_c_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<char> {
-    let esc = chars.next()?;
+fn decode_systemd_c_escape(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    out: &mut Vec<u8>,
+) -> Result<(), &'static str> {
+    let Some(esc) = chars.next() else {
+        return Err("trailing backslash escape in systemd directive");
+    };
     match esc {
-        'a' => Some('\x07'),
-        'b' => Some('\x08'),
-        'f' => Some('\x0c'),
-        'n' => Some('\n'),
-        'r' => Some('\r'),
-        't' => Some('\t'),
-        'v' => Some('\x0b'),
-        '\\' => Some('\\'),
-        '"' => Some('"'),
-        '\'' => Some('\''),
-        's' => Some(' '),
-        'x' => decode_systemd_hex(chars, 2),
-        'u' => decode_systemd_hex(chars, 4),
-        'U' => decode_systemd_hex(chars, 8),
+        'a' => out.push(0x07),
+        'b' => out.push(0x08),
+        'f' => out.push(0x0c),
+        'n' => out.push(b'\n'),
+        'r' => out.push(b'\r'),
+        't' => out.push(b'\t'),
+        'v' => out.push(0x0b),
+        '\\' => out.push(b'\\'),
+        '"' => out.push(b'"'),
+        '\'' => out.push(b'\''),
+        's' => out.push(b' '),
+        'x' => {
+            let val = decode_systemd_hex(chars, 2)?;
+            if val == 0 {
+                return Err("NUL escape is forbidden in systemd directive");
+            }
+            out.push(val as u8);
+        }
+        'u' => {
+            let val = decode_systemd_hex(chars, 4)?;
+            let ch = (val != 0)
+                .then(|| char::from_u32(val))
+                .flatten()
+                .ok_or("invalid Unicode escape in systemd directive")?;
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+        }
+        'U' => {
+            let val = decode_systemd_hex(chars, 8)?;
+            let ch = (val != 0)
+                .then(|| char::from_u32(val))
+                .flatten()
+                .ok_or("invalid Unicode escape in systemd directive")?;
+            let mut buf = [0u8; 4];
+            out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+        }
         '0'..='7' => {
             let mut val = (esc as u32) - ('0' as u32);
             for _ in 0..2 {
-                if let Some(&d @ '0'..='7') = chars.peek() {
-                    chars.next();
-                    val = (val * 8) + ((d as u32) - ('0' as u32));
-                } else {
-                    break;
-                }
+                let Some(d @ '0'..='7') = chars.next() else {
+                    return Err("invalid or truncated octal escape in systemd directive");
+                };
+                val = (val * 8) + ((d as u32) - ('0' as u32));
             }
-            char::from_u32(val)
+            if val == 0 || val > 255 {
+                return Err("invalid octal byte in systemd directive");
+            }
+            out.push(val as u8);
         }
-        other => Some(other),
+        _ => return Err("unknown C escape sequence in systemd directive"),
     }
+    Ok(())
 }
 
-fn split_systemd_words(s: &str) -> Vec<String> {
+fn split_systemd_words(s: &str) -> Result<Vec<String>, &'static str> {
     let mut out = Vec::new();
     let mut chars = s.chars().peekable();
     while let Some(&c) = chars.peek() {
@@ -1792,7 +1917,7 @@ fn split_systemd_words(s: &str) -> Vec<String> {
             chars.next();
             continue;
         }
-        let mut word = String::new();
+        let mut word: Vec<u8> = Vec::new();
         while let Some(&ch) = chars.peek() {
             if ch.is_ascii_whitespace() {
                 break;
@@ -1800,33 +1925,37 @@ fn split_systemd_words(s: &str) -> Vec<String> {
             if ch == '"' || ch == '\'' {
                 let q = ch;
                 chars.next();
+                let mut closed = false;
                 while let Some(inner) = chars.next() {
                     if inner == q {
+                        closed = true;
                         break;
                     }
                     if inner == '\\' {
-                        if let Some(esc) = decode_systemd_c_escape(&mut chars) {
-                            word.push(esc);
-                        }
+                        decode_systemd_c_escape(&mut chars, &mut word)?;
                     } else {
-                        word.push(inner);
+                        let mut buf = [0u8; 4];
+                        word.extend_from_slice(inner.encode_utf8(&mut buf).as_bytes());
                     }
+                }
+                if !closed {
+                    return Err("unterminated quote in systemd directive");
                 }
             } else if ch == '\\' {
                 chars.next();
-                if let Some(esc) = decode_systemd_c_escape(&mut chars) {
-                    word.push(esc);
-                }
+                decode_systemd_c_escape(&mut chars, &mut word)?;
             } else {
-                word.push(ch);
+                let mut buf = [0u8; 4];
+                word.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
                 chars.next();
             }
         }
+        let word = String::from_utf8(word).map_err(|_| "invalid UTF-8 in systemd directive")?;
         if !word.is_empty() {
             out.push(word);
         }
     }
-    out
+    Ok(out)
 }
 
 fn systemd_logical_lines(unit: &str) -> Vec<String> {
@@ -1856,7 +1985,7 @@ fn systemd_logical_lines(unit: &str) -> Vec<String> {
     logical
 }
 
-fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
+fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) -> Result<()> {
     let mut in_service = false;
     for line in systemd_logical_lines(unit) {
         let t = line.trim();
@@ -1879,7 +2008,7 @@ fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
             if rhs.is_empty() {
                 spec.inline_env.clear();
             } else {
-                for word in split_systemd_words(rhs) {
+                for word in split_systemd_words(rhs).map_err(anyhow::Error::msg)? {
                     if let Some((k, v)) = word.split_once('=') {
                         if !k.is_empty() {
                             spec.inline_env.push((k.to_owned(), v.to_owned()));
@@ -1893,7 +2022,8 @@ fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
             if rhs.is_empty() {
                 spec.unset_env.clear();
             } else {
-                spec.unset_env.extend(split_systemd_words(rhs));
+                spec.unset_env
+                    .extend(split_systemd_words(rhs).map_err(anyhow::Error::msg)?);
             }
             continue;
         }
@@ -1919,6 +2049,7 @@ fn parse_unit_env_spec_into(unit: &str, spec: &mut UnitEnvSpec) {
                 .push((std::path::PathBuf::from(unquoted), optional));
         }
     }
+    Ok(())
 }
 
 fn dropin_unit_categories(unit_name: &str) -> (Option<String>, Vec<String>) {
@@ -1987,7 +2118,8 @@ fn load_unit_env_spec_with_dirs(
 ) -> Result<UnitEnvSpec> {
     let mut spec = UnitEnvSpec::default();
     match std::fs::read_to_string(unit_path) {
-        Ok(src) => parse_unit_env_spec_into(&src, &mut spec),
+        Ok(src) => parse_unit_env_spec_into(&src, &mut spec)
+            .with_context(|| format!("parsing {}", unit_path.display()))?,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
         Err(err) => {
             return Err(err).with_context(|| format!("reading {}", unit_path.display()));
@@ -2033,7 +2165,8 @@ fn load_unit_env_spec_with_dirs(
     for (_, path) in dropins {
         let src = std::fs::read_to_string(&path)
             .with_context(|| format!("reading drop-in {}", path.display()))?;
-        parse_unit_env_spec_into(&src, &mut spec);
+        parse_unit_env_spec_into(&src, &mut spec)
+            .with_context(|| format!("parsing drop-in {}", path.display()))?;
     }
     Ok(spec)
 }
@@ -2124,12 +2257,46 @@ fn glob_match(pat: &str, text: &str) -> bool {
     glob_match_chars(&p, &t)
 }
 
+fn retain_existing_glob_candidates(
+    candidates: Vec<std::path::PathBuf>,
+) -> Result<Vec<std::path::PathBuf>> {
+    let mut existing = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        if let Some(parent) = candidate.parent().filter(|p| !p.as_os_str().is_empty()) {
+            match std::fs::metadata(parent) {
+                Ok(m) if !m.is_dir() => continue,
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => {
+                    return Err(e).with_context(|| {
+                        format!("inspecting EnvironmentFile glob dir {}", parent.display())
+                    });
+                }
+            }
+        }
+        match std::fs::symlink_metadata(&candidate) {
+            Ok(_) => existing.push(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!(
+                        "inspecting EnvironmentFile glob path {}",
+                        candidate.display()
+                    )
+                });
+            }
+        }
+    }
+    Ok(existing)
+}
+
 fn expand_env_file_glob(pattern: &Path) -> Result<Vec<std::path::PathBuf>> {
     let raw = pattern.to_string_lossy();
     if !(raw.contains('*') || raw.contains('?') || raw.contains('[')) {
         return Ok(vec![pattern.to_path_buf()]);
     }
     let mut candidates = vec![std::path::PathBuf::new()];
+    let mut saw_glob = false;
     for comp in pattern.components() {
         match comp {
             std::path::Component::Prefix(_)
@@ -2139,11 +2306,17 @@ fn expand_env_file_glob(pattern: &Path) -> Result<Vec<std::path::PathBuf>> {
                 for c in &mut candidates {
                     c.push(comp.as_os_str());
                 }
+                if saw_glob {
+                    candidates = retain_existing_glob_candidates(candidates)?;
+                }
             }
             std::path::Component::Normal(seg_os) => {
                 let Some(seg) = seg_os.to_str() else {
                     for c in &mut candidates {
                         c.push(seg_os);
+                    }
+                    if saw_glob {
+                        candidates = retain_existing_glob_candidates(candidates)?;
                     }
                     continue;
                 };
@@ -2151,8 +2324,12 @@ fn expand_env_file_glob(pattern: &Path) -> Result<Vec<std::path::PathBuf>> {
                     for c in &mut candidates {
                         c.push(seg_os);
                     }
+                    if saw_glob {
+                        candidates = retain_existing_glob_candidates(candidates)?;
+                    }
                     continue;
                 }
+                saw_glob = true;
                 let mut next = Vec::new();
                 for base in &candidates {
                     let read_target = if base.as_os_str().is_empty() {
@@ -2224,12 +2401,13 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
     });
     let gateway_env_path = expanded_files
         .iter()
-        .rfind(|(p, _)| p.file_name().and_then(|n| n.to_str()) == Some("gateway.env"))
+        .rfind(|(p, _)| {
+            p.file_name().and_then(|n| n.to_str()) == Some("gateway.env")
+                && std::fs::metadata(p).is_ok_and(|m| m.is_file())
+        })
         .map(|(p, _)| p.clone());
-    let has_gateway_file = gateway_env_path
-        .as_ref()
-        .is_some_and(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file()));
-    let mut pairs = spec.inline_env.clone();
+    let has_gateway_file = gateway_env_path.is_some();
+    let mut pairs = systemd_env_merge(&spec.inline_env);
     let mut gateway_file_pairs = Vec::new();
     for (path, optional) in &expanded_files {
         match std::fs::read_to_string(path) {
@@ -2251,6 +2429,7 @@ fn load_effective_gateway_env(spec: &UnitEnvSpec) -> Result<EffectiveGatewayEnv>
             }
         }
     }
+    let mut pairs = systemd_env_merge(&pairs);
     for entry in &spec.unset_env {
         if let Some((k, v)) = entry.split_once('=') {
             if env_lookup(&pairs, k).as_deref() == Some(v) {
@@ -3129,7 +3308,11 @@ mod tests {
         let glob_extra_20 = glob_dir.join("20-extra.env");
         let glob_unit = glob_dir.join("glob.service");
         std::fs::write(&glob_cfg, "HOSTNAME=mail.test\n").unwrap();
-        std::fs::write(&glob_gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
+        std::fs::write(
+            &glob_gw,
+            "GATEWAY_ENABLED=true\nDB_DSN=postgres://app@localhost/mail\nWORM_MODE=\n",
+        )
+        .unwrap();
         std::fs::write(&glob_extra_10, "WORM_MODE=governance\n").unwrap();
         std::fs::write(&glob_extra_20, "WORM_MODE=\n").unwrap();
         std::fs::write(
@@ -3144,6 +3327,40 @@ mod tests {
         assert!(check_worm_gateway_ready(&glob_unit, None, &stale_default).is_ok());
         std::fs::write(&glob_extra_20, "WORM_MODE=compliance\n").unwrap();
         assert!(check_worm_gateway_ready(&glob_unit, None, &stale_default).is_err());
+        // Required multi-segment glob profiles/*/storage.env skips subdirs missing storage.env and regular files
+        let profiles_dir = glob_dir.join("profiles");
+        std::fs::create_dir_all(profiles_dir.join("empty")).unwrap();
+        std::fs::create_dir_all(profiles_dir.join("active")).unwrap();
+        std::fs::write(profiles_dir.join("note.txt"), "not a dir\n").unwrap();
+        std::fs::write(
+            profiles_dir.join("active").join("storage.env"),
+            "S3_BUCKET=mailblobs\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &glob_unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironmentFile={}\nEnvironmentFile=-{}\n",
+                glob_dir.join("gate*.env").display(),
+                profiles_dir.join("*").join("storage.env").display(),
+                glob_dir.join("*-extra.env").display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&glob_unit, Some(&glob_cfg), &stale_default).is_ok());
+        // Trailing missing optional gateway.env must not shadow the preceding existing gateway.env
+        std::fs::write(
+            &glob_unit,
+            format!(
+                "[Service]\nEnvironmentFile={}\nEnvironmentFile={}\nEnvironmentFile=-{}\nEnvironmentFile=-{}\n",
+                glob_dir.join("gate*.env").display(),
+                profiles_dir.join("*").join("storage.env").display(),
+                glob_dir.join("*-extra.env").display(),
+                glob_dir.join("missing").join("gateway.env").display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&glob_unit, Some(&glob_cfg), &stale_default).is_ok());
         std::fs::write(
             &glob_unit,
             format!(
@@ -3154,7 +3371,35 @@ mod tests {
         .unwrap();
         assert!(check_worm_gateway_ready(&glob_unit, Some(&glob_cfg), &stale_default).is_err());
 
-        // YAML block scalars (|-), merge keys (<<: *base), !!str null bucket, !!bool, and numeric secure: 1.0 match render-storage
+        // Multi-byte UTF-8 \xC3\xA9 and octal \303\251 C-escapes decode as 'é', and unknown/truncated escapes fail closed
+        let utf8_esc_dir = dir.path().join("utf8-esc");
+        std::fs::create_dir_all(&utf8_esc_dir).unwrap();
+        let utf8_gw = utf8_esc_dir.join("gateway.env");
+        let utf8_unit = utf8_esc_dir.join("utf8.service");
+        std::fs::write(&utf8_gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        std::fs::write(
+            &utf8_unit,
+            format!(
+                "[Service]\nEnvironment=\"WORM_MODE=caf\\xC3\\xA9\"\nEnvironmentFile={}\nUnsetEnvironment=\"WORM_MODE=compli\\x61nce\"\nEnvironment=\"WORM_MODE=caf\\303\\251\"\n",
+                utf8_gw.display()
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            split_systemd_words("\"WORM_MODE=caf\\xC3\\xA9\"").unwrap(),
+            vec!["WORM_MODE=caf\u{00e9}"]
+        );
+        assert_eq!(
+            split_systemd_words("'WORM_MODE=caf\\303\\251'").unwrap(),
+            vec!["WORM_MODE=caf\u{00e9}"]
+        );
+        assert!(split_systemd_words("\"WORM_MODE=\\z\"").is_err());
+        assert!(split_systemd_words("\"WORM_MODE=\\x6\"").is_err());
+        assert!(load_unit_env_spec_with_dirs(&utf8_unit, &[]).is_ok());
+        std::fs::write(&utf8_unit, "[Service]\nEnvironment=\"WORM_MODE=\\z\"\n").unwrap();
+        assert!(check_worm_gateway_ready(&utf8_unit, None, &missing_default).is_err());
+
+        // YAML block scalars (|-), merge keys (<<: *base), !!str null bucket, !!bool, verbatim tags, and underscore numbers match render-storage
         std::fs::write(
             &yaml,
             "x_s3_base: &s3_base\n  endpoint: https://s3.base.test\n  secret_key: |-\n    block-secret\ns3:\n  <<: *s3_base\n  bucket: !!str null\n  secure: 1.0\nworm:\n  mode: compliance\n",
@@ -3177,6 +3422,30 @@ mod tests {
         .unwrap();
         std::fs::write(&storage, "S3_BUCKET=mailblobs\nS3_SECURE=true\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(
+            &yaml,
+            "s3:\n  bucket: mailblobs\n  secure: !<tag:yaml.org,2002:bool> true\nworm:\n  mode: compliance\n  retention_days: 1_000\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &gw,
+            "GATEWAY_ENABLED=true\nWORM_MODE=compliance\nWORM_RETENTION_DAYS=1000\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(
+            &yaml,
+            "s3:\n  bucket: mailblobs\n  secure: !!float 1_0e-1\nworm:\n  mode: compliance\n",
+        )
+        .unwrap();
+        std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(
+            &yaml,
+            "s3:\n  bucket: mailblobs\n  secure: !<tag:example.com,2000:custom> true\nworm:\n  mode: compliance\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
         // Quoted "1.0" stays false (koanf bool semantics), matching render-storage
         std::fs::write(
             &yaml,
@@ -3187,19 +3456,26 @@ mod tests {
         std::fs::write(&storage, "S3_BUCKET=mailblobs\nS3_SECURE=false\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
 
-        // Go-compatible WORM__MODE precedence over WORM_MODE and S3__BUCKET precedence over S3_BUCKET; WORM__LEGAL_HOLD_ENABLED is ignored
+        // Exact systemd strv_env_merge + Go os.Environ() last-slot-wins semantics between WORM_MODE / WORM__MODE and S3_BUCKET / S3__BUCKET
         std::fs::write(
             &cfg,
-            "WORM_MODE=governance\nWORM__MODE=compliance\nWORM__LEGAL_HOLD_ENABLED=false\nS3__BUCKET=mailblobs\n",
+            "WORM__MODE=\nWORM_MODE=compliance\nWORM__LEGAL_HOLD_ENABLED=false\nS3__BUCKET=ignored\nS3_BUCKET=mailblobs\n",
         )
         .unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=governance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        // In-place systemd strv_env_merge updates existing keys at their first-seen slot; the later slot wins across aliases
         std::fs::write(
             &cfg,
-            "WORM__MODE=compliance\nWORM_MODE=governance\nS3__BUCKET=mailblobs\nS3_BUCKET=ignored\n",
+            "WORM_MODE=governance\nWORM__MODE=compliance\nWORM_MODE=\nS3__BUCKET=mailblobs\nS3_BUCKET=ignored\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_err());
+        std::fs::write(
+            &cfg,
+            "WORM_MODE=governance\nWORM__MODE=compliance\nWORM_MODE=\nS3_BUCKET=ignored\nS3__BUCKET=mailblobs\nS3_BUCKET=still_ignored\n",
         )
         .unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());

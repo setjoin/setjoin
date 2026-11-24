@@ -982,7 +982,6 @@ def parse_systemd_env_entries(
             else None
         )
         if key:
-            out.pop(key, None)
             out[key] = (val, raw_line)
     return out
 
@@ -1055,6 +1054,24 @@ def cmd_env_get(args: list[str]) -> int:
     if key not in env_map:
         return 1
     sys.stdout.write(env_map[key])
+    return 0
+
+
+def cmd_env_get_any(args: list[str]) -> int:
+    if len(args) < 2:
+        sys.stderr.write("usage: yaml-config.py env-get-any FILE KEY [KEY ...]\n")
+        return 2
+    env_map = parse_systemd_env_file(args[0])
+    wanted = set(args[1:])
+    found = False
+    selected = ""
+    for k, val in env_map.items():
+        if k in wanted:
+            found = True
+            selected = val
+    if not found:
+        return 1
+    sys.stdout.write(selected)
     return 0
 
 
@@ -1149,10 +1166,12 @@ def cmd_render_storage(args: list[str]) -> int:
         return 0
 
     def env_pick(*names: str) -> str | None:
-        for name in names:
-            if name in env_map:
-                return env_map[name]
-        return None
+        wanted = set(names)
+        selected = None
+        for k, val in env_map.items():
+            if k in wanted:
+                selected = val
+        return selected
 
     endpoint = (
         str(s3_yaml["endpoint"]) if s3_yaml.get("endpoint") is not None else "127.0.0.1:9000"
@@ -1211,7 +1230,9 @@ def main(argv: list[str]) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(newline="\n")
     if len(argv) < 2:
-        sys.stderr.write("usage: yaml-config.py <get|env-line|env-get|env-copy|env-preserve|render-storage> ...\n")
+        sys.stderr.write(
+            "usage: yaml-config.py <get|env-line|env-get|env-get-any|env-copy|env-preserve|render-storage> ...\n"
+        )
         return 2
     cmd = argv[1]
     if cmd == "get":
@@ -1220,6 +1241,8 @@ def main(argv: list[str]) -> int:
         return cmd_env_line(argv[2:])
     if cmd == "env-get":
         return cmd_env_get(argv[2:])
+    if cmd == "env-get-any":
+        return cmd_env_get_any(argv[2:])
     if cmd == "env-copy":
         return cmd_env_copy(argv[2:])
     if cmd == "env-preserve":

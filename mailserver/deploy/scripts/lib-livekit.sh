@@ -390,6 +390,18 @@ env_file_try() {
   esac
 }
 
+env_file_try_any() {
+  local __var="$1" __file="${2:-}" __val="" __rc=0
+  shift 2
+  [ -n "$__file" ] && [ -f "$__file" ] || return 1
+  __val=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-get-any "$__file" "$@") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
+}
+
 resolve_setting_yaml_path() {
   local config="${1:-}" cfg=""
   cfg=$(strip_env_quotes "${SETJOIN_CONFIG:-}")
@@ -785,9 +797,7 @@ ENV
   fi
 
   # WORM retention & legal-hold switches (always emit WORM_MODE so systemd-activated gateway verifies render).
-  if env_file_try worm_mode "${CONFIG_ENV:-}" WORM__MODE; then
-    :
-  elif env_file_try worm_mode "${CONFIG_ENV:-}" WORM_MODE; then
+  if env_file_try_any worm_mode "${CONFIG_ENV:-}" WORM_MODE WORM__MODE; then
     :
   elif [ "${WORM__MODE+x}" = x ]; then
     worm_mode=$(strip_env_quotes "$WORM__MODE")
