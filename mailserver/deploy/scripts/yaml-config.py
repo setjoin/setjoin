@@ -275,10 +275,14 @@ class _Parser:
                 return "true" if val else "false"
             return str(val)
         if tag == "null":
+            if isinstance(val, (dict, list)):
+                raise YamlError(f"cannot coerce {type(val).__name__} to !!null")
             if val is None or val in ("", "null", "Null", "NULL", "~"):
                 return None
             raise YamlError(f"invalid !!null value {val!r}")
         if tag == "bool":
+            if val is None or isinstance(val, (dict, list)):
+                raise YamlError(f"cannot coerce {type(val).__name__} to !!bool")
             if isinstance(val, bool):
                 return val
             s = raw_plain if raw_plain is not None else str(val)
@@ -288,8 +292,8 @@ class _Parser:
                 return False
             raise YamlError(f"invalid !!bool value {s!r}")
         if tag == "int":
-            if isinstance(val, bool):
-                raise YamlError("cannot coerce bool to !!int")
+            if isinstance(val, bool) or val is None or isinstance(val, (dict, list)):
+                raise YamlError(f"cannot coerce {type(val).__name__} to !!int")
             if isinstance(val, int):
                 return val
             s = raw_plain if raw_plain is not None else str(val)
@@ -301,14 +305,30 @@ class _Parser:
                 raise YamlError(f"invalid !!int value {s!r}") from exc
         if tag == "float":
             if isinstance(val, bool) or val is None or isinstance(val, (dict, list)):
-                raise YamlError(f"cannot coerce value {val!r} to !!float")
+                raise YamlError(f"cannot coerce {type(val).__name__} to !!float")
             s = (raw_plain if raw_plain is not None else str(val)).strip()
             try:
                 if re.fullmatch(r"[+-]?0(?:_?[0-7])+", s):
-                    return float(int(s.replace("_", ""), 8))
-                return float(s)
+                    out = float(int(s.replace("_", ""), 8))
+                elif "_" in s:
+                    if not re.fullmatch(
+                        r"[+-]?(?:(?:0|[1-9](?:_?[0-9])*)(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?",
+                        s,
+                    ):
+                        raise YamlError(f"invalid !!float value {s!r}")
+                    out = float(s.replace("_", ""))
+                else:
+                    if not re.fullmatch(
+                        r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?",
+                        s,
+                    ):
+                        raise YamlError(f"invalid !!float value {s!r}")
+                    out = float(s)
             except ValueError as exc:
                 raise YamlError(f"invalid !!float value {s!r}") from exc
+            if not math.isfinite(out):
+                raise YamlError(f"invalid !!float value {s!r}")
+            return out
         if tag == "map":
             if val is None:
                 return {}

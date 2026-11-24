@@ -688,19 +688,68 @@ fn parse_go_float64(raw: &str) -> Option<f64> {
     v.is_finite().then_some(v)
 }
 
+fn valid_dec_underscores(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let mut saw_digit = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'_' {
+            if i == 0 || i + 1 == bytes.len() || bytes[i - 1] == b'_' || bytes[i + 1] == b'_' {
+                return false;
+            }
+        } else if b.is_ascii_digit() {
+            saw_digit = true;
+        } else {
+            return false;
+        }
+    }
+    saw_digit
+}
+
 fn parse_yaml_float(raw: &str) -> Option<f64> {
-    let cleaned = strip_yaml_underscores(raw)?;
-    let unsigned = cleaned.strip_prefix(['+', '-']).unwrap_or(&cleaned);
-    if unsigned.starts_with("0x")
-        || unsigned.starts_with("0X")
-        || unsigned.starts_with("0o")
-        || unsigned.starts_with("0O")
-        || unsigned.starts_with("0b")
-        || unsigned.starts_with("0B")
-    {
+    let s = raw.trim();
+    if s.is_empty() {
         return None;
     }
-    let v: f64 = cleaned.parse().ok()?;
+    if s.contains('_') {
+        let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+        let mantissa = match unsigned.find(['e', 'E']) {
+            Some(idx) => {
+                let exp_raw = &unsigned[idx + 1..];
+                let exp = exp_raw.strip_prefix(['+', '-']).unwrap_or(exp_raw);
+                if !valid_dec_underscores(exp) {
+                    return None;
+                }
+                &unsigned[..idx]
+            }
+            None => unsigned,
+        };
+        let int_ok = |part: &str| {
+            part == "0"
+                || (part.as_bytes().first().is_some_and(|b| matches!(b, b'1'..=b'9'))
+                    && valid_dec_underscores(part))
+        };
+        match mantissa.split_once('.') {
+            Some((int_part, frac_part)) => {
+                if int_part.is_empty() && frac_part.is_empty() {
+                    return None;
+                }
+                if !int_part.is_empty() && !int_ok(int_part) {
+                    return None;
+                }
+                if !frac_part.is_empty() && !valid_dec_underscores(frac_part) {
+                    return None;
+                }
+            }
+            None => {
+                if !int_ok(mantissa) {
+                    return None;
+                }
+            }
+        }
+        let v: f64 = s.replace('_', "").parse().ok()?;
+        return v.is_finite().then_some(v);
+    }
+    let v: f64 = s.parse().ok()?;
     v.is_finite().then_some(v)
 }
 
@@ -976,19 +1025,32 @@ impl<'a> YamlParser<'a> {
             (false, cleaned.as_str())
         };
         if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+            if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
             let v = i64::from_str_radix(hex, 16).ok()?;
             return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
         }
         if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+            if oct.is_empty() || !oct.bytes().all(|b| matches!(b, b'0'..=b'7')) {
+                return None;
+            }
             let v = i64::from_str_radix(oct, 8).ok()?;
             return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
         }
         if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+            if bin.is_empty() || !bin.bytes().all(|b| matches!(b, b'0' | b'1')) {
+                return None;
+            }
             let v = i64::from_str_radix(bin, 2).ok()?;
             return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
         }
         if unsigned.starts_with('0') && unsigned.len() > 1 {
-            let v = i64::from_str_radix(&unsigned[1..], 8).ok()?;
+            let digits = &unsigned[1..];
+            if !digits.bytes().all(|b| matches!(b, b'0'..=b'7')) {
+                return None;
+            }
+            let v = i64::from_str_radix(digits, 8).ok()?;
             return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
         }
         cleaned.parse::<i64>().ok()
@@ -1004,7 +1066,11 @@ impl<'a> YamlParser<'a> {
             (false, cleaned.as_str())
         };
         if unsigned.starts_with('0') && unsigned.len() > 1 {
-            let v = i64::from_str_radix(&unsigned[1..], 8).ok()?;
+            let digits = &unsigned[1..];
+            if !digits.bytes().all(|b| matches!(b, b'0'..=b'7')) {
+                return None;
+            }
+            let v = i64::from_str_radix(digits, 8).ok()?;
             return neg.then(|| v.checked_neg()).unwrap_or(Some(v));
         }
         None
@@ -4003,6 +4069,9 @@ mod tests {
             "worm:\n  retention_days: !!float \"0x10\"\n",
             "worm:\n  retention_days: !!float \"0o20\"\n",
             "worm:\n  retention_days: !!float \"0b10000\"\n",
+            "worm:\n  retention_days: !!float \"0+10\"\n",
+            "worm:\n  retention_days: !!float \"0_8\"\n",
+            "worm:\n  retention_days: !!float \"0_8.5\"\n",
         ] {
             assert!(yaml_worm_settings(tagged_radix).is_err());
         }
