@@ -524,4 +524,24 @@ for bad_dir in /var/lib/postgresql /var/cache/apt /etc/ssh /srv/postgres /opt/ot
 done
 validate_tls_cache_target /var/lib/setjoin/custom-tls
 validate_tls_cache_target /var/cache/mailserver/autocert
+
+# render_federation_env projects LIVEKIT_* for /rtc and /api/rtc without leaking them into gateway/storage.env.
+cat > "$tmp/livekit-config.env" <<'ENV'
+HOSTNAME=mail.example.test
+S3_BUCKET=mailblobs
+  LIVEKIT_API_KEY = "setjoin"
+  LIVEKIT_API_SECRET = 'lk-secret-123'
+  LIVEKIT_URL = ws://127.0.0.1:7880
+DB_OWNER_DSN=must-not-reach-gateway
+ENV
+render_federation_env "$tmp/livekit-federation.env" "$tmp/livekit-config.env" /nonexistent
+grep -qx 'LIVEKIT_API_KEY=setjoin' "$tmp/livekit-federation.env"
+grep -qx 'LIVEKIT_API_SECRET=lk-secret-123' "$tmp/livekit-federation.env"
+grep -qx 'LIVEKIT_URL=ws://127.0.0.1:7880' "$tmp/livekit-federation.env"
+if grep -Eq 'OWNER_DSN|S3_BUCKET' "$tmp/livekit-federation.env"; then echo 'unrelated setting leaked to federation.env' >&2; exit 1; fi
+CONFIG_ENV="$tmp/livekit-config.env" GATEWAY_ENV="$tmp/livekit-gateway.env" AUTHSERVER_URL=http://127.0.0.1:8443 render_gateway_env "$tmp/livekit-gateway.env"
+if grep -q '^LIVEKIT_API_SECRET=' "$tmp/livekit-gateway.env"; then echo 'LIVEKIT_API_SECRET leaked to gateway.env' >&2; exit 1; fi
+render_storage_env "$tmp/livekit-storage.env" "$tmp/livekit-config.env"
+if grep -q '^LIVEKIT_API_SECRET=' "$tmp/livekit-storage.env"; then echo 'LIVEKIT_API_SECRET leaked to storage.env' >&2; exit 1; fi
+
 echo 'native TLS release socket: PASS'

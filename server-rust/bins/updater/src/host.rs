@@ -721,6 +721,7 @@ fn flow_worm_settings(flow: &str) -> Result<YamlWorm, &'static str> {
 }
 
 fn yaml_worm_settings(yaml: &str) -> Result<YamlWorm, &'static str> {
+    let yaml = yaml.strip_prefix('\u{feff}').unwrap_or(yaml);
     let mut joined_flow = String::new();
     let mut saw_first = false;
     let mut top_flow = false;
@@ -909,7 +910,35 @@ fn parse_unit_env_files_into(unit: &str, out: &mut Vec<(std::path::PathBuf, bool
     }
 }
 
-fn load_unit_env_files(unit_path: &Path) -> Result<Vec<(std::path::PathBuf, bool)>> {
+fn default_dropin_dirs(unit_path: &Path) -> Vec<std::path::PathBuf> {
+    let Some(unit_name) = unit_path.file_name().and_then(|n| n.to_str()) else {
+        return Vec::new();
+    };
+    let Some(parent) = unit_path.parent() else {
+        return Vec::new();
+    };
+    let dropin_rel = format!("{unit_name}.d");
+    const SYSTEM_UNIT_DIRS: [&str; 5] = [
+        "/lib/systemd/system",
+        "/usr/lib/systemd/system",
+        "/usr/local/lib/systemd/system",
+        "/run/systemd/system",
+        "/etc/systemd/system",
+    ];
+    if SYSTEM_UNIT_DIRS.iter().any(|dir| parent == Path::new(dir)) {
+        SYSTEM_UNIT_DIRS
+            .iter()
+            .map(|dir| Path::new(dir).join(&dropin_rel))
+            .collect()
+    } else {
+        vec![parent.join(&dropin_rel)]
+    }
+}
+
+fn load_unit_env_files_with_dirs(
+    unit_path: &Path,
+    dropin_dirs: &[std::path::PathBuf],
+) -> Result<Vec<(std::path::PathBuf, bool)>> {
     let mut out = Vec::new();
     match std::fs::read_to_string(unit_path) {
         Ok(src) => parse_unit_env_files_into(&src, &mut out),
@@ -918,25 +947,10 @@ fn load_unit_env_files(unit_path: &Path) -> Result<Vec<(std::path::PathBuf, bool
             return Err(err).with_context(|| format!("reading {}", unit_path.display()));
         }
     }
-    let Some(unit_name) = unit_path.file_name().and_then(|n| n.to_str()) else {
-        return Ok(out);
-    };
-    let Some(parent) = unit_path.parent() else {
-        return Ok(out);
-    };
-    let dropin_rel = format!("{unit_name}.d");
-    let mut search_dirs = vec![parent.join(&dropin_rel)];
-    if parent == Path::new("/usr/lib/systemd/system") || parent == Path::new("/lib/systemd/system")
-    {
-        search_dirs.push(Path::new("/run/systemd/system").join(&dropin_rel));
-        search_dirs.push(Path::new("/etc/systemd/system").join(&dropin_rel));
-    } else if parent == Path::new("/run/systemd/system") {
-        search_dirs.push(Path::new("/etc/systemd/system").join(&dropin_rel));
-    }
     let mut dropins: std::collections::BTreeMap<String, std::path::PathBuf> =
         std::collections::BTreeMap::new();
-    for dir in search_dirs {
-        match std::fs::read_dir(&dir) {
+    for dir in dropin_dirs {
+        match std::fs::read_dir(dir) {
             Ok(entries) => {
                 for entry in entries {
                     let entry =
@@ -949,8 +963,18 @@ fn load_unit_env_files(unit_path: &Path) -> Result<Vec<(std::path::PathBuf, bool
                         continue;
                     }
                     let path = entry.path();
-                    if std::fs::metadata(&path).is_ok_and(|m| !m.is_dir()) {
-                        dropins.insert(name_str.to_owned(), path);
+                    std::fs::symlink_metadata(&path)
+                        .with_context(|| format!("stat drop-in {}", path.display()))?;
+                    match std::fs::metadata(&path) {
+                        Ok(meta) if !meta.is_dir() => {
+                            dropins.insert(name_str.to_owned(), path);
+                        }
+                        Ok(_) => {}
+                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(err) => {
+                            return Err(err)
+                                .with_context(|| format!("inspecting drop-in {}", path.display()));
+                        }
                     }
                 }
             }
@@ -966,6 +990,11 @@ fn load_unit_env_files(unit_path: &Path) -> Result<Vec<(std::path::PathBuf, bool
         parse_unit_env_files_into(&src, &mut out);
     }
     Ok(out)
+}
+
+fn load_unit_env_files(unit_path: &Path) -> Result<Vec<(std::path::PathBuf, bool)>> {
+    let dropin_dirs = default_dropin_dirs(unit_path);
+    load_unit_env_files_with_dirs(unit_path, &dropin_dirs)
 }
 
 struct EffectiveGatewayEnv {
@@ -1119,6 +1148,26 @@ pub(crate) fn check_worm_gateway_ready(
         if is_db_backed && (!gateway_has_empty_worm || !effective_worm_empty) {
             bail!(
                 "DB-backed setjoin-gateway unit/gateway.env must set explicit empty WORM_MODE=; run upgrade.sh refresh-gateway-env before activating"
+            );
+        }
+    }
+    let livekit_expected = [
+        env_lookup(&pairs, "LIVEKIT_API_KEY").filter(|v| !v.is_empty()),
+        env_lookup(&pairs, "LIVEKIT_API_SECRET").filter(|v| !v.is_empty()),
+        env_lookup(&pairs, "LIVEKIT_URL").filter(|v| !v.is_empty()),
+    ];
+    if let [Some(lk_key), Some(lk_secret), Some(lk_url)] = livekit_expected {
+        let Some(gw) = load_effective_gateway_env(&env_files) else {
+            bail!(
+                "LiveKit is configured in host configuration, but setjoin-gateway unit/federation.env lacks matching LIVEKIT_* settings; run upgrade.sh refresh-gateway-env before activating"
+            );
+        };
+        if env_lookup(&gw.pairs, "LIVEKIT_API_KEY").as_deref() != Some(lk_key.as_str())
+            || env_lookup(&gw.pairs, "LIVEKIT_API_SECRET").as_deref() != Some(lk_secret.as_str())
+            || env_lookup(&gw.pairs, "LIVEKIT_URL").as_deref() != Some(lk_url.as_str())
+        {
+            bail!(
+                "LiveKit is configured in host configuration, but setjoin-gateway unit/federation.env lacks matching LIVEKIT_* settings; run upgrade.sh refresh-gateway-env before activating"
             );
         }
     }
@@ -1433,5 +1482,73 @@ mod tests {
         .unwrap();
         std::fs::write(dropin_dir.join("20-reset.conf"), "[Service]\nEnvironmentFile=\n").unwrap();
         assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_err());
+
+        // UTF-8 BOM at start of YAML does not hide top-level worm key
+        let bom_worm = yaml_worm_settings("\u{feff}worm:\n  mode: compliance\n").unwrap();
+        assert_eq!(bom_worm.mode.as_deref(), Some("compliance"));
+
+        // LiveKit configured in config.env must match gateway federation.env
+        let lk_dir = dir.path().join("livekit");
+        std::fs::create_dir_all(&lk_dir).unwrap();
+        let lk_cfg = lk_dir.join("config.env");
+        let lk_fed = lk_dir.join("federation.env");
+        let lk_gw = lk_dir.join("gateway.env");
+        let lk_unit = lk_dir.join("gw.service");
+        std::fs::write(
+            &lk_cfg,
+            "LIVEKIT_API_KEY=setjoin\nLIVEKIT_API_SECRET=sec\nLIVEKIT_URL=ws://127.0.0.1:7880\n",
+        )
+        .unwrap();
+        std::fs::write(&lk_gw, "GATEWAY_ENABLED=true\nWORM_MODE=\n").unwrap();
+        std::fs::write(&lk_fed, "DB_DSN=postgres://app@localhost/mail\n").unwrap();
+        std::fs::write(
+            &lk_unit,
+            format!(
+                "[Service]\nEnvironmentFile=-{}\nEnvironmentFile={}\n",
+                lk_fed.display(),
+                lk_gw.display()
+            ),
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&lk_unit, Some(&lk_cfg), &stale_default).is_err());
+        std::fs::write(
+            &lk_fed,
+            "DB_DSN=postgres://app@localhost/mail\nLIVEKIT_API_KEY=setjoin\nLIVEKIT_API_SECRET=sec\nLIVEKIT_URL=ws://127.0.0.1:7880\n",
+        )
+        .unwrap();
+        assert!(check_worm_gateway_ready(&lk_unit, Some(&lk_cfg), &stale_default).is_ok());
+
+        // Multi-tier drop-in precedence: /run tier applies under /etc base unit, /etc overrides same name
+        let tier_root = dir.path().join("tiers");
+        let tier_lib = tier_root.join("usr-lib/setjoin-gateway.service.d");
+        let tier_run = tier_root.join("run/setjoin-gateway.service.d");
+        let tier_etc = tier_root.join("etc/setjoin-gateway.service.d");
+        std::fs::create_dir_all(&tier_lib).unwrap();
+        std::fs::create_dir_all(&tier_run).unwrap();
+        std::fs::create_dir_all(&tier_etc).unwrap();
+        let tier_unit = tier_root.join("etc/setjoin-gateway.service");
+        let f1 = dir.path().join("tier1.env");
+        let f2 = dir.path().join("tier2.env");
+        let f3 = dir.path().join("tier3.env");
+        std::fs::write(&tier_unit, format!("[Service]\nEnvironmentFile={}\n", f1.display())).unwrap();
+        std::fs::write(&tier_lib.join("10-a.conf"), format!("[Service]\nEnvironmentFile={}\n", f2.display())).unwrap();
+        std::fs::write(&tier_run.join("10-a.conf"), format!("[Service]\nEnvironmentFile={}\n", f3.display())).unwrap();
+        std::fs::write(&tier_etc.join("20-b.conf"), format!("[Service]\nEnvironmentFile={}\n", f2.display())).unwrap();
+        let tier_dirs = default_dropin_dirs(Path::new("/etc/systemd/system/setjoin-gateway.service"));
+        assert!(tier_dirs.contains(&Path::new("/run/systemd/system/setjoin-gateway.service.d").to_path_buf()));
+        assert!(tier_dirs.contains(&Path::new("/usr/lib/systemd/system/setjoin-gateway.service.d").to_path_buf()));
+        let merged = load_unit_env_files_with_dirs(&tier_unit, &[tier_lib, tier_run.clone(), tier_etc.clone()]).unwrap();
+        assert_eq!(merged, vec![(f1, false), (f3, false), (f2, false)]);
+
+        #[cfg(unix)]
+        {
+            let loop_dir = dir.path().join("loop.service.d");
+            std::fs::create_dir_all(&loop_dir).unwrap();
+            let loop_unit = dir.path().join("loop.service");
+            std::fs::write(&loop_unit, "[Service]\n").unwrap();
+            std::os::unix::fs::symlink(loop_dir.join("b.conf"), loop_dir.join("a.conf")).unwrap();
+            std::os::unix::fs::symlink(loop_dir.join("a.conf"), loop_dir.join("b.conf")).unwrap();
+            assert!(load_unit_env_files_with_dirs(&loop_unit, &[loop_dir]).is_err());
+        }
     }
 }

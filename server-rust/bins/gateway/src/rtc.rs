@@ -618,8 +618,9 @@ fn escape_path(p: &[u8]) -> String {
 }
 
 /// Go `net/http/httputil.cleanQueryParams` parity: keep valid queries verbatim;
-/// strip semicolon-containing or malformed percent-escape segments and
-/// over-limit trailing parameters by re-encoding via `url.ParseQuery`.
+/// strip semicolon-containing or malformed percent-escape segments via
+/// `url.ParseQuery`, and discard the entire query when raw `&`-delimited
+/// segments exceed `MAX_PARAMS` (10,000).
 fn clean_query_params(s: &str) -> String {
     const MAX_PARAMS: usize = 10_000;
     let b = s.as_bytes();

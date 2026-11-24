@@ -575,13 +575,20 @@ FED
 # render_federation_env OUTFILE CONFIG_ENV DB_CRED_FILE — a strict allowlist.
 # Copy literal EnvironmentFile assignments, never source the broad secret files.
 # Owner DSNs and unrelated worker switches must never reach the front door.
+# Also projects LIVEKIT_* sidecar credentials when present in config.env so
+# setjoin-gateway serves /rtc, /api/rtc, and /api/meet/* without loading config.env.
 render_federation_env() {
-  local outfile="$1" config="$2" credentials="$3" tmp key names allowed
+  local outfile="$1" config="$2" credentials="$3" tmp key names allowed livekit_key livekit_val
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
   (
     umask 027
     if [ -f "$config" ]; then
       grep -E '^(DB_DSN|DB_DIRECT_DSN|FEDERATION_LOCAL_DOMAIN|FEDERATION_CERT|FEDERATION_KEY|FEDERATION_LISTEN_ADDR)=' "$config" || true
+      for livekit_key in LIVEKIT_API_KEY LIVEKIT_API_SECRET LIVEKIT_URL; do
+        if env_file_try livekit_val "$config" "$livekit_key" && [ -n "$livekit_val" ]; then
+          systemd_env_line "$livekit_key" "$livekit_val" || exit 1
+        fi
+      done
     fi
     if [ -f "$credentials" ]; then
       grep -E '^DB_WORKER_DSN=' "$credentials" || true

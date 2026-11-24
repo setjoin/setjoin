@@ -47,19 +47,23 @@ signed DDL preserves Go's one-transaction-per-migration schema/evidence contract
 ambiguous completion requires exact durable checksum evidence before success.
 Feature-registry contracts bind preflight, commit and rollback to live mode,
 catalog digest and the previous binary's compatibility evidence.
-`host::preflight` evaluates `setjoin-gateway.service` and its `<unit>.d/*.conf`
-drop-ins' `EnvironmentFile=` chain in systemd order (respecting empty
-`EnvironmentFile=` resets, with optional whitespace around `=`) and checks that
-DB-backed hosts declare explicit empty `WORM_MODE=` in `gateway.env` with an
-empty effective `WORM_MODE` when WORM is disabled, and that active WORM settings
-(`SETJOIN_CONFIG_DIR` or unit-derived `config.env`, plus `SETJOIN_CONFIG` YAML
-`worm.mode` and `worm.retention_days`) match a present `storage.env`, at least
-one non-empty effective `S3_*`/`MINIO_*` storage setting, and effective
-`WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`/`WORM_RETENTION_DAYS`, failing closed on
-unreadable, merged, or unparsed YAML constructs in `worm` config; all DB-backed
-immutable hosts should upgrade `setjoin-updater` and run
-`upgrade.sh refresh-gateway-env` before activating a gateway release that retires
-Go's legal-hold forward.
+`host::preflight` evaluates `setjoin-gateway.service` and its systemd `<unit>.d/*.conf`
+drop-ins across system tiers (`/lib`, `/usr/lib`, `/usr/local/lib`, `/run`, `/etc`,
+with higher tiers overriding same-named files and failing closed on unreadable
+drop-ins or metadata errors) in `EnvironmentFile=` order (respecting empty
+`EnvironmentFile=` resets with optional whitespace around `=`), and checks that:
+- DB-backed hosts declare explicit empty `WORM_MODE=` in `gateway.env` with an
+  empty effective `WORM_MODE` when WORM is disabled;
+- active WORM settings (`SETJOIN_CONFIG_DIR` or unit-derived `config.env`, plus
+  UTF-8-BOM-stripped `SETJOIN_CONFIG` YAML `worm.mode` and `worm.retention_days`)
+  match a present `storage.env`, at least one non-empty effective `S3_*`/`MINIO_*`
+  storage setting, and effective `WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`/`WORM_RETENTION_DAYS`,
+  failing closed on unreadable, merged, or unparsed YAML constructs in `worm` config;
+- configured `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`/`LIVEKIT_URL` in `config.env`
+  match the gateway's effective unit env (`federation.env`).
+All DB-backed or LiveKit-enabled immutable hosts should upgrade `setjoin-updater`
+and run `upgrade.sh refresh-gateway-env` before activating a gateway release that
+retires Go's legal-hold or `/api/rtc` forwards.
 
 The Rust-only versioned hash-chain journal uses `rust-events.jsonl`,
 `rust-tip.json` and `rust-last-terminal.json` with a private `executor.lock`.

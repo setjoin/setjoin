@@ -12,9 +12,11 @@ printf '%s\n' "$*" >> "$FED_TEST_LOG"
 if [ "${1:-}" = enable ] && [ -n "${FED_TEST_FAIL_ENABLE:-}" ] && [ "${2:-}" = "$FED_TEST_FAIL_ENABLE" ]; then
   exit 1
 fi
-if [ "${1:-}" = is-enabled ] && [ -n "${FED_TEST_ENABLED_SOCKETS+x}" ]; then
+if [ "${1:-}" = is-enabled ] && { [ -n "${FED_TEST_ENABLED_SOCKETS+x}" ] || [ -n "${FED_TEST_RUNTIME_SOCKETS+x}" ]; }; then
   target="${3:-${2:-}}"
-  case " ${FED_TEST_ENABLED_SOCKETS} " in *" $target "*) exit 0 ;; *) exit 1 ;; esac
+  case " ${FED_TEST_RUNTIME_SOCKETS:-} " in *" $target "*) printf 'enabled-runtime\n'; exit 0 ;; esac
+  case " ${FED_TEST_ENABLED_SOCKETS:-} " in *" $target "*) printf 'enabled\n'; exit 0 ;; esac
+  exit 1
 fi
 MOCK
 cat > "$tmp/bin/chown" <<'MOCK'
@@ -212,6 +214,29 @@ ENV
   if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'refresh-gateway-env enable rollback stopped setjoin-gateway' >&2; exit 1; fi
   grep -qx 'enable setjoin-https.socket' "$im/actions"
   grep -qx 'disable setjoin-https.socket' "$im/actions"
+  diff -ru "$im/before-enable-units" "$im/units"
+
+  # Partial-enable rollback restores prior enabled-runtime sockets with --runtime instead of making them permanent.
+  cp "$im/config.before" "$im/config/config.env"
+  : > "$im/actions"
+  cat >> "$im/config/config.env" <<'ENV'
+FEDERATION_ENABLED=true
+FEDERATION_LOCAL_DOMAIN=zulu.test
+FEDERATION_CERT=/fixture/leaf.crt
+FEDERATION_KEY=/fixture/leaf.key
+FEDERATION_LISTEN_ADDR=127.0.0.1:17443
+ENV
+  rt_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
+    FED_TEST_ENABLED_SOCKETS="" FED_TEST_RUNTIME_SOCKETS="setjoin-https.socket" \
+    FED_TEST_FAIL_ENABLE="setjoin-federation.socket" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env 2>/dev/null || rt_rc=$?
+  [ "$rt_rc" != 0 ] || { echo 'expected runtime socket rollback failure in refresh-gateway-env' >&2; exit 1; }
+  if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'runtime enable rollback stopped setjoin-gateway' >&2; exit 1; fi
+  grep -qx 'disable setjoin-https.socket' "$im/actions"
+  grep -qx 'enable --runtime setjoin-https.socket' "$im/actions"
+  test "$(grep -xc 'enable setjoin-https.socket' "$im/actions")" = 1
   diff -ru "$im/before-enable-units" "$im/units"
 
   # Restore valid config.env before testing lock contention with valid inputs.

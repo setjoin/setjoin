@@ -86,7 +86,7 @@ AUTH_WAS_ACTIVE=0
 # The descriptor set is part of the release: older gateways cannot consume
 # the federation FD. Keep absence as well as bytes/modes for whole-release rollback.
 backup_gateway_deployment() {
-    local file
+    local file state=""
     [ ! -L "$DEPLOYMENT_PREV" ] || return 1
     rm -rf "$DEPLOYMENT_PREV"
     ( umask 077; mkdir -p "$DEPLOYMENT_PREV/units" "$DEPLOYMENT_PREV/config" )
@@ -103,12 +103,22 @@ backup_gateway_deployment() {
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -e "$SYSTEMD_DIR/$file" ]; then
             systemctl is-active --quiet "$file" && touch "$DEPLOYMENT_PREV/$file-active" || true
-            systemctl is-enabled --quiet "$file" && touch "$DEPLOYMENT_PREV/$file-enabled" || true
+            if state="$(systemctl is-enabled "$file" 2>/dev/null)"; then
+                case "$state" in
+                    enabled-runtime) printf 'enabled-runtime\n' > "$DEPLOYMENT_PREV/$file-enabled" ;;
+                    enabled|'') printf 'enabled\n' > "$DEPLOYMENT_PREV/$file-enabled" ;;
+                esac
+            fi
         fi
     done
     if [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
         systemctl is-active --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-active" || true
-        systemctl is-enabled --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-enabled" || true
+        if state="$(systemctl is-enabled setjoin-federation.socket 2>/dev/null)"; then
+            case "$state" in
+                enabled-runtime) printf 'enabled-runtime\n' > "$DEPLOYMENT_PREV/socket-enabled" ;;
+                enabled|'') printf 'enabled\n' > "$DEPLOYMENT_PREV/socket-enabled" ;;
+            esac
+        fi
     fi
     local prev_cache="" prev_devino=""
     prev_cache="$(
@@ -258,25 +268,33 @@ restore_gateway_files_only() {
     systemctl daemon-reload
     restore_tls_cache_meta
 }
+restore_socket_enabled_state() {
+    local unit="$1" marker="$2" state=""
+    [ -f "$marker" ] || return 0
+    state="$(cat "$marker" 2>/dev/null || true)"
+    if [ "$state" = enabled-runtime ]; then
+        systemctl enable --runtime "$unit" || true
+    else
+        systemctl enable "$unit" || true
+    fi
+}
 restore_gateway_refresh() {
-    local file
+    local file state=""
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        if [ ! -f "$DEPLOYMENT_PREV/$file-enabled" ] && [ -e "$SYSTEMD_DIR/$file" ]; then
+        state="$(cat "$DEPLOYMENT_PREV/$file-enabled" 2>/dev/null || true)"
+        if { [ ! -f "$DEPLOYMENT_PREV/$file-enabled" ] || [ "$state" = enabled-runtime ]; } && [ -e "$SYSTEMD_DIR/$file" ]; then
             systemctl disable "$file" || true
         fi
     done
-    if [ ! -f "$DEPLOYMENT_PREV/socket-enabled" ] && [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
+    state="$(cat "$DEPLOYMENT_PREV/socket-enabled" 2>/dev/null || true)"
+    if { [ ! -f "$DEPLOYMENT_PREV/socket-enabled" ] || [ "$state" = enabled-runtime ]; } && [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
         systemctl disable setjoin-federation.socket || true
     fi
     restore_gateway_files_only
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        if [ -f "$DEPLOYMENT_PREV/$file-enabled" ]; then
-            systemctl enable "$file" || true
-        fi
+        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled"
     done
-    if [ -f "$DEPLOYMENT_PREV/socket-enabled" ]; then
-        systemctl enable setjoin-federation.socket || true
-    fi
+    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled"
 }
 restore_gateway_deployment() {
     local file
@@ -290,10 +308,10 @@ restore_gateway_deployment() {
     done
     restore_gateway_files_only
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        if [ -f "$DEPLOYMENT_PREV/$file-enabled" ]; then systemctl enable "$file"; fi
+        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled"
         if [ -f "$DEPLOYMENT_PREV/$file-active" ]; then systemctl start "$file"; fi
     done
-    if [ -f "$DEPLOYMENT_PREV/socket-enabled" ]; then systemctl enable setjoin-federation.socket; fi
+    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled"
     if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket; fi
 }
 

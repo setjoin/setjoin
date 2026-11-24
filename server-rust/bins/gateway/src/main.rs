@@ -100,8 +100,8 @@ fn main() -> ExitCode {
     let db_backed = std::env::var("DB_DSN")
         .ok()
         .is_some_and(|s| !s.is_empty());
-    if db_backed {
-        if socket_activated && !explicit_worm_env {
+    if db_backed && socket_activated {
+        if !explicit_worm_env {
             eprintln!(
                 "setjoin-gateway: systemd-activated gateway requires explicit WORM_MODE (empty when disabled) in gateway.env; run upgrade.sh refresh-gateway-env before activating"
             );
