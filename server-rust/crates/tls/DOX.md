@@ -26,12 +26,14 @@ Go's format. Both stacks retain responsibility for PSKs, key schedules and binde
 0-RTT is disabled; expired (>7 days), malformed and unauthenticated tickets miss closed.
 The rustls version is pinned because its serialized session format is private.
 
-`go_interchange` replays archived Go TLS 1.2/1.3 sessions (only timestamps retargeted),
-checks Rust tickets with Go's standard-library format consumer, and compares current/previous,
-older-generation, bad-MAC and expired-ticket behavior with immutable Go recordings.
-A deliberately wrong key must fail the resumption oracle. Recording runs a frozen Go server;
-ordinary replay starts only Rust servers plus a Go TLS client/format consumer. See
-[recording contract](../../tests/conformance/tlsfront/README.md). Application resumption data is not installed by this frontend.
+`go_interchange` replays archived Go TLS 1.2/1.3 sessions (decrypting the immutable recorded Go
+tickets directly via `Tickets::open` and translating retargeted timestamps via `state::for_rustls`),
+verifies live `Frontend`-issued tickets against Go's `SHA-512` → `AES-128-CTR` + `HMAC-SHA256`
+envelope and `SessionState` wire layout, and compares live TLS 1.3 current/previous, older-generation,
+bad-MAC and expired-ticket behavior with immutable Go recordings.
+A deliberately wrong key must fail the resumption oracle. Replay runs 100% in pure Rust with zero
+Docker and zero Go. See [recording contract](../../tests/conformance/tlsfront/README.md).
+Application resumption data is not installed by this frontend.
 
 `Frontend::from_env_with_client_verifier` (#468) accepts the gateway's optional
 ring-backed rustls client verifier; TLS continues to own proof of key possession

@@ -114,8 +114,6 @@ IMAGES_LOCK = ".github/ci/images.lock"
 GO_IMAGES = ("setjoin-ci-linux-tc", "setjoin-server-rust-lane")
 # Reviewed tasks allowed to create, start or exec into a Go-capable container during the lane.
 GO_TASKS = {
-    "gofree-fed2": "go: fedharness interop peer, build and run (owner decision 2026-11-02: test tooling)",
-    "gofree-tlsfront": "go: frozen Go TLS client peer of the TLS front interchange replay",
     "gofree-rel3": "no Go (reviewed scripts): bash runs the Rust setjoin-updater installer/office oracles",
 }
 PROBE_TASK = "gofree-rehearsal-probe"
@@ -128,17 +126,9 @@ GO_ELF_ALLOW = {
     "/usr/local/bin/docker": "host docker CLI (bind mount in scripts/lane-container.sh)",
     "/usr/local/bin/pebble": "pinned ACME test server (scripts/server-rust-lane-tools.sh)",
 }
-TLS_PEER = "test-results/gofree-tlsfront/gofree-tlsfront-peer"
-FEDHARNESS_BUILD = re.compile(r"/gofree-fed2-peer-\d+/fedharness$")
-# Every source reference to a frozen Go peer binary, pinned per file. Each reviewed reference runs the
-# binary only inside its labelled sibling container (container paths /src/..., /output/..., absent in the
-# lane container) or only checks it exists; a new reference is red until reviewed.
+# Every source reference to a retired frozen Go peer binary, pinned per file (0 = absolute ban).
 GO_PEER_PATTERN = re.compile(r"gofree-tlsfront-peer|/fedharness\b")
-GO_PEER_REFERENCES = {
-    "server-rust/crates/protocols/federation/tests/interop.rs": 3,
-    "server-rust/tests/conformance/tlsfront/build-peer.py": 3,
-    "server-rust/tests/conformance/tlsfront/peer.rs": 2,
-}
+GO_PEER_REFERENCES = {}
 COVERAGE_LINE = re.compile(r"^coverage (?P<route>.+) (?P<file>[^ ]+): lines (?P<covered>\d+)/(?P<count>\d+); regions")
 PRUNE = {"target", "node_modules", ".git"}
 
@@ -412,7 +402,7 @@ def go_elves(top="/"):
 
 
 def elf_allowed(path, root):
-    return path in GO_ELF_ALLOW or path == str(Path(root) / TLS_PEER) or FEDHARNESS_BUILD.search(path) is not None
+    return path in GO_ELF_ALLOW
 
 
 class WatchError(Exception):

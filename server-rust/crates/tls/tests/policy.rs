@@ -1,8 +1,4 @@
 //! Frozen-Go TLS negotiation policy, including rejection alerts and cipher changes on resumption.
-#[path = "../../acme/tests/support/pebble.rs"]
-mod pebble;
-#[path = "../../../tests/conformance/tlsfront/peer.rs"]
-mod peer;
 use rustls::{
     crypto::ring::{cipher_suite as cs, kx_group as kx},
     pki_types::{pem::PemObject, CertificateDer, ServerName},
@@ -12,7 +8,6 @@ use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 struct Work(PathBuf);
@@ -166,12 +161,17 @@ async fn connect(address: &str, cfg: ClientConfig) -> Value {
         .await
     {
         Err(e) => match e.get_ref().and_then(|e| e.downcast_ref::<rustls::Error>()) {
-            Some(rustls::Error::AlertReceived(alert)) => json!({"alert":u8::from(*alert)}),
+            Some(rustls::Error::AlertReceived(alert)) => json!({"alert": u8::from(*alert)}),
             _ => panic!("unexpected TLS error: {e}"),
         },
         Ok(mut tls) => {
             let state = tls.get_ref().1;
-            let value = json!({"cipher":format!("{:?}",state.negotiated_cipher_suite().unwrap().suite()),"version":format!("{:?}",state.protocol_version().unwrap()),"alpn":String::from_utf8_lossy(state.alpn_protocol().unwrap_or_default()),"resumed":state.handshake_kind()==Some(rustls::HandshakeKind::Resumed)});
+            let value = json!({
+                "cipher": format!("{:?}", state.negotiated_cipher_suite().unwrap().suite()),
+                "version": format!("{:?}", state.protocol_version().unwrap()),
+                "alpn": String::from_utf8_lossy(state.alpn_protocol().unwrap_or_default()),
+                "resumed": state.handshake_kind() == Some(rustls::HandshakeKind::Resumed),
+            });
             let mut body = vec![];
             tls.read_to_end(&mut body).await.unwrap();
             assert_eq!(body, b"ok\n");
@@ -209,9 +209,18 @@ async fn native(
         let mut tasks = tokio::task::JoinSet::new();
         loop {
             tokio::select! {
-             _=&mut stopped=>break,
-             Some(_)=tasks.join_next(),if !tasks.is_empty()=>{},
-             accepted=ln.accept()=>{let (stream,_)=accepted.unwrap();let f=front.clone();tasks.spawn(async move{if let Ok(mut tls)=f.accept(stream).await {let _=tls.write_all(b"ok\n").await;let _=tls.shutdown().await;}});}
+                _ = &mut stopped => break,
+                Some(_) = tasks.join_next(), if !tasks.is_empty() => {}
+                accepted = ln.accept() => {
+                    let (stream, _) = accepted.unwrap();
+                    let f = front.clone();
+                    tasks.spawn(async move {
+                        if let Ok(mut tls) = f.accept(stream).await {
+                            let _ = tls.write_all(b"ok\n").await;
+                            let _ = tls.shutdown().await;
+                        }
+                    });
+                }
             }
         }
         tasks.abort_all();
@@ -256,55 +265,10 @@ async fn negotiations_and_resumption_match_go_policy() {
     .build()
     .unwrap();
     let auth = Arc::new(NoClientCert);
-    let recording = std::env::var_os("GOFREE_RECORD_TLS_POLICY").is_some();
-    let _ca = if recording {
-        Some(
-            pebble::Pebble::start()
-                .await
-                .expect("recording needs Pebble"),
-        )
-    } else {
-        None
-    };
     let mut rows = vec![];
     for aes in [true, false] {
         for c in cases() {
-            let mut server = None;
-            let mut stop = None;
-            let mut native_task = None;
-            let address = if recording {
-                let ready = work.0.join("ready");
-                let _ = std::fs::remove_file(&ready);
-                let mut cfg = json!({"Raw":true,"Listen":"127.0.0.1:0","Ready":ready,"Cert":work.0.join("cert.pem"),"Key":work.0.join("key.pem"),"DisableAES":!aes,"Keys":["BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc="]});
-                if c.cold {
-                    cfg["Cert"] = json!("");
-                    cfg["Key"] = json!("");
-                    cfg["Domains"] = json!(["localhost"]);
-                    cfg["Cache"] = json!(work.0.join("cache"));
-                    cfg["Directory"] = json!(pebble::DIRECTORY);
-                    cfg["CA"] = json!(pebble::ca_root());
-                }
-                server = Some(peer::Server::spawn(&root, &cfg, &work.0.join("server.log")));
-                let mut address = None;
-                for _ in 0..100 {
-                    if let Ok(s) = std::fs::read_to_string(&ready) {
-                        address = Some(s);
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                }
-                address.unwrap_or_else(|| {
-                    panic!(
-                        "Go server: {}",
-                        std::fs::read_to_string(work.0.join("server.log")).unwrap()
-                    )
-                })
-            } else {
-                let (a, s, t) = native(&work, &c, aes).await;
-                stop = Some(s);
-                native_task = Some(t);
-                a
-            };
+            let (address, stop, task) = native(&work, &c, aes).await;
             let cfg = config(&c, verifier.clone(), auth.clone());
             let resume = cfg.resumption.clone();
             let mut observed = vec![connect(&address, cfg).await];
@@ -315,22 +279,12 @@ async fn negotiations_and_resumption_match_go_policy() {
                 cfg.resumption = resume;
                 observed.push(connect(&address, cfg).await);
             }
-            drop(server);
-            if let Some(stop) = stop {
-                let _ = stop.send(());
-            }
-            if let Some(task) = native_task {
-                task.await.unwrap();
-            }
-            rows.push(json!({"case":c.name,"aes":aes,"observation":observed}));
+            let _ = stop.send(());
+            task.await.unwrap();
+            rows.push(json!({"case": c.name, "aes": aes, "observation": observed}));
         }
     }
     let path = root.join("server-rust/tests/conformance/tlsfront/policy.json");
-    if recording {
-        assert!(!path.exists(), "immutable Go recording already exists");
-        std::fs::write(path,serde_json::to_vec_pretty(&json!({"format":1,"go_source":std::env::var("GOFREE_GO_SOURCE").unwrap(),"rows":rows})).unwrap()).unwrap();
-    } else {
-        let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        assert_eq!(golden["rows"], json!(rows));
-    }
+    let golden: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(golden["rows"], json!(rows));
 }

@@ -87,17 +87,16 @@ response normalization or golden editing hides the race. `v2-recording.json`
 binds requests, recordings, fixture identities and the frozen source.
 
 Interop: `cargo test --locked -p setjoin-federation --test interop -- --test-threads=1`
-builds and runs frozen Go `fedharness` only in `setjoin-ci-linux-tc:local-amd64`.
-Docker, that image and a Go module cache (`GOFREE_GO_MOD_CACHE`, default `$HOME/go/pkg/mod`) are prerequisites. Each role
-(Rust dialer / Rust acceptor) exchanges 300 messages in both directions,
-exceeding the 256-frame window, and verifies durable cursors and a gap-free
-inbox through the Go control API. #418 also sends native typing to the real Go
-peer in both roles, compares its committed notification with the unchanged Go
-Chat typing golden, and requires no additional inbox/outbox rows. Opposite peer-domain keys isolate both sides
-in the one assigned disposable DB; no second database is created. Containers
-use `GOFREE_RESOURCE_PREFIX` (default `gofree-fed2`), owned temporary binaries/logs
-are removed, and the Go build
-cache stays under `CARGO_TARGET_DIR/go-build` when configured.
+runs two in-process Rust `Service` instances (`zulu.test` and `alpha.test`) over
+loopback mutual TLS with `discover::StaticResolver` and the committed fixture
+certs (`oracle/certs/`), requiring no Docker or Go peer. Both roles
+(dialer/acceptor) exchange 300 messages in each direction, exceeding the
+256-frame window, and verify durable ack/applied cursors and gap-free inboxes
+directly in PostgreSQL. #418 also sends native typing in both roles, compares
+its committed `chat:<user>` notification with the unchanged Go Chat typing
+golden, and requires no additional inbox/outbox rows. Opposite peer-domain keys
+isolate both sides in the one assigned disposable DB; no second database is
+created.
 
 `Flags` is an injected product-feature cache, not a Rust-to-Go routing switch.
 The production runtime and admitted Chat producer are wired by #347 (below).
@@ -146,7 +145,7 @@ wakes outbound reconciliation immediately, preserving prompt initial dialing;
 subsequent feature reloads retain Go's 20-second cadence. Losing only the
 notification connection preserves the last valid snapshot, as Go does;
 reconnect uses 1–30 second exponential backoff. Production
-calls the same `Service` as the immutable session replay and fedharness interop.
+calls the same `Service` as the immutable session replay and peer interop.
 TLS 1.3 session resumption remains disabled as in frozen Go, so no ticket-key
 handover or certificate monitor is introduced.
 

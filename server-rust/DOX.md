@@ -619,8 +619,7 @@ PROPFIND controls across 5 cells. Every cell has a reviewed expected outcome (`N
 In the `roots` stage under `REQUIRE_DB=1`, `scripts/check-server-rust.sh` also runs
 `scripts/test-samlacs-mutants.py` (38 SAML ACS mutant rejections and positive controls).
 `GO_PEER_REFERENCES` pins every source reference
-to a frozen Go peer binary (each runs it only inside its labelled container, at container paths
-`/src/...` or `/output/...` that do not exist in the lane container); reviewed divergences; the 51
+to a retired frozen Go peer binary (now `0`: absolute ban); reviewed divergences; the 51
 `worker_semantics.json` workers owned by Rust; every seam present. #141 criteria 1 and 4 stay open until
 `PENDING` is empty and `FORWARD_SITES` is 0 (gateway `.forward(` stands at `12`, excluding the exempt `rust_auth_upstream` arm, with F04 WORM `PutObjectLegalHold`, `mailboxes` `CanonicalEmail`, `mail_security` TLS/trace settings, `directory_sync`, `surface`, `rtc`, and non-Kerberos `drive_native` checks native). `env` (every lane job): any Go upstream or recording
 variable present (even empty) is red; with `LANE_GO_MASKED=1` a reachable `go` is red.
@@ -631,10 +630,10 @@ nextest run and the adequacy gate: ready only after a probe's event came back th
 every existing container, and a scan of the whole lane-container filesystem for executable Go-built ELFs
 (`.go.buildinfo`); stop drains up to a second probe and scans again. Red: a container create, start or
 exec whose image is not pinned in `images.lock`; one from a Go-capable image (`setjoin-ci-linux-tc`,
-`setjoin-server-rust-lane`) without a `GO_TASKS` label (`gofree-fed2` fedharness and `gofree-tlsfront`
-frozen TLS peer run Go and are counterparties DELETE must replace; `gofree-rel3` runs the Rust updater)
+`setjoin-server-rust-lane`) without a `GO_TASKS` label (only `gofree-rel3`, which runs the Rust updater;
+both Go peers `gofree-fed2` and `gofree-tlsfront` are retired)
 other than the lane container itself; an image tag/untag/delete/load/import or a pull by tag during the
-lane; any Go ELF other than the docker CLI, pebble, the TLS peer and the fedharness build output; an
+lane; any Go ELF other than the docker CLI and pebble; an
 incomplete window. Every docker call is bounded (60 s) and probes are removed and checked. Residuals,
 not claimed: `exec()` is not traced, so a Go ELF created and deleted within one window and run in the
 lane tree would be missed (only allowlisted sibling tasks can produce one; the toolchain is masked);
