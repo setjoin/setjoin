@@ -56,9 +56,17 @@ fn main() -> ExitCode {
         println!("setjoin-gateway {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
-    let environment: std::collections::BTreeMap<String, String> = std::env::vars().collect();
-    let explicit_worm_env =
-        environment.contains_key("WORM_MODE") || environment.contains_key("WORM__MODE");
+    let environment: Vec<(String, String)> = std::env::vars().collect();
+    let env_get = |k: &str| {
+        environment
+            .iter()
+            .rev()
+            .find(|(name, _)| name == k)
+            .map(|(_, value)| value.as_str())
+    };
+    let explicit_worm_env = environment
+        .iter()
+        .any(|(k, _)| k == "WORM_MODE" || k == "WORM__MODE");
     let explicit_storage_env = [
         "S3_ENDPOINT",
         "S3__ENDPOINT",
@@ -72,15 +80,13 @@ fn main() -> ExitCode {
         "MINIO_SECRET_KEY",
     ]
     .iter()
-    .any(|k| environment.get(*k).is_some_and(|v| !v.is_empty()));
-    let socket_activated = environment
-        .get("LISTEN_PID")
-        .is_some_and(|pid| pid == &std::process::id().to_string())
-        && environment
-            .get("LISTEN_FDS")
+    .any(|k| env_get(k).is_some_and(|v| !v.is_empty()));
+    let socket_activated = env_get("LISTEN_PID")
+        .is_some_and(|pid| pid == std::process::id().to_string())
+        && env_get("LISTEN_FDS")
             .and_then(|fds| fds.parse::<usize>().ok())
             .is_some_and(|n| n > 0);
-    let settings = match setjoin_gateway::configuration::Settings::load(&environment) {
+    let settings = match setjoin_gateway::configuration::Settings::load_ordered(&environment) {
         Ok(settings) => settings,
         Err(error) => {
             eprintln!("setjoin-gateway: {error}");
@@ -89,10 +95,7 @@ fn main() -> ExitCode {
     };
     // An explicit Go configuration has the same validation boundary as reload.
     // The bare front-door bootstrap can still run without local application pools.
-    if environment
-        .get("SETJOIN_CONFIG")
-        .is_some_and(|path| !path.is_empty())
-    {
+    if env_get("SETJOIN_CONFIG").is_some_and(|path| !path.is_empty()) {
         if let Err(error) = settings.validate() {
             eprintln!("setjoin-gateway: {error}");
             return ExitCode::FAILURE;
@@ -118,13 +121,14 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    let configuration = match setjoin_gateway::configuration::Runtime::new(environment, settings) {
-        Ok(configuration) => Arc::new(configuration),
-        Err(error) => {
-            eprintln!("setjoin-gateway: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let configuration =
+        match setjoin_gateway::configuration::Runtime::new_ordered(environment, settings) {
+            Ok(configuration) => Arc::new(configuration),
+            Err(error) => {
+                eprintln!("setjoin-gateway: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

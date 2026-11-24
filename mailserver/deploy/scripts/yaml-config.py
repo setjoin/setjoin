@@ -184,13 +184,19 @@ class _Parser:
             return True
         if raw in ("false", "False", "FALSE"):
             return False
-        if re.fullmatch(r"[+-]?(?:0|[1-9][0-9]*)", raw):
-            return int(raw)
+        if re.fullmatch(r"[+-]?(?:0|[1-9](?:_?[0-9])*)", raw):
+            return int(raw.replace("_", ""))
+        if re.fullmatch(r"[+-]?0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*", raw):
+            return int(raw.replace("_", ""), 16)
+        if re.fullmatch(r"[+-]?0[oO][0-7](?:_?[0-7])*", raw):
+            return int(raw.replace("_", ""), 8)
+        if re.fullmatch(r"[+-]?0[bB][01](?:_?[01])*", raw):
+            return int(raw.replace("_", ""), 2)
         if re.fullmatch(
-            r"[+-]?(?:(?:0|[1-9][0-9]*)\.[0-9]*(?:[eE][+-]?[0-9]+)?|\.[0-9]+(?:[eE][+-]?[0-9]+)?|(?:0|[1-9][0-9]*)[eE][+-]?[0-9]+)",
+            r"[+-]?(?:(?:0|[1-9](?:_?[0-9])*)\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?|\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?|(?:0|[1-9](?:_?[0-9])*)[eE][+-]?[0-9](?:_?[0-9])*)",
             raw,
         ):
-            return float(raw)
+            return float(raw.replace("_", ""))
         return raw
 
     def read_indicator_name(self, sigil: str, in_flow: bool = False) -> str:
@@ -1075,6 +1081,24 @@ def cmd_env_get_any(args: list[str]) -> int:
     return 0
 
 
+def cmd_env_order(args: list[str]) -> int:
+    if len(args) < 2:
+        sys.stderr.write("usage: yaml-config.py env-order FILE KEY [KEY ...]\n")
+        return 2
+    entries = parse_systemd_env_entries(args[0])
+    wanted = set(args[1:])
+    emitted: set[str] = set()
+    for k in entries:
+        if k in wanted and k not in emitted:
+            sys.stdout.write(f"{k}\n")
+            emitted.add(k)
+    for k in args[1:]:
+        if k not in emitted:
+            sys.stdout.write(f"{k}\n")
+            emitted.add(k)
+    return 0
+
+
 def cmd_env_copy(args: list[str]) -> int:
     if len(args) < 2:
         sys.stderr.write("usage: yaml-config.py env-copy FILE KEY [KEY ...]\n")
@@ -1231,7 +1255,7 @@ def main(argv: list[str]) -> int:
         sys.stdout.reconfigure(newline="\n")
     if len(argv) < 2:
         sys.stderr.write(
-            "usage: yaml-config.py <get|env-line|env-get|env-get-any|env-copy|env-preserve|render-storage> ...\n"
+            "usage: yaml-config.py <get|env-line|env-get|env-get-any|env-order|env-copy|env-preserve|render-storage> ...\n"
         )
         return 2
     cmd = argv[1]
@@ -1243,6 +1267,8 @@ def main(argv: list[str]) -> int:
         return cmd_env_get(argv[2:])
     if cmd == "env-get-any":
         return cmd_env_get_any(argv[2:])
+    if cmd == "env-order":
+        return cmd_env_order(argv[2:])
     if cmd == "env-copy":
         return cmd_env_copy(argv[2:])
     if cmd == "env-preserve":

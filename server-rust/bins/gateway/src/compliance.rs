@@ -660,7 +660,15 @@ async fn search_fields(r: &mut Request<Body>) -> Result<(crate::chat::Fields, by
 }
 
 fn worm_mode_enabled() -> bool {
-    std::env::var("WORM_MODE").is_ok_and(|mode| !mode.is_empty())
+    std::env::vars()
+        .fold(None, |acc, (k, v)| {
+            if k == "WORM_MODE" || k == "WORM__MODE" {
+                Some(v)
+            } else {
+                acc
+            }
+        })
+        .is_some_and(|mode| !mode.is_empty())
 }
 
 fn worm_legal_hold_enabled() -> bool {
@@ -758,6 +766,30 @@ mod tests {
         env.insert("WORM_MODE".into(), String::new());
         let settings = Settings::parse(yaml, &env).unwrap();
         let cfg = WormConfig::from_settings(&settings);
+        assert!(!cfg.mode_enabled);
+        assert!(!cfg.legal_hold_enabled);
+
+        let ordered_enable = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM__MODE".into(), String::new()),
+                ("WORM_MODE".into(), "compliance".into()),
+            ],
+        )
+        .unwrap();
+        let cfg = WormConfig::from_settings(&ordered_enable);
+        assert!(cfg.mode_enabled);
+        assert!(cfg.legal_hold_enabled);
+
+        let ordered_disable = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM_MODE".into(), "compliance".into()),
+                ("WORM__MODE".into(), String::new()),
+            ],
+        )
+        .unwrap();
+        let cfg = WormConfig::from_settings(&ordered_disable);
         assert!(!cfg.mode_enabled);
         assert!(!cfg.legal_hold_enabled);
     }

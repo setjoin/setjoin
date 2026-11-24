@@ -12,7 +12,18 @@ pub struct Settings {
 }
 impl Settings {
     pub fn load(environment: &BTreeMap<String, String>) -> Result<Self, String> {
-        let yaml = match environment.get("SETJOIN_CONFIG").filter(|p| !p.is_empty()) {
+        let ordered: Vec<(String, String)> =
+            environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        Self::load_ordered(&ordered)
+    }
+    pub fn load_ordered(environment: &[(String, String)]) -> Result<Self, String> {
+        let yaml = match environment
+            .iter()
+            .rev()
+            .find(|(k, _)| k == "SETJOIN_CONFIG")
+            .map(|(_, v)| v.as_str())
+            .filter(|p| !p.is_empty())
+        {
             Some(path) => std::fs::read_to_string(path).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
                     format!("open {path}: no such file or directory")
@@ -22,13 +33,26 @@ impl Settings {
             })?,
             None => String::new(),
         };
-        Self::parse(&yaml, environment)
+        Self::parse_ordered(&yaml, environment)
     }
     pub fn set_network_mode(&mut self, mode: String) {
         self.values.insert("network.mode".into(), mode.into());
     }
 
     pub fn parse(yaml: &str, environment: &BTreeMap<String, String>) -> Result<Self, String> {
+        let ordered: Vec<(String, String)> =
+            environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        Self::parse_ordered(yaml, &ordered)
+    }
+    pub fn parse_ordered(yaml: &str, environment: &[(String, String)]) -> Result<Self, String> {
+        let env_get = |k: &str| {
+            environment
+                .iter()
+                .rev()
+                .find(|(name, _)| name == k)
+                .map(|(_, value)| value.as_str())
+        };
+        let env_has = |k: &str| environment.iter().any(|(name, _)| name == k);
         let mut values: BTreeMap<String, Value> =
             serde_json::from_str(include_str!("defaults.json")).expect("Go defaults");
         // LoadBase seeds these defaults from env BEFORE the YAML layer. In
@@ -38,12 +62,11 @@ impl Settings {
             ("db.worker_dsn", "DB_WORKER_DSN", "DB_DSN"),
             ("db.owner_dsn", "DB_OWNER_DSN", "DB_DSN"),
         ] {
-            let value = environment
-                .get(name)
+            let value = env_get(name)
                 .filter(|v| !v.is_empty())
-                .or_else(|| environment.get(fallback));
+                .or_else(|| env_get(fallback));
             if let Some(value) = value {
-                values.insert(key.into(), value.clone().into());
+                values.insert(key.into(), value.to_owned().into());
             }
         }
         let mut file = BTreeMap::new();
@@ -80,22 +103,22 @@ impl Settings {
             ("s3.bucket", "MINIO_BUCKET", "mailblobs"),
         ] {
             if values.get(key).and_then(Value::as_str) == Some(default) {
-                if let Some(value) = environment.get(name).filter(|v| !v.is_empty()) {
-                    values.insert(key.into(), value.clone().into());
+                if let Some(value) = env_get(name).filter(|v| !v.is_empty()) {
+                    values.insert(key.into(), value.to_owned().into());
                     file_keys.insert(key.into());
                 }
             }
         }
         // Mirror Go config.go:615-620 and 634-637 fallback rules when the explicit env vars are absent.
-        if !environment.contains_key("INTERNAL_DOMAINS")
+        if !env_has("INTERNAL_DOMAINS")
             && values.get("internal.domains").and_then(Value::as_str) == Some("localhost")
         {
-            if let Some(host) = environment.get("HOSTNAME").filter(|v| !v.is_empty()) {
-                values.insert("internal.domains".into(), host.clone().into());
+            if let Some(host) = env_get("HOSTNAME").filter(|v| !v.is_empty()) {
+                values.insert("internal.domains".into(), host.to_owned().into());
                 file_keys.insert("internal.domains".into());
             }
         }
-        if !environment.contains_key("WORM_LEGAL_HOLD_ENABLED") {
+        if !env_has("WORM_LEGAL_HOLD_ENABLED") {
             let worm_mode_non_empty = values
                 .get("worm.mode")
                 .and_then(Value::as_str)
@@ -364,5 +387,50 @@ mod tests {
 
         let quoted = Settings::parse("s3:\n  secure: \"1.0\"\n", &BTreeMap::new()).unwrap();
         assert!(!quoted.boolean("s3.secure"));
+    }
+
+    #[test]
+    fn settings_parse_ordered_preserves_last_slot_alias_precedence() {
+        let worm_on = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM__MODE".into(), String::new()),
+                ("WORM_MODE".into(), "compliance".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(worm_on.string("worm.mode"), "compliance");
+        assert!(worm_on.boolean("worm.legal_hold_enabled"));
+
+        let worm_off = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM_MODE".into(), "compliance".into()),
+                ("WORM__MODE".into(), String::new()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(worm_off.string("worm.mode"), "");
+        assert!(!worm_off.boolean("worm.legal_hold_enabled"));
+
+        let bucket_single = Settings::parse_ordered(
+            "",
+            &[
+                ("S3__BUCKET".into(), "first".into()),
+                ("S3_BUCKET".into(), "second".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(bucket_single.string("s3.bucket"), "second");
+
+        let bucket_double = Settings::parse_ordered(
+            "",
+            &[
+                ("S3_BUCKET".into(), "first".into()),
+                ("S3__BUCKET".into(), "second".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(bucket_double.string("s3.bucket"), "second");
     }
 }

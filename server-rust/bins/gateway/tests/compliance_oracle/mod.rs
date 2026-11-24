@@ -398,12 +398,14 @@ pub async fn forwarding() -> Result<(), BoxError> {
         account: Option<fixture::Account>,
         role: Option<i64>,
         blob_hash: Option<String>,
+        attachment_inserted: bool,
         receipts: Vec<String>,
     }
     let mut cleanup = Cleanup {
         account: None,
         role: None,
         blob_hash: None,
+        attachment_inserted: false,
         receipts: Vec::new(),
     };
     struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
@@ -442,19 +444,20 @@ pub async fn forwarding() -> Result<(), BoxError> {
             )
             .await?;
         let blob_hash = format!("{:064x}", a.two_labels);
-        cleanup.blob_hash = Some(blob_hash.clone());
         owner
             .execute(
                 "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,12,'text/plain',0)",
                 &[&blob_hash],
             )
             .await?;
+        cleanup.blob_hash = Some(blob_hash.clone());
         owner
             .execute(
                 "INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'hold.txt','text/plain','attachment',12 FROM messages WHERE id=$2 AND mailbox_id=$3",
                 &[&blob_hash, &a.two_labels, &a.mailbox],
             )
             .await?;
+        cleanup.attachment_inserted = true;
         let _env = Env(vec![
             ("WORM_MODE", std::env::var_os("WORM_MODE")),
             (
@@ -871,15 +874,21 @@ pub async fn forwarding() -> Result<(), BoxError> {
     })
     .catch_unwind()
     .await;
-    if let Some(blob_hash) = &cleanup.blob_hash {
+    if let (Some(a), Some(blob_hash)) = (&cleanup.account, &cleanup.blob_hash) {
+        if cleanup.attachment_inserted {
+            owner
+                .execute(
+                    "DELETE FROM message_attachments WHERE message_id=$1 AND blob_sha256=$2 \
+                     AND EXISTS (SELECT 1 FROM messages WHERE id=$1 AND mailbox_id=$3)",
+                    &[&a.two_labels, blob_hash, &a.mailbox],
+                )
+                .await?;
+        }
         owner
             .execute(
-                "DELETE FROM message_attachments WHERE blob_sha256=$1",
+                "DELETE FROM blobs WHERE sha256=$1 AND ref_count=0",
                 &[blob_hash],
             )
-            .await?;
-        owner
-            .execute("DELETE FROM blobs WHERE sha256=$1", &[blob_hash])
             .await?;
     }
     if let Some(a) = &cleanup.account {

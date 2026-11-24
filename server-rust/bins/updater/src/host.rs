@@ -595,6 +595,9 @@ fn parse_yaml_float(raw: &str) -> Option<f64> {
 }
 
 fn normalize_retention_days(raw: &str) -> String {
+    if let Some(v) = YamlParser::parse_yaml_int(raw) {
+        return v.to_string();
+    }
     if let Some(v) = parse_yaml_float(raw) {
         if v.fract() == 0.0 && v >= (i64::MIN as f64) && v <= (i64::MAX as f64) {
             return (v as i64).to_string();
@@ -633,7 +636,9 @@ fn koanf_bool(raw: &str) -> bool {
 
 fn yaml_koanf_bool(raw: &str, quoted: bool) -> bool {
     koanf_bool(raw)
-        || (!quoted && parse_yaml_float(raw).is_some_and(|v| v == 1.0))
+        || (!quoted
+            && (YamlParser::parse_yaml_int(raw) == Some(1)
+                || parse_yaml_float(raw).is_some_and(|v| v == 1.0)))
 }
 
 fn strict_go_bool(raw: &str, key: &str) -> Result<bool, String> {
@@ -3328,6 +3333,7 @@ mod tests {
         std::fs::write(&glob_extra_20, "WORM_MODE=compliance\n").unwrap();
         assert!(check_worm_gateway_ready(&glob_unit, None, &stale_default).is_err());
         // Required multi-segment glob profiles/*/storage.env skips subdirs missing storage.env and regular files
+        std::fs::write(&glob_cfg, "WORM_MODE=compliance\n").unwrap();
         let profiles_dir = glob_dir.join("profiles");
         std::fs::create_dir_all(profiles_dir.join("empty")).unwrap();
         std::fs::create_dir_all(profiles_dir.join("active")).unwrap();
@@ -3347,8 +3353,8 @@ mod tests {
             ),
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&glob_unit, Some(&glob_cfg), &stale_default).is_ok());
-        // Trailing missing optional gateway.env must not shadow the preceding existing gateway.env
+        assert!(check_worm_gateway_ready(&glob_unit, None, &stale_default).is_ok());
+        // Trailing missing optional gateway.env must not shadow the preceding existing gateway.env when inferring config.env
         std::fs::write(
             &glob_unit,
             format!(
@@ -3360,7 +3366,11 @@ mod tests {
             ),
         )
         .unwrap();
-        assert!(check_worm_gateway_ready(&glob_unit, Some(&glob_cfg), &stale_default).is_ok());
+        assert!(check_worm_gateway_ready(&glob_unit, None, &stale_default).is_ok());
+        std::fs::write(&glob_cfg, "WORM_MODE=governance\n").unwrap();
+        assert!(check_worm_gateway_ready(&glob_unit, None, &stale_default).is_err());
+        std::fs::write(&glob_cfg, "WORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&glob_unit, None, &stale_default).is_ok());
         std::fs::write(
             &glob_unit,
             format!(
@@ -3439,6 +3449,12 @@ mod tests {
         )
         .unwrap();
         std::fs::write(&gw, "GATEWAY_ENABLED=true\nWORM_MODE=compliance\n").unwrap();
+        assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
+        std::fs::write(
+            &yaml,
+            "s3:\n  bucket: mailblobs\n  secure: 1_0e-1\nworm:\n  mode: compliance\n",
+        )
+        .unwrap();
         assert!(check_worm_gateway_ready(&unit, Some(&cfg), &stale_default).is_ok());
         std::fs::write(
             &yaml,
