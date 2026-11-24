@@ -514,7 +514,7 @@ fn canonical_worm_retention_value(value: Option<&Value>) -> Option<String> {
                             && *f >= (i64::MIN as f64)
                             && *f < 9_223_372_036_854_775_808.0
                     })
-                    .map(|f| (*f as i64).to_string())
+                    .map(|f| (f as i64).to_string())
             }
         }
         Some(Value::String(s)) => {

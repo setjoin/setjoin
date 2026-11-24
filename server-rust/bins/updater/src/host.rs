@@ -3344,6 +3344,8 @@ mod tests {
         .unwrap();
         std::fs::write(dropin_dir.join("20-reset.conf"), "[Service]\nEnvironmentFile=\n").unwrap();
         assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_err());
+        std::fs::remove_file(dropin_dir.join("20-reset.conf")).unwrap();
+        assert!(check_worm_gateway_ready(&dropin_unit, Some(&cfg), &stale_default).is_ok());
 
         // UTF-8 BOM at start of YAML does not hide top-level worm key
         let bom_worm = yaml_worm_settings("\u{feff}worm:\n  mode: compliance\n").unwrap();
