@@ -139,23 +139,63 @@ ENV
     bash "$UPGRADE_SCRIPT" "$pre/new/setjoin-server" "$pre/new/mailctl" \
     "$pre/new/webmail" "$pre/new/setjoin-auth" >"$pre/out" 2>&1 || rc=$?
   if [ "$cutover_health" = ok ]; then
-    [ "$rc" = 0 ] || { cat "$pre/out" >&2; echo 'pre-#142 cutover failed unexpectedly' >&2; exit 1; }
-    [ ! -e "$pre/units/setjoin.service" ] || { echo 'pre-#142 cutover did not remove setjoin.service' >&2; exit 1; }
-    [ "$(cat "$pre/install/setjoin-server")" = 'new setjoin-server' ] || { echo 'setjoin-server not installed' >&2; exit 1; }
-    [ "$(cat "$pre/install/setjoin-gateway.prev")" = 'old setjoin-gateway' ] || { echo 'setjoin-gateway.prev missing' >&2; exit 1; }
-    [ "$(cat "$pre/install/mailserverd.prev")" = 'old mailserverd' ] || { echo 'mailserverd.prev missing' >&2; exit 1; }
+    [ "$rc" = 0 ] || {
+      cat "$pre/out" >&2
+      echo 'pre-#142 cutover failed unexpectedly' >&2
+      exit 1
+    }
+    [ ! -e "$pre/units/setjoin.service" ] || {
+      echo 'pre-#142 cutover did not remove setjoin.service' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/setjoin-server")" = 'new setjoin-server' ] || {
+      echo 'setjoin-server not installed' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/setjoin-gateway.prev")" = 'old setjoin-gateway' ] || {
+      echo 'setjoin-gateway.prev missing' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/mailserverd.prev")" = 'old mailserverd' ] || {
+      echo 'mailserverd.prev missing' >&2
+      exit 1
+    }
     grep -qx "ExecStart=$pre/install/setjoin-server" "$pre/units/setjoin-gateway.service"
     grep -qx 'stop setjoin' "$pre/systemctl.log"
     grep -qx 'disable setjoin' "$pre/systemctl.log"
-    ! grep -qx 'start setjoin' "$pre/systemctl.log" || { echo 'cutover started retired setjoin.service' >&2; exit 1; }
+    ! grep -qx 'start setjoin' "$pre/systemctl.log" || {
+      echo 'cutover started retired setjoin.service' >&2
+      exit 1
+    }
   else
-    [ "$rc" != 0 ] || { echo 'failed pre-#142 cutover reported success' >&2; exit 1; }
-    [ ! -e "$pre/install/setjoin-server" ] || { echo 'failed cutover left setjoin-server behind' >&2; exit 1; }
-    [ "$(cat "$pre/install/setjoin-gateway")" = 'old setjoin-gateway' ] || { echo 'setjoin-gateway not restored' >&2; exit 1; }
-    [ "$(cat "$pre/install/mailserverd")" = 'old mailserverd' ] || { echo 'mailserverd not restored' >&2; exit 1; }
-    [ "$(cat "$pre/install/authserverd")" = 'old authserverd' ] || { echo 'authserverd not restored' >&2; exit 1; }
-    cmp -s "$pre/setjoin.service.before" "$pre/units/setjoin.service" || { echo 'setjoin.service not restored on rollback' >&2; exit 1; }
-    cmp -s "$pre/setjoin-gateway.service.before" "$pre/units/setjoin-gateway.service" || { echo 'setjoin-gateway.service not restored on rollback' >&2; exit 1; }
+    [ "$rc" != 0 ] || {
+      echo 'failed pre-#142 cutover reported success' >&2
+      exit 1
+    }
+    [ ! -e "$pre/install/setjoin-server" ] || {
+      echo 'failed cutover left setjoin-server behind' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/setjoin-gateway")" = 'old setjoin-gateway' ] || {
+      echo 'setjoin-gateway not restored' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/mailserverd")" = 'old mailserverd' ] || {
+      echo 'mailserverd not restored' >&2
+      exit 1
+    }
+    [ "$(cat "$pre/install/authserverd")" = 'old authserverd' ] || {
+      echo 'authserverd not restored' >&2
+      exit 1
+    }
+    cmp -s "$pre/setjoin.service.before" "$pre/units/setjoin.service" || {
+      echo 'setjoin.service not restored on rollback' >&2
+      exit 1
+    }
+    cmp -s "$pre/setjoin-gateway.service.before" "$pre/units/setjoin-gateway.service" || {
+      echo 'setjoin-gateway.service not restored on rollback' >&2
+      exit 1
+    }
     grep -qx 'start setjoin' "$pre/systemctl.log"
     grep -qx 'start setjoin-gateway' "$pre/systemctl.log"
   fi
@@ -163,7 +203,7 @@ done
 echo 'pre-#142 cutover (retire setjoin.service + rollback): PASS'
 
 # ── C. Upgraded-host auth.env migration + posture refusal + rollback (#359b) ─
-mode_of() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
 # 1. Immutable host refresh-gateway-env migrates auth.env (with DB_WORKER_DSN +
 #    TRUSTED_PROXY_IP=127.0.0.1) and setjoin-auth.service (Rust setjoin-auth,
@@ -199,7 +239,10 @@ PATH="$tmp/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$im/install" SETJOIN_CONFI
   echo 'auth.env migration refresh-gateway-env failed' >&2
   exit 1
 }
-[ "$(mode_of "$im/config/auth.env")" = "600" ] || { echo 'migrated auth.env is not mode 600' >&2; exit 1; }
+[ "$(mode_of "$im/config/auth.env")" = "600" ] || {
+  echo 'migrated auth.env is not mode 600' >&2
+  exit 1
+}
 grep -qx 'LISTEN_ADDR=127.0.0.1:8443' "$im/config/auth.env"
 grep -qx 'TLS_CERT=' "$im/config/auth.env"
 grep -qx 'TLS_KEY=' "$im/config/auth.env"
@@ -233,8 +276,14 @@ if PATH="$tmp/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$im/install" SETJOIN_CO
   echo 'widened DB_CRED_FILE was accepted during auth.env migration' >&2
   exit 1
 fi
-cmp -s "$im/auth.env.before" "$im/config/auth.env" || { echo 'auth.env not restored after posture failure' >&2; exit 1; }
-cmp -s "$im/setjoin-auth.service.before" "$im/units/setjoin-auth.service" || { echo 'setjoin-auth.service not restored after posture failure' >&2; exit 1; }
+cmp -s "$im/auth.env.before" "$im/config/auth.env" || {
+  echo 'auth.env not restored after posture failure' >&2
+  exit 1
+}
+cmp -s "$im/setjoin-auth.service.before" "$im/units/setjoin-auth.service" || {
+  echo 'setjoin-auth.service not restored after posture failure' >&2
+  exit 1
+}
 
 # 3. Failed flat upgrade rolls back BOTH auth.env and setjoin-auth.service from $DEPLOYMENT_PREV.
 fl="$real_tmp/auth-flat-rb"
@@ -282,10 +331,22 @@ grep -q 'Health check FAILED' "$fl/out" || {
   echo 'expected readiness failure after auth/gateway render before rollback' >&2
   exit 1
 }
-cmp -s "$fl/auth.env.before" "$fl/config/auth.env" || { echo 'auth.env was not rolled back after readiness failure' >&2; exit 1; }
-cmp -s "$fl/setjoin-auth.service.before" "$fl/units/setjoin-auth.service" || { echo 'setjoin-auth.service was not rolled back after readiness failure' >&2; exit 1; }
-[ "$(cat "$fl/install/setjoin-auth")" = 'old setjoin-auth' ] || { echo 'setjoin-auth binary was not rolled back' >&2; exit 1; }
-[ "$(cat "$fl/install/setjoin-server")" = 'old server' ] || { echo 'setjoin-server binary was not rolled back' >&2; exit 1; }
+cmp -s "$fl/auth.env.before" "$fl/config/auth.env" || {
+  echo 'auth.env was not rolled back after readiness failure' >&2
+  exit 1
+}
+cmp -s "$fl/setjoin-auth.service.before" "$fl/units/setjoin-auth.service" || {
+  echo 'setjoin-auth.service was not rolled back after readiness failure' >&2
+  exit 1
+}
+[ "$(cat "$fl/install/setjoin-auth")" = 'old setjoin-auth' ] || {
+  echo 'setjoin-auth binary was not rolled back' >&2
+  exit 1
+}
+[ "$(cat "$fl/install/setjoin-server")" = 'old server' ] || {
+  echo 'setjoin-server binary was not rolled back' >&2
+  exit 1
+}
 
 # 4. Pre-#359 immutable host without setjoin-auth binary does NOT overwrite setjoin-auth.service.
 rm -f "$im/install/releases/r1/setjoin-auth"

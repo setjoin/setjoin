@@ -797,7 +797,8 @@ db_case!(guest_claim_and_guest_satellite_both_defer_to_go, |e| {
     let member = e.token(e.a.user, |_| {});
     assert_eq!(e.post(&member, &body).await.0, 200, "member control");
     let guest = e.token(e.a.user, |claims| claims["acct"] = json!("guest"));
-    assert_eq!(e.post(&guest, &body).await, (299, "from go".into(), true));
+    let (status, _, hit) = e.post(&guest, &body).await;
+    assert_eq!((status, hit), (404, false), "guest claim denied natively");
 
     // Deliberately inconsistent legacy data makes the satellite check
     // discriminating: the token claims member and the mailbox exists.
@@ -809,7 +810,8 @@ db_case!(guest_claim_and_guest_satellite_both_defer_to_go, |e| {
         )
         .await
         .unwrap();
-    assert_eq!(e.post(&member, &body).await, (299, "from go".into(), true));
+    let (status, _, hit) = e.post(&member, &body).await;
+    assert_eq!((status, hit), (404, false), "guest satellite denied natively");
 });
 
 db_case!(unconfigured_legacy_keys_forward_whole_requests, |e| {
@@ -896,24 +898,15 @@ db_case!(unconfigured_legacy_keys_forward_whole_requests, |e| {
         .body(full(body.clone()))
         .unwrap();
     let resp = common::send(gateway, req).await;
-    assert_eq!(resp.status(), 299, "Basic");
-    let got = captured.lock().await.pop().expect("forwarded request");
+    assert_eq!(resp.status(), 401, "Basic refused natively (non-dav-alternative-credential-401)");
     assert_eq!(
-        got,
-        (
-            hyper::Method::POST,
-            "/jmap?opaque=1%2F2".into(),
-            authorization,
-            [
-                vec!["mail.test".into()],
-                vec!["http://mail.test".into()],
-                vec!["application/json".into()],
-                vec!["first value".into(), "second value".into()],
-            ],
-            body.as_bytes().to_vec()
-        ),
-        "Basic"
+        resp.headers()
+            .get("www-authenticate")
+            .and_then(|v| v.to_str().ok()),
+        Some(r#"Negotiate, Bearer realm="mailserver""#),
+        "Basic challenge header"
     );
+    assert!(captured.lock().await.is_empty(), "Basic must not forward to Go");
     assert!(!e.is_read(e.a.inbox_only).await);
 });
 
@@ -987,7 +980,6 @@ db_case!(recorded_go_auth_responses_survive_deferral, |e| {
         ("guest", e.token(guest, |c| c["acct"] = json!("guest"))),
         ("denylisted", e.token(e.a.user, |_| {})),
     ];
-    let mut expected_upstream_calls = 0;
     for (name, token) in cases {
         let request = Request::post("/jmap")
             .header("host", "mail.test")
@@ -1009,12 +1001,9 @@ db_case!(recorded_go_auth_responses_survive_deferral, |e| {
             }),
             "{name}: Go effects"
         );
-        if name == "guest" {
-            expected_upstream_calls += 1;
-        }
         assert_eq!(
             calls.load(Ordering::SeqCst),
-            expected_upstream_calls,
+            0,
             "{name} upstream count"
         );
         assert_eq!(
