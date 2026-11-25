@@ -729,13 +729,13 @@ async fn handle(
             };
             route.handle(req, ctx).await
         }
-        None => catchall::not_found(
-            &req,
-            &RequestContext {
+        None => {
+            let ctx = RequestContext {
                 identity,
                 upstream: go_mail,
-            },
-        ),
+            };
+            catchall::root_redirect(&req, &ctx).unwrap_or_else(|| catchall::not_found(&req, &ctx))
+        }
     }
 }
 

@@ -84,7 +84,7 @@ expected=$'stop setjoin-gateway\nstop setjoin-federation.socket\nstop setjoin-ht
 echo 'legacy upgrade rollback (Go + Rust *.prev): PASS'
 
 # ── Upgraded-host auth.env migration + posture refusal + rollback (#359b) ────
-mode_of() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 owner="$(id -un)"
 group="$(id -gn)"
 real_tmp="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$tmp")"
@@ -123,7 +123,10 @@ PATH="$tmp/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$im/install" SETJOIN_CONFI
   echo 'auth.env migration refresh-gateway-env failed' >&2
   exit 1
 }
-[ "$(mode_of "$im/config/auth.env")" = "600" ] || { echo 'migrated auth.env is not mode 600' >&2; exit 1; }
+[ "$(mode_of "$im/config/auth.env")" = "600" ] || {
+  echo 'migrated auth.env is not mode 600' >&2
+  exit 1
+}
 grep -qx 'LISTEN_ADDR=127.0.0.1:8443' "$im/config/auth.env"
 grep -qx 'TLS_CERT=' "$im/config/auth.env"
 grep -qx 'TLS_KEY=' "$im/config/auth.env"
@@ -157,8 +160,14 @@ if PATH="$tmp/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$im/install" SETJOIN_CO
   echo 'widened DB_CRED_FILE was accepted during auth.env migration' >&2
   exit 1
 fi
-cmp -s "$im/auth.env.before" "$im/config/auth.env" || { echo 'auth.env not restored after posture failure' >&2; exit 1; }
-cmp -s "$im/setjoin-auth.service.before" "$im/units/setjoin-auth.service" || { echo 'setjoin-auth.service not restored after posture failure' >&2; exit 1; }
+cmp -s "$im/auth.env.before" "$im/config/auth.env" || {
+  echo 'auth.env not restored after posture failure' >&2
+  exit 1
+}
+cmp -s "$im/setjoin-auth.service.before" "$im/units/setjoin-auth.service" || {
+  echo 'setjoin-auth.service not restored after posture failure' >&2
+  exit 1
+}
 
 # 3. Failed flat upgrade rolls back BOTH auth.env and setjoin-auth.service from $DEPLOYMENT_PREV.
 fl="$real_tmp/auth-flat-rb"
@@ -209,9 +218,18 @@ grep -q 'Health check FAILED' "$fl/out" || {
   echo 'expected readiness failure after auth/gateway render before rollback' >&2
   exit 1
 }
-cmp -s "$fl/auth.env.before" "$fl/config/auth.env" || { echo 'auth.env was not rolled back after readiness failure' >&2; exit 1; }
-cmp -s "$fl/setjoin-auth.service.before" "$fl/units/setjoin-auth.service" || { echo 'setjoin-auth.service was not rolled back after readiness failure' >&2; exit 1; }
-[ "$(cat "$fl/install/setjoin-auth")" = 'old setjoin-auth' ] || { echo 'setjoin-auth binary was not rolled back' >&2; exit 1; }
+cmp -s "$fl/auth.env.before" "$fl/config/auth.env" || {
+  echo 'auth.env was not rolled back after readiness failure' >&2
+  exit 1
+}
+cmp -s "$fl/setjoin-auth.service.before" "$fl/units/setjoin-auth.service" || {
+  echo 'setjoin-auth.service was not rolled back after readiness failure' >&2
+  exit 1
+}
+[ "$(cat "$fl/install/setjoin-auth")" = 'old setjoin-auth' ] || {
+  echo 'setjoin-auth binary was not rolled back' >&2
+  exit 1
+}
 
 # 4. Pre-#359 immutable host without setjoin-auth binary does NOT overwrite setjoin-auth.service.
 rm -f "$im/install/releases/r1/setjoin-auth"

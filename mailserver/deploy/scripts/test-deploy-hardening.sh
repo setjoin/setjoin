@@ -57,7 +57,10 @@ for _dead in THREAT_GEO_BLOCK_ENABLED THREAT_SPRAY_DETECT_ENABLED THREAT_CAPTCHA
   refuse "sample: dead threat toggle name $_dead" "$_dead=" "$SAMPLE"
 done
 for _live in GEO_BLOCK_ENABLED SPRAY_DETECT_ENABLED CAPTCHA_ENABLED TARPIT_ENABLED; do
-  grep -Eq "^${_live}=" "$SAMPLE" || { echo "deploy hardening: sample lacks ^${_live}=" >&2; exit 1; }
+  grep -Eq "^${_live}=" "$SAMPLE" || {
+    echo "deploy hardening: sample lacks ^${_live}=" >&2
+    exit 1
+  }
 done
 
 # ── 1. config.env.sample: constrained three-role DSN posture ─────────────────
