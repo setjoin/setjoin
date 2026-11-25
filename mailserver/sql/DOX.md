@@ -1650,9 +1650,15 @@ None. This is a leaf node in the DOX tree.
 `dbschema/V276__rust_operation_receipts.sql` adds Rust-owned opaque operation
 commit metadata for the shared `setjoin-pg` authority helper. The UUID primary
 key, static family/command names and timestamp contain no user data, so the table
-is RLS-exempt (written table comment). `setjoin_owner` owns it; `setjoin_app` and
-`setjoin_worker` receive SELECT/INSERT. Provisioning also assigns ownership when
-roles are created after migrations on a fresh cluster. Reducers are unchanged.
+is RLS-exempt (written table comment). `setjoin_owner` owns it; `setjoin_app`
+receives only SELECT/INSERT while `setjoin_worker` receives SELECT/INSERT/DELETE.
+`dbschema/V284__rust_operation_receipts_retention.sql` (#473) indexes
+`committed_at`, revokes PUBLIC and tightens the table grants (restated in
+`scripts/provision-roles.sql` after its blanket table GRANT), and installs the
+worker-only `SECURITY INVOKER` reducer `prune_rust_operation_receipts(integer
+DEFAULT 5000)` (`reducers/prune_rust_operation_receipts.sql`) using
+`cron_retention_days('rust_operation_receipts_retain_days', 30)` and
+`ORDER BY committed_at, operation_id LIMIT p_batch_size` over PK `operation_id`.
 Receipt insertion commits with the command; Rust-only receipt rows are excluded
 from golden business-effect comparisons. See the [executor contract](../../server-rust/crates/pg/DOX.md#rust-operation-receipts-257265).
 

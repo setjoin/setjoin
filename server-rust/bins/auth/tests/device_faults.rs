@@ -475,3 +475,38 @@ async fn checkin_event_insert_failure_spends_nonce() {
     );
     assert_eq!(events, 0);
 }
+
+#[tokio::test]
+async fn checkin_writes_no_operation_receipt() {
+    let _s = SERIAL.lock().await;
+    let Some(case) = Case::open(false).await.unwrap() else {
+        return;
+    };
+    let outcome = async {
+        let before = common::receipt_ids(&case.c).await;
+        let payload = format!(
+            r#"{{"device_id":{},"events":[{{"type":"heartbeat","data":"ok"}}]}}"#,
+            case.device
+        );
+        let reply = case
+            .server
+            .handle(case.checkin(&payload, "gofree473-no-receipt", SECRET))
+            .await;
+        let status = reply.status().as_u16();
+        let has_op_id = reply.headers().contains_key("x-operation-id");
+        let after = common::receipt_ids(&case.c).await;
+        let events = case.events().await?;
+        Ok::<_, Err>((status, has_op_id, before, after, events))
+    }
+    .await;
+    case.close().await.unwrap();
+
+    let (status, has_op_id, before, after, events) = outcome.unwrap();
+    assert_eq!(status, 200);
+    assert!(!has_op_id, "checkin must not emit x-operation-id");
+    assert_eq!(events, 1, "checkin event must commit");
+    assert_eq!(
+        after, before,
+        "POST /device/checkin must write zero rows to rust_operation_receipts"
+    );
+}

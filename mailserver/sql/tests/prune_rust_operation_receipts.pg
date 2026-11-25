@@ -1,0 +1,326 @@
+-- pgTAP for V284 rust_operation_receipts retention & privilege hardening (#473).
+--
+-- Covers:
+--   1. Index idx_rust_operation_receipts_committed_at, migration 284, function
+--      signature, SECURITY INVOKER posture, search_path = pg_catalog, public.
+--   2. Privilege posture: setjoin_app has SELECT/INSERT only (NO UPDATE/DELETE
+--      on table, NO EXECUTE on prune_rust_operation_receipts); setjoin_worker
+--      has SELECT/INSERT/DELETE (NO UPDATE) and EXECUTE.
+--   3. Non-vacuous setjoin_app denial (42501) on an eligible stale row: both
+--      function EXECUTE and direct DELETE fail closed, row survives, then
+--      setjoin_worker deletes it.
+--   4. Parameter bounds (NULL, 0, -1, 50001 -> BZ040, 0 deleted) and
+--      cron_retention_days integration (invalid 0/-5/'abc' -> BZ040, 0 deleted;
+--      default 30d; custom override 7d).
+--   5. Batch cap deletes oldest-first across multiple families (F01, F12, F21)
+--      while preserving in-window rows.
+BEGIN;
+SELECT plan(45);
+
+-- ── 1. Install posture, SECURITY INVOKER, search_path, and privileges ────────
+SELECT has_index(
+    'public',
+    'rust_operation_receipts',
+    'idx_rust_operation_receipts_committed_at',
+    ARRAY['committed_at'],
+    'V284: committed_at index exists on rust_operation_receipts'
+);
+SELECT has_function(
+    'public',
+    'prune_rust_operation_receipts',
+    ARRAY['integer'],
+    'V284: prune_rust_operation_receipts(integer) exists'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM public.schema_migrations WHERE version = 284),
+    'V284: migration 284 recorded in schema_migrations'
+);
+SELECT is(
+    (SELECT prosecdef FROM pg_proc
+      WHERE oid = 'public.prune_rust_operation_receipts(integer)'::regprocedure),
+    false,
+    'prune_rust_operation_receipts is SECURITY INVOKER (prosecdef = false)'
+);
+SELECT ok(
+    (SELECT proconfig @> ARRAY['search_path=pg_catalog, public'] FROM pg_proc
+      WHERE oid = 'public.prune_rust_operation_receipts(integer)'::regprocedure),
+    'prune_rust_operation_receipts pins search_path = pg_catalog, public'
+);
+
+SELECT is(
+    has_table_privilege('setjoin_app', 'public.rust_operation_receipts', 'SELECT'),
+    true, 'setjoin_app has SELECT on rust_operation_receipts'
+);
+SELECT is(
+    has_table_privilege('setjoin_app', 'public.rust_operation_receipts', 'INSERT'),
+    true, 'setjoin_app has INSERT on rust_operation_receipts'
+);
+SELECT is(
+    has_table_privilege('setjoin_app', 'public.rust_operation_receipts', 'UPDATE'),
+    false, 'setjoin_app has NO UPDATE on rust_operation_receipts'
+);
+SELECT is(
+    has_table_privilege('setjoin_app', 'public.rust_operation_receipts', 'DELETE'),
+    false, 'setjoin_app has NO DELETE on rust_operation_receipts'
+);
+SELECT is(
+    has_function_privilege('setjoin_app', 'public.prune_rust_operation_receipts(integer)', 'EXECUTE'),
+    false, 'setjoin_app has NO EXECUTE on prune_rust_operation_receipts(integer)'
+);
+
+SELECT is(
+    has_table_privilege('setjoin_worker', 'public.rust_operation_receipts', 'SELECT'),
+    true, 'setjoin_worker has SELECT on rust_operation_receipts'
+);
+SELECT is(
+    has_table_privilege('setjoin_worker', 'public.rust_operation_receipts', 'INSERT'),
+    true, 'setjoin_worker has INSERT on rust_operation_receipts'
+);
+SELECT is(
+    has_table_privilege('setjoin_worker', 'public.rust_operation_receipts', 'DELETE'),
+    true, 'setjoin_worker has DELETE on rust_operation_receipts'
+);
+SELECT is(
+    has_table_privilege('setjoin_worker', 'public.rust_operation_receipts', 'UPDATE'),
+    false, 'setjoin_worker has NO UPDATE on rust_operation_receipts'
+);
+SELECT is(
+    has_function_privilege('setjoin_worker', 'public.prune_rust_operation_receipts(integer)', 'EXECUTE'),
+    true, 'setjoin_worker has EXECUTE on prune_rust_operation_receipts(integer)'
+);
+
+-- Isolate from any pre-existing rows in this transaction.
+DELETE FROM public.rust_operation_receipts;
+DELETE FROM public.system_config WHERE key = 'rust_operation_receipts_retain_days';
+
+-- ── 2. Non-vacuous setjoin_app denial on an eligible stale row ───────────────
+INSERT INTO public.rust_operation_receipts (operation_id, family, command, committed_at)
+VALUES ('10000000-0000-0000-0000-000000000001'::uuid, 'F21', 'pgtap.acl-probe', now() - interval '45 days');
+
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts()$stmt$,
+    '42501',
+    NULL,
+    'setjoin_app EXECUTE on prune_rust_operation_receipts is denied (42501)'
+);
+SELECT throws_ok(
+    $stmt$DELETE FROM public.rust_operation_receipts WHERE operation_id = '10000000-0000-0000-0000-000000000001'::uuid$stmt$,
+    '42501',
+    NULL,
+    'setjoin_app direct DELETE on rust_operation_receipts is denied (42501)'
+);
+RESET ROLE;
+
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '10000000-0000-0000-0000-000000000001'::uuid),
+    1,
+    'eligible stale row survives denied setjoin_app calls'
+);
+
+SET LOCAL ROLE setjoin_worker;
+SELECT is(
+    public.prune_rust_operation_receipts(),
+    1::bigint,
+    'setjoin_worker deletes the eligible stale row'
+);
+RESET ROLE;
+
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '10000000-0000-0000-0000-000000000001'::uuid),
+    0,
+    'eligible stale row is gone after worker sweep'
+);
+
+-- ── 3. Parameter bounds (NULL, 0, -1, 50001 -> BZ040, 0 deleted) ─────────────
+INSERT INTO public.rust_operation_receipts (operation_id, family, command, committed_at)
+VALUES ('20000000-0000-0000-0000-000000000001'::uuid, 'F01', 'pgtap.bounds', now() - interval '45 days');
+
+SET LOCAL ROLE setjoin_worker;
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts(NULL)$stmt$,
+    'BZ040', NULL, 'NULL p_batch_size refused (BZ040)'
+);
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts(0)$stmt$,
+    'BZ040', NULL, 'zero p_batch_size refused (BZ040)'
+);
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts(-1)$stmt$,
+    'BZ040', NULL, 'negative p_batch_size refused (BZ040)'
+);
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts(50001)$stmt$,
+    'BZ040', NULL, 'oversize p_batch_size (50001) refused (BZ040)'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '20000000-0000-0000-0000-000000000001'::uuid),
+    1,
+    'refused batch-size calls delete nothing'
+);
+
+-- ── 4. cron_retention_days: invalid refusals, default 30d, custom override ───
+RESET ROLE;
+INSERT INTO public.system_config (key, value, encrypted, updated_at)
+VALUES ('rust_operation_receipts_retain_days', '0', false, now())
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+
+SET LOCAL ROLE setjoin_worker;
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts()$stmt$,
+    'BZ040', NULL, 'zero-day retention config refused (BZ040)'
+);
+RESET ROLE;
+UPDATE public.system_config SET value = '-5' WHERE key = 'rust_operation_receipts_retain_days';
+SET LOCAL ROLE setjoin_worker;
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts()$stmt$,
+    'BZ040', NULL, 'negative retention config refused (BZ040)'
+);
+RESET ROLE;
+UPDATE public.system_config SET value = to_jsonb('abc'::text) WHERE key = 'rust_operation_receipts_retain_days';
+SET LOCAL ROLE setjoin_worker;
+SELECT throws_ok(
+    $stmt$SELECT public.prune_rust_operation_receipts()$stmt$,
+    'BZ040', NULL, 'non-integer retention config refused (BZ040)'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '20000000-0000-0000-0000-000000000001'::uuid),
+    1,
+    'invalid retention config deletes nothing'
+);
+
+-- Absent key falls back to default 30 days.
+RESET ROLE;
+DELETE FROM public.system_config WHERE key = 'rust_operation_receipts_retain_days';
+INSERT INTO public.rust_operation_receipts (operation_id, family, command, committed_at)
+VALUES ('20000000-0000-0000-0000-000000000002'::uuid, 'F12', 'pgtap.default-keep', now() - interval '29 days');
+
+SET LOCAL ROLE setjoin_worker;
+SELECT is(
+    public.prune_rust_operation_receipts(),
+    1::bigint,
+    'default 30-day window prunes the 45-day row only'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '20000000-0000-0000-0000-000000000001'::uuid),
+    0,
+    'default 30d: 45-day row deleted'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '20000000-0000-0000-0000-000000000002'::uuid),
+    1,
+    'default 30d: 29-day row preserved'
+);
+
+-- Custom override (7 days) prunes the 29-day row and keeps a 5-day row.
+RESET ROLE;
+INSERT INTO public.system_config (key, value, encrypted, updated_at)
+VALUES ('rust_operation_receipts_retain_days', '7', false, now());
+INSERT INTO public.rust_operation_receipts (operation_id, family, command, committed_at)
+VALUES ('20000000-0000-0000-0000-000000000003'::uuid, 'F21', 'pgtap.custom-keep', now() - interval '5 days');
+
+SET LOCAL ROLE setjoin_worker;
+SELECT is(
+    public.prune_rust_operation_receipts(),
+    1::bigint,
+    'custom 7-day override prunes the 29-day row'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '20000000-0000-0000-0000-000000000002'::uuid),
+    0,
+    'custom 7d: 29-day row deleted'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '20000000-0000-0000-0000-000000000003'::uuid),
+    1,
+    'custom 7d: 5-day row preserved'
+);
+
+-- ── 5. Batch cap deletes oldest-first across families F01, F12, F21 ──────────
+RESET ROLE;
+DELETE FROM public.rust_operation_receipts;
+DELETE FROM public.system_config WHERE key = 'rust_operation_receipts_retain_days';
+
+INSERT INTO public.rust_operation_receipts (operation_id, family, command, committed_at) VALUES
+    ('30000000-0000-0000-0000-000000000001'::uuid, 'F01', 'pgtap.oldest-1', now() - interval '90 days'),
+    ('30000000-0000-0000-0000-000000000002'::uuid, 'F12', 'pgtap.oldest-2', now() - interval '80 days'),
+    ('30000000-0000-0000-0000-000000000003'::uuid, 'F21', 'pgtap.oldest-3', now() - interval '70 days'),
+    ('30000000-0000-0000-0000-000000000004'::uuid, 'F01', 'pgtap.oldest-4', now() - interval '60 days'),
+    ('30000000-0000-0000-0000-000000000005'::uuid, 'F12', 'pgtap.oldest-5', now() - interval '50 days'),
+    ('30000000-0000-0000-0000-000000000006'::uuid, 'F21', 'pgtap.fresh-1',  now() - interval '10 days'),
+    ('30000000-0000-0000-0000-000000000007'::uuid, 'F01', 'pgtap.fresh-2',  now() - interval '1 day');
+
+SET LOCAL ROLE setjoin_worker;
+SELECT is(public.prune_rust_operation_receipts(2), 2::bigint, 'batch 1 deletes exactly 2 oldest rows');
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id IN (
+          '30000000-0000-0000-0000-000000000001'::uuid,
+          '30000000-0000-0000-0000-000000000002'::uuid
+      )),
+    0,
+    'batch 1 removed the 90d (F01) and 80d (F12) rows'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id IN (
+          '30000000-0000-0000-0000-000000000003'::uuid,
+          '30000000-0000-0000-0000-000000000004'::uuid,
+          '30000000-0000-0000-0000-000000000005'::uuid
+      )),
+    3,
+    'batch 1 left the 70d (F21), 60d (F01), and 50d (F12) rows intact'
+);
+
+SELECT is(public.prune_rust_operation_receipts(2), 2::bigint, 'batch 2 deletes next 2 oldest rows');
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id IN (
+          '30000000-0000-0000-0000-000000000003'::uuid,
+          '30000000-0000-0000-0000-000000000004'::uuid
+      )),
+    0,
+    'batch 2 removed the 70d (F21) and 60d (F01) rows'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id = '30000000-0000-0000-0000-000000000005'::uuid),
+    1,
+    'batch 2 left the 50d (F12) row intact'
+);
+
+SELECT is(public.prune_rust_operation_receipts(2), 1::bigint, 'batch 3 deletes final 1 stale row');
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id IN (
+          '30000000-0000-0000-0000-000000000001'::uuid,
+          '30000000-0000-0000-0000-000000000002'::uuid,
+          '30000000-0000-0000-0000-000000000003'::uuid,
+          '30000000-0000-0000-0000-000000000004'::uuid,
+          '30000000-0000-0000-0000-000000000005'::uuid
+      )),
+    0,
+    'all 5 expired rows across F01/F12/F21 are deleted'
+);
+SELECT is(
+    (SELECT count(*)::int FROM public.rust_operation_receipts
+      WHERE operation_id IN (
+          '30000000-0000-0000-0000-000000000006'::uuid,
+          '30000000-0000-0000-0000-000000000007'::uuid
+      )),
+    2,
+    'both in-window rows (F21 10d and F01 1d) survive untouched'
+);
+SELECT is(public.prune_rust_operation_receipts(2), 0::bigint, 'subsequent sweep returns 0 when caught up');
+
+SELECT * FROM finish();
+ROLLBACK;

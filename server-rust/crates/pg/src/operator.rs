@@ -106,6 +106,16 @@ impl OperatorConnection {
         self.client.batch_execute(statements).await.map_err(error)
     }
 
+    /// Begin a transaction with a server-side `SET LOCAL statement_timeout`
+    /// bounded to `1..=10_000` ms.
+    pub async fn begin_with_timeout(&self, timeout: std::time::Duration) -> Result<(), String> {
+        let ms = timeout.as_millis().clamp(1, 10_000);
+        self.client
+            .batch_execute(&format!("BEGIN; SET LOCAL statement_timeout = {ms}"))
+            .await
+            .map_err(error)
+    }
+
     /// Resolve one operator-selected user's devices with a transaction-local
     /// encryption key, matching frozen mailctl. Nothing is sent until COMMIT.
     pub async fn resolve_push_devices(
