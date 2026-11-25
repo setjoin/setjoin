@@ -36,7 +36,6 @@ pub fn config() -> Result<Config, Err> {
             Some(path.join("sp-key.pem").display().to_string()),
         ),
         ("DB_ENCRYPTION_KEY", Some(ENC.into())),
-        ("AUTHSERVER_GO_UPSTREAM", None),
     ];
     let before: Vec<_> = fields
         .iter()

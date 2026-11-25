@@ -19,8 +19,14 @@ struct Evidence {
 }
 fn inspect(root: &Path) -> Result<BTreeMap<String, String>> {
     let mut artifacts = BTreeMap::new();
-    for name in ["authserverd", "mailctl", "mailserverd", "setjoin-gateway"] {
-        if name == "setjoin-gateway"
+    for name in [
+        "authserverd",
+        "mailctl",
+        "mailserverd",
+        "setjoin-auth",
+        "setjoin-gateway",
+    ] {
+        if matches!(name, "setjoin-auth" | "setjoin-gateway")
             && fs::symlink_metadata(root.join(name))
                 .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
         {
@@ -48,6 +54,7 @@ fn quarantine(root: &Path, dir: &Path) -> Result<()> {
         "authserverd.prev",
         "mailctl.prev",
         "mailserverd.prev",
+        "setjoin-auth.prev",
         "setjoin-gateway.prev",
         "webmail.prev",
     ] {

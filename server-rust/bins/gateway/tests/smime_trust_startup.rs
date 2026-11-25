@@ -14,7 +14,6 @@ fn gateway(db: &Db, rust_on: &str, go_off: &str) -> std::io::Result<crate::commo
         .stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("GATEWAY_ENABLED", "false"),
         // Boot validates the request pool; worker effects still use DB_WORKER_DSN.
         // Use the restricted app role so boot cannot borrow worker authority.
         ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn)),

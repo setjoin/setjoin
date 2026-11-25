@@ -278,7 +278,8 @@ class Classify(unittest.TestCase):
     def test_rules(self):
         go_ids = {"sha256:" + "a" * 64}
         cases = [
-            (event(GO, "gofree-fed2"), "allowed"),
+            (event(GO, "gofree-fed2"), "go"),
+            (event(GO, "gofree-tlsfront"), "go"),
             (event(GO_PINNED, "gofree-rel3", action="exec_start: bash -c true"), "allowed"),
             (event(GO, action="start"), "go"),
             (event(GO, "gofree-guests1"), "go"),
@@ -308,7 +309,7 @@ class Windows(unittest.TestCase):
 
     def test_clean_windows_pass(self):
         existing = dict(event("setjoin-lane-pg:17"), kind="existing")
-        self.assertEqual(self.check([READY, existing, event(GO, "gofree-tlsfront", action="start"), STOPPED,
+        self.assertEqual(self.check([READY, existing, event(GO, "gofree-rel3", action="start"), STOPPED,
                                      READY, image_event("pull", GO_PINNED), STOPPED]), [])
 
     def test_empty_or_crashed_watch_is_red(self):
@@ -330,11 +331,12 @@ class Windows(unittest.TestCase):
         self.assertEqual(self.check([dict(READY, scan="/w"), STOPPED], require_masked=False), [])
 
     def test_go_elves(self):
-        ok = ["/usr/local/bin/docker", "/w/test-results/gofree-tlsfront/gofree-tlsfront-peer",
-              "/home/runner/.cache/x/tmp/gofree-fed2-peer-77/fedharness"]
+        ok = ["/usr/local/bin/docker", "/usr/local/bin/pebble"]
         self.assertEqual(self.check([dict(READY, go_elves=ok), dict(STOPPED, go_elves=ok)]), [])
-        bad = self.check([READY, dict(STOPPED, go_elves=["/usr/local/bin/mailserverd"])])
-        self.assertIn("mailserverd is not allowed", bad[0])
+        for forbidden in ("/usr/local/bin/mailserverd", "/w/test-results/gofree-tlsfront/gofree-tlsfront-peer",
+                          "/home/runner/.cache/x/tmp/gofree-fed2-peer-77/fedharness"):
+            bad = self.check([READY, dict(STOPPED, go_elves=[forbidden])])
+            self.assertIn("is not allowed", bad[0])
 
 
 class Scan(unittest.TestCase):
@@ -356,7 +358,7 @@ class Scan(unittest.TestCase):
 
 class PeerReferences(unittest.TestCase):
     def test_real_tree_pinned(self):
-        self.assertEqual(guard.peer_reference_problems(guard.ROOT), ([], 8))
+        self.assertEqual(guard.peer_reference_problems(guard.ROOT), ([], 0))
 
     def test_new_reference_is_red(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(guard, "GO_PEER_REFERENCES", {}):

@@ -211,7 +211,7 @@ pub async fn start(
         &envelope(&auth, operation, &format!("{name}:{domain_scope}")),
         &auth,
         deadline(),
-        "SELECT access_review_start($2,$4,$5) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT access_review_start($2,$4,$5) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&name, Type::TEXT), (&domain_scope, Type::INT8)],
         |rows| match rows {
             [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
@@ -245,7 +245,7 @@ pub async fn decide(
         &auth,
         deadline(),
         "SELECT count(*)::bigint FROM (SELECT access_review_decide($2,$4,$5,$6,$7,$8) \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[
             (&campaign, Type::INT8),
             (&item, Type::INT8),
@@ -280,7 +280,7 @@ pub async fn decide_bulk(
         ),
         &auth,
         deadline(),
-        "SELECT access_review_decide_bulk($2,$4,$5,$6,$7)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT access_review_decide_bulk($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&campaign, Type::INT8),
             (items, Type::INT8_ARRAY),
@@ -312,7 +312,7 @@ pub async fn close(
         &auth,
         deadline(),
         "SELECT count(*)::bigint FROM (SELECT access_review_close($2,$4,$5::text::inet,$6) \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[
             (&campaign, Type::INT8),
             (&ip, Type::TEXT),

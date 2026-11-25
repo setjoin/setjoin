@@ -180,7 +180,7 @@ pub async fn run(
     let sql = format!(
         "SELECT q.s, CASE WHEN q.s = 200 THEN {}::text END \
          FROM (SELECT CASE WHEN COALESCE((SELECT admin_can_reach($2,t.user_id) FROM identity_transitions t WHERE t.id=$4::text::uuid),false) THEN 200 ELSE 404 END AS s \
-               WHERE $1::bigint > 0 AND $3::text <> '') q",
+               WHERE $1::bigint >= 0 AND $3::text <> '') q",
         op.call()
     );
     let mut bound: Vec<Param<'_>> = vec![(&transition, Type::TEXT)];
@@ -222,7 +222,7 @@ pub async fn preview(
     let sql = format!(
         "SELECT q.s, CASE WHEN q.s = 200 THEN {call}::text END \
          FROM (SELECT CASE WHEN admin_can_reach($2,$4::bigint) THEN 200 ELSE 404 END AS s \
-               WHERE $1::bigint > 0 AND $3::text <> '') q"
+               WHERE $1::bigint >= 0 AND $3::text <> '') q"
     );
     setjoin_pg::run_receipted_command(
         worker,

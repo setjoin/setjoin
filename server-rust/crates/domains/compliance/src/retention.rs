@@ -24,7 +24,7 @@ pub async fn create(
 ) -> setjoin_pg::CommandOutcome<i64, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"retention.create"},&super::envelope(&auth,operation,patch),&auth,super::deadline(),
- "SELECT rust_compliance_retention_create($2,$4,$5::text::jsonb,$6) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_retention_create($2,$4,$5::text::jsonb,$6) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&scope,Type::INT8),(&patch,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 pub async fn update(
@@ -38,7 +38,7 @@ pub async fn update(
 ) -> setjoin_pg::CommandOutcome<bool, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"retention.update"},&super::envelope(&auth,operation,&format!("{scope}:{id}:{patch}:{ip}")),&auth,super::deadline(),
- "SELECT rust_compliance_retention_update($2,$4,$5,$6::text::jsonb,$7) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_retention_update($2,$4,$5,$6::text::jsonb,$7) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&scope,Type::INT8),(&id,Type::INT8),(&patch,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 pub async fn delete(
@@ -51,7 +51,7 @@ pub async fn delete(
 ) -> setjoin_pg::CommandOutcome<bool, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"retention.delete"},&super::envelope(&auth,operation,&format!("{scope}:{id}:{ip}")),&auth,super::deadline(),
- "SELECT rust_compliance_retention_delete($2,$4,$5,$6) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_retention_delete($2,$4,$5,$6) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&scope,Type::INT8),(&id,Type::INT8),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 
@@ -87,7 +87,7 @@ pub async fn log_set(
 ) -> setjoin_pg::CommandOutcome<(), StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"retention.logs.set"},&super::envelope(&auth,operation,&format!("{values:?}")),&auth,super::deadline(),
- "SELECT rust_compliance_log_retention_set($2,$4) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_log_retention_set($2,$4) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&values,Type::INT8_ARRAY)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }
 pub async fn prune(
@@ -97,6 +97,6 @@ pub async fn prune(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"retention.prune"},&super::envelope(&auth,operation,"prune_log_tables"),&auth,super::deadline(),
- "SELECT pruned_table,rows_deleted FROM rust_compliance_log_prune($2) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",&[],
+ "SELECT pruned_table,rows_deleted FROM rust_compliance_log_prune($2) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",&[],
  |rows|{let values=rows.iter().filter_map(|r|Some(format!("{{\"deleted\":{},\"table\":{}}}",r.try_get::<_,i32>(1).ok()?,quote(&r.try_get::<_,String>(0).ok()?)))).collect::<Vec<_>>();Ok(finish(format!("[{}]",values.join(","))))}).await
 }

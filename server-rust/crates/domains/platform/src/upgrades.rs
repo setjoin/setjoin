@@ -143,7 +143,7 @@ pub async fn missing_reason(
         &auth,
         deadline(),
         "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($5::text,'')::inet,$4::text,'core') \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&perm, Type::TEXT), (&ip, Type::TEXT)],
         |rows| {
             rows.first()

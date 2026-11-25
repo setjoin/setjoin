@@ -176,7 +176,7 @@ pub async fn delete(
         &auth,
         deadline(),
         "WITH d AS (DELETE FROM migration_jobs WHERE id = $4 \
-         AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM d",
+         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM d",
         &[(&id, Type::INT8)],
         count,
     )
@@ -233,7 +233,7 @@ pub async fn insert_job(
         deadline(),
         "WITH i AS (INSERT INTO migration_jobs (user_id, source_type, source_config_enc, target_mailbox_id, conflict_strategy, status) \
          SELECT $4::bigint, $5::text, $6::bytea, $7::bigint, 'skip', 'pending' \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) SELECT id FROM i",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) SELECT id FROM i",
         &[
             (&owner, Type::INT8),
             (&source, Type::TEXT),
@@ -274,12 +274,12 @@ pub async fn put_config(
     let auth = scope(actor);
     let sql = if sealed {
         "WITH w AS (INSERT INTO system_config (key, value, encrypted) \
-         SELECT $4::text, $5::text::jsonb, TRUE WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         SELECT $4::text, $5::text::jsonb, TRUE WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, encrypted = TRUE, updated_at = now() RETURNING 1) \
          SELECT count(*)::bigint FROM w"
     } else {
         "WITH w AS (INSERT INTO system_config (key, value) \
-         SELECT $4::text, $5::text::jsonb WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         SELECT $4::text, $5::text::jsonb WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now() RETURNING 1) \
          SELECT count(*)::bigint FROM w"
     };
@@ -311,7 +311,7 @@ pub async fn delete_config(
         &auth,
         deadline(),
         "WITH d AS (DELETE FROM system_config WHERE key = $4 \
-         AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM d",
+         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM d",
         &[(&key, Type::TEXT)],
         |rows| count(rows).map(|_| ()),
     )
@@ -336,7 +336,7 @@ pub async fn mint_consent(
         &auth,
         deadline(),
         "SELECT m365_consent_state_mint($4, $5, $6, $7)::text \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&user, Type::INT8),
             (&token, Type::TEXT),
@@ -705,7 +705,7 @@ pub async fn consume_consent(
         &envelope(&auth, operation, &format!("consent:{user}")),
         &auth,
         deadline(),
-        "SELECT m365_consent_state_consume($2,$4)::text WHERE $1::bigint>0 AND $3::text<>''",
+        "SELECT m365_consent_state_consume($2,$4)::text WHERE $1::bigint>=0 AND $3::text<>''",
         &[(&token, Type::TEXT)],
         |rows| match rows {
             [row] => row.try_get::<_, String>(0).map_err(|_| invalid()),
@@ -724,6 +724,6 @@ pub async fn complete_consent(
 ) -> CommandOutcome<(), StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,command("migration.m365.complete"),&envelope(&auth,operation,"m365.app"),&auth,deadline(),
-        "SELECT m365_consent_complete($2,$4,$5,'routine')::text WHERE $1::bigint>0 AND $3::text<>''",&[(&wrapped,Type::TEXT),(&notes,Type::TEXT)],
+        "SELECT m365_consent_complete($2,$4,$5,'routine')::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&wrapped,Type::TEXT),(&notes,Type::TEXT)],
         |rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }

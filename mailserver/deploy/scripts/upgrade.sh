@@ -13,47 +13,58 @@ set -euo pipefail
 # the health-check rollback below are the backstop.
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/setjoin}"
+REFRESH_GATEWAY_ENV=0
 if [ -L "$INSTALL_DIR/current" ]; then
     case "${1:-}" in
         status|evidence|activate-previous)
             action="$1"; shift
             exec /usr/libexec/setjoin-recovery "$action" "$@"
             ;;
+        refresh-gateway-env)
+            REFRESH_GATEWAY_ENV=1
+            ;;
         *)
             echo "This installation uses the transactional immutable layout; positional artifact-copy upgrades are disabled." >&2
-            echo "Use the signed Updates workflow. For recovery only: sudo $0 status | evidence | activate-previous --reason TEXT" >&2
+            echo "Use the signed Updates workflow, or 'sudo $0 refresh-gateway-env' to regenerate gateway unit/env files; for recovery: sudo $0 status | evidence | activate-previous --reason TEXT" >&2
             exit 2
             ;;
     esac
 fi
 
-NEW_BIN="${1:-}"
-NEW_MAILCTL="${2:-}"
-NEW_WEBMAIL="${3:-}"
-NEW_AUTH="${4:-}"
+NEW_BIN=""
+NEW_MAILCTL=""
+NEW_WEBMAIL=""
+NEW_AUTH=""
 # The Rust front door (#264): replaced, backed up as setjoin-gateway.prev and
 # restored on rollback exactly like the Go binaries.
-NEW_GATEWAY="${5:-}"
-if [ ! -f "$NEW_BIN" ]; then
-    echo "Usage: $0 /path/to/new/mailserverd [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/authserverd] [/path/to/new/setjoin-gateway]"
-    echo "  1. Build: cd mailserver && go build -o mailserverd ./cmd/mailserverd"
-    echo "           cd authserver && go build -o authserverd ./cmd/authserverd"
-    echo "           cd server-rust && cargo build --release --locked -p setjoin-mailctl   — Rust schema CLI"
-    echo "  2. Deploy: scp mailserverd authserverd mailctl user@host:/tmp/ && \\"
-    echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/mailserverd /tmp/mailctl /tmp/webmail-build /tmp/authserverd'"
-    exit 1
-fi
-if [ -n "$NEW_WEBMAIL" ] && [ ! -f "$NEW_WEBMAIL/index.html" ]; then
-    echo "Webmail build must be a directory containing index.html: $NEW_WEBMAIL"
-    exit 1
-fi
-if [ -n "$NEW_AUTH" ] && [ ! -f "$NEW_AUTH" ]; then
-    echo "Authserver binary does not exist: $NEW_AUTH"
-    exit 1
-fi
-if [ -n "$NEW_GATEWAY" ] && [ ! -f "$NEW_GATEWAY" ]; then
-    echo "Gateway binary does not exist: $NEW_GATEWAY"
-    exit 1
+NEW_GATEWAY=""
+if [ "$REFRESH_GATEWAY_ENV" = 0 ]; then
+    NEW_BIN="${1:-}"
+    NEW_MAILCTL="${2:-}"
+    NEW_WEBMAIL="${3:-}"
+    NEW_AUTH="${4:-}"
+    NEW_GATEWAY="${5:-}"
+    if [ ! -f "$NEW_BIN" ]; then
+        echo "Usage: $0 /path/to/new/mailserverd [/path/to/new/mailctl] [/path/to/webmail-build] [/path/to/new/authserverd] [/path/to/new/setjoin-gateway]"
+        echo "  1. Build: cd mailserver && go build -o mailserverd ./cmd/mailserverd"
+        echo "           cd authserver && go build -o authserverd ./cmd/authserverd"
+        echo "           cd server-rust && cargo build --release --locked -p setjoin-mailctl   — Rust schema CLI"
+        echo "  2. Deploy: scp mailserverd authserverd mailctl user@host:/tmp/ && \\"
+        echo "             ssh user@host 'sudo /opt/setjoin/deploy/scripts/upgrade.sh /tmp/mailserverd /tmp/mailctl /tmp/webmail-build /tmp/authserverd'"
+        exit 1
+    fi
+    if [ -n "$NEW_WEBMAIL" ] && [ ! -f "$NEW_WEBMAIL/index.html" ]; then
+        echo "Webmail build must be a directory containing index.html: $NEW_WEBMAIL"
+        exit 1
+    fi
+    if [ -n "$NEW_AUTH" ] && [ ! -f "$NEW_AUTH" ]; then
+        echo "Authserver binary does not exist: $NEW_AUTH"
+        exit 1
+    fi
+    if [ -n "$NEW_GATEWAY" ] && [ ! -f "$NEW_GATEWAY" ]; then
+        echo "Gateway binary does not exist: $NEW_GATEWAY"
+        exit 1
+    fi
 fi
 
 CONFIG_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/config.env"
@@ -64,6 +75,7 @@ DB_CRED_FILE="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/db-credentials.d/db-credential
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 GATEWAY_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/gateway.env"
 FEDERATION_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/federation.env"
+STORAGE_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/storage.env"
 TLS_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/tls.env"
 SMTP_ENV="${SETJOIN_CONFIG_DIR:-/etc/setjoin}/smtp.env"
 source "$(dirname "${BASH_SOURCE[0]}")/lib-livekit.sh"
@@ -74,16 +86,16 @@ AUTH_WAS_ACTIVE=0
 # The descriptor set is part of the release: older gateways cannot consume
 # the federation FD. Keep absence as well as bytes/modes for whole-release rollback.
 backup_gateway_deployment() {
-    local file
+    local file state=""
     [ ! -L "$DEPLOYMENT_PREV" ] || return 1
     rm -rf "$DEPLOYMENT_PREV"
     ( umask 077; mkdir -p "$DEPLOYMENT_PREV/units" "$DEPLOYMENT_PREV/config" )
-    for file in setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+    for file in setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -e "$SYSTEMD_DIR/$file" ] || [ -L "$SYSTEMD_DIR/$file" ]; then
             cp -a "$SYSTEMD_DIR/$file" "$DEPLOYMENT_PREV/units/"
         fi
     done
-    for file in config.env gateway.env federation.env tls.env smtp.env; do
+    for file in config.env auth.env gateway.env federation.env tls.env smtp.env storage.env; do
         if [ -e "${CONFIG_ENV%/*}/$file" ]; then
             cp -a "${CONFIG_ENV%/*}/$file" "$DEPLOYMENT_PREV/config/"
         fi
@@ -91,59 +103,312 @@ backup_gateway_deployment() {
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
         if [ -e "$SYSTEMD_DIR/$file" ]; then
             systemctl is-active --quiet "$file" && touch "$DEPLOYMENT_PREV/$file-active" || true
-            systemctl is-enabled --quiet "$file" && touch "$DEPLOYMENT_PREV/$file-enabled" || true
+            if state="$(systemctl is-enabled "$file" 2>/dev/null)"; then
+                case "$state" in
+                    enabled-runtime) printf 'enabled-runtime\n' > "$DEPLOYMENT_PREV/$file-enabled" ;;
+                    enabled|'') printf 'enabled\n' > "$DEPLOYMENT_PREV/$file-enabled" ;;
+                esac
+            fi
         fi
     done
     if [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
         systemctl is-active --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-active" || true
-        systemctl is-enabled --quiet setjoin-federation.socket && touch "$DEPLOYMENT_PREV/socket-enabled" || true
+        if state="$(systemctl is-enabled setjoin-federation.socket 2>/dev/null)"; then
+            case "$state" in
+                enabled-runtime) printf 'enabled-runtime\n' > "$DEPLOYMENT_PREV/socket-enabled" ;;
+                enabled|'') printf 'enabled\n' > "$DEPLOYMENT_PREV/socket-enabled" ;;
+            esac
+        fi
+    fi
+    local prev_cache="" prev_devino=""
+    prev_cache="$(
+        root="$(cd "$(dirname "$0")/../../.." && pwd)"
+        source "$root/mailserver/deploy/scripts/lib-livekit.sh"
+        tls_import_cache_dir "$CONFIG_ENV"
+    )" || prev_cache=""
+    if [ -n "$prev_cache" ]; then
+        printf 'path=%s\n' "$prev_cache" > "$DEPLOYMENT_PREV/tls-cache.meta"
+        if [ ! -L "$prev_cache" ] && [ -d "$prev_cache" ]; then
+            prev_devino="$(python3 -c 'import os,sys; s=os.lstat(sys.argv[1]); print(f"{s.st_dev}:{s.st_ino}")' "$prev_cache" 2>/dev/null || true)"
+            printf 'exists=1\nmode=%s\nowner=%s\ndevino=%s\n' \
+                "$(stat -c '%a' "$prev_cache" 2>/dev/null || stat -f '%Lp' "$prev_cache")" \
+                "$(stat -c '%u:%g' "$prev_cache" 2>/dev/null || stat -f '%u:%g' "$prev_cache")" \
+                "$prev_devino" >> "$DEPLOYMENT_PREV/tls-cache.meta"
+        else
+            printf 'exists=0\n' >> "$DEPLOYMENT_PREV/tls-cache.meta"
+        fi
     fi
 }
-restore_gateway_deployment() {
-    local file
-    # Close the new socket before the previous executable can receive its FD.
-    systemctl stop setjoin-gateway || true
-    systemctl stop setjoin-federation.socket || true
-    systemctl disable setjoin-federation.socket || true
-    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        systemctl stop "$file" || true
-        systemctl disable "$file" || true
-    done
-    for file in setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        rm -f "$SYSTEMD_DIR/$file"
+restore_tls_cache_meta() {
+    [ -f "$DEPLOYMENT_PREV/tls-cache.meta" ] || return 0
+    local prev_path="" prev_exists="" prev_mode="" prev_owner="" prev_devino="" created_devino="" line k v
+    while IFS= read -r line || [ -n "$line" ]; do
+        k="${line%%=*}"
+        v="${line#*=}"
+        case "$k" in
+            path) prev_path="$v" ;;
+            exists) prev_exists="$v" ;;
+            mode) prev_mode="$v" ;;
+            owner) prev_owner="$v" ;;
+            devino) prev_devino="$v" ;;
+            created_devino) created_devino="$v" ;;
+        esac
+    done < "$DEPLOYMENT_PREV/tls-cache.meta"
+    if [ -n "$prev_path" ] && [ "$prev_path" != "/" ] && [ ! -L "$prev_path" ] && [ -d "$prev_path" ]; then
+        if [ "$prev_exists" = 1 ]; then
+            [ -n "$prev_devino" ] || return 0
+            python3 - "$prev_path" "$prev_devino" "$prev_mode" "$prev_owner" <<'PY' || return 1
+import os, stat, sys
+path, exp_devino, mode_str, owner_str = sys.argv[1].rstrip("/"), sys.argv[2], sys.argv[3], sys.argv[4]
+if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parts = [p for p in path.split("/") if p]
+    if not path.startswith("/") or not parts:
+        sys.exit(0)
+    is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    allowed_owners = {0}
+    if is_root:
+        try:
+            import pwd
+            allowed_owners.add(pwd.getpwnam("setjoin").pw_uid)
+        except KeyError:
+            pass
+    fd = os.open("/", flags)
+    try:
+        for seg in parts:
+            if is_root:
+                pst = os.fstat(fd)
+                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                    sys.exit(0)
+            nxt = os.open(seg, flags, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        st = os.fstat(fd)
+        if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
+            sys.stderr.write(f"   ! skipping tls-cache rollback for {path}: directory identity changed ({st.st_dev}:{st.st_ino} != {exp_devino})\n")
+            sys.exit(0)
+        if mode_str and hasattr(os, "fchmod"):
+            os.fchmod(fd, int(mode_str, 8))
+        if owner_str and ":" in owner_str and hasattr(os, "fchown"):
+            uid, gid = (int(x) for x in owner_str.split(":", 1))
+            try:
+                os.fchown(fd, uid, gid)
+            except PermissionError:
+                if is_root:
+                    raise
+    except OSError as exc:
+        sys.stderr.write(f"   ✗ tls-cache rollback failed for {path}: {exc}\n")
+        sys.exit(1)
+    finally:
+        os.close(fd)
+PY
+        elif [ "$prev_exists" = 0 ] && [ -n "$created_devino" ]; then
+            python3 - "$prev_path" "$created_devino" <<'PY' || return 1
+import os, stat, sys
+path, exp_devino = sys.argv[1].rstrip("/"), sys.argv[2]
+if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW"):
+    parts = [p for p in path.split("/") if p]
+    if not path.startswith("/") or not parts:
+        sys.exit(0)
+    is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    allowed_owners = {0}
+    if is_root:
+        try:
+            import pwd
+            allowed_owners.add(pwd.getpwnam("setjoin").pw_uid)
+        except KeyError:
+            pass
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    pfd = os.open("/", flags)
+    try:
+        for seg in parts[:-1]:
+            if is_root:
+                pst = os.fstat(pfd)
+                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                    sys.exit(0)
+            nxt = os.open(seg, flags, dir_fd=pfd)
+            os.close(pfd)
+            pfd = nxt
+        if is_root:
+            pst = os.fstat(pfd)
+            if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                sys.exit(0)
+        name = parts[-1]
+        st = os.stat(name, dir_fd=pfd, follow_symlinks=False)
+        if not stat.S_ISDIR(st.st_mode) or f"{st.st_dev}:{st.st_ino}" != exp_devino:
+            sys.exit(0)
+        os.rmdir(name, dir_fd=pfd)
+    except FileNotFoundError:
+        sys.exit(0)
+    except OSError as exc:
+        sys.stderr.write(f"   ✗ tls-cache removal rollback failed for {path}: {exc}\n")
+        sys.exit(1)
+    finally:
+        os.close(pfd)
+else:
+    try:
+        st = os.lstat(path)
+        if stat.S_ISDIR(st.st_mode) and f"{st.st_dev}:{st.st_ino}" == exp_devino:
+            os.rmdir(path)
+    except FileNotFoundError:
+        sys.exit(0)
+    except OSError as exc:
+        sys.stderr.write(f"   ✗ tls-cache removal rollback failed for {path}: {exc}\n")
+        sys.exit(1)
+PY
+        fi
+    fi
+}
+restore_gateway_files_only() {
+    local file rc=0
+    for file in setjoin-auth.service setjoin-gateway.service setjoin-gateway.socket setjoin-federation.socket setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+        rm -f "$SYSTEMD_DIR/$file" || rc=1
         if [ -e "$DEPLOYMENT_PREV/units/$file" ] || [ -L "$DEPLOYMENT_PREV/units/$file" ]; then
-            cp -a "$DEPLOYMENT_PREV/units/$file" "$SYSTEMD_DIR/"
+            cp -a "$DEPLOYMENT_PREV/units/$file" "$SYSTEMD_DIR/" || rc=1
         fi
     done
-    for file in config.env gateway.env federation.env tls.env smtp.env; do
-        rm -f "${CONFIG_ENV%/*}/$file"
+    for file in config.env auth.env gateway.env federation.env tls.env smtp.env storage.env; do
+        rm -f "${CONFIG_ENV%/*}/$file" || rc=1
         if [ -e "$DEPLOYMENT_PREV/config/$file" ]; then
-            cp -a "$DEPLOYMENT_PREV/config/$file" "${CONFIG_ENV%/*}/"
+            cp -a "$DEPLOYMENT_PREV/config/$file" "${CONFIG_ENV%/*}/" || rc=1
         fi
     done
-    systemctl daemon-reload
+    systemctl daemon-reload || rc=1
+    restore_tls_cache_meta || rc=1
+    return "$rc"
+}
+restore_socket_enabled_state() {
+    local unit="$1" marker="$2" state=""
+    [ -f "$marker" ] || return 0
+    state="$(cat "$marker" 2>/dev/null || true)"
+    if [ "$state" = enabled-runtime ]; then
+        systemctl enable --runtime "$unit"
+    else
+        systemctl enable "$unit"
+    fi
+}
+restore_gateway_refresh() {
+    local file state="" rc=0
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
-        if [ -f "$DEPLOYMENT_PREV/$file-enabled" ]; then systemctl enable "$file"; fi
-        if [ -f "$DEPLOYMENT_PREV/$file-active" ]; then systemctl start "$file"; fi
+        state="$(cat "$DEPLOYMENT_PREV/$file-enabled" 2>/dev/null || true)"
+        if { [ ! -f "$DEPLOYMENT_PREV/$file-enabled" ] || [ "$state" = enabled-runtime ]; } && [ -e "$SYSTEMD_DIR/$file" ]; then
+            systemctl disable "$file" || rc=1
+        fi
     done
-    if [ -f "$DEPLOYMENT_PREV/socket-enabled" ]; then systemctl enable setjoin-federation.socket; fi
-    if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket; fi
+    state="$(cat "$DEPLOYMENT_PREV/socket-enabled" 2>/dev/null || true)"
+    if { [ ! -f "$DEPLOYMENT_PREV/socket-enabled" ] || [ "$state" = enabled-runtime ]; } && [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
+        systemctl disable setjoin-federation.socket || rc=1
+    fi
+    restore_gateway_files_only || rc=1
+    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled" || rc=1
+    done
+    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled" || rc=1
+    if [ "$rc" != 0 ]; then
+        echo "   ✗ Incomplete refresh rollback: failed to restore one or more deployment files or socket states." >&2
+    fi
+    return "$rc"
+}
+restore_gateway_deployment() {
+    local file rc=0
+    # Close the new socket before the previous executable can receive its FD.
+    if [ -e "$SYSTEMD_DIR/setjoin-gateway.service" ]; then
+        systemctl stop setjoin-gateway || rc=1
+    fi
+    if [ -e "$SYSTEMD_DIR/setjoin-federation.socket" ]; then
+        systemctl stop setjoin-federation.socket || rc=1
+        systemctl disable setjoin-federation.socket || rc=1
+    fi
+    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+        if [ -e "$SYSTEMD_DIR/$file" ]; then
+            systemctl stop "$file" || rc=1
+            systemctl disable "$file" || rc=1
+        fi
+    done
+    restore_gateway_files_only || rc=1
+    for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+        restore_socket_enabled_state "$file" "$DEPLOYMENT_PREV/$file-enabled" || rc=1
+        if [ -f "$DEPLOYMENT_PREV/$file-active" ]; then systemctl start "$file" || rc=1; fi
+    done
+    restore_socket_enabled_state setjoin-federation.socket "$DEPLOYMENT_PREV/socket-enabled" || rc=1
+    if [ -f "$DEPLOYMENT_PREV/socket-active" ]; then systemctl start setjoin-federation.socket || rc=1; fi
+    return "$rc"
 }
 
 # Read literal installer EnvironmentFile assignments, without evaluating secrets.
 config_value() {
     sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -1 || true
 }
-render_gateway_deployment() (
-    local root key names file tmp
+# Validate DB_CRED_FILE ownership/mode/symlink posture (matching resolve_schema_dsn)
+# before extracting DB_WORKER_DSN into root-0600 auth.env.
+validate_db_cred_file_posture() {
+    local cred_file="$1"
+    local want_owner="${2:-${DB_CRED_WANT_OWNER:-root}}"
+    local want_group="${3:-${DB_CRED_WANT_GROUP:-root}}"
+    local runtime_group="${4:-${DB_CRED_RUNTIME_GROUP:-setjoin}}"
+    local cred_dir st want
+    cred_dir="$(dirname "$cred_file")"
+    if [ ! -L "$cred_file" ] && [ ! -e "$cred_file" ]; then
+        return 0
+    fi
+    if [ -L "$cred_file" ] || [ ! -f "$cred_file" ]; then
+        echo "privileged credential file $cred_file is a symlink or not a regular file — possible plant" >&2
+        return 1
+    fi
+    st="$(stat -c '%U %G %a' "$cred_file" 2>/dev/null)" \
+      || st="$(stat -f '%Su %Sg %Lp' "$cred_file" 2>/dev/null)" \
+      || { echo "cannot stat $cred_file" >&2; return 1; }
+    want="$want_owner $want_group 600"
+    if [ "$st" != "$want" ]; then
+        echo "privileged credential file $cred_file is '$st', want '$want' — posture does not match the installed store" >&2
+        return 1
+    fi
+    st="$(stat -c '%U %G %a' "$cred_dir" 2>/dev/null)" \
+      || st="$(stat -f '%Su %Sg %Lp' "$cred_dir" 2>/dev/null)" \
+      || { echo "cannot stat $cred_dir" >&2; return 1; }
+    want="$want_owner $runtime_group 750"
+    if [ -L "$cred_dir" ] || [ ! -d "$cred_dir" ] || [ "$st" != "$want" ]; then
+        echo "credential directory $cred_dir is '${st:-missing}', want '$want' — possible whole-directory replacement (the real directory was renamed aside and a substitute planted); refusing the substitute" >&2
+        return 1
+    fi
+    st="$(stat -c '%U %G %a' "$(dirname "$cred_dir")" 2>/dev/null)" \
+      || st="$(stat -f '%Su %Sg %Lp' "$(dirname "$cred_dir")" 2>/dev/null)" \
+      || { echo "cannot stat the credential ancestor" >&2; return 1; }
+    want="$want_owner $want_group 755"
+    if [ "$st" != "$want" ]; then
+        echo "credential ancestor $(dirname "$cred_dir") is '$st', want '$want' — a runtime-writable ancestor permits whole-directory replacement; refusing" >&2
+        return 1
+    fi
+    return 0
+}
+render_auth_deployment() (
+    local root
     root="$(cd "$(dirname "$0")/../../.." && pwd)"
     source "$root/mailserver/deploy/scripts/lib-livekit.sh" || return 1
-    # This is the legacy flat layout. Immutable installations use signed Updates.
-    RUNTIME_DIR="$INSTALL_DIR"
+    RUNTIME_DIR="${RUNTIME_DIR:-$INSTALL_DIR}"
+    if [ ! -x "$RUNTIME_DIR/setjoin-auth" ]; then
+        echo "missing executable $RUNTIME_DIR/setjoin-auth — refusing to cut over setjoin-auth.service" >&2
+        return 1
+    fi
     AUTHSERVER_URL="$(config_value "$CONFIG_ENV" AUTHSERVER_URL)"
     AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
+    AUTH_LISTEN="${AUTHSERVER_URL#http://}"; AUTH_LISTEN="${AUTH_LISTEN#https://}"; AUTH_LISTEN="${AUTH_LISTEN%%/*}"
+    validate_db_cred_file_posture "$DB_CRED_FILE" || return 1
+    render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+    chown root:root "$AUTH_ENV" || return 1
+    render_authserver_unit "$root/mailserver/deploy/authserver.service.template" "$SYSTEMD_DIR/setjoin-auth.service" || return 1
+    systemctl daemon-reload || return 1
+)
+render_gateway_deployment() (
+    local root key names file tmp _tls_cache
+    root="$(cd "$(dirname "$0")/../../.." && pwd)"
+    source "$root/mailserver/deploy/scripts/lib-livekit.sh" || return 1
+    # Use caller's RUNTIME_DIR for immutable refresh, or INSTALL_DIR on legacy flat layout.
+    RUNTIME_DIR="${RUNTIME_DIR:-$INSTALL_DIR}"
+    AUTHSERVER_URL="$(config_value "$CONFIG_ENV" AUTHSERVER_URL)"
+    AUTHSERVER_URL="${AUTHSERVER_URL:-http://127.0.0.1:8443}"
+    AUTH_LISTEN="${AUTHSERVER_URL#http://}"; AUTH_LISTEN="${AUTH_LISTEN#https://}"; AUTH_LISTEN="${AUTH_LISTEN%%/*}"
     GATEWAY_LISTEN="$(config_value "$GATEWAY_ENV" GATEWAY_LISTEN)"
-    GATEWAY_UPSTREAM="$(config_value "$GATEWAY_ENV" GATEWAY_UPSTREAM)"
     GATEWAY_TRUSTED_PROXIES="$(config_value "$GATEWAY_ENV" GATEWAY_TRUSTED_PROXIES)"
     FEDERATION_ENABLED="$(config_value "$CONFIG_ENV" FEDERATION_ENABLED)"
     FEDERATION_LISTEN_ADDR="$(config_value "$CONFIG_ENV" FEDERATION_LISTEN_ADDR)"
@@ -172,17 +437,37 @@ render_gateway_deployment() (
     configure_tls_front "$CONFIG_ENV" || return 1
     configure_imap_front "$CONFIG_ENV" || return 1
     configure_smtp_front "$CONFIG_ENV" || return 1
+    _tls_cache=$(tls_import_cache_dir "$CONFIG_ENV")
+    validate_tls_cache_target "$_tls_cache" || return 1
     render_tls_front_env "$TLS_ENV" "$CONFIG_ENV" || return 1
     chown root:setjoin "$TLS_ENV" || return 1
-    # A descriptor belongs to the matching new binary. Recreate only this
-    # release's socket set; snapshots preserve prior bytes, absence and state.
-    rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"
     render_gateway_env "$GATEWAY_ENV" || return 1
+    local render_auth=0
+    if [ -x "$RUNTIME_DIR/setjoin-auth" ]; then
+        render_auth=1
+    elif [ -n "${NEW_AUTH:-}" ]; then
+        echo "missing executable $RUNTIME_DIR/setjoin-auth — refusing to cut over setjoin-auth.service" >&2
+        return 1
+    fi
+    if [ "$render_auth" = 1 ]; then
+        validate_db_cred_file_posture "$DB_CRED_FILE" || return 1
+        render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
+        chown root:root "$AUTH_ENV" || return 1
+    fi
     render_federation_env "$FEDERATION_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$FEDERATION_ENV" || return 1
+    render_storage_env "$STORAGE_ENV" "$CONFIG_ENV" || return 1
+    chown root:setjoin "$STORAGE_ENV" || return 1
     # SMTP (#501): its own allow-listed file, re-rendered with the unit set.
     render_smtp_env "$SMTP_ENV" "$CONFIG_ENV" "$DB_CRED_FILE" || return 1
     chown root:setjoin "$SMTP_ENV" || return 1
+    ensure_tls_cache_dir "$_tls_cache" "${DEPLOYMENT_PREV:-}/tls-cache.meta" || return 1
+    # A descriptor belongs to the matching new binary. Recreate only this
+    # release's socket set; snapshots preserve prior bytes, absence and state.
+    rm -f "$SYSTEMD_DIR/setjoin-https.socket" "$SYSTEMD_DIR/setjoin-acme.socket" "$SYSTEMD_DIR/setjoin-imap.socket" "$SYSTEMD_DIR/setjoin-imaps.socket" "$SYSTEMD_DIR/setjoin-smtp.socket" "$SYSTEMD_DIR/setjoin-smtps.socket" "$SYSTEMD_DIR/setjoin-submission.socket"
+    if [ "$render_auth" = 1 ]; then
+        render_authserver_unit "$root/mailserver/deploy/authserver.service.template" "$SYSTEMD_DIR/setjoin-auth.service" || return 1
+    fi
     render_gateway_unit "$root/mailserver/deploy/setjoin-gateway.service.template" "$SYSTEMD_DIR/setjoin-gateway.service" || return 1
     systemctl daemon-reload || return 1
     for file in setjoin-https.socket setjoin-acme.socket setjoin-imap.socket setjoin-imaps.socket setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
@@ -193,7 +478,44 @@ render_gateway_deployment() (
     fi
 )
 
-if [ -n "$NEW_GATEWAY" ]; then
+if [ "$REFRESH_GATEWAY_ENV" = 1 ]; then
+    _updater_state="${UPDATER_STATE_DIR:-}"
+    if [ -z "$_updater_state" ] && [ -f "$SYSTEMD_DIR/setjoin-updater.service" ]; then
+        _updater_state="$(sed -n '/^[[:space:]]*ExecStart=/s/.*--state-dir=\([^[:space:]]*\).*/\1/p' "$SYSTEMD_DIR/setjoin-updater.service" | tail -1 || true)"
+    fi
+    if [ -z "$_updater_state" ]; then
+        _updater_state="${UPDATER_DATA_DIR:-/var/lib/setjoin-updater}/journal"
+    fi
+    if [ -d "$_updater_state" ] || [ -f "$SYSTEMD_DIR/setjoin-updater.service" ]; then
+        [ -d "$_updater_state" ] || {
+            echo "   ✗ updater state directory $_updater_state missing; cannot verify executor.lock." >&2
+            exit 1
+        }
+        command -v flock >/dev/null 2>&1 || {
+            echo "   ✗ flock is required to coordinate refresh with setjoin-updater." >&2
+            exit 1
+        }
+        # Append mode preserves the executor.lock inode shared with setjoin-updater.
+        _old_umask=$(umask)
+        umask 077
+        exec 9>>"$_updater_state/executor.lock"
+        umask "$_old_umask"
+        if ! flock -n 9; then
+            echo "   ✗ active signed update holds $_updater_state/executor.lock; refusing concurrent refresh." >&2
+            exit 1
+        fi
+    fi
+    RUNTIME_DIR="$INSTALL_DIR/current"
+    backup_gateway_deployment
+    if ! RUNTIME_DIR="$RUNTIME_DIR" render_gateway_deployment; then
+        echo "   ✗ gateway unit/config refresh failed." >&2
+        restore_gateway_refresh || true
+        exit 1
+    fi
+    exit 0
+fi
+
+if [ -n "$NEW_GATEWAY" ] || [ -n "$NEW_AUTH" ]; then
     backup_gateway_deployment
 fi
 
@@ -222,6 +544,9 @@ cp "$INSTALL_DIR/mailserverd" "$INSTALL_DIR/mailserverd.prev"
 if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd" ]; then
     cp "$INSTALL_DIR/authserverd" "$INSTALL_DIR/authserverd.prev"
 fi
+if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/setjoin-auth" ]; then
+    cp "$INSTALL_DIR/setjoin-auth" "$INSTALL_DIR/setjoin-auth.prev"
+fi
 if [ -n "$NEW_GATEWAY" ] && [ -f "$INSTALL_DIR/setjoin-gateway" ]; then
     cp "$INSTALL_DIR/setjoin-gateway" "$INSTALL_DIR/setjoin-gateway.prev"
 fi
@@ -244,6 +569,9 @@ if [ -n "$NEW_AUTH" ]; then
     cp "$NEW_AUTH" "$INSTALL_DIR/authserverd"
     chmod 755 "$INSTALL_DIR/authserverd"
     chown setjoin:setjoin "$INSTALL_DIR/authserverd"
+    cp "$NEW_AUTH" "$INSTALL_DIR/setjoin-auth"
+    chmod 755 "$INSTALL_DIR/setjoin-auth"
+    chown setjoin:setjoin "$INSTALL_DIR/setjoin-auth"
 fi
 if [ -n "$NEW_GATEWAY" ]; then
     cp "$NEW_GATEWAY" "$INSTALL_DIR/setjoin-gateway"
@@ -269,6 +597,13 @@ roll_back_and_exit() {
     if [ -n "$NEW_AUTH" ] && [ -f "$INSTALL_DIR/authserverd.prev" ]; then
         cp "$INSTALL_DIR/authserverd.prev" "$INSTALL_DIR/authserverd"
     fi
+    if [ -n "$NEW_AUTH" ]; then
+        if [ -f "$INSTALL_DIR/setjoin-auth.prev" ]; then
+            cp "$INSTALL_DIR/setjoin-auth.prev" "$INSTALL_DIR/setjoin-auth"
+        else
+            rm -f "$INSTALL_DIR/setjoin-auth"
+        fi
+    fi
     if [ -n "$NEW_GATEWAY" ] && [ -f "$INSTALL_DIR/setjoin-gateway.prev" ]; then
         cp "$INSTALL_DIR/setjoin-gateway.prev" "$INSTALL_DIR/setjoin-gateway"
     fi
@@ -278,17 +613,24 @@ roll_back_and_exit() {
             cp -a "$INSTALL_DIR/webmail.prev" "$INSTALL_DIR/webmail"
         fi
     fi
+    local restore_rc=0
     if [ -n "$NEW_GATEWAY" ]; then
-        restore_gateway_deployment
+        restore_gateway_deployment || restore_rc=$?
+    elif [ -n "$NEW_AUTH" ]; then
+        restore_gateway_files_only || restore_rc=$?
     fi
     if [ "$AUTH_WAS_ACTIVE" = "1" ]; then
-        systemctl start setjoin-auth || true
+        systemctl start setjoin-auth || restore_rc=1
     fi
-    systemctl start setjoin || true
+    systemctl start setjoin || restore_rc=1
     if [ -n "$NEW_GATEWAY" ]; then
-        systemctl start setjoin-gateway || true
+        systemctl start setjoin-gateway || restore_rc=1
     fi
-    echo "   Restored previous version. Fix the issue, then re-run the upgrade."
+    if [ "$restore_rc" != 0 ]; then
+        echo "   ✗ Incomplete rollback: failed to restore one or more deployment files, sockets, or services; inspect systemd units before retrying." >&2
+    else
+        echo "   Restored previous version. Fix the issue, then re-run the upgrade."
+    fi
     exit 1
 }
 
@@ -373,7 +715,7 @@ resolve_schema_dsn() {
     fi
     return 0
 }
-if ! SCHEMA_DSN="$(resolve_schema_dsn "$CONFIG_ENV" "$DB_CRED_FILE")"; then
+if ! SCHEMA_DSN="$(resolve_schema_dsn "$CONFIG_ENV" "$DB_CRED_FILE" "${DB_CRED_WANT_OWNER:-root}" "${DB_CRED_WANT_GROUP:-root}" "${DB_CRED_RUNTIME_GROUP:-setjoin}")"; then
     echo "   ✗ privileged DB credential namespace failed validation — refusing to pick a schema DSN from a substituted store."
     roll_back_and_exit
 fi
@@ -405,11 +747,16 @@ if [ -n "$NEW_GATEWAY" ]; then
         echo "   ✗ gateway unit/config render failed."
         roll_back_and_exit
     fi
+elif [ -n "$NEW_AUTH" ]; then
+    if ! render_auth_deployment; then
+        echo "   ✗ auth unit/config render failed."
+        roll_back_and_exit
+    fi
 fi
 
 echo "4. Starting services..."
 if [ "$AUTH_WAS_ACTIVE" = "1" ]; then
-    systemctl start setjoin-auth
+    systemctl start setjoin-auth || roll_back_and_exit
 fi
 systemctl start setjoin || roll_back_and_exit
 if [ -n "$NEW_GATEWAY" ]; then

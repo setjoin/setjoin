@@ -1433,7 +1433,6 @@ async fn dpop_webauthn_bound_management_and_login_finish_issuance() {
 
         let mut cfg = Config::for_secret(secret.into());
         cfg.signing_alg = "ES256".into();
-        cfg.go_upstream = None;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
         let srv = auth_server(

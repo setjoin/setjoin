@@ -132,7 +132,7 @@ pub async fn put_config(
         "WITH w AS (INSERT INTO system_config (key, value, encrypted, description, updated_at) \
          SELECT t.k, t.v::jsonb, t.e, $7::text, now() \
          FROM unnest($4::text[], $5::text[], $6::boolean[]) AS t(k, v, e) \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, encrypted = EXCLUDED.encrypted, updated_at = now() \
          RETURNING 1) SELECT count(*)::bigint FROM w",
         &[(&keys, Type::TEXT_ARRAY), (&texts, Type::TEXT_ARRAY), (&flags, Type::BOOL_ARRAY), (&description, Type::TEXT)],

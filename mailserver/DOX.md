@@ -1011,10 +1011,11 @@ so an old Go binary in a source checkout cannot satisfy its prerequisite; source
 builds use `cargo build --release --locked -p setjoin-mailctl`. Installed paths,
 unit names and `.prev` rollback remain unchanged. The Go module catalog keeps
 mailctl for oracle testing but no longer builds it as a customer artifact.
-`package-server-release.sh` requires seven inputs: architecture, Go binary directory,
-Rust gateway, Rust mailctl, Rust asrbotd (the captions bot, #356; staged as
+`package-server-release.sh` now requires nine inputs (Rust setjoin-auth added, #359b; see
+`server-rust/bins/updater/DOX.md`): architecture, Go binary directory,
+Rust gateway, Rust setjoin-auth, Rust mailctl, Rust asrbotd (the captions bot, #356; staged as
 `server-rust/asrbotd` and installed to `bin/asrbotd` by the optional captions leg),
-webmail build and output archive. All supplied ELF
+Rust updater, webmail build and output archive. All supplied ELF
 machines are checked; the caller remains responsible for source provenance and
 runtime floor qualification.
 
@@ -1028,10 +1029,21 @@ running. Detailed Rust contract: `server-rust/crates/backup/DOX.md`.
 
 ## Native federation deployment (#347)
 
-`render_gateway_unit` loads only gateway.env and a dedicated federation.env;
+`render_gateway_unit` loads only the five dedicated allowlisted files
+(`federation.env`, `storage.env`, `smtp.env`, `gateway.env`, and `tls.env`);
 it never injects config.env or db-credentials.env into the front door.
+`render_storage_env` projects S3/MinIO endpoint, bucket, and credentials into
+0640 `storage.env` independently of SMTP enablement. Because `setjoin-updater`
+upgrades the gateway separately from host unit/env rendering on immutable hosts,
+first deploy the updated `setjoin-updater` and run
+`upgrade.sh refresh-gateway-env` before activating a release that retires Go's
+WORM legal-hold forward (`setjoin-gateway` also fails closed at startup if
+`WORM_MODE` is enabled without any `S3_*`/`MINIO_*` settings loaded).
 `render_federation_env` copies only DB_DSN, DB_DIRECT_DSN, DB_WORKER_DSN,
-the four static FEDERATION_* settings and federation worker-switch entries.
+the four static FEDERATION_* settings, configured `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`/`LIVEKIT_URL`
+(projected directly from protected `config.env` via `yaml-config.py env-copy`
+so LiveKit secrets never appear on process argv and native `/rtc` / `/api/rtc`
+stay wired), and federation worker-switch entries.
 The file is 0640 root:setjoin, under the root-controlled config directory.
 Owner DSNs and unrelated secrets/switches stay out. gateway.env contains only
 front-door settings and cannot override the federation worker switches.
@@ -1048,7 +1060,7 @@ The reaper runs even with peering unconfigured or the product toggle OFF.
 A flat `upgrade.sh` invocation with the new gateway (argument 5) also re-renders
 its unit/socket/config surfaces and enables configured native federation/TLS before
 restarting Go. It snapshots the gateway service and gateway/federation/HTTPS/ACME sockets,
-config.env, gateway.env, federation.env and tls.env (including file absence/modes), and
+config.env, gateway.env, federation.env, storage.env, smtp.env and tls.env (including file absence/modes), and
 the federation/HTTPS/ACME sockets' active/enabled state below the root-only
 `$INSTALL_DIR/federation-deploy.prev`. A render/start/readiness or migration
 failure restores that snapshot alongside matching *.prev binaries: stop the
@@ -1063,7 +1075,7 @@ restore matching *.prev binaries
 setjoin-gateway.socket, setjoin-federation.socket, setjoin-https.socket and
 setjoin-acme.socket, replace the live file with
 its copy under federation-deploy.prev/units, removing it if the snapshot has no
-copy. Do the same for config.env, gateway.env, federation.env and tls.env from
+copy. Do the same for config.env, gateway.env, federation.env, storage.env, smtp.env and tls.env from
 federation-deploy.prev/config, preserving modes/ownership with `cp -a`.
 Run `systemctl daemon-reload`, re-enable/start the federation socket only if the
 snapshot has socket-enabled/socket-active markers; restore HTTPS/ACME using their
@@ -1085,14 +1097,51 @@ or GATEWAY_HTTPS_LISTEN), without CAP_NET_BIND_SERVICE. The renderer attaches
 optional federation/ACME sockets through Wants/After, never Requires on Go services.
 `tls.env` is a literal 0640 allowlist of TLS paths/provider credentials; broad
 config.env and owner credentials never enter the internet-facing gateway unit.
+`storage.env` is a dedicated literal 0640 allowlist carrying only S3/MinIO
+endpoint and credentials (resolved via pure-stdlib `deploy/scripts/yaml-config.py`,
+covering the YAML subset for mappings, anchors/aliases/`<<` merges, standard tags,
+duplicate-key rejection, and flow/block scalars alongside `systemd.exec(5)`
+`EnvironmentFile` parsing, with Go's `s3.*` / `S3_*` / `MINIO_*` precedence;
+`smtp.env` emits the identical resolved
+`S3_*` lines when SMTP is enabled) independent of SMTP enablement (#289 legal
+holds, blobs, attachments), and is rolled back alongside the deployment env files.
 App/worker/LISTEN credentials and the transferred worker names stay in federation.env.
 
 Managed TLS-ALPN-01 (default) and DNS-01 move `acme-renewal` with the TLS listener.
 HTTP-01 also transfers `http-port80` and renders `setjoin-acme.socket` (FD `acme`)
 only for HTTP_MODE=redirect (including unset). Go :80 proxy/serve remains owned by
-Platform #305. Managed settings survive install config regeneration; explicit
-operator environment values take precedence. ACME cache/account-key parents gain
-narrow ReadWritePaths in the hardened service. Static certificates remain read-only.
+Platform #305. Managed settings (including `SETJOIN_CONFIG`, `HOSTNAME`,
+`INTERNAL_DOMAINS`, `WORM_MODE`, `WORM_RETENTION_DAYS`, and explicit
+`WORM_LEGAL_HOLD_ENABLED`) survive install config regeneration; explicit
+operator environment values take precedence (`WORM_LEGAL_HOLD_ENABLED` follows Go's
+env-only override semantics, and empty `WORM_MODE=` keeps WORM disabled; upgrading
+all DB-backed immutable hosts requires installing the updated `setjoin-updater` and
+running `upgrade.sh refresh-gateway-env` — or `upgrade.sh` on flat layouts — before
+activation so `gateway.env` carries explicit `WORM_MODE=`/`WORM_MODE=<mode>`,
+`setjoin-gateway.service` loads `storage.env`, and `federation.env` carries any
+configured `LIVEKIT_*` settings (for native `/rtc` and `/api/rtc`); `setjoin-updater`
+preflight checks WORM, storage, and `LIVEKIT_*` parity while systemd-activated
+`setjoin-gateway` startup validates `WORM_MODE` and storage provenance (and
+without `LIVEKIT_*` returns 404 on `/api/rtc` while `/rtc` falls through to
+the catch-all SPA or 404). The TLS
+import/ACME cache directory (`tls_import_cache_dir`, resolved from
+`TLS_AUTOCERT_CACHE_DIR` or `SETJOIN_CONFIG` YAML `tls.autocert_cache_dir` via
+`yaml-config.py`) is validated lexically and
+canonically (`validate_tls_cache_target`: rejects control chars, quotes, backslashes,
+`%` systemd specifiers, trailing-slash and intermediate component symlinks outside
+OS-managed `/tmp` and `/var/run`, filesystem roots, `.`/`..` traversal, top-level
+system directories, unrelated system/service paths outside dedicated
+`setjoin`/`mailserver` or temp trees, and non-empty directories owned by another user
+under root) before
+filesystem mutation, provisioned (`0700`, `setjoin:setjoin` enforced on both new
+and existing directories during root install/upgrade; `upgrade.sh` records prior
+cache directory existence/mode/owner/`dev:ino` in `tls-cache.meta` and verifies
+matching `dev:ino` before rollback mutation, while non-root upgrade rehearsals
+skip only host `/var/cache/mailserver/autocert`), emitted solely into `gateway.env`
+alongside resolved `WORM_*` and Go-matched trace identity (`HOSTNAME`/`INTERNAL_DOMAINS`)
+settings, and granted a narrow `ReadWritePaths` in `setjoin-gateway.service`;
+ACME account-key parent directories gain `ReadWritePaths` when
+`TLS_AUTOCERT_DOMAINS` is set. Static certificates remain read-only.
 
 Install and flat upgrade require a real local TLS handshake plus the native
 /_gateway/healthz response. The local probe accepts the installation's self-signed
@@ -1102,7 +1151,8 @@ Recovery reinstalls a complete matching release (binaries, units, socket set,
 configuration and active/enabled state from federation-deploy.prev, as above).
 No runtime switch back to Go is installed (owner decision 2026-11-04).
 Checks: `deploy/scripts/test-tls-front-socket.sh`, `test-tls-front-upgrade.sh`,
-`test-setjoin-lifecycle.sh`, `test-install-front-door.sh`, `test-install-provision-render.sh`.
+`test-setjoin-lifecycle.sh`, `test-install-front-door.sh`, `test-install-provision-render.sh`
+(the TLS front socket/upgrade scripts run under `scripts/check-upgrade-contracts.sh`).
 The root/systemd rehearsal `python3 scripts/test-tls-front-systemd.py <gateway>` renders the
 actual hardened HTTPS unit, proves empty capabilities and queued TLS restart, and occupies
 the optional federation port to prove its bind failure leaves HTTPS serving. All resources
@@ -1152,7 +1202,7 @@ capability-empty service, restart and FTRL startup/live posture), and the existi
 TLS/IMAP/federation/lifecycle/rollback scripts. The rehearsal uses its own private
 resolv.conf mount and loopback DNS/S3/clamd peers; it changes no installed unit.
 
-## Native IMAP deployment (#420)
+## Native IMAP deployment (#202)
 
 When the installation has TLS_CERT/TLS_KEY, the renderer transfers configured
 IMAP_ADDR (default :143) and IMAP_TLS_ADDR (default :993) to systemd's optional

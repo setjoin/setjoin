@@ -92,6 +92,6 @@ pub async fn purge(
     let auth = super::scope(actor);
     let email = actor.email();
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"content.purge"},&super::envelope(&auth,operation,&serde_json::json!([ids,email,reason]).to_string()),&auth,super::deadline(),
- "SELECT deleted_count,held_count,not_found_count FROM content_purge_messages($4,$5,$6,$2) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT deleted_count,held_count,not_found_count FROM content_purge_messages($4,$5,$6,$2) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&ids,Type::INT8_ARRAY),(&email,Type::TEXT),(&reason,Type::TEXT)],|rows|{let row=rows.first().ok_or_else(invalid)?;let deleted:i32=row.try_get(0).map_err(|_|invalid())?;let held:i32=row.try_get(1).map_err(|_|invalid())?;let missing:i32=row.try_get(2).map_err(|_|invalid())?;Ok(format!("{{\"deleted\":{deleted},\"held\":{held},\"notFound\":{missing}}}\n"))}).await
 }

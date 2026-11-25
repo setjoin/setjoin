@@ -159,7 +159,7 @@ fn config(upstream: SocketAddr, edge: Option<EdgeLimit>) -> Result<Config, BoxEr
     })
 }
 
-/// Finding 1: the adapter-less arm is unchanged; local rows no adapter claims still reach Go.
+/// Finding 1 (post-#359): adapter-less local rows fail closed natively with 404, zero Go hits.
 #[tokio::test]
 async fn adapter_less_local_rows_keep_todays_go_fallback() -> Result<(), BoxError> {
     let hits = Arc::new(AtomicUsize::new(0));
@@ -178,9 +178,9 @@ async fn adapter_less_local_rows_keep_todays_go_fallback() -> Result<(), BoxErro
                 .body(common::full(""))?,
         )
         .await;
-        assert_eq!(response.status().as_u16(), 200, "{uri}");
+        assert_eq!(response.status().as_u16(), 404, "{uri}");
     }
-    assert_eq!(hits.load(Ordering::SeqCst), 3);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
     Ok(())
 }
 
@@ -436,13 +436,14 @@ async fn belt_admitted_member_and_tokenless_requests_pass() -> Result<(), BoxErr
     Ok(())
 }
 
-/// D-357a-1 also covers a route-limited row rolled back to Go.
+/// Post-#359: an OFF/go-mail inventory row is rejected at startup, zero Go hits.
 #[tokio::test]
 async fn belt_go_mail_row_fails_closed_without_go() -> Result<(), BoxError> {
     let hits = Arc::new(AtomicUsize::new(0));
-    let addr = belt(hits.clone(), true).await?;
-    let (status, _) = belt_probe(addr, &[("authorization", "Bearer a.b.c")]).await;
-    assert_eq!(status, 503);
+    assert!(
+        belt(hits.clone(), true).await.is_err(),
+        "OFF/go-mail inventory row must be rejected"
+    );
     assert_eq!(hits.load(Ordering::SeqCst), 0);
     Ok(())
 }

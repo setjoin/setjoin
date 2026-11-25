@@ -28,18 +28,22 @@ contract](../../../bins/gateway/DOX.md#catch-all-mux-and-spa-416).
 Native answers: every static document, downloads, device-proof telemetry,
 discovery, ready, health (including errors and configured live probes), cert hint (always `none`: the front door
 never receives a client certificate, and Go behind a TLS-terminating proxy
-never did), the three assist problems/success, translate. A request goes to Go
-whole, never partially answered, when Rust cannot prove Go's answer:
+never did), the three assist problems/success, translate. Requests no longer forward
+directly from `surface.rs`; only unmigrated admission refusal classes forward through
+centralized `deny::answer`:
 
-- Shared security-policy shapes still owned by #405/#420. Configured legacy JWTs,
+- Shared security-policy shapes still owned by #349–#352. Configured legacy JWTs,
   ordinary authentication denials and full-spec permission denials are native
-  through shared admission (#406). Full-spec reads resolve active governed grants
+  through shared admission (#188). Full-spec reads resolve active governed grants
   for signed admins; non-admin signed grants preserve Go's semantics, including
   domain-scoped `system.config`. Console denials write the exact durable audit.
+- Full OpenAPI spec (`Kind::FullYaml | Kind::FullJson`) admits via `deny::admit_console`
+  (`Scope::Member`, omitting redundant role pre-reads so console `system.config` denials own their
+  403/audit path) and delegates refusals (such as `AlternativeCredential`) to `deny::answer`.
 - `/health` with SFU/egress/ASR sidecars configured (`LIVEKIT_*`, `ASR_URL`) when the gate has
-  no probe runner (the gateway always supplies one: #457). An `error` row is served natively
-  (503) and raises `system.health_alert` through `HealthGate::with_alerts` on the ok-to-error
-  transition.
+  no probe runner (the gateway always supplies one: #457); `Outcome::Defer` fails closed with 503.
+  An `error` row is served natively (503) and raises `system.health_alert` through
+  `HealthGate::with_alerts` on the ok-to-error transition.
 - Configuration is resolved by the gateway's YAML/environment loader (#414).
   Well-known, autoconfig, downloads and favicon use that startup snapshot and
   do not forward because `SETJOIN_CONFIG` is present.
@@ -129,7 +133,7 @@ request writes application data, audit rows, state or notifications.
 
 `SETJOIN_CONFIG` is resolved before the async runtime starts (#414); root
 fallback requests use the same validated startup website directory. Identity checks the shared foundation cannot
-prove remain with Go until #331–#333; entitlement denials retain Go's existing
+prove remain with Go until #112–#114; entitlement denials retain Go's existing
 audit behavior. Neither case is silently answered with an invented denial.
 
 The six structural entries are ON, with inventory and global rollback.
@@ -138,7 +142,7 @@ checks the proxy counter is zero; `catchall_startup` proves executable wiring,
 both rollback paths, valid-build serving and invalid-build refusal. Recording,
 normalization and catalog regeneration: [catch-all oracle](../../../tests/conformance/catchall/README.md).
 
-Full-spec parity (#406): `authz-defer/full-spec.json` records raw denied problems,
+Full-spec parity (#188): `authz-defer/full-spec.json` records raw denied problems,
 complete business audit fields, and SHA-256 of successful YAML/JSON bytes under
 missing, stale signed, signed member, scoped member and active governed grants.
 Native replay has no Go upstream and requires zero proxy attempts.

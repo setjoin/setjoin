@@ -20,7 +20,9 @@ impl Intercept for Loose {
 }
 
 async fn boot(inventory: &serde_json::Value, routes: RouteTable) -> std::net::SocketAddr {
-    let upstream = common::fake_upstream(|_| async { Response::new(common::full("go")) }).await;
+    let upstream =
+        common::fake_upstream(|_| async { panic!("legacy Go upstream must never be reached") })
+            .await;
     let gateway = Gateway::new(
         Config {
             upstream: Some(format!("http://{upstream}").parse().unwrap()),
@@ -61,7 +63,12 @@ async fn bare_spa_subtree_paths_never_reach_a_loosely_matching_adapter() {
             Request::builder().method(method).uri(path).body(common::full("")).unwrap(),
         )
         .await;
-        assert_eq!(common::body_bytes(response).await, "go", "{method} {path} reached the adapter");
+        assert_eq!(response.status().as_u16(), 404, "{method} {path} reached the adapter");
+        assert_eq!(
+            common::body_bytes(response).await,
+            "404 page not found\n",
+            "{method} {path} reached the adapter"
+        );
     }
 }
 
@@ -86,28 +93,33 @@ async fn rolled_back_f15_f16_requests_count_under_their_owning_family() {
             row["upstream"] = "go-mail".into();
         }
     }
-    let address = boot(&inventory, RouteTable::proxy_all()).await;
-    for (path, family) in [
-        ("/api/blobs/abc", "F16"),
-        ("/api/recovery/incidents", "F16"),
-        ("/api/office/wopi/files/1", "F15"),
-        ("/api/admin/office", "F15"),
+    let rejected = Gateway::new(
+        Config {
+            upstream: None,
+            trusted_proxies: TrustedProxies::parse("").unwrap(),
+            upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+            edge_limit: None,
+        },
+        RouteTable::proxy_all(),
+    )
+    .unwrap()
+    .with_inventory(&inventory.to_string());
+    assert!(rejected.is_err(), "OFF/go-mail F15/F16 inventory must be rejected");
+
+    let address = boot(&bundled(), RouteTable::proxy_all()).await;
+    for path in [
+        "/api/blobs/abc",
+        "/api/recovery/incidents",
+        "/api/office/wopi/files/1",
+        "/api/admin/office",
     ] {
         let response = common::send(address, Request::get(path).body(common::full("")).unwrap()).await;
-        assert_eq!(common::body_bytes(response).await, "go", "{path}");
-        let metrics = common::send(address, Request::get("/_gateway/metrics").body(common::full("")).unwrap()).await;
-        let text = String::from_utf8(common::body_bytes(metrics).await.to_vec()).unwrap();
-        let count = |fam: &str| -> u64 {
-            text.lines()
-                .find_map(|l| l.strip_prefix(&format!("setjoin_gateway_proxied_to_go_by_family_total{{family=\"{fam}\"}} ")))
-                .unwrap()
-                .parse()
-                .unwrap()
-        };
-        assert!(count(family) >= 1, "{path} not counted under {family}: {text}");
+        assert_eq!(response.status().as_u16(), 404, "{path}");
+        assert_eq!(common::body_bytes(response).await, "404 page not found\n", "{path}");
     }
     let metrics = common::send(address, Request::get("/_gateway/metrics").body(common::full("")).unwrap()).await;
     let text = String::from_utf8(common::body_bytes(metrics).await.to_vec()).unwrap();
-    assert!(text.contains("family=\"F22\"} 0\n"), "killed F15/F16 requests leaked into F22: {text}");
-    assert!(text.contains("family=\"F16\"} 2\n") && text.contains("family=\"F15\"} 2\n"), "{text}");
+    assert!(text.contains("setjoin_gateway_proxied_to_go_total 0\n"), "{text}");
+    assert!(text.contains("family=\"F22\"} 0\n"), "{text}");
+    assert!(text.contains("family=\"F16\"} 0\n") && text.contains("family=\"F15\"} 0\n"), "{text}");
 }

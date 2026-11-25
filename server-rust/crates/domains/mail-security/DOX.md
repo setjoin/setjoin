@@ -134,13 +134,14 @@ a verified token; ownership is the token's user in the same WHERE as each write.
   parsed through `certificate.rs`'s Go profile over audited DER/X.509/curve decoders
   (last CN, RFC 3339 UTC, `days_left` truncated). The same admission profile serves
   S/MIME imports and gateway operator CA bundles; parsing does not verify a signature,
-  establish trust, or enforce validity. [Certificate oracle](../../../../tests/conformance/mail-security/divfix/README.md)
+  establish trust, or enforce validity. [Certificate oracle](../../../tests/conformance/mail-security/divfix/README.md)
   records rejected shapes and accepted controls from frozen Go.
 - `POST /admin/tls/import-cert` mirrors `ParseMultipartForm(10 MiB)` + `FormFile` (a part without a
   filename is a value), `MkdirAll(0700)`, `os.Create` + `Chmod(0600)` of `custom.cert.pem` and
   `custom.key.pem`, then the `tls_cert_import` audit row (a failed audit is ignored as in Go).
-  The directory is `<TLS_AUTOCERT_CACHE_DIR or /var/cache/mailserver/autocert>/imported`; when the
-  variable is unset and `SETJOIN_CONFIG` is set the route forwards to Go (Rust cannot read the file).
+  The directory is `<tls.autocert_cache_dir or /var/cache/mailserver/autocert>/imported`, resolved
+  from the gateway's startup `Settings` snapshot (`configuration::Settings`), including when
+  `SETJOIN_CONFIG` is set; standalone callers fall back to `TLS_AUTOCERT_CACHE_DIR`.
   Go never parses the uploaded certificate/key; arbitrary bytes succeed. #468 preserves
   that storage contract and fixes strict parsing in the status reader instead.
 - `PUT /admin/outbound-tls-policy` decodes with `DecodeJSON` semantics (1 MiB, one value, nothing

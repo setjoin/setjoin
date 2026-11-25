@@ -22,7 +22,7 @@ use serde_json::json;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
     CommandOutcome, MailboxAuthContext, Param, ReceiptCommand, Row, ScopedExecutor,
@@ -53,11 +53,7 @@ pub const APPS: [&str; 7] = [
 ];
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 fn invalid() -> StatementFailure {
     StatementFailure {
@@ -182,7 +178,7 @@ pub async fn console_denied(
         &envelope(&auth, operation, &before),
         &auth,
         deadline(),
-        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&before, Type::TEXT), (&path, Type::TEXT)],
         |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
     )
@@ -578,7 +574,7 @@ pub async fn set_quota(
     }
     let sql = format!(
         "WITH updated AS (UPDATE mailboxes SET {} WHERE user_id = $4 AND is_primary = TRUE \
-         AND ($5::bigint = 0 OR domain_id = $5) AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) \
+         AND ($5::bigint = 0 OR domain_id = $5) AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) \
          SELECT count(*)::bigint FROM updated",
         sets.join(", ")
     );
@@ -670,14 +666,14 @@ pub async fn add_alias(
         if setjoin_contracts::mutants::on("alias-foreign-domain") {
             "WITH inserted AS (INSERT INTO aliases (mailbox_id, email, domain_id) \
              SELECT m.id, $7, m.domain_id FROM mailboxes m WHERE m.id = $4 AND m.user_id = $5 AND m.is_primary = TRUE \
-             AND ($6::bigint = 0 OR m.domain_id = $6) AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) \
+             AND ($6::bigint = 0 OR m.domain_id = $6) AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) \
              SELECT id FROM inserted"
         } else {
             "WITH inserted AS (INSERT INTO aliases (mailbox_id, email, domain_id) \
              SELECT m.id, $7, m.domain_id FROM mailboxes m WHERE m.id = $4 AND m.user_id = $5 AND m.is_primary = TRUE \
              AND ($6::bigint = 0 OR (m.domain_id = $6 AND EXISTS (SELECT 1 FROM domains d WHERE d.id = m.domain_id \
                   AND lower(d.name) = lower(split_part($7::text, '@', 2))))) \
-             AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) \
+             AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) \
              SELECT id FROM inserted"
         },
         &[
@@ -716,7 +712,7 @@ pub async fn remove_alias(
         deadline(),
         "WITH removed AS (DELETE FROM aliases WHERE id = $4 AND mailbox_id IN (SELECT id FROM mailboxes \
          WHERE user_id = $5 AND is_primary = TRUE AND ($6::bigint = 0 OR domain_id = $6)) \
-         AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM removed",
+         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM removed",
         &[
             (&alias, Type::INT8),
             (&user, Type::INT8),
@@ -749,7 +745,7 @@ pub async fn set_app_access(
         &envelope(&auth, operation, &format!("{user}:{app}:{enabled}:{domain_scope}")),
         &auth,
         deadline(),
-        "SELECT count(*)::bigint FROM (SELECT set_app_entitlement($4, $5, $7, $2) FROM (SELECT 1 WHERE $1::bigint > 0 AND $3::text <> '' \
+        "SELECT count(*)::bigint FROM (SELECT set_app_entitlement($4, $5, $7, $2) FROM (SELECT 1 WHERE $1::bigint >= 0 AND $3::text <> '' \
          AND ($6::bigint = 0 OR EXISTS (SELECT 1 FROM users u WHERE u.id = $4 AND COALESCE(guest_account_host_domain(u.id), u.domain_id) = $6))) g) r",
         &[
             (&user, Type::INT8),

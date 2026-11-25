@@ -213,16 +213,17 @@ Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`.
 
 ## Meet leftovers (#410)
 
-- **`/rtc`, `/rtc/`** (`src/rtc.rs`, F13, ON): Go's `httputil.ReverseProxy` to the fixed
+- **`/rtc`, `/rtc/`** (plus `/api/rtc`, `/api/rtc/` alias, `src/rtc.rs`, F13, ON): Go's `httputil.ReverseProxy` to the fixed
   `127.0.0.1:7880` SFU signal port, never behind `requireAuth` (LiveKit checks its own
   token). Mirrors prefix strip over the decoded path (re-escaped), `SetXForwarded`, hop-by-hop
   removal, upgrade tunnel (first side to end closes both), Go's transport gzip (`Accept-Encoding:
   gzip` added and the answer decoded when the client sent neither it nor `Range`), empty 502 on
   failure, `ServeMux` 307 for unclean paths, and Go's middleware envelope (security headers,
-  `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). Falls back natively via
-  `CatchallRoute` (SPA fallback with a website, 404 without) when LiveKit is not configured, and
-  declines to Go when the request carries a JWT credential the verified-member precheck rejects (Go's
-  guest belt). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
+  `Cache-Control: no-store` except on a hijacked 101, `X-Request-ID`). When LiveKit is not configured, bare `/rtc` skips the outer guest belt and delegates to `CatchallRoute::serve_spa_or_404` (SPA fallback with a website, 404 without, and no non-GET 308 redirect), while `/api/rtc` (including `%72tc`) runs the guest belt and answers native API 404. When configured, it enforces Go's guest belt natively: the production executable enforces it once at the front door
+  via `SessionAdmission` (`RtcRoute::without_guest_belt`), while standalone `RtcRoute` runs
+  `admission::check_guest_belt` (active guests follow `guest_allowlist`; disallowed or off-program
+  guests answer 404, inactive guests 401, unavailable state 503; unauthenticated or invalid JWTs
+  proxy to Go's SFU for LiveKit token validation). Kill switch: inventory OFF or `GATEWAY_ENABLED=false`. The address is a constructor argument (tests only); production
   never reads it from the environment. `/meet`, `/meet/` catch-alls stay on Go with the generic
   ones (#416).
 - **`meet-reconcile`** (`src/meet_worker.rs`): `RUST_WORKERS_ON=meet-reconcile` with
@@ -248,9 +249,9 @@ Verification after integration changes: replay `rtc_recorded`, `rtc_dispatch`,
 with `REQUIRE_DB=1` and `--test-threads=1`. Reload the assigned disposable database
 from this worktree before each target; clear `GOFREE_RECORD_GO_BINARY` so replay
 cannot overwrite the frozen-Go goldens. `rtc_dispatch` needs loopback port 7880;
-replay peers in `rtc_recorded` use ephemeral ports. Preserve both the `/rtc`
-exception to `/api` mounting in `inventory.rs` and the other families' worker
-registration/shutdown wiring when resolving integration conflicts.
+replay peers in `rtc_recorded` use ephemeral ports. Preserve the other
+families' worker registration/shutdown wiring when resolving integration
+conflicts.
 
 ## Drive workers (#409)
 
@@ -323,8 +324,11 @@ entries are ON after their case floors, route/family mutants and commit-loss
 qualification. `main.rs` installs request/worker executors, process-local search
 jobs and the shared S3 client. `compliance_export.rs` owns bounded HTTP streaming;
 all business writes remain statements or family reducers. WORM hold/release
-remains owned by F04 Compliance #289 and forwarded pending its S3 SetLegalHold
-adapter; F16 PutObjectRetention is qualified by #301/#419. A quoted-NUL KQL is refused locally (400)
+applies S3 `PutObjectLegalHold` (`legal_hold_with_retries` on `S3Store`) natively
+when `WORM_MODE` is non-empty and `WORM_LEGAL_HOLD_ENABLED` is unset or parses true
+under Go `strconv.ParseBool` (`1`, `t`, `T`, `true`, `TRUE`, `True`); any other value
+skips S3 calls while still counting attached blobs like Go `SetLegalHold`.
+F16 PutObjectRetention is qualified by #301/#419. A quoted-NUL KQL is refused locally (400)
 (owner-approved security fix 2026-11-05, #436; frozen Go's parser hung). Both inventory OFF and the global switch
 restore Go ownership. The retention/audit (#290) and chat compliance (#291) slices are ON.
 
@@ -373,12 +377,14 @@ this gateway boundary. More-specific family handlers retain their authority.
 
 `RouteTable::with_catchall` installs the last adapter and enables the root mux's
 clean-path redirects before concrete dispatch. The six structural registrations
-are ON by default, with the usual inventory and global rollback. API unknowns
-have Go's outer guest belt; Chat/Drive/Meet additionally require authentication,
-live feature state and app entitlement before their inner 404/405. Authenticated
-identity checks that the foundation cannot prove stay forwarded (Identity
-#331–#333), as do entitlement denials with Go-owned audit effects. No catch-all
-request writes business data. Headers and problem bodies use shared gateway helpers.
+are ON unconditionally (#359; Go forwarding and `GATEWAY_ENABLED=false` are
+retired, and `REHEARSAL-FORWARD-SITES = 0`). API unknowns have Go's outer guest
+belt; Chat/Drive/Meet additionally require authentication (`deny::admit` with
+`Scope::DriveUser` for `/drive/` and `Scope::User` for `/chat/`, `/meet`,
+`/meet/`), live feature state, and app entitlement before their inner 404/405.
+All credential refusals answer natively via total `deny::native` with zero Go
+forwarding. No catch-all request writes business data. Headers and problem
+bodies use shared gateway helpers.
 
 `WEBSITE_DIR` build validation, streamed representations, cache/validator rules
 and the public bootstrap predicate: [static contract](../../crates/domains/static/DOX.md#webmail-representations-and-catch-all-416).
@@ -729,10 +735,10 @@ same-process recovery), unavailable JWKS (challenged 401), missing registry
 The crypto profile corpus exercises HS256 and SM2 signatures on every gateway
 family plus a member read: standard ignores SM2; configured hybrid/smx accept it.
 
-`authority-error.json` records the frozen-Go permission-resolution failure bug:
-a signed admin with `system.config` still receives the full document if the live
-assignment SELECT fails; without that signed claim, 403 plus console.denied.
-This exception is explicit parity; healthy live authority still replaces claims.
+`authority-error.json` originally captured frozen Go's permission-resolution bug
+(retaining signed `system.config` when the assignment SELECT fails); on live
+authority lookup errors, Rust now drops signed permissions and answers an audited
+403 (`console.denied`). Healthy live authority still replaces claims.
 
 The CSRF corpus covers every family plus Go URL userinfo/Referer handling,
 Origin precedence, Fetch-Site, opaque/invalid origins and mixed-port IPv6. Safe
@@ -760,22 +766,25 @@ outcomes finish locally. Its RequireAuth classification names only the outer
 Chat/Drive/Meet mounts. The existing injected with_auth builder retains its
 member-only contract; no deployment rollback control is added.
 
-## Native refusals for `admit` (#354)
+## Native refusals for `admit` (#354, #359)
 
-`bins/gateway/src/deny.rs` maps each `setjoin_authz::Refusal` to Go's bytes: 401 RA
-with `WWW-Authenticate` for no or invalid credentials and the approved missing-`iat`
-and `uid<=0` divergences; `GuestInactive` as the plain 401; `Revoked` as
-`session_revoked`; `Unavailable` as 503. The five owned classes return `None` and
-forward from `answer` only. `native_or_unauthorized` is the fail-closed mapping for
-surfaces Go must never see (#365). The front-door revocation read now fails closed
-(503) after the CAE cold-denylist answer, so `denylist-cold.json` keeps its bytes.
-Adapters move from `authorize_*` to `deny::admit` in the #354 B1-B5 sweep batches; `grep deny::admit` shows which have landed. A token with a non-empty
-`scp` is admitted when Go's handler path (decoded, `/api` stripped as mailserverd's root
-dispatch does) is `/<scp>` or under it (Go chain.go:434), else 401, on every scope;
-`exp`/`nbf`/`iat` decode exactly like Go's jwt NumericDate (fractions, quoted numbers;
-authz `numeric_date`);
-the `access_token` cookie follows Go's `readCookies` (first match wins, even empty);
-the route's permission check then answers 403 as in Go. The four approved divergences are
+`bins/gateway/src/deny.rs` maps every `setjoin_authz::Refusal` natively (zero Go
+forwarding; `REHEARSAL-FORWARD-SITES = 0`): 401 RA with `WWW-Authenticate` for
+no/invalid credentials, the approved missing-`iat` and `uid<=0` divergences,
+and the owner-approved non-DAV `AlternativeCredential` divergence
+(`non-dav-alternative-credential-401`; DAV and Drive native-token keep native
+Basic + Negotiate via `#355a`/`#355b`); `Guest` as Go's plain 404;
+`GuestInactive` as plain 401; `Revoked` as `session_revoked`; `MailboxBlocked`
+as 403 `about:blank` `"mailbox access is suspended"`; `Unavailable` as 503.
+`setjoin_authz::admit` natively admits positive-integer `act` impersonation,
+mailbox-less members (with per-handler Go parity across JMAP, messages, offline,
+calendar, and rules), and suspended mailboxes (enforced on JMAP only).
+`native_or_unauthorized` stays strictly fail-closed (`401`/`503`) for DAV and
+AuthAdmin surfaces. `main.rs` resolves `GATEWAY_RUST_AUTH_UPSTREAM` (falling
+back to legacy `GATEWAY_AUTH_UPSTREAM` with a deprecation warning on pre-#359
+upgraded hosts), ignores stale `GATEWAY_UPSTREAM`, rejects
+`GATEWAY_ENABLED=false`, and starts Rust workers/listeners without requiring
+`GO_WORKERS_OFF`/`GO_LISTENERS_OFF`. The five approved divergences are
 registered in `tests/conformance/authz-deny/divergences.json`.
 
 ## Gateway configuration (#414)

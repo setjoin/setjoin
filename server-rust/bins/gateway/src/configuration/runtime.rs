@@ -9,16 +9,25 @@ use std::{
 };
 
 pub struct Runtime {
-    environment: BTreeMap<String, String>,
+    environment: Vec<(String, String)>,
     current: RwLock<Settings>,
     pub(crate) trusted: Arc<RwLock<TrustedProxies>>,
 }
 impl Runtime {
     pub fn new(environment: BTreeMap<String, String>, settings: Settings) -> Result<Self, String> {
+        Self::new_ordered(environment.into_iter().collect(), settings)
+    }
+    pub fn new_ordered(
+        environment: Vec<(String, String)>,
+        settings: Settings,
+    ) -> Result<Self, String> {
         let trusted = TrustedProxies::parse(
             environment
-                .get("GATEWAY_TRUSTED_PROXIES")
-                .map_or("127.0.0.1,::1", String::as_str),
+                .iter()
+                .rev()
+                .find(|(k, _)| k == "GATEWAY_TRUSTED_PROXIES")
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("127.0.0.1,::1"),
         )?;
         Ok(Self {
             environment,
@@ -27,14 +36,16 @@ impl Runtime {
         })
     }
     /// Read the original operator layers without publishing a reload (deploy S3 handoff).
-    pub fn source_settings(&self) -> Result<Settings, String> { Settings::load(&self.environment) }
+    pub fn source_settings(&self) -> Result<Settings, String> {
+        Settings::load_ordered(&self.environment)
+    }
     pub fn startup_settings(&self) -> Settings {
         self.current.read().expect("config snapshot").clone()
     }
     /// Go stores the newly validated pointer, then refreshes the proxy cache.
     /// Boot handlers retain their original snapshot; no environment is mutated.
     pub async fn reload(&self, exec: Option<&ScopedExecutor>) -> Result<(), String> {
-        let next = Settings::load(&self.environment)?;
+        let next = Settings::load_ordered(&self.environment)?;
         next.validate()?;
         *self.current.write().expect("config snapshot") = next;
         self.refresh_proxies(exec).await;

@@ -110,7 +110,7 @@ pub async fn put(
         &auth,
         deadline(),
         "SELECT key FROM public.set_system_config('welcome_email', $4::text::jsonb, false, $2::bigint) \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&value, Type::TEXT)],
         |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
     )
@@ -138,7 +138,7 @@ pub async fn test_send(
         &auth,
         deadline(),
         "SELECT public.rust_platform_welcome_test_send($2::bigint, $4::text, $5::text, $6::text) \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&subject, Type::TEXT),
             (&body_text, Type::TEXT),

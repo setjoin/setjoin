@@ -25,6 +25,27 @@ async fn enough_window_time(window_secs: u64) {
     }
 }
 
+/// Test-only forwarding adapter for exercising `Upstream` transport semantics
+/// (headers, streaming, SSE, WebSocket upgrades, timeouts) after Go forwarding
+/// was removed from `Gateway` itself (#359).
+#[derive(Clone, Copy)]
+struct ForwardAll;
+
+impl Intercept for ForwardAll {
+    fn matches(&self, _req: &Request<Body>) -> bool {
+        true
+    }
+    fn handle(&self, req: Request<Body>, ctx: RequestContext) -> BoxFuture<Response<Body>> {
+        Box::pin(async move { ctx.upstream.forward(req, &ctx.identity).await })
+    }
+}
+
+fn forward_all() -> RouteTable {
+    RouteTable::proxy_all()
+        .with(ForwardAll)
+        .with_catchall(ForwardAll)
+}
+
 #[tokio::test]
 async fn plain_request_reaches_upstream_unchanged_and_response_returns_unchanged() {
     let upstream = fake_upstream(|req| async move {
@@ -41,7 +62,7 @@ async fn plain_request_reaches_upstream_unchanged_and_response_returns_unchanged
             .unwrap()
     })
     .await;
-    let gw = gateway(upstream, "", RouteTable::proxy_all()).await;
+    let gw = gateway(upstream, "", forward_all()).await;
 
     let resp = send(
         gw,
@@ -91,7 +112,7 @@ fn lines(body: &[u8]) -> Vec<String> {
 
 #[tokio::test]
 async fn untrusted_client_cannot_spoof_identity_headers_and_end_to_end_headers_pass_through() {
-    let gw = gateway(header_echo().await, "", RouteTable::proxy_all()).await;
+    let gw = gateway(header_echo().await, "", forward_all()).await;
 
     let resp = send(
         gw,
@@ -167,7 +188,7 @@ async fn trusted_peer_forwards_rightmost_client_ip_and_scheme() {
     let gw = gateway(
         header_echo().await,
         "127.0.0.1, ::1",
-        RouteTable::proxy_all(),
+        forward_all(),
     )
     .await;
 
@@ -202,7 +223,7 @@ async fn large_request_body_streams_up_and_back_byte_for_byte() {
             |req| async move { Response::new(req.into_body().map_err(Into::into).boxed()) },
         )
         .await;
-    let gw = gateway(upstream, "", RouteTable::proxy_all()).await;
+    let gw = gateway(upstream, "", forward_all()).await;
 
     let payload: Vec<u8> = (0..16 * 1024 * 1024u32).map(|i| (i % 251) as u8).collect();
     let (mut tx, rx) = Channel::<Bytes, BoxError>::new(4);
@@ -259,7 +280,7 @@ async fn sse_events_arrive_before_the_stream_ends() {
         }
     })
     .await;
-    let gw = gateway(upstream, "", RouteTable::proxy_all()).await;
+    let gw = gateway(upstream, "", forward_all()).await;
 
     let resp = send(
         gw,
@@ -300,7 +321,7 @@ async fn upstream_status_codes_pass_through() {
         Response::builder().status(code).body(full(body)).unwrap()
     })
     .await;
-    let gw = gateway(upstream, "", RouteTable::proxy_all()).await;
+    let gw = gateway(upstream, "", forward_all()).await;
 
     for code in [
         200u16, 204, 301, 304, 400, 401, 403, 404, 409, 429, 500, 503,
@@ -362,7 +383,7 @@ async fn websocket_upgrade_tunnels_frames_both_ways() {
             .unwrap()
     })
     .await;
-    let gw = gateway(upstream, "", RouteTable::proxy_all()).await;
+    let gw = gateway(upstream, "", forward_all()).await;
 
     within(async move {
         let mut s = tokio::net::TcpStream::connect(gw).await.unwrap();
@@ -407,7 +428,7 @@ async fn upstream_down_is_bad_gateway_and_health_stays_up() {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         l.local_addr().unwrap()
     };
-    let gw = gateway(closed, "", RouteTable::proxy_all()).await;
+    let gw = gateway(closed, "", forward_all()).await;
 
     let resp = send(gw, Request::builder().uri("/jmap").body(full("")).unwrap()).await;
     assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
@@ -499,7 +520,8 @@ async fn route_table_intercepts_only_matching_requests() {
             .unwrap(),
     )
     .await;
-    assert_eq!(body_bytes(get).await, "go GET /jmap/session");
+    assert_eq!(get.status(), StatusCode::NOT_FOUND);
+    assert_eq!(body_bytes(get).await, "404 page not found\n");
 }
 
 /// Review item 1: an upstream that accepts the request but never sends
@@ -515,7 +537,7 @@ async fn upstream_that_never_answers_is_gateway_timeout_after_the_header_bound()
     let gw = common::gateway_with(
         upstream,
         "",
-        RouteTable::proxy_all(),
+        forward_all(),
         std::time::Duration::from_millis(300),
     )
     .await;
@@ -545,7 +567,7 @@ async fn the_edge_budget_is_one_budget_with_go_s_429() {
         async { Response::new(full("ok")) }
     })
     .await;
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(2)).await;
+    let gw = common::gateway_limited(upstream, forward_all(), common::edge(2)).await;
     for path in ["/jmap", "/api/settings"] {
         let resp = send(gw, Request::get(path).body(full("")).unwrap()).await;
         assert_eq!(resp.status(), StatusCode::OK, "{path}");
@@ -641,7 +663,7 @@ async fn booking_write_budget_is_shared_across_rust_and_go_routes() {
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
             edge_limit: Some(common::edge(600)),
         },
-        RouteTable::proxy_all().with(Booking),
+        RouteTable::proxy_all().with(Booking).with(ForwardAll),
     )
     .unwrap()
     .with_inventory(&inventory.to_string())
@@ -679,7 +701,7 @@ async fn booking_write_budget_is_shared_across_rust_and_go_routes() {
 async fn admin_routes_share_go_s_sixty_per_minute_budget() {
     enough_window_time(60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("ok")) }).await;
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
+    let gw = common::gateway_limited(upstream, forward_all(), common::edge(600)).await;
     for i in 0..60 {
         let path = if i % 2 == 0 {
             "/api/admin/users"
@@ -720,10 +742,8 @@ async fn auth_budget_is_shared_between_mail_and_direct_auth_upstreams() {
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
             edge_limit: Some(common::edge(600)),
         },
-        RouteTable::proxy_all(),
+        forward_all(),
     )
-    .unwrap()
-    .with_auth_upstream(format!("http://{auth}").parse().unwrap())
     .unwrap()
     .with_rust_auth_upstream(format!("http://{auth}").parse().unwrap())
     .unwrap();
@@ -756,7 +776,7 @@ async fn auth_budget_is_shared_between_mail_and_direct_auth_upstreams() {
 async fn meet_guest_write_budget_is_per_ip_and_meeting_slug() {
     enough_window_time(15 * 60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("ok")) }).await;
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
+    let gw = common::gateway_limited(upstream, forward_all(), common::edge(600)).await;
     for _ in 0..20 {
         let response = send(
             gw,
@@ -803,7 +823,7 @@ async fn csrf_rejection_precedes_route_limit_after_core_admission() {
         }
     })
     .await;
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
+    let gw = common::gateway_limited(upstream, forward_all(), common::edge(600)).await;
     for _ in 0..5 {
         let response = send(
             gw,
@@ -831,7 +851,7 @@ async fn csrf_rejection_precedes_route_limit_after_core_admission() {
 async fn route_limit_response_has_go_s_security_headers() {
     enough_window_time(15 * 60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("ok")) }).await;
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
+    let gw = common::gateway_limited(upstream, forward_all(), common::edge(600)).await;
     for _ in 0..5 {
         let response = send(
             gw,
@@ -888,7 +908,7 @@ async fn guest_gate_precedes_route_budget_without_exposing_a_429() {
         }
     })
     .await;
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
+    let gw = common::gateway_limited(upstream, forward_all(), common::edge(600)).await;
     for _ in 0..60 {
         let response = send(gw, Request::get("/api/admin/users").body(full("")).unwrap()).await;
         assert_eq!(response.status(), StatusCode::OK);
@@ -1132,28 +1152,25 @@ async fn ported_auth_requests_reach_rust_auth_upstream_directly() {
         Request::get("/authentication").body(full("")).unwrap(),
     )
     .await;
-    assert_eq!(body_bytes(response).await, "mail");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(body_bytes(response).await, "404 page not found\n");
 }
 
 #[tokio::test]
-async fn inventory_dispatches_to_four_targets_and_keeps_off_routes_in_go() {
-    let mail = fake_upstream(|_| async { Response::new(full("go mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("go auth")) }).await;
+async fn inventory_dispatches_to_local_and_rust_auth_without_go() {
     let rust_auth =
         fake_upstream(|req| async move { Response::new(full(format!("rust auth {}", req.uri()))) })
             .await;
     let inventory = include_str!("../route-inventory.json");
     let gateway = setjoin_gateway::Gateway::new(
         setjoin_gateway::Config {
-            upstream: Some(format!("http://{mail}").parse().unwrap()),
+            upstream: None,
             trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
             edge_limit: None,
         },
         RouteTable::proxy_all().with(TakeWhenAsked),
     )
-    .unwrap()
-    .with_auth_upstream(format!("http://{auth}").parse().unwrap())
     .unwrap()
     .with_rust_auth_upstream(format!("http://{rust_auth}").parse().unwrap())
     .unwrap()
@@ -1175,14 +1192,13 @@ async fn inventory_dispatches_to_four_targets_and_keeps_off_routes_in_go() {
             "rust auth /auth/password-policy",
         ),
         ("POST", "/auth/refresh", "rust auth /auth/refresh"),
-        // SAML is ported (#546): the Rust auth upstream owns it.
         (
             "POST",
             "/auth/saml/idfed2/link",
             "rust auth /auth/saml/idfed2/link",
         ),
-        ("GET", "/admin/users", "go mail"),
-        ("DELETE", "/auth/login", "go auth"),
+        ("GET", "/admin/users", "404 page not found\n"),
+        ("DELETE", "/auth/login", "rust auth /auth/login"),
     ] {
         let response = send(
             addr,
@@ -1199,70 +1215,8 @@ async fn inventory_dispatches_to_four_targets_and_keeps_off_routes_in_go() {
 }
 
 #[tokio::test]
-async fn kill_switch_forwards_every_request_to_go_without_interception() {
-    let mail = fake_upstream(|req| async move {
-        let head = format!(
-            "{} {} {} {} ",
-            req.method(),
-            req.uri(),
-            req.headers()["host"].to_str().unwrap(),
-            req.headers()["x-custom"].to_str().unwrap()
-        );
-        let body = req.into_body().collect().await.unwrap().to_bytes();
-        Response::builder()
-            .status(299)
-            .body(full(format!("{head}{}", String::from_utf8_lossy(&body))))
-            .unwrap()
-    })
-    .await;
-    let auth = fake_upstream(|_| async { panic!("kill switch reached auth upstream") }).await;
-    let gateway = setjoin_gateway::Gateway::new(
-        setjoin_gateway::Config {
-            upstream: Some(format!("http://{mail}").parse().unwrap()),
-            trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
-            upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-            edge_limit: Some(setjoin_gateway::jmap::limit::EdgeLimit::new(
-                setjoin_gateway::jmap::limit::Limiter::new(0, 60),
-            )),
-        },
-        RouteTable::proxy_all().with(TakeWhenAsked),
-    )
-    .unwrap()
-    .with_auth_upstream(format!("http://{auth}").parse().unwrap())
-    .unwrap()
-    .with_enabled(false);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(gateway.serve(listener));
-    for path in [
-        "/jmap?x=%2F",
-        "/auth/login",
-        HEALTH_PATH,
-        "/_gateway/metrics",
-    ] {
-        let response = send(
-            addr,
-            Request::post(path)
-                .header("host", "mail.example.test")
-                .header("x-custom", "opaque")
-                .header("x-take", "yes")
-                .body(full("body\0bytes"))
-                .unwrap(),
-        )
-        .await;
-        assert_eq!(response.status().as_u16(), 299, "{path}");
-        assert_eq!(
-            body_bytes(response).await,
-            format!("POST {path} mail.example.test opaque body\0bytes")
-        );
-    }
-}
-
-#[tokio::test]
-async fn go_proxy_metrics_count_families_total_and_pilot_declines_once() {
-    let mail = fake_upstream(|_| async { Response::new(full("go mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("go auth")) }).await;
-    let rust_auth = fake_upstream(|_| async { Response::new(full("rust auth")) }).await;
+async fn legacy_with_enabled_false_never_forwards_to_go() {
+    let mail = fake_upstream(|_| async { panic!("legacy Go upstream must never be reached") }).await;
     let gateway = setjoin_gateway::Gateway::new(
         setjoin_gateway::Config {
             upstream: Some(format!("http://{mail}").parse().unwrap()),
@@ -1273,7 +1227,37 @@ async fn go_proxy_metrics_count_families_total_and_pilot_declines_once() {
         RouteTable::proxy_all().with(TakeWhenAsked),
     )
     .unwrap()
-    .with_auth_upstream(format!("http://{auth}").parse().unwrap())
+    .with_enabled(false);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(gateway.serve(listener));
+    let health = send(addr, Request::get(HEALTH_PATH).body(full("")).unwrap()).await;
+    assert_eq!(health.status(), StatusCode::OK);
+    assert_eq!(body_bytes(health).await, "ok\n");
+    let jmap = send(
+        addr,
+        Request::post("/jmap")
+            .header("x-take", "yes")
+            .body(full("{}"))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(jmap.status(), StatusCode::OK);
+    assert_eq!(body_bytes(jmap).await, "served by rust");
+}
+
+#[tokio::test]
+async fn go_proxy_metrics_stay_zero_across_all_families() {
+    let rust_auth = fake_upstream(|_| async { Response::new(full("rust auth")) }).await;
+    let gateway = setjoin_gateway::Gateway::new(
+        setjoin_gateway::Config {
+            upstream: None,
+            trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
+            upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+            edge_limit: None,
+        },
+        RouteTable::proxy_all().with(TakeWhenAsked),
+    )
     .unwrap()
     .with_rust_auth_upstream(format!("http://{rust_auth}").parse().unwrap())
     .unwrap();
@@ -1296,10 +1280,8 @@ async fn go_proxy_metrics_count_families_total_and_pilot_declines_once() {
     for (method, path, take) in [
         ("GET", HEALTH_PATH, "no"),
         ("POST", "/jmap", "yes"),
-        ("POST", "/jmap", "no"),
         ("GET", "/api/admin/users", "no"),
         ("POST", "/auth/refresh", "no"),
-        // SAML is ported (#546): it reaches the Rust auth upstream and adds no Go forward.
         ("POST", "/auth/saml/idfed2/link", "no"),
     ] {
         let response = send(
@@ -1322,9 +1304,9 @@ async fn go_proxy_metrics_count_families_total_and_pilot_declines_once() {
     }
     let body = String::from_utf8(body_bytes(metrics().await).await.to_vec()).unwrap();
     for line in [
-        "setjoin_gateway_proxied_to_go_total 2",
-        "setjoin_gateway_proxied_to_go_by_family_total{family=\"F01\"} 1",
-        "setjoin_gateway_proxied_to_go_by_family_total{family=\"F18\"} 1",
+        "setjoin_gateway_proxied_to_go_total 0",
+        "setjoin_gateway_proxied_to_go_by_family_total{family=\"F01\"} 0",
+        "setjoin_gateway_proxied_to_go_by_family_total{family=\"F18\"} 0",
         "setjoin_gateway_proxied_to_go_by_family_total{family=\"F21\"} 0",
         "setjoin_gateway_proxied_to_go_by_family_total{family=\"F22\"} 0",
     ] {
@@ -1342,11 +1324,6 @@ async fn go_proxy_metrics_count_families_total_and_pilot_declines_once() {
 
 #[tokio::test]
 async fn auth_csrf_is_scoped_to_the_listener() {
-    let go_auth =
-        fake_upstream(
-            |req| async move { Response::new(full(format!("go auth {}", req.uri().path()))) },
-        )
-        .await;
     let rust_auth = fake_upstream(|req| async move {
         Response::new(full(format!("rust auth {}", req.uri().path())))
     })
@@ -1354,79 +1331,68 @@ async fn auth_csrf_is_scoped_to_the_listener() {
     let paths = ["/auth/totp/verify", "/auth/webauthn/login/finish"];
     for auth_only in [false, true] {
         for limited in [true, false] {
-            for ported in [true, false] {
-                let mut inventory: serde_json::Value =
-                    serde_json::from_str(setjoin_gateway::inventory::BUNDLED).unwrap();
-                let routes = inventory["routes"].as_array_mut().unwrap();
-                if auth_only {
-                    routes.retain(|row| row["listener"] == "auth");
-                }
-                if !ported {
-                    for row in routes.iter_mut().filter(|row| {
-                        row["listener"] == "auth" && paths.iter().any(|path| row["path"] == *path)
-                    }) {
-                        row["state"] = "OFF".into();
-                    }
-                }
-                let gateway = setjoin_gateway::Gateway::new(
-                    setjoin_gateway::Config {
-                        upstream: None,
-                        trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
-                        upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
-                        edge_limit: limited.then(|| common::edge(600)),
-                    },
-                    RouteTable::proxy_all(),
-                )
-                .unwrap()
-                .with_auth_upstream(format!("http://{go_auth}").parse().unwrap())
-                .unwrap()
-                .with_rust_auth_upstream(format!("http://{rust_auth}").parse().unwrap())
-                .unwrap()
-                .with_inventory(&inventory.to_string())
-                .unwrap();
-                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-                let address = listener.local_addr().unwrap();
-                let server = tokio::spawn(gateway.serve(listener));
-                for path in paths {
-                    for origin in ["https://foreign.test", "http://mail.test"] {
-                        let response = send(
-                            address,
-                            Request::post(path)
-                                .header("host", "mail.test")
-                                .header("origin", origin)
-                                .body(full("{}"))
-                                .unwrap(),
-                        )
-                        .await;
-                        let context = format!("{path} auth_only={auth_only} limited={limited} ported={ported} origin={origin}");
-                        if !auth_only && origin == "https://foreign.test" {
-                            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{context}");
-                            assert_eq!(
-                                response.headers()["cache-control"],
-                                "no-store",
-                                "{context}"
-                            );
-                            assert_eq!(
-                                response.headers()["x-content-type-options"],
-                                "nosniff",
-                                "{context}"
-                            );
-                            assert_eq!(body_bytes(response).await,
-                                "{\"detail\":\"CSRF validation failed\",\"status\":403,\"title\":\"csrf_failed\",\"type\":\"about:blank\"}\n", "{context}");
-                        } else {
-                            assert_eq!(response.status(), StatusCode::OK, "{context}");
-                            let upstream = if ported { "rust auth" } else { "go auth" };
-                            assert_eq!(
-                                body_bytes(response).await,
-                                format!("{upstream} {path}"),
-                                "{context}"
-                            );
-                        }
-                    }
-                }
-                server.abort();
-                let _ = server.await;
+            let mut inventory: serde_json::Value =
+                serde_json::from_str(setjoin_gateway::inventory::BUNDLED).unwrap();
+            let routes = inventory["routes"].as_array_mut().unwrap();
+            if auth_only {
+                routes.retain(|row| row["listener"] == "auth");
             }
+            let gateway = setjoin_gateway::Gateway::new(
+                setjoin_gateway::Config {
+                    upstream: None,
+                    trusted_proxies: setjoin_gateway::TrustedProxies::parse("").unwrap(),
+                    upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                    edge_limit: limited.then(|| common::edge(600)),
+                },
+                RouteTable::proxy_all(),
+            )
+            .unwrap()
+            .with_rust_auth_upstream(format!("http://{rust_auth}").parse().unwrap())
+            .unwrap()
+            .with_inventory(&inventory.to_string())
+            .unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(gateway.serve(listener));
+            for path in paths {
+                for origin in ["https://foreign.test", "http://mail.test"] {
+                    let response = send(
+                        address,
+                        Request::post(path)
+                            .header("host", "mail.test")
+                            .header("origin", origin)
+                            .body(full("{}"))
+                            .unwrap(),
+                    )
+                    .await;
+                    let context =
+                        format!("{path} auth_only={auth_only} limited={limited} origin={origin}");
+                    if !auth_only && origin == "https://foreign.test" {
+                        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{context}");
+                        assert_eq!(
+                            response.headers()["cache-control"],
+                            "no-store",
+                            "{context}"
+                        );
+                        assert_eq!(
+                            response.headers()["x-content-type-options"],
+                            "nosniff",
+                            "{context}"
+                        );
+                        assert_eq!(body_bytes(response).await,
+                            "{\"detail\":\"CSRF validation failed\",\"status\":403,\"title\":\"csrf_failed\",\"type\":\"about:blank\"}\n", "{context}");
+                    } else {
+                        assert_eq!(response.status(), StatusCode::OK, "{context}");
+                        assert_eq!(
+                            body_bytes(response).await,
+                            format!("rust auth {path}"),
+                            "{context}"
+                        );
+                    }
+                }
+            }
+            server.abort();
+            let _ = server.await;
         }
     }
 }
@@ -1434,7 +1400,6 @@ async fn auth_csrf_is_scoped_to_the_listener() {
 #[tokio::test]
 async fn auth_only_paths_reach_auth_without_overriding_gateway_routes() {
     let mail = fake_upstream(|_| async { Response::new(full("mail")) }).await;
-    let auth = fake_upstream(|_| async { Response::new(full("auth")) }).await;
     let rust_auth = fake_upstream(|_| async { Response::new(full("rust auth")) }).await;
     let gateway = setjoin_gateway::Gateway::new(
         setjoin_gateway::Config {
@@ -1443,10 +1408,8 @@ async fn auth_only_paths_reach_auth_without_overriding_gateway_routes() {
             upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
             edge_limit: None,
         },
-        RouteTable::proxy_all(),
+        forward_all(),
     )
-    .unwrap()
-    .with_auth_upstream(format!("http://{auth}").parse().unwrap())
     .unwrap()
     .with_rust_auth_upstream(format!("http://{rust_auth}").parse().unwrap())
     .unwrap();
@@ -1479,7 +1442,7 @@ async fn auth_only_paths_reach_auth_without_overriding_gateway_routes() {
 async fn escaped_pinned_paths_share_the_same_route_budget() {
     enough_window_time(60).await;
     let upstream = fake_upstream(|_| async { Response::new(full("go")) }).await;
-    let gw = common::gateway_limited(upstream, RouteTable::proxy_all(), common::edge(600)).await;
+    let gw = common::gateway_limited(upstream, forward_all(), common::edge(600)).await;
     for _ in 0..60 {
         let response = send(gw, Request::get("/setup/status").body(full("")).unwrap()).await;
         assert_eq!(response.status(), StatusCode::OK);
@@ -1493,16 +1456,8 @@ async fn escaped_pinned_paths_share_the_same_route_budget() {
 }
 
 #[tokio::test]
-async fn unlimited_proxy_transport_preserves_go_oracle_csrf_requests() {
-    let upstream = fake_upstream(|request| async move {
-        assert_eq!(request.headers()["origin"], "https://foreign.test");
-        Response::builder()
-            .status(403)
-            .body(full("frozen Go oracle"))
-            .unwrap()
-    })
-    .await;
-    // The recorder has no local adapter or limiter: Go must see the request.
+async fn unmatched_route_without_adapter_returns_native_404_never_go() {
+    let upstream = fake_upstream(|_| async { panic!("unmatched route must never reach Go") }).await;
     let gateway = common::gateway(upstream, "", RouteTable::proxy_all()).await;
     let response = send(
         gateway,
@@ -1513,8 +1468,8 @@ async fn unlimited_proxy_transport_preserves_go_oracle_csrf_requests() {
             .unwrap(),
     )
     .await;
-    assert_eq!(response.status(), 403);
-    assert_eq!(body_bytes(response).await, "frozen Go oracle");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(body_bytes(response).await, "404 page not found\n");
 }
 
 #[tokio::test]

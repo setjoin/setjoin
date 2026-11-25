@@ -10,7 +10,7 @@ pub async fn can_read(
     auth: &MailboxAuthContext,
     target: i64,
 ) -> Result<bool, StatementFailure> {
-    if target == auth.mailbox().get() {
+    if auth.mailbox_optional().is_some_and(|m| m.get() == target) {
         return Ok(true);
     }
     if target <= 0 {

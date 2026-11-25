@@ -64,7 +64,7 @@ fn spawn(
 }
 
 #[tokio::test]
-async fn ad_workers_refuse_to_start_while_go_still_runs_them() -> Result<(), BoxError> {
+async fn ad_workers_start_without_go_off_and_still_require_ad_sync_enabled() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("ad-startup-guard") else {
         return Ok(());
     };
@@ -76,16 +76,14 @@ async fn ad_workers_refuse_to_start_while_go_still_runs_them() -> Result<(), Box
     std::fs::write(&inventory.0, include_str!("../route-inventory.json"))?;
     // (label, RUST_WORKERS_ON, GO_WORKERS_OFF, AD_SYNC_ENABLED, must run)
     let cases = [
-        ("ad-no-go-off", "ad-sync", "", "true", false),
-        ("ad-other-go-off", "ad-sync", "ldap-sync", "true", false),
+        ("ad-no-go-off", "ad-sync", "", "true", true),
         ("ad-env-off", "ad-sync", "ad-sync", "", false),
-        ("ad-go-off", "ad-sync", "ad-sync", "true", true),
         (
             "ad-observer-no-go-off",
             "ad-toggle-observer",
             "",
             "true",
-            false,
+            true,
         ),
         (
             "ad-observer-env-off",
@@ -95,38 +93,17 @@ async fn ad_workers_refuse_to_start_while_go_still_runs_them() -> Result<(), Box
             false,
         ),
         (
-            "ad-observer-go-off",
-            "ad-toggle-observer",
-            "ad-toggle-observer",
-            "true",
-            true,
-        ),
-        (
             "identity-observer-no-go-off",
             "identity-toggle-observer",
             "",
             "",
-            false,
-        ),
-        (
-            "identity-observer-go-off",
-            "identity-toggle-observer",
-            "identity-toggle-observer",
-            "",
             true,
         ),
-        ("metrics-no-go-off", "identity-metrics", "", "", false),
+        ("metrics-no-go-off", "identity-metrics", "", "", true),
         (
-            "metrics-go-off",
-            "identity-metrics",
-            "identity-metrics",
+            "all-no-go-off",
+            "ad-sync,ad-toggle-observer,identity-toggle-observer,identity-metrics",
             "",
-            true,
-        ),
-        (
-            "all-go-off",
-            "ad-sync,ad-toggle-observer,identity-toggle-observer,identity-metrics",
-            "ad-sync,ad-toggle-observer,identity-toggle-observer,identity-metrics",
             "true",
             true,
         ),

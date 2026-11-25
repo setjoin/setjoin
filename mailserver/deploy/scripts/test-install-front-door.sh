@@ -141,26 +141,38 @@ if command -v systemd-analyze >/dev/null 2>&1; then
 fi
 
 gw_env="$FX/etc/gateway.env"
-require_text 'Go internal plain listener as upstream' 'GATEWAY_UPSTREAM=http://127.0.0.1:80' "$gw_env"
-require_text 'direct authserver upstream' 'GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:8443' "$gw_env"
+require_text 'Rust authserver upstream' 'GATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:8443' "$gw_env"
+! grep -q '^GATEWAY_UPSTREAM=' "$gw_env" || fail "gateway.env still emits retired GATEWAY_UPSTREAM"
+! grep -q '^GATEWAY_AUTH_UPSTREAM=' "$gw_env" || fail "gateway.env still emits retired GATEWAY_AUTH_UPSTREAM"
 require_text 'trusts only the local TLS terminator' 'GATEWAY_TRUSTED_PROXIES=127.0.0.1' "$gw_env"
 require_text 'front door ON' 'GATEWAY_ENABLED=true' "$gw_env"
-# A non-loopback upstream would expose Go's plain listener beyond the host.
-if (
-  source "$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
-  AUTHSERVER_URL=http://127.0.0.1:8443 \
-    GATEWAY_UPSTREAM=http://10.0.0.5:80 render_gateway_env "$tmp/bad.env"
-) 2>/dev/null; then
-  fail "render_gateway_env accepted a non-loopback Go upstream"
-fi
-[ ! -e "$tmp/bad.env" ] || fail "a refused gateway env was left on disk"
+au_svc="$FX/units/setjoin-auth.service"
+require_text 'auth unit runs Rust setjoin-auth' "ExecStart=$FX/opt/current/setjoin-auth" "$au_svc"
+require_text 'auth unit checks /health directly' 'http://${LISTEN_ADDR}/health' "$au_svc"
+! grep -q 'db-credentials' "$au_svc" || fail "Rust auth unit loads the privileged credential file"
+! grep -q 'auth/login' "$au_svc" || fail "auth readiness sends a credential request"
+! grep -q 'setjoin-authserverd' "$au_svc" || fail "Rust auth unit chains to Go authserverd"
+# Only literal http://127.0.0.1:<port> is accepted so TRUSTED_PROXY_IP=127.0.0.1 matches.
+for bad in http://10.0.0.5:8443 http://localhost:8443 'http://[::1]:8443'; do
+  if (
+    source "$ROOT/mailserver/deploy/scripts/lib-livekit.sh"
+    AUTHSERVER_URL="$bad" render_gateway_env "$tmp/bad.env"
+  ) 2>/dev/null; then
+    fail "render_gateway_env accepted non-127.0.0.1 AUTHSERVER_URL $bad"
+  fi
+  [ ! -e "$tmp/bad.env" ] || fail "a refused gateway env was left on disk"
+done
 
-# install.sh: Go serves its internal plain listener and trusts the gateway;
-# the binary joins the flat cohort the immutable layout adopts.
+# install.sh: Rust auth + front door join the flat cohort the immutable layout adopts.
 require_text 'Go plain listener for the gateway' 'HTTP_MODE=proxy' "$INSTALL"
 require_text 'Go trusts exactly the gateway address' 'TRUSTED_PROXY_IP=127.0.0.1' "$INSTALL"
 require_text 'gateway env renders in the config step' 'render_gateway_env "$GATEWAY_ENV"' "$INSTALL"
+require_text 'auth env renders via helper' 'render_auth_env "$AUTH_ENV" "$CONFIG_ENV" "$DB_CRED_FILE"' "$INSTALL"
+require_text 'auth env is root-owned' 'chown root:root "$AUTH_ENV"' "$INSTALL"
+require_text 'installer pins setjoin-auth to 127.0.0.1' '[[ "$AUTH_LISTEN" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]]' "$INSTALL"
 require_text 'gateway binary joins the flat cohort' 'install -m 0755 "$GATEWAY_SOURCE" "$INSTALL_DIR/setjoin-gateway"' "$INSTALL"
+require_text 'setjoin-auth joins the flat cohort' 'install -m 0755 "$AUTH_SOURCE" "$INSTALL_DIR/setjoin-auth"' "$INSTALL"
+! grep -Eq 'curl .*-X POST.*auth/login' "$INSTALL" || fail "installer probes with a credential request"
 require_text 'renderer input assigned before the entry migration' 'GATEWAY_ENV="$CONFIG_DIR/gateway.env"' "$INSTALL"
 require_text 'install health-checks the front door' '/_gateway/healthz' "$INSTALL"
 [ "$(grep -n 'GATEWAY_ENV="$CONFIG_DIR/gateway.env"' "$INSTALL" | head -1 | cut -d: -f1)" -lt \

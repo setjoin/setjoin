@@ -102,7 +102,7 @@ pub async fn create(
         &auth,
         deadline(),
         "SELECT public.rust_platform_tou_create($2::bigint, $4::text, $5::bigint, $6::text, $7::text, $8::bool, $9::bool, $10::text)::text \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&doc.name, Type::TEXT),
             (&doc.version, Type::INT8),
@@ -138,7 +138,7 @@ pub async fn update(
         &auth,
         deadline(),
         "SELECT public.rust_platform_tou_update($2::bigint, $4::bigint, $5::text, $6::bigint, $7::text, $8::text, $9::bool, $10::bool, $11::text)::text \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&id, Type::INT8),
             (&doc.name, Type::TEXT),
@@ -170,7 +170,7 @@ pub async fn delete(
         &auth,
         deadline(),
         "SELECT public.rust_platform_tou_delete($2::bigint, $4::bigint, $5::text)::text \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&id, Type::INT8), (&ip, Type::TEXT)],
         |rows| outcome(&status_of(rows)?),
     )

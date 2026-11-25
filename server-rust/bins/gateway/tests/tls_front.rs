@@ -185,20 +185,55 @@ async fn tls_alpn_h2_and_http11_serve_the_native_gateway() {
 
 #[tokio::test]
 async fn direct_tls_is_authoritative_and_http2_authority_is_preserved() {
+    use http_body_util::{BodyExt, Full};
+    use setjoin_gateway::{BoxFuture, Intercept, RequestContext};
     use tokio_rustls::rustls::pki_types::ServerName;
-    let upstream=common::fake_upstream(|req|async move {
-        let text=|name| req.headers().get(name).and_then(|v|v.to_str().ok()).unwrap_or("").to_owned();
-        hyper::Response::new(common::full(serde_json::json!({"proto":text("x-forwarded-proto"),"host":text("host"),"forwarded_host":text("x-forwarded-host")}).to_string()))
-    }).await;
+    struct IdentityProbe;
+    impl Intercept for IdentityProbe {
+        fn matches(&self, _req: &Request<setjoin_gateway::Body>) -> bool {
+            true
+        }
+        fn handle(
+            &self,
+            req: Request<setjoin_gateway::Body>,
+            ctx: RequestContext,
+        ) -> BoxFuture<hyper::Response<setjoin_gateway::Body>> {
+            let authority = req
+                .uri()
+                .authority()
+                .map(|a| a.as_str())
+                .unwrap_or("")
+                .to_owned();
+            let host = req
+                .headers()
+                .get("host")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(&authority)
+                .to_owned();
+            let body = serde_json::json!({
+                "proto": ctx.identity.proto,
+                "host": host,
+                "forwarded_host": authority,
+            })
+            .to_string();
+            Box::pin(async move {
+                hyper::Response::new(
+                    Full::new(Bytes::from(body))
+                        .map_err(|never| match never {})
+                        .boxed(),
+                )
+            })
+        }
+    }
     let files = TlsFixture::new("identity");
     let gateway = Gateway::new(
         Config {
-            upstream: Some(format!("http://{upstream}").parse().unwrap()),
+            upstream: None,
             upstream_header_timeout: Duration::from_secs(5),
             trusted_proxies: TrustedProxies::parse("127.0.0.1").unwrap(),
             edge_limit: None,
         },
-        RouteTable::proxy_all(),
+        RouteTable::proxy_all().with_catchall(IdentityProbe),
     )
     .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

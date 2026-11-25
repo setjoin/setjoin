@@ -3,9 +3,9 @@
 
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
-use setjoin_pg::{CommandOutcome, MailboxAuthContext, StatementFailure, Type};
+use setjoin_pg::{CommandOutcome, StatementFailure, Type};
 use sha2::{Digest as _, Sha256};
 
 /// Go's UUID parser accepts canonical, compact, braced and URN spellings.
@@ -58,11 +58,7 @@ pub async fn abort_upload(
     operation: [u8; 16],
 ) -> CommandOutcome<Vec<String>, StatementFailure> {
     // AuthContext is sealed and contains positive, database-derived identities.
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("authenticated mailbox"),
-        Generation(1),
-    );
+    let auth = actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -90,11 +86,7 @@ pub async fn fork_consent(
     device: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("authenticated mailbox"),
-        Generation(1),
-    );
+    let auth = actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -173,11 +165,7 @@ pub async fn record_chunk(
     chunk: ChunkRecord<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("authenticated mailbox"),
-        Generation(1),
-    );
+    let auth = actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -357,11 +345,7 @@ pub async fn verify_item(
     object_ref: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("authenticated mailbox"),
-        Generation(1),
-    );
+    let auth = actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -384,11 +368,7 @@ pub async fn account_upload(
     content_type: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("authenticated mailbox"),
-        Generation(1),
-    );
+    let auth = actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -446,11 +426,7 @@ pub async fn begin_upload(
     offer: BeginUpload<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("authenticated mailbox"),
-        Generation(1),
-    );
+    let auth = actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),
@@ -514,11 +490,7 @@ pub async fn quarantine(
     offer: Quarantine<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("authenticated mailbox"),
-        Generation(1),
-    );
+    let auth = actor.database_scope();
     let envelope = CommandEnvelope {
         operation: OperationId(operation),
         authority: auth.authority(),

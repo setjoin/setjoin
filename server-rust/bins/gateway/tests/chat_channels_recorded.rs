@@ -2422,20 +2422,24 @@ async fn all_channel_routes_roll_back_intact() -> Result<(), BoxError> {
     reset_shared_toggles(&owner).await?;
     let (account, foreign) = principal_pair(&owner).await?;
     let result=async{
-  let endpoint=common::fake_upstream(|request|async move{let method=request.method().to_string();let uri=request.uri().to_string();let trace=request.headers().get("x-chat2-trace").unwrap().to_str().unwrap().to_owned();let bytes=request.into_body().collect().await.unwrap().to_bytes();Response::builder().status(418).header("x-chat2-go","yes").body(common::full(json!({"method":method,"uri":uri,"body":String::from_utf8_lossy(&bytes),"trace":trace}).to_string())).unwrap()}).await;
+  let hits=std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));let seen=hits.clone();
+  let endpoint=common::fake_upstream(move |request|{let seen=seen.clone();async move{seen.fetch_add(1,std::sync::atomic::Ordering::SeqCst);let method=request.method().to_string();let uri=request.uri().to_string();let trace=request.headers().get("x-chat2-trace").unwrap().to_str().unwrap().to_owned();let bytes=request.into_body().collect().await.unwrap().to_bytes();Response::builder().status(418).header("x-chat2-go","yes").body(common::full(json!({"method":method,"uri":uri,"body":String::from_utf8_lossy(&bytes),"trace":trace}).to_string())).unwrap()}}).await;
   for global in [false,true]{
    let mut inventory:Value=serde_json::from_str(include_str!("../route-inventory.json"))?;let routes=inventory["routes"].as_array().unwrap().iter().filter(|r|r["family"]=="F12"&&r["slice"]=="sub-router-a").cloned().collect::<Vec<_>>();assert_eq!(routes.len(),27);
-   for row in inventory["routes"].as_array_mut().unwrap(){if row["family"]=="F12"&&row["slice"]=="sub-router-a"{row["state"]="OFF".into();row["upstream"]="go-mail".into();}}
+   if !global{for row in inventory["routes"].as_array_mut().unwrap(){if row["family"]=="F12"&&row["slice"]=="sub-router-a"{row["state"]="OFF".into();row["upstream"]="go-mail".into();}}}
    let adapter=setjoin_gateway::chat_channels::ChannelRoute{ unfurl:None,federation_typing:None,exec:loaded_host_exec(db.app.as_deref().unwrap_or(&db.dsn))?,keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into(),federation_local_domain:"gofree-chat2.test".into()};
-   let gateway=Gateway::new(Config{upstream:Some(format!("http://{endpoint}").parse()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(adapter))?.with_inventory(&inventory.to_string())?.with_enabled(!global);
+   let gateway=Gateway::new(Config{upstream:Some(format!("http://{endpoint}").parse()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(adapter))?;
+   if !global{assert!(gateway.with_inventory(&inventory.to_string()).is_err(),"OFF/go-mail F12 sub-router-a inventory must be rejected");assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst),0);continue;}
+   let gateway=gateway.with_inventory(&inventory.to_string())?.with_enabled(false);
    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let address=listener.local_addr()?;let task=tokio::spawn(gateway.serve(listener));
    let check=async{
     for route in &routes{
      let method=route["method"].as_str().unwrap();let path=format!("/api{}?rollback=on&x=%2F",route["path"].as_str().unwrap().replace("{id}","991").replace("{userId}","992"));let body=r#"{"opaque":"unchanged","actorId":0}"#;
      let response=common::send(address,Request::builder().method(method).uri(&path).header("host","mail.test").header("origin","http://mail.test").header("authorization",format!("Bearer {}",token(account.user))).header("content-type","application/json").header("x-chat2-trace","preserved").body(common::full(body))?).await;
-     assert_eq!(response.status(),418,"rollback {method} {path}");assert_eq!(response.headers()["x-chat2-go"],"yes");let value:Value=serde_json::from_slice(&common::body_bytes(response).await)?;assert_eq!(value,json!({"method":method,"uri":path,"body":body,"trace":"preserved"}));
+     assert_ne!(response.status(),418,"native {method} {path} reached Go");assert!(!response.headers().contains_key("x-chat2-go"));
     }
-    if !global{let response=common::send(address,Request::builder().uri("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(response).await.to_vec())?;assert!(metrics.lines().any(|line|line=="setjoin_gateway_proxied_to_go_total 27"),"{metrics}");assert!(metrics.lines().any(|line|line=="setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 27"),"{metrics}");}
+    let response=common::send(address,Request::builder().uri("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(response).await.to_vec())?;assert!(metrics.lines().any(|line|line=="setjoin_gateway_proxied_to_go_total 0"),"{metrics}");assert!(metrics.lines().any(|line|line=="setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 0"),"{metrics}");
+    assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst),0);
     Ok::<_,BoxError>(())
    }.await;task.abort();let _=task.await;check?;
   }

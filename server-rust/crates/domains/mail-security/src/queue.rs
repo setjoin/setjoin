@@ -128,9 +128,9 @@ pub async fn resolve(
 ) -> CommandOutcome<bool, StatementFailure> {
     let auth = scope(actor);
     let (name, sql) = if bounce {
-        ("queue.bounce", "SELECT rust_mailsec_queue_bounce($4) WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''")
+        ("queue.bounce", "SELECT rust_mailsec_queue_bounce($4) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''")
     } else {
-        ("queue.retry", "SELECT rust_mailsec_queue_retry($4) WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''")
+        ("queue.retry", "SELECT rust_mailsec_queue_retry($4) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''")
     };
     setjoin_pg::run_receipted_command(
         worker,

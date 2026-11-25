@@ -103,6 +103,7 @@ installer is **idempotent**: re-running it preserves your existing
 | SeaweedFS   | 4.40    | Run the verified digest below; do not deploy the mutable `latest` tag. |
 | Go          | 1.26.6+ | only to **build** the binaries (skip if prebuilt)  |
 | Node + npm  | 20+     | only to build the webmail bundle                   |
+| Python      | 3.9+    | stdlib only — required by `install.sh` / `upgrade.sh` (`yaml-config.py`) to render gateway YAML and systemd `EnvironmentFile` settings |
 | openssl, curl | any   | secret + self-signed-cert generation, health check, downloading the pinned `livekit-server` SFU binary |
 | podman (or docker) | any | Meet B2 recording — runs the pinned `livekit/egress` container (`setjoin-egress.service`). Podman preferred (packaged in every 信创/EL distro, daemonless); docker is the fallback. Detected once at install time. |
 | valkey-server, valkey-cli | any | Meet B2 recording — the SFU↔Egress message bus (`setjoin-valkey.service`), loopback-only; `valkey-cli` runs the installer's post-start `PING` health probe. Ubuntu 24.04+: `apt install valkey-server`; RHEL/信创: `dnf install valkey` (both binaries ship in the named package). |

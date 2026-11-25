@@ -88,7 +88,7 @@ pub async fn audit_list(
         &auth,
         deadline(),
         "SELECT audit_write($2,'federation_peers_list','federation_peer',NULL,NULL,NULL,$4::text::inet,'','core') \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&ip, Type::TEXT)],
         |_| Ok(()),
     )
@@ -129,7 +129,7 @@ pub async fn set(
         &envelope(&auth, operation, &format!("set:{domain}:{scope_name}:{enabled}")),
         &auth,
         deadline(),
-        "SELECT federation_peer_set($2, $4, $5, $6, $7)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT federation_peer_set($2, $4, $5, $6, $7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&domain, Type::TEXT),
             (&anchor, Type::TEXT),
@@ -155,7 +155,7 @@ pub async fn delete(
         &envelope(&auth, operation, &format!("delete:{domain}")),
         &auth,
         deadline(),
-        "SELECT federation_peer_delete($2, $4) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT federation_peer_delete($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&domain, Type::TEXT)],
         |rows| {
             rows.first()

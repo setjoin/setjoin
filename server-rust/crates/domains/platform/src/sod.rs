@@ -67,7 +67,7 @@ pub async fn put(
         &auth,
         deadline(),
         "SELECT public.rust_platform_sod_mode_set($2::bigint, $4::bool, $5::text)::text \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&enabled, Type::BOOL), (&ip, Type::TEXT)],
         |rows| {
             let text: String = rows

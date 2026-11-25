@@ -80,7 +80,7 @@ pub async fn imap_put(
         &auth,
         deadline(),
         "INSERT INTO user_imap_settings (user_id, expose_all, show_subscribed_only, exposed_tag_ids, folder_separator) \
-         SELECT $2::bigint, $4::boolean, $5::boolean, $6::bigint[], $7::text WHERE $1::bigint > 0 AND $3::text <> '' \
+         SELECT $2::bigint, $4::boolean, $5::boolean, $6::bigint[], $7::text WHERE $1::bigint >= 0 AND $3::text <> '' \
          ON CONFLICT (user_id) DO UPDATE SET \
            expose_all = COALESCE($4::boolean, user_imap_settings.expose_all), \
            show_subscribed_only = COALESCE($5::boolean, user_imap_settings.show_subscribed_only), \
@@ -172,7 +172,7 @@ pub async fn view_put(
         &envelope(&auth, operation, prefs),
         &auth,
         deadline(),
-        "WITH written AS (UPDATE users SET view_prefs = $4::text::jsonb WHERE id = $2::bigint AND $1::bigint > 0 AND $3::text <> '' RETURNING 1) \
+        "WITH written AS (UPDATE users SET view_prefs = $4::text::jsonb WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
          SELECT count(*)::bigint FROM written",
         &[(&prefs, Type::TEXT)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
@@ -221,7 +221,7 @@ pub async fn undo_put(
         &envelope(&auth, operation, &format!("undo:{delay}")),
         &auth,
         deadline(),
-        "SELECT rust_settings_undo_delay_put($2, $4) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_settings_undo_delay_put($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&delay, Type::INT8)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -276,7 +276,7 @@ pub async fn newsletter_put(
         &auth,
         deadline(),
         "WITH written AS (UPDATE users SET view_prefs = COALESCE(view_prefs, '{}'::jsonb) || $4::text::jsonb \
-         WHERE id = $2::bigint AND $1::bigint > 0 AND $3::text <> '' RETURNING 1) \
+         WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
          SELECT count(*)::bigint FROM written",
         &[(&patch, Type::TEXT)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
@@ -361,7 +361,7 @@ pub async fn signature_put(
         ),
         &auth,
         deadline(),
-        "SELECT rust_settings_signature_put($2, $4, $5, $6, $7, $8) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_settings_signature_put($2, $4, $5, $6, $7, $8) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&alias, Type::TEXT),
             (&html, Type::TEXT),
@@ -389,7 +389,7 @@ pub async fn signature_delete(
         &auth,
         deadline(),
         "WITH gone AS (DELETE FROM user_signatures WHERE id = $4::bigint AND user_id = $2::bigint \
-         AND $1::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM gone",
+         AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM gone",
         &[(&id, Type::INT8)],
         |rows| first_i64(rows).map(|n| n > 0),
     )

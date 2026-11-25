@@ -9,6 +9,18 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/systemctl" <<'MOCK'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FED_TEST_LOG"
+if [ "${1:-}" = daemon-reload ] && [ "${FED_TEST_FAIL_DAEMON_RELOAD:-0}" = 1 ]; then
+  exit 1
+fi
+if [ "${1:-}" = enable ] && [ -n "${FED_TEST_FAIL_ENABLE:-}" ] && [ "${2:-}" = "$FED_TEST_FAIL_ENABLE" ]; then
+  exit 1
+fi
+if [ "${1:-}" = is-enabled ] && { [ -n "${FED_TEST_ENABLED_SOCKETS+x}" ] || [ -n "${FED_TEST_RUNTIME_SOCKETS+x}" ]; }; then
+  target="${3:-${2:-}}"
+  case " ${FED_TEST_RUNTIME_SOCKETS:-} " in *" $target "*) printf 'enabled-runtime\n'; exit 0 ;; esac
+  case " ${FED_TEST_ENABLED_SOCKETS:-} " in *" $target "*) printf 'enabled\n'; exit 0 ;; esac
+  exit 1
+fi
 MOCK
 cat > "$tmp/bin/chown" <<'MOCK'
 #!/usr/bin/env bash
@@ -42,6 +54,10 @@ for previous_socket in absent present; do
     cat > "$fx/config/config.env" <<'ENV'
 TLS_CERT=/fixture/leaf.crt
 TLS_KEY=/fixture/leaf.key
+WORM_MODE=compliance
+WORM_RETENTION_DAYS=3650
+WORM_LEGAL_HOLD_ENABLED=true
+S3_BUCKET=mailblobs
 LISTEN_ADDR=:443
 DB_DSN=postgres://app@fixture/db
 DB_DIRECT_DSN=postgres://app@fixture/db
@@ -56,6 +72,7 @@ DB_OWNER_DSN=must-not-reach-gateway
 DB_DIRECT_OWNER_DSN=must-not-reach-gateway
 S3_SECRET_KEY=must-not-reach-gateway
 ENV
+    printf 'TLS_AUTOCERT_CACHE_DIR=%s/autocert\n' "$fx" >> "$fx/config/config.env"
     echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$fx/config/gateway.env"
     echo 'previous gateway service' > "$fx/units/setjoin-gateway.service"
     echo 'previous gateway socket' > "$fx/units/setjoin-gateway.socket"
@@ -67,9 +84,12 @@ ENV
       echo 'previous IMAP socket' > "$fx/units/setjoin-imap.socket"
       echo 'previous IMAPS socket' > "$fx/units/setjoin-imaps.socket"
       echo 'previous TLS env' > "$fx/config/tls.env"
+      echo 'previous storage env' > "$fx/config/storage.env"
+      mkdir -p "$fx/autocert" && chmod 0755 "$fx/autocert"
     fi
     chmod 0600 "$fx/config/config.env"
     if [ -e "$fx/config/federation.env" ]; then chmod 0640 "$fx/config/federation.env"; fi
+    if [ -e "$fx/config/storage.env" ]; then chmod 0640 "$fx/config/storage.env"; fi
     cp -a "$fx/config/." "$fx/before-config/"
     cp -a "$fx/units/." "$fx/before-units/"
     status=0
@@ -82,14 +102,14 @@ ENV
       [ "$status" = 0 ] || { cat "$fx/output" >&2; exit 1; }
       grep -qx 'FileDescriptorName=federation' "$fx/units/setjoin-federation.socket"
       grep -qx 'Wants=setjoin-federation.socket' "$fx/units/setjoin-gateway.service"
-      ! grep -Eq '^EnvironmentFile=.*(config.env|db-credentials.env)$' "$fx/units/setjoin-gateway.service"
+      if grep -Eq '^EnvironmentFile=.*(config.env|db-credentials.env)$' "$fx/units/setjoin-gateway.service"; then echo 'privileged env leaked into gateway unit' >&2; exit 1; fi
       grep -qx "EnvironmentFile=-$fx/config/federation.env" "$fx/units/setjoin-gateway.service"
       grep -qx "ExecStart=$fx/install/setjoin-gateway" "$fx/units/setjoin-gateway.service"
       grep -qx 'GO_WORKERS_OFF=backup-engine,federation-service,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/config.env"
       grep -qx 'RUST_WORKERS_ON=notify-intent-drain,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/config.env"
       grep -qx 'GO_WORKERS_OFF=federation-service,federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/federation.env"
       grep -qx 'RUST_WORKERS_ON=federation-residue-reap,cert-monitor,tls-ticket-keys,http-tls,http-h2c' "$fx/config/federation.env"
-      ! grep -Eq 'OWNER_DSN|S3_SECRET' "$fx/config/federation.env"
+      if grep -Eq 'OWNER_DSN|S3_SECRET' "$fx/config/federation.env"; then echo 'secret leaked into federation.env' >&2; exit 1; fi
       test "$(stat -c '%a' "$fx/config/federation.env")" = 640
       grep -qx 'LISTEN_ADDR=127.0.0.1:0' "$fx/config/config.env"
       grep -qx 'FileDescriptorName=https' "$fx/units/setjoin-https.socket"
@@ -97,6 +117,17 @@ ENV
       grep -qx 'FileDescriptorName=imaps' "$fx/units/setjoin-imaps.socket"
       grep -qx 'GO_LISTENERS_OFF=imap,smtp,submission' "$fx/config/config.env"
       grep -qx 'GO_LISTENERS_OFF=imap,smtp,submission' "$fx/config/gateway.env"
+      test -d "$fx/autocert"
+      test "$(stat -c '%a' "$fx/autocert")" = 700
+      grep -qx "ReadWritePaths=-$fx/autocert" "$fx/units/setjoin-gateway.service"
+      grep -qx "TLS_AUTOCERT_CACHE_DIR=$fx/autocert" "$fx/config/gateway.env"
+      grep -qx 'WORM_MODE=compliance' "$fx/config/gateway.env"
+      grep -qx 'WORM_RETENTION_DAYS=3650' "$fx/config/gateway.env"
+      grep -qx 'WORM_LEGAL_HOLD_ENABLED=true' "$fx/config/gateway.env"
+      grep -qx "EnvironmentFile=-$fx/config/storage.env" "$fx/units/setjoin-gateway.service"
+      grep -qx 'S3_BUCKET=mailblobs' "$fx/config/storage.env"
+      if grep -Eq 'OWNER_DSN|JWT_SECRET|DB_DSN' "$fx/config/storage.env"; then echo 'leak in storage.env' >&2; exit 1; fi
+      test "$(stat -c '%a' "$fx/config/storage.env")" = 640
       grep -qx 'TLS_CERT=/fixture/leaf.crt' "$fx/config/tls.env"
       test ! -e "$fx/units/setjoin-acme.socket"
       test "$(stat -c '%a' "$fx/config/tls.env")" = 640
@@ -110,6 +141,9 @@ ENV
       test "$(stat -c '%a' "$fx/config/config.env")" = 600
       if [ "$previous_socket" = present ]; then
         test "$(stat -c '%a' "$fx/config/federation.env")" = 640
+        test "$(stat -c '%a' "$fx/autocert")" = 755
+      else
+        test ! -e "$fx/autocert"
       fi
       test "$(cat "$fx/install/setjoin-gateway")" = 'old setjoin-gateway'
       # Close the new descriptor before the old gateway is started.
@@ -122,4 +156,186 @@ PY
     fi
   done
 done
+
+# Missing intermediate TLS cache parent directories are created traversable (0755) while leaf stays 0700.
+nc="$tmp/nested-cache"
+mkdir -p "$nc/install" "$nc/new" "$nc/config" "$nc/units"
+for artifact in mailserverd setjoin-gateway; do
+  echo "old $artifact" > "$nc/install/$artifact"
+  echo "new $artifact" > "$nc/new/$artifact"
+done
+printf '#!/bin/sh\nexit 0\n' > "$nc/new/mailctl"
+chmod 755 "$nc/new/mailctl"
+cat > "$nc/config/config.env" <<ENV
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+TLS_AUTOCERT_CACHE_DIR=$nc/missing-parent/autocert
+ENV
+echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$nc/config/gateway.env"
+echo 'previous gateway service' > "$nc/units/setjoin-gateway.service"
+echo 'previous gateway socket' > "$nc/units/setjoin-gateway.socket"
+PATH="$tmp/bin:$PATH" INSTALL_DIR="$nc/install" SETJOIN_CONFIG_DIR="$nc/config" \
+  SYSTEMD_DIR="$nc/units" FED_TEST_HEALTH=0 FED_TEST_LOG="$nc/actions" \
+  bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$nc/new/mailserverd" "$nc/new/mailctl" \
+  '' '' "$nc/new/setjoin-gateway" > "$nc/output" 2>&1
+test -d "$nc/missing-parent/autocert"
+test "$(stat -c '%a' "$nc/missing-parent")" = 755
+test "$(stat -c '%a' "$nc/missing-parent/autocert")" = 700
+
+# Failed TLS cache removal rollback surfaces Incomplete rollback without claiming full restore.
+rf="$tmp/rollback-cache-fail"
+mkdir -p "$rf/bin" "$rf/install" "$rf/new" "$rf/config" "$rf/units"
+cp "$tmp/bin/"* "$rf/bin/"
+cat > "$rf/bin/curl" <<MOCK
+#!/usr/bin/env bash
+mkdir -p "$rf/new-parent/autocert"
+: > "$rf/new-parent/autocert/keep"
+exit 1
+MOCK
+chmod 755 "$rf/bin/curl"
+for artifact in mailserverd setjoin-gateway; do
+  echo "old $artifact" > "$rf/install/$artifact"
+  echo "new $artifact" > "$rf/new/$artifact"
+done
+printf '#!/bin/sh\nexit 0\n' > "$rf/new/mailctl"
+chmod 755 "$rf/new/mailctl"
+cat > "$rf/config/config.env" <<ENV
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+TLS_AUTOCERT_CACHE_DIR=$rf/new-parent/autocert
+ENV
+echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$rf/config/gateway.env"
+echo 'previous gateway service' > "$rf/units/setjoin-gateway.service"
+echo 'previous gateway socket' > "$rf/units/setjoin-gateway.socket"
+rf_rc=0
+PATH="$rf/bin:$PATH" INSTALL_DIR="$rf/install" SETJOIN_CONFIG_DIR="$rf/config" \
+  SYSTEMD_DIR="$rf/units" FED_TEST_HEALTH=1 FED_TEST_LOG="$rf/actions" \
+  bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" "$rf/new/mailserverd" "$rf/new/mailctl" \
+  '' '' "$rf/new/setjoin-gateway" > "$rf/output" 2>&1 || rf_rc=$?
+[ "$rf_rc" != 0 ] || { echo 'expected failed rollback to exit non-zero' >&2; exit 1; }
+grep -q 'Incomplete rollback' "$rf/output"
+if grep -q 'Restored previous version' "$rf/output"; then
+  echo 'unexpected Restored previous version banner after failed TLS cache rollback' >&2
+  exit 1
+fi
+
+# Immutable layout supports refresh-gateway-env without copying binaries.
+im="$tmp/immutable"
+mkdir -p "$im/install/releases/r1" "$im/config" "$im/units"
+if ln -s "$im/install/releases/r1" "$im/install/current" 2>/dev/null && [ -L "$im/install/current" ]; then
+  echo 'immut gateway' > "$im/install/current/setjoin-gateway"
+  cat > "$im/config/config.env" <<'ENV'
+TLS_CERT=/fixture/leaf.crt
+TLS_KEY=/fixture/leaf.key
+  WORM_MODE = compliance
+  WORM_LEGAL_HOLD_ENABLED = false
+S3_BUCKET=immut-blobs
+DB_DSN=postgres://app@fixture/db
+DB_DIRECT_DSN=postgres://app@fixture/db
+ENV
+  printf 'TLS_AUTOCERT_CACHE_DIR=%s/autocert\n' "$im" >> "$im/config/config.env"
+  echo 'GATEWAY_LISTEN=127.0.0.1:18090' > "$im/config/gateway.env"
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env
+  grep -qx 'WORM_MODE=compliance' "$im/config/gateway.env"
+  grep -qx 'WORM_LEGAL_HOLD_ENABLED=false' "$im/config/gateway.env"
+  grep -qx 'S3_BUCKET=immut-blobs' "$im/config/storage.env"
+  grep -qx "EnvironmentFile=-$im/config/storage.env" "$im/units/setjoin-gateway.service"
+  grep -qx "ExecStart=$im/install/current/setjoin-gateway" "$im/units/setjoin-gateway.service"
+
+  # Failed refresh-gateway-env rolls back unit/config files without stopping setjoin-gateway.
+  : > "$im/actions"
+  cp "$im/config/config.env" "$im/config.before"
+  cp "$im/config/gateway.env" "$im/gateway.before"
+  printf 'TLS_AUTOCERT_CACHE_DIR=/srv/postgres/bad\n' >> "$im/config/config.env"
+  bad_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env 2>/dev/null || bad_rc=$?
+  [ "$bad_rc" != 0 ] || { echo 'expected bad refresh-gateway-env to fail' >&2; exit 1; }
+  if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'refresh-gateway-env rollback stopped setjoin-gateway' >&2; exit 1; fi
+  diff -u "$im/gateway.before" "$im/config/gateway.env"
+
+  # Restore valid config.env before testing partial-enable rollback and lock contention.
+  cp "$im/config.before" "$im/config/config.env"
+  mkdir -p "$im/before-enable-cfg" "$im/before-enable-units"
+  cp -a "$im/config/." "$im/before-enable-cfg/"
+  cp -a "$im/units/." "$im/before-enable-units/"
+  : > "$im/actions"
+  cat >> "$im/config/config.env" <<'ENV'
+FEDERATION_ENABLED=true
+FEDERATION_LOCAL_DOMAIN=zulu.test
+FEDERATION_CERT=/fixture/leaf.crt
+FEDERATION_KEY=/fixture/leaf.key
+FEDERATION_LISTEN_ADDR=127.0.0.1:17443
+ENV
+  en_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
+    FED_TEST_ENABLED_SOCKETS="" FED_TEST_FAIL_ENABLE="setjoin-federation.socket" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env 2>/dev/null || en_rc=$?
+  [ "$en_rc" != 0 ] || { echo 'expected partial socket enable failure in refresh-gateway-env' >&2; exit 1; }
+  if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'refresh-gateway-env enable rollback stopped setjoin-gateway' >&2; exit 1; fi
+  grep -qx 'enable setjoin-https.socket' "$im/actions"
+  grep -qx 'disable setjoin-https.socket' "$im/actions"
+  diff -ru "$im/before-enable-units" "$im/units"
+
+  # Partial-enable rollback restores prior enabled-runtime sockets with --runtime instead of making them permanent.
+  cp "$im/config.before" "$im/config/config.env"
+  : > "$im/actions"
+  cat >> "$im/config/config.env" <<'ENV'
+FEDERATION_ENABLED=true
+FEDERATION_LOCAL_DOMAIN=zulu.test
+FEDERATION_CERT=/fixture/leaf.crt
+FEDERATION_KEY=/fixture/leaf.key
+FEDERATION_LISTEN_ADDR=127.0.0.1:17443
+ENV
+  rt_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
+    FED_TEST_ENABLED_SOCKETS="" FED_TEST_RUNTIME_SOCKETS="setjoin-https.socket" \
+    FED_TEST_FAIL_ENABLE="setjoin-federation.socket" \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env 2>/dev/null || rt_rc=$?
+  [ "$rt_rc" != 0 ] || { echo 'expected runtime socket rollback failure in refresh-gateway-env' >&2; exit 1; }
+  if grep -qx 'stop setjoin-gateway' "$im/actions"; then echo 'runtime enable rollback stopped setjoin-gateway' >&2; exit 1; fi
+  grep -qx 'disable setjoin-https.socket' "$im/actions"
+  grep -qx 'enable --runtime setjoin-https.socket' "$im/actions"
+  test "$(grep -xc 'enable setjoin-https.socket' "$im/actions")" = 1
+  diff -ru "$im/before-enable-units" "$im/units"
+
+  # Failed daemon-reload during refresh-gateway-env rollback surfaces Incomplete refresh rollback.
+  cp "$im/config.before" "$im/config/config.env"
+  dr_rc=0
+  PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+    SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" UPDATER_STATE_DIR="$im/updater" \
+    FED_TEST_FAIL_DAEMON_RELOAD=1 \
+    bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env >"$im/dr.out" 2>&1 || dr_rc=$?
+  [ "$dr_rc" != 0 ] || { echo 'expected daemon-reload failure in refresh-gateway-env' >&2; exit 1; }
+  grep -q 'Incomplete refresh rollback' "$im/dr.out"
+
+  # Restore valid config.env before testing lock contention with valid inputs.
+  cp "$im/config.before" "$im/config/config.env"
+  if command -v flock >/dev/null 2>&1; then
+    mkdir -p "$im/updater-journal" "$im/before-im-cfg" "$im/before-im-units"
+    printf '[Service]\nExecStart=/usr/libexec/setjoin-updater run --state-dir=%s/updater-journal --release-store=%s/rel\n# old --state-dir=/nonexistent/comment\n' "$im" "$im" > "$im/units/setjoin-updater.service"
+    cp -a "$im/config/." "$im/before-im-cfg/"
+    cp -a "$im/units/." "$im/before-im-units/"
+    exec 8>"$im/updater-journal/executor.lock"
+    flock 8
+    lock_rc=0
+    PATH="$tmp/bin:$PATH" INSTALL_DIR="$im/install" SETJOIN_CONFIG_DIR="$im/config" \
+      SYSTEMD_DIR="$im/units" FED_TEST_LOG="$im/actions" \
+      bash "$ROOT/mailserver/deploy/scripts/upgrade.sh" refresh-gateway-env >"$im/lock.out" 2>&1 || lock_rc=$?
+    exec 8>&-
+    [ "$lock_rc" != 0 ] || { echo 'expected executor.lock contention to refuse refresh' >&2; exit 1; }
+    grep -Eq 'active signed update holds .*executor\.lock' "$im/lock.out"
+    diff -ru "$im/before-im-cfg" "$im/config"
+    diff -ru "$im/before-im-units" "$im/units"
+  fi
+fi
 echo 'TLS front upgrade activation and previous-release rollback: PASS'

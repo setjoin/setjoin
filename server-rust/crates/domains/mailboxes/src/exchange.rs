@@ -65,7 +65,7 @@ pub async fn create_project(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.project.create"},&super::envelope(&auth,operation,digest),&auth,super::deadline(),
-     "SELECT exchange_assessment_project_create_idempotent($2,$4::text::uuid,$5,$6,$7,$8::text::timestamptz)::text WHERE $1::bigint>0 AND $3::text<>''",
+     "SELECT exchange_assessment_project_create_idempotent($2,$4::text::uuid,$5,$6,$7,$8::text::timestamptz)::text WHERE $1::bigint>=0 AND $3::text<>''",
      &[(&key,setjoin_pg::Type::TEXT),(&digest,setjoin_pg::Type::TEXT),(&domain,setjoin_pg::Type::INT8),(&name,setjoin_pg::Type::TEXT),(&retention,setjoin_pg::Type::TEXT)],
      |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -89,7 +89,7 @@ pub async fn create_run(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.run.create"},&super::envelope(&auth,operation,r.digest),&auth,super::deadline(),
- "SELECT exchange_assessment_run_create_idempotent($2,$5::text::uuid,$6,$4,$7,$8,$9::bigint::integer,$10,$11::bigint::integer,$12)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_run_create_idempotent($2,$5::text::uuid,$6,$4,$7,$8,$9::bigint::integer,$10,$11::bigint::integer,$12)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&r.project,setjoin_pg::Type::INT8),(&r.key,setjoin_pg::Type::TEXT),(&r.digest,setjoin_pg::Type::TEXT),(&r.cell,setjoin_pg::Type::TEXT),(&r.cell_digest,setjoin_pg::Type::TEXT),(&r.registry,setjoin_pg::Type::INT8),(&r.registry_digest,setjoin_pg::Type::TEXT),(&r.catalog,setjoin_pg::Type::INT8),(&r.collector,setjoin_pg::Type::TEXT)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -105,7 +105,7 @@ pub async fn transition(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.run.transition"},&super::envelope(&auth,operation,&format!("{run}:{generation}:{state}:{error:?}")),&auth,super::deadline(),
- "SELECT exchange_assessment_run_transition($2,$4,$5,$6,$7)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_run_transition($2,$4,$5,$6,$7)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&run,setjoin_pg::Type::INT8),(&generation,setjoin_pg::Type::INT8),(&state,setjoin_pg::Type::TEXT),(&error,setjoin_pg::Type::TEXT)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -121,7 +121,7 @@ pub async fn attest(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.attestation.create"},&super::envelope(&auth,operation,&format!("{run}:{kind}:{digest}:{statement:?}")),&auth,super::deadline(),
- "SELECT exchange_assessment_attestation_create($2,$4,$5,$6,$7::text::jsonb)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_attestation_create($2,$4,$5,$6,$7::text::jsonb)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&run,setjoin_pg::Type::INT8),(&kind,setjoin_pg::Type::TEXT),(&digest,setjoin_pg::Type::TEXT),(&statement,setjoin_pg::Type::TEXT)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -143,7 +143,7 @@ pub async fn decide(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.decision.set"},&super::envelope(&auth,operation,&format!("{}:{}:{}:{}:{}:{}:{:?}",d.run,d.generation,d.capability,d.mapping,d.decision,d.reason,d.expires)),&auth,super::deadline(),
- "SELECT exchange_assessment_decision_set($2,$4,$5,$6,$7,$8,$9,$10::text::timestamptz)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_decision_set($2,$4,$5,$6,$7,$8,$9,$10::text::timestamptz)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&d.run,setjoin_pg::Type::INT8),(&d.generation,setjoin_pg::Type::INT8),(&d.capability,setjoin_pg::Type::TEXT),(&d.mapping,setjoin_pg::Type::TEXT),(&d.decision,setjoin_pg::Type::TEXT),(&d.reason,setjoin_pg::Type::TEXT),(&d.expires,setjoin_pg::Type::TEXT)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -157,7 +157,7 @@ pub async fn resolve(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.claim.resolve"},&super::envelope(&auth,operation,&format!("{run}:{generation}")),&auth,super::deadline(),
- "SELECT exchange_assessment_claim_resolve($2,$4,$5)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_claim_resolve($2,$4,$5)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&run,setjoin_pg::Type::INT8),(&generation,setjoin_pg::Type::INT8)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -177,7 +177,7 @@ pub async fn request_deletion(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.delete.request"},&super::envelope(&auth,operation,&format!("{}:{}:{:?}:{:?}:{}",d.project,d.scope,d.run,d.artifact,d.reason)),&auth,super::deadline(),
- "SELECT exchange_assessment_delete_request($2,$4,$5,$6,$7,$8)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_delete_request($2,$4,$5,$6,$7,$8)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&d.project,setjoin_pg::Type::INT8),(&d.scope,setjoin_pg::Type::TEXT),(&d.run,setjoin_pg::Type::INT8),(&d.artifact,setjoin_pg::Type::INT8),(&d.reason,setjoin_pg::Type::TEXT)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -221,7 +221,7 @@ pub async fn missing_reason(
 ) {
     let auth = super::scope(actor);
     let _=setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.reason_missing"},&super::envelope(&auth,operation,&format!("{ip}:{permission}")),&auth,super::deadline(),
- "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,$5,'core') WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,$5,'core') WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&ip,setjoin_pg::Type::TEXT),(&permission,setjoin_pg::Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await;
 }
 
@@ -273,7 +273,7 @@ pub async fn commit_bundle(
     let auth = super::scope(actor);
     let key_id = "db-encryption-key:v1";
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.artifact.commit"},&super::envelope(&auth,operation,&format!("{}:{}:{}:{}",b.run,b.generation,b.sha,b.key)),&auth,super::deadline(),
- "SELECT exchange_assessment_artifact_commit($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::text::timestamptz)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_artifact_commit($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::text::timestamptz)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&b.run,setjoin_pg::Type::INT8),(&b.generation,setjoin_pg::Type::INT8),(&b.sha,setjoin_pg::Type::TEXT),(&b.key,setjoin_pg::Type::TEXT),(&b.profile,setjoin_pg::Type::TEXT),(&key_id,setjoin_pg::Type::TEXT),(&b.sealed.ciphertext_size,setjoin_pg::Type::INT8),(&b.sealed.nonce,setjoin_pg::Type::BYTEA),(&b.sealed.wrapped_dek,setjoin_pg::Type::BYTEA),(&b.sealed.aad_sha256,setjoin_pg::Type::TEXT),(&b.retention,setjoin_pg::Type::TEXT)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }
@@ -312,7 +312,7 @@ pub async fn publish(
     let key_id = "db-encryption-key:v1";
     let algorithm = "ed25519";
     setjoin_pg::run_receipted_command(worker,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"exchange.publication.create"},&super::envelope(&auth,operation,&format!("{}:{digest}:{}",b.run,b.key)),&auth,super::deadline(),
- "SELECT exchange_assessment_publish_signed($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::text::jsonb,$15,$16,$17)::text WHERE $1::bigint>0 AND $3::text<>''",
+ "SELECT exchange_assessment_publish_signed($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::text::jsonb,$15,$16,$17)::text WHERE $1::bigint>=0 AND $3::text<>''",
  &[(&b.run,setjoin_pg::Type::INT8),(&digest,setjoin_pg::Type::TEXT),(&b.sha,setjoin_pg::Type::TEXT),(&b.key,setjoin_pg::Type::TEXT),(&b.profile,setjoin_pg::Type::TEXT),(&key_id,setjoin_pg::Type::TEXT),(&b.sealed.ciphertext_size,setjoin_pg::Type::INT8),(&b.sealed.nonce,setjoin_pg::Type::BYTEA),(&b.sealed.wrapped_dek,setjoin_pg::Type::BYTEA),(&b.sealed.aad_sha256,setjoin_pg::Type::TEXT),(&receipt.bytes,setjoin_pg::Type::TEXT),(&algorithm,setjoin_pg::Type::TEXT),(&receipt.key_id,setjoin_pg::Type::TEXT),(&receipt.signature,setjoin_pg::Type::BYTEA)],
  |rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(invalid)).await
 }

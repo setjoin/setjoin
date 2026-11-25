@@ -108,7 +108,7 @@ pub async fn set_break_glass(
         operation,
         &format!("{ip}:{ids:?}"),
         "SELECT count(*)::bigint FROM (SELECT ca_break_glass_set($2,$4::text::inet,$5) \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&ip, Type::TEXT), (ids, Type::INT8_ARRAY)],
         super::cmd::counted,
     )
@@ -311,7 +311,7 @@ pub async fn revoke_sessions(
         operation,
         &target.to_string(),
         "SELECT revoke_user_sessions($4, 'all', 'admin_revoke_all', $2, NULL, NULL) \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&target, Type::INT8)],
         one_i64,
     )
@@ -398,7 +398,7 @@ pub async fn instantiate(
         "ca_template_instantiate",
         operation,
         slug,
-        "SELECT ca_template_instantiate($4,$2) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT ca_template_instantiate($4,$2) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&slug, Type::TEXT)],
         one_i64,
     )
@@ -462,7 +462,7 @@ pub async fn import(
         "ca_policy_import",
         operation,
         &format!("{mode}:{document}"),
-        "SELECT ca_policy_import($4::text::jsonb,$2,$5)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT ca_policy_import($4::text::jsonb,$2,$5)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&document, Type::TEXT), (&mode, Type::TEXT)],
         one_text,
     )

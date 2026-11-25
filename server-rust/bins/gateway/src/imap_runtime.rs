@@ -24,13 +24,6 @@ pub struct ImapRuntime {
     direct: String,
 }
 
-fn listed(get: &dyn Fn(&str) -> Option<String>, var: &str, name: &str) -> bool {
-    get(var)
-        .unwrap_or_default()
-        .split(',')
-        .any(|s| s.trim() == name)
-}
-
 fn number<T: std::str::FromStr>(
     get: &dyn Fn(&str) -> Option<String>,
     var: &str,
@@ -73,12 +66,6 @@ pub fn start(
 ) -> Result<Option<ImapRuntime>, String> {
     if plain.is_none() && implicit.is_none() {
         return Ok(None);
-    }
-    if !listed(get, "GO_LISTENERS_OFF", "imap") {
-        return Err(
-            "IMAP sockets are activated but GO_LISTENERS_OFF does not list imap: Go's listener must be off first"
-                .into(),
-        );
     }
     let Some(gate) = gate else {
         return Err(
@@ -295,20 +282,11 @@ pub async fn load_security(
 }
 
 /// The one process-wide threat gate for every activated password protocol
-/// (IMAP #345, SMTP submission #501): each activated protocol must already be
-/// listed in `GO_LISTENERS_OFF`.
+/// (IMAP #345, SMTP submission #501).
 pub async fn shared_security(
     settings: &crate::configuration::Settings,
     protocols: &[&str],
 ) -> Result<(Arc<setjoin_threat::Gate>, setjoin_threat::Watchers), String> {
-    let off = std::env::var("GO_LISTENERS_OFF").unwrap_or_default();
-    for protocol in protocols {
-        if !off.split(',').any(|v| v.trim() == *protocol) {
-            return Err(format!(
-                "{protocol} sockets require GO_LISTENERS_OFF={protocol} before Rust activation"
-            ));
-        }
-    }
     load_security(settings, &protocols.join("-")).await
 }
 

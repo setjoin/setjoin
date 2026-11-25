@@ -9,7 +9,7 @@ use sha2::{Digest, Sha512};
 use std::{fmt, sync::RwLock};
 use zeroize::Zeroizing;
 
-pub(crate) struct Tickets {
+pub struct Tickets {
     keys: RwLock<Vec<Zeroizing<[u8; 32]>>>,
 }
 impl fmt::Debug for Tickets {

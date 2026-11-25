@@ -258,6 +258,8 @@ impl PushIdentity {
                 permissions: strings("perms"),
                 roles,
                 auth_time: self.claims.get("auth_time").and_then(Value::as_i64),
+                actor_id: self.act().filter(|&id| id > 0),
+                mailbox_blocked: false,
             },
             state: crate::gates::SessionState {
                 email: row.get(1),
@@ -313,6 +315,8 @@ impl PushIdentity {
                 permissions: strings("perms"),
                 roles: Vec::new(),
                 auth_time: self.claims.get("auth_time").and_then(Value::as_i64),
+                actor_id: self.act().filter(|&id| id > 0),
+                mailbox_blocked: false,
             },
             state: crate::gates::SessionState {
                 email: 0,

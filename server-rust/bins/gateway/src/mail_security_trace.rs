@@ -19,29 +19,37 @@ pub const DEFAULT_JMAP_BASE: &str = "http://127.0.0.1/jmap/download";
 /// (from `HOSTNAME` / `INTERNAL_DOMAINS`) and the loopback download base.
 #[derive(Clone)]
 pub struct TraceConfig {
-    /// `None` when `SETJOIN_CONFIG` may set the names: the user trace stays with Go.
     pub identity: Option<Identity>,
     pub jmap_base: String,
     client: Option<reqwest::Client>,
 }
 
 impl TraceConfig {
-    pub fn from_env() -> Self {
-        let env = |name: &str| std::env::var(name).ok();
-        let identity = if env("SETJOIN_CONFIG").is_some_and(|v| !v.is_empty()) {
-            None
+    pub fn from_settings(settings: &crate::configuration::Settings) -> Self {
+        let host = settings.string("hostname");
+        let host = if host.is_empty() {
+            "localhost"
         } else {
-            let host = env("HOSTNAME").filter(|v| !v.is_empty());
-            let internal = match env("INTERNAL_DOMAINS") {
-                Some(v) => v,
-                None => host.clone().unwrap_or_else(|| "localhost".into()),
-            };
-            Some(Identity::from_config(
-                host.as_deref().unwrap_or("localhost"),
-                &internal,
-            ))
+            host.as_str()
         };
-        Self::new(identity)
+        let internal = settings.string("internal.domains");
+        let internal = if internal.is_empty() {
+            host
+        } else {
+            internal.as_str()
+        };
+        Self::new(Some(Identity::from_config(host, internal)))
+    }
+    pub fn from_env() -> Self {
+        let host = std::env::var("HOSTNAME").ok().filter(|v| !v.is_empty());
+        let internal = match std::env::var("INTERNAL_DOMAINS").ok() {
+            Some(v) => v,
+            None => host.clone().unwrap_or_else(|| "localhost".into()),
+        };
+        Self::new(Some(Identity::from_config(
+            host.as_deref().unwrap_or("localhost"),
+            &internal,
+        )))
     }
     pub fn new(identity: Option<Identity>) -> Self {
         Self {
@@ -192,7 +200,7 @@ pub(crate) async fn handle(
         }
         Action::MessageTrace => {
             let Some(identity) = config.identity.as_ref() else {
-                return c.upstream.forward(r, &c.identity).await;
+                return bare(503, "service unavailable", c, id);
             };
             let Ok(email_id) = segment(&path, 3).parse::<i64>() else {
                 return bare(400, "invalid email ID", c, id);

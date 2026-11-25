@@ -12,9 +12,7 @@ use std::{
 
 fn base() -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"));
-    c.env_clear()
-        .env("GATEWAY_ENABLED", "false")
-        .env("GATEWAY_LISTEN", "127.0.0.1:0");
+    c.env_clear().env("GATEWAY_LISTEN", "127.0.0.1:0");
     c
 }
 
@@ -49,15 +47,10 @@ fn tmp(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn acme_renewal_needs_go_off_and_the_challenge_descriptor() {
-    let mut c = base();
-    c.env("RUST_WORKERS_ON", "acme-renewal");
-    assert!(refused(c).contains("acme-renewal requires GO_WORKERS_OFF=acme-renewal"));
-
+fn acme_renewal_needs_the_challenge_descriptor() {
     let mut c = base();
     c.env("RUST_WORKERS_ON", "acme-renewal")
-        .env("TLS_AUTOCERT_CHALLENGE", "http-01")
-        .env("GO_WORKERS_OFF", "acme-renewal");
+        .env("TLS_AUTOCERT_CHALLENGE", "http-01");
     assert!(refused(c).contains("socket-activated :80 descriptor named `acme`"));
 }
 
@@ -99,9 +92,7 @@ fn activated(mut command: Command, extra: &[&std::net::TcpListener]) -> Child {
 
 fn bash() -> Command {
     let mut c = Command::new("bash");
-    c.env_clear()
-        .env("GATEWAY_ENABLED", "false")
-        .env("HOSTNAME", "mail.test");
+    c.env_clear().env("HOSTNAME", "mail.test");
     c
 }
 
@@ -119,28 +110,16 @@ fn get(addr: std::net::SocketAddr, target: &str) -> String {
 }
 
 #[test]
-fn the_activated_acme_descriptor_needs_go_port80_off_and_then_redirects() {
+fn the_activated_acme_descriptor_redirects_without_go_workers_off() {
     let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let acme = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = acme.local_addr().unwrap();
-    let c = activated(bash(), &[&http, &acme]);
-    let mut c = c;
-    let mut stderr = String::new();
-    c.0.stderr
-        .take()
-        .unwrap()
-        .read_to_string(&mut stderr)
-        .unwrap();
-    assert!(
-        stderr.contains("requires GO_WORKERS_OFF=http-port80"),
-        "{stderr}"
-    );
-
-    let mut command = bash();
-    command.env("GO_WORKERS_OFF", "http-port80");
-    let mut child = activated(command, &[&http, &acme]);
+    let mut child = activated(bash(), &[&http, &acme]);
     let mut response = String::new();
     for _ in 0..100 {
+        if let Ok(Some(status)) = child.0.try_wait() {
+            panic!("gateway exited early with {status}");
+        }
         std::thread::sleep(Duration::from_millis(100));
         if let Ok(r) = std::panic::catch_unwind(|| get(addr, "/page?x=1")) {
             response = r;
@@ -226,18 +205,15 @@ fn acme_renewal_with_a_fresh_certificate_starts_without_contacting_a_ca() {
 }
 
 #[test]
-fn setup_control_needs_go_off_then_serves_a_0600_socket_and_removes_it_on_sigterm() {
-    let mut c = base();
-    c.env("RUST_WORKERS_ON", "setup-control");
-    assert!(refused(c).contains("setup-control requires GO_WORKERS_OFF=setup-control"));
-
+fn setup_control_serves_a_0600_socket_and_removes_it_on_sigterm() {
     let dir = tmp("control");
     let socket = dir.join("run").join("control.sock");
+    let dsn = std::env::var("TEST_DB_DSN").expect("disposable boot database");
     let mut child = Child(
         base()
             .env("RUST_WORKERS_ON", "setup-control")
-            .env("GO_WORKERS_OFF", "setup-control")
-            .env("DB_DSN", &std::env::var("TEST_DB_DSN").expect("disposable boot database"))
+            .env("DB_DSN", &dsn)
+            .env("DB_DIRECT_DSN", &dsn)
             .env("SETJOIN_CONTROL_SOCKET", &socket)
             .env("SETJOIN_SETUP_TOKEN", "tok")
             .stdout(Stdio::null())

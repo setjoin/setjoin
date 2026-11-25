@@ -358,47 +358,96 @@ pub(crate) async fn json_body<T: serde::de::DeserializeOwned>(
     crate::admin_identity_input::first(r, 1 << 20).await
 }
 
-/// Go's `validate.CanonicalEmail` for the addresses whose `net/mail` parse is
-/// certain: dot-atom local part and dot-separated ASCII domain. `Ok(None)`
-/// means "an address this adapter does not judge": the request goes to Go.
-fn canonical_email(email: &str) -> Result<Option<String>, &'static str> {
+/// Go's `validate.CanonicalEmail`: parses an RFC 5322 single address (`net/mail.ParseAddress`,
+/// with `<...>` retry), validates local-part and domain per `shared/validate/email.go`, and
+/// preserves required quoting on de-quoted quoted-string local-parts.
+fn canonical_email(email: &str) -> Result<String, &'static str> {
+    if email.is_empty() {
+        return Err("email must not be empty");
+    }
     if email.len() > 254 {
         return Err("email exceeds 254 characters");
     }
     if email.bytes().any(|b| b < 0x20 || b == 0x7f) {
         return Err("email contains control character");
     }
-    let atext = |b: u8| b.is_ascii_alphanumeric() || b"!#$%&'*+/=?^_`{|}~-".contains(&b);
-    let simple_domain = |d: &str| {
-        d.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.' || b == b'_')
-    };
-    let Some(at) = email.rfind('@') else {
-        // No '@': both parses fail. Only plain tokens are judged here.
-        return if email.bytes().all(|b| atext(b) || b == b'.') {
-            Err("invalid email format")
-        } else {
-            Ok(None)
+    if let Some(at) = email.rfind('@') {
+        if at >= 1 {
+            let local = &email[..at];
+            if local.contains("..") {
+                return Err("local-part contains consecutive dots");
+            }
+            if local.starts_with('.') {
+                return Err("local-part starts with a dot");
+            }
+            if local.ends_with('.') {
+                return Err("local-part ends with a dot");
+            }
+        }
+    }
+    let mut canonical = validate_email_once(email)?;
+    if validate_email_once(&canonical).is_err() {
+        let Some(at) = canonical.rfind('@') else {
+            return Err("invalid email format");
         };
-    };
-    let (local, domain) = (&email[..at], &email[at + 1..]);
-    if at >= 1 {
-        if local.contains("..") {
-            return Err("local-part contains consecutive dots");
+        let local = &canonical[..at];
+        if at < 1 || !local_part_needs_quoting(local) {
+            return Err("invalid email format");
         }
-        if local.starts_with('.') {
-            return Err("local-part starts with a dot");
-        }
-        if local.ends_with('.') {
-            return Err("local-part ends with a dot");
+        canonical = format!("{}@{}", quote_local_part(local), &canonical[at + 1..]);
+        if validate_email_once(&canonical).is_err() {
+            return Err("invalid email format");
         }
     }
-    let plain_local = !local.is_empty() && local.bytes().all(|b| atext(b) || b == b'.');
-    if !plain_local || domain.is_empty() || !simple_domain(domain) || local.contains('@') {
-        return Ok(None);
+    Ok(canonical)
+}
+
+fn validate_email_once(email: &str) -> Result<String, &'static str> {
+    if email.is_empty() {
+        return Err("email must not be empty");
     }
-    if domain.split('.').any(str::is_empty) {
+    if email.len() > 254 {
+        return Err("email exceeds 254 characters");
+    }
+    if email.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return Err("email contains control character");
+    }
+    if let Some(at) = email.rfind('@') {
+        if at >= 1 {
+            let local = &email[..at];
+            if local.contains("..") {
+                return Err("local-part contains consecutive dots");
+            }
+            if local.starts_with('.') {
+                return Err("local-part starts with a dot");
+            }
+            if local.ends_with('.') {
+                return Err("local-part ends with a dot");
+            }
+        }
+    }
+    let address = parse_net_mail_address(email)
+        .or_else(|| {
+            if !email.starts_with('<') {
+                parse_net_mail_address(&format!("<{email}>"))
+            } else {
+                None
+            }
+        })
+        .ok_or("invalid email format")?;
+    let at = address.rfind('@').ok_or("invalid email format")?;
+    if at < 1 || at == address.len() - 1 {
         return Err("invalid email format");
+    }
+    let (local, domain) = (&address[..at], &address[at + 1..]);
+    if !local.is_ascii() {
+        return Err("non-ASCII local-part requires SMTPUTF8");
+    }
+    if domain.len() > 255 {
+        return Err("domain exceeds 255 characters");
+    }
+    if domain.starts_with('[') && domain.ends_with(']') {
+        return Err("IP domain literals are not supported");
     }
     if !domain.contains('.') {
         return Err("domain must contain at least one dot");
@@ -406,7 +455,39 @@ fn canonical_email(email: &str) -> Result<Option<String>, &'static str> {
     if domain.contains('_') {
         return Err("domain contains underscore");
     }
-    Ok(Some(email.to_owned()))
+    Ok(address)
+}
+
+fn local_part_needs_quoting(local: &str) -> bool {
+    if local.is_empty() {
+        return true;
+    }
+    if local
+        .bytes()
+        .any(|b| b != b'.' && !b.is_ascii_alphanumeric() && !b"!#$%&'*+/=?^_`{|}~-".contains(&b))
+    {
+        return true;
+    }
+    local.starts_with('.') || local.ends_with('.') || local.contains("..")
+}
+
+fn quote_local_part(local: &str) -> String {
+    let mut out = String::with_capacity(local.len() + 2);
+    out.push('"');
+    for ch in local.chars() {
+        if ch == '\\' || ch == '"' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
+}
+
+/// Go 1.26 `net/mail.ParseAddress` via the shared `setjoin-mime` parser.
+fn parse_net_mail_address(raw: &str) -> Option<String> {
+    let parsed = setjoin_mime::parse_address(raw.as_bytes()).ok()?;
+    String::from_utf8(parsed.address).ok()
 }
 
 fn nonempty(s: &str) -> Option<&str> {
@@ -636,8 +717,7 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         return full(400, "userId and email required");
                     }
                     let email = match canonical_email(&body.email) {
-                        Ok(Some(email)) => email,
-                        Ok(None) => return c.upstream.forward(r, &c.identity).await,
+                        Ok(email) => email,
                         Err(detail) => return full(400, detail),
                     };
                     let display = if body.display_name.is_empty() {
@@ -1274,7 +1354,7 @@ mod tests {
     fn email_model_matches_validate_canonical_email() {
         assert_eq!(
             canonical_email("a.b+c@example.test"),
-            Ok(Some("a.b+c@example.test".into()))
+            Ok("a.b+c@example.test".into())
         );
         assert_eq!(canonical_email("not-an-email"), Err("invalid email format"));
         assert_eq!(
@@ -1299,18 +1379,103 @@ mod tests {
         );
         assert_eq!(
             canonical_email("ab@exa mple.test"),
-            Ok(None),
-            "judged by Go"
+            Err("invalid email format")
         );
         assert_eq!(
             canonical_email("\"a b\"@example.test"),
-            Ok(None),
-            "judged by Go"
+            Ok("\"a b\"@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("\"bob\"@corp.example"),
+            Ok("bob@corp.example".into())
         );
         assert_eq!(
             canonical_email("Name <a@example.test>"),
-            Ok(None),
-            "judged by Go"
+            Ok("a@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("<user@example.test>"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("user@[127.0.0.1]"),
+            Err("IP domain literals are not supported")
+        );
+        assert_eq!(
+            canonical_email("Dr. Jane <jane@example.test>"),
+            Ok("jane@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("Staff: jane@example.test;"),
+            Ok("jane@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("Staff: Jane <jane@example.test>;"),
+            Ok("jane@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("Staff: ;"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@ example.test"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("user @example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@[::1]"),
+            Err("IP domain literals are not supported")
+        );
+        assert_eq!(
+            canonical_email("user@[IPv6:::1]"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@[bad literal]"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@(c)example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("(c)user@example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("(c) Jane <user@example.test>"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("user@example.test (Jane)"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("< user@example.test>"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("\"\" <user@example.test>"),
+            Ok("user@example.test".into())
+        );
+        assert_eq!(
+            canonical_email("\"\"@example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("=?koi8-r?B?dGVzdA==?= <user@example.test>"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("\"a\\.\\.b\"@example.test"),
+            Err("invalid email format")
+        );
+        assert_eq!(
+            canonical_email("用户@example.test"),
+            Err("non-ASCII local-part requires SMTPUTF8")
         );
         assert_eq!(
             canonical_email(&"x".repeat(255)),

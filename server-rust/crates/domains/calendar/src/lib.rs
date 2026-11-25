@@ -13,7 +13,7 @@ pub mod carddav;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
     CommandOutcome, MailboxAuthContext, ReceiptCommand, Row, ScopedExecutor, StatementFailure, Type,
@@ -24,11 +24,7 @@ use sha2::{Digest as _, Sha256};
 pub const MAX_SUBSCRIPTIONS_PER_USER: i64 = 25;
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified user"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 
 fn invalid() -> StatementFailure {
@@ -431,7 +427,7 @@ pub async fn unsubscribe(
         deadline(),
         "WITH gone AS (DELETE FROM calendars c USING calendar_subscriptions s \
           WHERE c.id = s.calendar_id AND s.id = $4 AND s.user_id = $2 \
-            AND $1::bigint > 0 AND $3::text <> '' RETURNING c.id) \
+            AND $1::bigint >= 0 AND $3::text <> '' RETURNING c.id) \
          SELECT count(*)::bigint FROM gone",
         &[(&id, Type::INT8)],
         |rows| match rows {

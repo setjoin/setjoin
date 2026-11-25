@@ -1,12 +1,16 @@
 mod export;
 pub mod mutants;
 use crate::common::{self, BoxError};
+use futures_util::FutureExt;
 use hyper::{Request, Response};
 use serde_json::{json, Value};
 use setjoin_conformance::{fixture, golden, harness::Db};
 use setjoin_gateway::{compliance::ComplianceRoute, Config, Gateway, RouteTable, TrustedProxies};
 use setjoin_pg::ScopedExecutor;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn token(user: i64) -> String {
@@ -88,6 +92,8 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-http").ok_or("DB required")?;
     let owner = db.connect().await?;
+    let recorded_ops = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let mut commit_operation: Option<String> = None;
     let a = fixture::account(&owner, "compl1-admin").await?;
     let role:i64=owner.query_one("INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES ('compl1-oracle',$1,$2) RETURNING id", &[&if label=="denied" {vec!["users.read"]} else {vec!["domains.read","compliance.write","mail.export"]}, &if label=="foreign" {Some(a.domain)} else {None}]).await?.get(0);
     owner
@@ -136,9 +142,23 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
         let go=common::go_oracle::start_named(&db,s3,None,"gofree-compl1").await?;
         let recording=go.is_some();
         let patient=std::time::Duration::from_secs(30);
-        let proxy=if mutant=="no-tenant-filter"{Some(mutants::tenant_proxy(db.app.as_deref().unwrap_or(&db.dsn)).await?)}else{None};
-        let mut request_dsn=proxy.as_ref().map(|p|p.dsn.clone()).unwrap_or_else(||db.app.clone().unwrap_or_else(||db.dsn.clone()));
-        let mut worker_dsn=db.dsn.clone();let mut commit_wire=None;
+        let mut request_dsn = db.app.clone().unwrap_or_else(|| db.dsn.clone());
+        let mut worker_dsn = db.dsn.clone();
+        let mut commit_wire = None;
+        let (_req_proxy, _worker_proxy) = if !recording && !mutant.starts_with("commit-") {
+            let rp = mutants::db_proxy(
+                &request_dsn,
+                mutant == "no-tenant-filter",
+                recorded_ops.clone(),
+            )
+            .await?;
+            let wp = mutants::db_proxy(&worker_dsn, false, recorded_ops.clone()).await?;
+            request_dsn = rp.dsn.clone();
+            worker_dsn = wp.dsn.clone();
+            (Some(rp), Some(wp))
+        } else {
+            (None, None)
+        };
         if mutant.starts_with("commit-") {
             if recording{return Err("COMMIT fault cannot be Go-recorded".into());}
             let cut=if mutant=="commit-after"{common::commit::CommitCut::AfterCommit}else{common::commit::CommitCut::BeforeCommit};
@@ -148,7 +168,7 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
         let exec=ScopedExecutor::from_dsn_with(&request_dsn,1,setjoin_pg::Timeouts{pool_wait:patient,create:patient,statement:patient}).map_err(|e|e.0)?.with_audit_keys("22".repeat(32),String::new());
         let worker=ScopedExecutor::from_dsn_with(&worker_dsn,1,setjoin_pg::Timeouts{pool_wait:patient,create:patient,statement:patient}).map_err(|e|e.0)?.with_audit_keys("22".repeat(32),String::new());
         let jobs=setjoin_gateway::compliance::SearchJobs::new(setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,2);
-        let adapter=ComplianceRoute{store:Some(Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{s3}"),"mailblobs","test-access","test-secret")?)),exec,worker,jobs,keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
+        let adapter=ComplianceRoute{store:Some(Arc::new(setjoin_gateway::recovery_worker::S3Store::new(&format!("http://{s3}"),"mailblobs","test-access","test-secret")?)),worm:None,exec,worker,jobs,keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
         let mut inventory:Value=serde_json::from_str(include_str!("../../route-inventory.json"))?;
         for r in inventory["routes"].as_array_mut().unwrap() {if r["family"]=="F04" && r["slice"]=="ediscovery" { if recording {r["state"]=json!("OFF");r["upstream"]=json!("go-mail");}else{assert_eq!(r["state"],"ON");assert_eq!(r["upstream"],"local-rust");}r["oracle_commands"]=json!([""]); }}
         let gateway=Gateway::new(Config{upstream:go.as_ref().map(|g|format!("http://{}",g.address).parse()).transpose()?,trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(mutants::Status{inner:adapter,change:mutant=="status"}))?.with_inventory(&inventory.to_string())?;
@@ -288,6 +308,7 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
             let cut=tokio::time::timeout(std::time::Duration::from_secs(5),task).await???;
             let committed=mutant=="commit-after";assert_eq!(cut==common::commit::CommitCut::AfterCommit,committed);
             assert_eq!(status,503);let operation=observation["response"]["headers"]["x-operation-id"][0].as_str().ok_or("missing unknown operation ID")?;
+            commit_operation = Some(operation.to_owned());
             assert_eq!(operation.len(),32);
             let present:bool=owner.query_one("SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=$1::text::uuid AND family='F04')",&[&operation]).await?.get(0);assert_eq!(present,committed);
             if committed {
@@ -326,7 +347,21 @@ pub async fn run_with(action: &str, label: &str, mutant: &str) -> Result<(), Box
     owner
         .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
         .await?;
-    owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};DELETE FROM rust_operation_receipts WHERE family='F04';COMMIT;",a.user)).await?;
+    owner.batch_execute(&format!("BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",a.user)).await?;
+    let mut ops_to_delete: Vec<String> = recorded_ops.lock().unwrap().drain(..).collect();
+    if let Some(op) = commit_operation {
+        if !ops_to_delete.contains(&op) {
+            ops_to_delete.push(op);
+        }
+    }
+    for op in ops_to_delete {
+        owner
+            .execute(
+                "DELETE FROM rust_operation_receipts WHERE operation_id=$1::text::uuid",
+                &[&op],
+            )
+            .await?;
+    }
     owner
         .execute(
             "UPDATE messages SET held=false WHERE mailbox_id=$1",
@@ -353,76 +388,545 @@ async fn wait_search(owner: &tokio_postgres::Client, id: i64) -> Result<(), BoxE
     }
 }
 
-/// These remain Go-owned shapes. Never feed quoted NUL to the live Go oracle.
+/// Refused NUL KQL stays 400 and WORM hold/release calls S3 PutObjectLegalHold natively.
 pub async fn forwarding() -> Result<(), BoxError> {
     use http_body_util::BodyExt;
     let _serial = SERIAL.lock().await;
     let db = Db::for_case("compl1-forward").ok_or("DB required")?;
     let owner = db.connect().await?;
-    let a = fixture::account(&owner, "compl1-forward").await?;
-    let role:i64=owner.query_one("INSERT INTO admin_role_groups(name,permissions) VALUES ('compl1-forward','{compliance.write}') RETURNING id",&[]).await?.get(0);
-    owner
-        .execute(
-            "INSERT INTO admin_role_assignments(role_group_id,user_id) VALUES($1,$2)",
-            &[&role, &a.user],
-        )
-        .await?;
-    struct Env(Option<std::ffi::OsString>);
+    struct Cleanup {
+        account: Option<fixture::Account>,
+        role: Option<i64>,
+        blob_hash: Option<String>,
+        attachment_id: Option<i64>,
+        receipts: Vec<String>,
+    }
+    let mut cleanup = Cleanup {
+        account: None,
+        role: None,
+        blob_hash: None,
+        attachment_id: None,
+        receipts: Vec::new(),
+    };
+    struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
     impl Drop for Env {
         fn drop(&mut self) {
-            if let Some(value) = &self.0 {
-                std::env::set_var("WORM_MODE", value)
-            } else {
-                std::env::remove_var("WORM_MODE")
+            for (k, value) in &self.0 {
+                if let Some(value) = value {
+                    std::env::set_var(k, value)
+                } else {
+                    std::env::remove_var(k)
+                }
             }
         }
     }
-    let result=async {
-        let _env=Env(std::env::var_os("WORM_MODE"));std::env::remove_var("WORM_MODE");
-        let received=Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));let capture=received.clone();
-        let upstream=common::fake_upstream(move |r|{let capture=capture.clone();async move {
-            let method=r.method().to_string();let path=r.uri().to_string();
-            let body=r.into_body().collect().await.unwrap().to_bytes();
-            capture.lock().unwrap().push(json!({"method":method,"path":path,"body":String::from_utf8(body.to_vec()).unwrap()}));
-            Response::builder().status(299).body(common::full("forwarded\n")).unwrap()
-        }}).await;
-        let patient=std::time::Duration::from_secs(30);
-        let make=|dsn:&str|ScopedExecutor::from_dsn_with(dsn,2,setjoin_pg::Timeouts{pool_wait:patient,create:patient,statement:patient}).map(|e|e.with_audit_keys("22".repeat(32),String::new())).map_err(|e|e.0);
-        let adapter=ComplianceRoute{store:None,exec:make(db.app.as_deref().unwrap_or(&db.dsn))?,worker:make(&db.dsn)?,jobs:setjoin_gateway::compliance::SearchJobs::new(setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,1),keys:Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
-        let mut inventory:Value=serde_json::from_str(include_str!("../../route-inventory.json"))?;
-        for r in inventory["routes"].as_array_mut().unwrap(){if r["family"]=="F04"&&r["slice"]=="ediscovery" {r["state"]=json!("ON");r["upstream"]=json!("local-rust");r["oracle_commands"]=json!([""]);}}
-        let gateway=Gateway::new(Config{upstream:Some(format!("http://{upstream}").parse()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(adapter))?.with_inventory(&inventory.to_string())?;
-        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let address=listener.local_addr()?;let server=tokio::spawn(gateway.serve(listener));
-        let nul=r#"{"name":"NUL","keywords":"oracle","kql":"\"a\u0000b\"","createdBy":-42} trailing"#.to_owned();
+    struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+    impl<T> Drop for AbortOnDrop<T> {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let result = std::panic::AssertUnwindSafe(async {
+        cleanup.account = Some(fixture::account(&owner, "compl1-forward").await?);
+        let a = cleanup.account.as_ref().unwrap();
+        let role: i64 = owner
+            .query_one(
+                "INSERT INTO admin_role_groups(name,permissions) VALUES ('compl1-forward','{compliance.write}') RETURNING id",
+                &[],
+            )
+            .await?
+            .get(0);
+        cleanup.role = Some(role);
+        owner
+            .execute(
+                "INSERT INTO admin_role_assignments(role_group_id,user_id) VALUES($1,$2)",
+                &[&role, &a.user],
+            )
+            .await?;
+        let blob_hash = format!("{:064x}", a.two_labels);
+        owner
+            .execute(
+                "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$1,12,'text/plain',0)",
+                &[&blob_hash],
+            )
+            .await?;
+        cleanup.blob_hash = Some(blob_hash.clone());
+        let attachment_id: i64 = owner
+            .query_one(
+                "INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes) SELECT id,received_at,$1,'hold.txt','text/plain','attachment',12 FROM messages WHERE id=$2 AND mailbox_id=$3 RETURNING id",
+                &[&blob_hash, &a.two_labels, &a.mailbox],
+            )
+            .await?
+            .get(0);
+        cleanup.attachment_id = Some(attachment_id);
+        let _env = Env(vec![
+            ("WORM_MODE", std::env::var_os("WORM_MODE")),
+            (
+                "WORM_LEGAL_HOLD_ENABLED",
+                std::env::var_os("WORM_LEGAL_HOLD_ENABLED"),
+            ),
+        ]);
+        std::env::remove_var("WORM_MODE");
+        std::env::remove_var("WORM_LEGAL_HOLD_ENABLED");
+        // S3 response phase: 0=timeout->400 SlowDownWrite->307 eu-west-1->403 ap-southeast-1->204, 1=204 release, 2=403 AccessDenied, 3=204 release, 4=no-call disabled.
+        let s3_phase = Arc::new(AtomicUsize::new(0));
+        let s3_attempt = Arc::new(AtomicUsize::new(0));
+        let s3_puts = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let s3_auths = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let s3_capture = s3_puts.clone();
+        let auth_capture = s3_auths.clone();
+        let phase_ref = s3_phase.clone();
+        let attempt_ref = s3_attempt.clone();
+        let s3 = common::fake_upstream(move |r| {
+            let s3_capture = s3_capture.clone();
+            let auth_capture = auth_capture.clone();
+            let phase_ref = phase_ref.clone();
+            let attempt_ref = attempt_ref.clone();
+            async move {
+                let method = r.method().to_string();
+                let path = r.uri().path().to_owned();
+                let query = r.uri().query().unwrap_or("").to_owned();
+                if method == "GET" && query == "location=" {
+                    return Response::builder()
+                        .header("content-type", "application/xml")
+                        .body(common::full(
+                            "<LocationConstraint xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">us-east-1</LocationConstraint>",
+                        ))
+                        .unwrap();
+                }
+                let md5 = r
+                    .headers()
+                    .get("content-md5")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_owned();
+                let auth = r
+                    .headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_owned();
+                let has_sigv4 = auth.starts_with("AWS4-HMAC-SHA256 ");
+                auth_capture.lock().unwrap().push(auth);
+                let body = r.into_body().collect().await.unwrap().to_bytes();
+                s3_capture.lock().unwrap().push(json!({
+                    "method": method,
+                    "path": path,
+                    "query": query,
+                    "md5": md5,
+                    "sigv4": has_sigv4,
+                    "body": String::from_utf8(body.to_vec()).unwrap(),
+                }));
+                let phase = phase_ref.load(Ordering::SeqCst);
+                let hit = attempt_ref.fetch_add(1, Ordering::SeqCst);
+                match (phase, hit) {
+                    (0, 0) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+                        Response::builder().status(200).body(common::full("")).unwrap()
+                    }
+                    (0, 1) => Response::builder()
+                        .status(400)
+                        .header("content-type", "application/xml")
+                        .body(common::full(
+                            "<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
+                        ))
+                        .unwrap(),
+                    (0, 2) => Response::builder()
+                        .status(307)
+                        .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                        .header("x-amz-bucket-region", "eu-west-1")
+                        .body(common::full(""))
+                        .unwrap(),
+                    (0, 3) => Response::builder()
+                        .status(403)
+                        .header("content-type", "application/xml")
+                        .header("x-amz-bucket-region", "ap-southeast-1")
+                        .body(common::full(
+                            "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+                        ))
+                        .unwrap(),
+                    (0 | 1 | 3, _) => Response::builder().status(204).body(common::full("")).unwrap(),
+                    (2, _) => Response::builder()
+                        .status(403)
+                        .header("content-type", "application/xml")
+                        .header("x-amz-bucket-region", "ap-southeast-1")
+                        .body(common::full(
+                            "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+                        ))
+                        .unwrap(),
+                    _ => Response::builder().status(500).body(common::full("")).unwrap(),
+                }
+            }
+        })
+        .await;
+        let received = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let capture = received.clone();
+        let upstream = common::fake_upstream(move |r| {
+            let capture = capture.clone();
+            async move {
+                let method = r.method().to_string();
+                let path = r.uri().to_string();
+                let body = r.into_body().collect().await.unwrap().to_bytes();
+                capture.lock().unwrap().push(json!({
+                    "method": method,
+                    "path": path,
+                    "body": String::from_utf8(body.to_vec()).unwrap()
+                }));
+                Response::builder()
+                    .status(299)
+                    .body(common::full("forwarded\n"))
+                    .unwrap()
+            }
+        })
+        .await;
+        let patient = std::time::Duration::from_secs(30);
+        let make = |dsn: &str| {
+            ScopedExecutor::from_dsn_with(
+                dsn,
+                2,
+                setjoin_pg::Timeouts {
+                    pool_wait: patient,
+                    create: patient,
+                    statement: patient,
+                },
+            )
+            .map(|e| e.with_audit_keys("22".repeat(32), String::new()))
+            .map_err(|e| e.0)
+        };
+        let store = Arc::new(
+            setjoin_gateway::recovery_worker::S3Store::new(
+                &format!("http://{s3}"),
+                "mailblobs",
+                "test-access",
+                "test-secret",
+            )?
+            .with_request_timeout(std::time::Duration::from_millis(500)),
+        );
+        let adapter = ComplianceRoute {
+            store: Some(store),
+            worm: None,
+            exec: make(db.app.as_deref().unwrap_or(&db.dsn))?,
+            worker: make(&db.dsn)?,
+            jobs: setjoin_gateway::compliance::SearchJobs::new(
+                setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,
+                1,
+            ),
+            keys: Arc::new(common::recovery_keys()),
+            issuer: "mailserver".into(),
+        };
+        let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;
+        for r in inventory["routes"].as_array_mut().unwrap() {
+            if r["family"] == "F04" && r["slice"] == "ediscovery" {
+                r["state"] = json!("ON");
+                r["upstream"] = json!("local-rust");
+                r["oracle_commands"] = json!([""]);
+            }
+        }
+        let gateway = Gateway::new(
+            Config {
+                upstream: Some(format!("http://{upstream}").parse()?),
+                trusted_proxies: TrustedProxies::parse("")?,
+                upstream_header_timeout: setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,
+                edge_limit: None,
+            },
+            RouteTable::proxy_all().with(adapter),
+        )?
+        .with_inventory(&inventory.to_string())?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let _server = AbortOnDrop(tokio::spawn(gateway.serve(listener)));
+        let nul =
+            r#"{"name":"NUL","keywords":"oracle","kql":"\"a\u0000b\"","createdBy":-42} trailing"#
+                .to_owned();
         // Owner-approved security fix 2026-11-05 (#436): a NUL in the KQL is refused locally with a 400
         // and never reaches an upstream (frozen Go's parser hung on it).
-        let refused=common::send(address,Request::post("/api/admin/ediscovery/search").header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {token}",token=token(a.user))).body(common::full(nul))?).await;
-        if refused.status().as_u16()!=400{return Err(format!("NUL KQL answered {}",refused.status()).into());}
-        let refused_body=String::from_utf8(common::body_bytes(refused).await.to_vec())?;
-        if !refused_body.contains("invalid KQL query: query contains a NUL character"){return Err(format!("NUL KQL body: {refused_body}").into());}
-        let ids=format!("{{\"ids\":[{}]}}",a.two_labels);
-        let mut expected=Vec::new();
-        for (path,body,worm) in [("/api/admin/ediscovery/hold",ids.clone(),true),("/api/admin/ediscovery/release",ids,true)] {
-            if worm{std::env::set_var("WORM_MODE","governance");}
-            let response=common::send(address,Request::post(path).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json").header("authorization",format!("Bearer {}",token(a.user))).body(common::full(body.clone()))?).await;
-            if response.status().as_u16()!=299{return Err("deferred request was served locally".into());}
-            if common::body_bytes(response).await.as_ref()!=b"forwarded\n"{return Err("deferred response bytes changed".into());}
-            expected.push(json!({"method":"POST","path":path,"body":body}));
+        let refused = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/search")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(nul))?,
+        )
+        .await;
+        if refused.status().as_u16() != 400 {
+            return Err(format!("NUL KQL answered {}", refused.status()).into());
         }
-        golden::compare(&json!(expected),&json!(*received.lock().unwrap()))?;
-        let searches:i64=owner.query_one("SELECT count(*) FROM ediscovery_searches WHERE created_by=$1",&[&a.user]).await?.get(0);
-        let held:i64=owner.query_one("SELECT count(*) FROM messages WHERE mailbox_id=$1 AND held",&[&a.mailbox]).await?.get(0);
-        if searches!=0||held!=0{return Err("deferred request changed native data".into());}
-        let metrics=common::send(address,Request::get("/_gateway/metrics").body(common::full(""))?).await;
-        let metrics=String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
-        if !metrics.lines().any(|l|l=="setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 2"){return Err("deferred requests were not counted as Go traffic".into());}
-        server.abort();Ok::<_,BoxError>(())
-    }.await;
-    owner
-        .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
-        .await?;
-    fixture::remove(&owner, &a).await?;
-    result
+        let refused_body = String::from_utf8(common::body_bytes(refused).await.to_vec())?;
+        if !refused_body.contains("invalid KQL query: query contains a NUL character") {
+            return Err(format!("NUL KQL body: {refused_body}").into());
+        }
+        async fn record_receipt(
+            owner: &tokio_postgres::Client,
+            command: &str,
+            request_id: &str,
+            receipts: &mut Vec<String>,
+        ) -> Result<(), BoxError> {
+            let rows = owner
+                .query(
+                    "SELECT operation_id::text FROM rust_operation_receipts \
+                     WHERE family='F04' AND command=$1 \
+                     AND left(operation_id::text, 14) = left($2, 14) \
+                     AND substr(operation_id::text, 16, 4) = substr($2, 16, 4) \
+                     AND right(operation_id::text, 16) = right($2, 16)",
+                    &[&command, &request_id],
+                )
+                .await?;
+            for row in &rows {
+                receipts.push(row.get(0));
+            }
+            assert_eq!(rows.len(), 1, "expected 1 receipt for {command} {request_id}");
+            Ok(())
+        }
+        let ids = format!("{{\"ids\":[{}]}}", a.two_labels);
+        std::env::set_var("WORM_MODE", "governance");
+        let hold_resp = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/hold")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids.clone()))?,
+        )
+        .await;
+        let hold_req_id = hold_resp
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
+        record_receipt(&owner, "message.hold", &hold_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(hold_resp.status().as_u16(), 200);
+        let hold_json: Value = serde_json::from_slice(&common::body_bytes(hold_resp).await)?;
+        assert_eq!(
+            hold_json,
+            json!({"held": 1, "legal_hold_objects": 1, "total": 1})
+        );
+        let held_after_hold: bool = owner
+            .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
+            .await?
+            .get(0);
+        assert!(held_after_hold, "message should be held in DB");
+
+        s3_phase.store(1, Ordering::SeqCst);
+        let release_resp = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/release")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids.clone()))?,
+        )
+        .await;
+        let rel_req_id = release_resp
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
+        record_receipt(&owner, "message.release", &rel_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(release_resp.status().as_u16(), 200);
+        let release_json: Value = serde_json::from_slice(&common::body_bytes(release_resp).await)?;
+        assert_eq!(release_json, json!({"released": 1, "total": 1}));
+        let held_after_release: bool = owner
+            .query_one("SELECT held FROM messages WHERE id=$1", &[&a.two_labels])
+            .await?
+            .get(0);
+        assert!(!held_after_release, "message should be released in DB");
+
+        // 403 AccessDenied must fail without retrying (legal_hold_objects: 0).
+        s3_phase.store(2, Ordering::SeqCst);
+        let hold_denied = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/hold")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids.clone()))?,
+        )
+        .await;
+        let denied_req_id = hold_denied
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
+        record_receipt(&owner, "message.hold", &denied_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(hold_denied.status().as_u16(), 200);
+        let denied_json: Value = serde_json::from_slice(&common::body_bytes(hold_denied).await)?;
+        assert_eq!(
+            denied_json,
+            json!({"held": 1, "legal_hold_objects": 0, "total": 1})
+        );
+
+        s3_phase.store(3, Ordering::SeqCst);
+        let release_2 = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/release")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids.clone()))?,
+        )
+        .await;
+        let rel2_req_id = release_2
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
+        record_receipt(&owner, "message.release", &rel2_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(release_2.status().as_u16(), 200);
+
+        // WORM_LEGAL_HOLD_ENABLED="yes" fails Go strconv.ParseBool -> counts attached blobs without S3 calls.
+        s3_phase.store(4, Ordering::SeqCst);
+        std::env::set_var("WORM_LEGAL_HOLD_ENABLED", "yes");
+        let calls_before_disabled = s3_puts.lock().unwrap().len();
+        let hold_disabled = common::send(
+            address,
+            Request::post("/api/admin/ediscovery/hold")
+                .header("host", "mail.test")
+                .header("origin", "http://mail.test")
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {}", token(a.user)))
+                .body(common::full(ids))?,
+        )
+        .await;
+        let dis_req_id = hold_disabled
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .ok_or("missing x-request-id")?
+            .to_owned();
+        record_receipt(&owner, "message.hold", &dis_req_id, &mut cleanup.receipts).await?;
+        assert_eq!(hold_disabled.status().as_u16(), 200);
+        let disabled_json: Value = serde_json::from_slice(&common::body_bytes(hold_disabled).await)?;
+        assert_eq!(
+            disabled_json,
+            json!({"held": 1, "legal_hold_objects": 1, "total": 1})
+        );
+        assert_eq!(s3_puts.lock().unwrap().len(), calls_before_disabled);
+
+        let put_on = json!({
+            "method": "PUT",
+            "path": format!("/mailblobs/{blob_hash}"),
+            "query": "legal-hold=",
+            "md5": "oK1+ndJbG6HuGA87LDxznw==",
+            "sigv4": true,
+            "body": "<LegalHold><Status>ON</Status></LegalHold>"
+        });
+        let put_off = json!({
+            "method": "PUT",
+            "path": format!("/mailblobs/{blob_hash}"),
+            "query": "legal-hold=",
+            "md5": "An8G3mv4SfhAibzslQjGDw==",
+            "sigv4": true,
+            "body": "<LegalHold><Status>OFF</Status></LegalHold>"
+        });
+        let s3_expected = json!([
+            put_on.clone(),
+            put_on.clone(),
+            put_on.clone(),
+            put_on.clone(),
+            put_on.clone(),
+            put_off.clone(),
+            put_on,
+            put_off,
+        ]);
+        golden::compare(&s3_expected, &json!(*s3_puts.lock().unwrap()))?;
+        assert!(
+            s3_auths.lock().unwrap()[3].contains("/eu-west-1/s3/aws4_request"),
+            "expected refreshed eu-west-1 SigV4 credential on retry attempt 3: {:?}",
+            *s3_auths.lock().unwrap()
+        );
+        assert!(
+            s3_auths.lock().unwrap()[4].contains("/ap-southeast-1/s3/aws4_request"),
+            "expected refreshed ap-southeast-1 SigV4 credential on retry attempt 4: {:?}",
+            *s3_auths.lock().unwrap()
+        );
+        assert!(
+            received.lock().unwrap().is_empty(),
+            "Go upstream must receive zero requests: {:?}",
+            *received.lock().unwrap()
+        );
+        let searches: i64 = owner
+            .query_one(
+                "SELECT count(*) FROM ediscovery_searches WHERE created_by=$1",
+                &[&a.user],
+            )
+            .await?
+            .get(0);
+        assert_eq!(searches, 0);
+        let metrics =
+            common::send(address, Request::get("/_gateway/metrics").body(common::full(""))?).await;
+        let metrics = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
+        if !metrics
+            .lines()
+            .any(|l| l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0")
+        {
+            return Err(format!("expected zero F04 proxies, got:\n{metrics}").into());
+        }
+        Ok::<_, BoxError>(())
+    })
+    .catch_unwind()
+    .await;
+    if let (Some(a), Some(blob_hash)) = (&cleanup.account, &cleanup.blob_hash) {
+        if let Some(attachment_id) = cleanup.attachment_id {
+            owner
+                .execute(
+                    "DELETE FROM message_attachments ma \
+                     WHERE ma.id=$1 AND ma.message_id=$2 AND ma.blob_sha256=$3 \
+                     AND EXISTS (SELECT 1 FROM messages m WHERE m.id=ma.message_id AND m.received_at=ma.received_at AND m.mailbox_id=$4)",
+                    &[&attachment_id, &a.two_labels, blob_hash, &a.mailbox],
+                )
+                .await?;
+        }
+        owner
+            .execute(
+                "DELETE FROM blobs WHERE sha256=$1 AND ref_count=0",
+                &[blob_hash],
+            )
+            .await?;
+    }
+    if let Some(a) = &cleanup.account {
+        owner
+            .execute(
+                "UPDATE messages SET held=false WHERE mailbox_id=$1",
+                &[&a.mailbox],
+            )
+            .await?;
+        owner
+            .batch_execute(&format!(
+                "BEGIN;SET LOCAL session_replication_role=replica;DELETE FROM admin_audit_log WHERE user_id={};COMMIT;",
+                a.user
+            ))
+            .await?;
+    }
+    if !cleanup.receipts.is_empty() {
+        owner
+            .execute(
+                "DELETE FROM rust_operation_receipts WHERE operation_id::text = ANY($1)",
+                &[&cleanup.receipts],
+            )
+            .await?;
+    }
+    if let Some(role) = cleanup.role {
+        owner
+            .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
+            .await?;
+    }
+    if let Some(a) = &cleanup.account {
+        fixture::remove(&owner, a).await?;
+    }
+    match result {
+        Ok(res) => res,
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
 }
 
 /// Both switches must bypass the actual adapter for every transferred route.
@@ -456,6 +960,7 @@ pub async fn kill_switch() -> Result<(), BoxError> {
                 1,
             ),
             store: None,
+            worm: None,
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
         };
@@ -483,9 +988,19 @@ pub async fn kill_switch() -> Result<(), BoxError> {
                 edge_limit: None,
             },
             RouteTable::proxy_all().with(adapter),
-        )?
-        .with_inventory(&inventory.to_string())?
-        .with_enabled(!global);
+        )?;
+        if !global {
+            assert!(
+                gateway.with_inventory(&inventory.to_string()).is_err(),
+                "OFF/go-mail F04 ediscovery inventory must be rejected"
+            );
+            assert!(calls.lock().unwrap().is_empty());
+            assert_eq!(before, snapshot(&owner, None).await?);
+            continue;
+        }
+        let gateway = gateway
+            .with_inventory(&inventory.to_string())?
+            .with_enabled(false);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let server = tokio::spawn(gateway.serve(listener));
@@ -500,11 +1015,7 @@ pub async fn kill_switch() -> Result<(), BoxError> {
                     .body(common::full("{}"))?,
             )
             .await;
-            assert_eq!(response.status().as_u16(), 299, "{method} {path}");
-            assert_eq!(
-                common::body_bytes(response).await.as_ref(),
-                b"kill switch\n"
-            );
+            assert_eq!(response.status().as_u16(), 401, "{method} {path}");
         }
         let metrics = common::send(
             addr,
@@ -513,27 +1024,13 @@ pub async fn kill_switch() -> Result<(), BoxError> {
         .await;
         let status = metrics.status().as_u16();
         let text = String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
-        if global {
-            // The global switch intentionally bypasses local probes too.
-            assert_eq!(status, 299);
-            assert_eq!(text, "kill switch\n");
-            assert_eq!(
-                calls.lock().unwrap().last().unwrap(),
-                &("GET".into(), "/_gateway/metrics".into())
-            );
-        } else {
-            assert_eq!(status, 200);
-            assert!(
-                text.contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 12")
-            );
-        }
-        let actual = calls.lock().unwrap();
-        assert_eq!(actual.len(), if global { 13 } else { 12 });
-        for ((method, path), (actual_method, actual_path)) in routes.iter().zip(actual.iter()) {
-            assert_eq!(method, actual_method);
-            assert_eq!(format!("/api{path}"), *actual_path);
-        }
-        drop(actual);
+        assert_eq!(status, 200);
+        assert!(text.contains("setjoin_gateway_proxied_to_go_total 0\n"), "{text}");
+        assert!(
+            text.contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0\n"),
+            "{text}"
+        );
+        assert!(calls.lock().unwrap().is_empty());
         assert_eq!(before, snapshot(&owner, None).await?);
         server.abort();
     }

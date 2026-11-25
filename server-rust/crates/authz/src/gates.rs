@@ -86,16 +86,17 @@ impl SessionState {
 /// What the verified caller may do here, by Go's own rules.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Caller {
-    /// Not a guest, not revoked, primary mailbox `mailbox` reachable.
-    Member { mailbox: i64, state: SessionState },
+    /// Not a guest, not revoked. `mailbox == 0` means no primary mailbox;
+    /// `mailbox_blocked` is true when `mailbox_lifecycle_access_allowed` is false or NULL.
+    Member {
+        mailbox: i64,
+        mailbox_blocked: bool,
+        state: SessionState,
+    },
     /// Live guest satellite row (`chain.go:265-290`).
     Guest,
     /// Durable revocation matched (`runtime_access.go:135-145`).
     Revoked,
-    /// No `is_primary` mailbox (`identity.ErrNoPrimaryMailbox`).
-    NoMailbox,
-    /// `mailbox_lifecycle_access_allowed` false or NULL.
-    Blocked,
     /// Read error, empty result or NULL state component (no Go equivalent).
     Unavailable,
 }
@@ -145,15 +146,34 @@ pub(crate) async fn caller(exec: &ScopedExecutor, s: &Session) -> Caller {
     let allowed: Option<bool> = r.get(3);
     if guest_rows != 0 { return Caller::Guest; }
     if revoked { return Caller::Revoked; }
-    let Some(mailbox) = mailbox else { return Caller::NoMailbox };
-    if allowed != Some(true) { return Caller::Blocked; }
+    let Some(mailbox) = mailbox else {
+        return Caller::Member {
+            mailbox: 0,
+            mailbox_blocked: false,
+            state: SessionState {
+                email: 0,
+                mailbox: 0,
+                thread: 0,
+                tag: 0,
+                calendar: 0,
+                contact: 0,
+                task: 0,
+                identity: 0,
+            },
+        };
+    };
+    let mailbox_blocked = allowed != Some(true);
     let c = |i: usize| r.get::<_, Option<i64>>(i);
     let (Some(email), Some(mailbox_state), Some(thread), Some(tag), Some(calendar), Some(contact), Some(task), Some(identity)) =
         (c(4), c(5), c(6), c(7), c(8), c(9), c(10), c(11))
     else {
         return Caller::Unavailable;
     };
-    Caller::Member { mailbox, state: SessionState { email, mailbox: mailbox_state, thread, tag, calendar, contact, task, identity } }
+    Caller::Member {
+        mailbox,
+        mailbox_blocked,
+        state: SessionState { email, mailbox: mailbox_state, thread, tag, calendar, contact, task, identity },
+    }
 }
 
 /// Active actor roles, using `shared/permissions.ResolveAuthority`'s live

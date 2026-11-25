@@ -391,7 +391,7 @@ pub async fn save(
         deadline(),
         &format!(
             "SELECT rust_ca_policy_save($2,$4::text::inet,$5,$6::text::jsonb,$7::text::jsonb,$8::text::jsonb)::text \
-             WHERE $1::bigint > 0 AND $3::text <> '' \
+             WHERE $1::bigint >= 0 AND $3::text <> '' \
              AND ({open} OR (rust_ca_policy_scope_reach($2, $9, $10, {WRITE_PERMS}) \
                   AND COALESCE(rust_ca_policy_row_reach($2, $5, {WRITE_PERMS}), true))) \
              AND ({ahead} OR rust_ca_priority_ok($2, $11, {WRITE_PERMS}))",
@@ -433,7 +433,7 @@ pub async fn soft_delete(
         deadline(),
         &format!(
             "SELECT count(*)::bigint FROM (SELECT ca_policy_soft_delete($4,$2) \
-             WHERE $1::bigint > 0 AND $3::text <> '' \
+             WHERE $1::bigint >= 0 AND $3::text <> '' \
              AND ({open} OR COALESCE(rust_ca_policy_row_reach($2, $4, {WRITE_PERMS}), true))) w",
             open = open()
         ),
@@ -458,7 +458,7 @@ pub async fn restore(
         deadline(),
         &format!(
             "SELECT count(*)::bigint FROM (SELECT ca_policy_restore($4,$2) \
-             WHERE $1::bigint > 0 AND $3::text <> '' \
+             WHERE $1::bigint >= 0 AND $3::text <> '' \
              AND ({open} OR COALESCE(rust_ca_policy_row_reach($2, $4, {WRITE_PERMS}), true))) w",
             open = open()
         ),
@@ -490,7 +490,7 @@ pub async fn restore_from_audit(
         &auth,
         deadline(),
         &format!(
-            "SELECT ca_policy_restore_from_audit($4,$2) WHERE $1::bigint > 0 AND $3::text <> '' \
+            "SELECT ca_policy_restore_from_audit($4,$2) WHERE $1::bigint >= 0 AND $3::text <> '' \
              AND ({open} OR COALESCE(rust_ca_policy_audit_reach($2, $4, {WRITE_PERMS}), true)) \
              AND ({ahead} OR COALESCE(rust_ca_audit_priority_ok($2, $4, {WRITE_PERMS}), true))",
             open = open(),
@@ -522,7 +522,7 @@ pub async fn reorder(
         deadline(),
         &format!(
             "SELECT count(*)::bigint FROM (SELECT {reorder}($2,$4::text::inet,$5) \
-             WHERE $1::bigint > 0 AND $3::text <> '' \
+             WHERE $1::bigint >= 0 AND $3::text <> '' \
              AND ({open} OR NOT EXISTS (SELECT 1 FROM unnest($5::bigint[]) i \
                   WHERE rust_ca_policy_row_reach($2, i, {WRITE_PERMS}) IS NOT DISTINCT FROM false))) w",
             open = open(),
@@ -579,7 +579,7 @@ pub async fn promote(
         &auth,
         deadline(),
         &format!(
-            "SELECT ca_policy_promote($4,$2)::text WHERE $1::bigint > 0 AND $3::text <> '' \
+            "SELECT ca_policy_promote($4,$2)::text WHERE $1::bigint >= 0 AND $3::text <> '' \
              AND ({open} OR COALESCE(rust_ca_policy_row_reach($2, $4, {WRITE_PERMS}), true))",
             open = open()
         ),

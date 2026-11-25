@@ -174,7 +174,7 @@ pub async fn department_create(
         ),
         &auth,
         deadline(),
-        "SELECT rust_admin_department_create($2,$4,$5,$6,$7)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_department_create($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&name, Type::TEXT),
             (&parent, Type::INT8),
@@ -220,7 +220,7 @@ pub async fn department_update(
         ),
         &auth,
         deadline(),
-        "SELECT rust_admin_department_update($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_department_update($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&id, Type::INT8),
             (&patch.name, Type::TEXT),
@@ -254,7 +254,7 @@ pub async fn department_delete(
         &envelope(&auth, operation, &format!("{id}:{grant_domain:?}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_department_delete($2,$4,$5)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_department_delete($2,$4,$5)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&id, Type::INT8), (&grant_domain, Type::INT8)],
         |rows| verdict(rows, &[204]).map(|_| ()),
     )
@@ -281,7 +281,7 @@ pub async fn department_assign_user(
         ),
         &auth,
         deadline(),
-        "SELECT rust_admin_department_assign_user($2,$4,$5,$6)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_department_assign_user($2,$4,$5,$6)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&user, Type::INT8),
             (&department, Type::INT8),
@@ -468,7 +468,7 @@ pub async fn policy_create(
           cond_mailbox_type, cond_ad_ou, primary_template, additional_templates, duplicate_resolution) \
          SELECT COALESCE($4::bigint::integer, (SELECT COALESCE(MAX(priority), 0) + 10 FROM email_address_policies)), \
           $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 \
-          WHERE $1::bigint > 0 AND $3::text <> '' RETURNING {POLICY_COLUMNS}) \
+          WHERE $1::bigint >= 0 AND $3::text <> '' RETURNING {POLICY_COLUMNS}) \
          SELECT {POLICY_COLUMNS} FROM ins"
     );
     setjoin_pg::run_receipted_command(
@@ -523,7 +523,7 @@ pub async fn policy_update(
          additional_templates = COALESCE($14, additional_templates), \
          duplicate_resolution = COALESCE($15, duplicate_resolution), \
          updated_at = now() \
-         WHERE id = $4 AND $1::bigint > 0 AND $3::text <> '' RETURNING {POLICY_COLUMNS}) \
+         WHERE id = $4 AND $1::bigint >= 0 AND $3::text <> '' RETURNING {POLICY_COLUMNS}) \
          SELECT {POLICY_COLUMNS} FROM upd"
     );
     setjoin_pg::run_receipted_command(
@@ -570,7 +570,7 @@ pub async fn policy_delete(
         &envelope(&auth, operation, &id.to_string()),
         &auth,
         deadline(),
-        "WITH d AS (DELETE FROM email_address_policies WHERE id = $4 AND $1::bigint > 0 AND $3::text <> '' RETURNING 1) \
+        "WITH d AS (DELETE FROM email_address_policies WHERE id = $4 AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
          SELECT count(*)::bigint FROM d",
         &[(&id, Type::INT8)],
         |rows| super::count(rows).map(|n| n > 0),
@@ -593,7 +593,7 @@ pub async fn policy_reorder(
         &envelope(&auth, operation, &format!("{order:?}")),
         &auth,
         deadline(),
-        "SELECT count(*)::bigint FROM (SELECT rust_admin_eap_reorder($4::bigint[]) WHERE $1::bigint > 0 AND $3::text <> '') w",
+        "SELECT count(*)::bigint FROM (SELECT rust_admin_eap_reorder($4::bigint[]) WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&order, Type::INT8_ARRAY)],
         |rows| super::count(rows).map(|_| ()),
     )
@@ -614,7 +614,7 @@ pub async fn policy_apply(
         &envelope(&auth, operation, &format!("{policy:?}")),
         &auth,
         deadline(),
-        "INSERT INTO eap_apply_jobs (policy_id, status) SELECT $4, 'queued' WHERE $1::bigint > 0 AND $3::text <> '' RETURNING id",
+        "INSERT INTO eap_apply_jobs (policy_id, status) SELECT $4, 'queued' WHERE $1::bigint >= 0 AND $3::text <> '' RETURNING id",
         &[(&policy, Type::INT8)],
         |rows| match rows {
             [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),

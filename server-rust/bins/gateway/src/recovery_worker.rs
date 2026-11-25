@@ -97,6 +97,8 @@ pub struct S3Store {
     bucket: Box<s3::Bucket>,
     endpoint: String,
     unsigned: Option<reqwest::Client>,
+    no_redirect: reqwest::Client,
+    request_timeout: Option<std::time::Duration>,
     region: tokio::sync::Mutex<Option<String>>,
     small_cache: std::sync::Mutex<SmallCache>,
 }
@@ -181,9 +183,10 @@ struct SmallBlob {
     expires: std::time::Instant,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
 struct LocationReply {
-    #[serde(rename = "$value", default)]
+    #[serde(rename = "$text", default)]
     region: String,
 }
 
@@ -200,6 +203,11 @@ impl S3Store {
     /// With no explicit region the existing lazy discovery remains authoritative.
     pub fn with_region(mut self, region: String) -> Self {
         *self.region.get_mut() = Some(region);
+        self
+    }
+    /// Override the per-request HTTP timeout on no-redirect requests (tests).
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.request_timeout = Some(timeout);
         self
     }
     /// Stream `key` from S3 and compute its SHA-256 hex digest and byte length
@@ -329,12 +337,17 @@ impl S3Store {
             Some(
                 reqwest::Client::builder()
                     .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
                     .build()
                     .map_err(|error| error.to_string())?,
             )
         } else {
             None
         };
+        let no_redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| error.to_string())?;
         let region = s3::Region::Custom {
             region: "us-east-1".into(),
             endpoint: endpoint.into(),
@@ -346,7 +359,9 @@ impl S3Store {
             bucket,
             endpoint: endpoint.into(),
             unsigned,
-            region: tokio::sync::Mutex::new(None),
+            no_redirect,
+            request_timeout: None,
+            region: tokio::sync::Mutex::new(s3_region_from_url(endpoint)),
             small_cache: std::sync::Mutex::new(SmallCache::default()),
         })
     }
@@ -626,6 +641,166 @@ impl S3Store {
         }
     }
 
+    /// Sets (`on = true`, `"ON"`) or clears (`on = false`, `"OFF"`) an S3 Object Lock legal
+    /// hold (`PUT ?legal-hold`) with minio-go's retry policy (#289).
+    pub(crate) async fn legal_hold_with_retries(&self, key: &str, on: bool) -> Result<(), String> {
+        const RETRYABLE: [u16; 8] = [408, 429, 499, 500, 502, 503, 504, 520];
+        let mut last = String::from("object legal hold failed");
+        for attempt in 0..10u32 {
+            if attempt > 0 {
+                let wait = (200u64 << (attempt - 1).min(3)).min(1000);
+                tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+            }
+            match self.legal_hold_attempt(key, on).await {
+                Ok(reply) if matches!(reply.status, 200 | 204) => return Ok(()),
+                Ok(reply) => {
+                    let reported_region = reply.region.as_deref().map(normalize_s3_region);
+                    let changed_region = reported_region
+                        .as_ref()
+                        .is_some_and(|r| r.as_str() != reply.signed_region.as_str());
+                    let is_region_error = changed_region
+                        && (matches!(reply.status, 301 | 307)
+                            || matches!(
+                                reply.code.as_deref(),
+                                Some(
+                                    "AccessDenied"
+                                        | "InvalidRegion"
+                                        | "AuthorizationHeaderMalformed"
+                                        | "PermanentRedirect"
+                                        | "TemporaryRedirect"
+                                )
+                            ));
+                    if is_region_error {
+                        *self.region.lock().await = reported_region;
+                        last = format!("object legal hold failed ({})", reply.status);
+                    } else if RETRYABLE.contains(&reply.status)
+                        || reply.code.as_deref().is_some_and(is_retryable_s3_code)
+                    {
+                        last = format!("object legal hold failed ({})", reply.status);
+                    } else {
+                        return Err(format!("object legal hold failed ({})", reply.status));
+                    }
+                }
+                Err(e) => last = e,
+            }
+        }
+        Err(last)
+    }
+
+    /// One `PUT ?legal-hold` request; returns status, signed region, S3 error code, and reported region.
+    async fn legal_hold_attempt(&self, key: &str, on: bool) -> Result<LegalHoldReply, String> {
+        use s3::{
+            command::Command,
+            request::{tokio_backend::ReqwestRequest, Request},
+        };
+        let mut bucket = self.bucket().await?;
+        let signed_region = match &bucket.region {
+            s3::Region::Custom { region, .. } => region.clone(),
+            other => normalize_s3_region(&other.to_string()),
+        };
+        bucket.add_query("legal-hold", "");
+        let (xml, md5) = if on {
+            (
+                "<LegalHold><Status>ON</Status></LegalHold>",
+                "oK1+ndJbG6HuGA87LDxznw==",
+            )
+        } else {
+            (
+                "<LegalHold><Status>OFF</Status></LegalHold>",
+                "An8G3mv4SfhAibzslQjGDw==",
+            )
+        };
+        bucket
+            .extra_headers
+            .insert("content-md5", md5.parse().unwrap());
+        let request = ReqwestRequest::new(
+            &bucket,
+            key,
+            Command::PutObject {
+                content: xml.as_bytes(),
+                content_type: "application/xml",
+                custom_headers: None,
+                multipart: None,
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        let url = request.url().map_err(|e| e.to_string())?;
+        let signed = request.headers().await.map_err(|e| e.to_string())?;
+        let mut headers = reqwest::header::HeaderMap::new();
+        for (name, value) in &signed {
+            if let (Ok(name), Ok(value)) = (
+                reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+                reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+            ) {
+                headers.append(name, value);
+            }
+        }
+        let mut builder = self
+            .no_redirect
+            .put(url.as_str())
+            .headers(headers)
+            .body(xml.as_bytes().to_vec());
+        if let Some(timeout) = self.request_timeout.or_else(|| bucket.request_timeout()) {
+            builder = builder.timeout(timeout);
+        }
+        let mut response = builder.send().await.map_err(|e| e.to_string())?;
+        let status = response.status().as_u16();
+        if matches!(status, 200 | 204) {
+            return Ok(LegalHoldReply {
+                status,
+                signed_region,
+                code: None,
+                region: None,
+            });
+        }
+        let header_str = |name: &str| -> Option<String> {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        };
+        let header_code = header_str("x-minio-error-code");
+        let header_region = header_str("x-amz-bucket-region");
+        const MAX_ERROR_BODY: usize = 5 * 1024 * 1024;
+        let mut body_bytes = Vec::new();
+        while body_bytes.len() < MAX_ERROR_BODY {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    let take = chunk.len().min(MAX_ERROR_BODY - body_bytes.len());
+                    body_bytes.extend_from_slice(&chunk[..take]);
+                }
+                Ok(None) | Err(_) => break,
+            }
+        }
+        let body = String::from_utf8_lossy(&body_bytes);
+        let parsed_xml = quick_xml::de::from_str::<LocationError>(&body).ok();
+        let xml_code = parsed_xml
+            .as_ref()
+            .map(|e| e.code.trim())
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned);
+        let xml_region = parsed_xml
+            .as_ref()
+            .map(|e| e.region.trim())
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned);
+        Ok(LegalHoldReply {
+            status,
+            signed_region,
+            code: header_code.or(xml_code).or_else(|| match status {
+                403 => Some("AccessDenied".to_owned()),
+                301 => Some("PermanentRedirect".to_owned()),
+                307 => Some("TemporaryRedirect".to_owned()),
+                _ => None,
+            }),
+            region: xml_region.or(header_region),
+        })
+    }
+
     /// Same environment names and defaults as Go's primary object store.
     pub fn blob_reference(&self, hash: &str) -> String {
         format!("{}/{hash}", self.bucket.name())
@@ -646,23 +821,47 @@ impl S3Store {
     }
 
     pub fn from_env() -> Result<Self, String> {
-        let value = |name: &str, legacy: &str, default: &str| {
-            std::env::var(name)
-                .ok()
-                .filter(|s| !s.is_empty())
-                .or_else(|| std::env::var(legacy).ok().filter(|s| !s.is_empty()))
-                .unwrap_or_else(|| default.into())
-        };
-        let endpoint = value("S3_ENDPOINT", "MINIO_ENDPOINT", "127.0.0.1:9000");
-        let secure = match value("S3_SECURE", "MINIO_SECURE", "false").as_str() {
-            "true" | "True" | "TRUE" | "1" | "t" | "T" => true,
-            "false" | "False" | "FALSE" | "0" | "f" | "F" => false,
-            _ => return Err("S3_SECURE must be a boolean".into()),
+        Self::from_lookup(|name| std::env::var(name).ok())
+    }
+
+    /// Resolve S3/MinIO settings matching Go's `config.go` precedence (`MINIO_ENDPOINT`
+    /// overrides default `127.0.0.1:9000`, `MINIO_BUCKET` overrides default `mailblobs`,
+    /// `MINIO_SECURE` overrides when non-empty).
+    pub(crate) fn from_lookup<F>(lookup: F) -> Result<Self, String>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let get = |name: &str| lookup(name).filter(|s| !s.is_empty());
+        let mut endpoint = lookup("S3_ENDPOINT").unwrap_or_else(|| "127.0.0.1:9000".into());
+        if endpoint == "127.0.0.1:9000" {
+            if let Some(v) = get("MINIO_ENDPOINT") {
+                endpoint = v;
+            }
+        }
+        let access = get("S3_ACCESS_KEY")
+            .or_else(|| get("MINIO_ACCESS_KEY"))
+            .unwrap_or_default();
+        let secret = get("S3_SECRET_KEY")
+            .or_else(|| get("MINIO_SECRET_KEY"))
+            .unwrap_or_default();
+        let mut bucket = lookup("S3_BUCKET").unwrap_or_else(|| "mailblobs".into());
+        if bucket == "mailblobs" {
+            if let Some(v) = get("MINIO_BUCKET") {
+                bucket = v;
+            }
+        }
+        let secure = if let Some(v) = get("MINIO_SECURE") {
+            parse_go_bool(&v).ok_or_else(|| "MINIO_SECURE must be a boolean".to_owned())?
+        } else if let Some(v) = get("S3_SECURE") {
+            parse_go_bool(&v).unwrap_or(false)
+        } else {
+            false
         };
         let endpoint = endpoint.trim();
         let endpoint = if endpoint.contains("://") {
-            if (endpoint.starts_with("https://") && !secure)
-                || (endpoint.starts_with("http://") && secure)
+            let lower = endpoint.to_ascii_lowercase();
+            if (lower.starts_with("https://") && !secure)
+                || (lower.starts_with("http://") && secure)
             {
                 return Err("S3_SECURE conflicts with S3_ENDPOINT".into());
             }
@@ -670,12 +869,7 @@ impl S3Store {
         } else {
             format!("{}://{endpoint}", if secure { "https" } else { "http" })
         };
-        Self::new(
-            &endpoint,
-            &value("S3_BUCKET", "MINIO_BUCKET", "mailblobs"),
-            &value("S3_ACCESS_KEY", "MINIO_ACCESS_KEY", ""),
-            &value("S3_SECRET_KEY", "MINIO_SECRET_KEY", ""),
-        )
+        Self::new(&endpoint, &bucket, &access, &secret)
     }
 
     fn object_url(&self, key: &str) -> Result<reqwest::Url, String> {
@@ -732,24 +926,52 @@ impl S3Store {
                 .map_err(|error| error.to_string())?;
                 (status, body, headers)
             } else {
-                // rust-s3 percent-encodes the path; attach location as a query.
+                // rust-s3 percent-encodes the path; attach location as a query and reuse no_redirect.
                 let mut location_bucket = (*self.bucket).clone();
                 location_bucket.add_query("location", "");
-                let response =
+                let request =
                     ReqwestRequest::new(&location_bucket, "", Command::GetBucketLocation)
                         .await
-                        .map_err(|error| error.to_string())?
-                        .response_data(false)
-                        .await
                         .map_err(|error| error.to_string())?;
-                (
-                    response.status_code(),
+                let url = request.url().map_err(|error| error.to_string())?;
+                let signed = request.headers().await.map_err(|error| error.to_string())?;
+                let mut req_headers = reqwest::header::HeaderMap::new();
+                for (name, value) in &signed {
+                    if let (Ok(name), Ok(value)) = (
+                        reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes()),
+                        reqwest::header::HeaderValue::from_bytes(value.as_bytes()),
+                    ) {
+                        req_headers.append(name, value);
+                    }
+                }
+                let mut builder = self.no_redirect.get(url.as_str()).headers(req_headers);
+                if let Some(timeout) = self
+                    .request_timeout
+                    .or_else(|| location_bucket.request_timeout())
+                {
+                    builder = builder.timeout(timeout);
+                }
+                let response = builder.send().await.map_err(|error| error.to_string())?;
+                let status = response.status().as_u16();
+                let headers = response
+                    .headers()
+                    .iter()
+                    .filter_map(|(name, value)| {
+                        value
+                            .to_str()
+                            .ok()
+                            .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                    })
+                    .collect::<std::collections::HashMap<_, _>>();
+                let body = String::from_utf8(
                     response
-                        .as_str()
+                        .bytes()
+                        .await
                         .map_err(|error| error.to_string())?
-                        .to_owned(),
-                    response.headers(),
+                        .to_vec(),
                 )
+                .map_err(|error| error.to_string())?;
+                (status, body, headers)
             };
             let region = if status == 200 {
                 let parsed: LocationReply =
@@ -759,8 +981,13 @@ impl S3Store {
                 let mut parsed: LocationError = quick_xml::de::from_str(&body).unwrap_or_default();
                 if let Some(code) = headers.get("x-minio-error-code").filter(|v| !v.is_empty()) {
                     parsed.code.clone_from(code);
-                } else if parsed.code.is_empty() && status == 403 {
-                    parsed.code = "AccessDenied".into();
+                } else if parsed.code.is_empty() {
+                    match status {
+                        403 => parsed.code = "AccessDenied".into(),
+                        301 => parsed.code = "PermanentRedirect".into(),
+                        307 => parsed.code = "TemporaryRedirect".into(),
+                        _ => {}
+                    }
                 }
                 if parsed.region.is_empty() {
                     parsed.region = headers
@@ -769,7 +996,17 @@ impl S3Store {
                         .unwrap_or_default();
                 }
                 match parsed.code.as_str() {
-                    "AccessDenied" | "AuthorizationHeaderMalformed" | "InvalidRegion" => {
+                    "AccessDenied"
+                    | "AuthorizationHeaderMalformed"
+                    | "InvalidRegion"
+                    | "NoSuchBucket" => parsed.region,
+                    "PermanentRedirect" | "TemporaryRedirect" => {
+                        if parsed.region.is_empty() {
+                            return Err(format!(
+                                "S3 bucket location redirect ({status} {}) missing bucket region",
+                                parsed.code
+                            ));
+                        }
                         parsed.region
                     }
                     "NotImplemented"
@@ -782,21 +1019,16 @@ impl S3Store {
                     {
                         "us-east-1".into()
                     }
+                    _ if status == 404 => String::new(),
                     _ => return Err(format!("S3 bucket location failed: {}", parsed.code)),
                 }
             };
-            let region = match region.as_str() {
-                "" => "us-east-1",
-                "EU" => "eu-west-1",
-                _ => &region,
-            };
-            *cached = Some(region.to_owned());
+            *cached = Some(normalize_s3_region(&region));
         }
+        let region = cached.as_ref().unwrap().clone();
+        let endpoint = regional_s3_endpoint(&self.endpoint, &region);
         let mut bucket = (*self.bucket).clone();
-        bucket.region = s3::Region::Custom {
-            region: cached.as_ref().unwrap().clone(),
-            endpoint: self.endpoint.clone(),
-        };
+        bucket.region = s3::Region::Custom { region, endpoint };
         Ok(bucket)
     }
 }
@@ -1097,5 +1329,925 @@ impl S3Store {
             return Err("object unavailable".into());
         }
         Ok(response)
+    }
+}
+
+struct LegalHoldReply {
+    status: u16,
+    signed_region: String,
+    code: Option<String>,
+    region: Option<String>,
+}
+
+fn parse_go_bool(v: &str) -> Option<bool> {
+    match v {
+        "true" | "True" | "TRUE" | "1" | "t" | "T" => Some(true),
+        "false" | "False" | "FALSE" | "0" | "f" | "F" => Some(false),
+        _ => None,
+    }
+}
+
+fn normalize_s3_region(region: &str) -> String {
+    match region {
+        "" => "us-east-1".to_owned(),
+        "EU" => "eu-west-1".to_owned(),
+        _ => region.to_owned(),
+    }
+}
+
+fn is_valid_aws_region_label(s: &str) -> bool {
+    !s.is_empty()
+        && !s.contains('.')
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+fn is_excluded_s3_prefix(rest: &str) -> bool {
+    rest.starts_with("website")
+        || rest.starts_with("control")
+        || rest.starts_with("accelerate")
+        || rest.starts_with("outposts")
+        || rest.starts_with("fips")
+        || rest.starts_with("dualstack")
+        || rest.starts_with("xpress-")
+}
+
+fn is_amazon_elb_host(lower: &str) -> bool {
+    lower
+        .strip_suffix(".amazonaws.com")
+        .or_else(|| lower.strip_suffix(".amazonaws.com.cn"))
+        .is_some_and(|prefix| prefix.contains("elb"))
+}
+
+fn amazon_privatelink_region(lower: &str) -> Option<&str> {
+    let body = lower
+        .strip_prefix("bucket.vpce-")
+        .or_else(|| lower.strip_prefix("accesspoint.vpce-"))?
+        .strip_suffix(".vpce.amazonaws.com")?;
+    let (_, region) = body.split_once(".s3.")?;
+    is_valid_aws_region_label(region).then_some(region)
+}
+
+fn amazon_outposts_region(lower: &str) -> Option<&str> {
+    let body = lower.strip_suffix(".amazonaws.com")?;
+    let (prefix, region) = body.rsplit_once(".s3-outposts.")?;
+    (!prefix.is_empty() && is_valid_aws_region_label(region)).then_some(region)
+}
+
+fn amazon_express_region(lower: &str) -> Option<&str> {
+    let body = lower.strip_suffix(".amazonaws.com")?;
+    let (head, region) = body.split_once('.')?;
+    if !is_valid_aws_region_label(region) {
+        return None;
+    }
+    if head == "s3express-control" {
+        return Some(region);
+    }
+    let az = head.strip_prefix("s3express-")?;
+    let (zone_id, az_num) = az.rsplit_once("-az")?;
+    let valid_zone = (3..=7).contains(&zone_id.len())
+        && zone_id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    let valid_num = az_num.len() == 1 && matches!(az_num.as_bytes()[0], b'1'..=b'6');
+    (valid_zone && valid_num).then_some(region)
+}
+
+fn amazon_cn_region(prefix: &str) -> Option<&str> {
+    let region = prefix
+        .strip_prefix("s3.dualstack.")
+        .or_else(|| prefix.strip_prefix("s3."))?;
+    (region.starts_with("cn") && is_valid_aws_region_label(region)).then_some(region)
+}
+
+/// Extracts an explicit AWS region from Amazon S3 endpoint hosts matching
+/// `minio-go` v7.2.1 `s3utils.GetRegionFromURL` (including FIPS, PrivateLink,
+/// Outposts, Express, China, dual-stack, and legacy `s3-<region>` hosts).
+fn s3_region_from_url(endpoint: &str) -> Option<String> {
+    let url = reqwest::Url::parse(endpoint).ok()?;
+    let lower = url.host_str()?.trim_end_matches('.').to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "s3.amazonaws.com" | "s3-external-1.amazonaws.com" | "s3.dualstack.amazonaws.com"
+    ) || is_amazon_elb_host(&lower)
+    {
+        return None;
+    }
+    if let Some(prefix) = lower.strip_suffix(".amazonaws.com.cn") {
+        return amazon_cn_region(prefix).map(str::to_owned);
+    }
+    if let Some(region) = amazon_privatelink_region(&lower) {
+        return Some(region.to_owned());
+    }
+    if let Some(region) = amazon_express_region(&lower) {
+        return Some(region.to_owned());
+    }
+    if let Some(region) = amazon_outposts_region(&lower) {
+        return Some(region.to_owned());
+    }
+    let prefix = lower.strip_suffix(".amazonaws.com")?;
+    if let Some(region) = prefix
+        .strip_prefix("s3-fips.dualstack.")
+        .or_else(|| prefix.strip_prefix("s3-fips."))
+        .or_else(|| prefix.strip_prefix("s3.dualstack."))
+    {
+        return (is_valid_aws_region_label(region) && !is_excluded_s3_prefix(region))
+            .then(|| region.to_owned());
+    }
+    if prefix.starts_with("s3-fips-") {
+        if let Some(region) = prefix.strip_prefix("s3-") {
+            return is_valid_aws_region_label(region).then(|| region.to_owned());
+        }
+    }
+    if let Some(region) = prefix
+        .strip_prefix("s3-")
+        .or_else(|| prefix.strip_prefix("s3."))
+    {
+        return (is_valid_aws_region_label(region) && !is_excluded_s3_prefix(region))
+            .then(|| region.to_owned());
+    }
+    None
+}
+
+/// Returns true only when `minio-go` v7.2.1 `makeTargetURL` rewrites the host
+/// to `s3.dualstack.<region>.<domain>` (excludes FIPS, PrivateLink, Outposts,
+/// Express, website, control, accelerate, ELB, and non-AWS hosts).
+fn is_amazon_s3_rewrite_host(host: &str) -> bool {
+    let lower = host.trim_end_matches('.').to_ascii_lowercase();
+    if is_amazon_elb_host(&lower) {
+        return false;
+    }
+    if matches!(
+        lower.as_str(),
+        "s3.amazonaws.com" | "s3-external-1.amazonaws.com" | "s3.dualstack.amazonaws.com"
+    ) {
+        return true;
+    }
+    if let Some(prefix) = lower.strip_suffix(".amazonaws.com.cn") {
+        return amazon_cn_region(prefix).is_some();
+    }
+    let Some(prefix) = lower.strip_suffix(".amazonaws.com") else {
+        return false;
+    };
+    let Some(region) = prefix
+        .strip_prefix("s3.dualstack.")
+        .or_else(|| prefix.strip_prefix("s3."))
+        .or_else(|| prefix.strip_prefix("s3-"))
+    else {
+        return false;
+    };
+    is_valid_aws_region_label(region) && !is_excluded_s3_prefix(region)
+}
+
+/// Derives the dual-stack AWS regional S3 endpoint matching `minio-go` v7.2.1
+/// (`s3DualstackEnabled = true` in `makeTargetURL`), leaving FIPS, PrivateLink,
+/// Outposts, website, and non-AWS endpoints untouched.
+fn regional_s3_endpoint(endpoint: &str, region: &str) -> String {
+    if region.is_empty() {
+        return endpoint.to_owned();
+    }
+    let Ok(mut url) = reqwest::Url::parse(endpoint) else {
+        return endpoint.to_owned();
+    };
+    let Some(host) = url.host_str() else {
+        return endpoint.to_owned();
+    };
+    if !is_amazon_s3_rewrite_host(host) {
+        return endpoint.to_owned();
+    }
+    let domain = if region.starts_with("cn-") {
+        "amazonaws.com.cn"
+    } else {
+        "amazonaws.com"
+    };
+    let regional_host = format!("s3.dualstack.{region}.{domain}");
+    if url.set_host(Some(&regional_host)).is_err() {
+        return endpoint.to_owned();
+    }
+    if !endpoint.ends_with('/') {
+        url.as_str().trim_end_matches('/').to_owned()
+    } else {
+        url.to_string()
+    }
+}
+
+fn is_retryable_s3_code(code: &str) -> bool {
+    matches!(
+        code,
+        "RequestError"
+            | "RequestTimeout"
+            | "Throttling"
+            | "ThrottlingException"
+            | "RequestLimitExceeded"
+            | "RequestThrottled"
+            | "InternalError"
+            | "ExpiredToken"
+            | "ExpiredTokenException"
+            | "SlowDown"
+            | "SlowDownWrite"
+            | "SlowDownRead"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::S3Store;
+    use bytes::Bytes;
+    use http_body_util::Full;
+    use hyper::{service::service_fn, Response};
+    use hyper_util::rt::TokioIo;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
+
+    struct AbortServer(tokio::task::JoinHandle<()>);
+    impl Drop for AbortServer {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn legal_hold_403_retries_against_signed_region_after_concurrent_cache_refresh() {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let auths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let entered_s = entered.clone();
+        let release_s = release.clone();
+        let auths_s = auths.clone();
+        let hits_s = hits.clone();
+        let _server = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let (entered_c, release_c, auths_c, hits_c) = (
+                    entered_s.clone(),
+                    release_s.clone(),
+                    auths_s.clone(),
+                    hits_s.clone(),
+                );
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req| {
+                        let (entered_r, release_r, auths_r, hits_r) = (
+                            entered_c.clone(),
+                            release_c.clone(),
+                            auths_c.clone(),
+                            hits_c.clone(),
+                        );
+                        async move {
+                            let auth = req
+                                .headers()
+                                .get("authorization")
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("")
+                                .to_owned();
+                            auths_r.lock().unwrap().push(auth);
+                            let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                            let resp = if n == 0 {
+                                entered_r.notify_one();
+                                release_r.notified().await;
+                                Response::builder()
+                                    .status(403)
+                                    .header("x-amz-bucket-region", "eu-west-1")
+                                    .header("content-type", "application/xml")
+                                    .body(Full::new(Bytes::from_static(
+                                        b"<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+                                    )))
+                                    .unwrap()
+                            } else {
+                                Response::builder()
+                                    .status(204)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            };
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+
+        let store = Arc::new(
+            S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap(),
+        );
+        *store.region.lock().await = Some("us-east-1".into());
+
+        let caller = store.clone();
+        let handle = tokio::spawn(async move { caller.legal_hold_with_retries("key-a", true).await });
+        entered.notified().await;
+        // Simulate another request refreshing the cached region while attempt 0 is in flight.
+        *store.region.lock().await = Some("eu-west-1".into());
+        release.notify_one();
+
+        let res = handle.await.unwrap();
+        assert!(res.is_ok(), "expected retry after 403 signed-region mismatch: {res:?}");
+        let recorded = auths.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        assert!(recorded[0].contains("/us-east-1/s3/aws4_request"));
+        assert!(recorded[1].contains("/eu-west-1/s3/aws4_request"));
+    }
+
+    #[tokio::test]
+    async fn legal_hold_403_same_region_access_denied_is_terminal() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits_s = hits.clone();
+        let _server = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let hits_c = hits_s.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| {
+                        let hits_r = hits_c.clone();
+                        async move {
+                            hits_r.fetch_add(1, Ordering::SeqCst);
+                            Ok::<_, std::convert::Infallible>(
+                                Response::builder()
+                                    .status(403)
+                                    .header("x-amz-bucket-region", "eu-west-1")
+                                    .header("content-type", "application/xml")
+                                    .body(Full::new(Bytes::from_static(
+                                        b"<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>",
+                                    )))
+                                    .unwrap(),
+                            )
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        *store.region.lock().await = Some("eu-west-1".into());
+
+        let err = store.legal_hold_with_retries("key-b", false).await.unwrap_err();
+        assert!(err.contains("403"), "expected terminal 403 error, got {err}");
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn legal_hold_403_same_region_with_retryable_code_retries() {
+        let hits = Arc::new(AtomicUsize::new(0));
+        let auths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits_s = hits.clone();
+        let auths_s = auths.clone();
+        let _server = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let (hits_c, auths_c) = (hits_s.clone(), auths_s.clone());
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req| {
+                        let (hits_r, auths_r) = (hits_c.clone(), auths_c.clone());
+                        async move {
+                            let auth = req
+                                .headers()
+                                .get("authorization")
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("")
+                                .to_owned();
+                            auths_r.lock().unwrap().push(auth);
+                            let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                            let resp = if n == 0 {
+                                Response::builder()
+                                    .status(403)
+                                    .header("x-amz-bucket-region", "eu-west-1")
+                                    .header("content-type", "application/xml")
+                                    .body(Full::new(Bytes::from_static(
+                                        b"<Error><Code>SlowDownWrite</Code><Message>Slow down</Message></Error>",
+                                    )))
+                                    .unwrap()
+                            } else {
+                                Response::builder()
+                                    .status(204)
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            };
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        *store.region.lock().await = Some("eu-west-1".into());
+
+        let res = store.legal_hold_with_retries("key-c", true).await;
+        assert!(res.is_ok(), "expected 403 SlowDownWrite to retry: {res:?}");
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        let recorded = auths.lock().unwrap();
+        assert!(recorded[0].contains("/eu-west-1/s3/aws4_request"));
+        assert!(recorded[1].contains("/eu-west-1/s3/aws4_request"));
+    }
+
+    #[test]
+    fn from_lookup_matches_go_minio_overrides() {
+        let lookup = |pairs: &[(&str, &str)]| {
+            let entries: Vec<(String, String)> =
+                pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
+            S3Store::from_lookup(move |k| {
+                entries.iter().find(|(name, _)| name == k).map(|(_, v)| v.clone())
+            })
+        };
+        let store = lookup(&[
+            ("S3_ENDPOINT", "127.0.0.1:9000"),
+            ("MINIO_ENDPOINT", "127.0.0.1:9100"),
+            ("S3_BUCKET", "mailblobs"),
+            ("MINIO_BUCKET", "custom-bucket"),
+            ("S3_SECURE", "bogus"),
+            ("MINIO_SECURE", "true"),
+        ])
+        .unwrap();
+        assert_eq!(store.bucket_name(), "custom-bucket");
+        assert_eq!(store.endpoint(), "https://127.0.0.1:9100");
+
+        let err = lookup(&[("MINIO_SECURE", "maybe")]).err().unwrap();
+        assert!(err.contains("MINIO_SECURE"), "unexpected err: {err}");
+
+        assert!(lookup(&[("S3_ENDPOINT", ""), ("MINIO_ENDPOINT", "127.0.0.1:9100")]).is_err());
+        assert!(lookup(&[("S3_BUCKET", ""), ("MINIO_BUCKET", "custom-bucket")]).is_err());
+        assert!(lookup(&[("S3_ENDPOINT", "HTTP://127.0.0.1:9000"), ("S3_SECURE", "true")]).is_err());
+
+        let store = lookup(&[("S3_SECURE", " true ")]).unwrap();
+        assert_eq!(store.bucket_name(), "mailblobs");
+        assert_eq!(store.endpoint(), "http://127.0.0.1:9000");
+    }
+
+    #[tokio::test]
+    async fn legal_hold_terminal_region_errors_do_not_retry() {
+        use bytes::Bytes;
+        use http_body_util::Full;
+        use hyper::{service::service_fn, Response};
+        use hyper_util::rt::TokioIo;
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+
+        async fn run_case(
+            status: u16,
+            header_region: Option<&'static str>,
+            body: &'static [u8],
+        ) {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let hits_s = hits.clone();
+
+            let srv = AbortServer(tokio::spawn(async move {
+                loop {
+                    let Ok((stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let hits_c = hits_s.clone();
+                    tokio::spawn(async move {
+                        let svc = service_fn(move |_req| {
+                            let hits_r = hits_c.clone();
+                            async move {
+                                hits_r.fetch_add(1, Ordering::SeqCst);
+                                let mut builder = Response::builder()
+                                    .status(status)
+                                    .header("content-type", "application/xml");
+                                if let Some(region) = header_region {
+                                    builder = builder.header("x-amz-bucket-region", region);
+                                }
+                                let resp = builder.body(Full::new(Bytes::from_static(body))).unwrap();
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), svc)
+                            .await;
+                    });
+                }
+            }));
+
+            let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+            *store.region.lock().await = Some("eu-west-1".into());
+
+            let res = store.legal_hold_with_retries("key-d", true).await;
+            drop(srv);
+            assert!(res.is_err(), "expected terminal {status} error");
+            assert_eq!(hits.load(Ordering::SeqCst), 1);
+            assert_eq!(store.region.lock().await.as_deref(), Some("eu-west-1"));
+        }
+
+        // AuthorizationHeaderMalformed without region
+        run_case(
+            400,
+            None,
+            b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Malformed</Message></Error>",
+        )
+        .await;
+        // AuthorizationHeaderMalformed with same region as signed request
+        run_case(
+            400,
+            Some("eu-west-1"),
+            b"<Error><Code>AuthorizationHeaderMalformed</Code><Message>Same region</Message><Region>eu-west-1</Region></Error>",
+        )
+        .await;
+        // InvalidRegion without region
+        run_case(
+            400,
+            None,
+            b"<Error><Code>InvalidRegion</Code><Message>Invalid</Message></Error>",
+        )
+        .await;
+        // Unrelated terminal 403 or same-region 301 must not retry or mutate cache.
+        run_case(
+            403,
+            Some("ap-southeast-1"),
+            b"<Error><Code>AccountProblem</Code><Message>Account problem</Message></Error>",
+        )
+        .await;
+        run_case(
+            301,
+            Some("eu-west-1"),
+            b"<Error><Code>PermanentRedirect</Code><Message>Same region</Message></Error>",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn legal_hold_and_bucket_location_retry_301_307_without_following_redirect() {
+        use bytes::Bytes;
+        use http_body_util::Full;
+        use hyper::{service::service_fn, Response};
+        use hyper_util::rt::TokioIo;
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        };
+
+        async fn run_redirect_hold(status: u16, target_region: &'static str) {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let auths = Arc::new(Mutex::new(Vec::<String>::new()));
+            let hits_s = hits.clone();
+            let auths_s = auths.clone();
+
+            let srv = AbortServer(tokio::spawn(async move {
+                loop {
+                    let Ok((stream, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let hits_c = hits_s.clone();
+                    let auths_c = auths_s.clone();
+                    tokio::spawn(async move {
+                        let svc = service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                            let hits_r = hits_c.clone();
+                            let auths_r = auths_c.clone();
+                            async move {
+                                let auth = req
+                                    .headers()
+                                    .get("authorization")
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("")
+                                    .to_owned();
+                                auths_r.lock().unwrap().push(auth);
+                                let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                                let resp = if n == 0 {
+                                    Response::builder()
+                                        .status(status)
+                                        .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                                        .header("x-amz-bucket-region", target_region)
+                                        .body(Full::new(Bytes::new()))
+                                        .unwrap()
+                                } else {
+                                    Response::builder().status(204).body(Full::new(Bytes::new())).unwrap()
+                                };
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), svc)
+                            .await;
+                    });
+                }
+            }));
+
+            let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+            *store.region.lock().await = Some("eu-west-1".into());
+            let res = store.legal_hold_with_retries("key-redir", true).await;
+            drop(srv);
+            assert!(res.is_ok(), "expected empty {status} region redirect to retry: {res:?}");
+            assert_eq!(hits.load(Ordering::SeqCst), 2);
+            assert_eq!(store.region.lock().await.as_deref(), Some(target_region));
+            let recorded = auths.lock().unwrap();
+            assert!(recorded[0].contains("/eu-west-1/s3/aws4_request"));
+            assert!(recorded[1].contains(&format!("/{target_region}/s3/aws4_request")));
+        }
+
+        run_redirect_hold(301, "ap-southeast-1").await;
+        run_redirect_hold(307, "us-west-2").await;
+
+        // Cold-cache GET ?location on 307 must not follow Location and must cache x-amz-bucket-region.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_s = hits.clone();
+        let srv = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let hits_c = hits_s.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| {
+                        let hits_r = hits_c.clone();
+                        async move {
+                            hits_r.fetch_add(1, Ordering::SeqCst);
+                            let resp = Response::builder()
+                                .status(307)
+                                .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                                .header("x-amz-bucket-region", "eu-west-1")
+                                .body(Full::new(Bytes::new()))
+                                .unwrap();
+                            Ok::<_, std::convert::Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        assert!(store.bucket().await.is_ok());
+        drop(srv);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(store.region.lock().await.as_deref(), Some("eu-west-1"));
+
+        // Cold-cache GET ?location on 307 WITHOUT region hint must fail instead of caching us-east-1.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let srv = AbortServer(tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| async move {
+                        let resp = Response::builder()
+                            .status(307)
+                            .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                            .body(Full::new(Bytes::new()))
+                            .unwrap();
+                        Ok::<_, std::convert::Infallible>(resp)
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), svc)
+                        .await;
+                });
+            }
+        }));
+        let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+        assert!(store.bucket().await.is_err());
+        drop(srv);
+        assert_eq!(*store.region.lock().await, None);
+    }
+
+    #[tokio::test]
+    async fn regional_s3_endpoint_and_url_region_extraction_match_minio_go() {
+        use super::{regional_s3_endpoint, s3_region_from_url};
+        assert_eq!(
+            regional_s3_endpoint("https://s3.amazonaws.com", "us-west-2"),
+            "https://s3.dualstack.us-west-2.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-external-1.amazonaws.com", "us-east-1"),
+            "https://s3.dualstack.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-eu-west-1.amazonaws.com", "eu-west-1"),
+            "https://s3.dualstack.eu-west-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3.dualstack.amazonaws.com", "eu-west-1"),
+            "https://s3.dualstack.eu-west-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3.amazonaws.com", "cn-north-1"),
+            "https://s3.dualstack.cn-north-1.amazonaws.com.cn"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-fips.us-east-1.amazonaws.com", "us-west-2"),
+            "https://s3-fips.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint(
+                "https://s3-fips.dualstack.us-gov-west-1.amazonaws.com",
+                "us-gov-east-1"
+            ),
+            "https://s3-fips.dualstack.us-gov-west-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint(
+                "https://bucket.vpce-1234.s3.us-west-2.vpce.amazonaws.com",
+                "us-east-1"
+            ),
+            "https://bucket.vpce-1234.s3.us-west-2.vpce.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-website-us-east-1.amazonaws.com", "us-west-2"),
+            "https://s3-website-us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-website.us-east-2.amazonaws.com", "us-west-2"),
+            "https://s3-website.us-east-2.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://my-outpost.s3-outposts.us-east-1.amazonaws.com", "us-west-2"),
+            "https://my-outpost.s3-outposts.us-east-1.amazonaws.com"
+        );
+        assert_eq!(
+            regional_s3_endpoint("http://127.0.0.1:9000", "us-west-2"),
+            "http://127.0.0.1:9000"
+        );
+
+        assert_eq!(s3_region_from_url("https://s3.amazonaws.com"), None);
+        assert_eq!(s3_region_from_url("https://s3-external-1.amazonaws.com"), None);
+        assert_eq!(
+            s3_region_from_url("https://s3-website-us-east-1.amazonaws.com"),
+            None
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-website.us-east-2.amazonaws.com"),
+            None
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-us-west-2.amazonaws.com").as_deref(),
+            Some("us-west-2")
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3.dualstack.eu-central-1.amazonaws.com").as_deref(),
+            Some("eu-central-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-fips.us-east-1.amazonaws.com").as_deref(),
+            Some("us-east-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-fips-us-gov-west-1.amazonaws.com").as_deref(),
+            Some("fips-us-gov-west-1")
+        );
+        assert_eq!(
+            regional_s3_endpoint("https://s3-fips-us-gov-west-1.amazonaws.com", "us-gov-east-1"),
+            "https://s3-fips-us-gov-west-1.amazonaws.com"
+        );
+        assert_eq!(
+            s3_region_from_url("https://s3-fips.dualstack.us-gov-west-1.amazonaws.com").as_deref(),
+            Some("us-gov-west-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://bucket.vpce-1234.s3.us-west-2.vpce.amazonaws.com")
+                .as_deref(),
+            Some("us-west-2")
+        );
+        assert_eq!(
+            s3_region_from_url("https://accesspoint.vpce-abcd.s3.eu-central-1.vpce.amazonaws.com")
+                .as_deref(),
+            Some("eu-central-1")
+        );
+        assert_eq!(
+            s3_region_from_url("https://my-outpost.s3-outposts.us-east-1.amazonaws.com").as_deref(),
+            Some("us-east-1")
+        );
+
+        let regional_store =
+            S3Store::new("https://s3-us-west-2.amazonaws.com", "mailblobs", "ak", "sk").unwrap();
+        assert_eq!(
+            regional_store.region.lock().await.as_deref(),
+            Some("us-west-2")
+        );
+    }
+
+    #[tokio::test]
+    async fn legal_hold_empty_403_and_xml_region_precedence_match_minio_go() {
+        async fn run_retry_case(
+            status: u16,
+            header_region: &'static str,
+            body: &'static [u8],
+            expected_second_region: &'static str,
+        ) {
+            let hits = Arc::new(AtomicUsize::new(0));
+            let auths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let hits_s = hits.clone();
+            let auths_s = auths.clone();
+            let _server = AbortServer(tokio::spawn(async move {
+                loop {
+                    let Ok((stream, _)) = listener.accept().await else {
+                        return;
+                    };
+                    let (hits_c, auths_c) = (hits_s.clone(), auths_s.clone());
+                    tokio::spawn(async move {
+                        let svc = service_fn(move |req| {
+                            let (hits_r, auths_r) = (hits_c.clone(), auths_c.clone());
+                            async move {
+                                let auth = req
+                                    .headers()
+                                    .get("authorization")
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("")
+                                    .to_owned();
+                                auths_r.lock().unwrap().push(auth);
+                                let n = hits_r.fetch_add(1, Ordering::SeqCst);
+                                let resp = if n == 0 {
+                                    Response::builder()
+                                        .status(status)
+                                        .header("x-amz-bucket-region", header_region)
+                                        .header("content-type", "application/xml")
+                                        .body(Full::new(Bytes::from_static(body)))
+                                        .unwrap()
+                                } else {
+                                    Response::builder()
+                                        .status(204)
+                                        .body(Full::new(Bytes::new()))
+                                        .unwrap()
+                                };
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), svc)
+                            .await;
+                    });
+                }
+            }));
+
+            let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
+            *store.region.lock().await = Some("us-east-1".into());
+            let res = store.legal_hold_with_retries("key-e", true).await;
+            assert!(res.is_ok(), "expected region retry to succeed: {res:?}");
+            assert_eq!(hits.load(Ordering::SeqCst), 2);
+            let recorded = auths.lock().unwrap();
+            assert!(recorded[0].contains("/us-east-1/s3/aws4_request"));
+            assert!(recorded[1].contains(&format!("/{expected_second_region}/s3/aws4_request")));
+        }
+
+        // Empty 403 defaults to AccessDenied and retries with header region.
+        run_retry_case(403, "eu-west-1", b"", "eu-west-1").await;
+        // Truncated undecodable 403 XML falls back to AccessDenied + header region.
+        run_retry_case(
+            403,
+            "eu-west-1",
+            b"<Error><Code>InvalidAccessKeyId</Code><Region>wrong-region</Region>",
+            "eu-west-1",
+        )
+        .await;
+        // Complete XML <Region> takes precedence over conflicting x-amz-bucket-region header.
+        run_retry_case(
+            400,
+            "ap-south-1",
+            b"<Error><Code>AuthorizationHeaderMalformed</Code><Region>eu-central-1</Region></Error>",
+            "eu-central-1",
+        )
+        .await;
+    }
+
+    #[test]
+    fn location_reply_parses_empty_and_regional_seaweedfs_xml() {
+        use super::{normalize_s3_region, LocationReply};
+        let empty: LocationReply = quick_xml::de::from_str(
+            r#"<?xml version="1.0" encoding="UTF-8"?><LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>"#,
+        )
+        .unwrap();
+        assert_eq!(normalize_s3_region(&empty.region), "us-east-1");
+
+        let blank: LocationReply = quick_xml::de::from_str(
+            r#"<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></LocationConstraint>"#,
+        )
+        .unwrap();
+        assert_eq!(normalize_s3_region(&blank.region), "us-east-1");
+
+        let named: LocationReply = quick_xml::de::from_str(
+            r#"<LocationConstraint xmlns="http://s3.amazonaws.com/doc/2006-03-01/">eu-west-1</LocationConstraint>"#,
+        )
+        .unwrap();
+        assert_eq!(normalize_s3_region(&named.region), "eu-west-1");
     }
 }

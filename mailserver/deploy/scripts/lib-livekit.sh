@@ -61,6 +61,7 @@
 # render library (kept as lib-livekit.sh; renaming would be a large-blast-
 # radius change for a comment-only motivation).
 
+_LIB_LIVEKIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIVEKIT_VERSION="1.13.5"
 # Hard-coded SHA-256 digests published for the official v1.13.5 GitHub release
 # assets (verified through the release API on 2026-08-04). Never trust a
@@ -283,6 +284,184 @@ render_mailserver_unit() {
   fi
 }
 
+strip_env_quotes() {
+  local v="${1:-}"
+  case "$v" in
+    \"*\") v="${v#\"}"; v="${v%\"}" ;;
+    \'*\') v="${v#\'}"; v="${v%\'}" ;;
+  esac
+  printf '%s' "$v"
+}
+
+validate_tls_cache_dir() {
+  case "$1" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
+  [ -n "${1//\//}" ] || { echo 'ACME cache must not be filesystem root' >&2; return 1; }
+  case "/$1/" in */./*|*/../*) echo 'ACME cache must not contain . or .. segments' >&2; return 1;; esac
+  case "$1" in *[[:space:][:cntrl:]#\&%\"\'\\]*) echo 'invalid ACME cache path' >&2; return 1;; esac
+}
+
+validate_tls_cache_target() {
+  local trimmed="$1" resolved="" cur="" seg rest
+  validate_tls_cache_dir "$trimmed" || return 1
+  while [ "${#trimmed}" -gt 1 ] && [ "${trimmed%/}" != "$trimmed" ]; do
+    trimmed="${trimmed%/}"
+  done
+  rest="${trimmed#/}"
+  while [ -n "$rest" ]; do
+    if [ "${rest#*/}" != "$rest" ]; then
+      seg="${rest%%/*}"
+      rest="${rest#*/}"
+    else
+      seg="$rest"
+      rest=""
+    fi
+    cur="$cur/$seg"
+    if [ -L "$cur" ]; then
+      # OS-managed symlinks like /tmp or /var/run are allowed strictly as ancestors.
+      if [ -n "$rest" ] && { [ "$cur" = /tmp ] || [ "$cur" = /var/run ]; }; then
+        continue
+      fi
+      echo "ACME cache path component must not be a symlink: $cur" >&2
+      return 1
+    fi
+  done
+  if [ -e "$trimmed" ] && [ ! -d "$trimmed" ]; then
+    echo "ACME cache path exists and is not a directory: $trimmed" >&2
+    return 1
+  fi
+  if command -v readlink >/dev/null 2>&1; then
+    resolved=$(readlink -f "$trimmed" 2>/dev/null || true)
+  fi
+  if [ -z "$resolved" ] && command -v python3 >/dev/null 2>&1; then
+    resolved=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$trimmed") || return 1
+  fi
+  if [ -n "$resolved" ]; then
+    validate_tls_cache_dir "$resolved" || return 1
+    case "${resolved#/}" in
+      */?*) ;;
+      *) echo "ACME cache resolved target must not be filesystem root or a top-level directory ($resolved)" >&2; return 1 ;;
+    esac
+    case "$resolved" in
+      /var/lib/setjoin/*|/var/lib/mailserver/*|/var/cache/setjoin/*|/var/cache/mailserver/*|/etc/setjoin/*|/etc/mailserver/*) ;;
+      /tmp/*/autocert|/var/tmp/*/autocert)
+        if [ "$(id -u)" = 0 ]; then
+          echo "ACME cache resolved target must be a dedicated setjoin/mailserver directory ($resolved)" >&2
+          return 1
+        fi
+        ;;
+      *)
+        if [ "$(id -u)" != 0 ] && [ -n "${TMPDIR:-}" ] && [ "${TMPDIR#/}" != "$TMPDIR" ] && [ "${TMPDIR%/}" != "" ]; then
+          case "$resolved" in
+            "${TMPDIR%/}"/*/autocert) ;;
+            *)
+              echo "ACME cache resolved target must be a dedicated setjoin/mailserver directory ($resolved)" >&2
+              return 1
+              ;;
+          esac
+        else
+          echo "ACME cache resolved target must be a dedicated setjoin/mailserver directory ($resolved)" >&2
+          return 1
+        fi
+        ;;
+    esac
+  fi
+  if [ -d "$trimmed" ] && [ "$(id -u)" = 0 ]; then
+    local cur_owner=""
+    cur_owner=$(stat -c '%U' "$trimmed" 2>/dev/null || true)
+    if [ "$cur_owner" != setjoin ] && [ -n "$(ls -A "$trimmed" 2>/dev/null || true)" ]; then
+      echo "ACME cache target $trimmed already exists with non-empty data owned by $cur_owner" >&2
+      return 1
+    fi
+  fi
+}
+
+systemd_env_line() {
+  python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-line "$1" "${2:-}"
+}
+
+env_file_try() {
+  local __var="$1" __file="${2:-}" __key="$3" __val="" __rc=0
+  [ -n "$__file" ] && [ -f "$__file" ] || return 1
+  __val=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-get "$__file" "$__key") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
+}
+
+env_file_try_any() {
+  local __var="$1" __file="${2:-}" __val="" __rc=0
+  shift 2
+  [ -n "$__file" ] && [ -f "$__file" ] || return 1
+  __val=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-get-any "$__file" "$@") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
+}
+
+env_file_try_any_ci() {
+  local __var="$1" __file="${2:-}" __val="" __rc=0
+  shift 2
+  [ -n "$__file" ] && [ -f "$__file" ] || return 1
+  __val=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-get-any -i "$__file" "$@") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
+}
+
+resolve_setting_yaml_path() {
+  local config="${1:-}" cfg=""
+  cfg=$(strip_env_quotes "${SETJOIN_CONFIG:-}")
+  [ -n "$cfg" ] || env_file_try cfg "$config" SETJOIN_CONFIG || true
+  [ -n "$cfg" ] || env_file_try cfg "${GATEWAY_ENV:-}" SETJOIN_CONFIG || true
+  printf '%s' "$cfg"
+}
+
+# yaml_section_value FILE SECTION KEY — print a direct scalar child of top-level
+# SECTION (or root key when SECTION is empty) using pure-stdlib yaml-config.py.
+# Exit 0 iff present scalar (even empty), 1 when absent/None/non-scalar, 2 on error.
+yaml_section_value() {
+  python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" get "$1" "$2" "$3"
+}
+
+yaml_section_try() {
+  local __var="$1" __file="$2" __sec="$3" __key="$4" __val="" __rc=0
+  __val=$(yaml_section_value "$__file" "$__sec" "$__key") || __rc=$?
+  case "$__rc" in
+    0) printf -v "$__var" '%s' "$__val"; return 0 ;;
+    1) return 1 ;;
+    *) return "$__rc" ;;
+  esac
+}
+
+# tls_import_cache_dir CONFIG_ENV — resolve Go's tls.autocert_cache_dir for
+# ProtectSystem=strict ReadWritePaths in setjoin-gateway.service.
+tls_import_cache_dir() {
+  local config="${1:-}" cache="" cfg=""
+  if env_file_try cache "$config" TLS_AUTOCERT_CACHE_DIR; then
+    printf '%s' "${cache:-/var/cache/mailserver/autocert}"
+    return 0
+  fi
+  if [ "${TLS_AUTOCERT_CACHE_DIR+x}" = x ]; then
+    cache=$(strip_env_quotes "$TLS_AUTOCERT_CACHE_DIR")
+    printf '%s' "${cache:-/var/cache/mailserver/autocert}"
+    return 0
+  fi
+  cfg=$(resolve_setting_yaml_path "$config")
+  if [ -n "$cfg" ]; then
+    yaml_section_try cache "$cfg" tls autocert_cache_dir || { [ $? -eq 1 ] || return 1; }
+  fi
+  if [ -z "$cache" ]; then
+    env_file_try cache "${GATEWAY_ENV:-}" TLS_AUTOCERT_CACHE_DIR || true
+  fi
+  printf '%s' "${cache:-/var/cache/mailserver/autocert}"
+}
+
 # render_gateway_unit TEMPLATE OUTFILE — the Rust front door (#264, ARCH-027).
 # Renders setjoin-gateway.service.template to OUTFILE and its sibling
 # setjoin-gateway.socket.template beside it (same directory, .socket), so the
@@ -309,6 +488,7 @@ render_gateway_unit() {
       -e "s#{{GATEWAY_ENV}}#${GATEWAY_ENV}#g" \
       -e "s#{{TLS_ENV}}#${TLS_ENV:-${GATEWAY_ENV%/*}/tls.env}#g" \
       -e "s#{{FEDERATION_ENV}}#${FEDERATION_ENV:-${GATEWAY_ENV%/*}/federation.env}#g" \
+      -e "s#{{STORAGE_ENV}}#${STORAGE_ENV:-${GATEWAY_ENV%/*}/storage.env}#g" \
       -e "s#{{SMTP_ENV}}#${SMTP_ENV:-${GATEWAY_ENV%/*}/smtp.env}#g" \
       -e "s#{{GATEWAY_LISTEN}}#${listen}#g" \
       -e "s#{{USER|setjoin}}#setjoin#" \
@@ -320,6 +500,10 @@ render_gateway_unit() {
       return 1
     fi
   done
+  local cache
+  cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
+  validate_tls_cache_dir "$cache" || return 1
+  printf '\n[Service]\nReadWritePaths=-%s\n' "$cache" >> "$outfile"
   if tls_front_enabled "${CONFIG_ENV:-}" && [[ ",$(tls_front_value "$CONFIG_ENV" RUST_WORKERS_ON)," == *,http-tls,* ]]; then
     local https_listen="${GATEWAY_HTTPS_LISTEN:-$(tls_front_value "$CONFIG_ENV" GATEWAY_HTTPS_LISTEN)}"
     https_listen="${https_listen:-443}"
@@ -336,17 +520,12 @@ After=setjoin-https.socket
 Also=setjoin-https.socket
 TLS
     if [ -n "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_DOMAINS)" ]; then
-      local cache key_file
-      cache=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_CACHE_DIR)
-      cache="${cache:-/var/cache/mailserver/autocert}"
+      local key_file
       key_file=$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_KEY_FILE)
-      case "$cache" in /*) ;; *) echo 'ACME cache must be absolute' >&2; return 1;; esac
-      case "$cache" in *[[:space:]#\&]*) echo 'invalid ACME cache path' >&2; return 1;; esac
-      printf '\n[Service]\nReadWritePaths=-%s\n' "$cache" >> "$outfile"
       if [ -n "$key_file" ]; then
         case "$key_file" in /*) ;; *) echo 'ACME account key must be absolute' >&2; return 1;; esac
         case "$key_file" in *[[:space:]#\&]*) echo 'invalid ACME account key path' >&2; return 1;; esac
-        printf 'ReadWritePaths=-%s\n' "${key_file%/*}" >> "$outfile"
+        printf '\n[Service]\nReadWritePaths=-%s\n' "${key_file%/*}" >> "$outfile"
       fi
       if [ "$(tls_front_value "$CONFIG_ENV" TLS_AUTOCERT_CHALLENGE)" = http-01 ]; then
         case "$(tls_front_value "$CONFIG_ENV" HTTP_MODE)" in ''|redirect)
@@ -420,31 +599,53 @@ FED
 # render_federation_env OUTFILE CONFIG_ENV DB_CRED_FILE — a strict allowlist.
 # Copy literal EnvironmentFile assignments, never source the broad secret files.
 # Owner DSNs and unrelated worker switches must never reach the front door.
+# Also projects LIVEKIT_* sidecar credentials when present in config.env so
+# setjoin-gateway serves /rtc, /api/rtc, and /api/meet/* without loading config.env.
 render_federation_env() {
-  local outfile="$1" config="$2" credentials="$3" tmp key names allowed
+  local outfile="$1" config="$2" credentials="$3" tmp key names allowed rc raw_val split_val trimmed_val matched_val
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
   (
     umask 027
-    if [ -f "$config" ]; then
-      grep -E '^(DB_DSN|DB_DIRECT_DSN|FEDERATION_LOCAL_DOMAIN|FEDERATION_CERT|FEDERATION_KEY|FEDERATION_LISTEN_ADDR)=' "$config" || true
+    if [ -e "$config" ]; then
+      [ -r "$config" ] || exit 1
+      rc=0
+      grep -E '^(DB_DSN|DB_DIRECT_DSN|FEDERATION_LOCAL_DOMAIN|FEDERATION_CERT|FEDERATION_KEY|FEDERATION_LISTEN_ADDR)=' "$config" || rc=$?
+      [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
+      python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-copy "$config" LIVEKIT_API_KEY LIVEKIT_API_SECRET LIVEKIT_URL || exit 1
     fi
-    if [ -f "$credentials" ]; then
-      grep -E '^DB_WORKER_DSN=' "$credentials" || true
-    elif [ -f "$config" ]; then
+    if [ -e "$credentials" ]; then
+      [ -r "$credentials" ] || exit 1
+      rc=0
+      grep -E '^DB_WORKER_DSN=' "$credentials" || rc=$?
+      [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
+    elif [ -e "$config" ]; then
       # Pre-split installations still carry the worker tier in config.env.
-      grep -E '^DB_WORKER_DSN=' "$config" || true
+      rc=0
+      grep -E '^DB_WORKER_DSN=' "$config" || rc=$?
+      [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
     fi
     for key in GO_WORKERS_OFF RUST_WORKERS_ON; do
       allowed='^(federation-residue-reap|cert-monitor|tls-ticket-keys|http-tls|http-h2c|acme-renewal)$'
       if [ "$key" = GO_WORKERS_OFF ]; then allowed='^(federation-(service|residue-reap)|cert-monitor|tls-ticket-keys|http-tls|http-h2c|acme-renewal|http-port80)$'; fi
-      names="$(sed -n "s/^$key=//p" "$config" | tail -1 | tr ',' '\n' |
-        sed 's/^[[:space:]]*//;s/[[:space:]]*$//' |
-        grep -E "$allowed" | paste -sd, - || true)"
-      printf '%s=%s\n' "$key" "$names"
+      names=""
+      if [ -e "$config" ]; then
+        raw_val="$(sed -n "s/^$key=//p" "$config")" || exit 1
+        raw_val="$(printf '%s\n' "$raw_val" | tail -1)" || exit 1
+        split_val="$(printf '%s\n' "$raw_val" | tr ',' '\n')" || exit 1
+        trimmed_val="$(printf '%s\n' "$split_val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')" || exit 1
+        matched_val=""
+        rc=0
+        matched_val="$(printf '%s\n' "$trimmed_val" | grep -E "$allowed")" || rc=$?
+        [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ] || exit 1
+        if [ -n "$matched_val" ]; then
+          names="$(printf '%s\n' "$matched_val" | paste -sd, -)" || exit 1
+        fi
+      fi
+      printf '%s=%s\n' "$key" "$names" || exit 1
     done
-  ) > "$tmp"
-  chmod 0640 "$tmp"
-  mv -f "$tmp" "$outfile"
+  ) > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 0640 "$tmp" || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$outfile" || { rm -f "$tmp"; return 1; }
 }
 
 # config_env_value FILE KEY — the last KEY=value line, unquoted like systemd's
@@ -485,13 +686,29 @@ smtp_link_protect_keys() {
   fi
 }
 
+# render_storage_env OUTFILE CONFIG_ENV — S3/MinIO endpoint and credentials only,
+# resolved with Go config.go precedence (defaults -> YAML s3.* -> S3_* ->
+# MINIO_*) and serialized with systemd EnvironmentFile quoting, independent of
+# SMTP enablement (#289 legal holds, blobs, attachments).
+render_storage_env() {
+  local outfile="$1" config="$2" tmp cfg=""
+  tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
+  cfg=$(resolve_setting_yaml_path "$config")
+  (
+    umask 027
+    python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" render-storage "$config" "$cfg"
+  ) > "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod 0640 "$tmp"
+  mv -f "$tmp" "$outfile"
+}
+
 # render_smtp_env OUTFILE CONFIG_ENV DB_CRED_FILE — SMTP's own allow-listed
 # environment (#501), loaded by the gateway unit beside federation.env. Literal
 # assignments only, never sourced: no owner/direct-owner DSN, no updater or
 # unrelated credential ever reaches the internet-facing SMTP listeners. The
 # worker DSN comes from the split credential file (or a pre-split config.env).
 render_smtp_env() {
-  local outfile="$1" config="$2" credentials="$3" tmp
+  local outfile="$1" config="$2" credentials="$3" tmp cfg=""
   tmp="$(mktemp "${outfile}.XXXXXX")" || return 1
   # With SMTP off the file is EMPTY: the internet-facing gateway never receives the
   # encryption/audit/S3 secrets or the worker tier on behalf of a listener that
@@ -502,11 +719,13 @@ render_smtp_env() {
     mv -f "$tmp" "$outfile"
     return 0
   fi
+  cfg=$(resolve_setting_yaml_path "$config")
   (
     umask 027
     if [ -f "$config" ]; then
-      grep -E '^(CLAMAV_ADDR|SANDBOX_(ENABLED|CAPE_URL|CAPE_API_KEY|TIMEOUT|FAIL_MODE)|INTERNAL_DOMAINS|PROTECTED_DOMAINS|ANTIPHISH_(NAME_THRESHOLD|USER_CACHE_TTL)|CRYPTO_ALGORITHM_PROFILE|DB_DSN|DB_DIRECT_DSN|DB_ENCRYPTION_KEY|AUDIT_HMAC_KEY|TLS_CERT|TLS_KEY|SMTP_(INBOUND_(ADDR|TLS_ADDR|TLS_ENFORCE|MAX_CONNS)|SUBMISSION_(ADDR|MAX_CONNS)|PER_USER_MAX_CONNS|TLS_CERT_FILE|TLS_KEY_FILE)|S3_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY)|MINIO_(ENDPOINT|SECURE|BUCKET|ACCESS_KEY|SECRET_KEY)|THREAT_(FEED_ENABLED|SPRAY_WINDOW_SECS|SPRAY_MAX_USERS|SPRAY_LOCKOUT_MINS|RATE_LIMIT_PER_MIN)|GEO_BLOCK_(ENABLED|COUNTRIES)|GEOIP_DB_(PATH|SHA256)|SPRAY_DETECT_ENABLED|CAPTCHA_ENABLED|TARPIT_ENABLED)=' "$config" || true
+      grep -E '^(CLAMAV_ADDR|SANDBOX_(ENABLED|CAPE_URL|CAPE_API_KEY|TIMEOUT|FAIL_MODE)|INTERNAL_DOMAINS|PROTECTED_DOMAINS|ANTIPHISH_(NAME_THRESHOLD|USER_CACHE_TTL)|CRYPTO_ALGORITHM_PROFILE|DB_DSN|DB_DIRECT_DSN|DB_ENCRYPTION_KEY|AUDIT_HMAC_KEY|TLS_CERT|TLS_KEY|SMTP_(INBOUND_(ADDR|TLS_ADDR|TLS_ENFORCE|MAX_CONNS)|SUBMISSION_(ADDR|MAX_CONNS)|PER_USER_MAX_CONNS|TLS_CERT_FILE|TLS_KEY_FILE)|THREAT_(FEED_ENABLED|SPRAY_WINDOW_SECS|SPRAY_MAX_USERS|SPRAY_LOCKOUT_MINS|CAPTCHA_WINDOW_MINS|CAPTCHA_THRESHOLD|TARPIT_WINDOW_MINS|TARPIT_THRESHOLD|RATE_LIMIT_PER_MIN)|GEO_BLOCK_(ENABLED|COUNTRIES)|GEOIP_DB_(PATH|SHA256)|SPRAY_DETECT_ENABLED|CAPTCHA_ENABLED|TARPIT_ENABLED)=' "$config" || true
     fi
+    python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" render-storage "$config" "$cfg" || exit 1
     smtp_link_protect_keys "$config" || exit 1
     if [ -f "$credentials" ]; then
       grep -E '^DB_WORKER_DSN=' "$credentials" || true
@@ -519,32 +738,116 @@ render_smtp_env() {
 }
 
 # render_gateway_env OUTFILE — the front door's own environment (no secrets).
-# GATEWAY_UPSTREAM is Go's internal plain listener (HTTP_MODE=proxy serves the
-# app on :80; default http://127.0.0.1:80) and must be loopback;
-# GATEWAY_AUTH_UPSTREAM is AUTHSERVER_URL (required); GATEWAY_TRUSTED_PROXIES
-# is the local TLS terminator's address (default 127.0.0.1).
+# GATEWAY_RUST_AUTH_UPSTREAM is AUTHSERVER_URL (setjoin-auth, required) and
+# must be the literal http://127.0.0.1:<port>: setjoin-auth trusts its peer
+# only as exactly 127.0.0.1 (TRUSTED_PROXY_IP). GATEWAY_TRUSTED_PROXIES is
+# the local TLS terminator's address (default 127.0.0.1).
 render_gateway_env() {
   local outfile="$1"
   [ -n "${AUTHSERVER_URL:-}" ] || { echo "render_gateway_env: AUTHSERVER_URL is required" >&2; return 1; }
-  local upstream="${GATEWAY_UPSTREAM:-http://127.0.0.1:80}"
-  case "$upstream" in
-    http://127.*|http://\[::1\]*|http://localhost:*) ;;
-    *) echo "render_gateway_env: GATEWAY_UPSTREAM must be Go's loopback plain listener (got '$upstream')" >&2; return 1 ;;
-  esac
+  [[ "$AUTHSERVER_URL" =~ ^http://127\.0\.0\.1:[0-9]{1,5}$ ]] || { echo "render_gateway_env: AUTHSERVER_URL must be http://127.0.0.1:<port> (got '$AUTHSERVER_URL')" >&2; return 1; }
   local trusted="${GATEWAY_TRUSTED_PROXIES:-127.0.0.1}"
+  local cache cfg="" host_name="" host_set=0 host_from_env=0 host_from_yaml=0
+  local internal_domains="" internal_set=0 internal_from_yaml=0
+  local worm_mode="" worm_days="" worm_days_set=0 worm_legal_hold="" legal_hold_set=0
+  cache=$(tls_import_cache_dir "${CONFIG_ENV:-}")
+  validate_tls_cache_dir "$cache" || return 1
   ( umask 022; cat > "$outfile" <<ENV
 # setjoin Rust front door (setjoin-gateway) — generated by deploy/scripts/install.sh.
-# ARCH-027: the TLS terminator forwards client traffic to the gateway socket
-# (setjoin-gateway.socket, ${GATEWAY_LISTEN:-127.0.0.1:8090}); the gateway forwards every
-# route it does not serve to Go's internal plain listener. Rollback reinstalls
-# the previous release with its matching units, sockets and configuration.
+# ARCH-027 / #359: the TLS terminator forwards client traffic to the gateway socket
+# (setjoin-gateway.socket, ${GATEWAY_LISTEN:-127.0.0.1:8090}); the gateway serves all
+# routes natively and proxies /auth/* to setjoin-auth (GATEWAY_RUST_AUTH_UPSTREAM).
+# Rollback reinstalls the previous release with its matching units, sockets and configuration.
 GATEWAY_ENABLED=true
 GATEWAY_LISTEN=${GATEWAY_LISTEN:-127.0.0.1:8090}
-GATEWAY_UPSTREAM=$upstream
-GATEWAY_AUTH_UPSTREAM=$AUTHSERVER_URL
+GATEWAY_RUST_AUTH_UPSTREAM=$AUTHSERVER_URL
 GATEWAY_TRUSTED_PROXIES=$trusted
 ENV
   )
+  systemd_env_line TLS_AUTOCERT_CACHE_DIR "$cache" >> "$outfile" || return 1
+  cfg=$(resolve_setting_yaml_path "${CONFIG_ENV:-}")
+
+  # Trace server-identity hostnames (Go order: config.env -> exported env -> YAML).
+  if env_file_try host_name "${CONFIG_ENV:-}" HOSTNAME; then
+    host_set=1
+    host_from_env=1
+  elif printenv HOSTNAME >/dev/null 2>&1; then
+    host_name=$(strip_env_quotes "$(printenv HOSTNAME 2>/dev/null || true)")
+    host_set=1
+    host_from_env=1
+  elif [ -n "$cfg" ]; then
+    yaml_section_try host_name "$cfg" "" hostname && { host_set=1; host_from_yaml=1; } || { [ $? -eq 1 ] || return 1; }
+  fi
+  if [ "$host_set" = 1 ]; then
+    systemd_env_line HOSTNAME "$host_name" >> "$outfile" || return 1
+  fi
+
+  if env_file_try internal_domains "${CONFIG_ENV:-}" INTERNAL_DOMAINS; then
+    internal_set=1
+  elif [ "${INTERNAL_DOMAINS+x}" = x ]; then
+    internal_domains=$(strip_env_quotes "$INTERNAL_DOMAINS")
+    internal_set=1
+  elif [ -n "$cfg" ]; then
+    yaml_section_try internal_domains "$cfg" internal domains && { internal_set=1; internal_from_yaml=1; } || { [ $? -eq 1 ] || return 1; }
+  fi
+  if [ "$host_from_yaml" = 1 ] && [ -n "$host_name" ]; then
+    # Promoting YAML hostname into gateway.env must not overwrite Go's default internal.domains=localhost.
+    if [ "$internal_set" = 0 ] || { [ "$internal_from_yaml" = 1 ] && [ "$internal_domains" = localhost ]; }; then
+      internal_domains=localhost
+      internal_set=1
+    fi
+  elif [ "$host_from_env" = 1 ] && [ -n "$host_name" ] && [ "$internal_from_yaml" = 1 ] && [ "$internal_domains" = localhost ]; then
+    internal_set=0
+  fi
+  if [ "$internal_set" = 1 ]; then
+    systemd_env_line INTERNAL_DOMAINS "$internal_domains" >> "$outfile" || return 1
+  fi
+
+  # WORM retention & legal-hold switches (always emit WORM_MODE so systemd-activated gateway verifies render).
+  if env_file_try_any_ci worm_mode "${CONFIG_ENV:-}" WORM_MODE WORM__MODE; then
+    :
+  elif [ "${WORM__MODE+x}" = x ]; then
+    worm_mode=$(strip_env_quotes "$WORM__MODE")
+  elif [ "${WORM_MODE+x}" = x ]; then
+    worm_mode=$(strip_env_quotes "$WORM_MODE")
+  elif [ -n "$cfg" ]; then
+    yaml_section_try worm_mode "$cfg" worm mode || { [ $? -eq 1 ] || return 1; }
+  fi
+  systemd_env_line WORM_MODE "$worm_mode" >> "$outfile" || return 1
+
+  if env_file_try_any_ci worm_days "${CONFIG_ENV:-}" WORM_RETENTION_DAYS; then
+    worm_days_set=1
+  elif [ "${WORM_RETENTION_DAYS+x}" = x ]; then
+    worm_days=$(strip_env_quotes "$WORM_RETENTION_DAYS")
+    worm_days_set=1
+  elif [ -n "$cfg" ]; then
+    yaml_section_try worm_days "$cfg" worm retention_days && worm_days_set=1 || { [ $? -eq 1 ] || return 1; }
+  fi
+  if [ "$worm_days_set" = 1 ]; then
+    if [ -z "$worm_days" ]; then
+      if [ -n "$worm_mode" ]; then
+        echo "render_gateway_env: WORM_RETENTION_DAYS must not be empty when WORM_MODE is set" >&2
+        return 1
+      fi
+    else
+      if [ -n "$worm_mode" ]; then
+        worm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days") || return 1
+      elif norm_days=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" normalize-retention "$worm_days" 2>/dev/null); then
+        worm_days="$norm_days"
+      fi
+      systemd_env_line WORM_RETENTION_DAYS "$worm_days" >> "$outfile" || return 1
+    fi
+  fi
+
+  if env_file_try worm_legal_hold "${CONFIG_ENV:-}" WORM_LEGAL_HOLD_ENABLED; then
+    legal_hold_set=1
+  elif [ "${WORM_LEGAL_HOLD_ENABLED+x}" = x ]; then
+    worm_legal_hold=$(strip_env_quotes "$WORM_LEGAL_HOLD_ENABLED")
+    legal_hold_set=1
+  fi
+  if [ "$legal_hold_set" = 1 ]; then
+    systemd_env_line WORM_LEGAL_HOLD_ENABLED "$worm_legal_hold" >> "$outfile" || return 1
+  fi
   local off_names=""
   if imap_front_enabled "${CONFIG_ENV:-}"; then off_names=imap; fi
   if smtp_front_enabled "${CONFIG_ENV:-}"; then
@@ -554,7 +857,7 @@ ENV
   if [ -n "$off_names" ]; then
     printf 'GO_LISTENERS_OFF=%s\n' "$off_names" >> "$outfile"
     # Protocol-only settings; no broad config.env or owner credential exposure.
-    grep -E '^(THREAT_(FEED_ENABLED|SPRAY_WINDOW_SECS|SPRAY_MAX_USERS|SPRAY_LOCKOUT_MINS|RATE_LIMIT_PER_MIN)|GEO_BLOCK_(ENABLED|COUNTRIES)|GEOIP_DB_PATH|GEOIP_DB_SHA256|SPRAY_DETECT_ENABLED|CAPTCHA_ENABLED|TARPIT_ENABLED|IMAP_(MAX_CONNS|PER_USER_MAX_CONNS|TLS_CERT_FILE|TLS_KEY_FILE))=' "$CONFIG_ENV" >> "$outfile" || true
+    grep -E '^(THREAT_(FEED_ENABLED|SPRAY_WINDOW_SECS|SPRAY_MAX_USERS|SPRAY_LOCKOUT_MINS|CAPTCHA_WINDOW_MINS|CAPTCHA_THRESHOLD|TARPIT_WINDOW_MINS|TARPIT_THRESHOLD|RATE_LIMIT_PER_MIN)|GEO_BLOCK_(ENABLED|COUNTRIES)|GEOIP_DB_PATH|GEOIP_DB_SHA256|SPRAY_DETECT_ENABLED|CAPTCHA_ENABLED|TARPIT_ENABLED|IMAP_(MAX_CONNS|PER_USER_MAX_CONNS|TLS_CERT_FILE|TLS_KEY_FILE))=' "$CONFIG_ENV" >> "$outfile" || true
   fi
 }
 
@@ -602,9 +905,9 @@ render_updater_unit() {
 }
 
 # render_authserver_unit TEMPLATE OUTFILE — substitute placeholders in
-# authserver.service.template. Reads INSTALL_DIR / CONFIG_ENV / AUTH_ENV /
-# DB_CREDENTIALS_FILE (privileged DB tiers incl. the worker credential
-# authserverd's identity-links pool requires — DEPLOY-004 r2-2);
+# authserver.service.template (Rust setjoin-auth, #359b). Reads INSTALL_DIR /
+# CONFIG_ENV / AUTH_ENV; the privileged credential file is deliberately not an
+# input (least privilege: auth.env carries only DB_WORKER_DSN);
 # RUNTIME_DIR defaults to INSTALL_DIR/current.
 # (all required). The two EnvironmentFile lines are order-sensitive in the
 # TEMPLATE itself (config.env's token appears first, auth.env's second) —
@@ -616,17 +919,12 @@ render_authserver_unit() {
   [ -n "${INSTALL_DIR:-}" ] || { echo "render_authserver_unit: INSTALL_DIR is required" >&2; return 1; }
   [ -n "${CONFIG_ENV:-}" ] || { echo "render_authserver_unit: CONFIG_ENV is required" >&2; return 1; }
   [ -n "${AUTH_ENV:-}" ] || { echo "render_authserver_unit: AUTH_ENV is required" >&2; return 1; }
-  # Privileged DB credential file (DEPLOY-004 split) — required, same posture
-  # as render_mailserver_unit: the worker tier is load-bearing for authserverd
-  # (identity_links), so an empty substitution must fail the render loud.
-  [ -n "${DB_CREDENTIALS_FILE:-}" ] || { echo "render_authserver_unit: DB_CREDENTIALS_FILE is required" >&2; return 1; }
 
   local runtime_dir="${RUNTIME_DIR:-${INSTALL_DIR}/current}"
 
   sed \
     -e "s#{{RUNTIME_DIR}}#${runtime_dir}#g" \
     -e "s#{{CONFIG_ENV}}#${CONFIG_ENV}#g" \
-    -e "s#{{DB_CREDENTIALS_FILE}}#${DB_CREDENTIALS_FILE}#g" \
     -e "s#{{AUTH_ENV}}#${AUTH_ENV}#g" \
     -e "s#{{USER|setjoin}}#setjoin#" \
     -e "s#{{GROUP|setjoin}}#setjoin#" \
@@ -637,6 +935,63 @@ render_authserver_unit() {
     echo "render_authserver_unit: unresolved {{...}} placeholder(s) remain in $outfile — template/render drift, refusing to write a broken config" >&2
     return 1
   fi
+}
+
+# render_auth_env OUTFILE [CONFIG_ENV] [DB_CRED_FILE] — writes root-only 0600
+# auth.env via a fresh 0600 temp file and atomic rename (#359b least privilege).
+# Carries LISTEN_ADDR, empty TLS_CERT/TLS_KEY, TRUSTED_PROXY_IP=127.0.0.1, and
+# DB_WORKER_DSN (extracted from DB_CRED_FILE when split, else CONFIG_ENV), never
+# owner tiers or AUTHSERVER_GO_UPSTREAM.
+render_auth_env() {
+  local outfile="$1" config="${2:-}" credentials="${3:-}"
+  local listen="${AUTH_LISTEN:-}" url="${AUTHSERVER_URL:-}" worker_dsn="" tmp=""
+  if [ -z "$listen" ]; then
+    if [ -z "$url" ] && [ -n "$config" ] && [ -f "$config" ]; then
+      url="$(sed -n 's/^AUTHSERVER_URL=//p' "$config" 2>/dev/null | tail -1 || true)"
+    fi
+    if [ -n "$url" ]; then
+      listen="${url#http://}"
+      listen="${listen#https://}"
+      listen="${listen%%/*}"
+    elif [ -f "$outfile" ]; then
+      listen="$(sed -n 's/^LISTEN_ADDR=//p' "$outfile" 2>/dev/null | tail -1 || true)"
+    fi
+    listen="${listen:-127.0.0.1:8443}"
+  fi
+  [[ "$listen" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]] || {
+    echo "render_auth_env: AUTH_LISTEN must be 127.0.0.1:<port> (got '$listen')" >&2
+    return 1
+  }
+  if [ -n "$credentials" ] && { [ -L "$credentials" ] || [ -e "$credentials" ]; }; then
+    if [ -L "$credentials" ] || [ ! -f "$credentials" ] || [ ! -r "$credentials" ]; then
+      echo "render_auth_env: credential file $credentials is a symlink, not a regular file, or unreadable" >&2
+      return 1
+    fi
+    worker_dsn="$(grep -E '^DB_WORKER_DSN=' "$credentials" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  elif [ -n "$config" ] && [ -f "$config" ]; then
+    worker_dsn="$(grep -E '^DB_WORKER_DSN=' "$config" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  fi
+  tmp="$( ( umask 077; mktemp "${outfile}.XXXXXX" ) )" || return 1
+  if [ "$(id -u)" = 0 ]; then
+    chown root:root "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+  cat > "$tmp" <<ENV || { rm -f "$tmp"; return 1; }
+# setjoin-auth overrides — generated by deploy/scripts/install.sh.
+# Read by setjoin-auth.service after config.env (later file wins).
+# Root-only 0600 (read by systemd manager-side): carries DB_WORKER_DSN
+# without exposing owner tiers (#359b).
+LISTEN_ADDR=$listen
+# Plain HTTP on loopback: the gateway terminates TLS and proxies
+# AUTHSERVER_URL over http — auth must NOT inherit the gateway's cert.
+TLS_CERT=
+TLS_KEY=
+TRUSTED_PROXY_IP=127.0.0.1
+ENV
+  if [ -n "$worker_dsn" ]; then
+    printf 'DB_WORKER_DSN=%s\n' "$worker_dsn" >> "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  mv -f "$tmp" "$outfile" || { rm -f "$tmp"; return 1; }
 }
 
 # render_sfu_unit TEMPLATE OUTFILE — substitute placeholders in
@@ -1008,7 +1363,7 @@ render_tls_front_env() {
   tmp=$(mktemp "${outfile}.XXXXXX") || return 1
   # Paths/credentials needed by TLS/ACME only. DB tiers/worker ownership are in
   # the existing least-privilege federation.env, loaded before this file.
-  grep -E '^(HOSTNAME|TLS_CERT|TLS_KEY|TLS_AUTOCERT_(DOMAINS|EMAIL|CACHE_DIR|KEY_FILE|CHALLENGE)|TLS_DNS_(PROVIDER|CONFIG|RESOLVERS)|TLS_SESSION_TICKET_KEY_ROTATE_SECS|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|PROFILE|SHARED_CREDENTIALS_FILE|CONFIG_FILE|ROLE_ARN|WEB_IDENTITY_TOKEN_FILE|ROLE_SESSION_NAME|CONTAINER_CREDENTIALS_RELATIVE_URI|CONTAINER_CREDENTIALS_FULL_URI|CONTAINER_AUTHORIZATION_TOKEN|CONTAINER_AUTHORIZATION_TOKEN_FILE|EC2_METADATA_DISABLED|EC2_METADATA_SERVICE_ENDPOINT|ENDPOINT_URL|ENDPOINT_URL_ROUTE_53))=' "$config" > "$tmp" || true
+  grep -E '^(HOSTNAME|TLS_CERT|TLS_KEY|TLS_AUTOCERT_(DOMAINS|EMAIL|KEY_FILE|CHALLENGE)|TLS_DNS_(PROVIDER|CONFIG|RESOLVERS)|TLS_SESSION_TICKET_KEY_ROTATE_SECS|AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN|PROFILE|SHARED_CREDENTIALS_FILE|CONFIG_FILE|ROLE_ARN|WEB_IDENTITY_TOKEN_FILE|ROLE_SESSION_NAME|CONTAINER_CREDENTIALS_RELATIVE_URI|CONTAINER_CREDENTIALS_FULL_URI|CONTAINER_AUTHORIZATION_TOKEN|CONTAINER_AUTHORIZATION_TOKEN_FILE|EC2_METADATA_DISABLED|EC2_METADATA_SERVICE_ENDPOINT|ENDPOINT_URL|ENDPOINT_URL_ROUTE_53))=' "$config" > "$tmp" || true
   chmod 0640 "$tmp"
   mv -f "$tmp" "$outfile"
 }
@@ -1027,18 +1382,146 @@ tls_front_probe_url() {
   printf 'https://%s/_gateway/healthz\n' "$address"
 }
 
+# Descriptor-relative TLS cache directory creation shared by install.sh and upgrade.sh.
+# Creates missing parents (0755) and leaf (0700) without following untrusted symlinks,
+# optionally recording created_devino into a rollback metadata file.
+ensure_tls_cache_dir() {
+  local target="$1" meta_path="${2:-}"
+  if [ "$(id -u)" != 0 ] && [ "$target" = /var/cache/mailserver/autocert ]; then
+    return 0
+  fi
+  python3 - "$target" "$meta_path" <<'PY' || return 1
+import os, stat, sys
+target = sys.argv[1].rstrip("/")
+meta_path = sys.argv[2] if len(sys.argv) > 2 else ""
+if not target or target == "/":
+    sys.exit(1)
+is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+setjoin_uid = setjoin_gid = None
+if is_root:
+    import grp, pwd
+    setjoin_uid = pwd.getpwnam("setjoin").pw_uid
+    setjoin_gid = grp.getgrnam("setjoin").gr_gid
+if hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW") and target.startswith("/"):
+    parts = [p for p in target.split("/") if p]
+    dir_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    cur_fd = os.open("/", dir_flags)
+    created_devino = None
+    try:
+        for idx, part in enumerate(parts):
+            is_last = idx == len(parts) - 1
+            if is_root:
+                pst = os.fstat(cur_fd)
+                allowed_owners = {0}
+                if setjoin_uid is not None:
+                    allowed_owners.add(setjoin_uid)
+                if pst.st_uid not in allowed_owners or (pst.st_mode & 0o002) != 0:
+                    raise PermissionError(f"untrusted parent directory before {part!r}")
+            existed = True
+            try:
+                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
+            except FileNotFoundError:
+                existed = False
+                os.mkdir(part, 0o700 if is_last else 0o755, dir_fd=cur_fd)
+                nxt = os.open(part, dir_flags, dir_fd=cur_fd)
+                if not is_last:
+                    os.fchmod(nxt, 0o755)
+            os.close(cur_fd)
+            cur_fd = nxt
+            if is_last:
+                st = os.fstat(cur_fd)
+                if not stat.S_ISDIR(st.st_mode):
+                    raise NotADirectoryError(target)
+                if is_root and existed and st.st_uid != setjoin_uid and os.listdir(cur_fd):
+                    raise PermissionError(f"non-empty directory {target} not owned by setjoin")
+                os.fchmod(cur_fd, 0o700)
+                if is_root:
+                    os.fchown(cur_fd, setjoin_uid, setjoin_gid)
+                if not existed:
+                    created_devino = f"{st.st_dev}:{st.st_ino}"
+    finally:
+        os.close(cur_fd)
+else:
+    existed = os.path.isdir(target)
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, mode=0o755, exist_ok=True)
+    os.makedirs(target, mode=0o700, exist_ok=True)
+    os.chmod(target, 0o700)
+    st = os.lstat(target)
+    created_devino = None if existed else f"{st.st_dev}:{st.st_ino}"
+if created_devino and meta_path and os.path.isfile(meta_path):
+    with open(meta_path, "r", encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    if "exists=0" in lines and not any(line.startswith("created_devino=") for line in lines):
+        with open(meta_path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f"created_devino={created_devino}\n")
+PY
+}
+
+_is_empty_preserved_key() {
+  case "$1" in
+    IMAP_ADDR|IMAP_TLS_ADDR|SMTP_INBOUND_ADDR|SMTP_INBOUND_TLS_ADDR|SMTP_SUBMISSION_ADDR|WORM_LEGAL_HOLD_ENABLED|INTERNAL_DOMAINS) return 0 ;;
+    *)
+      case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+        worm_mode|worm__mode|worm_retention_days) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+}
+
 # Preserve the managed TLS settings across install's config.env regeneration,
 # honoring explicit environment assignments without evaluating any value.
 tls_front_preserve_settings() {
-  local config="$1" key value
-  for key in SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53; do
-    if [ "${!key+x}" = x ]; then value="${!key}"; else value=$(tls_front_value "$config" "$key"); fi
-    case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
-    if [ -n "$value" ]; then
-      printf '%s=%s\n' "$key" "$value"
-    elif [ "$key" = IMAP_ADDR ] || [ "$key" = IMAP_TLS_ADDR ] || [ "$key" = SMTP_INBOUND_ADDR ] || [ "$key" = SMTP_INBOUND_TLS_ADDR ] || [ "$key" = SMTP_SUBMISSION_ADDR ]; then
-      # Empty is the explicit listener-disable value, distinct from omission.
-      if [ "${!key+x}" = x ] || { [ -f "$config" ] && grep -q "^$key=" "$config"; }; then
+  local config="$1" key value rc=0 line="" ordered="" extra_key="" seen=0 existing=""
+  local keys=(SETJOIN_CONFIG INTERNAL_DOMAINS SMTP_FRONT_ENABLED SMTP_INBOUND_ADDR SMTP_INBOUND_TLS_ADDR SMTP_SUBMISSION_ADDR SMTP_INBOUND_TLS_ENFORCE SMTP_INBOUND_MAX_CONNS SMTP_SUBMISSION_MAX_CONNS SMTP_PER_USER_MAX_CONNS SMTP_TLS_CERT_FILE SMTP_TLS_KEY_FILE IMAP_ADDR IMAP_TLS_ADDR IMAP_MAX_CONNS IMAP_PER_USER_MAX_CONNS IMAP_TLS_CERT_FILE IMAP_TLS_KEY_FILE TLS_AUTOCERT_DOMAINS TLS_AUTOCERT_EMAIL TLS_AUTOCERT_CACHE_DIR TLS_AUTOCERT_KEY_FILE TLS_AUTOCERT_CHALLENGE TLS_DNS_PROVIDER TLS_DNS_CONFIG TLS_DNS_RESOLVERS TLS_SESSION_TICKET_KEY_ROTATE_SECS GATEWAY_HTTPS_LISTEN WORM_MODE WORM__MODE WORM_RETENTION_DAYS WORM_LEGAL_HOLD_ENABLED AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE AWS_CONFIG_FILE AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_EC2_METADATA_DISABLED AWS_EC2_METADATA_SERVICE_ENDPOINT AWS_ENDPOINT_URL AWS_ENDPOINT_URL_ROUTE_53)
+  if [ -f "$config" ]; then
+    ordered=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-order --ci-keys WORM_MODE,WORM__MODE,WORM_RETENTION_DAYS "$config" "${keys[@]}") || return 1
+    while IFS= read -r key; do
+      [ -n "$key" ] || continue
+      if [ "${!key+x}" = x ]; then
+        continue
+      fi
+      rc=0
+      line=$(python3 "$_LIB_LIVEKIT_DIR/yaml-config.py" env-preserve "$config" "$key") || rc=$?
+      case "$rc" in
+        0) printf '%s\n' "$line" ;;
+        1) ;;
+        3)
+          if _is_empty_preserved_key "$key"; then
+            printf '%s=\n' "$key"
+          fi
+          ;;
+        *) return 1 ;;
+      esac
+    done <<< "$ordered"
+  fi
+  local shell_keys=("${keys[@]}")
+  while IFS= read -r extra_key; do
+    [ -n "$extra_key" ] || continue
+    case "$(printf '%s' "$extra_key" | tr '[:upper:]' '[:lower:]')" in
+      worm_mode|worm__mode|worm_retention_days)
+        seen=0
+        for existing in "${shell_keys[@]}"; do
+          if [ "$existing" = "$extra_key" ]; then
+            seen=1
+            break
+          fi
+        done
+        if [ "$seen" = 0 ]; then
+          shell_keys+=("$extra_key")
+        fi
+        ;;
+    esac
+  done < <(compgen -v)
+  for key in "${shell_keys[@]}"; do
+    if [ "${!key+x}" = x ]; then
+      value="${!key}"
+      case "$value" in *$'\n'*|*$'\r'*) echo "TLS setting $key must be one EnvironmentFile line (use a config file for JSON)" >&2; return 1;; esac
+      if [ -n "$value" ]; then
+        printf '%s=%s\n' "$key" "$value"
+      elif _is_empty_preserved_key "$key"; then
         printf '%s=\n' "$key"
       fi
     fi

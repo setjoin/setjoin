@@ -231,6 +231,9 @@ impl<K: KeySource> JmapCommands<K> {
         {
             return fail(400, "invalid attachment transfer request");
         }
+        if authorized.context().mailbox_id() == 0 {
+            return plain404(ctx, id);
+        }
         let Some(device_id) = setjoin_jmap::http_blob::transfer_device(
             &services.worker,
             auth,

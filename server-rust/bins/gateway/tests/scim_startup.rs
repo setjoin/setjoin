@@ -133,6 +133,21 @@ async fn bundled_scim_is_native_and_every_kill_switch_forwards() -> Result<(), B
                 .stderr(Stdio::null())
                 .spawn_boot()?,
         );
+        if matches!(mode, "all-go" | "routes-off") {
+            let mut exited = None;
+            for _ in 0..500 {
+                if let Some(status) = process.0.try_wait()? {
+                    exited = Some(status);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            if !exited.is_some_and(|s| !s.success()) {
+                return Err(format!("gateway {mode} should have been rejected: {exited:?}").into());
+            }
+            drop(process);
+            continue;
+        }
         let mut ready = false;
         for _ in 0..6000 {
             if tokio::net::TcpStream::connect(address).await.is_ok() {

@@ -152,7 +152,7 @@ pub async fn put(
         deadline(),
         "SELECT rust_offline_device_set_preferences((SELECT id FROM mailboxes WHERE user_id = $2::bigint AND is_primary = TRUE LIMIT 1), \
          $4::bigint, $5::boolean, $6::int, $7::boolean, $8::text, $9::text)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&device, Type::INT8),
             (&p.opt_in, Type::BOOL),

@@ -9,21 +9,21 @@ pub const BUNDLED: &str = include_str!("../route-inventory.json");
 
 /// Registrations Go pins at the root that its `/api` mount also serves (`StripPrefix`): a
 /// native gateway row claims both spellings, and a subtree row its bare spelling (the mux's
-/// redirect), so neither reaches Go (#363, #364, #365).
-const PINNED_AND_MOUNTED: [&str; 5] = [
+/// redirect), so neither reaches Go (#363, #364, #365, #410).
+const PINNED_AND_MOUNTED: [&str; 7] = [
     "/setup/status",
     "/terms/pending",
     "/terms/accept",
     "/auth/admin/",
     "/auth/admin/users/{id}/impersonate",
+    "/rtc",
+    "/rtc/",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     LocalRust,
     RustAuth,
-    GoMail,
-    GoAuth,
 }
 
 pub struct Route {
@@ -81,18 +81,11 @@ impl Inventory {
             let target = match field("upstream")? {
                 "local-rust" if on => Target::LocalRust,
                 "rust-auth" if on => Target::RustAuth,
-                "local-rust" | "rust-auth" => {
-                    if family == 21 {
-                        Target::GoAuth
-                    } else {
-                        Target::GoMail
-                    }
-                }
-                "go-mail" if !on => Target::GoMail,
-                "go-auth" if !on => Target::GoAuth,
                 // The captions bot is a separate listener process the gateway never proxies.
                 "go-asrbot" if !on && listener == "asrbot" => continue,
                 "rust-asrbot" if on && listener == "asrbot" => continue,
+                // #141: fedharness is Go interop test tooling, never served by the gateway.
+                "go-mail" if !on && listener == "fedharness" => continue,
                 _ => return Err("invalid inventory upstream/state".into()),
             };
             routes.push(Route {
@@ -149,26 +142,6 @@ impl Inventory {
                 route.path.as_str(),
                 "/" | "/api/" | "/chat/" | "/drive/" | "/meet" | "/meet/"
             )
-    }
-
-    /// Go-proxy attribution for a forwarded request. A rolled-back F15/F16 route is
-    /// registered at its bare path but Go mounts it under `/api`, so the mounted request
-    /// is claimed only by the F22 `/api/` row; count it under the owning family instead.
-    pub(crate) fn proxy_family(
-        &self,
-        method: &Method,
-        path: &str,
-        route: Option<&Route>,
-    ) -> Option<usize> {
-        let route = route?;
-        if route.path != "/api/" || route.family != 22 {
-            return Some(route.family);
-        }
-        let owner = path
-            .strip_prefix("/api")
-            .and_then(|stripped| self.go_match(method, stripped, None))
-            .filter(|owner| matches!(owner.family, 15 | 16));
-        Some(owner.map_or(route.family, |owner| owner.family))
     }
 
     /// Frozen Go's concrete API mux, before /api mounting. Inner routers
@@ -339,10 +312,7 @@ impl Inventory {
                                 || route.path.starts_with("/drive")))
                         || route.target == Target::LocalRust);
                 let both = route.listener == "gateway"
-                    && matches!(
-                        route.target,
-                        Target::LocalRust | Target::RustAuth | Target::GoMail
-                    )
+                    && matches!(route.target, Target::LocalRust | Target::RustAuth)
                     && PINNED_AND_MOUNTED.contains(&route.path.as_str());
                 let external = (mounted_api && !both).then(|| format!("/api{}", route.path));
                 let pattern = external.as_deref().unwrap_or(&route.path);
@@ -577,20 +547,9 @@ mod tests {
                 r["upstream"] = serde_json::json!("go-mail");
             }
         }
-        let off_inv = Inventory::parse(&rolled_back.to_string()).expect("rolled back inventory");
-        for (method, path) in [
-            (Method::GET, "/auth/admin"),
-            (Method::POST, "/auth/admin"),
-            (Method::GET, "/api/auth/admin"),
-        ] {
-            let route = off_inv
-                .find(&method, path)
-                .unwrap_or_else(|| panic!("no route for {method} {path}"));
-            assert_eq!(
-                (route.path.as_str(), route.target),
-                ("/auth/admin/", Target::GoMail),
-                "{method} {path} rolled back"
-            );
-        }
+        assert!(
+            Inventory::parse(&rolled_back.to_string()).is_err(),
+            "Go rollback rows are rejected after Go-free cutover"
+        );
     }
 }

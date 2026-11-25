@@ -58,13 +58,6 @@ impl RawBlobs for MessageBlobs {
     }
 }
 
-fn listed(get: &dyn Fn(&str) -> Option<String>, var: &str, name: &str) -> bool {
-    get(var)
-        .unwrap_or_default()
-        .split(',')
-        .any(|s| s.trim() == name)
-}
-
 fn number<T: std::str::FromStr>(
     get: &dyn Fn(&str) -> Option<String>,
     var: &str,
@@ -226,13 +219,6 @@ pub fn start_with_trust_cache(
 ) -> Result<Option<SmtpRuntime>, String> {
     if inbound.is_none() && implicit.is_none() && submission.is_none() {
         return Ok(None);
-    }
-    for name in required_off(inbound.is_some(), implicit.is_some(), submission.is_some()) {
-        if !listed(get, "GO_LISTENERS_OFF", name) {
-            return Err(format!(
-                "SMTP sockets are activated but GO_LISTENERS_OFF does not list {name}: Go's listener must be off first"
-            ));
-        }
     }
     let Some(webhooks) = webhooks else {
         return Err(
@@ -521,49 +507,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn activation_requires_go_to_be_off_for_each_socket() {
-        let err = |r: Result<Option<SmtpRuntime>, String>| r.err().expect("refused");
-        let e = err(start(
-            Some(socket().await),
-            None,
-            None,
-            &env(&[]),
-            None,
-            hooks(),
-        ));
-        assert!(e.contains("does not list smtp"), "{e}");
-        // `smtp` off does not free submission.
-        let e = err(start(
-            None,
-            None,
-            Some(socket().await),
-            &env(&[("GO_LISTENERS_OFF", "smtp")]),
-            None,
-            hooks(),
-        ));
-        assert!(e.contains("does not list submission"), "{e}");
-        let e = err(start(
-            Some(socket().await),
-            None,
-            None,
-            &env(&[("GO_LISTENERS_OFF", "imap, submission")]),
-            None,
-            hooks(),
-        ));
-        assert!(e.contains("does not list smtp"), "{e}");
-    }
-
-    #[tokio::test]
     async fn dispatcher_and_gate_are_mandatory() {
-        let off = env(&[
-            ("GO_LISTENERS_OFF", "smtp,submission"),
-            ("DB_DSN", "postgres://x@127.0.0.1:9/d"),
-        ]);
-        let e = start(Some(socket().await), None, None, &off, None, None)
+        let base = env(&[("DB_DSN", "postgres://x@127.0.0.1:9/d")]);
+        let e = start(Some(socket().await), None, None, &base, None, None)
             .err()
             .expect("refused");
         assert!(e.contains("webhook dispatcher"), "{e}");
-        let e = start(Some(socket().await), None, None, &off, None, hooks())
+        let e = start(Some(socket().await), None, None, &base, None, hooks())
             .err()
             .expect("refused");
         assert!(e.contains("gate"), "{e}");
@@ -571,7 +521,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_configuration_error_is_logged_and_smtp_stays_down() {
-        // Go's listener not off: start() refuses, start_or_log() keeps the process
+        // Missing threat gate: start() refuses, start_or_log() keeps the process
         // (and its HTTPS front door) alive with no SMTP runtime.
         let refused = start(Some(socket().await), None, None, &env(&[]), None, hooks());
         assert!(refused.is_err());

@@ -18,6 +18,8 @@ use std::{
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
+pub const SERVICE_NAME: &str = "federation-service";
+
 fn value(get: &dyn Fn(&str) -> Option<String>, key: &str) -> Option<String> {
     get(key).filter(|s| !s.is_empty())
 }
@@ -37,11 +39,6 @@ fn database(get: &dyn Fn(&str) -> Option<String>) -> Result<WorkerDatabase, Stri
 pub fn reaper_from_env(get: &dyn Fn(&str) -> Option<String>) -> Result<Option<Reaper>, String> {
     if !listed(get, "RUST_WORKERS_ON", crate::reap::NAME) {
         return Ok(None);
-    }
-    if !listed(get, "GO_WORKERS_OFF", crate::reap::NAME) {
-        return Err(
-            "federation-residue-reap requires GO_WORKERS_OFF=federation-residue-reap".into(),
-        );
     }
     Ok(Some(Reaper::new(Arc::new(WorkerPool::new(database(get)?)))))
 }
@@ -77,9 +74,6 @@ impl Runtime {
             );
             return Ok(None);
         };
-        if !listed(get, "GO_WORKERS_OFF", "federation-service") {
-            return Err("federation socket activation requires GO_WORKERS_OFF=federation-service: Go's listener and dialers must be off".into());
-        }
         let db: Arc<dyn FedDb> = Arc::new(WorkerPool::new(database(get)?));
         let direct = value(get, "DB_DIRECT_DSN")
             .ok_or("DB_DIRECT_DSN is required for federation notifications")?;

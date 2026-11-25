@@ -25,9 +25,9 @@ fn gateway(
         .stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("GATEWAY_ENABLED", "false"),
         ("DB_DSN", request_dsn),
         ("DB_WORKER_DSN", worker_dsn),
+        ("DB_DIRECT_DSN", worker_dsn),
         ("RUST_WORKERS_ON", rust_on),
         ("GO_WORKERS_OFF", go_off),
     ]
@@ -39,9 +39,6 @@ fn gateway(
     if rust_on
         .split(',')
         .any(|n| n == "exchange-assessment-deletion")
-        && go_off
-            .split(',')
-            .any(|n| n == "exchange-assessment-deletion")
     {
         let pem = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/conformance/exchange/fixtures/ed25519-key.pem")
@@ -63,26 +60,23 @@ fn stop(child: &mut crate::common::boot::Child) {
 }
 
 #[tokio::test]
-async fn refuses_without_go_off() -> Result<(), BoxError> {
+async fn starts_without_go_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("exchange-assessment-deletion-startup") else {
         return Ok(());
     };
-    for off in [
-        "",
-        "drive-maintenance",
-        "exchange-assessment-deletion-x",
-        "mail-recovery-cleanup",
-    ] {
-        let child = gateway(&db.dsn, &db.dsn, "exchange-assessment-deletion", off, &[])?;
-        let out = tokio::task::spawn_blocking(move || child.wait_with_output()).await??;
-        let err = String::from_utf8_lossy(&out.stderr);
-        if out.status.success() || !err.contains("GO_WORKERS_OFF=exchange-assessment-deletion") {
-            return Err(
-                format!("expected refusal for {off:?}, got {:?}: {err}", out.status).into(),
-            );
-        }
-    }
-    println!("GOLDEN-REPLAY: worker exchange-assessment-deletion :: refuses-without-go-off");
+    let s3 = [
+        ("S3_ENDPOINT", "http://127.0.0.1:1"),
+        ("S3_BUCKET", "mailblobs"),
+    ];
+    let mut child = gateway(&db.dsn, &db.dsn, "exchange-assessment-deletion", "", &s3)?;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let running = child.try_wait()?.is_none();
+    stop(&mut child);
+    assert!(
+        running,
+        "exchange-assessment-deletion must start without GO_WORKERS_OFF"
+    );
+    println!("GOLDEN-REPLAY: worker exchange-assessment-deletion :: starts-without-go-off");
     Ok(())
 }
 

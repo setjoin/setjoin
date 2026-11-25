@@ -141,7 +141,7 @@ case!(search_start_kql, "start", "kql");
 case!(search_get_bad_kql, "search", "bad-kql");
 
 #[tokio::test]
-async fn nul_kql_is_refused_and_worm_requests_forward_untouched() -> Result<(), common::BoxError> {
+async fn nul_kql_is_refused_and_worm_legal_hold_runs_natively() -> Result<(), common::BoxError> {
     compliance_oracle::forwarding().await
 }
 

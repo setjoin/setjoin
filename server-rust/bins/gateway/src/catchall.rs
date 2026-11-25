@@ -6,15 +6,70 @@ use hyper::{Method, Request, Response, StatusCode};
 use setjoin_authz::{token::KeySource, Authorized};
 use setjoin_pg::{ScopedExecutor, Type};
 use std::sync::Arc;
-type Admission =
-    Arc<dyn Fn(hyper::HeaderMap, &'static str) -> BoxFuture<Option<Authorized>> + Send + Sync>;
+
+trait CatchallAuth: Send + Sync {
+    fn admit(
+        &self,
+        headers: hyper::HeaderMap,
+        method: Method,
+        uri: hyper::Uri,
+        scope: crate::deny::Scope,
+    ) -> BoxFuture<Result<Authorized, crate::deny::Refusal>>;
+    fn admits_member(&self, headers: hyper::HeaderMap) -> BoxFuture<bool>;
+}
+
+struct Verifier<K> {
+    exec: ScopedExecutor,
+    keys: Arc<K>,
+    issuer: String,
+}
+
+impl<K: KeySource + 'static> CatchallAuth for Verifier<K> {
+    fn admit(
+        &self,
+        headers: hyper::HeaderMap,
+        method: Method,
+        uri: hyper::Uri,
+        scope: crate::deny::Scope,
+    ) -> BoxFuture<Result<Authorized, crate::deny::Refusal>> {
+        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        Box::pin(async move {
+            use http_body_util::BodyExt;
+            let mut req = Request::new(
+                http_body_util::Empty::<bytes::Bytes>::new()
+                    .map_err(|n| match n {})
+                    .boxed(),
+            );
+            *req.method_mut() = method;
+            *req.uri_mut() = uri;
+            *req.headers_mut() = headers;
+            crate::deny::admit(&exec, &*keys, &issuer, &req, scope).await
+        })
+    }
+
+    fn admits_member(&self, headers: hyper::HeaderMap) -> BoxFuture<bool> {
+        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        Box::pin(async move {
+            setjoin_authz::admit(
+                &exec,
+                &*keys,
+                &issuer,
+                &headers,
+                "GET",
+                "/",
+                crate::deny::Scope::Member,
+            )
+            .await
+            .is_ok()
+        })
+    }
+}
 
 #[derive(Clone)]
 pub struct CatchallRoute {
     inventory: Arc<Inventory>,
     exec: Option<ScopedExecutor>,
-    admission: Option<Admission>,
-    terminal_auth: bool,
+    admission: Option<Arc<dyn CatchallAuth>>,
     pub meet_configured: bool,
     pub website: Option<Arc<setjoin_static::website::Website>>,
 }
@@ -31,28 +86,56 @@ impl CatchallRoute {
             ),
             exec: None,
             admission: None,
-            terminal_auth:false,
             meet_configured: false,
             website: None,
         }
     }
-    pub fn with_auth<K: KeySource + 'static>(self,exec:ScopedExecutor,keys:Arc<K>,issuer:String)->Self {
-        self.with_auth_mode(exec,keys,issuer,false)
+    pub fn with_auth<K: KeySource + 'static>(
+        self,
+        exec: ScopedExecutor,
+        keys: Arc<K>,
+        issuer: String,
+    ) -> Self {
+        self.with_auth_mode(exec, keys, issuer)
     }
     /// Main pairs this with RouteTable::with_admission: the outer guest belt
     /// has already answered its errors before mux/alias dispatch.
-    pub fn with_terminal_auth<K: KeySource + 'static>(self,exec:ScopedExecutor,keys:Arc<K>,issuer:String)->Self {
-        self.with_auth_mode(exec,keys,issuer,true)
+    pub fn with_terminal_auth<K: KeySource + 'static>(
+        self,
+        exec: ScopedExecutor,
+        keys: Arc<K>,
+        issuer: String,
+    ) -> Self {
+        self.with_auth_mode(exec, keys, issuer)
     }
-    fn with_auth_mode<K:KeySource+'static>(mut self,exec:ScopedExecutor,keys:Arc<K>,issuer:String,terminal:bool)->Self {
-        self.exec=Some(exec.clone());self.terminal_auth=terminal;
-        self.admission=Some(Arc::new(move|headers,scheme|{
-            let(exec,keys,issuer)=(exec.clone(),keys.clone(),issuer.clone());
-            Box::pin(async move{
-                if terminal{setjoin_authz::authorize_user_request(&exec,&keys,&issuer,&headers,scheme).await}
-                else{setjoin_authz::authorize_request(&exec,&keys,&issuer,&headers,scheme).await}
-            })
-        }));self
+    fn with_auth_mode<K: KeySource + 'static>(
+        mut self,
+        exec: ScopedExecutor,
+        keys: Arc<K>,
+        issuer: String,
+    ) -> Self {
+        self.exec = Some(exec.clone());
+        self.admission = Some(Arc::new(Verifier { exec, keys, issuer }));
+        self
+    }
+
+    /// Fallback for unconfigured bare `/rtc`, matching Go's root SPA/404 branch without forwarding or 308 redirects.
+    pub(crate) fn serve_spa_or_404(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
+        let exec = self.exec.clone();
+        let website = self.website.clone();
+        Box::pin(async move {
+            if let Some(website) = website {
+                if r.uri().path() == "/" && matches!(*r.method(), Method::GET | Method::HEAD) {
+                    if let Some(exec) = exec.as_ref() {
+                        if setjoin_static::website::needs_setup(exec).await {
+                            return redirect(&r, &c, 302, "/setup");
+                        }
+                    }
+                }
+                return static_file::serve(&website, &r, &c).await;
+            }
+            plain(&r, &c, 404, "404 page not found\n")
+        })
     }
 }
 impl Intercept for CatchallRoute {
@@ -70,17 +153,16 @@ impl Intercept for CatchallRoute {
                 )
             })
     }
-    fn admits_member(&self, h: hyper::HeaderMap, s: &'static str) -> BoxFuture<bool> {
+    fn admits_member(&self, h: hyper::HeaderMap, _s: &'static str) -> BoxFuture<bool> {
         let admission = self.admission.clone();
         Box::pin(async move {
             match admission {
-                Some(f) => f(h, s).await.is_some(),
+                Some(f) => f.admits_member(h).await,
                 None => false,
             }
         })
     }
     fn handle(&self, r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let terminal_auth=self.terminal_auth;
         let website = self.website.clone();
         let inventory = self.inventory.clone();
         let (exec, admission, configured) = (
@@ -99,18 +181,6 @@ impl Intercept for CatchallRoute {
                 return plain(&r, &c, 404, "404 page not found\n");
             }
             if let Some(path) = path.strip_prefix("/api/") {
-                // The mount's guest belt authenticates JWT-borne credentials.
-                let auth = if jwt_credential(&r) {
-                    match &admission {
-                        Some(f) => f(r.headers().clone(), c.identity.proto).await,
-                        None => None,
-                    }
-                } else {
-                    None
-                };
-                if !terminal_auth && jwt_credential(&r) && auth.is_none() {
-                    return c.upstream.forward(r, &c.identity).await;
-                }
                 let stripped = format!("/{path}");
                 if let Some(reply) = mux_redirect(&inventory, &r, &c, &stripped, None) {
                     return reply;
@@ -120,20 +190,34 @@ impl Intercept for CatchallRoute {
                         route.path.as_str(),
                         "/chat/" | "/drive/" | "/meet" | "/meet/"
                     ) {
-                        let Some(auth) = auth else {
-                            if credential(&r) {
-                                return c.upstream.forward(r, &c.identity).await;
+                        let scope = if route.path == "/drive/" {
+                            crate::deny::Scope::DriveUser
+                        } else {
+                            crate::deny::Scope::User
+                        };
+                        let auth = match &admission {
+                            Some(f) => match f
+                                .admit(r.headers().clone(), r.method().clone(), r.uri().clone(), scope)
+                                .await
+                            {
+                                Ok(auth) => auth,
+                                Err(refusal) => return crate::deny::native(refusal, r.headers(), &c),
+                            },
+                            None => {
+                                return crate::deny::native(
+                                    if credential(&r) {
+                                        crate::deny::Refusal::Unavailable
+                                    } else {
+                                        crate::deny::Refusal::NoCredential
+                                    },
+                                    r.headers(),
+                                    &c,
+                                );
                             }
-                            let mut reply = problem(&r, &c, 401, "Unauthorized");
-                            reply.headers_mut().insert(
-                                "www-authenticate",
-                                "Negotiate, Bearer realm=\"mailserver\"".parse().unwrap(),
-                            );
-                            return reply;
                         };
                         let Some(exec) = exec else {
                             // Unreachable: `with_auth_mode` installs the executor with the
-                            // verifier. Fail closed rather than hand the request to Go.
+                            // verifier. Fail closed natively.
                             return problem(&r, &c, 503, "service unavailable");
                         };
                         let app = match route.family {
@@ -182,9 +266,7 @@ impl Intercept for CatchallRoute {
                         }
                         return mux_error(&inventory, &r, &c, &stripped, Some(route.family));
                     }
-                    // A concrete handler is owned by its family, even when its
-                    // adapter cannot handle this spelling or configuration.
-                    return c.upstream.forward(r, &c.identity).await;
+                    return plain(&r, &c, 404, "404 page not found\n");
                 }
                 return mux_error(&inventory, &r, &c, &stripped, None);
             } else if !matches!(*r.method(), Method::GET | Method::HEAD)
@@ -192,14 +274,6 @@ impl Intercept for CatchallRoute {
                     || trailing(&inventory, r.method(), path, None))
                 && !pinned(path)
             {
-                if !terminal_auth && jwt_credential(&r)
-                    && match &admission {
-                        Some(f) => f(r.headers().clone(), c.identity.proto).await.is_none(),
-                        None => true,
-                    }
-                {
-                    return c.upstream.forward(r, &c.identity).await;
-                }
                 return redirect(
                     &r,
                     &c,
@@ -242,13 +316,6 @@ fn token_cookie(r: &Request<Body>) -> bool {
 }
 fn credential(r: &Request<Body>) -> bool {
     r.headers().contains_key("authorization") || token_cookie(r)
-}
-/// Go's guest belt intentionally ignores Basic/Negotiate and empty cookies.
-fn jwt_credential(r: &Request<Body>) -> bool {
-    r.headers()
-        .get("authorization")
-        .is_some_and(|v| v.as_bytes().starts_with(b"Bearer "))
-        || token_cookie(r)
 }
 
 fn problem(r: &Request<Body>, c: &RequestContext, status: u16, detail: &str) -> Response<Body> {

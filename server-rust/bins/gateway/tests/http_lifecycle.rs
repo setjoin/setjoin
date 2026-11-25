@@ -1,40 +1,64 @@
 //! Shutdown observed through the gateway's HTTP listener.
 mod common;
 
-use common::{body_bytes, fake_upstream, full, send, within};
-use hyper::{Request, Response};
-use setjoin_gateway::{Config, Gateway, RouteTable, TrustedProxies};
+use common::{body_bytes, full, send, within};
+use http_body_util::{BodyExt, Full};
+use hyper::{body::Bytes, Request, Response};
+use setjoin_gateway::{
+    BoxFuture, Config, Gateway, Intercept, RequestContext, RouteTable, TrustedProxies,
+};
 use std::sync::Arc;
 use tokio::sync::{oneshot, Notify};
+
+struct HoldRoute {
+    started: Arc<Notify>,
+    release: Option<Arc<Notify>>,
+}
+impl Intercept for HoldRoute {
+    fn matches(&self, _req: &Request<setjoin_gateway::Body>) -> bool {
+        true
+    }
+    fn handle(
+        &self,
+        _req: Request<setjoin_gateway::Body>,
+        _ctx: RequestContext,
+    ) -> BoxFuture<Response<setjoin_gateway::Body>> {
+        let started = self.started.clone();
+        let release = self.release.clone();
+        Box::pin(async move {
+            started.notify_one();
+            match release {
+                Some(r) => {
+                    r.notified().await;
+                    Response::new(
+                        Full::new(Bytes::from_static(b"completed"))
+                            .map_err(|never| match never {})
+                            .boxed(),
+                    )
+                }
+                None => std::future::pending().await,
+            }
+        })
+    }
+}
 
 #[tokio::test]
 async fn shutdown_stops_accepting_and_drains_an_active_request() {
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
-    let upstream = fake_upstream({
-        let started = started.clone();
-        let release = release.clone();
-        move |_| {
-            let started = started.clone();
-            let release = release.clone();
-            async move {
-                started.notify_one();
-                release.notified().await;
-                Response::new(full("completed"))
-            }
-        }
-    })
-    .await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let gateway = Gateway::new(
         Config {
-            upstream: Some(format!("http://{upstream}").parse().unwrap()),
+            upstream: None,
             upstream_header_timeout: std::time::Duration::from_secs(10),
             trusted_proxies: TrustedProxies::parse("").unwrap(),
             edge_limit: None,
         },
-        RouteTable::proxy_all(),
+        RouteTable::proxy_all().with_catchall(HoldRoute {
+            started: started.clone(),
+            release: Some(release.clone()),
+        }),
     )
     .unwrap();
     let (stop, stopped) = oneshot::channel::<()>();
@@ -72,26 +96,21 @@ async fn shutdown_bounds_an_unfinished_request_to_go_thirty_second_budget() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let started = Arc::new(Notify::new());
-    let upstream = fake_upstream({
-        let started = started.clone();
-        move |_| {
-            started.notify_one();
-            std::future::pending::<Response<common::TestBody>>()
-        }
-    })
-    .await;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let gateway = Gateway::new(
         Config {
-            upstream: Some(format!("http://{upstream}").parse().unwrap()),
-            // Ensure the shutdown budget, rather than the proxy timeout,
+            upstream: None,
+            // Ensure the shutdown budget, rather than any upstream timeout,
             // ends this request.
             upstream_header_timeout: Duration::from_secs(120),
             trusted_proxies: TrustedProxies::parse("").unwrap(),
             edge_limit: None,
         },
-        RouteTable::proxy_all(),
+        RouteTable::proxy_all().with_catchall(HoldRoute {
+            started: started.clone(),
+            release: None,
+        }),
     )
     .unwrap();
     let (stop, stopped) = oneshot::channel::<()>();

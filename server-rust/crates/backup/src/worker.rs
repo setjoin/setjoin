@@ -107,12 +107,6 @@ impl Engine {
                 return Ok(None);
             }
         };
-        if !env("GO_WORKERS_OFF")
-            .split(',')
-            .any(|s| s.trim() == "backup-engine")
-        {
-            return Err("backup-engine requires GO_WORKERS_OFF=backup-engine before Rust starts shared backup effects".into());
-        }
         let request = env("DB_DSN");
         if request.is_empty() {
             return Err("DB_DSN is required for backup-engine".into());

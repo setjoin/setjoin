@@ -77,6 +77,13 @@ async fn run(kill: bool, rollback: bool, future: bool) -> Result<(), BoxError> {
   if rollback{let mut inventory:Value=serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;for row in inventory["routes"].as_array_mut().unwrap(){if row["family"]=="F14"&&row["slice"]=="sub-router-b"{row["state"]="OFF".into();row["upstream"]="go-mail".into();}}std::fs::write(&override_path,inventory.to_string())?;command.env("GATEWAY_ROUTE_INVENTORY",&override_path);}
   if let Ok(path)=std::env::var("LLVM_PROFILE_FILE"){command.env("LLVM_PROFILE_FILE",path);}
   ledger(&format!("Plan gofree-drive3-gateway at {address}, assigned DB only"))?;let mut child=Owned(command.stdout(Stdio::from(log.try_clone()?)).stderr(Stdio::from(log)).spawn_boot()?);ledger(&format!("Started gofree-drive3-gateway PID {}",child.0.id()))?;
+  if kill||rollback{
+   let mut exited=None;for _ in 0..500{if let Some(status)=child.0.try_wait()?{exited=Some(status);break}tokio::time::sleep(Duration::from_millis(10)).await;}
+   if !exited.is_some_and(|s|!s.success()){return Err(format!("gateway kill={kill} rollback={rollback} should have been rejected: {exited:?}").into())}
+   let pid=child.0.id();drop(child);ledger(&format!("Reaped gofree-drive3-gateway PID {pid}"))?;if rollback&&override_path.exists(){std::fs::remove_file(override_path)?;}
+   if hits.load(Ordering::SeqCst)!=0{return Err("unexpected upstream requests".into())}
+   return Ok::<_,BoxError>(());
+  }
   let deadline=tokio::time::Instant::now()+Duration::from_secs(60);loop{if let Some(status)=child.0.try_wait()?{return Err(format!("gateway exited: {status}").into())}if tokio::net::TcpStream::connect(address).await.is_ok(){break}if tokio::time::Instant::now()>deadline{return Err("gateway startup timeout".into())}tokio::time::sleep(Duration::from_millis(20)).await;}
   let mut requests=vec![
 ("GET","/api/drive/export/bad","{",409u16),

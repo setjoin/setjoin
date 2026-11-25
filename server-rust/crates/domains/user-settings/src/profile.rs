@@ -36,7 +36,7 @@ pub async fn profile_update(
         &envelope(&auth, operation, name),
         &auth,
         deadline(),
-        "WITH written AS (UPDATE users SET display_name = $4::text, updated_at = now() WHERE id = $2::bigint AND $1::bigint > 0 AND $3::text <> '' RETURNING 1) \
+        "WITH written AS (UPDATE users SET display_name = $4::text, updated_at = now() WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
          SELECT count(*)::bigint FROM written",
         &[(&name, Type::TEXT)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),

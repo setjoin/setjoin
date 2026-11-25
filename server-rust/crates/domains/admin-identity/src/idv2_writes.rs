@@ -158,7 +158,7 @@ pub async fn missing_reason(
         &auth,
         deadline(),
         "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,'identity.write','core') \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&ip, Type::TEXT)],
         |rows| {
             rows.first()
@@ -203,7 +203,7 @@ pub async fn lifecycle(
         &envelope(&auth, operation, &format!("{key}:{action}:{expected}:{idempotency}:{reason}")),
         &auth,
         deadline(),
-        "SELECT identity_source_lifecycle($2,$4,$5,$6,$7::text::uuid,$8)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_source_lifecycle($2,$4,$5,$6,$7::text::uuid,$8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&key, Type::TEXT),
             (&action, Type::TEXT),
@@ -251,7 +251,7 @@ pub async fn job_cancel(
         "SELECT q.s, CASE WHEN q.s = 202 THEN identity_job_cancel($2,$4::text::uuid)::text END \
          FROM (SELECT CASE WHEN j.r IS NULL THEN 404 WHEN NOT (j.r->>'kind' = ANY($5::text[])) THEN 403 ELSE 202 END AS s \
                FROM (SELECT identity_job_read($2,$4::text::uuid) AS r) j \
-               WHERE $1::bigint > 0 AND $3::text <> '') q",
+               WHERE $1::bigint >= 0 AND $3::text <> '') q",
         &[(&job, Type::TEXT), (&held, Type::TEXT_ARRAY)],
         verdict,
     )
@@ -296,7 +296,7 @@ pub async fn conflict_decide(
                            WHEN c.candidate_user_id IS NOT NULL AND NOT identity_admin_scope_allows($2,c.candidate_user_id,'identity.write') THEN 404 \
                            ELSE 200 END AS s \
                FROM (SELECT 1) one LEFT JOIN identity_match_candidates c ON c.id = $4::text::uuid \
-               WHERE $1::bigint > 0 AND $3::text <> '') q",
+               WHERE $1::bigint >= 0 AND $3::text <> '') q",
         &[
             (&input.conflict, Type::TEXT),
             (&input.generation, Type::INT8),
@@ -448,7 +448,7 @@ pub async fn group_mappings_put(
         &envelope(&auth, operation, &format!("{provider_type}:{provider_id}:{mappings}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_group_mappings_put($2,$4,$5,$6,$7::text[])::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_group_mappings_put($2,$4,$5,$6,$7::text[])::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&provider_type, Type::TEXT),
             (&provider_id, Type::TEXT),

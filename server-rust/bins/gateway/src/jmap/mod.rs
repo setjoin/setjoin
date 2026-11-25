@@ -669,16 +669,20 @@ impl<K: KeySource> JmapCommands<K> {
         else {
             return ("error".into(), ws_request::server_fail());
         };
-        let (Ok(actor_id), Ok(primary_mailbox_id)) =
-            (ActorId::new(user_id), MailboxId::new(primary_mailbox))
-        else {
+        let Ok(actor_id) = ActorId::new(user_id) else {
             return ("error".into(), ws_request::server_fail());
         };
-        let primary_auth = MailboxAuthContext::from_authenticated_session(
-            actor_id,
-            primary_mailbox_id,
-            REQUEST_AUTHORITY_GENERATION,
-        );
+        let primary_auth = match MailboxId::new(primary_mailbox) {
+            Ok(primary_mailbox_id) => MailboxAuthContext::from_authenticated_session(
+                actor_id,
+                primary_mailbox_id,
+                REQUEST_AUTHORITY_GENERATION,
+            ),
+            Err(_) => MailboxAuthContext::from_authenticated_user(
+                actor_id,
+                REQUEST_AUTHORITY_GENERATION,
+            ),
+        };
         let digest_bytes: [u8; 32] = Sha256::digest(raw_args.as_bytes()).into();
         let digest = Digest(digest_bytes);
 

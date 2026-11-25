@@ -13,6 +13,8 @@ IMAP_ADDR=127.0.0.1:1143
 IMAP_TLS_ADDR=127.0.0.1:1993
 GO_LISTENERS_OFF=other
 THREAT_RATE_LIMIT_PER_MIN=17
+GEO_BLOCK_ENABLED=false
+THREAT_TARPIT_THRESHOLD=9
 DB_OWNER_DSN=must-not-leak
 ENV
 render_gateway_unit "$ROOT/mailserver/deploy/setjoin-gateway.service.template" "$tmp/setjoin-gateway.service"
@@ -30,6 +32,8 @@ grep -qx 'GO_LISTENERS_OFF=other,imap' "$CONFIG_ENV"
 render_gateway_env "$GATEWAY_ENV"
 grep -qx 'GO_LISTENERS_OFF=imap,smtp,submission' "$GATEWAY_ENV"
 grep -qx 'THREAT_RATE_LIMIT_PER_MIN=17' "$GATEWAY_ENV"
+grep -qx 'GEO_BLOCK_ENABLED=false' "$GATEWAY_ENV"
+grep -qx 'THREAT_TARPIT_THRESHOLD=9' "$GATEWAY_ENV"
 ! grep -q 'DB_OWNER_DSN' "$GATEWAY_ENV"
 printf 'IMAP_TLS_ADDR=\n' >> "$CONFIG_ENV"
 rm "$tmp/setjoin-imap.socket" "$tmp/setjoin-imaps.socket"

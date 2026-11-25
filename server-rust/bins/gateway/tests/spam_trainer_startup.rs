@@ -14,7 +14,6 @@ fn gateway(db: &Db, off: &str, direct: &str) -> Result<common::boot::Child, BoxE
     cmd.env_clear().stdout(Stdio::null()).stderr(Stdio::piped());
     for (key, value) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("GATEWAY_ENABLED", "false"),
         ("DB_DSN", db.app.as_deref().ok_or("DB_APP_DSN required")?),
         ("DB_WORKER_DSN", db.dsn.as_str()),
         ("DB_DIRECT_DSN", direct),
@@ -27,26 +26,18 @@ fn gateway(db: &Db, off: &str, direct: &str) -> Result<common::boot::Child, BoxE
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn refuses_without_exact_go_worker_handover() -> Result<(), BoxError> {
+async fn starts_without_go_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("spam-trainer-guard") else {
         return Ok(());
     };
-    for off in ["", "dmarc-report", "spam-trainer-other"] {
-        let mut child = gateway(&db, off, &db.dsn)?;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
-        while child.try_wait()?.is_none() {
-            if tokio::time::Instant::now() > deadline {
-                return Err(
-                    format!("gateway started spam-trainer without GO_WORKERS_OFF={off:?}").into(),
-                );
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        let output = child.wait_with_output()?;
-        assert!(!output.status.success());
-        let error = String::from_utf8_lossy(&output.stderr);
-        assert!(error.contains("GO_WORKERS_OFF=spam-trainer"), "{error}");
+    let mut child = gateway(&db, "", &db.dsn)?;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let running = child.try_wait()?.is_none();
+    unsafe {
+        libc::kill(child.id() as i32, libc::SIGTERM);
     }
+    let _ = child.wait();
+    assert!(running, "spam-trainer must start without GO_WORKERS_OFF");
     Ok(())
 }
 

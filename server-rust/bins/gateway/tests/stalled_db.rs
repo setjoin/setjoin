@@ -130,7 +130,7 @@ async fn a_stalled_database_forwards_to_go_within_the_bound() {
     );
     assert_eq!(hits.load(Ordering::SeqCst), 0);
 
-    // Non-JMAP path: no database wait at all, forwards directly to Go.
+    // Non-JMAP unmatched path: no database wait at all, answered 404 natively.
     let t = Instant::now();
     let resp = send(
         gw,
@@ -140,8 +140,8 @@ async fn a_stalled_database_forwards_to_go_within_the_bound() {
             .unwrap(),
     )
     .await;
-    assert_eq!(resp.status().as_u16(), 299);
-    assert_eq!(&body_bytes(resp).await[..], b"from go");
+    assert_eq!(resp.status().as_u16(), 404);
+    assert_eq!(&body_bytes(resp).await[..], b"404 page not found\n");
     assert!(t.elapsed() < Duration::from_millis(500));
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
 }

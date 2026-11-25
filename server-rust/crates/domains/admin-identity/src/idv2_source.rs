@@ -411,7 +411,7 @@ pub async fn apply(
         ),
         &auth,
         deadline(),
-        "SELECT identity_source_config_apply($2,$4,$5,$6,$7::text::jsonb,$8,$9,$10,$11,$12::text::uuid,$13)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_source_config_apply($2,$4,$5,$6,$7::text::jsonb,$8,$9,$10,$11,$12::text::uuid,$13)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&input.document.key, Type::TEXT),
             (&input.document.display_name, Type::TEXT),
@@ -457,7 +457,7 @@ pub async fn set_secret(
         &envelope(&auth, operation, &format!("{key}:{name}:{expected}:{rotate}:{idempotency}")),
         &auth,
         deadline(),
-        "SELECT identity_source_secret_set($2,$4,$5,$6,$7,$8,$9,$10,$11::text::uuid,$12)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_source_secret_set($2,$4,$5,$6,$7,$8,$9,$10,$11::text::uuid,$12)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&key, Type::TEXT),
             (&name, Type::TEXT),

@@ -72,6 +72,6 @@ SMTP mail-auth recording fixtures (`gofree_record`, #349): [protocol contract](.
 
 SMTP outbound worker recording (`gofree_record`, #350): [outbound contract](../../server-rust/crates/protocols/smtp/src/outbound/DOX.md).
 
-Auth runtime IMAP policy recording (#420): [threat corpus](../../server-rust/crates/threat/DOX.md).
+Auth runtime IMAP policy recording (#202): [threat corpus](../../server-rust/crates/threat/DOX.md).
 
 Toggle-ON SMTP security recording (#526): [inbound oracle contract](../../server-rust/crates/protocols/smtp/src/inbound/DOX.md).

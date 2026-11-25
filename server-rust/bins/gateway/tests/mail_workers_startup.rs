@@ -36,9 +36,9 @@ impl Process {
             .stderr(Stdio::piped());
         for (k, v) in [
             ("GATEWAY_LISTEN", "127.0.0.1:0"),
-            ("GATEWAY_ENABLED", "false"),
             ("DB_DSN", request),
             ("DB_WORKER_DSN", worker),
+            ("DB_DIRECT_DSN", worker),
             ("RUST_WORKERS_ON", on),
             ("GO_WORKERS_OFF", off),
             ("AUDIT_HMAC_KEY", "gofree-mbox4-audit-hmac"),
@@ -92,38 +92,42 @@ impl Process {
 }
 
 #[tokio::test]
-async fn refuses_shared_effects_without_go_off() -> Result<(), BoxError> {
-    // Each refused boot still runs the startup partition DDL, which locks `tags` before
-    // `mailboxes`; a fixture mailbox insert locks them in the opposite order, and on a fresh
-    // database the two deadlocked (40P01 in create_system_tags). Serialize with the other cases.
+async fn starts_shared_effects_without_go_off() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     let Some(db) = Db::for_case("mail-worker-startup") else {
         return Ok(());
     };
     for name in ["mail-work", "mailbox-lifecycle"] {
-        for off in [
-            String::new(),
-            format!("{name}-x"),
-            name.to_uppercase(),
-            if name == "mail-work" {
-                "mailbox-lifecycle".into()
-            } else {
-                "mail-work".into()
-            },
-        ] {
-            let mut process = Process::start(&db.dsn, &db.dsn, name, &off, &[])?;
-            let status = process.exited(Duration::from_secs(2)).await?;
+        let probe = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let addr = probe.local_addr()?.to_string();
+        drop(probe);
+        let mut process = Process::start(&db.dsn, &db.dsn, name, "", &[("GATEWAY_LISTEN", &addr)])?;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Some(_status) = process.0.try_wait()? {
+                panic!(
+                    "{name} exited without GO_WORKERS_OFF: {}",
+                    process.stderr()?
+                );
+            }
+            if let Ok(mut stream) = tokio::net::TcpStream::connect(&addr).await {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let _ = stream
+                    .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                    .await;
+                let mut buf = [0u8; 32];
+                if stream.read(&mut buf).await.unwrap_or(0) > 0 {
+                    break;
+                }
+            }
             assert!(
-                status.is_some(),
-                "{name} started with GO_WORKERS_OFF={off:?}"
+                tokio::time::Instant::now() < deadline,
+                "{name} did not become ready without GO_WORKERS_OFF: {}",
+                process.stderr()?
             );
-            assert!(!status.unwrap().success());
-            let err = process.stderr()?;
-            assert!(
-                err.contains(&format!("GO_WORKERS_OFF={name}")),
-                "wrong startup refusal: {err}"
-            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
+        process.stop().await?;
     }
     Ok(())
 }
@@ -194,7 +198,7 @@ async fn delivers_webhook_subscribed_events_through_the_dispatcher() -> Result<(
     let owner = db.connect().await?;
     let a = setjoin_conformance::fixture::account(&owner, "mbox4-webhook-delivery").await?;
     let result=async {
-        let master="mbox4-startup-master";
+        let master="mbox4-startup-master-32-bytes-key";
         let sealed=setjoin_config_secret::seal_column(b"startup-signing-secret-startup-signing-secret",master.as_bytes(),setjoin_config_secret::CryptoProfile::Standard)?;
         owner.batch_execute("DELETE FROM webhook_deliveries; DELETE FROM webhook_subscriptions").await?;
         owner.execute("INSERT INTO webhook_subscriptions(user_id,url,secret_enc,secret_key_id,event_types,scope) VALUES ($1,'http://127.0.0.1:9/hook',$2,'v1','[\"mailwork.completed\",\"mailbox.suspended\"]','organization')",&[&a.user,&sealed]).await?;
