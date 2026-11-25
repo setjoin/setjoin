@@ -126,9 +126,9 @@ async fn health_fails_closed_when_live_probes_unwired() -> Result<(), BoxError> 
 
 #[tokio::test]
 async fn a_path_go_would_redirect_to_its_clean_form_stays_on_go() -> Result<(), BoxError> {
-    // Post-#359: without CatchallRoute mounted, SurfaceRoute declines unclean paths and
-    // the gateway fails closed natively with 404 (zero Go hits).
-    assert_eq!(call(config(|_| {}), "/downloads/asset/.").await?, (404, 0));
+    // Post-#359: SurfaceRoute declines unclean paths and the gateway's native
+    // fallback emits Go's exact 307 clean-path redirect (zero Go hits).
+    assert_eq!(call(config(|_| {}), "/downloads/asset/.").await?, (307, 0));
     // Escaped dots are ordinary bytes to Go's mux (it cleans the escaped
     // path): the handler answers.
     assert_eq!(
