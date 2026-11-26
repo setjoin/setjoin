@@ -15,31 +15,30 @@ type Launch = {
 	editorUrl: string;
 };
 
-async function setProvider(
-	request: APIRequestContext,
-	adminToken: string,
-	providerId: string,
-	input: { enabled: boolean; draining: boolean; entitlementState?: string },
-) {
-	const response = await request.put(`/api/admin/office/providers/${providerId}`, {
-		headers: {
-			Authorization: `Bearer ${adminToken}`,
-			'Content-Type': 'application/json',
-			'X-Audit-Reason': `E2E provider lifecycle ${providerId}`,
-		},
-		data: {
-			enabled: input.enabled,
-			draining: input.draining,
-			entitlementState: input.entitlementState ?? 'valid',
-			buildId: 'e2e-build',
-			config: {
-				proofDiscoveryUrl: 'https://office.test/hosting/discovery',
-				wopiPublicBaseUrl: 'https://setjoin.test',
-				editorUrl: 'https://office.test/browser/editor',
-			},
-		},
-	});
-	expect(response.ok(), `set provider ${providerId}: ${await response.text()}`).toBeTruthy();
+function sqlLiteral(value: string): string {
+	return `'${value.replaceAll("'", "''")}'`;
+}
+
+function seedActiveProvider(providerId: string, adminEmail: string, buildId = 'e2e-fake') {
+	const pid = sqlLiteral(providerId);
+	const email = sqlLiteral(adminEmail);
+	const bid = sqlLiteral(buildId);
+	psql(`BEGIN;
+		INSERT INTO office_provider_policies(provider_id,enabled,entitlement_state,build_id,config)
+			VALUES (${pid},true,'valid',${bid},
+			'{"proofMode":"test_disabled","proofDiscoveryUrl":"https://office.test/hosting/discovery","editorUrl":"https://office.test/browser/editor","wopiPublicBaseUrl":"https://setjoin.test"}'::jsonb);
+		INSERT INTO office_provider_qualifications(provider_id,provider_generation,config_sha256,status,profile,checks,discovery_fingerprint,route_revision,created_by,expires_at)
+			SELECT provider_id,1,config_sha256,'passed','existing-provider',
+			'{"discovery":"pass","proof":"pass","editor":"pass","wopiSave":"pass"}'::jsonb,
+			repeat('f',64),1,(SELECT id FROM users WHERE email=${email}),now()+interval '1 hour'
+			FROM office_provider_policies WHERE provider_id=${pid};
+		UPDATE office_provider_policies
+			SET generation=2,route_state='active_for_scope',
+			active_qualification_id=(SELECT id FROM office_provider_qualifications WHERE provider_id=${pid} AND provider_generation=1 AND profile='existing-provider' ORDER BY created_at DESC LIMIT 1)
+			WHERE provider_id=${pid};
+		INSERT INTO office_provider_health_observations(provider_id,provider_generation,state,capacity_state,facts,expires_at)
+			VALUES (${pid},2,'healthy','available','{}'::jsonb,now()+interval '1 hour');
+		COMMIT;`);
 }
 
 async function removeProvider(request: APIRequestContext, adminToken: string, providerId: string) {
@@ -70,6 +69,11 @@ test.describe('Office foundation and Drive History continuity @admin', () => {
 				await setFeature(request, adminToken, key, false).catch(() => null);
 			}
 		}
+		const providerList = `${sqlLiteral(fakeProvider)},${sqlLiteral(drainProvider)}`;
+		psql(`BEGIN;
+			DELETE FROM office_provider_health_observations WHERE provider_id IN (${providerList});
+			DELETE FROM office_provider_qualifications WHERE provider_id IN (${providerList});
+			COMMIT;`);
 	});
 
 	test('OFF → history/local/web combinations → WOPI save/replay/branch → provider removal preserves Drive', async ({ page, request }) => {
@@ -124,9 +128,7 @@ test.describe('Office foundation and Drive History continuity @admin', () => {
 		await setFeature(request, adminToken, 'feature.office_local_open', true);
 		await new Promise((resolve) => setTimeout(resolve, 1200));
 
-		psql(`INSERT INTO office_provider_policies(provider_id,enabled,entitlement_state,build_id,config)
-			VALUES ('${fakeProvider}',true,'valid','e2e-fake',
-			'{"proofMode":"test_disabled","proofDiscoveryUrl":"https://office.test/hosting/discovery","editorUrl":"https://office.test/browser/editor","wopiPublicBaseUrl":"https://setjoin.test"}'::jsonb)`);
+		seedActiveProvider(fakeProvider, TEST_USERS.admin.email, 'e2e-fake');
 
 		const webChoicesResponse = await page.request.get(`/api/drive/files/${fileId}/office/choices?platform=web`);
 		expect(webChoicesResponse.ok()).toBeTruthy();
@@ -258,12 +260,12 @@ test.describe('Office foundation and Drive History continuity @admin', () => {
 		expect(submitted.action).not.toContain('access_token');
 		expect(submitted.fields.access_token).toBeTruthy();
 
-		await setProvider(request, adminToken, drainProvider, { enabled: true, draining: false });
+		seedActiveProvider(drainProvider, TEST_USERS.admin.email, 'e2e-build');
 		const bothChoices = (await (await page.request.get(`/api/drive/files/${fileId}/office/choices?platform=web`)).json()) as {
 			choices: Array<{ providerId: string }>;
 		};
 		expect(bothChoices.choices.map((choice) => choice.providerId)).toEqual(expect.arrayContaining([fakeProvider, drainProvider]));
-		await setProvider(request, adminToken, drainProvider, { enabled: true, draining: true });
+		psql(`UPDATE office_provider_policies SET draining=true, route_state='draining' WHERE provider_id=${sqlLiteral(drainProvider)}`);
 		const drainedChoices = (await (await page.request.get(`/api/drive/files/${fileId}/office/choices?platform=web`)).json()) as {
 			choices: Array<{ providerId: string }>;
 		};
@@ -290,9 +292,18 @@ test.describe('Office foundation and Drive History continuity @admin', () => {
 		await apiLogin(page, TEST_USERS.admin.email, TEST_USERS.admin.password);
 		await page.goto('/admin/office');
 		await expect(page.getByRole('heading', { name: 'Office', exact: true })).toBeVisible();
-		await expect(page.getByText(fakeProvider, { exact: true })).toBeVisible();
-		await expect(page.getByText(drainProvider, { exact: true })).toBeVisible();
-		await expect(page.getByText('Removed', { exact: true }).last()).toBeVisible();
-		await expect(page.getByText('Draining', { exact: true }).last()).toBeVisible();
+		const fakeCard = page.locator('.card', { has: page.getByRole('heading', { level: 3, name: fakeProvider, exact: true }) });
+		await expect(fakeCard).toBeVisible();
+		await expect(fakeCard.getByText('Build not recorded', { exact: true })).toBeVisible();
+		await expect(fakeCard.getByText('e2e-fake', { exact: true })).toHaveCount(0);
+
+		const drainCard = page.locator('.card', { has: page.getByRole('heading', { level: 3, name: drainProvider, exact: true }) });
+		await expect(drainCard).toBeVisible();
+		await expect(drainCard.getByText('draining', { exact: true })).toBeVisible();
+		await expect(drainCard.getByText('e2e-build', { exact: true })).toBeVisible();
+
+		expect(
+			psql(`SELECT removed_at IS NOT NULL AND NOT enabled AND NOT draining AND config='{}'::jsonb AND entitlement_state='not_permitted' AND build_id IS NULL FROM office_provider_policies WHERE provider_id=${sqlLiteral(fakeProvider)}`),
+		).toBe('t');
 	});
 });
