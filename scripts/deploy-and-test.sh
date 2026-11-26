@@ -45,7 +45,7 @@ WORKER="postgres://setjoin_worker:dt-worker@127.0.0.1:5432/mailserver_test?sslmo
 # Authserver (threat detection disabled to avoid interceptor hangs)
 THREAT_FEED_ENABLED=false GEO_BLOCK_ENABLED=false SPRAY_DETECT_ENABLED=false \
 CAPTCHA_ENABLED=false TARPIT_ENABLED=false \
-LISTEN_ADDR=127.0.0.1:8444 DB_DSN="$APP" JWT_SECRET="$JW" INTERNAL_API_KEY="$AP" \
+LISTEN_ADDR=127.0.0.1:8444 DB_DSN="$APP" DB_WORKER_DSN="$WORKER" JWT_SECRET="$JW" INTERNAL_API_KEY="$AP" \
 nohup /tmp/authd >> /tmp/auth.log 2>&1 &
 sleep 2
 curl -s http://127.0.0.1:8444/health | grep -q ok && echo "auth: OK" || { echo "auth: FAIL"; exit 1; }

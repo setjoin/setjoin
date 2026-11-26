@@ -9,12 +9,14 @@ pub const SKIP_MARKER: &str = "CONFORMANCE-SKIP";
 pub enum DbGate {
     /// Run against these connections. `dsn` is the owner connection for
     /// fixtures and observation; `direct` is used only for LISTEN; `app`
-    /// (`DB_APP_DSN`, the constrained `setjoin_app` credential) runs the
-    /// command under test when set, else the owner connection does.
+    /// (`DB_APP_DSN`, the constrained `setjoin_app` credential) runs tenant
+    /// commands/processes; `worker` (`DB_WORKER_DSN`, the `BYPASSRLS`
+    /// `setjoin_worker` credential) runs background workers.
     Run {
         dsn: String,
         direct: String,
         app: Option<String>,
+        worker: Option<String>,
     },
     /// No database and none required: the case must be reported as skipped.
     Skip,
@@ -30,7 +32,13 @@ pub fn resolve(env: impl Fn(&str) -> Option<String>) -> DbGate {
         Some(dsn) => {
             let direct = non_empty("DB_DIRECT_DSN").unwrap_or_else(|| dsn.clone());
             let app = non_empty("DB_APP_DSN");
-            DbGate::Run { dsn, direct, app }
+            let worker = non_empty("DB_WORKER_DSN");
+            DbGate::Run {
+                dsn,
+                direct,
+                app,
+                worker,
+            }
         }
         None if non_empty("REQUIRE_DB").is_some() => DbGate::Missing,
         None => DbGate::Skip,
@@ -68,6 +76,7 @@ mod tests {
                 dsn: "b".into(),
                 direct: "b".into(),
                 app: None,
+                worker: None,
             }
         );
     }
@@ -81,19 +90,25 @@ mod tests {
                 dsn: "pool".into(),
                 direct: "direct".into(),
                 app: None,
+                worker: None,
             }
         );
     }
 
     #[test]
-    fn app_dsn_runs_the_command_when_set() {
-        let gate = resolve(env(&[("DB_DSN", "owner"), ("DB_APP_DSN", "app")]));
+    fn app_and_worker_dsns_resolve_when_set() {
+        let gate = resolve(env(&[
+            ("DB_DSN", "owner"),
+            ("DB_APP_DSN", "app"),
+            ("DB_WORKER_DSN", "worker"),
+        ]));
         assert_eq!(
             gate,
             DbGate::Run {
                 dsn: "owner".into(),
                 direct: "owner".into(),
                 app: Some("app".into()),
+                worker: Some("worker".into()),
             }
         );
     }

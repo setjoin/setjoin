@@ -72,9 +72,6 @@
 #   sudo bash install.sh                 # interactive, idempotent
 #   sudo bash install.sh --force         # re-prompt + rotate secrets (asks first)
 #   sudo NONINTERACTIVE=1 bash install.sh  # use env vars / existing config, no prompts
-#   sudo bash install.sh --permissive-dsn  # escape hatch: single owner DSN for the
-#                                          # runtime too (no constrained roles);
-#                                          # also honors PERMISSIVE_DSN=1
 #
 # Re-run safety: an existing /etc/setjoin/config.env is the source of truth;
 # its secrets and settings are preserved unless --force is given (and even then
@@ -154,6 +151,10 @@ OFFICE_APP_MANIFEST="$CONFIG_DIR/office-managed-app-v1.json"
 OFFICE_APP_STATE_DIR="$UPDATER_DATA_DIR/appmarket/collabora-code"
 CERT_DIR="$CONFIG_DIR/tls"
 
+say()  { printf '==> %s\n' "$1"; }
+info() { printf '    %s\n' "$1"; }
+die()  { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
+
 FORCE=false
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 PERMISSIVE_DSN="${PERMISSIVE_DSN:-0}"
@@ -161,16 +162,14 @@ for arg in "$@"; do
   case "$arg" in
     --force) FORCE=true ;;
     --non-interactive|--noninteractive) NONINTERACTIVE=1 ;;
-    --permissive-dsn) PERMISSIVE_DSN=1 ;;
+    --permissive-dsn)
+      die "--permissive-dsn was retired in Release N+1 (#547): Setjoin enforces unconditional fail-closed FORCE RLS with least-privilege roles (setjoin_app / setjoin_worker / setjoin_owner). Remove --permissive-dsn and re-run."
+      ;;
   esac
 done
 
-say()  { printf '==> %s\n' "$1"; }
-info() { printf '    %s\n' "$1"; }
-die()  { printf 'ERROR: %s\n' "$1" >&2; exit 1; }
-
-if [ "$PERMISSIVE_DSN" = "1" ]; then
-  info "WARN: --permissive-dsn / PERMISSIVE_DSN=1 is DEPRECATED in Release N (#545); Release N+1 will refuse to start on a privileged runtime DB_DSN. Migrate with 'mailctl schema provision-roles --write-dsns'."
+if [ "$PERMISSIVE_DSN" != "0" ]; then
+  die "PERMISSIVE_DSN was retired in Release N+1 (#547): Setjoin enforces unconditional fail-closed FORCE RLS with least-privilege roles (setjoin_app / setjoin_worker / setjoin_owner). Unset PERMISSIVE_DSN and re-run."
 fi
 
 # ask <var> <prompt> <default> [redact-default]
@@ -525,10 +524,9 @@ DEF_LISTEN="$(get_env LISTEN_ADDR)"; DEF_LISTEN="${DEF_LISTEN:-:443}"
 # loads the schema + reducers, and is persisted as DB_OWNER_DSN in the
 # privileged credential file (NOT config.env — DEPLOY-004 split; the same
 # migration above carries pre-split values over) as the DDL/partition identity.
-# The RUNTIME connects as the constrained setjoin_app /
-# setjoin_worker roles derived below (native-RLS credential shape, the default
-# since 2026-07-03 — docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md) unless
-# --permissive-dsn / PERMISSIVE_DSN=1 opts back into the single permissive DSN.
+# The RUNTIME always connects as the constrained setjoin_app /
+# setjoin_worker roles derived below (native-RLS fail-closed credential shape;
+# docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md).
 # On a re-run, prefer the persisted owner DSN (credential file first, then a
 # pre-split config.env) over DB_DSN (which is the app role's DSN in the
 # constrained shape).
@@ -610,14 +608,10 @@ DB_HOST="${DB_HOSTPORT%%:*}"; DB_PORT="${DB_HOSTPORT##*:}"
 DB_HOST="${DB_HOST:-127.0.0.1}"; DB_NAME="${DB_NAME:-mailserver}"
 
 # ── Runtime credential shape (native-RLS three-role model) ───────────────────
-# Default: the gateway/authserver RUNTIME connects as setjoin_app (constrained
-# by FORCE'd RLS), cross-tenant background jobs as setjoin_worker (BYPASSRLS),
-# and only migrations/partition DDL as the owner DSN prompted above — the same
-# shape the e2e harness runs permanently (start-test-stack.sh; runbook:
-# docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md). ROLLBACK (runbook §4.6): point
-# DB_DSN/DB_DIRECT_DSN in config.env back at the DB_OWNER_DSN value and
-# restart — no migration to undo. --permissive-dsn keeps the old single-DSN
-# shape end to end.
+# Unconditional Release N+1 (#547) fail-closed posture: the gateway/authserver
+# RUNTIME connects as setjoin_app (constrained by FORCE'd RLS), cross-tenant
+# background jobs as setjoin_worker (BYPASSRLS), and only migrations/partition
+# DDL as the owner DSN prompted above (docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md).
 # dsn_password <dsn> — extract the password from a user:pw@host DSN (empty if none).
 dsn_password() {
   local d="${1#postgres://}"; d="${d#postgresql://}"
@@ -634,27 +628,25 @@ OWNER_DB_PASSWORD="$(dsn_password "$DB_DIRECT_DSN")"
 if [ -n "$OWNER_DB_PASSWORD" ]; then
   export PGPASSWORD="$OWNER_DB_PASSWORD"
 fi
-if [ "$PERMISSIVE_DSN" != "1" ]; then
-  # Re-run idempotency: reuse the app/worker passwords already persisted in the
-  # existing DSNs (app-role DB_DSN in config.env; the privileged worker tier in
-  # the credential file, preferring it over any pre-split config.env copy);
-  # generate fresh ones only on first install.
-  APP_PW=""; WORKER_PW=""
-  case "$(get_env DB_DSN)" in postgres://setjoin_app:*) APP_PW="$(dsn_password "$(get_env DB_DSN)")" ;; esac
-  _worker_dsn="$(get_cred_env DB_WORKER_DSN)"
-  [ -n "$_worker_dsn" ] || _worker_dsn="$(get_env DB_WORKER_DSN)"
-  case "$_worker_dsn" in postgres://setjoin_worker:*) WORKER_PW="$(dsn_password "$_worker_dsn")" ;; esac
-  [ -n "$APP_PW" ]    || { APP_PW="$(openssl rand -hex 24)";    info "setjoin_app password: generated"; }
-  [ -n "$WORKER_PW" ] || { WORKER_PW="$(openssl rand -hex 24)"; info "setjoin_worker password: generated"; }
-  # Rebuild host[:port]/db[?query] from the owner DSNs, swapping in role creds.
-  _pq=""; case "$DB_DSN" in *\?*) _pq="?${DB_DSN#*\?}";; esac
-  _ph="${DB_DSN#postgres://}"; _ph="${_ph#postgresql://}"; _ph="${_ph%%\?*}"
-  case "$_ph" in *@*) _ph="${_ph#*@}";; esac
-  _dq=""; case "$DB_DIRECT_DSN" in *\?*) _dq="?${DB_DIRECT_DSN#*\?}";; esac
-  RUNTIME_DB_DSN="postgres://setjoin_app:${APP_PW}@${_ph}${_pq}"
-  RUNTIME_WORKER_DSN="postgres://setjoin_worker:${WORKER_PW}@${_ph}${_pq}"
-  RUNTIME_DIRECT_DSN="postgres://setjoin_app:${APP_PW}@${DB_HOST}:${DB_PORT}/${DB_NAME}${_dq}"
-fi
+# Re-run idempotency: reuse the app/worker passwords already persisted in the
+# existing DSNs (app-role DB_DSN in config.env; the privileged worker tier in
+# the credential file, preferring it over any pre-split config.env copy);
+# generate fresh ones only on first install.
+APP_PW=""; WORKER_PW=""
+case "$(get_env DB_DSN)" in postgres://setjoin_app:*) APP_PW="$(dsn_password "$(get_env DB_DSN)")" ;; esac
+_worker_dsn="$(get_cred_env DB_WORKER_DSN)"
+[ -n "$_worker_dsn" ] || _worker_dsn="$(get_env DB_WORKER_DSN)"
+case "$_worker_dsn" in postgres://setjoin_worker:*) WORKER_PW="$(dsn_password "$_worker_dsn")" ;; esac
+[ -n "$APP_PW" ]    || { APP_PW="$(openssl rand -hex 24)";    info "setjoin_app password: generated"; }
+[ -n "$WORKER_PW" ] || { WORKER_PW="$(openssl rand -hex 24)"; info "setjoin_worker password: generated"; }
+# Rebuild host[:port]/db[?query] from the owner DSNs, swapping in role creds.
+_pq=""; case "$DB_DSN" in *\?*) _pq="?${DB_DSN#*\?}";; esac
+_ph="${DB_DSN#postgres://}"; _ph="${_ph#postgresql://}"; _ph="${_ph%%\?*}"
+case "$_ph" in *@*) _ph="${_ph#*@}";; esac
+_dq=""; case "$DB_DIRECT_DSN" in *\?*) _dq="?${DB_DIRECT_DSN#*\?}";; esac
+RUNTIME_DB_DSN="postgres://setjoin_app:${APP_PW}@${_ph}${_pq}"
+RUNTIME_WORKER_DSN="postgres://setjoin_worker:${WORKER_PW}@${_ph}${_pq}"
+RUNTIME_DIRECT_DSN="postgres://setjoin_app:${APP_PW}@${DB_HOST}:${DB_PORT}/${DB_NAME}${_dq}"
 
 # ── 2. Build binaries if missing ─────────────────────────────────────────────
 say "Binaries"
@@ -802,32 +794,20 @@ else
 fi
 chmod 600 "$BACKUP_SIGNING_KEY_FILE"
 
-# Privileged DB credential tier (DEPLOY-004 split, law 3): rendered
-# UNCONDITIONALLY in both postures (Astra L2-C8 HOLD fix) — the units' second
-# EnvironmentFile= and the ownership block below are unconditional, so a fresh
-# --permissive-dsn install must also produce the file; the postures differ
-# only in CONTENT:
-#   - constrained (default): the three privileged tiers, generated in the
-#     SAME single step as the DSNs they derive from (the constrained-shape
-#     block in step 1);
-#   - permissive: no constrained roles exist, so the file carries the two
-#     owner tiers only — the same single owner credential config.env's
-#     DB_DSN/DB_DIRECT_DSN hold — keeping one authoritative location for
-#     upgrade.sh's owner-tier probe and this installer's re-run recovery.
-# Never into config.env, which is chown'ed to and injected into the account
-# running both internet-facing services. A re-run lands here only after the
-# entry migration has already carried any pre-split values over; the rebuild
-# uses the recovered passwords, so the file's values are byte-stable across
-# re-runs and --force never rotates them silently (rotation stays
-# prompt-gated).
+# Privileged DB credential tier (DEPLOY-004 split, law 3): unconditionally
+# renders the three privileged tiers (DB_WORKER_DSN, DB_OWNER_DSN,
+# DB_DIRECT_OWNER_DSN) into $DB_CRED_FILE (0600 root:root below $DB_CRED_DIR),
+# never into config.env (the account-readable config surface). A re-run lands
+# here only after the entry migration has already carried any pre-split values
+# over; the rebuild uses the recovered passwords, so the file's values are
+# byte-stable across re-runs and --force never rotates them silently.
 if [ -L "$DB_CRED_DIR" ] || [ -L "$DB_CRED_FILE" ]; then
   die "$DB_CRED_DIR or $DB_CRED_FILE is a symlink — refusing to write through it."
 fi
-if [ "$PERMISSIVE_DSN" != "1" ]; then
-  [ -n "${RUNTIME_WORKER_DSN:-}" ] || die "RUNTIME_WORKER_DSN missing — refusing to render the privileged DB credential file."
-  ( umask 077
-    mkdir -p "$DB_CRED_DIR"
-    cat > "$DB_CRED_FILE" <<ENV
+[ -n "${RUNTIME_WORKER_DSN:-}" ] || die "RUNTIME_WORKER_DSN missing — refusing to render the privileged DB credential file."
+( umask 077
+  mkdir -p "$DB_CRED_DIR"
+  cat > "$DB_CRED_FILE" <<ENV
 # setjoin privileged DB credential tier — generated $(date -u +%Y-%m-%dT%H:%M:%SZ) by deploy/scripts/install.sh.
 # Mode 0600 root:root below the root-owned $DB_CRED_DIR — NEVER merged back
 # into config.env (the runtime-account-readable config surface). Consumers:
@@ -841,21 +821,7 @@ DB_WORKER_DSN=$RUNTIME_WORKER_DSN
 DB_OWNER_DSN=$DB_DSN
 DB_DIRECT_OWNER_DSN=$DB_DIRECT_DSN
 ENV
-  )
-else
-  ( umask 077
-    mkdir -p "$DB_CRED_DIR"
-    cat > "$DB_CRED_FILE" <<ENV
-# setjoin privileged DB credential tier — generated $(date -u +%Y-%m-%dT%H:%M:%SZ) by deploy/scripts/install.sh.
-# --permissive-dsn posture: no constrained roles exist on this install, so the
-# owner tiers below are the only privileged DB credentials (the same values
-# config.env's DB_DSN/DB_DIRECT_DSN carry). Mode 0600 root:root below the
-# root-owned $DB_CRED_DIR — NEVER merged back into config.env.
-DB_OWNER_DSN=$DB_DSN
-DB_DIRECT_OWNER_DSN=$DB_DIRECT_DSN
-ENV
-  )
-fi
+)
 chmod 600 "$DB_CRED_FILE"
 chmod 0750 "$DB_CRED_DIR"
 info "Privileged DB tiers written to $DB_CRED_FILE (0600 root:root) — config.env no longer carries them."
@@ -1178,12 +1144,12 @@ export PGCONNECT_TIMEOUT=5
 psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -tAc 'SELECT 1' >/dev/null 2>&1 \
   || die "cannot reach Postgres at $DB_HOST:$DB_PORT as $DB_USER. Start it and create the role first. (Stock Debian/Ubuntu pg_hba.conf uses scram-sha-256 on 127.0.0.1 — a passwordless role/DSN cannot authenticate; see SINGLE_NODE_SETUP.md step 2 for the password or loopback-trust options.)"
 
-# Wave 1.7 (#545): CVE-2026-14666 PostgreSQL version floor preflight
-# (requires >= 17.11 or >= 18.6; explicitly warns on < 17.11 and 18.0-18.5).
+# Wave 1.9 (#547): fail-closed CVE-2026-14666 PostgreSQL version floor preflight
+# (requires >= 17.11 or >= 18.6; refuses < 17.11 and 18.0-18.5).
 PG_VER_NUM="$(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres -tAc 'SHOW server_version_num' 2>/dev/null | tr -d '[:space:]' || true)"
 if [ -n "$PG_VER_NUM" ] && [ "$PG_VER_NUM" -eq "$PG_VER_NUM" ] 2>/dev/null; then
   if ! { { [ "$PG_VER_NUM" -ge 170011 ] && [ "$PG_VER_NUM" -lt 180000 ]; } || [ "$PG_VER_NUM" -ge 180006 ]; }; then
-    info "WARN: PostgreSQL server_version_num=$PG_VER_NUM is vulnerable to CVE-2026-14666 (RLS + prepared statements); upgrade PostgreSQL to >= 17.11 or >= 18.6 before Release N+1."
+    die "PostgreSQL server_version_num=$PG_VER_NUM is vulnerable to CVE-2026-14666 (RLS + prepared statements); upgrade PostgreSQL to >= 17.11 or >= 18.6 before installing."
   fi
 fi
 
@@ -1265,35 +1231,32 @@ DB_NAME="$DB_NAME" DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_USER="$DB_USER" \
 ( cd "$ROOT/scripts" && psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" \
     -v ON_ERROR_STOP=1 -f provision-roles.sql >/dev/null )
 
-# Wave 1.7 (#545): verify/repair ARCH-018 scope-helper ownership and run
-# native-RLS + CVE-2026-14666 preflight via the matching mailctl binary.
+# Wave 1.9 (#547): verify/repair ARCH-018 scope-helper ownership and run
+# fail-closed native-RLS + CVE-2026-14666 preflight via the matching mailctl binary.
 info "Verifying native-RLS roles, grants, and ARCH-018 scope helpers via mailctl."
 DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN" DB_OWNER_DSN="$DB_DSN" \
   "$ROOT/server-rust/mailctl" schema provision-roles --yes >/dev/null \
   || die "mailctl schema provision-roles failed — inspect role/grant posture and re-run."
 _preflight_rc=0
 DB_DIRECT_OWNER_DSN="$DB_DIRECT_DSN" DB_OWNER_DSN="$DB_DSN" \
+  DB_DSN="$RUNTIME_DB_DSN" DB_WORKER_DSN="$RUNTIME_WORKER_DSN" \
   "$ROOT/server-rust/mailctl" schema preflight || _preflight_rc=$?
-if [ "$_preflight_rc" -eq 2 ]; then
-  info "WARN: mailctl schema preflight reported Release N advisory warning(s) — remediate before Release N+1."
-elif [ "$_preflight_rc" -ne 0 ]; then
+if [ "$_preflight_rc" -ne 0 ]; then
   die "mailctl schema preflight failed (exit $_preflight_rc) — refusing to continue."
 fi
 
-if [ "$PERMISSIVE_DSN" != "1" ]; then
-  # Give the constrained runtime roles their LOGIN passwords (provision-roles.sql
-  # creates them password-less; re-asserted every run, same as the e2e harness).
-  # Passwords are hex-only, so no SQL-quoting hazard. stdin-fed SQL: a password
-  # in psql argv is visible to any local user via /proc/<pid>/cmdline for the
-  # process's whole lifetime — the exact leak class this script fixed for
-  # valkey-cli via REDISCLI_AUTH (B3 Task 18 finding 4). -v/--set would be argv
-  # too; stdin only. -v ON_ERROR_STOP=1 semantics preserved.
-  info "Setting runtime-role passwords (setjoin_app / setjoin_worker)."
-  psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 >/dev/null <<SQL
+# Give the constrained runtime roles their LOGIN passwords (provision-roles.sql
+# creates them password-less; re-asserted every run, same as the e2e harness).
+# Passwords are hex-only, so no SQL-quoting hazard. stdin-fed SQL: a password
+# in psql argv is visible to any local user via /proc/<pid>/cmdline for the
+# process's whole lifetime — the exact leak class this script fixed for
+# valkey-cli via REDISCLI_AUTH (B3 Task 18 finding 4). -v/--set would be argv
+# too; stdin only. -v ON_ERROR_STOP=1 semantics preserved.
+info "Setting runtime-role passwords (setjoin_app / setjoin_worker)."
+psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 >/dev/null <<SQL
 ALTER ROLE setjoin_app WITH LOGIN PASSWORD '$APP_PW';
 ALTER ROLE setjoin_worker WITH LOGIN PASSWORD '$WORKER_PW';
 SQL
-fi
 
 # The root-owned updater gets its own NOBYPASSRLS credential. It is never
 # written to config.env (which mailserverd reads); the updater receives only
@@ -1318,21 +1281,11 @@ case "$_uphost" in *@*) _uphost="${_uphost#*@}";; esac
   printf '%s\n' "postgres://setjoin_updater:${UPDATER_PW}@${_uphost}${_upq}" > "$UPDATER_DSN_FILE"
 )
 chmod 0600 "$UPDATER_DSN_FILE"
-# The updater's managed-app worker credential follows the posture (Astra
-# L2-C8 HOLD fix: the file must exist in BOTH postures — the unit always
-# receives its path and the managed-app runner exits when it is missing):
-# constrained installs give it the BYPASSRLS worker DSN; a --permissive-dsn
-# install has no constrained roles, so the file carries the single owner
-# credential the posture has.
-if [ "$PERMISSIVE_DSN" != "1" ]; then
-  ( umask 077
-    printf '%s\n' "$RUNTIME_WORKER_DSN" > "$UPDATER_APP_WORKER_DSN_FILE"
-  )
-else
-  ( umask 077
-    printf '%s\n' "$DB_DSN" > "$UPDATER_APP_WORKER_DSN_FILE"
-  )
-fi
+# The updater's managed-app worker credential always carries the constrained
+# BYPASSRLS worker DSN (single-DSN permissive mode retired in Release N+1 #547).
+( umask 077
+  printf '%s\n' "$RUNTIME_WORKER_DSN" > "$UPDATER_APP_WORKER_DSN_FILE"
+)
 chmod 0600 "$UPDATER_APP_WORKER_DSN_FILE"
 
 # The mutation catalog is doubly gated. A fresh install always writes an
@@ -1477,28 +1430,18 @@ else
   FEDERATION_BLOCK=""
 fi
 
-# DSN block for config.env: constrained three-role shape by default,
-# single permissive DSN with --permissive-dsn. The PRIVILEGED tiers are NOT
-# rendered here in either branch: they live only in the root-owned credential
-# file (DEPLOY-004) and reach the units through their own EnvironmentFile=.
-if [ "$PERMISSIVE_DSN" = "1" ]; then
-  DSN_BLOCK="# PERMISSIVE single-DSN mode (--permissive-dsn): runtime = owner credential.
-# To adopt the constrained native-RLS shape later, re-run install.sh without
-# the flag (docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md).
-DB_DSN=$DB_DSN
-DB_DIRECT_DSN=$DB_DIRECT_DSN"
-else
-  DSN_BLOCK="# Native-RLS constrained runtime (docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md):
+# DSN block for config.env: unconditionally constrained three-role shape
+# (Release N+1 #547). The PRIVILEGED tiers are NOT rendered here: they live
+# only in the root-owned credential file (DEPLOY-004) and reach the units
+# through their own EnvironmentFile=.
+DSN_BLOCK="# Native-RLS constrained runtime (docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md):
 # app role for tenant traffic; worker (BYPASSRLS) for cross-tenant jobs and
-# owner for migrations/partition DDL — but ONLY the app-role DSN is rendered
-# here: DB_WORKER_DSN / DB_OWNER_DSN / DB_DIRECT_OWNER_DSN live exclusively in
+# owner for migrations/partition DDL — ONLY the app-role DSN is rendered here:
+# DB_WORKER_DSN / DB_OWNER_DSN / DB_DIRECT_OWNER_DSN live exclusively in
 # $DB_CRED_FILE (0600 root:root, below the root-owned $DB_CRED_DIR) and reach
-# the units through their own EnvironmentFile= line. ROLLBACK: point DB_DSN
-# and DB_DIRECT_DSN back at the DB_OWNER_DSN value from that file and restart
-# (runbook §4.6) — no migration to undo.
+# the units through their own EnvironmentFile= line.
 DB_DSN=$RUNTIME_DB_DSN
 DB_DIRECT_DSN=$RUNTIME_DIRECT_DSN"
-fi
 
 # Persist SFU network-discovery choices so an idempotent re-run does not
 # silently revert a private/LAN deployment from use_external_ip=false back to

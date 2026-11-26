@@ -101,7 +101,13 @@ async fn starts_shared_effects_without_go_off() -> Result<(), BoxError> {
         let probe = std::net::TcpListener::bind("127.0.0.1:0")?;
         let addr = probe.local_addr()?.to_string();
         drop(probe);
-        let mut process = Process::start(&db.dsn, &db.dsn, name, "", &[("GATEWAY_LISTEN", &addr)])?;
+        let mut process = Process::start(
+            db.app_dsn(),
+            db.worker_dsn(),
+            name,
+            "",
+            &[("GATEWAY_LISTEN", &addr)],
+        )?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
         loop {
             if let Some(_status) = process.0.try_wait()? {
@@ -207,7 +213,7 @@ async fn delivers_webhook_subscribed_events_through_the_dispatcher() -> Result<(
         owner.execute("INSERT INTO mailbox_lifecycle_operations(operation_id,mailbox_id,action,actor_user_id,expected_generation,request_digest,before_digest,after_digest,result) VALUES ('29562100-0000-4000-8000-000000000001',$1,'suspend',$2,1,repeat('a',64),repeat('b',64),repeat('c',64),'{}')",&[&a.mailbox,&a.user]).await?;
         owner.execute("INSERT INTO mailbox_lifecycle_effects(operation_id,mailbox_id,effect_kind) VALUES ('29562100-0000-4000-8000-000000000001',$1,'lifecycle_webhook')",&[&a.mailbox]).await?;
         owner.execute("INSERT INTO mailbox_lifecycle_outbox(operation_id,event_kind,dedupe_key,payload) VALUES ('29562100-0000-4000-8000-000000000001','mailbox.suspended','mbox4-startup-webhook-lc','{\"event\":\"mailbox.suspended\"}')",&[]).await?;
-        let mut process=Process::start(&db.dsn,&db.dsn,"mail-work,mailbox-lifecycle","mail-work,mailbox-lifecycle",&[("JWT_SECRET",master)])?;
+        let mut process=Process::start(db.app_dsn(),db.worker_dsn(),"mail-work,mailbox-lifecycle","mail-work,mailbox-lifecycle",&[("JWT_SECRET",master)])?;
         let deadline=tokio::time::Instant::now()+Duration::from_secs(15);
         loop {
             if process.0.try_wait()?.is_some() {return Err(format!("workers refused a subscribed deployment: {}",process.stderr()?).into())}

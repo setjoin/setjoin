@@ -140,8 +140,8 @@ impl Process {
         cmd.arg0("gofree-delete-gate-gateway").env_clear();
         for (key, value) in [
             ("GATEWAY_LISTEN", address.to_string()),
-            ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn).into()),
-            ("DB_WORKER_DSN", db.dsn.clone()),
+            ("DB_DSN", db.app_dsn().into()),
+            ("DB_WORKER_DSN", db.worker_dsn().to_owned()),
             ("DB_OWNER_DSN", db.dsn.clone()),
             ("DB_DIRECT_DSN", db.direct.clone()),
             ("DB_ENCRYPTION_KEY", "22".repeat(32)),

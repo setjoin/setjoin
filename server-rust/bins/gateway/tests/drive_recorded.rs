@@ -209,7 +209,7 @@ async fn run_inner(
         if case=="partial-rows"{ledger("Plan gofree-drive1 partial-row PostgreSQL wire proxy on assigned DB")?;let(dsn,armed,task)=drive_wire::partial_rows(&db.dsn).await;worker_dsn=dsn;partial_wire=Some(task);partial_armed=Some(armed);}
         if let Some(kind)=mutation{let (dsn,schema)=plant_mutant(&c,&db,kind,&a,&b).await?;worker_dsn=dsn;mutant_schema=Some(schema);}
         let endpoint=common::fake_upstream(|_|async{Response::new(common::full("unused"))}).await;
-        let oracle_db=Db{dsn:worker_dsn.clone(),direct:db.direct.clone(),app:db.app.clone()};
+        let oracle_db=Db{dsn:worker_dsn.clone(),direct:db.direct.clone(),app:db.app.clone(),worker:db.worker.clone()};
         let oracle=common::go_oracle::start_named(&oracle_db,endpoint,None,"gofree-drive1").await?;
         let recording=oracle.is_some();
         if let Some(armed)=partial_armed.as_ref(){armed.store(true,std::sync::atomic::Ordering::SeqCst);}

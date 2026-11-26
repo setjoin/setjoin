@@ -53,8 +53,8 @@ async fn yaml_jwt_secret_verifies_clicks_natively_and_is_never_logged() -> Resul
     for (key, value) in [
         ("GATEWAY_LISTEN", address.to_string()),
         ("GATEWAY_AUTH_UPSTREAM", format!("http://{jwks}")),
-        ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn).to_owned()),
-        ("DB_WORKER_DSN", db.dsn.clone()),
+        ("DB_DSN", db.app_dsn().to_owned()),
+        ("DB_WORKER_DSN", db.worker_dsn().to_owned()),
         ("DB_DIRECT_DSN", db.direct.clone()),
         ("DB_ENCRYPTION_KEY", "22".repeat(32)),
         (

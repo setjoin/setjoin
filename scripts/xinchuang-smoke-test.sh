@@ -9,7 +9,8 @@ AUTHSERVER="${AUTHSERVER:-$BIN_DIR/authserver}"
 GATEWAY="${GATEWAY:-$BIN_DIR/gateway}"
 AUTHSERVER_PORT="${AUTHSERVER_PORT:-18443}"
 GATEWAY_PORT="${GATEWAY_PORT:-18080}"
-TEST_DB_DSN="${TEST_DB_DSN:-postgres://mail:test@127.0.0.1:5432/mailserver?sslmode=disable}"
+DB_APP_DSN="${DB_APP_DSN:-postgres://setjoin_app:test@127.0.0.1:5432/mailserver?sslmode=disable}"
+DB_WORKER_DSN="${DB_WORKER_DSN:-postgres://setjoin_worker:test@127.0.0.1:5432/mailserver?sslmode=disable}"
 
 PASS=0
 FAIL=0
@@ -39,7 +40,8 @@ echo "--- Authserver ---"
 JWT_SECRET="test-secret-at-least-32-characters-long" \
 INTERNAL_API_KEY="test-api-key-for-gateway" \
 LISTEN_ADDR=":${AUTHSERVER_PORT}" \
-DB_DSN="$TEST_DB_DSN" \
+DB_DSN="$DB_APP_DSN" \
+DB_WORKER_DSN="$DB_WORKER_DSN" \
 "$AUTHSERVER" &
 AUTH_PID=$!
 trap 'kill "$AUTH_PID" 2>/dev/null; exit' EXIT
@@ -62,7 +64,8 @@ JWT_SECRET="test-secret-at-least-32-characters-long" \
 AUTHSERVER_URL="http://127.0.0.1:${AUTHSERVER_PORT}" \
 INTERNAL_API_KEY="test-api-key-for-gateway" \
 LISTEN_ADDR=":${GATEWAY_PORT}" \
-DB_DSN="$TEST_DB_DSN" \
+DB_DSN="$DB_APP_DSN" \
+DB_WORKER_DSN="$DB_WORKER_DSN" \
 S3_ENDPOINT="127.0.0.1:9000" \
 S3_ACCESS_KEY="test" \
 S3_SECRET_KEY="testsecret" \

@@ -1213,7 +1213,7 @@ async fn run(case: &'static str, mutant: Mutant) -> Result<(), BoxError> {
                 ("ASR_TOKEN", ASR_TOKEN.into()),
             ];
             let oracle = common::go_oracle::start_named_with_env(
-                &Db { dsn: db.dsn.clone(), direct: db.direct.clone(), app: db.app.clone() },
+                &Db { dsn: db.dsn.clone(), direct: db.direct.clone(), app: db.app.clone(), worker: db.worker.clone() },
                 s3_addr,
                 "gofree-meet5w",
                 &env,

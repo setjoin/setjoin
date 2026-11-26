@@ -83,7 +83,9 @@ def compare_effects(dsn, case):
             assert got == case[field], (field, case['name'], got, case[field])
 
 def verify(binary):
-    dsn = os.environ['TEST_DB_DSN']
+    dsn = os.environ["TEST_DB_DSN"]
+    app_dsn = os.environ["DB_APP_DSN"]
+    worker_dsn = os.environ["DB_WORKER_DSN"]
     assert dsn.endswith('/gofree_e2e_smtp6') and os.environ.get('REQUIRE_DB') == '1'
     assert os.geteuid() == 0
     run('systemctl','show','--property=Version','--value')
@@ -105,7 +107,25 @@ def verify(binary):
             sock=socket.socket();sock.bind(('127.0.0.1',0));reservations.append(sock)
         http_port,smtp,submission=[s.getsockname()[1] for s in reservations]
         config=directory/'config.env'
-        config.write_text(f'DB_ENCRYPTION_KEY={"22"*32}\nAUDIT_HMAC_KEY={"33"*32}\nDB_DSN={dsn}\nDB_DIRECT_DSN={dsn}\nDB_WORKER_DSN={dsn}\nSMTP_TLS_CERT_FILE={directory}/cert.pem\nSMTP_TLS_KEY_FILE={directory}/key.pem\nIMAP_ADDR=\nIMAP_TLS_ADDR=\nSMTP_INBOUND_ADDR=127.0.0.1:{smtp}\nSMTP_SUBMISSION_ADDR=127.0.0.1:{submission}\nSMTP_INBOUND_TLS_ADDR=\nCLAMAV_ADDR=127.0.0.1:{clam.server_address[1]}\nSANDBOX_FAIL_MODE=\nJWT_SECRET=smtp6-joint-secret-32-bytes-minimum\nJWT_LINK_PROTECT_TOKEN_VERSION=2\nINTERNAL_DOMAINS=smtp1.test\nPROTECTED_DOMAINS=smtp1.test\nS3_ENDPOINT=http://127.0.0.1:{store.server_address[1]}\nS3_SECURE=false\nS3_BUCKET=mailblobs\nS3_ACCESS_KEY=smtp6-fixture\nS3_SECRET_KEY=smtp6-fixture\n')
+        config.write_text(
+            f"DB_ENCRYPTION_KEY={'22' * 32}\nAUDIT_HMAC_KEY={'33' * 32}\n"
+            f"DB_DSN={app_dsn}\nDB_DIRECT_DSN={app_dsn}\n"
+            f"DB_WORKER_DSN={worker_dsn}\nDB_OWNER_DSN={dsn}\n"
+            f"SMTP_TLS_CERT_FILE={directory}/cert.pem\n"
+            f"SMTP_TLS_KEY_FILE={directory}/key.pem\n"
+            "IMAP_ADDR=\nIMAP_TLS_ADDR=\n"
+            f"SMTP_INBOUND_ADDR=127.0.0.1:{smtp}\n"
+            f"SMTP_SUBMISSION_ADDR=127.0.0.1:{submission}\n"
+            "SMTP_INBOUND_TLS_ADDR=\n"
+            f"CLAMAV_ADDR=127.0.0.1:{clam.server_address[1]}\n"
+            "SANDBOX_FAIL_MODE=\n"
+            "JWT_SECRET=smtp6-joint-secret-32-bytes-minimum\n"
+            "JWT_LINK_PROTECT_TOKEN_VERSION=2\n"
+            "INTERNAL_DOMAINS=smtp1.test\nPROTECTED_DOMAINS=smtp1.test\n"
+            f"S3_ENDPOINT=http://127.0.0.1:{store.server_address[1]}\n"
+            "S3_SECURE=false\nS3_BUCKET=mailblobs\n"
+            "S3_ACCESS_KEY=smtp6-fixture\nS3_SECRET_KEY=smtp6-fixture\n"
+        )
         bootstrap=directory/'bootstrap.env'; bootstrap.write_text('smtp6 disposable bootstrap\n'); bootstrap.chmod(0o600); shutil.chown(bootstrap,user='nobody',group='nogroup')
         (directory/'gateway.env').write_text(f'CONFIG_PATH={bootstrap}\nGATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:9\nGO_LISTENERS_OFF=smtp,submission\nWORM_MODE=\n')
         env=dict(os.environ,INSTALL_DIR=str(directory),RUNTIME_DIR=str(directory),CONFIG_ENV=str(config),GATEWAY_ENV=str(directory/'gateway.env'),SMTP_ENV=str(directory/'smtp.env'),GATEWAY_LISTEN=f'127.0.0.1:{http_port}',FEDERATION_ENABLED='false')

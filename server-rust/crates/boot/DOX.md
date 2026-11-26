@@ -62,18 +62,25 @@ Fixture-only `BOOT_DECRYPT` observations open selected known
 secrets after boot; no production path reads these probe flags. Random file
 keys and timestamps are normalized; the secret fixture is restored per case.
 
-## Wave 1.7 Release N posture (#545)
+## Wave 1.9 Release N+1 fail-closed posture (#547)
 
-`setjoin_boot::run()` returns `Result<BootPosture, Refusal>` using
-`EnforcementMode::WarnReleaseN` (`run_with_mode` accepts
-`FailClosedReleaseNPlus1` for Release N+1 `#547`). Hard invariants
-(`policy_tables_rls_disabled` — never skipped even when `rolsuper == true` —
-and non-superuser `BYPASSRLS` or `owns_forced_rls_tables`) still refuse boot
-with exit 1. Release N warnings (superuser `DB_DSN`, PG CVE-2026-14666 `< 17.11`
-or `18.0–18.5`, drifted roles or ARCH-018 scope helpers) log `WARN` and flow
-into `/health` (`200 {"status":"warn"}`) and `/admin/health` redacted check
-rows (`db_rls_posture`, `pg_version_cve_2026_14666`, `rls_scope_helpers`) via
-`.with_boot_posture(...)` wired only in `bins/gateway/src/main.rs` and
-`bins/auth/src/main.rs`. `tests/oracle/oracle.py` normalizes this documented
-Wave 1.7 event divergence during frozen-Go replay while `tests/recorded.rs`
-asserts the raw unnormalized Release N warnings and refusals directly.
+`setjoin_boot::run()` returns `Result<BootPosture, Refusal>` and
+unconditionally enforces `EnforcementMode::FailClosedReleaseNPlus1` with zero
+bypass flags (`run_with_mode` and `WarnReleaseN` are removed from production
+entrypoints, guarded by `scripts/check-rls-fail-closed.sh`). It passes the
+effective `worker_dsn` (so omitting `DB_WORKER_DSN` fails closed loudly instead
+of reusing `DB_DSN`) and `raw_owner_dsn.as_deref()` (so production units
+intentionally omitting `DB_OWNER_DSN` per DEPLOY-004 succeed while an
+explicitly shared `DB_OWNER_DSN` fails closed). Any finding from
+`RlsPreflightReport::fail_closed_errors(false)` — superuser/`BYPASSRLS` runtime
+`DB_DSN`, direct or `pg_has_role(..., 'MEMBER')` ownership of any `FORCE RLS`
+table, shared app/worker or app/owner roles (including username-less DSNs),
+policy tables missing `ENABLE` or `FORCE ROW LEVEL SECURITY`, PG
+`CVE-2026-14666` (`< 17.11` or `18.0–18.5`), or drifted roles / ARCH-018 scope
+helpers — logs `ERROR` and refuses boot with exit `1` before binding any
+listener. `tests/oracle/oracle.py` defaults Rust replay to `DB_APP_DSN` +
+`DB_WORKER_DSN`, normalizes the documented Release N+1 INFO-event divergence
+against immutable frozen-Go `goldens.json`, and asserts the documented `#547`
+refusal divergence on `partition-ddl-denied-go-warns` (whose companion test in
+`tests/recorded.rs` proves a distinct unprivileged `DB_OWNER_DSN` still boots
+cleanly).

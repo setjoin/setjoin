@@ -13,7 +13,8 @@
 #   LANE_DB_PREFIX    database name prefix, must contain `_e2e_` (default gofree_e2e_lane_);
 #                     this script drops and recreates ONLY ${prefix}tpl and ${prefix}base
 #                     and sweeps ${prefix}<24 hex> clones — never any other database
-#   LANE_APP_PASSWORD password for setjoin_app (DB_APP_DSN); random when unset
+#   LANE_APP_PASSWORD    password for setjoin_app (DB_APP_DSN); random when unset
+#   LANE_WORKER_PASSWORD password for setjoin_worker (DB_WORKER_DSN); random when unset
 #   LANE_JOBS         concurrent tests (default 5)
 #   LANE_ARTIFACT_DIR where the log, junit.xml and test lists land
 #   LANE_QUICK        1 = debug run: only `cargo nextest run -E "$LANE_NEXTEST_FILTER"` on the
@@ -43,6 +44,7 @@ mkdir -p "$ART"
 rm -f "$ART/lane-complete.txt"  # the receipt is written only when the lane reaches its end
 TPL="${PREFIX}tpl" BASE="${PREFIX}base"
 APP_PW="${LANE_APP_PASSWORD:-$(openssl rand -hex 16)}"
+WORKER_PW="${LANE_WORKER_PASSWORD:-$(openssl rand -hex 16)}"
 
 stamp() { echo "== lane $(date -u +%FT%TZ) $*"; }
 admin() { psql -h "$HOST" -p "$PORT" -U "$PGU" -d postgres -X -q -v ON_ERROR_STOP=1 "$@"; }
@@ -60,8 +62,10 @@ if [[ "${LANE_SKIP_SCHEMA:-}" != 1 ]]; then
     echo "✗ lane: schema load failed" >&2
     exit 1
   }
-  # Roles are cluster-wide: give setjoin_app a credential once (DB_APP_DSN consumers).
+  # Roles are cluster-wide: give setjoin_app and setjoin_worker credentials
+  # once (DB_APP_DSN / DB_WORKER_DSN consumers under Wave 1.9 #547 fail-closed boot).
   admin -c "ALTER ROLE setjoin_app LOGIN PASSWORD '$APP_PW'" || exit 1
+  admin -c "ALTER ROLE setjoin_worker LOGIN PASSWORD '$WORKER_PW'" || exit 1
   # Season the sequences: the oracles normalise ids by substring replacement
   # (`<admin>`, `<other>`), which collides with small literals when every id starts at 1,
   # whereas the long-lived shared database the goldens were recorded against has large ids.
@@ -90,6 +94,7 @@ admin -c "DROP DATABASE IF EXISTS \"$BASE\" WITH (FORCE)" -c "CREATE DATABASE \"
 BASE_DSN="$(dsn "$PGU" "$SUPER_PW" "$BASE")"
 export TEST_DB_DSN="$BASE_DSN" DB_DSN="$BASE_DSN" DB_DIRECT_DSN="$BASE_DSN"
 export DB_APP_DSN="$(dsn setjoin_app "$(pw_enc "$APP_PW")" "$BASE")"
+export DB_WORKER_DSN="$(dsn setjoin_worker "$(pw_enc "$WORKER_PW")" "$BASE")"
 export REQUIRE_DB=1
 export LANE_ADMIN_DSN="$(dsn "$PGU" "$SUPER_PW" postgres)" LANE_TEMPLATE_DB="$TPL" LANE_BASE_DB="$BASE" LANE_DB_PREFIX="$PREFIX"
 export GOFREE_AIRGAP_FIXTURE_ROOT="${GOFREE_AIRGAP_FIXTURE_ROOT:-/dev/shm}"

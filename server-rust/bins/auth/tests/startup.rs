@@ -11,7 +11,6 @@ impl Drop for Owned {
 }
 #[tokio::test]
 async fn auth_binary_serves_health_and_readiness_on_its_own_listener() {
-    let dsn = std::env::var("TEST_DB_DSN").expect("TEST_DB_DSN required");
     let db = setjoin_conformance::harness::Db::for_case("IDLOGIN1-startup").unwrap();
     let fixture_lock = db.connect().await.unwrap();
     fixture_lock
@@ -22,6 +21,72 @@ async fn auth_binary_serves_health_and_readiness_on_its_own_listener() {
         .await
         .unwrap();
     common::signing_key(&fixture_lock).await;
+
+    // 1. Wave 1.9 (#547): setjoin-auth unconditionally refuses to start on
+    //    superuser TEST_DB_DSN (exit 1 before binding any listener).
+    let super_out = Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
+        .arg0("gofree-idlogin1-auth-super-refuse")
+        .env("DB_DSN", &db.dsn)
+        .env("DB_WORKER_DSN", db.worker_dsn())
+        .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
+        .env("LISTEN_ADDR", "127.0.0.1:0")
+        .env_remove("SETJOIN_CONFIG")
+        .env("CRYPTO_ALGORITHM_PROFILE", "standard")
+        .output()
+        .unwrap();
+    assert_eq!(
+        super_out.status.code(),
+        Some(1),
+        "superuser DB_DSN must refuse boot: {}",
+        String::from_utf8_lossy(&super_out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&super_out.stderr)
+            .contains("native-RLS boot check FAILED — refusing to start"),
+        "{}",
+        String::from_utf8_lossy(&super_out.stderr)
+    );
+
+    // 2. Non-superuser BYPASSRLS role (DB_WORKER_DSN as DB_DSN) also refuses boot.
+    if let Some(worker_dsn) = db.worker.as_deref() {
+        let bypass_out = Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
+            .arg0("gofree-idlogin1-auth-bypass-refuse")
+            .env("DB_DSN", worker_dsn)
+            .env("DB_WORKER_DSN", &db.dsn)
+            .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
+            .env("LISTEN_ADDR", "127.0.0.1:0")
+            .env_remove("SETJOIN_CONFIG")
+            .env("CRYPTO_ALGORITHM_PROFILE", "standard")
+            .output()
+            .unwrap();
+        assert_eq!(
+            bypass_out.status.code(),
+            Some(1),
+            "BYPASSRLS DB_DSN must refuse boot: {}",
+            String::from_utf8_lossy(&bypass_out.stderr)
+        );
+    }
+
+    // 3. Unset DB_WORKER_DSN (falls back to DB_DSN -> shared app/worker role) refuses boot.
+    let shared_out = Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
+        .arg0("gofree-idlogin1-auth-shared-worker-refuse")
+        .env("DB_DSN", db.app_dsn())
+        .env_remove("DB_WORKER_DSN")
+        .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
+        .env("LISTEN_ADDR", "127.0.0.1:0")
+        .env_remove("SETJOIN_CONFIG")
+        .env("CRYPTO_ALGORITHM_PROFILE", "standard")
+        .output()
+        .unwrap();
+    assert_eq!(
+        shared_out.status.code(),
+        Some(1),
+        "omitted DB_WORKER_DSN must refuse boot: {}",
+        String::from_utf8_lossy(&shared_out.stderr)
+    );
+
+    // 4. Primary health & readiness proof: constrained DB_APP_DSN + distinct
+    //    DB_WORKER_DSN boots cleanly and returns 200 {"status":"ok"}.
     let listener = setjoin_conformance::ports::std_listener();
     let addr = listener.local_addr().unwrap();
     drop(listener);
@@ -32,7 +97,9 @@ async fn auth_binary_serves_health_and_readiness_on_its_own_listener() {
                 std::env::var("GOFREE_RESOURCE_PREFIX")
                     .unwrap_or_else(|_| "gofree-idlogin1".into())
             ))
-            .env("DB_DSN", dsn)
+            .env("DB_DSN", db.app_dsn())
+            .env("DB_DIRECT_DSN", db.app_dsn())
+            .env("DB_WORKER_DSN", db.worker_dsn())
             .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
             .env("LISTEN_ADDR", addr.to_string())
             .env_remove("SETJOIN_CONFIG")
@@ -57,10 +124,9 @@ async fn auth_binary_serves_health_and_readiness_on_its_own_listener() {
             let mut response = Vec::new();
             stream.read_to_end(&mut response).await.unwrap();
             assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
-            // Wave 1.7 (#545) Release N: superuser TEST_DB_DSN degrades /health to warn.
             assert!(
-                response.ends_with(br#"{"status":"warn"}"#),
-                "expected Release N warn on superuser TEST_DB_DSN, got: {}",
+                response.ends_with(br#"{"status":"ok"}"#),
+                "expected ok on constrained DB_APP_DSN, got: {}",
                 String::from_utf8_lossy(&response)
             );
             connected = true;
@@ -81,76 +147,6 @@ async fn auth_binary_serves_health_and_readiness_on_its_own_listener() {
     let mut response = Vec::new();
     stream.read_to_end(&mut response).await.unwrap();
     assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
-
-    // Companion Release N proof (#545): when running on constrained DB_APP_DSN
-    // (+ distinct worker role), /health reports {"status":"ok"}.
-    let app_dsn = std::env::var("DB_APP_DSN").unwrap_or_else(|_| {
-        setjoin_pg::rls_preflight::rewrite_dsn_credentials(
-            &std::env::var("TEST_DB_DSN").unwrap(),
-            "setjoin_app",
-            "",
-        )
-        .unwrap_or_default()
-    });
-    if !app_dsn.is_empty()
-        && setjoin_pg::operator::OperatorConnection::connect(&app_dsn)
-            .await
-            .is_ok()
-    {
-        let worker_dsn = std::env::var("TEST_DB_DSN").unwrap();
-        let listener2 = setjoin_conformance::ports::std_listener();
-        let addr2 = listener2.local_addr().unwrap();
-        drop(listener2);
-        let mut child2 = Owned(
-            Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
-                .arg0(format!(
-                    "{}-auth-app",
-                    std::env::var("GOFREE_RESOURCE_PREFIX")
-                        .unwrap_or_else(|_| "gofree-idlogin1".into())
-                ))
-                .env("DB_DSN", &app_dsn)
-                .env("DB_WORKER_DSN", &worker_dsn)
-                .env("DB_DIRECT_DSN", &app_dsn)
-                .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
-                .env("LISTEN_ADDR", addr2.to_string())
-                .env_remove("SETJOIN_CONFIG")
-                .env("CRYPTO_ALGORITHM_PROFILE", "standard")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap(),
-        );
-        let mut ok_connected = false;
-        for _ in 0..100 {
-            if let Ok(mut stream) = tokio::net::TcpStream::connect(addr2).await {
-                stream
-                    .write_all(
-                        b"GET /health HTTP/1.1\r\nHost: auth.test\r\nConnection: close\r\n\r\n",
-                    )
-                    .await
-                    .unwrap();
-                let mut resp = Vec::new();
-                stream.read_to_end(&mut resp).await.unwrap();
-                assert!(String::from_utf8_lossy(&resp).starts_with("HTTP/1.1 200"));
-                assert!(
-                    resp.ends_with(br#"{"status":"ok"}"#),
-                    "expected ok on constrained DB_APP_DSN, got: {}",
-                    String::from_utf8_lossy(&resp)
-                );
-                ok_connected = true;
-                break;
-            }
-            assert!(
-                child2.0.try_wait().unwrap().is_none(),
-                "constrained auth process exited before readiness"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert!(
-            ok_connected,
-            "constrained auth process never bound its listener"
-        );
-    }
 }
 
 #[test]
@@ -256,7 +252,9 @@ async fn auth_runtime_shared_tasks_start_without_go_workers_off() {
     let mut child = Owned(
         Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
             .arg0("gofree-authrt-guard")
-            .env("DB_DSN", &db.dsn)
+            .env("DB_DSN", db.app_dsn())
+            .env("DB_DIRECT_DSN", db.app_dsn())
+            .env("DB_WORKER_DSN", db.worker_dsn())
             .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
             .env("LISTEN_ADDR", addr.to_string())
             .env_remove("SETJOIN_CONFIG")
@@ -322,7 +320,9 @@ async fn auth_runtime_refuses_a_missing_seeded_security_control() {
     let mut child = Owned(
         Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
             .arg0("gofree-authrt-seed-guard")
-            .env("DB_DSN", &db.dsn)
+            .env("DB_DSN", db.app_dsn())
+            .env("DB_DIRECT_DSN", db.app_dsn())
+            .env("DB_WORKER_DSN", db.worker_dsn())
             .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
             .env("LISTEN_ADDR", "127.0.0.1:0")
             .env("CRYPTO_ALGORITHM_PROFILE", "standard")
@@ -386,7 +386,9 @@ async fn auth_runtime_refuses_missing_toggle_registry_state() {
     let mut child = Owned(
         Command::new(env!("CARGO_BIN_EXE_setjoin-auth"))
             .arg0("gofree-authrt-registry-guard")
-            .env("DB_DSN", &db.dsn)
+            .env("DB_DSN", db.app_dsn())
+            .env("DB_DIRECT_DSN", db.app_dsn())
+            .env("DB_WORKER_DSN", db.worker_dsn())
             .env("JWT_SECRET", "idlogin1-fixture-secret-at-least-32-bytes")
             .env("LISTEN_ADDR", "127.0.0.1:0")
             .env("CRYPTO_ALGORITHM_PROFILE", "standard")

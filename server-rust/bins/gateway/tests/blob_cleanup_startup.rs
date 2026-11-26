@@ -51,7 +51,7 @@ async fn starts_without_go_off() -> Result<(), BoxError> {
         ("S3_ENDPOINT", "http://127.0.0.1:1"),
         ("S3_BUCKET", "mailblobs"),
     ];
-    let mut child = gateway(&db.dsn, &db.dsn, "blob-cleanup", "", &s3)?;
+    let mut child = gateway(db.app_dsn(), db.worker_dsn(), "blob-cleanup", "", &s3)?;
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     let running = child.try_wait()?.is_none();
     stop(&mut child);
@@ -71,13 +71,13 @@ async fn starts_once_go_is_off_and_stops_on_sigterm() -> Result<(), BoxError> {
         ("S3_ENDPOINT", "http://127.0.0.1:1"),
         ("S3_BUCKET", "mailblobs"),
     ];
-    let mut child = gateway(&db.dsn, &db.dsn, "blob-cleanup", "blob-cleanup", &s3)?;
+    let mut child = gateway(db.app_dsn(), db.worker_dsn(), "blob-cleanup", "blob-cleanup", &s3)?;
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     let running = child.try_wait()?.is_none();
     stop(&mut child);
     assert!(running, "blob-cleanup did not stay up with Go off");
     // Not listed: Go keeps the worker; the owned peer still serves server boot.
-    let mut child = gateway(&db.dsn, &db.dsn, "", "blob-cleanup", &[])?;
+    let mut child = gateway(db.app_dsn(), db.worker_dsn(), "", "blob-cleanup", &[])?;
     tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     let running = child.try_wait()?.is_none();
     stop(&mut child);
@@ -92,8 +92,8 @@ async fn boot_refuses_invalid_object_store_before_workers() -> Result<(), BoxErr
         return Ok(());
     };
     let child = gateway(
-        &db.dsn,
-        &db.dsn,
+        db.app_dsn(),
+        db.worker_dsn(),
         "blob-cleanup",
         "blob-cleanup",
         &[("S3_ENDPOINT", "http://user@example.invalid:9000")],

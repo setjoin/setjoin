@@ -544,6 +544,7 @@ async fn mutant_database(
             dsn: db.dsn.clone(),
             direct: db.direct.clone(),
             app: Some(dsn),
+            worker: db.worker.clone(),
         },
         schema,
     )))

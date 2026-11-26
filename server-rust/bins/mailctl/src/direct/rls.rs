@@ -68,7 +68,7 @@ pub async fn preflight(args: &[String]) -> Result<i32, String> {
         PostureContext::RuntimeApp
     };
     let report = inspect_rls_posture_operator(&db, context, Some(dsn_roles)).await?;
-    let code = report.exit_code(EnforcementMode::WarnReleaseN);
+    let code = report.exit_code(EnforcementMode::FailClosedReleaseNPlus1);
     if fs.boolean("json") {
         println!(
             "{}",
@@ -85,7 +85,7 @@ pub fn print_human_report(report: &RlsPreflightReport) {
         "PostgreSQL: {} (server_version_num={}, CVE-2026-14666: {})",
         report.server_version,
         report.server_version_num,
-        if report.pg_version_ok { "ok" } else { "WARN" }
+        if report.pg_version_ok { "ok" } else { "FAIL" }
     );
     println!(
         "Connected role: {} (superuser={}, bypassrls={})",
@@ -112,16 +112,11 @@ pub fn print_human_report(report: &RlsPreflightReport) {
             "MISSING"
         }
     );
-    if !report.hard_errors.is_empty() {
-        println!("HARD ERRORS:");
-        for err in &report.hard_errors {
+    let failures = report.fail_closed_errors(false);
+    if !failures.is_empty() {
+        println!("FAILURES (Release N+1 fail-closed — server will refuse to start):");
+        for err in &failures {
             println!("  [ERROR] {err}");
-        }
-    }
-    if !report.warnings.is_empty() {
-        println!("WARNINGS (Release N advisory; Release N+1 will refuse to start):");
-        for warn in &report.warnings {
-            println!("  [WARN] {warn}");
         }
     }
     if report.is_clean() {

@@ -356,6 +356,7 @@ async fn run_inner(
             dsn: db.dsn.clone(),
             direct: db.direct.clone(),
             app: db.app.clone(),
+            worker: db.worker.clone(),
         };
         let oracle =
             common::go_oracle::start_named_with_env(&oracle_db, unused, "gofree-meet1", &go_env)

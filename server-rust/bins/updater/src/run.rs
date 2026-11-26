@@ -502,10 +502,11 @@ async fn step(
             )
             .await
             .map_err(|err| anyhow!("RLS preflight failed: {err}"))?;
+            let rls_errors = rls_report.fail_closed_errors(true);
             ensure!(
-                rls_report.hard_errors.is_empty(),
-                "RLS preflight failed hard invariants: {}",
-                rls_report.hard_errors.join("; ")
+                rls_errors.is_empty(),
+                "RLS preflight failed (Release N+1 fail-closed): {}",
+                rls_errors.join("; ")
             );
             let rls_evidence = compact_rls_preflight_evidence(&rls_report);
             Ok(json!({

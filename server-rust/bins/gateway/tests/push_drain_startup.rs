@@ -48,7 +48,7 @@ async fn starts_without_go_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("push-drain-startup") else {
         return Ok(());
     };
-    let mut child = gateway(&db.dsn, &db.dsn, "push-intent-drain", "")?;
+    let mut child = gateway(db.app_dsn(), db.worker_dsn(), "push-intent-drain", "")?;
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     let running = child.try_wait()?.is_none();
     stop(&mut child);

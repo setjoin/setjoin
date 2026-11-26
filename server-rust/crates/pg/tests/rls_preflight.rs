@@ -268,6 +268,89 @@ async fn live_db_rls_preflight_repair_carveouts_and_owner_safe_pass() {
             "setjoin_worker must not retain CREATE on schema public after owner-safe pass"
         );
 
+        // 4. Wave 1.9 (#547): verify BOTH inspect_rls_posture_client AND
+        //    inspect_rls_posture_executor detect:
+        //    (a) ENABLE ROW LEVEL SECURITY without FORCE ROW LEVEL SECURITY, and
+        //    (b) indirect FORCE-RLS table ownership via role membership (including
+        //        WITH INHERIT FALSE) using pg_has_role(..., 'MEMBER').
+        let unforced_tbl = format!("rls_unforced_547_{}", std::process::id());
+        let indirect_tbl = format!("rls_indirect_547_{}", std::process::id());
+        let indirect_app = format!("rls_app_547_{}", std::process::id());
+        let indirect_app_pw = "rls_app_547_pw";
+        super_client
+            .batch_execute(&format!(
+                "DROP ROLE IF EXISTS {indirect_app}; \
+                 CREATE ROLE {indirect_app} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '{indirect_app_pw}'; \
+                 GRANT USAGE ON SCHEMA public TO {indirect_app}; \
+                 CREATE TABLE {unforced_tbl}(id int); \
+                 ALTER TABLE {unforced_tbl} ENABLE ROW LEVEL SECURITY; \
+                 CREATE POLICY p_{unforced_tbl} ON {unforced_tbl} USING (true); \
+                 CREATE TABLE {indirect_tbl}(id int); \
+                 ALTER TABLE {indirect_tbl} OWNER TO setjoin_owner; \
+                 ALTER TABLE {indirect_tbl} ENABLE ROW LEVEL SECURITY; \
+                 ALTER TABLE {indirect_tbl} FORCE ROW LEVEL SECURITY; \
+                 GRANT setjoin_owner TO {indirect_app} WITH INHERIT FALSE;"
+            ))
+            .await
+            .expect("seed wave 1.9 unforced & indirect-owner fixtures");
+
+        let indirect_app_dsn =
+            rewrite_dsn_credentials(&e2e_dsn, &indirect_app, indirect_app_pw).unwrap();
+        let indirect_client = connect(&indirect_app_dsn).await;
+        let indirect_exec =
+            setjoin_pg::ScopedExecutor::from_dsn(&indirect_app_dsn, 2).expect("indirect exec");
+
+        let rep_client = setjoin_pg::rls_preflight::inspect_rls_posture_client(
+            &indirect_client,
+            PostureContext::RuntimeApp,
+            None,
+        )
+        .await
+        .expect("inspect_rls_posture_client");
+        let rep_exec = setjoin_pg::rls_preflight::inspect_rls_posture_executor(
+            &indirect_exec,
+            PostureContext::RuntimeApp,
+            None,
+        )
+        .await
+        .expect("inspect_rls_posture_executor");
+
+        for (label, rep) in [("client", &rep_client), ("executor", &rep_exec)] {
+            assert!(
+                rep.policy_tables_rls_disabled.contains(&unforced_tbl),
+                "{label}: expected {unforced_tbl} in policy_tables_rls_disabled: {:?}",
+                rep.policy_tables_rls_disabled
+            );
+            assert!(
+                rep.owns_forced_rls_tables.contains(&indirect_tbl),
+                "{label}: expected {indirect_tbl} in owns_forced_rls_tables via WITH INHERIT FALSE membership: {:?}",
+                rep.owns_forced_rls_tables
+            );
+            let errs = rep.fail_closed_errors(false);
+            assert!(
+                errs.iter()
+                    .any(|e| e.contains("missing ENABLE or FORCE ROW LEVEL SECURITY")),
+                "{label}: missing unforced diagnostic: {errs:?}"
+            );
+            assert!(
+                errs.iter().any(|e| e.contains("owns FORCE-RLS table")),
+                "{label}: missing indirect-owner diagnostic: {errs:?}"
+            );
+        }
+
+        drop(indirect_exec);
+        drop(indirect_client);
+        super_client
+            .batch_execute(&format!(
+                "REVOKE setjoin_owner FROM {indirect_app}; \
+                 REVOKE USAGE ON SCHEMA public FROM {indirect_app}; \
+                 DROP TABLE IF EXISTS {unforced_tbl}; \
+                 DROP TABLE IF EXISTS {indirect_tbl}; \
+                 DROP ROLE IF EXISTS {indirect_app};"
+            ))
+            .await
+            .expect("cleanup wave 1.9 fixtures");
+
         drop(owner_client);
         drop(super_client);
     }

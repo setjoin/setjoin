@@ -72,11 +72,13 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
   `scripts/test-samlacs-mutants.py` continues running in CI `roots` under `REQUIRE_DB=1`.
   Historical record in [DOX.md](DOX.md#go-deletion-rehearsal-141).
 - `setjoin-pg` DB tests (`crates/pg/tests/db_scope.rs`) need a schema from
-  `scripts/load-test-schema.sh`, owner DSN in `TEST_DB_DSN`/`DB_DSN` and the
-  `setjoin_app` credential in `DB_APP_DSN`; absent → `SETJOIN-PG-DB-SKIP
-  (reason=no-dsn)` per test, `REQUIRE_DB=1` → FAIL. Rust has no runtime skip,
-  so a skipped DB test still counts as `ok`: a skip line is never a pass.
-  CI's guard step sets all three plus `REQUIRE_DB=1`.
+  `scripts/load-test-schema.sh`, owner DSN in `TEST_DB_DSN`/`DB_DSN`, the
+  `setjoin_app` credential in `DB_APP_DSN`, and the `setjoin_worker` credential
+  in `DB_WORKER_DSN` (mandatory for Release N+1 `#547` fail-closed process
+  boot); absent → `SETJOIN-PG-DB-SKIP (reason=no-dsn)` per test, `REQUIRE_DB=1`
+  → FAIL. Rust has no runtime skip, so a skipped DB test still counts as `ok`:
+  a skip line is never a pass. CI's guard step sets all credentials plus
+  `REQUIRE_DB=1`.
 - `crates/pg/tests/workers.rs` exercises the scheduler lock against Go's SQL,
   worker credential selection and direct LISTEN using the disposable test DB.
 - Gateway `tests/workers.rs` covers the Go task catalog, interval/cron timing,

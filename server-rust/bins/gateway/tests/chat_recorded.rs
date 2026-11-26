@@ -736,7 +736,7 @@ async fn run_inner(
             let method=request.method().to_string();let uri=request.uri().to_string();let body=request.into_body().collect().await.unwrap().to_bytes();
             Response::builder().status(418).header("x-gofree-chat1-go","yes").body(common::full(json!({"method":method,"uri":uri,"body":String::from_utf8_lossy(&body)}).to_string())).unwrap()
         }}).await;
-        let oracle_db=Db{dsn:worker_dsn.clone(),direct:db.direct.clone(),app:db.app.clone()};
+        let oracle_db=Db{dsn:worker_dsn.clone(),direct:db.direct.clone(),app:db.app.clone(),worker:db.worker.clone()};
         let oracle=common::go_oracle::start(&oracle_db,endpoint).await?;
         let recording=oracle.is_some();
         let mut listener=db.listen(&format!("chat:{}",foreign.user)).await?;

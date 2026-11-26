@@ -8,7 +8,7 @@ fn weak_native_signing_secret_is_rejected_before_listening() {
         .arg0("gofree-idlogin3-weak-drive-key")
         .env_clear()
         .env("GATEWAY_LISTEN", "127.0.0.1:0")
-        .env("DB_DSN", std::env::var("DB_DSN").unwrap())
+        .env("DB_DSN", std::env::var("DB_APP_DSN").expect("DB_APP_DSN required"))
         .env(
             "AUTHSERVER_JWKS_URL",
             "http://127.0.0.1:1/.well-known/jwks.json",

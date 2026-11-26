@@ -152,11 +152,11 @@ async fn execute(cmd: &str, action: &str, args: &[String]) -> Result<i32, String
                     );
                 }
                 if let Some(report) = advisory {
-                    if !report.hard_errors.is_empty() || !report.warnings.is_empty() {
+                    let failures = report.fail_closed_errors(false);
+                    if !failures.is_empty() {
                         eprintln!(
-                            "WARNING: native-RLS preflight reported {} error(s), {} warning(s) — run 'mailctl schema preflight' for details",
-                            report.hard_errors.len(),
-                            report.warnings.len()
+                            "ERROR: native-RLS preflight reported {} failure(s) (server will refuse to start) — run 'mailctl schema preflight' for details",
+                            failures.len()
                         );
                     }
                 }

@@ -14,7 +14,7 @@ Every database query **must** satisfy all four rules. No exceptions.
 | **R1 — SELECT filter** | Every SELECT on user-data tables | Does the WHERE/JOIN constrain rows to the authenticated user? |
 | **R2 — INSERT from auth** | Every INSERT into user-data tables | Is `user_id`/`mailbox_id` set from auth context, never the request body? |
 | **R3 — Mutate with ownership** | Every UPDATE/DELETE on user-data tables | Does the WHERE clause include BOTH the resource ID AND the ownership column? |
-| **R4 — Per-user isolation** | Every table containing per-user data | Does every access carry an ownership-scoping predicate, propagated from auth? (Enforced at the **application layer** — see Rule 4. Native RLS is *deferred*, not enforced → [ARCH-006](../adr/ARCH-006-app-level-isolation-posture.md).) |
+| **R4 — Per-user isolation** | Every table containing per-user data | Does every access carry an ownership-scoping predicate, propagated from auth, AND pass unconditional fail-closed `FORCE ROW LEVEL SECURITY` under `setjoin_app`? (Both application-layer predicates/CI guards and native `FORCE RLS` are enforced — see Rule 4 and [ARCH-006](../adr/ARCH-006-app-level-isolation-posture.md).) |
 
 ## Rule 1: SELECT Must Filter by Ownership
 
@@ -109,30 +109,27 @@ SELECT id INTO v_id FROM messages WHERE id = p_id AND mailbox_id = p_account_id;
 DELETE FROM messages WHERE id = v_id AND mailbox_id = p_account_id;
 ```
 
-## Rule 4: Per-User Isolation — Enforced at the Application Layer
+## Rule 4: Per-User Isolation — Application Layer + Mandatory Fail-Closed Native `FORCE RLS`
 
-> **The real boundary (ARCH-006), now backstopped by native RLS on the hot tables.**
-> Per-user isolation is enforced in **application code** — `p_mailbox_id` propagated
-> through the reducer layer and explicit ownership predicates in raw gateway queries —
-> and, as of the native-RLS enforcement-flip (W6 / `V004__rls_enable.sql`), **also by
-> native PostgreSQL Row-Level Security on `messages` + `message_tags`**: both parents
-> are `ENABLE`+`FORCE ROW LEVEL SECURITY` with per-mailbox policies (`V003`) keyed on a
-> transaction-scoped `app.current_mailbox_id` GUC the gateway sets per request
-> (JMAP `CallScoped`, IMAP `withScope`).
+> **Release N+1 (`#547`) mandatory baseline:** Per-user isolation is enforced
+> **both** in application code (`p_mailbox_id` / `ScopedTx` / `PolicyGate`
+> predicates guarded in CI) **and** by **unconditional fail-closed PostgreSQL
+> `ENABLE` + `FORCE ROW LEVEL SECURITY`**. Starting in Release N+1 (`#547`),
+> `setjoin-server` and `setjoin-auth` unconditionally refuse to start (exit `1`)
+> if `DB_DSN` connects as a superuser, a `BYPASSRLS` role, or any role that owns
+> (directly or via `pg_has_role(..., 'MEMBER')`) a `FORCE RLS` table; if
+> `DB_WORKER_DSN` is omitted or shares a role with `DB_DSN`; if an explicitly
+> configured `DB_OWNER_DSN` shares a role with `DB_DSN`; if any table with RLS
+> policies lacks `ENABLE` or `FORCE ROW LEVEL SECURITY`; if PostgreSQL is
+> vulnerable to `CVE-2026-14666` (`< 17.11` or `18.0–18.5`); or if canonical
+> roles or ARCH-018 `SECURITY DEFINER` scope helpers have drifted.
 >
-> **The RLS backstop is a no-op until the prod DSN switches to the non-owner
-> `setjoin_app` role.** A superuser/owner bypasses RLS even under FORCE, so today's
-> runtime (and the dev/test `mail` connection) is unaffected — V004 is safe to apply
-> ahead of the cut-over. The **DSN switch to `setjoin_app` is a separate,
-> hand-authorized deploy gate** (preconditions in the *Deploy gate* section below and
-
-> **STATUS (2026-07-03): the switch is the DEFAULT everywhere.** There is no production deployment yet; the e2e harness (`start-test-stack.sh`) permanently launches the gateway + authserver as `setjoin_app` / `setjoin_worker` (loader stays the owner identity), so every test run exercises the production credential shape. The checklist below remains the runbook for any future production install's own cutover.
-> in `scripts/provision-roles.sql`'s header). The application-layer predicates + the
-> positive CI guards below remain **load-bearing** (cheaper, earlier CI-time feedback;
-> cover the raw-query surface RLS may not) — native RLS *subsumes the runtime half*,
-> it does not retire the guards. RLS does NOT yet cover the other user-data tables
-> (`mailboxes`, `contacts`, `calendar_events`, …) — those remain app-layer-only; see
-> [ARCH-006](../adr/ARCH-006-app-level-isolation-posture.md).
+> **The application-layer R1–R3 predicates and positive CI guards remain
+> load-bearing** (cheaper, earlier CI-time feedback and defense-in-depth across
+> every raw query and reducer). Native `FORCE RLS` is the mandatory runtime
+> backstop; it does not retire the CI guards. See
+> [ARCH-006](../adr/ARCH-006-app-level-isolation-posture.md) and
+> `docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md`.
 
 Every user-data access must carry an ownership-scoping predicate derived from auth.
 The seams and guards that make this enforceable, not just aspirational:
@@ -205,62 +202,21 @@ by lowering a quota under current usage → they stay in the **reducer/trigger t
 the transition**, never a `CHECK`. See CONTEXT.md → *State invariant vs transition
 invariant*.
 
-### Native RLS — ADOPTED on `messages` + `message_tags` (W6), LATENT until the DSN switch
+### Native RLS — MANDATORY FAIL-CLOSED RUNTIME BASELINE (Release N+1 `#547`)
 
 Native PostgreSQL RLS (`ENABLE`+`FORCE ROW LEVEL SECURITY` + per-action `CREATE POLICY`
-keyed on a transaction-scoped `set_config('app.current_mailbox_id', …, true)` gateway
-injection) is the only **fail-closed-at-runtime** control. The enforcement-flip program
-(`retired-docs:superpowers/plans/archive/2026-06-18-native-rls-backstop.md`, W0→W6) **adopted it for
-`messages` + `message_tags`**: the per-request tx wrappers landed (`internal/jmap`
-`CallScoped`, `internal/imap` `withScope`), `scripts/provision-roles.sql` defines the
-constrained `setjoin_app` + `BYPASSRLS` `setjoin_worker` roles, `V003` created the inert
-policies (keyed on `mailbox_id`; `message_tags` derives its tenant via EXISTS-against-
-`messages`), and **`V004__rls_enable.sql` ENABLEd+FORCEd both parents**. Cross-mailbox
-paths (`deliver()`/inbound MTA, submission fan-out, the dispatcher, recall, admin
-content-search) run on the `setjoin_worker` (BYPASSRLS) pool.
+keyed on transaction-scoped `set_config` GUCs injected by `ScopedTx` / `PolicyGate`)
+is the **mandatory fail-closed runtime control**. `scripts/provision-roles.sql` and
+`mailctl schema provision-roles` provision the constrained `setjoin_app` (`NOSUPERUSER
+NOBYPASSRLS`, owns nothing), `setjoin_worker` (`BYPASSRLS`, cross-tenant workers),
+`setjoin_owner` (DDL/migrations), and `setjoin_updater` roles.
 
-**It is LATENT, not yet live in production:** RLS is bypassed by the superuser/owner
-identity the gateway uses today, so V004 is a no-op until the runtime DSN switches to
-`setjoin_app`. That switch is the user's **hand-authorized deploy gate** (below). The
-other user-data tables (`mailboxes`, `contacts`, `calendar_events`, …) are NOT yet
-RLS-covered — app-layer + CI-guard only. **Do not re-suggest native RLS as new in a
-review — it is adopted for messages/message_tags and tracked for expansion in that
-plan.** Proven by `rls_policies.pg`, `rls_jmap_reducers.pg`, `rls_smtp_delivery.pg`, and
-`mailserver/internal/imap/imap_isolation_test.go` (the IMAP-handler dual-tenant proof).
-
-### Deploy gate — switching the prod `DB_DSN` to `setjoin_app` (USER-AUTHORIZED, not automatic)
-
-**Operator runbook (plain-language steps + footgun checklist):**
-`docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md`. This section is the canonical
-engineering-standard copy of the preconditions; the runbook is the
-customer-sysadmin-facing walkthrough of the same gate.
-
-Applying `V004` (the FORCE flip) is inert for the superuser and fail-closing for the
-`setjoin_owner` identity: the owner is `NOSUPERUSER NOBYPASSRLS`, so FORCE'd RLS
-applies to it (it retains only its standing table privileges and the authority to
-reshape policy). **Making RLS LIVE = pointing the gateway's tenant-facing `DB_DSN` at
-the `setjoin_app` role.** This is a deliberate, hand-authorized step — do NOT flip it as part of a code
-deploy. Preconditions (ALL must hold; mirrored in `scripts/provision-roles.sql` header):
-
-1. **Verify the prod role list** so V004 is confirmed inert pre-switch: `setjoin_app`
-   exists, is `NOSUPERUSER NOBYPASSRLS` and **does not own** `messages`/`message_tags`
-   (else owner-bypass); `setjoin_worker` exists with `BYPASSRLS`; `setjoin_owner` owns
-   the user-data tables. `rls_role_model.pg` asserts this shape.
-2. **All isolation tests green** — especially the IMAP streaming dual-tenant proof
-   (`go test ./internal/imap -run TestIMAPIsolation` with `DB_DSN` set, V004 applied) +
-   the JMAP/SMTP pgTAP proofs + the full pgTAP suite under FORCE.
-3. **User reviews the implementation** (V004 + the carve-out routing + the proofs).
-4. **V004 applied in a maintenance window** per lock-DDL safety (ENABLE/FORCE take a
-   brief `ACCESS EXCLUSIVE` lock on each parent).
-5. **DSN-switch rollback rehearsed** — switching `DB_DSN` back to the superuser/owner
-   role (or `setjoin_worker`) instantly disables enforcement without a migration; rehearse
-   it so the rollback is a known, fast operation. (Wrong-pool symptom under a bad switch:
-   tenant reads return empty because the GUC is unset on an un-wrapped path — fail-closed,
-   not a leak.)
-
-Once live, the policy column already leads the hot indexes (`messages (mailbox_id,
-received_at)`, + the `messages(received_at,id) INCLUDE (mailbox_id)` covering index) so
-the predicate adds cost but no new seq-scan.
+`setjoin-server`, `setjoin-auth`, `mailctl schema preflight`, `setjoin-updater`,
+`install.sh`, and `upgrade.sh` all enforce Release N+1 (`FailClosedReleaseNPlus1`)
+unconditionally with zero production bypass flags (guarded by
+`scripts/check-rls-fail-closed.sh`). Single-DSN permissive installs and
+superuser-DSN rollbacks are retired. See `docs/guides/NATIVE_RLS_FLIP_RUNBOOK.md`
+for operator preflight and provisioning steps.
 
 ---
 
@@ -296,7 +252,7 @@ Before merging any PR that touches database queries, verify:
 - [ ] **INSERT:** `user_id`/`mailbox_id` comes from auth context, never `req.*`
 - [ ] **UPDATE:** WHERE clause includes both `id` AND ownership column
 - [ ] **DELETE:** WHERE clause includes both `id` AND ownership column
-- [ ] **Per-user isolation:** Every raw gateway user-data query carries an ownership predicate (or is allowlisted in `check-gateway-ownership.sh`); native RLS is *deferred* — not required (ARCH-006)
+- [ ] **Per-user isolation:** Every raw gateway user-data query carries an ownership predicate (or is allowlisted in `check-gateway-ownership.sh`), AND new/modified user-data tables have `ENABLE` + `FORCE ROW LEVEL SECURITY` policies verified under `setjoin_app` (ARCH-006 / Release N+1 `#547`)
 - [ ] **Injection:** No string concatenation or `fmt.Sprintf` with user input into SQL
 - [ ] **TOCTOU:** No separate SELECT-then-mutate ownership patterns (must be in same SQL statement)
 - [ ] **Index:** The ownership column (`mailbox_id`) is leading in composite indexes (already true for the hot paths; matters for the deferred RLS too)

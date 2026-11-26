@@ -376,12 +376,13 @@ if __name__ == "__main__":
         else:
             expected = schema_expectation(case, expected_normalization(json.loads(path.read_text())))
             if case["name"] == "schema-current-human":
-                # Recorded Wave 1.7 (#545) divergence: advisory stderr line when
-                # running schema check on superuser TEST_DB_DSN.
+                # Recorded Wave 1.9 (#547) divergence: fail-closed RLS preflight
+                # stderr line when running schema check on superuser TEST_DB_DSN.
                 result = copy.deepcopy(result)
                 advisory_pat = (
-                    r"^WARNING: native-RLS preflight reported \d+ error\(s\), "
-                    r"\d+ warning\(s\) — run 'mailctl schema preflight' for details\n"
+                    r"^ERROR: native-RLS preflight reported \d+ failure\(s\) "
+                    r"\(server will refuse to start\) — "
+                    r"run 'mailctl schema preflight' for details\n"
                 )
                 result["stderr"] = re.sub(
                     advisory_pat,

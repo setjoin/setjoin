@@ -100,6 +100,10 @@ pub struct DsnRoleSummary {
     pub app_role_privileged: Option<bool>,
     pub distinct_roles: bool,
     pub config_env_unreadable: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub worker_dsn_configured: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owner_dsn_configured: bool,
 }
 
 impl DsnRoleSummary {
@@ -113,6 +117,8 @@ impl DsnRoleSummary {
         let app_role = app_dsn.and_then(dsn_username);
         let worker_role = worker_dsn.and_then(dsn_username);
         let owner_role = owner_dsn.and_then(dsn_username);
+        let worker_dsn_configured = worker_dsn.is_some_and(|s| !s.trim().is_empty());
+        let owner_dsn_configured = owner_dsn.is_some_and(|s| !s.trim().is_empty());
         let distinct_roles = match (&app_role, &worker_role, &owner_role) {
             (Some(a), Some(w), Some(o)) => a != w && a != o && w != o,
             (Some(a), Some(w), None) => a != w,
@@ -126,9 +132,14 @@ impl DsnRoleSummary {
             app_role_privileged: None,
             distinct_roles,
             config_env_unreadable: false,
+            worker_dsn_configured,
+            owner_dsn_configured,
         }
     }
 }
+
+const CONFIG_ENV_UNREADABLE_WARNING: &str =
+    "gateway config.env was unreadable (EACCES) — runtime DB_DSN role could not be verified from unit files";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RlsPreflightReport {
@@ -179,22 +190,73 @@ impl RlsPreflightReport {
         self.roles.iter().find(|r| r.name == name)
     }
 
+    /// Single source of truth for Release N+1 (`#547`) fail-closed enforcement
+    /// across `boot`, `auth`, `mailctl`, and `updater`.
+    ///
+    /// When `allow_unreadable_config_env` is `true` (used by `setjoin-updater`
+    /// preflight when running without read access to `0600 setjoin:setjoin`
+    /// `config.env`), the `EACCES` unreadable-config notice is excluded while
+    /// every DB-side error/warning and every readable DSN finding still fails
+    /// closed.
+    pub fn fail_closed_errors(&self, allow_unreadable_config_env: bool) -> Vec<String> {
+        let mut out = self.hard_errors.clone();
+        for warning in &self.warnings {
+            if allow_unreadable_config_env && warning == CONFIG_ENV_UNREADABLE_WARNING {
+                continue;
+            }
+            out.push(warning.clone());
+        }
+        out
+    }
+
+    fn effective_dsn_roles<'a>(
+        &'a self,
+        dsn_roles: &'a DsnRoleSummary,
+    ) -> (Option<&'a str>, Option<&'a str>, Option<&'a str>) {
+        if dsn_roles.config_env_unreadable {
+            return (None, None, None);
+        }
+        let app_role = match self.context {
+            PostureContext::RuntimeApp => dsn_roles
+                .app_role
+                .as_deref()
+                .or(Some(self.current_role.name.as_str())),
+            PostureContext::OperatorOwner => dsn_roles.app_role.as_deref(),
+        };
+        // In RuntimeApp, if DB_DSN omitted `user=` and DB_WORKER_DSN / DB_OWNER_DSN
+        // was also configured without `user=`, both resolve to the same ambient
+        // PostgreSQL role (`current_user`).
+        let worker_role = dsn_roles.worker_role.as_deref().or_else(|| {
+            (self.context == PostureContext::RuntimeApp
+                && dsn_roles.worker_dsn_configured
+                && dsn_roles.app_role.is_none())
+            .then_some(self.current_role.name.as_str())
+        });
+        let owner_role = dsn_roles.owner_role.as_deref().or_else(|| {
+            (self.context == PostureContext::RuntimeApp
+                && dsn_roles.owner_dsn_configured
+                && dsn_roles.app_role.is_none())
+            .then_some(self.current_role.name.as_str())
+        });
+        (app_role, worker_role, owner_role)
+    }
+
     fn evaluate_findings(&mut self) {
         self.hard_errors.clear();
         self.warnings.clear();
 
         // Hard invariant across ALL contexts (even when current_user is superuser):
-        // a table with RLS policies attached but relrowsecurity = false.
+        // a table with RLS policies attached missing ENABLE or FORCE ROW LEVEL SECURITY.
         if !self.policy_tables_rls_disabled.is_empty() {
             self.hard_errors.push(format!(
-                "policy tables have RLS disabled (relrowsecurity=false): {}",
+                "policy tables missing ENABLE or FORCE ROW LEVEL SECURITY: {}",
                 self.policy_tables_rls_disabled.join(", ")
             ));
         }
 
         match self.context {
             PostureContext::RuntimeApp => {
-                // Preserve frozen-Go hard refusal for non-superuser BYPASSRLS or
+                // Hard refusal for non-superuser BYPASSRLS or direct/indirect
                 // table-owner bypass on FORCE RLS tables.
                 if !self.current_role.rolsuper && self.current_role.rolbypassrls {
                     self.hard_errors.push(format!(
@@ -204,14 +266,14 @@ impl RlsPreflightReport {
                 }
                 if !self.current_role.rolsuper && !self.owns_forced_rls_tables.is_empty() {
                     self.hard_errors.push(format!(
-                        "runtime role {:?} owns FORCE-RLS table(s): {}",
+                        "runtime role {:?} owns FORCE-RLS table(s) (directly or via role membership): {}",
                         self.current_role.name,
                         self.owns_forced_rls_tables.join(", ")
                     ));
                 }
                 if self.current_role.rolsuper {
                     self.warnings.push(format!(
-                        "runtime DB_DSN connects as superuser {:?} — FORCE RLS is inert; provision least-privilege roles with 'mailctl schema provision-roles --write-dsns' (Release N warning; Release N+1 will refuse to start)",
+                        "runtime DB_DSN connects as superuser {:?} — FORCE RLS is inert; refusing to start; provision least-privilege roles with 'mailctl schema provision-roles --write-dsns'",
                         self.current_role.name
                     ));
                 }
@@ -219,7 +281,7 @@ impl RlsPreflightReport {
             PostureContext::OperatorOwner => {
                 if !self.app_owns_forced_rls_tables.is_empty() {
                     self.hard_errors.push(format!(
-                        "setjoin_app owns FORCE-RLS table(s): {}",
+                        "setjoin_app owns FORCE-RLS table(s) (directly or via role membership): {}",
                         self.app_owns_forced_rls_tables.join(", ")
                     ));
                 }
@@ -283,42 +345,39 @@ impl RlsPreflightReport {
 
         if let Some(dsn_roles) = &self.dsn_roles {
             if dsn_roles.config_env_unreadable {
-                self.warnings.push(
-                    "gateway config.env was unreadable (EACCES) — runtime DB_DSN role could not be verified from unit files"
-                        .to_owned(),
-                );
-            } else if let Some(app_role) = &dsn_roles.app_role {
-                if dsn_roles.app_role_privileged == Some(true) {
-                    self.warnings.push(format!(
-                        "configured DB_DSN role {:?} is privileged (SUPERUSER or BYPASSRLS) — FORCE RLS is inert; run 'mailctl schema provision-roles --write-dsns'",
-                        app_role
-                    ));
-                } else if app_role != "setjoin_app" {
-                    self.warnings.push(format!(
-                        "configured DB_DSN role is {:?} (expected 'setjoin_app') — run 'mailctl schema provision-roles --write-dsns'",
-                        app_role
-                    ));
+                self.warnings.push(CONFIG_ENV_UNREADABLE_WARNING.to_owned());
+            } else {
+                let mut dsn_warnings = Vec::new();
+                let (effective_app_role, effective_worker_role, effective_owner_role) =
+                    self.effective_dsn_roles(dsn_roles);
+                if let Some(app_role) = effective_app_role {
+                    if dsn_roles.app_role_privileged == Some(true) {
+                        dsn_warnings.push(format!(
+                            "configured DB_DSN role {:?} is privileged (SUPERUSER or BYPASSRLS) — FORCE RLS is inert; run 'mailctl schema provision-roles --write-dsns'",
+                            app_role
+                        ));
+                    } else if self.context == PostureContext::OperatorOwner
+                        && app_role != "setjoin_app"
+                    {
+                        dsn_warnings.push(format!(
+                            "configured DB_DSN role is {:?} (expected 'setjoin_app') — run 'mailctl schema provision-roles --write-dsns'",
+                            app_role
+                        ));
+                    }
+                    if effective_worker_role.is_some_and(|w| w == app_role) {
+                        dsn_warnings.push(format!(
+                            "DB_DSN and DB_WORKER_DSN share role {:?} — worker and app roles must be distinct",
+                            app_role
+                        ));
+                    }
+                    if effective_owner_role.is_some_and(|o| o == app_role) {
+                        dsn_warnings.push(format!(
+                            "DB_DSN and DB_OWNER_DSN share role {:?} — owner and app roles must be distinct",
+                            app_role
+                        ));
+                    }
                 }
-                if dsn_roles
-                    .worker_role
-                    .as_deref()
-                    .is_some_and(|w| w == app_role)
-                {
-                    self.warnings.push(format!(
-                        "DB_DSN and DB_WORKER_DSN share role {:?} — worker and app roles must be distinct",
-                        app_role
-                    ));
-                }
-                if dsn_roles
-                    .owner_role
-                    .as_deref()
-                    .is_some_and(|o| o == app_role)
-                {
-                    self.warnings.push(format!(
-                        "DB_DSN and DB_OWNER_DSN share role {:?} — owner and app roles must be distinct",
-                        app_role
-                    ));
-                }
+                self.warnings.extend(dsn_warnings);
             }
         }
     }
@@ -348,7 +407,7 @@ impl BootPosture {
     /// Bare front door (no database configured).
     pub fn bare() -> Self {
         Self {
-            mode: EnforcementMode::WarnReleaseN,
+            mode: EnforcementMode::FailClosedReleaseNPlus1,
             overall_status: "ok",
             report: None,
             checks: Vec::new(),
@@ -357,24 +416,45 @@ impl BootPosture {
 
     pub fn from_report(report: RlsPreflightReport, mode: EnforcementMode) -> Self {
         let mut checks = Vec::with_capacity(3);
+        let non_ok_status = match mode {
+            EnforcementMode::WarnReleaseN => "warn",
+            EnforcementMode::FailClosedReleaseNPlus1 => "error",
+        };
 
         // 1. db_rls_posture
         let rls_has_hard = !report.policy_tables_rls_disabled.is_empty()
-            || (!report.current_role.rolsuper
+            || (report.context == PostureContext::RuntimeApp
+                && !report.current_role.rolsuper
                 && (report.current_role.rolbypassrls || !report.owns_forced_rls_tables.is_empty()))
-            || !report.app_owns_forced_rls_tables.is_empty();
-        let rls_has_warn = report.current_role.rolsuper
+            || (report.context == PostureContext::OperatorOwner
+                && !report.app_owns_forced_rls_tables.is_empty());
+        let (shared_worker, shared_owner) = report
+            .dsn_roles
+            .as_ref()
+            .map(|d| {
+                let (app, worker, owner) = report.effective_dsn_roles(d);
+                (
+                    app.is_some_and(|a| worker == Some(a)),
+                    app.is_some_and(|a| owner == Some(a)),
+                )
+            })
+            .unwrap_or((false, false));
+        let rls_has_warn = (report.context == PostureContext::RuntimeApp
+            && report.current_role.rolsuper)
             || !report.all_roles_exist_with_expected_attrs()
+            || shared_worker
+            || shared_owner
             || report.dsn_roles.as_ref().is_some_and(|d| {
                 d.app_role_privileged == Some(true)
-                    || d.app_role.as_deref().is_some_and(|a| a != "setjoin_app")
+                    || (report.context == PostureContext::OperatorOwner
+                        && d.app_role.as_deref().is_some_and(|a| a != "setjoin_app"))
                     || d.config_env_unreadable
             });
         let (rls_status, rls_details) = if rls_has_hard {
             ("error", report.hard_errors.join("; "))
         } else if rls_has_warn {
             let mut parts = Vec::new();
-            if report.current_role.rolsuper {
+            if report.context == PostureContext::RuntimeApp && report.current_role.rolsuper {
                 parts.push(format!(
                     "runtime role {:?} is superuser (FORCE RLS inert)",
                     report.current_role.name
@@ -383,6 +463,12 @@ impl BootPosture {
             if !report.all_roles_exist_with_expected_attrs() {
                 parts.push("least-privilege roles incomplete or drifted".to_owned());
             }
+            if shared_worker {
+                parts.push("DB_DSN and DB_WORKER_DSN share a role".to_owned());
+            }
+            if shared_owner {
+                parts.push("DB_DSN and DB_OWNER_DSN share a role".to_owned());
+            }
             if parts.is_empty() {
                 parts.push(format!(
                     "runtime role {:?} does not match least-privilege split",
@@ -390,7 +476,7 @@ impl BootPosture {
                 ));
             }
             parts.push("remediate: mailctl schema provision-roles --write-dsns".to_owned());
-            ("warn", parts.join("; "))
+            (non_ok_status, parts.join("; "))
         } else {
             (
                 "ok",
@@ -417,7 +503,7 @@ impl BootPosture {
             )
         } else {
             (
-                "warn",
+                non_ok_status,
                 format!(
                     "PostgreSQL {} ({}) is vulnerable to CVE-2026-14666; upgrade to >= 17.11 or >= 18.6",
                     report.server_version, report.server_version_num
@@ -441,7 +527,7 @@ impl BootPosture {
             )
         } else {
             (
-                "warn",
+                non_ok_status,
                 format!(
                     "{} scope/SECURITY DEFINER helper(s) drifted ({} ARCH-018, {} other); remediate: mailctl schema provision-roles",
                     helper_drift_count,
@@ -459,10 +545,7 @@ impl BootPosture {
         let overall_status = if !report.hard_errors.is_empty() {
             "error"
         } else if !report.warnings.is_empty() {
-            match mode {
-                EnforcementMode::WarnReleaseN => "warn",
-                EnforcementMode::FailClosedReleaseNPlus1 => "error",
-            }
+            non_ok_status
         } else {
             "ok"
         };
@@ -1088,8 +1171,9 @@ pub async fn inspect_rls_posture_executor(
 
     let owns_forced_rls_tables: Vec<String> = exec
         .read(
-            "SELECT c.relname::text FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner \
-             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') AND r.rolname = current_user \
+            "SELECT c.relname::text FROM pg_class c \
+             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') \
+               AND pg_has_role(current_user, c.relowner, 'MEMBER') \
              ORDER BY c.relname",
             &[],
         )
@@ -1101,8 +1185,13 @@ pub async fn inspect_rls_posture_executor(
 
     let app_owns_forced_rls_tables: Vec<String> = exec
         .read(
-            "SELECT c.relname::text FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner \
-             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') AND r.rolname = 'setjoin_app' \
+            "SELECT c.relname::text FROM pg_class c \
+             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') \
+               AND CASE \
+                 WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_app') \
+                 THEN pg_has_role('setjoin_app', c.relowner, 'MEMBER') \
+                 ELSE false \
+               END \
              ORDER BY c.relname",
             &[],
         )
@@ -1115,7 +1204,8 @@ pub async fn inspect_rls_posture_executor(
     let policy_tables_rls_disabled: Vec<String> = exec
         .read(
             "SELECT DISTINCT c.relname::text FROM pg_policy pol JOIN pg_class c ON c.oid = pol.polrelid \
-             WHERE c.relkind IN ('r','p') AND NOT c.relrowsecurity ORDER BY c.relname::text",
+             WHERE c.relkind IN ('r','p') AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity) \
+             ORDER BY c.relname::text",
             &[],
         )
         .await
@@ -1388,8 +1478,9 @@ pub async fn inspect_rls_posture_client(
 
     let owns_forced_rls_tables: Vec<String> = client
         .query_typed(
-            "SELECT c.relname::text FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner \
-             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') AND r.rolname = current_user \
+            "SELECT c.relname::text FROM pg_class c \
+             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') \
+               AND pg_has_role(current_user, c.relowner, 'MEMBER') \
              ORDER BY c.relname",
             &[],
         )
@@ -1401,8 +1492,13 @@ pub async fn inspect_rls_posture_client(
 
     let app_owns_forced_rls_tables: Vec<String> = client
         .query_typed(
-            "SELECT c.relname::text FROM pg_class c JOIN pg_roles r ON r.oid = c.relowner \
-             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') AND r.rolname = 'setjoin_app' \
+            "SELECT c.relname::text FROM pg_class c \
+             WHERE c.relforcerowsecurity AND c.relkind IN ('r','p') \
+               AND CASE \
+                 WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_app') \
+                 THEN pg_has_role('setjoin_app', c.relowner, 'MEMBER') \
+                 ELSE false \
+               END \
              ORDER BY c.relname",
             &[],
         )
@@ -1415,7 +1511,8 @@ pub async fn inspect_rls_posture_client(
     let policy_tables_rls_disabled: Vec<String> = client
         .query_typed(
             "SELECT DISTINCT c.relname::text FROM pg_policy pol JOIN pg_class c ON c.oid = pol.polrelid \
-             WHERE c.relkind IN ('r','p') AND NOT c.relrowsecurity ORDER BY c.relname::text",
+             WHERE c.relkind IN ('r','p') AND (NOT c.relrowsecurity OR NOT c.relforcerowsecurity) \
+             ORDER BY c.relname::text",
             &[],
         )
         .await
@@ -1861,5 +1958,159 @@ mod tests {
         let strict_posture =
             BootPosture::from_report(report, EnforcementMode::FailClosedReleaseNPlus1);
         assert_eq!(strict_posture.public_status(), "error");
+        assert_eq!(strict_posture.admin_checks()[0].status, "error");
+        assert_eq!(strict_posture.admin_checks()[1].status, "error");
+        assert_eq!(strict_posture.admin_checks()[2].status, "ok");
+        assert_eq!(
+            BootPosture::bare().mode,
+            EnforcementMode::FailClosedReleaseNPlus1
+        );
+    }
+
+    fn clean_roles() -> Vec<RolePosture> {
+        vec![
+            RolePosture {
+                name: "setjoin_app".to_owned(),
+                exists: true,
+                rolcanlogin: true,
+                rolsuper: false,
+                rolbypassrls: false,
+                rolcreatedb: false,
+                rolcreaterole: false,
+                has_password: Some(true),
+                attributes_ok: true,
+            },
+            RolePosture {
+                name: "setjoin_owner".to_owned(),
+                exists: true,
+                rolcanlogin: false,
+                rolsuper: false,
+                rolbypassrls: false,
+                rolcreatedb: false,
+                rolcreaterole: false,
+                has_password: Some(false),
+                attributes_ok: true,
+            },
+            RolePosture {
+                name: "setjoin_updater".to_owned(),
+                exists: true,
+                rolcanlogin: true,
+                rolsuper: false,
+                rolbypassrls: false,
+                rolcreatedb: false,
+                rolcreaterole: false,
+                has_password: Some(true),
+                attributes_ok: true,
+            },
+            RolePosture {
+                name: "setjoin_worker".to_owned(),
+                exists: true,
+                rolcanlogin: true,
+                rolsuper: false,
+                rolbypassrls: true,
+                rolcreatedb: false,
+                rolcreaterole: false,
+                has_password: Some(true),
+                attributes_ok: true,
+            },
+        ]
+    }
+
+    #[test]
+    fn fail_closed_catches_missing_username_shared_dsn_and_respects_context_policy() {
+        // 1. RuntimeApp with username-less DB_DSN and DB_WORKER_DSN naming the same role:
+        //    must fall back to current_role.name and reject shared app/worker role.
+        let dsn_roles = DsnRoleSummary::from_dsns(
+            Some("postgres:///mailserver?host=/var/run/postgresql"),
+            Some("postgres://setjoin_app:pw@127.0.0.1:5432/mailserver"),
+            None,
+        );
+        let mut report = RlsPreflightReport {
+            context: PostureContext::RuntimeApp,
+            server_version_num: 170012,
+            server_version: "17.12".to_owned(),
+            pg_version_ok: true,
+            current_role: CurrentRolePosture {
+                name: "setjoin_app".to_owned(),
+                rolsuper: false,
+                rolbypassrls: false,
+                rolcreaterole: false,
+            },
+            roles: clean_roles(),
+            owner_has_worker_membership: true,
+            owns_forced_rls_tables: Vec::new(),
+            app_owns_forced_rls_tables: Vec::new(),
+            policy_tables_rls_disabled: Vec::new(),
+            scope_helpers_drifted: Vec::new(),
+            other_secdef_drifted: Vec::new(),
+            dsn_roles: Some(dsn_roles),
+            hard_errors: Vec::new(),
+            warnings: Vec::new(),
+        };
+        report.evaluate_findings();
+        let errors = report.fail_closed_errors(false);
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("DB_DSN and DB_WORKER_DSN share role")),
+            "{errors:?}"
+        );
+        let posture =
+            BootPosture::from_report(report.clone(), EnforcementMode::FailClosedReleaseNPlus1);
+        assert_eq!(posture.public_status(), "error");
+        assert_eq!(posture.admin_checks()[0].status, "error");
+
+        // 2. RuntimeApp with BOTH DB_DSN and DB_WORKER_DSN omitting username:
+        //    still caught as shared role!
+        report.dsn_roles = Some(DsnRoleSummary::from_dsns(
+            Some("postgres:///mailserver?host=/var/run/postgresql"),
+            Some("postgres:///mailserver?host=/var/run/postgresql"),
+            None,
+        ));
+        report.evaluate_findings();
+        assert!(report
+            .fail_closed_errors(false)
+            .iter()
+            .any(|e| e.contains("DB_DSN and DB_WORKER_DSN share role")));
+
+        // 3. Synthetic non-privileged test role in RuntimeApp with distinct worker role:
+        //    allowed in RuntimeApp, rejected only in OperatorOwner.
+        report.current_role.name = "synthetic_app".to_owned();
+        report.dsn_roles = Some(DsnRoleSummary::from_dsns(
+            Some("postgres://synthetic_app:pw@127.0.0.1:5432/mailserver"),
+            Some("postgres://setjoin_worker:pw@127.0.0.1:5432/mailserver"),
+            None,
+        ));
+        report.evaluate_findings();
+        assert!(
+            report.fail_closed_errors(false).is_empty(),
+            "{:?}",
+            report.fail_closed_errors(false)
+        );
+        let ok_posture =
+            BootPosture::from_report(report.clone(), EnforcementMode::FailClosedReleaseNPlus1);
+        assert_eq!(ok_posture.public_status(), "ok");
+
+        report.context = PostureContext::OperatorOwner;
+        report.evaluate_findings();
+        assert!(report
+            .fail_closed_errors(false)
+            .iter()
+            .any(|e| e.contains("expected 'setjoin_app'")));
+
+        // 4. Updater allow_unreadable_config_env=true skips ONLY EACCES notice,
+        //    while still failing closed on DB-side findings (e.g. PG version).
+        let unreadable = DsnRoleSummary {
+            config_env_unreadable: true,
+            ..Default::default()
+        };
+        report.dsn_roles = Some(unreadable);
+        report.evaluate_findings();
+        assert_eq!(report.fail_closed_errors(false).len(), 1);
+        assert!(report.fail_closed_errors(true).is_empty());
+
+        report.pg_version_ok = false;
+        report.evaluate_findings();
+        assert_eq!(report.fail_closed_errors(true).len(), 1);
     }
 }

@@ -135,7 +135,10 @@ fn executable_refuses_imap_sockets_without_live_admission() {
         let mut command = Command::new("bash");
         command
             .env_clear()
-            .env("DB_DSN", &std::env::var("TEST_DB_DSN").expect("disposable boot database"))
+            .env(
+                "DB_DSN",
+                &std::env::var("DB_APP_DSN").expect("disposable app boot database"),
+            )
             .env("WORM_MODE", "")
             // BOOT needs a live request database. The independent direct
             // connection must still refuse IMAP without policy notifications.
@@ -343,8 +346,8 @@ async fn runtime_revocation_feed_closes_only_the_revoked_imap_principal() {
         Some(listener),
         None,
         &env(&[
-            ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn)),
-            ("DB_WORKER_DSN", &db.dsn),
+            ("DB_DSN", db.app_dsn()),
+            ("DB_WORKER_DSN", db.worker_dsn()),
             ("DB_DIRECT_DSN", &direct),
             ("GO_LISTENERS_OFF", "imap"),
         ]),
@@ -400,7 +403,7 @@ async fn runtime_waits_for_first_successful_revocation_snapshot() {
         Some(listener),
         None,
         &env(&[
-            ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn)),
+            ("DB_DSN", db.app_dsn()),
             ("DB_WORKER_DSN", &worker),
             ("DB_DIRECT_DSN", &db.dsn),
             ("GO_LISTENERS_OFF", "imap"),
@@ -447,7 +450,7 @@ async fn cold_snapshot_retries_and_shutdown_leave_no_blocked_database_drivers() 
         Some(listener().await),
         None,
         &env(&[
-            ("DB_DSN", db.app.as_deref().unwrap_or(&db.dsn)),
+            ("DB_DSN", db.app_dsn()),
             ("DB_WORKER_DSN", &worker),
             ("DB_DIRECT_DSN", &db.dsn),
             ("GO_LISTENERS_OFF", "imap"),

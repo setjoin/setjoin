@@ -1,5 +1,6 @@
 //! Pre-listener server initialization, preserving frozen Go's refusal classes
-//! while surfacing Wave 1.7 (#545) Release N least-privilege RLS posture.
+//! while enforcing Wave 1.9 (#547) Release N+1 unconditional fail-closed
+//! least-privilege `FORCE RLS` posture.
 use setjoin_pg::rls_preflight::{inspect_rls_posture_worker, DsnRoleSummary, PostureContext};
 pub use setjoin_pg::rls_preflight::{BootPosture, EnforcementMode};
 use setjoin_pg::workers::{WorkerConnection, WorkerDatabase};
@@ -44,14 +45,10 @@ fn refuse_detail(exit_code: u8, message: &str, error: &str) -> Refusal {
 }
 
 /// No database means the established bare front door, with no local boot work.
-/// Server deployments run these checks before constructing workers/listeners.
+/// Server deployments run these checks before constructing workers/listeners,
+/// unconditionally enforcing Release N+1 (`FailClosedReleaseNPlus1`) `FORCE RLS`
+/// posture with zero bypass flags.
 pub async fn run() -> Result<BootPosture, Refusal> {
-    run_with_mode(EnforcementMode::WarnReleaseN).await
-}
-
-/// Same pre-listener boot checks parameterized by Release N (`WarnReleaseN`)
-/// vs Release N+1 (`FailClosedReleaseNPlus1`) enforcement mode.
-pub async fn run_with_mode(mode: EnforcementMode) -> Result<BootPosture, Refusal> {
     let Some(dsn) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
         return Ok(BootPosture::bare());
     };
@@ -83,11 +80,12 @@ pub async fn run_with_mode(mode: EnforcementMode) -> Result<BootPosture, Refusal
     let owner = connect(&owner_dsn)
         .await
         .map_err(|_| refuse(0, "owner database pool failed"))?;
-    let dsn_roles = DsnRoleSummary::from_dsns(
-        Some(&dsn),
-        raw_worker_dsn.as_deref(),
-        raw_owner_dsn.as_deref(),
-    );
+    // Pass effective `worker_dsn` (so omitting DB_WORKER_DSN fails closed
+    // loudly instead of silently reusing DB_DSN) and `raw_owner_dsn` (so
+    // production units intentionally omitting DB_OWNER_DSN per DEPLOY-004
+    // are allowed while an explicitly shared DB_OWNER_DSN fails closed).
+    let dsn_roles =
+        DsnRoleSummary::from_dsns(Some(&dsn), Some(&worker_dsn), raw_owner_dsn.as_deref());
     let rows = db
         .query(
             "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
@@ -118,7 +116,7 @@ pub async fn run_with_mode(mode: EnforcementMode) -> Result<BootPosture, Refusal
     log("INFO", "database schema version verified");
     let store =
         storage::Store::from_env().map_err(|_| refuse(0, "object storage client init failed"))?;
-    let boot_posture = assert_rls(&db, mode, dsn_roles)
+    let boot_posture = assert_rls(&db, dsn_roles)
         .await
         .map_err(|_| refuse(1, "native-RLS boot check FAILED — refusing to start"))?;
     if owner
@@ -278,35 +276,22 @@ async fn report(db: &setjoin_pg::workers::WorkerConnection, result: &str) {
 
 async fn assert_rls(
     db: &WorkerConnection,
-    mode: EnforcementMode,
     dsn_roles: DsnRoleSummary,
 ) -> Result<BootPosture, String> {
     let report =
         inspect_rls_posture_worker(db, PostureContext::RuntimeApp, Some(dsn_roles)).await?;
-    if !report.hard_errors.is_empty() {
-        for err in &report.hard_errors {
+    let errors = report.fail_closed_errors(false);
+    if !errors.is_empty() {
+        for err in &errors {
             log("ERROR", &format!("native-RLS boot check: {err}"));
         }
-        return Err(report.hard_errors.join("; "));
-    }
-    if !report.warnings.is_empty() {
-        match mode {
-            EnforcementMode::WarnReleaseN => {
-                for warning in &report.warnings {
-                    log("WARN", &format!("native-RLS boot check: {warning}"));
-                }
-                return Ok(BootPosture::from_report(report, mode));
-            }
-            EnforcementMode::FailClosedReleaseNPlus1 => {
-                for warning in &report.warnings {
-                    log("ERROR", &format!("native-RLS boot check: {warning}"));
-                }
-                return Err(report.warnings.join("; "));
-            }
-        }
+        return Err(errors.join("; "));
     }
     log("INFO", "native-RLS boot check: passed");
-    Ok(BootPosture::from_report(report, mode))
+    Ok(BootPosture::from_report(
+        report,
+        EnforcementMode::FailClosedReleaseNPlus1,
+    ))
 }
 
 async fn connect(dsn: &str) -> Result<WorkerConnection, String> {
