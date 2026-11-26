@@ -3,7 +3,7 @@
 Date: 2026-09-06
 Status: CP0.2 draft; proposed field rules, not a published schema or implementation.
 Parent: contract freeze.
-Normative product direction: [extension design](extension-control-plane-public-system-apps.md).
+Normative product direction: [extension design](../../design/extension-control-plane-public-system-apps.md).
 Dependency authority: Manifest v2.
 
 ## One owner per representation
