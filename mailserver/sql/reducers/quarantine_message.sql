@@ -45,6 +45,9 @@ DECLARE
     v_quar_tag_id  BIGINT;
     v_original_tag TEXT;
 BEGIN
+    -- Canonical #481 lock order (mailboxes -> messages -> message_tags/tags).
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+
     -- Ensure the Quarantined system tag exists in the target mailbox. The
     -- per-mailbox tag seed (create_system_tags) has never included it, so any
     -- mailbox created after the seed migration would BZ074-abort the whole
@@ -128,7 +131,7 @@ BEGIN
     -- webmail learns of the quarantine immediately (the named fix). Suppressible
     -- via p_notify = FALSE for strict behavior-preservation.
     IF p_notify THEN
-        PERFORM notify_state_change(p_mailbox_id, v_quar_tag_id);
+        PERFORM notify_state_change(p_mailbox_id, v_quar_tag_id, p_message_id, 'updated');
     END IF;
 END;
 $$ LANGUAGE plpgsql;

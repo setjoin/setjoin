@@ -1,12 +1,14 @@
 //! FETCH, SEARCH, STORE and UID (#344): a port of frozen Go's `handleFetch`,
 //! `handleSearch`, `handleStore` and `handleUID` over the selected tag. The wire
 //! contract is Go's bytes, quirks included (see DOX.md "Mirrored Go quirks").
-use crate::session::{split_args, Session};
+use crate::session::{query_vanished_uids_in_tx, split_args, Session};
 use setjoin_contracts::{
     command::CommandEnvelope,
     ids::{ActorId, Digest, Generation, MailboxId, OperationId},
 };
-use setjoin_pg::{CommandOutcome, MailboxAuthContext, Param, ScopedTx, StatementFailure, Type};
+use setjoin_pg::{
+    CommandOutcome, MailboxAuthContext, Param, ScopedReadTx, ScopedTx, StatementFailure, Type,
+};
 use sha2::{Digest as _, Sha256};
 use std::{
     sync::atomic::{AtomicU64, Ordering},
@@ -72,6 +74,265 @@ pub(crate) struct Msg {
     pub(crate) answered: bool,
     pub(crate) draft: bool,
     pub(crate) deleted: bool,
+    pub(crate) modseq: i64,
+}
+
+pub(crate) fn uid_in_ranges(uid: i64, ranges: &[Range], star: i64) -> bool {
+    let resolve = |v: i64| if v == STAR { star.max(uid) } else { v };
+    for r in ranges {
+        let (mut lo, mut hi) = (resolve(r.lo), resolve(r.hi));
+        if lo > hi {
+            std::mem::swap(&mut lo, &mut hi);
+        }
+        if uid >= lo && uid <= hi {
+            return true;
+        }
+    }
+    false
+}
+
+/// Format a sorted slice of positive sequence numbers or UIDs into compact RFC 3501/7162
+/// sequence-set notation (e.g. `[1, 2, 3, 7, 9, 10]` -> `"1:3,7,9:10"`).
+pub(crate) fn format_uid_set(uids: &[i64]) -> String {
+    if uids.is_empty() {
+        return String::new();
+    }
+    let mut sorted = uids.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut parts = Vec::new();
+    let mut start = sorted[0];
+    let mut prev = sorted[0];
+    for &u in &sorted[1..] {
+        if u == prev + 1 {
+            prev = u;
+        } else {
+            if start == prev {
+                parts.push(start.to_string());
+            } else {
+                parts.push(format!("{start}:{prev}"));
+            }
+            start = u;
+            prev = u;
+        }
+    }
+    if start == prev {
+        parts.push(start.to_string());
+    } else {
+        parts.push(format!("{start}:{prev}"));
+    }
+    parts.join(",")
+}
+
+/// Strict sequence-set parser forbidding `*` and rejecting any malformed token
+/// (RFC 7162 §3.2.5.2 `known-uids` / `seq-match-data`).
+pub(crate) fn parse_uid_set_strict_no_star(seq: &str) -> Option<Vec<Range>> {
+    let seq = seq.trim();
+    if seq.is_empty() {
+        return None;
+    }
+    let mut out = Vec::new();
+    for part in seq.split(',') {
+        let part = part.trim();
+        if part.is_empty() || part.contains('*') {
+            return None;
+        }
+        match part.split_once(':') {
+            None => {
+                let n = part.parse::<i64>().ok()?;
+                if n < 1 {
+                    return None;
+                }
+                out.push(Range { lo: n, hi: n });
+            }
+            Some((lo_s, hi_s)) => {
+                if hi_s.contains(':') {
+                    return None;
+                }
+                let lo = lo_s.trim().parse::<i64>().ok()?;
+                let hi = hi_s.trim().parse::<i64>().ok()?;
+                if lo < 1 || hi < 1 {
+                    return None;
+                }
+                out.push(Range { lo, hi });
+            }
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// RFC 7162 §3.2.5.2 strict ascending sequence/UID set parser (no `*`):
+/// every item must be `<n>` or `<lo>:<hi>` with strictly ASCII-digit `u32`
+/// values `1 <= lo <= hi`, items must be strictly ascending (`lo > prev_hi`),
+/// and returns `(ranges, exact_cardinality)`.
+pub(crate) fn parse_strict_ascending_set_no_star(s: &str) -> Option<(Vec<Range>, u64)> {
+    let parse_nz_u32 = |tok: &str| -> Option<i64> {
+        if tok.is_empty() || !tok.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let n = tok.parse::<u32>().ok()?;
+        (n >= 1).then_some(i64::from(n))
+    };
+    let s = s.trim();
+    if s.is_empty() || s.contains('*') {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut prev_hi: i64 = 0;
+    let mut total: u64 = 0;
+    for part in s.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            return None;
+        }
+        let (lo, hi) = match part.split_once(':') {
+            None => {
+                let n = parse_nz_u32(part)?;
+                (n, n)
+            }
+            Some((lo_s, hi_s)) => {
+                if hi_s.contains(':') {
+                    return None;
+                }
+                let lo = parse_nz_u32(lo_s.trim())?;
+                let hi = parse_nz_u32(hi_s.trim())?;
+                (lo, hi)
+            }
+        };
+        if lo < 1 || hi < lo || lo <= prev_hi {
+            return None;
+        }
+        let span = u64::try_from(hi.checked_sub(lo)?).ok()?.checked_add(1)?;
+        total = total.checked_add(span)?;
+        prev_hi = hi;
+        out.push(Range { lo, hi });
+    }
+    (!out.is_empty()).then_some((out, total))
+}
+
+/// RFC 7162 §3.2.5.2 `seq-match-data` lower-UID bounding: walks `(seq, uid)`
+/// pairs in lockstep from `seq_ranges` and `uid_ranges` (which must be strictly
+/// ascending and equal-cardinality) while `seq <= rows.len()` and
+/// `rows[seq - 1].msg.uid == uid`. Returns the highest aligned UID (or `0` if
+/// the first pair already mismatched); vanished UIDs `<= aligned_floor` are
+/// guaranteed already absent from the client's view and may be skipped.
+pub(crate) fn compute_qresync_aligned_uid_floor(
+    seq_ranges: &[Range],
+    uid_ranges: &[Range],
+    rows: &[FetchRow],
+) -> i64 {
+    let mut si = 0usize;
+    let mut ui = 0usize;
+    let mut s_off: i64 = 0;
+    let mut u_off: i64 = 0;
+    let mut aligned_floor: i64 = 0;
+    let row_count = rows.len() as i64;
+    while si < seq_ranges.len() && ui < uid_ranges.len() {
+        let seq = seq_ranges[si].lo.saturating_add(s_off);
+        let uid = uid_ranges[ui].lo.saturating_add(u_off);
+        if seq < 1 || seq > row_count {
+            break;
+        }
+        if rows[(seq - 1) as usize].msg.uid != uid {
+            break;
+        }
+        aligned_floor = uid;
+        if seq >= seq_ranges[si].hi {
+            si += 1;
+            s_off = 0;
+        } else {
+            s_off += 1;
+        }
+        if uid >= uid_ranges[ui].hi {
+            ui += 1;
+            u_off = 0;
+        } else {
+            u_off += 1;
+        }
+    }
+    aligned_floor
+}
+
+/// Format sorted, disjoint closed UID intervals `(lo, hi)` into RFC 3501/7162
+/// sequence-set notation (e.g. `[(1, 3), (7, 7), (9, 10)]` -> `"1:3,7,9:10"`).
+pub(crate) fn format_uid_ranges(ranges: &[(i64, i64)]) -> String {
+    ranges
+        .iter()
+        .filter(|&&(lo, hi)| lo > 0 && hi >= lo)
+        .map(|&(lo, hi)| {
+            if lo == hi {
+                lo.to_string()
+            } else {
+                format!("{lo}:{hi}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Exact O(R + M) range subtraction `known \ live_uids` returning sorted, merged
+/// closed intervals — handles arbitrarily large UID spans with zero expansion cap.
+pub(crate) fn subtract_live_from_ranges(
+    known: &[Range],
+    rows: &[FetchRow],
+    star_uid: i64,
+) -> Vec<(i64, i64)> {
+    let mut intervals: Vec<(i64, i64)> = known
+        .iter()
+        .filter_map(|r| {
+            let mut lo = if r.lo == STAR { star_uid } else { r.lo };
+            let mut hi = if r.hi == STAR { star_uid } else { r.hi };
+            if lo <= 0 || hi <= 0 {
+                return None;
+            }
+            if lo > hi {
+                std::mem::swap(&mut lo, &mut hi);
+            }
+            Some((lo, hi))
+        })
+        .collect();
+    if intervals.is_empty() {
+        return Vec::new();
+    }
+    intervals.sort_unstable();
+    let mut merged: Vec<(i64, i64)> = Vec::with_capacity(intervals.len());
+    for (lo, hi) in intervals {
+        if let Some(last) = merged.last_mut() {
+            if lo <= last.1.saturating_add(1) {
+                last.1 = last.1.max(hi);
+                continue;
+            }
+        }
+        merged.push((lo, hi));
+    }
+    let mut live: Vec<i64> = rows.iter().map(|r| r.msg.uid).filter(|&u| u > 0).collect();
+    live.sort_unstable();
+    live.dedup();
+
+    let mut out = Vec::new();
+    let mut li = 0usize;
+    for (lo, hi) in merged {
+        while li < live.len() && live[li] < lo {
+            li += 1;
+        }
+        let mut cur = lo;
+        while li < live.len() && live[li] <= hi {
+            let u = live[li];
+            if u > cur {
+                out.push((cur, u - 1));
+            }
+            cur = u.saturating_add(1);
+            li += 1;
+        }
+        if cur <= hi {
+            out.push((cur, hi));
+        }
+    }
+    out
+}
+
+pub(crate) fn flag_names_joined(m: &Msg) -> String {
+    flag_names(m).join(" ")
 }
 
 /// `resolveSeqSet`: `msgs` ascend by UID and carry their 1-based position.
@@ -318,6 +579,26 @@ fn build_search_clause(args: &str, first: usize) -> (String, Vec<String>) {
                 n += 1;
                 i += 1;
             }
+            "MODSEQ" if i + 1 < keys.len() => {
+                // RFC 7162 §3.1.5: MODSEQ [<entry-name> <entry-type-req>] <mod-sequence-valzer>
+                if let Ok(val) = keys[i + 1].parse::<i64>() {
+                    if val >= 0 {
+                        clauses.push(format!("COALESCE(m.imap_modseq, 1) >= ${n}::bigint"));
+                        params.push(val.to_string());
+                        n += 1;
+                    }
+                    i += 1;
+                } else if i + 3 < keys.len() {
+                    if let Ok(val) = keys[i + 3].parse::<i64>() {
+                        if val >= 0 {
+                            clauses.push(format!("COALESCE(m.imap_modseq, 1) >= ${n}::bigint"));
+                            params.push(val.to_string());
+                            n += 1;
+                        }
+                    }
+                    i += 3;
+                }
+            }
             _ => {}
         }
         i += 1;
@@ -412,21 +693,110 @@ impl Session {
             self.reply(tag, "NO No mailbox selected");
             return;
         }
-        let Some(first) = args.split_whitespace().next() else {
-            self.reply(tag, "BAD Missing arguments");
-            return;
+        let req = match parse_fetch_args(args, is_uid) {
+            Ok(req) => req,
+            Err(msg) => {
+                self.reply(tag, msg);
+                return;
+            }
         };
-        let ranges = parse_seq_set(first);
+        if req.vanished && !self.qresync_enabled {
+            self.reply(tag, "BAD VANISHED requires ENABLE QRESYNC");
+            return;
+        }
+        let ranges = parse_seq_set(&req.seq_set);
         if ranges.is_empty() {
             self.reply(tag, "BAD Invalid sequence number");
             return;
         }
-        let Some(rows) = self.read_fetch_rows().await else {
-            self.reply(tag, "NO Server error");
-            return;
+        if req.wants_modseq || req.changed_since.is_some() {
+            self.activate_condstore().await;
+        }
+        let (rows, vanished_str) = if let (true, Some(since)) = (req.vanished, req.changed_since) {
+            let Some(auth) = self.mailbox_auth() else {
+                self.reply(tag, "NO Server error");
+                return;
+            };
+            let (tag_id, mailbox_id, uid_col, membership) = (
+                self.tag_id,
+                self.mailbox_id,
+                self.uid_column(),
+                self.use_membership_uid,
+            );
+            let snap = self
+                .server
+                .db
+                .run_read_repeatable(&auth, async |tx: &mut ScopedReadTx| {
+                    let rows = read_fetch_rows_in_tx(tx, tag_id, mailbox_id, uid_col).await?;
+                    let uid_bounds = tx
+                        .query(
+                            "SELECT COALESCE(t.imap_uid_next, 1)::bigint, \
+                             GREATEST( \
+                               COALESCE((SELECT MAX(t2.imap_uid_next) FROM tags t2 WHERE t2.mailbox_id = t.mailbox_id), 1) - 1, \
+                               COALESCE((SELECT MAX(m2.imap_uid) FROM messages m2 WHERE m2.mailbox_id = t.mailbox_id), 0), \
+                               COALESCE((SELECT MAX(j.imap_uid) FROM jmap_changes_journal j WHERE j.mailbox_id = t.mailbox_id AND j.datatype = 'email'), 0) \
+                             )::bigint \
+                             FROM tags t WHERE t.id = $1 AND t.mailbox_id = $2",
+                            &[(&tag_id, Type::INT8), (&mailbox_id, Type::INT8)],
+                        )
+                        .await?;
+                    let next_uid = uid_bounds
+                        .first()
+                        .and_then(|r| r.try_get::<_, i64>(0).ok())
+                        .unwrap_or(1)
+                        .max(1);
+                    let mailbox_max_uid = uid_bounds
+                        .first()
+                        .and_then(|r| r.try_get::<_, i64>(1).ok())
+                        .unwrap_or(0)
+                        .max(0);
+                    let max_active_uid = rows.iter().map(|r| r.msg.uid).max().unwrap_or(0);
+                    let legacy_bound = if membership { 0 } else { mailbox_max_uid };
+                    let star_uid = max_active_uid
+                        .max(next_uid.saturating_sub(1))
+                        .max(legacy_bound);
+                    let (vanished, resync_required) = query_vanished_uids_in_tx(
+                        tx,
+                        mailbox_id,
+                        tag_id,
+                        since,
+                        membership,
+                        Some(&ranges),
+                        star_uid,
+                    )
+                    .await?;
+                    let formatted = if resync_required {
+                        format_uid_ranges(&subtract_live_from_ranges(&ranges, &rows, star_uid))
+                    } else {
+                        format_uid_set(&vanished)
+                    };
+                    Ok((rows, formatted))
+                })
+                .await;
+            let Ok((rows, formatted)) = snap else {
+                self.reply(tag, "NO Server error");
+                return;
+            };
+            (rows, (!formatted.is_empty()).then_some(formatted))
+        } else {
+            let Some(rows) = self.read_fetch_rows().await else {
+                self.reply(tag, "NO Server error");
+                return;
+            };
+            (rows, None)
         };
+        if let Some(formatted) = vanished_str {
+            self.reply("*", &format!("VANISHED (EARLIER) {formatted}"));
+        }
         let all: Vec<Msg> = rows.iter().map(|r| r.msg.clone()).collect();
+        let include_modseq =
+            req.wants_modseq || req.changed_since.is_some() || self.condstore_enabled;
         for target in resolve_seq_set(&ranges, &all, is_uid) {
+            if let Some(since) = req.changed_since {
+                if target.modseq <= since {
+                    continue;
+                }
+            }
             let Some(row) = rows.iter().find(|r| r.msg.id == target.id) else {
                 continue;
             };
@@ -441,27 +811,51 @@ impl Session {
                 quote(&row.date)
             };
             // Go sends this through reply(line, ""): a trailing space before CRLF.
-            let line = format!(
-                "* {} FETCH (UID {} FLAGS ({}) RFC822.SIZE {} ENVELOPE ({} {} {} {} {} {} {} NIL NIL NIL)) \r\n",
-                target.seq,
-                target.uid,
-                flag_names(&target).join(" "),
-                row.size,
-                date,
-                quote(&row.subject),
-                from,
-                from,
-                from,
-                to,
-                address_tuples(&row.cc),
-            );
+            let line = if include_modseq {
+                format!(
+                    "* {} FETCH (UID {} FLAGS ({}) MODSEQ ({}) RFC822.SIZE {} ENVELOPE ({} {} {} {} {} {} {} NIL NIL NIL)) \r\n",
+                    target.seq,
+                    target.uid,
+                    flag_names(&target).join(" "),
+                    target.modseq,
+                    row.size,
+                    date,
+                    quote(&row.subject),
+                    from,
+                    from,
+                    from,
+                    to,
+                    address_tuples(&row.cc),
+                )
+            } else {
+                format!(
+                    "* {} FETCH (UID {} FLAGS ({}) RFC822.SIZE {} ENVELOPE ({} {} {} {} {} {} {} NIL NIL NIL)) \r\n",
+                    target.seq,
+                    target.uid,
+                    flag_names(&target).join(" "),
+                    row.size,
+                    date,
+                    quote(&row.subject),
+                    from,
+                    from,
+                    from,
+                    to,
+                    address_tuples(&row.cc),
+                )
+            };
             self.out.extend_from_slice(line.as_bytes());
+            if include_modseq {
+                self.selected_highest_modseq = Some(
+                    self.selected_highest_modseq
+                        .map_or(target.modseq, |seen| seen.max(target.modseq)),
+                );
+            }
         }
         self.reply(tag, "OK FETCH completed");
         self.audit("imap_fetch").await;
     }
 
-    async fn read_fetch_rows(&self) -> Option<Vec<FetchRow>> {
+    pub(crate) async fn read_fetch_rows(&self) -> Option<Vec<FetchRow>> {
         let auth = self.mailbox_auth()?;
         let uid = self.uid_column();
         // The received date is rendered in UTC: Go formats pgx's local-zone time
@@ -470,7 +864,8 @@ impl Session {
             "SELECT m.id, {uid}, m.subject, m.from_addr, m.to_addrs::text, m.cc_addrs::text, \
                     m.is_read, m.is_flagged, m.is_answered, m.is_draft, m.is_deleted, \
                     m.size_bytes, \
-                    to_char(m.received_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') || ' +0000' \
+                    to_char(m.received_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') || ' +0000', \
+                    COALESCE(m.imap_modseq, 1)::bigint \
              FROM messages m \
              JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
              WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
@@ -486,30 +881,7 @@ impl Session {
             )
             .await
             .ok()?;
-        let mut out = Vec::with_capacity(rows.len());
-        for (i, row) in rows.iter().enumerate() {
-            // pgx fails the whole command on a row it cannot scan (NULL subject
-            // or UID, a non-string address element).
-            out.push(FetchRow {
-                msg: Msg {
-                    id: row.try_get(0).ok()?,
-                    uid: row.try_get::<_, Option<i64>>(1).ok()??,
-                    seq: i as i64 + 1,
-                    read: row.try_get(6).ok()?,
-                    flagged: row.try_get(7).ok()?,
-                    answered: row.try_get(8).ok()?,
-                    draft: row.try_get(9).ok()?,
-                    deleted: row.try_get(10).ok()?,
-                },
-                subject: row.try_get::<_, Option<String>>(2).ok()??,
-                from: row.try_get(3).ok()?,
-                to: decode_addresses(&row.try_get::<_, String>(4).ok()?)?,
-                cc: decode_addresses(&row.try_get::<_, String>(5).ok()?)?,
-                size: row.try_get(11).ok()?,
-                date: row.try_get(12).ok()?,
-            });
-        }
-        Some(out)
+        decode_fetch_rows(&rows)
     }
 
     pub(crate) async fn search(&mut self, tag: &str, is_uid: bool, args: &str) {
@@ -517,7 +889,13 @@ impl Session {
             self.reply(tag, "NO No mailbox selected");
             return;
         }
-        let Some(uids) = self.read_search_uids(args).await else {
+        let has_modseq_criterion = split_args(args)
+            .iter()
+            .any(|k| k.eq_ignore_ascii_case("MODSEQ"));
+        if has_modseq_criterion {
+            self.activate_condstore().await;
+        }
+        let Some((uids, max_modseq)) = self.read_search_uids(args).await else {
             self.reply(tag, "NO Server error");
             return;
         };
@@ -539,17 +917,22 @@ impl Session {
         if !nums.is_empty() {
             response.push_str(" ALL ");
             response.push_str(&nums.join(","));
+            if has_modseq_criterion {
+                if let Some(m) = max_modseq {
+                    response.push_str(&format!(" MODSEQ {m}"));
+                }
+            }
         }
         self.reply("*", &response);
         self.reply(tag, "OK SEARCH completed");
     }
 
-    async fn read_search_uids(&self, args: &str) -> Option<Vec<i64>> {
+    async fn read_search_uids(&self, args: &str) -> Option<(Vec<i64>, Option<i64>)> {
         let auth = self.mailbox_auth()?;
         let uid = self.uid_column();
         let (clause, values) = build_search_clause(args, 3);
         let sql = format!(
-            "SELECT {uid} FROM messages m \
+            "SELECT {uid}, COALESCE(m.imap_modseq, 1)::bigint FROM messages m \
              JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
              WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
                AND NOT m.is_deleted{clause} ORDER BY {uid}"
@@ -566,10 +949,13 @@ impl Session {
             .await
             .ok()?;
         let mut uids = Vec::with_capacity(rows.len());
+        let mut max_modseq: Option<i64> = None;
         for row in &rows {
             uids.push(row.try_get::<_, Option<i64>>(0).ok()??);
+            let ms = row.try_get::<_, i64>(1).unwrap_or(1).max(1);
+            max_modseq = Some(max_modseq.map_or(ms, |cur| cur.max(ms)));
         }
-        Some(uids)
+        Some((uids, max_modseq))
     }
 
     pub(crate) async fn store(&mut self, tag: &str, is_uid: bool, args: &str) {
@@ -581,17 +967,22 @@ impl Session {
             self.reply(tag, "NO [READ-ONLY] Mailbox selected as read-only");
             return;
         }
-        let parts: Vec<&str> = args.split_whitespace().collect();
-        if parts.len() < 3 {
-            self.reply(tag, "BAD Missing arguments");
-            return;
-        }
-        let ranges = parse_seq_set(parts[0]);
+        let req = match parse_store_args(args) {
+            Ok(req) => req,
+            Err(msg) => {
+                self.reply(tag, msg);
+                return;
+            }
+        };
+        let ranges = parse_seq_set(&req.seq_set);
         if ranges.is_empty() {
             self.reply(tag, "BAD Invalid sequence number");
             return;
         }
-        let (delta, silent) = parse_store_flags(parts[1], &parts[2..].join(" "));
+        let (delta, silent) = parse_store_flags(&req.op, &req.flags);
+        if req.unchanged_since.is_some() {
+            self.activate_condstore().await;
+        }
         let Some(auth) = self.mailbox_auth() else {
             self.reply(tag, "NO Store failed");
             return;
@@ -604,6 +995,7 @@ impl Session {
             command: (),
         };
         let (tag_id, mailbox, uid_column) = (self.tag_id, self.mailbox_id, self.uid_column());
+        let unchanged_since = req.unchanged_since;
         let outcome = self
             .server
             .db
@@ -612,32 +1004,131 @@ impl Session {
                 &auth,
                 Instant::now() + STORE_DEADLINE,
                 async |tx: &mut ScopedTx| {
-                    store_in_tx(tx, tag_id, mailbox, uid_column, &ranges, &delta, is_uid).await
+                    store_in_tx(
+                        tx,
+                        tag_id,
+                        mailbox,
+                        uid_column,
+                        &ranges,
+                        &delta,
+                        is_uid,
+                        unchanged_since,
+                    )
+                    .await
                 },
             )
             .await;
-        let CommandOutcome::Committed(post) = outcome else {
+        let CommandOutcome::Committed(result) = outcome else {
             self.reply(tag, "NO Store failed");
             return;
         };
+        if result.after_modseq > 0
+            && self
+                .selected_highest_modseq
+                .is_some_and(|seen| result.before_modseq <= seen)
+        {
+            self.selected_highest_modseq = Some(result.after_modseq);
+        }
+        let include_modseq = req.unchanged_since.is_some() || self.condstore_enabled;
         if !silent {
-            for m in &post {
+            for m in &result.updated {
+                let line = if include_modseq {
+                    format!(
+                        "* {} FETCH (UID {} FLAGS ({}) MODSEQ ({}))\r\n",
+                        m.seq,
+                        m.uid,
+                        flag_names(m).join(" "),
+                        m.modseq
+                    )
+                } else {
+                    format!(
+                        "* {} FETCH (UID {} FLAGS ({}))\r\n",
+                        m.seq,
+                        m.uid,
+                        flag_names(m).join(" ")
+                    )
+                };
+                self.out.extend_from_slice(line.as_bytes());
+            }
+        } else if req.unchanged_since.is_some() {
+            // RFC 7162 §3.1.3: STORE (UNCHANGEDSINCE n) ... .SILENT MUST still
+            // return untagged FETCH with MODSEQ for every modified message.
+            for m in &result.updated {
                 let line = format!(
-                    "* {} FETCH (UID {} FLAGS ({}))\r\n",
-                    m.seq,
-                    m.uid,
-                    flag_names(m).join(" ")
+                    "* {} FETCH (UID {} MODSEQ ({}))\r\n",
+                    m.seq, m.uid, m.modseq
                 );
                 self.out.extend_from_slice(line.as_bytes());
             }
         }
-        self.reply(tag, "OK STORE completed");
+        if !result.modified.is_empty() {
+            self.reply(
+                tag,
+                &format!(
+                    "OK [MODIFIED {}] Conditional STORE failed",
+                    format_uid_set(&result.modified)
+                ),
+            );
+        } else {
+            self.reply(tag, "OK STORE completed");
+        }
         self.audit("imap_store").await;
     }
 }
 
-struct FetchRow {
-    msg: Msg,
+pub(crate) fn decode_fetch_rows(rows: &[setjoin_pg::Row]) -> Option<Vec<FetchRow>> {
+    let mut out = Vec::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        // pgx fails the whole command on a row it cannot scan (NULL subject
+        // or UID, a non-string address element).
+        out.push(FetchRow {
+            msg: Msg {
+                id: row.try_get(0).ok()?,
+                uid: row.try_get::<_, Option<i64>>(1).ok()??,
+                seq: i as i64 + 1,
+                read: row.try_get(6).ok()?,
+                flagged: row.try_get(7).ok()?,
+                answered: row.try_get(8).ok()?,
+                draft: row.try_get(9).ok()?,
+                deleted: row.try_get(10).ok()?,
+                modseq: row.try_get::<_, i64>(13).unwrap_or(1).max(1),
+            },
+            subject: row.try_get::<_, Option<String>>(2).ok()??,
+            from: row.try_get(3).ok()?,
+            to: decode_addresses(&row.try_get::<_, String>(4).ok()?)?,
+            cc: decode_addresses(&row.try_get::<_, String>(5).ok()?)?,
+            size: row.try_get(11).ok()?,
+            date: row.try_get(12).ok()?,
+        });
+    }
+    Some(out)
+}
+
+pub(crate) async fn read_fetch_rows_in_tx(
+    tx: &mut ScopedReadTx,
+    tag_id: i64,
+    mailbox_id: i64,
+    uid_col: &str,
+) -> Result<Vec<FetchRow>, StatementFailure> {
+    let sql = format!(
+        "SELECT m.id, {uid_col}, m.subject, m.from_addr, m.to_addrs::text, m.cc_addrs::text, \
+                m.is_read, m.is_flagged, m.is_answered, m.is_draft, m.is_deleted, \
+                m.size_bytes, \
+                to_char(m.received_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') || ' +0000', \
+                COALESCE(m.imap_modseq, 1)::bigint \
+         FROM messages m \
+         JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
+         WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
+         ORDER BY {uid_col}"
+    );
+    let rows = tx
+        .query(&sql, &[(&tag_id, Type::INT8), (&mailbox_id, Type::INT8)])
+        .await?;
+    decode_fetch_rows(&rows).ok_or_else(|| failure("fetch row scan failed"))
+}
+
+pub(crate) struct FetchRow {
+    pub(crate) msg: Msg,
     subject: String,
     from: String,
     to: Vec<String>,
@@ -646,8 +1137,154 @@ struct FetchRow {
     date: String,
 }
 
-/// One scoped transaction: ordered view, keyword patch via the reducer, then
-/// the `\Deleted` writes with their state pushes (Go's `handleStore` body).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FetchRequest {
+    seq_set: String,
+    wants_modseq: bool,
+    changed_since: Option<i64>,
+    vanished: bool,
+}
+
+fn parse_fetch_args(args: &str, is_uid: bool) -> Result<FetchRequest, &'static str> {
+    let Some(first) = args.split_whitespace().next() else {
+        return Err("BAD Missing arguments");
+    };
+    let rest = args.get(first.len()..).unwrap_or("").trim();
+    // Look for a trailing parenthesized FETCH modifier list containing CHANGEDSINCE
+    // and/or VANISHED in any order (RFC 7162 §3.1.4 & §3.2.6).
+    let mut items_part = rest;
+    let mut changed_since: Option<i64> = None;
+    let mut vanished = false;
+    if let Some(open) = rest.rfind('(') {
+        if rest.ends_with(')') && open < rest.len() - 1 {
+            let candidate = rest[open + 1..rest.len() - 1].trim();
+            let mods: Vec<&str> = candidate.split_whitespace().collect();
+            let is_mod_list = mods.first().is_some_and(|tok| {
+                tok.eq_ignore_ascii_case("CHANGEDSINCE") || tok.eq_ignore_ascii_case("VANISHED")
+            });
+            if is_mod_list {
+                let mut idx = 0usize;
+                while idx < mods.len() {
+                    if mods[idx].eq_ignore_ascii_case("CHANGEDSINCE") {
+                        if changed_since.is_some() {
+                            return Err("BAD Duplicate CHANGEDSINCE modifier");
+                        }
+                        let Some(raw_val) = mods.get(idx + 1) else {
+                            return Err("BAD Invalid CHANGEDSINCE modifier");
+                        };
+                        let Ok(val) = raw_val.parse::<i64>() else {
+                            return Err("BAD Invalid CHANGEDSINCE modifier");
+                        };
+                        // RFC 7162 §3.1.4: mod-sequence-value MUST be >= 1.
+                        if val < 1 {
+                            return Err("BAD Invalid CHANGEDSINCE modifier");
+                        }
+                        changed_since = Some(val);
+                        idx += 2;
+                    } else if mods[idx].eq_ignore_ascii_case("VANISHED") {
+                        if vanished {
+                            return Err("BAD Duplicate VANISHED modifier");
+                        }
+                        vanished = true;
+                        idx += 1;
+                    } else {
+                        return Err("BAD Invalid FETCH modifier");
+                    }
+                }
+                if vanished && changed_since.is_none() {
+                    return Err("BAD VANISHED requires CHANGEDSINCE");
+                }
+                if vanished && !is_uid {
+                    return Err("BAD VANISHED requires UID FETCH");
+                }
+                items_part = rest[..open].trim();
+                if items_part.is_empty() {
+                    return Err("BAD Missing FETCH items");
+                }
+            }
+        }
+    }
+    let wants_modseq = items_part
+        .split(|c: char| c.is_ascii_whitespace() || c == '(' || c == ')')
+        .any(|tok| tok.eq_ignore_ascii_case("MODSEQ"));
+    Ok(FetchRequest {
+        seq_set: first.to_string(),
+        wants_modseq,
+        changed_since,
+        vanished,
+    })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoreRequest {
+    seq_set: String,
+    unchanged_since: Option<i64>,
+    op: String,
+    flags: String,
+}
+
+fn parse_store_args(args: &str) -> Result<StoreRequest, &'static str> {
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() < 3 {
+        return Err("BAD Missing arguments");
+    }
+    let seq_set = parts[0].to_string();
+    let mut idx = 1usize;
+    let mut unchanged_since = None;
+    if parts[idx].starts_with('(') {
+        let mut combined = String::new();
+        let mut closed = false;
+        while idx < parts.len() {
+            if !combined.is_empty() {
+                combined.push(' ');
+            }
+            combined.push_str(parts[idx]);
+            let ends = parts[idx].ends_with(')');
+            idx += 1;
+            if ends {
+                closed = true;
+                break;
+            }
+        }
+        if !closed {
+            return Err("BAD Invalid STORE modifier");
+        }
+        let inner = combined.trim_matches(|c| c == '(' || c == ')').trim();
+        let mod_parts: Vec<&str> = inner.split_whitespace().collect();
+        if mod_parts.len() == 2 && mod_parts[0].eq_ignore_ascii_case("UNCHANGEDSINCE") {
+            let Ok(val) = mod_parts[1].parse::<i64>() else {
+                return Err("BAD Invalid UNCHANGEDSINCE modifier");
+            };
+            if val < 0 {
+                return Err("BAD Invalid UNCHANGEDSINCE modifier");
+            }
+            unchanged_since = Some(val);
+        } else {
+            return Err("BAD Invalid STORE modifier");
+        }
+    }
+    if parts.len() < idx + 2 {
+        return Err("BAD Missing arguments");
+    }
+    Ok(StoreRequest {
+        seq_set,
+        unchanged_since,
+        op: parts[idx].to_string(),
+        flags: parts[idx + 1..].join(" "),
+    })
+}
+
+struct StoreOutcome {
+    updated: Vec<Msg>,
+    modified: Vec<i64>,
+    before_modseq: i64,
+    after_modseq: i64,
+}
+
+/// One scoped transaction: ordered view, optional RFC 7162 UNCHANGEDSINCE guard,
+/// keyword patch via the reducer, then the `\Deleted` writes with their state
+/// pushes (Go's `handleStore` body + CONDSTORE single-currency MODSEQ).
+#[allow(clippy::too_many_arguments)]
 async fn store_in_tx(
     tx: &mut ScopedTx,
     tag_id: i64,
@@ -656,9 +1293,24 @@ async fn store_in_tx(
     ranges: &[Range],
     delta: &Delta,
     is_uid: bool,
-) -> Result<Vec<Msg>, StatementFailure> {
+    unchanged_since: Option<i64>,
+) -> Result<StoreOutcome, StatementFailure> {
+    // Canonical #481 lock order: lock mailboxes BEFORE locking messages so
+    // concurrent JMAP/IMAP writes serialize cleanly with zero deadlock inversion.
+    let mb_rows = tx
+        .query(
+            "SELECT (COALESCE(jmap_email_state, 0) + 1)::bigint FROM mailboxes WHERE id = $1 FOR UPDATE",
+            &[(&mailbox, Type::INT8)],
+        )
+        .await?;
+    let before_modseq = mb_rows
+        .first()
+        .and_then(|r| r.try_get::<_, i64>(0).ok())
+        .unwrap_or(1)
+        .max(1);
     let sql = format!(
-        "SELECT m.id, {uid_column}, m.is_read, m.is_flagged, m.is_answered, m.is_draft, m.is_deleted \
+        "SELECT m.id, {uid_column}, m.is_read, m.is_flagged, m.is_answered, m.is_draft, m.is_deleted, \
+                COALESCE(m.imap_modseq, 1)::bigint \
          FROM messages m \
          JOIN message_tags mt ON mt.message_id = m.id AND mt.received_at = m.received_at \
          WHERE mt.tag_id = $1 AND m.mailbox_id = $2 AND mt.is_primary = TRUE \
@@ -680,18 +1332,84 @@ async fn store_in_tx(
                 answered: row.try_get(4).ok()?,
                 draft: row.try_get(5).ok()?,
                 deleted: row.try_get(6).ok()?,
+                modseq: row.try_get::<_, i64>(7).unwrap_or(1).max(1),
             })
         };
         msgs.push(scan().ok_or_else(|| failure("row scan failed"))?);
     }
     let targets = resolve_seq_set(ranges, &msgs, is_uid);
     if targets.is_empty() {
-        return Ok(Vec::new());
+        return Ok(StoreOutcome {
+            updated: Vec::new(),
+            modified: Vec::new(),
+            before_modseq,
+            after_modseq: before_modseq,
+        });
+    }
+    // Lock target message rows in ascending id order BEFORE evaluating
+    // UNCHANGEDSINCE and mutating, eliminating any check-then-write race.
+    let target_ids: Vec<i64> = targets.iter().map(|m| m.id).collect();
+    let locked_rows = tx
+        .query(
+            "SELECT id, is_read, is_flagged, is_answered, is_draft, is_deleted, \
+                    COALESCE(imap_modseq, 1)::bigint \
+               FROM messages \
+              WHERE id = ANY($1) AND mailbox_id = $2 \
+              ORDER BY id \
+              FOR UPDATE",
+            &[(&target_ids, Type::INT8_ARRAY), (&mailbox, Type::INT8)],
+        )
+        .await?;
+    let mut locked_by_id = std::collections::HashMap::with_capacity(locked_rows.len());
+    for row in &locked_rows {
+        let scan_locked = || -> Option<(i64, bool, bool, bool, bool, bool, i64)> {
+            Some((
+                row.try_get(0).ok()?,
+                row.try_get(1).ok()?,
+                row.try_get(2).ok()?,
+                row.try_get(3).ok()?,
+                row.try_get(4).ok()?,
+                row.try_get(5).ok()?,
+                row.try_get::<_, i64>(6).ok()?.max(1),
+            ))
+        };
+        if let Some((id, read, flagged, answered, draft, deleted, modseq)) = scan_locked() {
+            locked_by_id.insert(id, (read, flagged, answered, draft, deleted, modseq));
+        }
+    }
+    let mut eligible = Vec::with_capacity(targets.len());
+    let mut modified = Vec::new();
+    for mut m in targets {
+        let Some(&(read, flagged, answered, draft, deleted, modseq)) = locked_by_id.get(&m.id)
+        else {
+            continue;
+        };
+        m.read = read;
+        m.flagged = flagged;
+        m.answered = answered;
+        m.draft = draft;
+        m.deleted = deleted;
+        m.modseq = modseq;
+        if let Some(limit) = unchanged_since {
+            if m.modseq > limit {
+                modified.push(if is_uid { m.uid } else { m.seq });
+                continue;
+            }
+        }
+        eligible.push(m);
+    }
+    if eligible.is_empty() {
+        return Ok(StoreOutcome {
+            updated: Vec::new(),
+            modified,
+            before_modseq,
+            after_modseq: before_modseq,
+        });
     }
     let mut patch = serde_json::Map::new();
     let (mut delete_ids, mut restore_ids) = (Vec::<i64>::new(), Vec::<i64>::new());
-    let mut post = Vec::with_capacity(targets.len());
-    for m in &targets {
+    let mut post = Vec::with_capacity(eligible.len());
+    for m in &eligible {
         let np = apply_delta(m, delta);
         let mut kw = serde_json::Map::new();
         for (key, current, next) in [
@@ -755,7 +1473,44 @@ async fn store_in_tx(
             .await?;
         }
     }
-    Ok(post)
+    if !post.is_empty() {
+        let ids: Vec<i64> = post.iter().map(|m| m.id).collect();
+        let modseq_rows = tx
+            .query(
+                "SELECT id, COALESCE(imap_modseq, 1)::bigint FROM messages \
+                 WHERE id = ANY($1) AND mailbox_id = $2",
+                &[(&ids, Type::INT8_ARRAY), (&mailbox, Type::INT8)],
+            )
+            .await?;
+        let mut by_id = std::collections::HashMap::with_capacity(modseq_rows.len());
+        for row in &modseq_rows {
+            if let (Ok(id), Ok(ms)) = (row.try_get::<_, i64>(0), row.try_get::<_, i64>(1)) {
+                by_id.insert(id, ms.max(1));
+            }
+        }
+        for m in &mut post {
+            if let Some(&ms) = by_id.get(&m.id) {
+                m.modseq = ms;
+            }
+        }
+    }
+    let after_rows = tx
+        .query(
+            "SELECT (COALESCE(jmap_email_state, 0) + 1)::bigint FROM mailboxes WHERE id = $1",
+            &[(&mailbox, Type::INT8)],
+        )
+        .await?;
+    let after_modseq = after_rows
+        .first()
+        .and_then(|r| r.try_get::<_, i64>(0).ok())
+        .unwrap_or(before_modseq)
+        .max(1);
+    Ok(StoreOutcome {
+        updated: post,
+        modified,
+        before_modseq,
+        after_modseq,
+    })
 }
 
 #[cfg(test)]
@@ -874,5 +1629,127 @@ mod tests {
         );
         assert_eq!(decode_addresses("[1]"), None);
         assert_eq!(decode_addresses("null"), Some(vec![]));
+    }
+
+    #[test]
+    fn rfc7162_parsers_handle_modseq_changedsince_unchangedsince_and_uid_sets() {
+        assert_eq!(format_uid_set(&[]), "");
+        assert_eq!(format_uid_set(&[5, 1, 2, 3, 5, 9, 10]), "1:3,5,9:10");
+
+        let f = parse_fetch_args("1:* (FLAGS MODSEQ) (CHANGEDSINCE 7 VANISHED)", true).unwrap();
+        assert_eq!(f.seq_set, "1:*");
+        assert!(f.wants_modseq);
+        assert_eq!(f.changed_since, Some(7));
+        assert!(f.vanished);
+        let f_rev = parse_fetch_args("1:* (FLAGS MODSEQ) (VANISHED CHANGEDSINCE 7)", true).unwrap();
+        assert_eq!(f_rev, f);
+        assert!(parse_fetch_args("1:* (FLAGS) (CHANGEDSINCE 7 VANISHED)", false).is_err());
+        assert!(parse_fetch_args("1:* (FLAGS) (VANISHED)", true).is_err());
+        assert!(parse_fetch_args("1:* (FLAGS) (CHANGEDSINCE 0)", true).is_err());
+        assert!(parse_fetch_args("1:* (FLAGS) (CHANGEDSINCE -1)", true).is_err());
+
+        // Exact interval subtraction handles huge ranges without truncation.
+        let live_rows = vec![
+            FetchRow {
+                msg: Msg {
+                    uid: 10,
+                    ..Msg::default()
+                },
+                subject: String::new(),
+                from: String::new(),
+                to: Vec::new(),
+                cc: Vec::new(),
+                size: 0,
+                date: String::new(),
+            },
+            FetchRow {
+                msg: Msg {
+                    uid: 50_000,
+                    ..Msg::default()
+                },
+                subject: String::new(),
+                from: String::new(),
+                to: Vec::new(),
+                cc: Vec::new(),
+                size: 0,
+                date: String::new(),
+            },
+        ];
+        assert_eq!(
+            format_uid_ranges(&subtract_live_from_ranges(
+                &[r(1, 100_000)],
+                &live_rows,
+                100_000
+            )),
+            "1:9,11:49999,50001:100000"
+        );
+
+        let s = parse_store_args("1:3 (UNCHANGEDSINCE 9) +FLAGS (\\Seen)").unwrap();
+        assert_eq!(s.seq_set, "1:3");
+        assert_eq!(s.unchanged_since, Some(9));
+        assert_eq!(s.op, "+FLAGS");
+        assert_eq!(s.flags, "(\\Seen)");
+        assert!(parse_store_args("1 (UNCHANGEDSINCE nope) +FLAGS (\\Seen)").is_err());
+
+        let (sql, params) = build_search_clause("MODSEQ 12", 3);
+        assert_eq!(sql, " AND COALESCE(m.imap_modseq, 1) >= $3::bigint");
+        assert_eq!(params, ["12"]);
+        let (sql, params) = build_search_clause("MODSEQ \"/flags/\\seen\" all 15", 3);
+        assert_eq!(sql, " AND COALESCE(m.imap_modseq, 1) >= $3::bigint");
+        assert_eq!(params, ["15"]);
+
+        // RFC 7162 §3.2.5.2 strict ascending seq-match-data & lower-UID bounding
+        assert_eq!(
+            parse_strict_ascending_set_no_star("1:3,5,8:9"),
+            Some((vec![r(1, 3), r(5, 5), r(8, 9)], 6))
+        );
+        for bad in [
+            "",
+            "1:*",
+            "3:1",
+            "2,1",
+            "1:3,3:5",
+            "0",
+            "1,1",
+            "+1",
+            "-1",
+            "1:+2",
+            "4294967296",
+        ] {
+            assert!(
+                parse_strict_ascending_set_no_star(bad).is_none(),
+                "must reject {bad:?}"
+            );
+        }
+        let aligned_rows: Vec<FetchRow> = [10, 20, 40]
+            .iter()
+            .enumerate()
+            .map(|(i, &uid)| FetchRow {
+                msg: Msg {
+                    id: uid,
+                    uid,
+                    seq: i as i64 + 1,
+                    ..Msg::default()
+                },
+                subject: String::new(),
+                from: String::new(),
+                to: Vec::new(),
+                cc: Vec::new(),
+                size: 0,
+                date: String::new(),
+            })
+            .collect();
+        assert_eq!(
+            compute_qresync_aligned_uid_floor(
+                &[r(1, 3)],
+                &[r(10, 10), r(20, 20), r(30, 30)],
+                &aligned_rows,
+            ),
+            20
+        );
+        assert_eq!(
+            compute_qresync_aligned_uid_floor(&[r(1, 2)], &[r(5, 5), r(10, 10)], &aligned_rows,),
+            0
+        );
     }
 }

@@ -152,6 +152,14 @@ pub async fn create(
         auth,
         deadline,
         async move |tx| {
+            // Canonical #481 lock order: acquire mailboxes lock before locking messages rows.
+            if !processed_sizes.is_empty() {
+                tx.execute(
+                    "SELECT id FROM mailboxes WHERE id = $1 FOR UPDATE",
+                    &[(&mailbox, Type::INT8)],
+                )
+                .await?;
+            }
             let mut orig_sizes: Vec<(String, i64, String, i64)> = Vec::new();
             for item in processed_sizes {
                 let rows = tx

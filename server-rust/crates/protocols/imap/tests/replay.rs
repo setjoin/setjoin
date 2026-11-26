@@ -32,6 +32,29 @@ impl Stream {
     }
 }
 
+/// Wave 2.7 (#554): authenticated CAPABILITY / LOGIN / AUTHENTICATE replies now
+/// advertise `CONDSTORE QRESYNC` (recorded in oracle/divergences.json). Expand
+/// the immutable frozen-Go expected wire bytes for those lines so byte counts
+/// and exact assertions stay deterministic without editing golden JSON files.
+fn wave27_expected_reply(expected: &str, authed_after_step: bool) -> String {
+    let mut out = String::with_capacity(expected.len() + 36);
+    for line in expected.split_inclusive("\r\n") {
+        let is_auth_cap = line.contains("OK [CAPABILITY ")
+            && (line.contains("LOGIN completed") || line.contains("AUTHENTICATE completed"));
+        let is_post_auth_cap_list = authed_after_step && line.starts_with("* CAPABILITY ");
+        if (is_auth_cap || is_post_auth_cap_list) && !line.contains("CONDSTORE") {
+            out.push_str(&line.replacen(
+                "IMAP4rev2 LOGIN-REFERRALS ID ENABLE",
+                "IMAP4rev2 LOGIN-REFERRALS ID ENABLE CONDSTORE QRESYNC",
+                1,
+            ));
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
 /// Read until `want` bytes arrived, EOF, or the deadline; never hangs.
 async fn read_upto(stream: &mut Stream, want: usize, wait: Duration) -> Vec<u8> {
     let mut out = Vec::new();
@@ -95,6 +118,7 @@ async fn run(
         let task = tokio::spawn(Arc::new(server).serve(listener, rx));
         let tls = session["transport"] == "tls";
         let mut conns: Vec<Option<Stream>> = Vec::new();
+        let mut conn_authed: Vec<bool> = Vec::new();
         for (i, step) in session["steps"].as_array().unwrap().iter().enumerate() {
             let at = format!("{name} step {i}");
             if let Some(ms) = step["sleep_ms"].as_u64() {
@@ -114,6 +138,7 @@ async fn run(
             let idx = step["conn"].as_u64().unwrap_or(0) as usize;
             while conns.len() <= idx {
                 conns.push(None);
+                conn_authed.push(false);
             }
             if conns[idx].is_none() {
                 let socket = TcpStream::connect(addr).await.unwrap();
@@ -129,7 +154,14 @@ async fn run(
                 // A write to an already-closed peer is a recorded outcome, not a failure.
                 let _ = stream.write(request.as_bytes()).await;
             }
-            let expected = step["response"].as_str().unwrap().as_bytes();
+            let raw_expected = step["response"].as_str().unwrap();
+            if raw_expected.contains("LOGIN completed")
+                || raw_expected.contains("AUTHENTICATE completed")
+            {
+                conn_authed[idx] = true;
+            }
+            let expected_str = wave27_expected_reply(raw_expected, conn_authed[idx]);
+            let expected = expected_str.as_bytes();
             let wait = match step["until"].as_str().unwrap() {
                 "eof" | "none" => Duration::from_millis(1500),
                 _ => Duration::from_secs(5),

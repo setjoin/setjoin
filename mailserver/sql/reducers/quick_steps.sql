@@ -90,6 +90,9 @@ BEGIN
       USING ERRCODE = 'BZ042', HINT = '{"type":"notFound"}';
   END IF;
 
+  -- Canonical #481 lock order (mailboxes -> messages).
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+
   -- Guard: the message must belong to this mailbox (R3 / no TOCTOU).
   PERFORM 1 FROM messages
     WHERE id = p_message_id AND received_at = p_received_at AND mailbox_id = p_mailbox_id;
@@ -111,8 +114,9 @@ BEGIN
   END LOOP;
 
   -- apply_action already pushes per-action via notify_state_change; a final
-  -- mailbox-wide bump guarantees a state change even for a macro whose actions
-  -- all no-op'd (e.g. categorize a category already present).
-  PERFORM notify_state_change(p_mailbox_id, NULL);
+  -- precise bump guarantees a state change even for a macro whose actions
+  -- all no-op'd (e.g. categorize a category already present) without emitting a
+  -- 'resync' sentinel.
+  PERFORM notify_state_change(p_mailbox_id, NULL, p_message_id, 'updated');
 END;
 $$ LANGUAGE plpgsql;

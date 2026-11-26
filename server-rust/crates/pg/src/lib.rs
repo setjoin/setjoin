@@ -74,7 +74,8 @@ pub use command::{
     ReceiptCommand,
 };
 pub use executor::{
-    ConfigError, Param, ProvenStatement, ScopedExecutor, ScopedTx, Timeouts, DEADLINE_ENV,
+    ConfigError, Param, ProvenStatement, ScopedExecutor, ScopedReadTx, ScopedTx, Timeouts,
+    DEADLINE_ENV,
 };
 pub use listen_hub::{
     ListenEvent, ListenHub, ListenHubError, ListenNotification, ListenSubscription,

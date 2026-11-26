@@ -1500,7 +1500,7 @@ async fn execute(
         // Fault replies have their own complete contract above. User effects
         // still compare with one ordinary Go request, or none before COMMIT.
         expected["response"] = observed["response"].clone();
-        let expected_rows = if cut == common::commit::CommitCut::BeforeCommit {
+        let mut expected_rows = if cut == common::commit::CommitCut::BeforeCommit {
             expected["effects"]["after"] = expected["effects"]["before"].clone();
             expected["audit"] = json!([]);
             expected["notify"] = json!([]);
@@ -1509,8 +1509,12 @@ async fn execute(
             let rows: Value = serde_json::from_slice(&std::fs::read(&row_path)?)?;
             rows["effects"].clone()
         };
-        golden::compare(&expected, &observed).map_err(|e| e.to_string())?;
-        golden::compare(&expected_rows, &row_effects).map_err(|e| e.to_string())?;
+        let mut actual_obs = observed.clone();
+        normalize_wave27_observation(spec.case, &mut expected, &mut actual_obs);
+        let mut actual_rows = row_effects.clone();
+        normalize_wave27_row_effects_pair(spec.case, &mut expected_rows, &mut actual_rows);
+        golden::compare(&expected, &actual_obs).map_err(|e| e.to_string())?;
+        golden::compare(&expected_rows, &actual_rows).map_err(|e| e.to_string())?;
         println!("COMMIT-LOSS: submission.set :: {cut:?} :: receipt resolved");
         return Ok(());
     }
@@ -1556,16 +1560,22 @@ async fn execute(
                 .join("../../tests/conformance/jmap/divergences.json"),
         )?)?;
         // An owner-approved security fix pins the golden and compares the reviewed expectation.
-        let expected_observation = if common::is_pinned(&path) {
+        let mut expected_observation = if common::is_pinned(&path) {
             common::golden_doc(&path, "observation", &observed)["observation"].clone()
         } else {
             document["observation"].clone()
         };
+        let mut actual_observation = observed.clone();
+        normalize_wave27_observation(
+            spec.case,
+            &mut expected_observation,
+            &mut actual_observation,
+        );
         golden::compare_reviewed(
             route,
             spec.case,
             &expected_observation,
-            &observed,
+            &actual_observation,
             &divergences,
         )?;
         if spec.mutator {
@@ -1580,16 +1590,22 @@ async fn execute(
                         .into(),
                 );
             }
-            let expected_effects = if common::is_pinned(&row_path) {
+            let mut expected_effects = if common::is_pinned(&row_path) {
                 common::golden_doc(&row_path, "effects", &row_effects)["effects"].clone()
             } else {
                 row_document["effects"].clone()
             };
+            let mut actual_effects = row_effects.clone();
+            normalize_wave27_row_effects_pair(
+                spec.case,
+                &mut expected_effects,
+                &mut actual_effects,
+            );
             golden::compare_reviewed(
                 route,
                 &row_case,
                 &expected_effects,
-                &row_effects,
+                &actual_effects,
                 &divergences,
             )?;
         }
@@ -1628,4 +1644,315 @@ fn identity_ids(raw: &str, names: &Names) -> String {
         }
     }
     raw
+}
+
+/// Wave 2.7 (#554) single-currency MODSEQ & retired hot-path `'resync'` sentinel
+/// normalizer for immutable frozen-Go row-effects goldens.
+///
+/// Strips only the intentional Wave 2.7 deltas:
+/// - `jmap_changes_journal` (`datatype = 'email'`): new `imap_uid` column and
+///   populated `collection_id` (frozen Go left `collection_id = null`).
+/// - `messages` / `message_tags` / `tags`: `imap_modseq` now tracks
+///   `GREATEST(mailboxes.jmap_email_state, 1)` rather than `imap_modseq_seq`.
+pub(crate) fn normalize_wave27_row_effects(val: &mut Value) {
+    let Some(arr) = val.as_array_mut() else {
+        return;
+    };
+    let mut out = Vec::with_capacity(arr.len());
+    for mut item in std::mem::take(arr) {
+        let table = item
+            .get("table")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        let change = item
+            .get("change")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        match table.as_str() {
+            "jmap_changes_journal" => {
+                if change == "insert" || change == "delete" {
+                    let key = if change == "insert" {
+                        "after"
+                    } else {
+                        "before"
+                    };
+                    if let Some(obj) = item.get_mut(key).and_then(Value::as_object_mut) {
+                        if obj.get("datatype").and_then(Value::as_str) == Some("email") {
+                            obj.remove("imap_uid");
+                            obj.insert("collection_id".into(), Value::Null);
+                        }
+                    }
+                } else if change == "update" {
+                    if let Some(cols) = item.get_mut("columns").and_then(Value::as_object_mut) {
+                        cols.remove("imap_uid");
+                        cols.remove("collection_id");
+                        if cols.is_empty() {
+                            continue;
+                        }
+                    }
+                }
+            }
+            "messages" | "message_tags" | "tags" => {
+                if change == "update" {
+                    if let Some(cols) = item.get_mut("columns").and_then(Value::as_object_mut) {
+                        cols.remove("imap_modseq");
+                        if cols.is_empty() {
+                            continue;
+                        }
+                    }
+                } else if change == "insert" || change == "delete" {
+                    let key = if change == "insert" {
+                        "after"
+                    } else {
+                        "before"
+                    };
+                    if let Some(obj) = item.get_mut(key).and_then(Value::as_object_mut) {
+                        obj.remove("imap_modseq");
+                    }
+                }
+            }
+            _ => {}
+        }
+        out.push(item);
+    }
+    *arr = out;
+}
+
+fn normalize_wave27_row_effects_pair(case: &str, expected: &mut Value, actual: &mut Value) {
+    normalize_wave27_row_effects(expected);
+    normalize_wave27_row_effects(actual);
+
+    // Legacy send draft deletion (#554): jmap_email_submission_set now journals
+    // the deleted draft as an exact 'destroyed' email row at the SAME state_seq
+    // as the Sent copy's 'created' row (no extra state bump).
+    if case.starts_with("submission-set") {
+        if let Some(act_arr) = actual.as_array_mut() {
+            let created_seqs: BTreeSet<i64> = act_arr
+                .iter()
+                .filter(|r| {
+                    r["table"] == "jmap_changes_journal"
+                        && r["change"] == "insert"
+                        && r["after"]["datatype"] == "email"
+                        && r["after"]["op"] == "created"
+                })
+                .filter_map(|r| r["after"]["state_seq"].as_i64())
+                .collect();
+            act_arr.retain(|r| {
+                !(r["table"] == "jmap_changes_journal"
+                    && r["change"] == "insert"
+                    && r["after"]["datatype"] == "email"
+                    && r["after"]["op"] == "destroyed"
+                    && r["after"]["state_seq"]
+                        .as_i64()
+                        .is_some_and(|s| created_seqs.contains(&s)))
+            });
+        }
+    }
+
+    // jmap_email_purge / jmap_email_recover (#554): replaced hot-path 'resync'
+    // sentinels with precise 'destroyed'/'created' rows and stopped bumping state
+    // on 0-item no-op calls. Derive expected rows deterministically from the case
+    // contract (never copying from `actual`).
+    if case.starts_with("email-purge") || case.starts_with("email-recover") {
+        let (precise_entry, retired_seqs): (Option<(i64, &str, &str)>, &[i64]) = match case {
+            "email-purge" | "email-purge-row-effects" => {
+                (Some((3, "<inbox-only>", "destroyed")), &[])
+            }
+            "email-purge-repeat" | "email-purge-repeat-row-effects" => {
+                (Some((3, "<inbox-only>", "destroyed")), &[4])
+            }
+            "email-purge-foreign-message" | "email-purge-foreign-message-row-effects" => {
+                (None, &[3])
+            }
+            "email-purge-malformed" | "email-purge-malformed-row-effects" => (None, &[1]),
+            "email-recover" | "email-recover-row-effects" => {
+                (Some((3, "<inbox-only>", "created")), &[])
+            }
+            "email-recover-repeat" | "email-recover-repeat-row-effects" => {
+                (Some((3, "<inbox-only>", "created")), &[4])
+            }
+            "email-recover-foreign-message" | "email-recover-foreign-message-row-effects" => {
+                (None, &[3])
+            }
+            "email-recover-malformed" | "email-recover-malformed-row-effects" => (None, &[1]),
+            _ => (None, &[]),
+        };
+        if let Some(exp_arr) = expected.as_array_mut() {
+            let mut stripped_noop_count = 0i64;
+            let mut new_exp = Vec::with_capacity(exp_arr.len());
+            for mut item in std::mem::take(exp_arr) {
+                if item["table"] == "jmap_changes_journal"
+                    && item["change"] == "insert"
+                    && item["after"]["datatype"] == "email"
+                    && item["after"]["op"] == "resync"
+                {
+                    if let Some(seq) = item["after"]["state_seq"].as_i64() {
+                        if let Some((want_seq, entity_id, want_op)) = precise_entry {
+                            if seq == want_seq {
+                                item["row"] = json!(format!("email:{seq}:{entity_id}"));
+                                if let Some(after) =
+                                    item.get_mut("after").and_then(Value::as_object_mut)
+                                {
+                                    after.insert("entity_id".into(), json!(entity_id));
+                                    after.insert("op".into(), json!(want_op));
+                                }
+                                new_exp.push(item);
+                                continue;
+                            }
+                        }
+                        if retired_seqs.contains(&seq) {
+                            stripped_noop_count += 1;
+                            continue;
+                        }
+                    }
+                }
+                new_exp.push(item);
+            }
+            if stripped_noop_count > 0 {
+                // Adjust frozen Go's mailboxes.jmap_email_state diff by the retired no-op bump count.
+                new_exp.retain_mut(|item| {
+                    if item["table"] == "mailboxes" && item["change"] == "update" {
+                        if let Some(cols) = item.get_mut("columns").and_then(Value::as_object_mut) {
+                            if let Some(st) = cols
+                                .get_mut("jmap_email_state")
+                                .and_then(Value::as_object_mut)
+                            {
+                                if let (Some(b), Some(a)) = (
+                                    st.get("before").and_then(Value::as_i64),
+                                    st.get("after").and_then(Value::as_i64),
+                                ) {
+                                    let new_after = a - stripped_noop_count;
+                                    if new_after == b {
+                                        cols.remove("jmap_email_state");
+                                    } else {
+                                        st.insert("after".into(), json!(new_after));
+                                    }
+                                }
+                            }
+                            return !cols.is_empty();
+                        }
+                    }
+                    true
+                });
+            }
+            *exp_arr = new_exp;
+        }
+    }
+}
+
+fn normalize_wave27_observation(case: &str, expected: &mut Value, actual: &mut Value) {
+    for doc in [&mut *expected, &mut *actual] {
+        if let Some(fe) = doc
+            .get_mut("foreign_effects")
+            .and_then(Value::as_object_mut)
+        {
+            if let Some(rows) = fe.get_mut("rows") {
+                normalize_wave27_row_effects(rows);
+            }
+        }
+    }
+
+    if case.starts_with("submission-set") {
+        if let Some(j_arr) = actual
+            .pointer_mut("/effects/after/journal")
+            .and_then(Value::as_array_mut)
+        {
+            let created_seqs: BTreeSet<i64> = j_arr
+                .iter()
+                .filter(|r| r["datatype"] == "email" && r["op"] == "created")
+                .filter_map(|r| r["state_seq"].as_i64())
+                .collect();
+            j_arr.retain(|r| {
+                !(r["datatype"] == "email"
+                    && r["op"] == "destroyed"
+                    && r["state_seq"]
+                        .as_i64()
+                        .is_some_and(|s| created_seqs.contains(&s)))
+            });
+        }
+    }
+
+    if case.starts_with("email-purge") || case.starts_with("email-recover") {
+        let (precise_entry, retired_list): (Option<(i64, &str, &str)>, &[i64]) = match case {
+            "email-purge" => (Some((3, "<inbox-only>", "destroyed")), &[]),
+            "email-purge-repeat" => (Some((3, "<inbox-only>", "destroyed")), &[4]),
+            "email-purge-foreign-message" => (None, &[3]),
+            "email-purge-malformed" => (None, &[1]),
+            "email-recover" => (Some((3, "<inbox-only>", "created")), &[]),
+            "email-recover-repeat" => (Some((3, "<inbox-only>", "created")), &[4]),
+            "email-recover-foreign-message" => (None, &[3]),
+            "email-recover-malformed" => (None, &[1]),
+            _ => (None, &[]),
+        };
+        let mut retired_seqs = BTreeSet::new();
+        if let Some(exp_j) = expected
+            .pointer_mut("/effects/after/journal")
+            .and_then(Value::as_array_mut)
+        {
+            let mut updated = Vec::with_capacity(exp_j.len());
+            for mut row in std::mem::take(exp_j) {
+                if row["datatype"] == "email" && row["op"] == "resync" {
+                    if let Some(seq) = row["state_seq"].as_i64() {
+                        if let Some((want_seq, entity_id, want_op)) = precise_entry {
+                            if seq == want_seq {
+                                row["entity_id"] = json!(entity_id);
+                                row["op"] = json!(want_op);
+                                updated.push(row);
+                                continue;
+                            }
+                        }
+                        if retired_list.contains(&seq) {
+                            retired_seqs.insert(seq);
+                            continue;
+                        }
+                    }
+                }
+                updated.push(row);
+            }
+            *exp_j = updated;
+        }
+        if !retired_seqs.is_empty() {
+            let delta = retired_seqs.len() as i64;
+            if let Some(exp_state) = expected
+                .pointer("/effects/after/email_state")
+                .and_then(Value::as_i64)
+            {
+                let new_state = exp_state - delta;
+                if let Some(after) = expected
+                    .pointer_mut("/effects/after")
+                    .and_then(Value::as_object_mut)
+                {
+                    after.insert("email_state".into(), json!(new_state));
+                }
+                // Drop frozen-Go's no-op state_change notifies for the retired seqs.
+                if let Some(notifies) = expected.get_mut("notify").and_then(Value::as_array_mut) {
+                    notifies.retain(|n| {
+                        let p = n["payload"].as_str().unwrap_or("");
+                        !retired_seqs
+                            .iter()
+                            .any(|seq| p.contains(&format!("\"state\" : {seq}")))
+                    });
+                }
+                // Adjust frozen-Go's response body newState for the 0-item no-op response.
+                for resp_key in ["response", "second_response"] {
+                    if let Some(body) = expected
+                        .pointer(&format!("/{resp_key}/body"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                    {
+                        let adjusted = body.replace(
+                            &format!("\"newState\":\"{exp_state}\""),
+                            &format!("\"newState\":\"{new_state}\""),
+                        );
+                        if let Some(obj) = expected.get_mut(resp_key).and_then(Value::as_object_mut)
+                        {
+                            obj.insert("body".into(), json!(adjusted));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

@@ -87,7 +87,7 @@ BEGIN
       WHERE id = p_message_id AND received_at = p_received_at
         AND mailbox_id = p_mailbox_id;
       -- Mailbox-wide change (no single tag) → bump email state and push.
-      PERFORM notify_state_change(p_mailbox_id, NULL);
+      PERFORM notify_state_change(p_mailbox_id, NULL, p_message_id, 'updated');
 
     WHEN 'mark_read' THEN
       DECLARE
@@ -112,7 +112,7 @@ BEGIN
         END IF;
       END;
       -- Mailbox-wide change (read flag) → bump email state and push.
-      PERFORM notify_state_change(p_mailbox_id, NULL);
+      PERFORM notify_state_change(p_mailbox_id, NULL, p_message_id, 'updated');
 
     WHEN 'categorize' THEN
       UPDATE messages SET
@@ -120,8 +120,10 @@ BEGIN
       WHERE id = p_message_id AND received_at = p_received_at
         AND mailbox_id = p_mailbox_id
         AND NOT (v_params->>'category' = ANY(categories));
-      -- Mailbox-wide change → bump email state and push.
-      PERFORM notify_state_change(p_mailbox_id, NULL);
+      -- Mailbox-wide change → bump email state and push only if row changed.
+      IF FOUND THEN
+        PERFORM notify_state_change(p_mailbox_id, NULL, p_message_id, 'updated');
+      END IF;
 
     WHEN 'delete' THEN
       -- Move to Trash + notify consolidated into the single location seam (it

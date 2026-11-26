@@ -134,7 +134,16 @@ async fn replay(corpus_name: &str, mutant: bool) {
             assert_eq!(Value::Object(effects), *expected, "complete effects {name}");
         }
         assert_eq!(greeting, case["greeting"], "{name}");
-        assert_eq!(reply, case["reply"], "{name}");
+        // Wave 2.7 (#554): authenticated LOGIN/AUTHENTICATE [CAPABILITY ...] replies
+        // now advertise CONDSTORE QRESYNC (recorded in oracle/divergences.json).
+        let normalized_reply = if reply.contains("OK [CAPABILITY ")
+            && (reply.contains("LOGIN completed") || reply.contains("AUTHENTICATE completed"))
+        {
+            reply.replacen(" CONDSTORE QRESYNC", "", 1)
+        } else {
+            reply
+        };
+        assert_eq!(normalized_reply, case["reply"], "{name}");
         assert_eq!(serde_json::json!(attempts), case["attempts"], "{name}");
         assert_eq!(signin, case["signins"].as_i64().unwrap(), "{name}");
         assert_eq!(devices, case["device_auths"].as_i64().unwrap(), "{name}");
@@ -171,7 +180,10 @@ async fn feed_bypass_mutant_is_rejected_by_recorded_socket_and_effects() {
         .map(String::as_str)
         .or_else(|| panic.downcast_ref::<&str>().copied())
         .unwrap_or("");
-    assert!(message.contains("complete effects feed"), "mutant failed before the recorded feed assertion: {message}");
+    assert!(
+        message.contains("complete effects feed"),
+        "mutant failed before the recorded feed assertion: {message}"
+    );
 }
 
 #[tokio::test]

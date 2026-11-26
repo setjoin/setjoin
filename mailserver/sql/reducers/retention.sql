@@ -53,10 +53,34 @@ DECLARE
   v_new_email_state BIGINT;
   v_deleted         INT := 0;
 BEGIN
+  -- Canonical #481 lock order: pre-lock all distinct affected mailboxes in
+  -- deterministic ascending order before deleting retention tags / messages.
+  PERFORM 1
+    FROM mailboxes
+   WHERE id IN (
+     SELECT DISTINCT m.mailbox_id
+       FROM (
+         SELECT t.message_id, t.received_at
+           FROM message_retention_tags t
+           JOIN retention_policies p ON p.id = t.policy_id
+          WHERE t.expires_at IS NOT NULL
+            AND t.expires_at <= now()
+            AND p.action = 'delete'
+          ORDER BY t.expires_at
+          LIMIT p_batch_size
+       ) due
+       JOIN messages m ON m.id = due.message_id AND m.received_at = due.received_at
+   )
+   ORDER BY id
+   FOR UPDATE;
+
   FOR v_row IN
     SELECT t.message_id, t.received_at, p.action,
            m.message_id AS rfc_msgid, m.from_addr, m.mailbox_id,
-           m.size_bytes
+           m.size_bytes, m.imap_uid, m.folder_id,
+           (SELECT mt.tag_id FROM message_tags mt
+             WHERE mt.message_id = m.id AND mt.received_at = m.received_at AND mt.is_primary = TRUE
+             LIMIT 1) AS primary_tag_id
     FROM message_retention_tags t
     JOIN retention_policies p ON p.id = t.policy_id
     JOIN messages m ON m.id = t.message_id AND m.received_at = t.received_at
@@ -67,28 +91,36 @@ BEGIN
     LIMIT p_batch_size
   LOOP
     BEGIN
+      PERFORM 1 FROM mailboxes WHERE id = v_row.mailbox_id FOR UPDATE;
+
       DELETE FROM message_retention_tags
       WHERE message_id = v_row.message_id AND received_at = v_row.received_at;
 
       DELETE FROM messages
       WHERE id = v_row.message_id AND received_at = v_row.received_at;
+      IF NOT FOUND THEN
+        CONTINUE;
+      END IF;
 
       PERFORM trace(v_row.rfc_msgid, 'expired', v_row.from_addr, '',
         NULL, jsonb_build_object('policy_action', 'delete',
                                  'mailbox_id', v_row.mailbox_id));
 
-      -- Free the mailbox quota + advance JMAP state so the delete surfaces via
-      -- Email/changes. The message_tags ON DELETE CASCADE counter trigger
-      -- (trg_message_tags_counters) already decrements tags.total_count/unread_count
-      -- for this message — it derives the unread delta from is_read itself, so we
-      -- neither read is_read here nor touch any folder counter (there is none).
+      -- Free the mailbox quota + advance JMAP state with a precise 'destroyed'
+      -- journal entry carrying (collection_id, imap_uid) so both JMAP Email/changes
+      -- and IMAP QRESYNC VANISHED observe retention deletes incrementally (#554).
+      -- The message_tags ON DELETE CASCADE counter trigger (trg_message_tags_counters)
+      -- already decrements tags.total_count/unread_count for this message.
       UPDATE mailboxes
       SET used_bytes         = GREATEST(0, used_bytes - v_row.size_bytes),
           jmap_mailbox_state = jmap_mailbox_state + 1,
           jmap_email_state   = jmap_email_state + 1
       WHERE id = v_row.mailbox_id
       RETURNING jmap_email_state INTO v_new_email_state;
-      PERFORM append_email_change(v_row.mailbox_id, v_new_email_state, NULL, 'resync');
+      PERFORM append_email_change(
+        v_row.mailbox_id, v_new_email_state, v_row.message_id, 'destroyed',
+        COALESCE(v_row.primary_tag_id, v_row.folder_id), v_row.imap_uid
+      );
 
       v_deleted := v_deleted + 1;
 

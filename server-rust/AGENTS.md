@@ -170,4 +170,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
 - `crates/workqueue` (`setjoin-workqueue`, #548/#549) — durable work queue, `worker_schedules`, DLQ (`operator`), privileged `worker` (isolated by `check-rust-family-isolation.py`). `bins/gateway/src/supervisor/` owns `WorkerSupervisor` & legacy drain-then-retire.
-- `SyncWakeupHub` (`bins/gateway/src/jmap/sync_hub.rs`, #552) — scope-keyed push hub, `ScopeAttach`/`ScopeDetach`, live `scope_revoked`, guest SSE; `GET /api/chat/channels/{id}/changes` + uniform journal retention schedules (`#553`); see [gateway DOX](bins/gateway/DOX.md).
+- `SyncWakeupHub` (`bins/gateway/src/jmap/sync_hub.rs`, #552) — scope-keyed push hub, `ScopeAttach`/`ScopeDetach`, live `scope_revoked`, guest SSE; `GET /api/chat/channels/{id}/changes` + uniform journal retention schedules (`#553`); IMAP CONDSTORE/QRESYNC aligned onto `jmap_changes_journal` (`#554`, `crates/protocols/imap/DOX.md`); see [gateway DOX](bins/gateway/DOX.md).

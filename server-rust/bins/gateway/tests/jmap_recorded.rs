@@ -747,10 +747,9 @@ async fn execute_case(
     };
     let body = match pilot {
         Pilot::Changes => changes_body(account.mailbox, "0"),
-        Pilot::ChangesForeign => changes_body(
-            foreign.map_or(account.mailbox, |other| other.mailbox),
-            "0",
-        ),
+        Pilot::ChangesForeign => {
+            changes_body(foreign.map_or(account.mailbox, |other| other.mailbox), "0")
+        }
         Pilot::ChangesInvalid => changes_body(account.mailbox, "not-a-state"),
         Pilot::ChangesStale => changes_body(account.mailbox, "999999"),
         Pilot::Inbox | Pilot::InboxForeign => format!(
@@ -963,11 +962,15 @@ async fn execute_case(
                 "row-effects golden metadata or normalization rules do not match the case".into(),
             );
         }
+        let mut expected_effects = row_document["effects"].clone();
+        let mut actual_effects = row_effects.clone();
+        jmap_email_oracle::normalize_wave27_row_effects(&mut expected_effects);
+        jmap_email_oracle::normalize_wave27_row_effects(&mut actual_effects);
         golden::compare_reviewed(
             route,
             &row_case,
-            &row_document["effects"],
-            &row_effects,
+            &expected_effects,
+            &actual_effects,
             &divergences,
         )?;
         println!("GOLDEN-REPLAY: {route} :: {case}");
@@ -1396,17 +1399,56 @@ macro_rules! replay {
     };
 }
 
-replay!(email_query_replays_a_text_search_without_go, "email-query-text");
-replay!(email_query_replays_a_combined_filter_without_go, "email-query-combined-filter");
-replay!(email_query_replays_cross_tenant_denial_without_go, "email-query-cross-tenant");
-replay!(email_query_replays_a_foreign_tag_as_empty_without_go, "email-query-foreign-tag");
-replay!(email_query_replays_clamped_paging_without_go, "email-query-clamped-paging");
-replay!(email_query_replays_a_bad_date_filter_without_go, "email-query-bad-date");
-replay!(email_set_replays_a_flag_update_without_go, "email-set-update-flag");
-replay!(email_set_replays_a_repeated_update_without_go, "email-set-update-repeat");
-replay!(email_set_replays_a_label_move_without_go, "email-set-move-label");
+replay!(
+    email_query_replays_a_text_search_without_go,
+    "email-query-text"
+);
+replay!(
+    email_query_replays_a_combined_filter_without_go,
+    "email-query-combined-filter"
+);
+replay!(
+    email_query_replays_cross_tenant_denial_without_go,
+    "email-query-cross-tenant"
+);
+replay!(
+    email_query_replays_a_foreign_tag_as_empty_without_go,
+    "email-query-foreign-tag"
+);
+replay!(
+    email_query_replays_clamped_paging_without_go,
+    "email-query-clamped-paging"
+);
+replay!(
+    email_query_replays_a_bad_date_filter_without_go,
+    "email-query-bad-date"
+);
+replay!(
+    email_set_replays_a_flag_update_without_go,
+    "email-set-update-flag"
+);
+replay!(
+    email_set_replays_a_repeated_update_without_go,
+    "email-set-update-repeat"
+);
+replay!(
+    email_set_replays_a_label_move_without_go,
+    "email-set-move-label"
+);
 replay!(email_set_replays_a_destroy_without_go, "email-set-destroy");
-replay!(email_set_replays_cross_tenant_denial_without_go, "email-set-cross-tenant");
-replay!(email_set_replays_a_foreign_tag_denial_without_go, "email-set-foreign-tag");
-replay!(email_set_replays_an_invalid_keyword_without_go, "email-set-invalid-keyword");
-replay!(email_set_replays_malformed_destroy_ids_without_go, "email-set-destroy-malformed");
+replay!(
+    email_set_replays_cross_tenant_denial_without_go,
+    "email-set-cross-tenant"
+);
+replay!(
+    email_set_replays_a_foreign_tag_denial_without_go,
+    "email-set-foreign-tag"
+);
+replay!(
+    email_set_replays_an_invalid_keyword_without_go,
+    "email-set-invalid-keyword"
+);
+replay!(
+    email_set_replays_malformed_destroy_ids_without_go,
+    "email-set-destroy-malformed"
+);

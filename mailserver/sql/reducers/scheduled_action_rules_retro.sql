@@ -17,9 +17,9 @@ DECLARE
     v_window     TEXT;
     v_cutoff     TIMESTAMPTZ;
     v_msg        RECORD;
-    v_seen       INT := 0;
-    v_processed  INT := 0;
-    v_truncated  BOOLEAN := FALSE;
+    v_seen          INT      := 0;
+    v_processed     INT      := 0;
+    v_truncated     BOOLEAN  := FALSE;
     c_cap CONSTANT INT := 5000;  -- ponytail: fixed cap; make it a system_config knob if a tenant needs deeper sweeps
 BEGIN
     IF v_mailbox_id IS NULL THEN
@@ -37,6 +37,10 @@ BEGIN
     END;
 
     -- Sweep newest-first; pull one past the cap to detect truncation honestly.
+    -- Every organizing action in apply_action (move_to, flag, mark_read,
+    -- categorize, delete, discard) already emits its own precise journal row
+    -- ('updated' or 'destroyed') + state bump via notify_state_change (#554).
+    -- Non-matching candidates therefore emit ZERO spurious journal rows.
     FOR v_msg IN
         SELECT id, received_at
         FROM messages
@@ -54,12 +58,6 @@ BEGIN
         PERFORM apply_rules(v_msg.id, v_msg.received_at, v_mailbox_id, 'server', TRUE, v_rule_id);
         v_processed := v_processed + 1;
     END LOOP;
-
-    -- Bump email state once so open clients refresh (apply_rules also pushes per
-    -- mutating action; this covers the visible-change guarantee even for a 0-action sweep).
-    IF v_processed > 0 THEN
-        PERFORM notify_state_change(v_mailbox_id, NULL);
-    END IF;
 
     -- Persist the outcome onto the action so the status read path can report it.
     UPDATE scheduled_actions

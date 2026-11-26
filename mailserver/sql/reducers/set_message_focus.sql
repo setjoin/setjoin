@@ -18,6 +18,9 @@ DECLARE
     v_sender   TEXT;
     v_user_id  BIGINT;
 BEGIN
+    -- Canonical #481 lock order (mailboxes -> messages) before any message/tag writes.
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+
     v_other_id := get_tag_id('Other', p_mailbox_id);
     IF v_other_id IS NULL THEN
         RAISE EXCEPTION 'mailbox % has no Other tag', p_mailbox_id
