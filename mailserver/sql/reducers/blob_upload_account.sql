@@ -87,6 +87,11 @@ BEGIN
                   HINT = '{"type":"invalidArguments","field":"grace_minutes"}'::TEXT;
     END IF;
 
+    -- 0. SERIALIZE WITH MARK-AND-SWEEP GC (#550): acquire the per-sha256
+    -- transaction advisory lock before admitting/deduping blobs so Tx 2A/2B
+    -- cannot concurrently delete bytes we are about to promote.
+    PERFORM pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key(p_blob_sha256));
+
     -- 1. ADMISSION: content-addressed insert; a conflict is a dedup (the
     -- canonical key holds identical bytes — no new bytes stored).
     INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
@@ -120,6 +125,10 @@ BEGIN
         INSERT INTO blob_user_charges (blob_sha256, user_id, size_bytes)
             VALUES (p_blob_sha256, p_user_id, p_size_bytes);
     END IF;
+
+    -- Reactivate any reclaim_eligible/purging companion GC state row (SECURITY
+    -- DEFINER narrow helper so setjoin_app never needs direct blob_gc_state ACLs).
+    PERFORM public.blob_gc_reactivate(p_blob_sha256);
 
     -- 4. ARMING: queue any now-unattached blob for reclamation after the
     -- grace window. Fresh inserts are at ref_count=0 by construction; a dedup

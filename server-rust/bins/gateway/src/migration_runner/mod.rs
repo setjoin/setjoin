@@ -1392,6 +1392,12 @@ impl Inner {
         };
         use sha2::{Digest, Sha256};
         let reference = imap::hex(&Sha256::digest(&item.raw));
+        db.query(
+            "SELECT public.blob_gc_reactivate($1)",
+            &[(&reference, Type::TEXT)],
+        )
+        .await
+        .map_err(|e| format!("blob gc reactivate: {e}"))?;
         self.store
             .put(&reference, &item.raw, "message/rfc822")
             .await

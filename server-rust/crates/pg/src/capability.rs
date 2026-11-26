@@ -19,6 +19,14 @@
 //! }
 //! ```
 //!
+//! ## `MailboxTx<ReadOnly>` has no `execute_contract`
+//! ```compile_fail
+//! use setjoin_pg::{MailboxTx, ReadOnly, SqlContract};
+//! async fn mutate_contract(tx: &mut MailboxTx<ReadOnly>, c: &'static SqlContract) {
+//!     let _ = tx.execute_contract(c, &[]).await;
+//! }
+//! ```
+//!
 //! ## `AdminReadTx<Standard>` has no mutating methods
 //! ```compile_fail
 //! use setjoin_pg::{AdminReadTx, Standard};
@@ -93,15 +101,43 @@
 //!     WorkerTx { }
 //! }
 //! ```
+//!
+//! ## `AdminRollbackOnlyTx` (`AdminReducerOutcome::NoOp`) cannot commit
+//! ```compile_fail
+//! use setjoin_pg::AdminRollbackOnlyTx;
+//! async fn commit_noop(tx: AdminRollbackOnlyTx) {
+//!     let _ = tx.commit().await;
+//! }
+//! ```
+//!
+//! ## Branch-only reducer returning `NoOp` cannot commit without setting `app.core_audit_written`
+//! ```compile_fail
+//! use setjoin_pg::{AdminReducerOutcome, AdminWriteTx, SqlContract, Unaudited};
+//! async fn commit_branch_only(tx: AdminWriteTx<Unaudited>, c: &'static SqlContract) {
+//!     if let Ok(AdminReducerOutcome::NoOp { tx, .. }) =
+//!         tx.execute_audited_reducer_contract(c, &[]).await
+//!     {
+//!         let _ = tx.commit().await;
+//!     }
+//! }
+//! ```
+//!
+//! ## `PreAuthReadTx` has no mutating methods
+//! ```compile_fail
+//! use setjoin_pg::PreAuthReadTx;
+//! async fn mutate_pre_auth(tx: &mut PreAuthReadTx) {
+//!     let _ = tx.execute("UPDATE users SET enabled = false", &[]).await;
+//! }
+//! ```
 
 use crate::{
     auth::AuditKeys,
-    command::{operation_hex, ReceiptCommand},
+    command::{operation_hex, OperationLookup, ReceiptCommand},
     executor::{ConfigError, Param, Timeouts},
     outcome::{commit_failure_observation, CommandOutcome, Rejection, StatementFailure},
     pipeline::{
-        build_begin_sql, execute_read_pipeline, execute_write_pipeline, pre_encode_params,
-        EncodedStep, Preamble,
+        build_begin_sql, build_begin_sql_with_idle_timeout, execute_read_pipeline,
+        execute_write_pipeline, pre_encode_params, EncodedStep, Preamble,
     },
     pool::{ManagedLease, PlanCacheHint, PreparedStatementMode, SetjoinPool},
     statement::{admit, admit_select},
@@ -116,10 +152,30 @@ use setjoin_db::lifecycle::{
     accepted_contract, ConnectionDisposition, LifecycleError, Phase, RollbackObservation,
     TransactionLifecycle,
 };
-#[cfg(feature = "worker-pool")]
-use std::time::Duration;
-use std::{marker::PhantomData, sync::Arc, time::Instant};
-use tokio_postgres::{types::Type, Row};
+use setjoin_sql_catalog::{SqlAuditPosture, SqlContract, SqlScope};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::sync::Semaphore;
+use tokio_postgres::{
+    types::{ToSql, Type},
+    Row,
+};
+
+/// Server-side `SET LOCAL idle_in_transaction_session_timeout` (8000ms) enforced
+/// on effect transactions (`run_*_effect_write`) so stalled peripheral I/O
+/// never leaks pooled connections (#546a).
+pub const EFFECT_IDLE_IN_TX_TIMEOUT_MS: u32 = 8_000;
+
+/// Tight client-side peripheral body timeout (`<= 5s`) enforced on effect
+/// transactions before `COMMIT` (#546a).
+pub const EFFECT_BODY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Default bounded concurrency limit on simultaneous in-flight effect
+/// transactions so slow S3 promotions cannot exhaust `AppPool` (#546a).
+pub const DEFAULT_EFFECT_CONCURRENCY: usize = 16;
 
 // ---------------------------------------------------------------------------
 // Sealed type-state markers
@@ -446,6 +502,34 @@ impl InteractiveStmtError {
     }
 }
 
+pub(crate) fn zip_contract_params<'a>(
+    contract: &'static SqlContract,
+    values: &[&'a (dyn ToSql + Sync)],
+) -> Result<Vec<Param<'a>>, StatementFailure> {
+    if values.len() != contract.params.len() {
+        return Err(StatementFailure::refused(
+            "contract parameter count mismatch",
+        ));
+    }
+    Ok(values
+        .iter()
+        .copied()
+        .zip(contract.params.iter().cloned())
+        .collect())
+}
+
+pub(crate) fn check_contract_scope(
+    contract: &'static SqlContract,
+    allowed: &[SqlScope],
+    err_msg: &'static str,
+) -> Result<(), StatementFailure> {
+    if allowed.contains(&contract.scope) {
+        Ok(())
+    } else {
+        Err(StatementFailure::refused(err_msg))
+    }
+}
+
 async fn run_interactive_statement(
     lease: &ManagedLease,
     sql: &str,
@@ -478,6 +562,30 @@ async fn run_interactive_statement(
         rows.push(row);
     }
     Ok((rows, stream.rows_affected().unwrap_or(0)))
+}
+
+/// Frozen-Go row-iteration read compatibility seam inside an open `BEGIN READ ONLY`
+/// capability transaction: a failure before `RowDescription` returns `Err`; a
+/// stream error after `RowDescription` retains rows already delivered.
+async fn run_interactive_iterated(
+    lease: &ManagedLease,
+    sql: &str,
+    params: &[Param<'_>],
+) -> Result<Vec<Row>, StatementFailure> {
+    admit_select(sql).map_err(StatementFailure::refused)?;
+    let encoded = pre_encode_params(params)?;
+    let typed: Vec<Param<'_>> = encoded.iter().map(|p| p.as_param()).collect();
+    let stream = lease
+        .client()
+        .query_typed_raw(sql, typed)
+        .await
+        .map_err(|e| StatementFailure::from_db(&e))?;
+    futures_util::pin_mut!(stream);
+    let mut rows = Vec::new();
+    while let Ok(Some(row)) = stream.try_next().await {
+        rows.push(row);
+    }
+    Ok(rows)
 }
 
 async fn begin_read_only_with_retry(
@@ -539,6 +647,15 @@ async fn begin_write_with_retry(
     preamble: &Preamble,
     deadline: Instant,
 ) -> Result<ManagedLease, Rejection<StatementFailure>> {
+    begin_write_with_retry_opts(pool, preamble, deadline, None).await
+}
+
+async fn begin_write_with_retry_opts(
+    pool: &SetjoinPool,
+    preamble: &Preamble,
+    deadline: Instant,
+    idle_in_tx_ms: Option<u32>,
+) -> Result<ManagedLease, Rejection<StatementFailure>> {
     let preamble_step = preamble.to_step().map_err(Rejection::Statement)?;
 
     for attempt in 0..2 {
@@ -547,7 +664,12 @@ async fn begin_write_with_retry(
             return Err(Rejection::Authority(LifecycleError::DeadlineElapsed));
         }
         let lease = pool.get().await.map_err(|_| Rejection::Unavailable)?;
-        let begin_sql = build_begin_sql("BEGIN READ WRITE", remaining, pool.plan_cache_hint);
+        let begin_sql = build_begin_sql_with_idle_timeout(
+            "BEGIN READ WRITE",
+            remaining,
+            idle_in_tx_ms,
+            pool.plan_cache_hint,
+        );
         let client = lease.client();
         let begun = tokio::time::timeout(remaining, async {
             tokio::join!(
@@ -633,6 +755,38 @@ impl MailboxTx<ReadOnly> {
             .map_err(InteractiveStmtError::into_failure)
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::MailboxReadOnly`]
+    /// via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadOnly],
+            "contract scope mismatch for MailboxTx<ReadOnly>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::MailboxReadOnly`]
+    /// with frozen-Go `Rows.Err`-ignored row-iteration semantics.
+    pub async fn query_iterated_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadOnly],
+            "contract scope mismatch for MailboxTx<ReadOnly>::query_iterated_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        run_interactive_iterated(&self.lease, contract.sql, &params).await
+    }
+
     /// Close the read-only transaction cleanly and return the connection to the pool.
     pub async fn finish(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
@@ -669,6 +823,61 @@ impl MailboxTx<ReadWrite> {
         params: &[Param<'_>],
     ) -> Result<u64, StatementFailure> {
         self.run_rw_stmt(sql, params).await.map(|(_, n)| n)
+    }
+
+    /// Execute a static [`SqlContract`] scoped to mailbox reads or writes and
+    /// return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadOnly, SqlScope::MailboxReadWrite],
+            "contract scope mismatch for MailboxTx<ReadWrite>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::MailboxReadWrite`]
+    /// and return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadWrite],
+            "contract scope mismatch for MailboxTx<ReadWrite>::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
+    }
+
+    /// Acquire `#481` canonical parent row locks (`users FOR KEY SHARE` ->
+    /// `mailboxes FOR UPDATE`) strictly after the transaction preamble's
+    /// advisory lock (`setjoin-command:...`) and before locking child
+    /// collections/items (`messages`, `calendars`, `tasks`, `rules`).
+    pub async fn prelock_mailbox_hierarchy(&mut self) -> Result<(), StatementFailure> {
+        let mailbox_id = self.principal.mailbox.get();
+        let _ = self
+            .run_rw_stmt(
+                "SELECT u.id FROM public.users u \
+                  JOIN public.mailboxes m ON m.user_id = u.id \
+                 WHERE m.id = $1 FOR KEY SHARE OF u",
+                &[(&mailbox_id, Type::INT8)],
+            )
+            .await?;
+        let _ = self
+            .run_rw_stmt(
+                "SELECT id FROM public.mailboxes WHERE id = $1 FOR UPDATE",
+                &[(&mailbox_id, Type::INT8)],
+            )
+            .await?;
+        Ok(())
     }
 
     async fn run_rw_stmt(
@@ -811,6 +1020,38 @@ impl UserTx<ReadOnly> {
             .map_err(InteractiveStmtError::into_failure)
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::UserScoped`]
+    /// inside this `BEGIN READ ONLY` user transaction.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for UserTx<ReadOnly>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::UserScoped`]
+    /// with frozen-Go `Rows.Err`-ignored row-iteration semantics.
+    pub async fn query_iterated_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for UserTx<ReadOnly>::query_iterated_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        run_interactive_iterated(&self.lease, contract.sql, &params).await
+    }
+
     pub async fn finish(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
             Ok(()) => {
@@ -844,6 +1085,38 @@ impl UserTx<ReadWrite> {
         params: &[Param<'_>],
     ) -> Result<u64, StatementFailure> {
         self.run_rw_stmt(sql, params).await.map(|(_, n)| n)
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::UserScoped`] and
+    /// return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for UserTx<ReadWrite>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::UserScoped`] and
+    /// return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for UserTx<ReadWrite>::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
     }
 
     async fn run_rw_stmt(
@@ -984,6 +1257,38 @@ impl AdminReadTx<Standard> {
             .map_err(InteractiveStmtError::into_failure)
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminRead`]
+    /// inside this `BEGIN READ ONLY` admin transaction.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead],
+            "contract scope mismatch for AdminReadTx<Standard>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminRead`]
+    /// with frozen-Go `Rows.Err`-ignored row-iteration semantics.
+    pub async fn query_iterated_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead],
+            "contract scope mismatch for AdminReadTx<Standard>::query_iterated_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        run_interactive_iterated(&self.lease, contract.sql, &params).await
+    }
+
     pub async fn finish(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
             Ok(()) => {
@@ -1030,6 +1335,38 @@ impl AdminSensitiveRead {
             .map(|(rows, _)| rows)
             .map_err(InteractiveStmtError::into_failure)
     }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminRead`]
+    /// inside this audited `BEGIN READ ONLY` transaction.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead],
+            "contract scope mismatch for AdminSensitiveRead",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminRead`]
+    /// with frozen-Go `Rows.Err`-ignored row-iteration semantics.
+    pub async fn query_iterated_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead],
+            "contract scope mismatch for AdminSensitiveRead::query_iterated_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        run_interactive_iterated(&self.lease, contract.sql, &params).await
+    }
 }
 
 /// Admin write transaction handle with compile-time audit enforcement:
@@ -1066,6 +1403,38 @@ impl<A: sealed::AuditState> AdminWriteTx<A> {
         params: &[Param<'_>],
     ) -> Result<u64, StatementFailure> {
         self.run_stmt(sql, params).await.map(|(_, n)| n)
+    }
+
+    /// Execute a static [`SqlContract`] scoped to admin reads or writes and
+    /// return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead, SqlScope::AdminWrite],
+            "contract scope mismatch for AdminWriteTx",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminWrite`] and
+    /// return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminWrite],
+            "contract scope mismatch for AdminWriteTx::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
     }
 
     async fn run_stmt(
@@ -1129,6 +1498,73 @@ impl<A: sealed::AuditState> AdminWriteTx<A> {
     }
 }
 
+/// Rollback-only admin transaction returned when a
+/// [`SqlAuditPosture::ReducerWritesCoreAudit`] reducer completed without
+/// setting PostgreSQL's `app.core_audit_written = '1'` proof (for example, an
+/// early `404`/`409` return).
+///
+/// Intentionally exposes **no** `.commit()` method and no query/execute
+/// methods so unaudited branches can never commit (#546a).
+#[must_use = "rollback-only admin transactions must be rolled back"]
+pub struct AdminRollbackOnlyTx {
+    lease: ManagedLease,
+    principal: VerifiedAdmin,
+    lifecycle: TransactionLifecycle,
+}
+
+impl AdminRollbackOnlyTx {
+    pub const fn actor(&self) -> ActorId {
+        self.principal.actor
+    }
+
+    /// Explicitly roll back this unaudited admin transaction.
+    pub async fn rollback(mut self) -> Result<(), StatementFailure> {
+        let _ = self.lifecycle.request_rollback();
+        match self.lease.client().batch_execute("ROLLBACK").await {
+            Ok(()) => {
+                let _ = self
+                    .lifecycle
+                    .observe_rollback(RollbackObservation::Acknowledged);
+                if !self.lease.is_closed() {
+                    self.lease.keep();
+                } else {
+                    self.lease.quarantine();
+                }
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self
+                    .lifecycle
+                    .observe_rollback(RollbackObservation::Unknown);
+                self.lease.quarantine();
+                Err(StatementFailure::from_db(&e))
+            }
+        }
+    }
+}
+
+/// Outcome of [`AdminWriteTx::execute_audited_reducer_contract`] (#546a).
+#[must_use = "admin reducer outcomes must be committed or rolled back"]
+pub enum AdminReducerOutcome {
+    /// PostgreSQL's `audit_write(..., 'core')` succeeded in this exact
+    /// transaction (`current_setting('app.core_audit_written', true) = '1'`),
+    /// advancing the handle to `AdminWriteTx<Audited>` with zero double-audit.
+    Audited {
+        tx: AdminWriteTx<Audited>,
+        rows: Vec<Row>,
+    },
+    /// The reducer returned without writing a `'core'` audit row (e.g. an early
+    /// `404`/`409` no-op). The enclosed [`AdminRollbackOnlyTx`] cannot commit.
+    NoOp {
+        tx: AdminRollbackOnlyTx,
+        rows: Vec<Row>,
+    },
+}
+
+const RESET_CORE_AUDIT_WRITTEN_SQL: &str = "SELECT set_config('app.core_audit_written', '', true)";
+const CHECK_CORE_AUDIT_WRITTEN_SQL: &str =
+    "SELECT COALESCE(current_setting('app.core_audit_written', true), '') = '1'";
+
 impl AdminWriteTx<Unaudited> {
     /// Execute `audit_write(verified_actor, ..., 'core')` in the same
     /// transaction and advance the type-state to `AdminWriteTx<Audited>`.
@@ -1179,6 +1615,159 @@ impl AdminWriteTx<Unaudited> {
             failure: self.failure,
             _audit: PhantomData,
         })
+    }
+
+    /// Execute a [`SqlAuditPosture::ReducerWritesCoreAudit`] admin reducer
+    /// contract inside this transaction without double-auditing (#546a):
+    ///
+    /// 1. Verifies `contract.scope == SqlScope::AdminWrite`,
+    ///    `contract.audit == SqlAuditPosture::ReducerWritesCoreAudit`, and
+    ///    `contract.params[0] == Type::INT8`.
+    /// 2. Binds `$1` (`p_actor`) strictly from `self.principal.actor` (R2 —
+    ///    callers pass only `$2..$N` in `rest_values`).
+    /// 3. Resets `app.core_audit_written` to `''` before invocation, invokes
+    ///    `contract.sql`, and verifies `current_setting('app.core_audit_written', true) = '1'`
+    ///    in the same transaction:
+    ///    - `'1'` -> returns [`AdminReducerOutcome::Audited`] (`AdminWriteTx<Audited>`).
+    ///    - anything else -> returns rollback-only [`AdminReducerOutcome::NoOp`]
+    ///      ([`AdminRollbackOnlyTx`], which exposes no `.commit()`).
+    pub async fn execute_audited_reducer_contract(
+        mut self,
+        contract: &'static SqlContract,
+        rest_values: &[&(dyn ToSql + Sync)],
+    ) -> Result<AdminReducerOutcome, StatementFailure> {
+        if contract.scope != SqlScope::AdminWrite {
+            let _ = self.rollback().await;
+            return Err(StatementFailure::refused(
+                "contract scope mismatch for AdminWriteTx::execute_audited_reducer_contract",
+            ));
+        }
+        if contract.audit != SqlAuditPosture::ReducerWritesCoreAudit {
+            let _ = self.rollback().await;
+            return Err(StatementFailure::refused(
+                "contract must declare SqlAuditPosture::ReducerWritesCoreAudit",
+            ));
+        }
+        if contract.params.first() != Some(&Type::INT8) {
+            let _ = self.rollback().await;
+            return Err(StatementFailure::refused(
+                "audited reducer contract must bind INT8 p_actor as $1",
+            ));
+        }
+        if rest_values.len() + 1 != contract.params.len() {
+            let _ = self.rollback().await;
+            return Err(StatementFailure::refused(
+                "contract parameter count mismatch (p_actor is bound automatically as $1)",
+            ));
+        }
+        if let Some(prior) = &self.failure {
+            let err = match prior {
+                TxFailure::Statement(f) => f.clone(),
+                TxFailure::Authority(_) | TxFailure::CommitRefused(_) => {
+                    StatementFailure::refused("authority check failed")
+                }
+            };
+            let _ = self.rollback().await;
+            return Err(err);
+        }
+        if let Err(e) = self
+            .lifecycle
+            .check_current_key(self.principal.authority(), Instant::now())
+        {
+            self.failure = Some(TxFailure::Authority(e));
+            let _ = self.rollback().await;
+            return Err(StatementFailure::refused("authority check failed"));
+        }
+
+        // Reset app.core_audit_written locally before running the reducer so
+        // no prior statement in this tx can spoof core-audit completion.
+        if let Err(e) = self
+            .lease
+            .client()
+            .query_typed(RESET_CORE_AUDIT_WRITTEN_SQL, &[])
+            .await
+        {
+            let f = StatementFailure::from_db(&e);
+            if e.as_db_error().is_none() || self.lease.is_closed() {
+                self.lifecycle.connection_lost();
+                self.lease.quarantine();
+            } else {
+                let _ = self.rollback().await;
+            }
+            return Err(f);
+        }
+
+        // Bind p_actor ($1) exclusively from verified principal (R2).
+        let actor_id = self.principal.actor.get();
+        let mut params: Vec<Param<'_>> = Vec::with_capacity(contract.params.len());
+        params.push((&actor_id, Type::INT8));
+        for (val, ty) in rest_values.iter().copied().zip(contract.params[1..].iter()) {
+            params.push((val, ty.clone()));
+        }
+
+        let rows = match run_interactive_statement(&self.lease, contract.sql, &params, false).await
+        {
+            Ok((rows, _)) => rows,
+            Err(err) => {
+                let transport_loss = err.is_transport_loss() || self.lease.is_closed();
+                let f = err.into_failure();
+                if transport_loss {
+                    self.lifecycle.connection_lost();
+                    self.lease.quarantine();
+                } else {
+                    let _ = self.rollback().await;
+                }
+                return Err(f);
+            }
+        };
+
+        // Check PostgreSQL's unforgeable transaction-local core-audit flag.
+        let check_rows = match self
+            .lease
+            .client()
+            .query_typed(CHECK_CORE_AUDIT_WRITTEN_SQL, &[])
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let f = StatementFailure::from_db(&e);
+                if e.as_db_error().is_none() || self.lease.is_closed() {
+                    self.lifecycle.connection_lost();
+                    self.lease.quarantine();
+                } else {
+                    let _ = self.rollback().await;
+                }
+                return Err(f);
+            }
+        };
+
+        let core_audit_written = check_rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .unwrap_or(false);
+
+        if core_audit_written {
+            Ok(AdminReducerOutcome::Audited {
+                tx: AdminWriteTx {
+                    lease: self.lease,
+                    principal: self.principal,
+                    lifecycle: self.lifecycle,
+                    operation: self.operation,
+                    failure: self.failure,
+                    _audit: PhantomData,
+                },
+                rows,
+            })
+        } else {
+            Ok(AdminReducerOutcome::NoOp {
+                tx: AdminRollbackOnlyTx {
+                    lease: self.lease,
+                    principal: self.principal,
+                    lifecycle: self.lifecycle,
+                },
+                rows,
+            })
+        }
     }
 }
 
@@ -1286,6 +1875,38 @@ impl WorkerTx {
             .map_err(InteractiveStmtError::into_failure)
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::WorkerBypass`]
+    /// and return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::WorkerBypass],
+            "contract scope mismatch for WorkerTx",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::WorkerBypass`]
+    /// and return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::WorkerBypass],
+            "contract scope mismatch for WorkerTx::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
+    }
+
     pub async fn commit(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
             Ok(()) => {
@@ -1334,6 +1955,7 @@ impl WorkerTx {
 pub struct AppPool {
     pool: SetjoinPool,
     audit_keys: Option<Arc<AuditKeys>>,
+    effect_sem: Arc<Semaphore>,
 }
 
 impl AppPool {
@@ -1370,7 +1992,16 @@ impl AppPool {
         Ok(Self {
             pool,
             audit_keys: None,
+            effect_sem: Arc::new(Semaphore::new(DEFAULT_EFFECT_CONCURRENCY)),
         })
+    }
+
+    /// Override the bounded concurrency semaphore governing simultaneous
+    /// effect transactions (`run_*_effect_write`) so slow peripheral I/O
+    /// cannot exhaust `AppPool` (#546a).
+    pub fn with_effect_concurrency(mut self, max_concurrent: usize) -> Self {
+        self.effect_sem = Arc::new(Semaphore::new(max_concurrent.max(1)));
+        self
     }
 
     /// Attach trusted deployment encryption/audit GUC keys (`DB_ENCRYPTION_KEY`,
@@ -1553,6 +2184,155 @@ impl AppPool {
         tx.finish_rw(Some(result), envelope.operation).await
     }
 
+    /// Run a receipted mailbox effect write transaction guarded by:
+    /// - bounded concurrency semaphore (`effect_sem`) acquired before pool checkout;
+    /// - `SET LOCAL idle_in_transaction_session_timeout = 8000` (8000ms);
+    /// - preamble advisory lock (`setjoin-command:{mailbox}:{actor}:{op_hex}`)
+    ///   strictly preceding any row locks (`#481`);
+    /// - tight peripheral timeout (`<= EFFECT_BODY_TIMEOUT`, 5s) around `body`;
+    /// - same-transaction durable `rust_operation_receipts` insert before `COMMIT`.
+    pub async fn run_mailbox_effect_write<C, T, F>(
+        &self,
+        command: ReceiptCommand,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedMailbox,
+        deadline: Instant,
+        body: F,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        F: AsyncFnOnce(&mut MailboxTx<ReadWrite>) -> Result<T, StatementFailure>,
+    {
+        if let Err(e) = envelope.validate(principal.authority(), accepted_contract()) {
+            return CommandOutcome::RolledBack(Rejection::Authority(LifecycleError::Contract(e)));
+        }
+        let lifecycle = match TransactionLifecycle::new(envelope, deadline) {
+            Ok(l) => l,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Authority(e)),
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return CommandOutcome::RolledBack(Rejection::Authority(
+                LifecycleError::DeadlineElapsed,
+            ));
+        }
+        let _permit =
+            match tokio::time::timeout(remaining, Arc::clone(&self.effect_sem).acquire_owned())
+                .await
+            {
+                Ok(Ok(permit)) => permit,
+                Ok(Err(_)) => return CommandOutcome::RolledBack(Rejection::Unavailable),
+                Err(_) => {
+                    return CommandOutcome::RolledBack(Rejection::Authority(
+                        LifecycleError::DeadlineElapsed,
+                    ))
+                }
+            };
+        let op_hex = operation_hex(envelope.operation);
+        let lock = format!(
+            "setjoin-command:{}:{}:{op_hex}",
+            principal.mailbox.get(),
+            principal.actor.get()
+        );
+        let preamble = self.mailbox_preamble(principal, Some(envelope.operation), Some(lock));
+        let lease = match begin_write_with_retry_opts(
+            &self.pool,
+            &preamble,
+            deadline,
+            Some(EFFECT_IDLE_IN_TX_TIMEOUT_MS),
+        )
+        .await
+        {
+            Ok(l) => l,
+            Err(Rejection::Unavailable) => {
+                return CommandOutcome::RolledBack(Rejection::Unavailable)
+            }
+            Err(Rejection::Authority(e)) => {
+                return CommandOutcome::RolledBack(Rejection::Authority(e))
+            }
+            Err(Rejection::Statement(f)) => {
+                return CommandOutcome::RolledBack(Rejection::Statement(f))
+            }
+            Err(Rejection::CommitRefused(c)) => {
+                return CommandOutcome::RolledBack(Rejection::CommitRefused(c))
+            }
+            Err(Rejection::Body(_)) => return CommandOutcome::RolledBack(Rejection::Unavailable),
+        };
+        let mut tx = MailboxTx {
+            lease,
+            principal: principal.clone(),
+            lifecycle: Some(lifecycle),
+            failure: None,
+            _mode: PhantomData,
+        };
+        let body_budget = deadline
+            .saturating_duration_since(Instant::now())
+            .min(EFFECT_BODY_TIMEOUT);
+        let result = match tokio::time::timeout(body_budget, body(&mut tx)).await {
+            Ok(Ok(val)) => {
+                let receipt_res = tx
+                    .execute(
+                        RECEIPT_INSERT_SQL,
+                        &[
+                            (&op_hex, Type::TEXT),
+                            (&command.family, Type::TEXT),
+                            (&command.command, Type::TEXT),
+                        ],
+                    )
+                    .await;
+                match receipt_res {
+                    Ok(_) => Ok(val),
+                    Err(e) => Err(e),
+                }
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                let err = StatementFailure::refused("effect peripheral timed out");
+                if tx.failure.is_none() {
+                    tx.failure = Some(TxFailure::Statement(err.clone()));
+                }
+                Err(err)
+            }
+        };
+        tx.finish_rw(Some(result), envelope.operation).await
+    }
+
+    /// Look up whether a receipted mailbox command committed under current
+    /// authority, waiting on the same advisory operation lock before reading at
+    /// `READ COMMITTED READ ONLY` (#546a).
+    pub async fn lookup_mailbox_command(
+        &self,
+        principal: &VerifiedMailbox,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<OperationLookup, StatementFailure> {
+        let op_hex = operation_hex(operation);
+        let lock = format!(
+            "setjoin-command:{}:{}:{op_hex}",
+            principal.mailbox.get(),
+            principal.actor.get()
+        );
+        let preamble = self.mailbox_preamble(principal, None, None);
+        let mailbox_id = principal.mailbox.get();
+        let actor_id = principal.actor.get();
+        let rows = execute_read_pipeline(
+            &self.pool,
+            &preamble,
+            "SELECT EXISTS(SELECT 1 FROM public.rust_operation_receipts \
+              WHERE operation_id = $3::text::uuid AND family = $4 AND command = $5) \
+              WHERE $1::bigint > 0 AND $2::bigint > 0",
+            &[
+                (&mailbox_id, Type::INT8),
+                (&actor_id, Type::INT8),
+                (&op_hex, Type::TEXT),
+                (&command.family, Type::TEXT),
+                (&command.command, Type::TEXT),
+            ],
+            Some(&lock),
+        )
+        .await?;
+        parse_operation_lookup(&rows)
+    }
+
     // ---- Mailbox-less User transactions ----
 
     /// Begin an interactive `UserTx<ReadOnly>` (`app.current_mailbox_id = ''`).
@@ -1673,6 +2453,142 @@ impl AppPool {
         tx.finish_rw(Some(result), envelope.operation).await
     }
 
+    /// Run a receipted mailbox-less user effect write transaction guarded by
+    /// `effect_sem`, `SET LOCAL idle_in_transaction_session_timeout = 8000`,
+    /// `<= 5s` peripheral body timeout, preamble advisory lock, and same-tx
+    /// `rust_operation_receipts` insert (#546a).
+    pub async fn run_user_effect_write<C, T, F>(
+        &self,
+        command: ReceiptCommand,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedUser,
+        deadline: Instant,
+        body: F,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        F: AsyncFnOnce(&mut UserTx<ReadWrite>) -> Result<T, StatementFailure>,
+    {
+        if let Err(e) = envelope.validate(principal.authority(), accepted_contract()) {
+            return CommandOutcome::RolledBack(Rejection::Authority(LifecycleError::Contract(e)));
+        }
+        let lifecycle = match TransactionLifecycle::new(envelope, deadline) {
+            Ok(l) => l,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Authority(e)),
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return CommandOutcome::RolledBack(Rejection::Authority(
+                LifecycleError::DeadlineElapsed,
+            ));
+        }
+        let _permit =
+            match tokio::time::timeout(remaining, Arc::clone(&self.effect_sem).acquire_owned())
+                .await
+            {
+                Ok(Ok(permit)) => permit,
+                Ok(Err(_)) => return CommandOutcome::RolledBack(Rejection::Unavailable),
+                Err(_) => {
+                    return CommandOutcome::RolledBack(Rejection::Authority(
+                        LifecycleError::DeadlineElapsed,
+                    ))
+                }
+            };
+        let op_hex = operation_hex(envelope.operation);
+        let lock = format!("setjoin-command:0:{}:{op_hex}", principal.actor.get());
+        let preamble = self.user_preamble(principal.actor, Some(envelope.operation), Some(lock));
+        let lease = match begin_write_with_retry_opts(
+            &self.pool,
+            &preamble,
+            deadline,
+            Some(EFFECT_IDLE_IN_TX_TIMEOUT_MS),
+        )
+        .await
+        {
+            Ok(l) => l,
+            Err(Rejection::Unavailable) => {
+                return CommandOutcome::RolledBack(Rejection::Unavailable)
+            }
+            Err(Rejection::Authority(e)) => {
+                return CommandOutcome::RolledBack(Rejection::Authority(e))
+            }
+            Err(Rejection::Statement(f)) => {
+                return CommandOutcome::RolledBack(Rejection::Statement(f))
+            }
+            Err(Rejection::CommitRefused(c)) => {
+                return CommandOutcome::RolledBack(Rejection::CommitRefused(c))
+            }
+            Err(Rejection::Body(_)) => return CommandOutcome::RolledBack(Rejection::Unavailable),
+        };
+        let mut tx = UserTx {
+            lease,
+            principal: principal.clone(),
+            lifecycle: Some(lifecycle),
+            failure: None,
+            _mode: PhantomData,
+        };
+        let body_budget = deadline
+            .saturating_duration_since(Instant::now())
+            .min(EFFECT_BODY_TIMEOUT);
+        let result = match tokio::time::timeout(body_budget, body(&mut tx)).await {
+            Ok(Ok(val)) => {
+                let receipt_res = tx
+                    .execute(
+                        RECEIPT_INSERT_SQL,
+                        &[
+                            (&op_hex, Type::TEXT),
+                            (&command.family, Type::TEXT),
+                            (&command.command, Type::TEXT),
+                        ],
+                    )
+                    .await;
+                match receipt_res {
+                    Ok(_) => Ok(val),
+                    Err(e) => Err(e),
+                }
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => {
+                let err = StatementFailure::refused("effect peripheral timed out");
+                if tx.failure.is_none() {
+                    tx.failure = Some(TxFailure::Statement(err.clone()));
+                }
+                Err(err)
+            }
+        };
+        tx.finish_rw(Some(result), envelope.operation).await
+    }
+
+    /// Look up whether a receipted mailbox-less user command committed under
+    /// current authority, waiting on the same advisory operation lock before
+    /// reading at `READ COMMITTED READ ONLY` (#546a).
+    pub async fn lookup_user_command(
+        &self,
+        principal: &VerifiedUser,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<OperationLookup, StatementFailure> {
+        let op_hex = operation_hex(operation);
+        let lock = format!("setjoin-command:0:{}:{op_hex}", principal.actor.get());
+        let preamble = self.user_preamble(principal.actor, None, None);
+        let actor_id = principal.actor.get();
+        let rows = execute_read_pipeline(
+            &self.pool,
+            &preamble,
+            "SELECT EXISTS(SELECT 1 FROM public.rust_operation_receipts \
+              WHERE operation_id = $2::text::uuid AND family = $3 AND command = $4) \
+              WHERE $1::bigint > 0",
+            &[
+                (&actor_id, Type::INT8),
+                (&op_hex, Type::TEXT),
+                (&command.family, Type::TEXT),
+                (&command.command, Type::TEXT),
+            ],
+            Some(&lock),
+        )
+        .await?;
+        parse_operation_lookup(&rows)
+    }
+
     // ---- Admin transactions ----
 
     /// Begin a standard (non-sensitive) admin read (`BEGIN READ ONLY`).
@@ -1770,71 +2686,7 @@ impl AppPool {
         principal: &VerifiedAdmin,
         audit: &AuditEvent,
     ) -> Result<(), StatementFailure> {
-        let preamble = self.user_preamble(principal.actor, None, None);
-        let preamble_step = preamble.to_step()?;
-        let audit_step = audit.to_step(principal.actor)?;
-
-        let lease = self
-            .pool
-            .get()
-            .await
-            .map_err(|_| StatementFailure::refused("pool unavailable"))?;
-        let begin_sql = build_begin_sql(
-            "BEGIN READ WRITE",
-            self.pool.timeouts.statement,
-            self.pool.plan_cache_hint,
-        );
-        let client = lease.client();
-        // NO retry on sensitive-read audit tx (READ WRITE).
-        let piped = tokio::time::timeout(self.pool.timeouts.statement * 2, async {
-            tokio::join!(
-                biased;
-                client.batch_execute(&begin_sql),
-                preamble_step.execute(client),
-                audit_step.execute(client),
-                client.batch_execute("COMMIT"),
-            )
-        })
-        .await;
-
-        let Ok((begin_res, preamble_res, audit_res, commit_res)) = piped else {
-            lease.quarantine();
-            return Err(StatementFailure::refused("sensitive read audit timed out"));
-        };
-        if let Err(e) = begin_res {
-            lease.quarantine();
-            return Err(StatementFailure::from_db(&e));
-        }
-        if let Err(e) = preamble_res {
-            if e.as_db_error().is_some() && commit_res.is_ok() && !lease.is_closed() {
-                lease.keep();
-            } else {
-                lease.quarantine();
-            }
-            return Err(StatementFailure::from_db(&e));
-        }
-        if let Err(e) = audit_res {
-            if e.as_db_error().is_some() && commit_res.is_ok() && !lease.is_closed() {
-                lease.keep();
-            } else {
-                lease.quarantine();
-            }
-            return Err(StatementFailure::from_db(&e));
-        }
-        match commit_res {
-            Ok(()) => {
-                if !lease.is_closed() {
-                    lease.keep();
-                } else {
-                    lease.quarantine();
-                }
-                Ok(())
-            }
-            Err(e) => {
-                lease.quarantine();
-                Err(StatementFailure::from_db(&e))
-            }
-        }
+        commit_sensitive_read_audit_on(&self.pool, self.audit_keys.clone(), principal, audit).await
     }
 
     /// Begin an interactive audited admin write transaction.
@@ -1944,6 +2796,426 @@ impl AppPool {
     }
 }
 
+fn parse_operation_lookup(rows: &[Row]) -> Result<OperationLookup, StatementFailure> {
+    match rows {
+        [row] if row.len() == 1 => match row.try_get::<_, bool>(0) {
+            Ok(true) => Ok(OperationLookup::Committed),
+            Ok(false) => Ok(OperationLookup::Absent),
+            Err(_) => Err(StatementFailure::refused(
+                "operation lookup must return one boolean",
+            )),
+        },
+        _ => Err(StatementFailure::refused(
+            "operation lookup must return one boolean",
+        )),
+    }
+}
+
+async fn commit_sensitive_read_audit_on(
+    pool: &SetjoinPool,
+    audit_keys: Option<Arc<AuditKeys>>,
+    principal: &VerifiedAdmin,
+    audit: &AuditEvent,
+) -> Result<(), StatementFailure> {
+    let preamble = Preamble {
+        mailbox: String::new(),
+        actor: principal.actor.decimal(),
+        operation_id: None,
+        audit_keys,
+        lock_key: None,
+    };
+    let preamble_step = preamble.to_step()?;
+    let audit_step = audit.to_step(principal.actor)?;
+
+    let lease = pool
+        .get()
+        .await
+        .map_err(|_| StatementFailure::refused("pool unavailable"))?;
+    let begin_sql = build_begin_sql(
+        "BEGIN READ WRITE",
+        pool.timeouts.statement,
+        pool.plan_cache_hint,
+    );
+    let client = lease.client();
+    // NO retry on sensitive-read audit tx (READ WRITE).
+    let piped = tokio::time::timeout(pool.timeouts.statement * 2, async {
+        tokio::join!(
+            biased;
+            client.batch_execute(&begin_sql),
+            preamble_step.execute(client),
+            audit_step.execute(client),
+            client.batch_execute("COMMIT"),
+        )
+    })
+    .await;
+
+    let Ok((begin_res, preamble_res, audit_res, commit_res)) = piped else {
+        lease.quarantine();
+        return Err(StatementFailure::refused("sensitive read audit timed out"));
+    };
+    if let Err(e) = begin_res {
+        lease.quarantine();
+        return Err(StatementFailure::from_db(&e));
+    }
+    if let Err(e) = preamble_res {
+        if e.as_db_error().is_some() && commit_res.is_ok() && !lease.is_closed() {
+            lease.keep();
+        } else {
+            lease.quarantine();
+        }
+        return Err(StatementFailure::from_db(&e));
+    }
+    if let Err(e) = audit_res {
+        if e.as_db_error().is_some() && commit_res.is_ok() && !lease.is_closed() {
+            lease.keep();
+        } else {
+            lease.quarantine();
+        }
+        return Err(StatementFailure::from_db(&e));
+    }
+    match commit_res {
+        Ok(()) => {
+            if !lease.is_closed() {
+                lease.keep();
+            } else {
+                lease.quarantine();
+            }
+            Ok(())
+        }
+        Err(e) => {
+            lease.quarantine();
+            Err(StatementFailure::from_db(&e))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Encapsulated AdminWorkerPool & PreAuthReadTx (#546a, feature = "mint")
+// ---------------------------------------------------------------------------
+
+/// Pre-authentication `BEGIN READ ONLY` transaction handle minted strictly via
+/// [`AdminWorkerPool`] for login/OIDC/SAML/Basic/Kerberos/WebAuthn credential
+/// proofs without exposing a `users` password-hash dump helper to `setjoin_app`.
+///
+/// Zero mutating methods; PG enforces SQLSTATE `25006`.
+#[cfg(feature = "mint")]
+#[must_use = "pre-auth read transactions must be finished"]
+pub struct PreAuthReadTx {
+    lease: ManagedLease,
+}
+
+#[cfg(feature = "mint")]
+impl PreAuthReadTx {
+    /// Execute one admitted `SELECT` inside the `BEGIN READ ONLY` pre-auth tx.
+    pub async fn query(
+        &mut self,
+        sql: &str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        run_interactive_statement(&self.lease, sql, params, true)
+            .await
+            .map(|(rows, _)| rows)
+            .map_err(InteractiveStmtError::into_failure)
+    }
+
+    /// Execute a static [`SqlContract`] scoped strictly to [`SqlScope::AuthPreScope`].
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AuthPreScope],
+            "contract scope mismatch for PreAuthReadTx",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Close the read-only transaction cleanly and return the connection to the pool.
+    pub async fn finish(self) -> Result<(), StatementFailure> {
+        match self.lease.client().batch_execute("COMMIT").await {
+            Ok(()) => {
+                if !self.lease.is_closed() {
+                    self.lease.keep();
+                } else {
+                    self.lease.quarantine();
+                }
+                Ok(())
+            }
+            Err(e) => {
+                self.lease.quarantine();
+                Err(StatementFailure::from_db(&e))
+            }
+        }
+    }
+}
+
+/// Encapsulated cross-tenant worker-credential pool (`DB_WORKER_DSN` /
+/// `setjoin_worker`, `BYPASSRLS`) restricted strictly to:
+/// - verified admin transactions (`AdminReadTx`, `AdminSensitiveRead`,
+///   `AdminWriteTx<Unaudited->Audited>`) gated on [`VerifiedAdmin`], and
+/// - read-only pre-authentication credential proofs ([`PreAuthReadTx`]).
+///
+/// Gated behind the `mint` Cargo feature (never exposed to `crates/domains/*`,
+/// and never exposes `WorkerTx`), keeping `setjoin-authz` out of
+/// `WORKER_POOL_FEATURE_ALLOWLIST` (#546a).
+#[cfg(feature = "mint")]
+#[derive(Clone)]
+pub struct AdminWorkerPool {
+    pool: SetjoinPool,
+    audit_keys: Option<Arc<AuditKeys>>,
+}
+
+#[cfg(feature = "mint")]
+impl AdminWorkerPool {
+    /// Construct an `AdminWorkerPool` from `DB_WORKER_DSN` with default timeouts.
+    pub fn from_dsn(dsn: &str, max_size: usize) -> Result<Self, ConfigError> {
+        Self::from_dsn_with(dsn, max_size, Timeouts::resolved())
+    }
+
+    /// Construct an `AdminWorkerPool` from `DB_WORKER_DSN` with explicit timeouts.
+    pub fn from_dsn_with(
+        dsn: &str,
+        max_size: usize,
+        timeouts: Timeouts,
+    ) -> Result<Self, ConfigError> {
+        let pool = SetjoinPool::from_dsn_with(
+            dsn,
+            max_size,
+            timeouts,
+            PreparedStatementMode::Unnamed,
+            PlanCacheHint::Auto,
+        )?;
+        Ok(Self {
+            pool,
+            audit_keys: None,
+        })
+    }
+
+    /// Attach trusted deployment encryption/audit GUC keys (`DB_ENCRYPTION_KEY`,
+    /// `AUDIT_HMAC_KEY`).
+    pub fn with_audit_keys(mut self, encryption_key: String, audit_hmac_key: String) -> Self {
+        self.audit_keys = Some(Arc::new(AuditKeys {
+            encryption: encryption_key,
+            audit_hmac: audit_hmac_key,
+        }));
+        self
+    }
+
+    fn admin_preamble(
+        &self,
+        actor: ActorId,
+        operation: Option<OperationId>,
+        lock_key: Option<String>,
+    ) -> Preamble {
+        Preamble {
+            mailbox: String::new(),
+            actor: actor.decimal(),
+            operation_id: operation.map(operation_hex),
+            audit_keys: self.audit_keys.clone(),
+            lock_key,
+        }
+    }
+
+    fn pre_auth_preamble(&self) -> Preamble {
+        Preamble {
+            mailbox: String::new(),
+            actor: String::new(),
+            operation_id: None,
+            audit_keys: self.audit_keys.clone(),
+            lock_key: None,
+        }
+    }
+
+    /// Begin a cross-tenant standard (non-sensitive) admin read (`BEGIN READ ONLY`).
+    pub async fn begin_admin_read(
+        &self,
+        principal: &VerifiedAdmin,
+    ) -> Result<AdminReadTx<Standard>, StatementFailure> {
+        let preamble = self.admin_preamble(principal.actor, None, None);
+        let lease = begin_read_only_with_retry(&self.pool, &preamble).await?;
+        Ok(AdminReadTx {
+            lease,
+            principal: principal.clone(),
+            _class: PhantomData,
+        })
+    }
+
+    /// Run a 1-RTT pipelined cross-tenant standard admin read (`BEGIN READ ONLY`).
+    pub async fn run_admin_read_pipelined(
+        &self,
+        principal: &VerifiedAdmin,
+        sql: &'static str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        let preamble = self.admin_preamble(principal.actor, None, None);
+        execute_read_pipeline(&self.pool, &preamble, sql, params, None).await
+    }
+
+    /// Cross-tenant audit-before-read single-call API for sensitive admin /
+    /// eDiscovery reads (Tx 1 `audit_write(..., 'core')` -> Tx 2 `BEGIN READ ONLY`).
+    pub async fn run_admin_sensitive_read(
+        &self,
+        principal: &VerifiedAdmin,
+        audit: &AuditEvent,
+        sql: &'static str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        admit_select(sql).map_err(StatementFailure::refused)?;
+        let _ = pre_encode_params(params)?;
+        commit_sensitive_read_audit_on(&self.pool, self.audit_keys.clone(), principal, audit)
+            .await?;
+        let preamble = self.admin_preamble(principal.actor, None, None);
+        execute_read_pipeline(&self.pool, &preamble, sql, params, None).await
+    }
+
+    /// Closure form of cross-tenant audit-before-read (Tx 1 `audit_write(..., 'core')`
+    /// -> Tx 2 `BEGIN READ ONLY`).
+    pub async fn run_admin_sensitive_read_with<T, F>(
+        &self,
+        principal: &VerifiedAdmin,
+        audit: &AuditEvent,
+        body: F,
+    ) -> Result<T, StatementFailure>
+    where
+        F: AsyncFnOnce(&mut AdminSensitiveRead) -> Result<T, StatementFailure>,
+    {
+        commit_sensitive_read_audit_on(&self.pool, self.audit_keys.clone(), principal, audit)
+            .await?;
+        let preamble = self.admin_preamble(principal.actor, None, None);
+        let lease = begin_read_only_with_retry(&self.pool, &preamble).await?;
+        let mut handle = AdminSensitiveRead {
+            lease,
+            principal: principal.clone(),
+        };
+        let value = body(&mut handle).await?;
+        match handle.lease.client().batch_execute("COMMIT").await {
+            Ok(()) => {
+                if !handle.lease.is_closed() {
+                    handle.lease.keep();
+                } else {
+                    handle.lease.quarantine();
+                }
+                Ok(value)
+            }
+            Err(e) => {
+                handle.lease.quarantine();
+                Err(StatementFailure::from_db(&e))
+            }
+        }
+    }
+
+    /// Begin a cross-tenant audited admin write transaction (`AdminWriteTx<Unaudited>`).
+    pub async fn begin_admin_write<C>(
+        &self,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedAdmin,
+        deadline: Instant,
+    ) -> Result<AdminWriteTx<Unaudited>, Rejection<StatementFailure>> {
+        if let Err(e) = envelope.validate(principal.authority(), accepted_contract()) {
+            return Err(Rejection::Authority(LifecycleError::Contract(e)));
+        }
+        let lifecycle =
+            TransactionLifecycle::new(envelope, deadline).map_err(Rejection::Authority)?;
+        let op_hex = operation_hex(envelope.operation);
+        let lock = format!("setjoin-admin-command:{}:{op_hex}", principal.actor.get());
+        let preamble = self.admin_preamble(principal.actor, Some(envelope.operation), Some(lock));
+        let lease = begin_write_with_retry(&self.pool, &preamble, deadline).await?;
+        Ok(AdminWriteTx {
+            lease,
+            principal: principal.clone(),
+            lifecycle,
+            operation: envelope.operation,
+            failure: None,
+            _audit: PhantomData,
+        })
+    }
+
+    /// Run a 1-RTT SQL-validated pipelined cross-tenant admin write.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_admin_write_pipelined<C, T, P>(
+        &self,
+        envelope: &CommandEnvelope<C>,
+        principal: &VerifiedAdmin,
+        deadline: Instant,
+        audit: &AuditEvent,
+        sql: &'static str,
+        params: &[Param<'_>],
+        receipt: Option<ReceiptCommand>,
+        project: P,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
+    {
+        let business = match EncodedStep::new_admitted(sql, params, false) {
+            Ok(s) => s,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+        };
+        let audit_step = match audit.to_step(principal.actor) {
+            Ok(s) => s,
+            Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+        };
+        let receipt_step = match receipt {
+            Some(cmd) => match receipt_step(envelope.operation, cmd) {
+                Ok(s) => Some(s),
+                Err(e) => return CommandOutcome::RolledBack(Rejection::Statement(e)),
+            },
+            None => None,
+        };
+        let op_hex = operation_hex(envelope.operation);
+        let lock = format!("setjoin-admin-command:{}:{op_hex}", principal.actor.get());
+        let preamble = self.admin_preamble(principal.actor, Some(envelope.operation), Some(lock));
+        execute_write_pipeline(
+            &self.pool,
+            envelope,
+            principal.authority(),
+            deadline,
+            &preamble,
+            business,
+            Some(audit_step),
+            receipt_step,
+            project,
+        )
+        .await
+    }
+
+    /// Begin a `BEGIN READ ONLY` pre-authentication credential-proof transaction.
+    pub async fn begin_pre_auth_read(&self) -> Result<PreAuthReadTx, StatementFailure> {
+        let preamble = self.pre_auth_preamble();
+        let lease = begin_read_only_with_retry(&self.pool, &preamble).await?;
+        Ok(PreAuthReadTx { lease })
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` pre-authentication query.
+    pub async fn run_pre_auth_read_pipelined(
+        &self,
+        sql: &'static str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        let preamble = self.pre_auth_preamble();
+        execute_read_pipeline(&self.pool, &preamble, sql, params, None).await
+    }
+
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` pre-authentication [`SqlContract`]
+    /// scoped strictly to [`SqlScope::AuthPreScope`].
+    pub async fn run_pre_auth_read_contract(
+        &self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AuthPreScope],
+            "contract scope mismatch for AdminWorkerPool::run_pre_auth_read_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.run_pre_auth_read_pipelined(contract.sql, &params)
+            .await
+    }
+}
+
 // ---------------------------------------------------------------------------
 // WorkerPool (DB_WORKER_DSN / setjoin_worker, BYPASSRLS) — feature-gated
 // ---------------------------------------------------------------------------
@@ -1994,6 +3266,17 @@ impl WorkerPool {
             audit_hmac: audit_hmac_key,
         }));
         self
+    }
+
+    /// Derive a narrow, capability-gated [`AdminWorkerPool`] sharing this
+    /// `WorkerPool`'s underlying connection pool and audit keys for
+    /// composition-root `TxFactory` wiring (#546a).
+    #[cfg(feature = "mint")]
+    pub fn admin_pool(&self) -> AdminWorkerPool {
+        AdminWorkerPool {
+            pool: self.pool.clone(),
+            audit_keys: self.audit_keys.clone(),
+        }
     }
 
     fn worker_preamble(&self) -> Preamble {

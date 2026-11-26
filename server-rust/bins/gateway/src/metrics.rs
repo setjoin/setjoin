@@ -46,6 +46,7 @@ impl GoProxies {
             "# HELP setjoin_worm_arm_dead_letters Un-replayed dead-lettered S3 WORM retention arming jobs.\n# TYPE setjoin_worm_arm_dead_letters gauge\nsetjoin_worm_arm_dead_letters {}\n",
             WORM_ARM_DEAD_LETTERS.load(Ordering::Relaxed)
         ));
+        body.push_str(&crate::blob_gc::METRICS.render_prometheus());
         Response::builder()
             .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
             .body(

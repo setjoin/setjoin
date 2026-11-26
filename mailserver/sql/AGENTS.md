@@ -5,7 +5,6 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 ## DOX sections
 
 - [WebAuthn login replay and pending revocation (#336)](DOX.md#webauthn-login-replay-and-pending-revocation-336)
-
 - [Purpose](DOX.md#purpose)
   - [Security recovery additions (V229/V232)](DOX.md#security-recovery-additions-v229v232)
   - [Transactional updater and client continuity authority (V178–V182)](DOX.md#transactional-updater-and-client-continuity-authority-v178v182)
@@ -97,55 +96,42 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Rust approval policy data transactions](DOX.md#rust-approval-policy-data-transactions) — F10 data/audit transaction parity (#269).
 - [Rust Drive content-view audit](DOX.md#rust-drive-content-view-audit-transaction-275) — F14 post-admission dedup transaction and actor fence.
 - [Drive statement snapshots](DOX.md#rust-drive-statement-snapshots-275) — content admission/revocation and atomic restore/source-manifest reads.
-- [Rust admin role transactions](DOX.md#rust-admin-role-transactions-278) — F01 role create/update/delete/assign/remove mirroring Go (#278).
-- [Rust admin scope-set transactions](DOX.md#rust-admin-scope-set-transactions-279) — F01 scope-set CRUD/member reducers mirroring Go (#279).
-- [Rust admin group-mapping update](DOX.md#rust-admin-group-mapping-update-369) — F01 `rust_admin_group_mappings_put` mirroring Go (#369).
-- [Rust admin user-lifecycle transactions](DOX.md#rust-admin-user-lifecycle-transactions-282) — F01 user create/update/delete/secure/app-password reducers mirroring Go (#282).
-- [Rust admin organization-policy transactions](DOX.md#rust-admin-organization-policy-transactions-372) — F01 department and policy-reorder reducers mirroring Go (#372).
+- [Rust admin role transactions](DOX.md#rust-admin-role-transactions-278) — F01 role CRUD/assign (#278).
+- [Rust admin scope-set transactions](DOX.md#rust-admin-scope-set-transactions-279) — F01 scope-set CRUD (#279).
+- [Rust admin group-mapping update](DOX.md#rust-admin-group-mapping-update-369) — F01 `rust_admin_group_mappings_put` (#369).
+- [Rust admin user-lifecycle transactions](DOX.md#rust-admin-user-lifecycle-transactions-282) — F01 user lifecycle (#282).
+- [Rust admin organization-policy transactions](DOX.md#rust-admin-organization-policy-transactions-372) — F01 department/policy-reorder (#372).
 - [Rust Guests transaction wrappers](DOX.md#rust-guests-transaction-wrappers-272) — F11 atomic profile, lifecycle and invitation transactions.
-- [Rust Compliance eDiscovery](DOX.md#rust-compliance-ediscovery-289) — F04 close/hold/search/export transactions mirroring Go (#289).
+- [Rust Compliance eDiscovery](DOX.md#rust-compliance-ediscovery-289) — F04 close/hold/search/export (#289).
 - [Rust MDM transactions](DOX.md#rust-mdm-policy-transactions-310) — F07 policy writes and frozen-Go lifecycle scope parity.
 - [Rust Chat compliance](DOX.md#rust-chat-compliance-291) — F04 policy data/audit and live grant fences.
-
-- [Rust platform system transactions](DOX.md#rust-platform-system-transactions-443) — F08 SoD mode and welcome test-send reducers mirroring Go (#443).
+- [Rust platform system transactions](DOX.md#rust-platform-system-transactions-443) — F08 SoD mode and welcome test-send (#443).
 - [Rust Compliance retention transactions](DOX.md#rust-compliance-retention-policy-transactions-290) — F04 scoped policy data/audit parity.
 - [Rust MAM data transactions](DOX.md#rust-mam-data-transactions-311) — F07 policy maps and checked post-commit notification parity.
 - [Rust offline governance](DOX.md#rust-offline-governance-312) — F07 frozen-Go reducer scope and atomic evidence adapter.
-
 - [Rust JMAP Mailbox batch (#316)](DOX.md#rust-jmap-mailbox-batch-316) — atomic three-phase compatibility wrapper.
-
 - [Rust JMAP native discovery (#316)](DOX.md#rust-jmap-native-discovery-316) — mailbox-only native registration scope parity.
-
 - [Rust JMAP Identity batch (#316)](DOX.md#rust-jmap-identity-batch-316) — atomic alias/user timestamp edits.
 - [Rust identity password login (#112)](DOX.md#rust-identity-password-login-112) — credential-fenced refresh mint and independent sign-in recording.
-
 - [Rust identity refresh (#332)](DOX.md#rust-identity-refresh-332) — fenced proposal validation and atomic linear rotation.
-
 - [Rust identity credential writes (#332)](DOX.md#rust-identity-credential-writes-332) — atomic password/history and revocation with distinct reset semantics.
 - [Rust TOTP transactions (#334)](DOX.md#rust-totp-transactions-334) — owned single-use removal and factor lifecycle.
 - [Rust possession issuance (#336)](DOX.md#rust-possession-issuance-336) — fenced password proof, budget and owned grant transaction.
-
 - [Rust native push approval (#336)](DOX.md#rust-native-push-approval-336) — locked device signature and owned challenge transitions.
 - [Rust WebAuthn transactions (#335)](DOX.md#rust-webauthn-transactions-335) — session-bound ceremony and credential lifecycle.
-
 - `rust_identity_webauthn_revoke` — target-bound credential revocation; [contract](DOX.md#rust-webauthn-transactions-335).
 - [Rust account recovery budget (#336)](DOX.md#rust-account-recovery-budget-336) — worker-only fixed-window transaction.
 - [Rust recovery push (#336)](DOX.md#rust-recovery-push-336) — worker account lock and owned challenge verdict.
 - [Rust WebAuthn possession (#336)](DOX.md#rust-webauthn-possession-336) — UV management ceremonies under verified token scope.
-
 - [Rust OIDC Provider transactions (#120)](DOX.md#rust-oidc-provider-transactions-120) — scoped one-time code consumption and atomic refresh rotation.
-
 - [OIDC RP settlement (#340)](DOX.md#oidc-rp-settlement-340)
-
 - [Rust Microsoft migration projection (#446)](DOX.md#rust-microsoft-migration-projection-446) — worker-owned auxiliary transaction and parity rollback.
-
 - [Rust SAML link begin (#341)](DOX.md#rust-saml-link-begin-341) — elevation, receipt.
 - [SAML ACS (#546)](DOX.md#saml-acs-546)
-
 - [Rust shared unlink (#341)](DOX.md#rust-shared-identity-unlink-341) — owned detach/revocation and opaque receipt.
-
 - [Identity S/MIME](DOX.md#rust-identity-self-service-smime-494) (#494).
 - [SMTP security](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
-
 - [SMTP iMIP](DOX.md#rust-smtp-imip-transactions-526) (#526).
 - WorkQueue/schedules (V286–V287, #548–#549).
+- [Blob GC](DOX.md#blob-gc-v288-550) (V288, #550).
+- Table manifest: `config/table-ownership-manifest.json` (#539).

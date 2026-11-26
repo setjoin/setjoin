@@ -36,8 +36,7 @@ pub async fn profile_update(
         &envelope(&auth, operation, name),
         &auth,
         deadline(),
-        "WITH written AS (UPDATE users SET display_name = $4::text, updated_at = now() WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
-         SELECT count(*)::bigint FROM written",
+        crate::sql::PROFILE_UPDATE.sql,
         &[(&name, Type::TEXT)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -49,12 +48,7 @@ pub async fn profile_update(
 pub async fn quota_get(exec: &ScopedExecutor, actor: &AuthContext) -> Option<String> {
     let user = actor.user_id();
     let rows = exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT COALESCE(SUM(used_bytes), 0)::text, COALESCE(SUM(quota_bytes), 0)::text \
-             FROM mailboxes WHERE user_id = $1",
-            &[(&user, Type::INT8)],
-        )
+        .read_scoped(&scope(actor), crate::sql::QUOTA_GET.sql, &[(&user, Type::INT8)])
         .await
         .ok()?;
     let row = rows.first()?;

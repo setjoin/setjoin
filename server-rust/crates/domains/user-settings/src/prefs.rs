@@ -72,10 +72,7 @@ pub async fn notification_get(
     let rows = exec
         .read_scoped(
             &scope(actor),
-            "SELECT device_fingerprint::text, push_enabled, push_sound, stop_push_when_desktop_online, \
-             to_char(dnd_start, 'HH24:MI:SS.US'), to_char(dnd_end, 'HH24:MI:SS.US'), dnd_days::int4, mail_notifications, calendar_reminders, \
-             task_reminders, read_receipt_policy, chat_notifications \
-             FROM user_notification_prefs WHERE user_id = $1 ORDER BY device_fingerprint NULLS FIRST",
+            crate::sql::NOTIFICATION_GET.sql,
             &[(&user, Type::INT8)],
         )
         .await?;
@@ -145,22 +142,7 @@ pub async fn notification_put(
         &envelope(&auth, operation, &payload),
         &auth,
         deadline(),
-        "INSERT INTO user_notification_prefs \
-            (user_id, device_fingerprint, push_enabled, push_sound, stop_push_when_desktop_online, \
-             dnd_start, dnd_end, dnd_days, mail_notifications, calendar_reminders, task_reminders, \
-             read_receipt_policy, chat_notifications, updated_at) \
-         SELECT $2::bigint, $4::text::uuid, $5::boolean, $6::text, $7::boolean, $8::text::time, $9::text::time, \
-                $10::bigint::smallint, $11::text, $12::boolean, $13::boolean, \
-                COALESCE(NULLIF($14::text, ''), 'ask'), COALESCE(NULLIF($15::text, ''), 'all'), now() \
-         WHERE $1::bigint >= 0 AND $3::text <> '' \
-         ON CONFLICT (user_id, device_fingerprint) DO UPDATE SET \
-            push_enabled = $5::boolean, push_sound = $6::text, stop_push_when_desktop_online = $7::boolean, \
-            dnd_start = $8::text::time, dnd_end = $9::text::time, dnd_days = $10::bigint::smallint, \
-            mail_notifications = $11::text, calendar_reminders = $12::boolean, task_reminders = $13::boolean, \
-            read_receipt_policy = COALESCE(NULLIF($14::text, ''), user_notification_prefs.read_receipt_policy), \
-            chat_notifications = COALESCE(NULLIF($15::text, ''), user_notification_prefs.chat_notifications), \
-            updated_at = now() \
-         RETURNING 1",
+        crate::sql::NOTIFICATION_PUT.sql,
         &[
             (&b.fingerprint, Type::TEXT),
             (&b.push_enabled, Type::BOOL),
@@ -199,11 +181,7 @@ pub async fn vip_get(
 ) -> Result<String, StatementFailure> {
     let user = actor.user_id();
     let rows = exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT rust_vip_senders_list($1)::text",
-            &[(&user, Type::INT8)],
-        )
+        .read_scoped(&scope(actor), crate::sql::VIP_GET.sql, &[(&user, Type::INT8)])
         .await?;
     let raw: String = rows
         .first()
@@ -231,7 +209,7 @@ pub async fn vip_put(
         &envelope(&auth, operation, &format!("vip.put:{email}:{vip}")),
         &auth,
         deadline(),
-        "SELECT rust_vip_sender_set($2::bigint, $4::text, $5::boolean)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
+        crate::sql::VIP_PUT.sql,
         &[(&email, Type::TEXT), (&vip, Type::BOOL)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -245,7 +223,7 @@ pub async fn primary_mailbox(exec: &ScopedExecutor, actor: &AuthContext) -> Opti
     let user = actor.user_id();
     exec.read_scoped(
         &scope(actor),
-        "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
+        crate::sql::PRIMARY_MAILBOX.sql,
         &[(&user, Type::INT8)],
     )
     .await
@@ -271,9 +249,7 @@ pub async fn vacation_get(
     let rows = exec
         .read_scoped(
             &scope(actor),
-            "SELECT enabled, subject, body_text, body_html, body_external, body_external_html, \
-             to_char(start_date, 'YYYY-MM-DD'), to_char(end_date, 'YYYY-MM-DD'), external_audience \
-             FROM get_vacation((SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1))",
+            crate::sql::VACATION_GET.sql,
             &[(&user, Type::INT8)],
         )
         .await?;
@@ -334,9 +310,7 @@ pub async fn vacation_put(
         &envelope(&auth, operation, &payload),
         &auth,
         deadline(),
-        "SELECT set_vacation((SELECT id FROM mailboxes WHERE user_id = $2::bigint AND is_primary = TRUE LIMIT 1), \
-         $4::boolean, $5::text, $6::text, $7::text, $8::text, $9::text, $10::text::date, $11::text::date, $12::text)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
+        crate::sql::VACATION_PUT.sql,
         &[
             (&b.enabled, Type::BOOL),
             (&b.subject, Type::TEXT),
@@ -366,9 +340,7 @@ pub async fn delegation_get(
     let rows = exec
         .read_scoped(
             &scope(actor),
-            "SELECT d.delegate_user_id, u.display_name, u.email, \
-             to_char(d.starts_at, 'YYYY-MM-DD\"T\"HH24:MI'), to_char(d.ends_at, 'YYYY-MM-DD\"T\"HH24:MI') \
-             FROM get_approval_delegation($1) d JOIN users u ON u.id = d.delegate_user_id",
+            crate::sql::DELEGATION_GET.sql,
             &[(&user, Type::INT8)],
         )
         .await?;
@@ -410,8 +382,7 @@ pub async fn delegation_put(
         ),
         &auth,
         deadline(),
-        "SELECT set_approval_delegation($2::bigint, $4::bigint, $5::text::timestamptz, $6::text::timestamptz)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
+        crate::sql::DELEGATION_PUT.sql,
         &[
             (&delegate, Type::INT8),
             (starts, Type::TEXT),

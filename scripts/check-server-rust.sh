@@ -8,7 +8,8 @@
 #   1. server-rust/                        — workspace: bins/gateway (front door,
 #                                            fake-upstream proxy tests), authz, contracts,
 #                                            db, domains/jmap, domains/recording, pg, push, schema,
-#                                            tests/conformance (DB-backed parity oracles)
+#                                            sql-catalog (#541), tests/conformance (DB-backed parity
+#                                            oracles), tests/sql-contracts (#541 verifier)
 #      Includes shared certificate/PEM/trust foundation in crates/certificates (#526).
 #      Includes shared spam model and inbound scoring in crates/spam (#526).
 #      Includes shared auth runtime/protocol admission in crates/threat (#420).

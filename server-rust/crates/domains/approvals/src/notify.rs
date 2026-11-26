@@ -26,7 +26,9 @@ impl ApprovalNotify {
         }
         let (client, connection) = tokio_postgres::connect(&self.dsn, NoTls).await?;
         let driver = tokio::spawn(connection);
-        let rows=client.query_typed("SELECT approver_kind,approver_ref,subject,floor(extract(epoch FROM expires_at))::bigint,to_char(expires_at AT TIME ZONE 'UTC','Dy, DD Mon YYYY HH24:MI:SS')||' UTC' FROM approval_requests WHERE id=$1",&[(&request,Type::INT8)]).await?;
+        let rows = client
+            .query_typed(crate::sql::NOTIFY_REQUEST_LOOKUP.sql, &[(&request, Type::INT8)])
+            .await?;
         let Some(row) = rows.first() else {
             return Ok(());
         };
@@ -35,9 +37,23 @@ impl ApprovalNotify {
         let subject: String = row.get(2);
         let expiry: i64 = row.get(3);
         let expiration: String = row.get(4);
-        let users=match kind.as_str(){"user"=>vec![approver],"role_group"=>client.query_typed("SELECT user_id FROM admin_role_assignments WHERE role_group_id=$1 AND (expires_at IS NULL OR expires_at>now()) AND admin_assignment_active(eligible,activated_until)",&[(&approver,Type::INT8)]).await?.iter().map(|r|r.get::<_,i64>(0)).collect(),_=>return Ok(())};
+        let users = match kind.as_str() {
+            "user" => vec![approver],
+            "role_group" => client
+                .query_typed(
+                    crate::sql::NOTIFY_ROLE_GROUP_USERS.sql,
+                    &[(&approver, Type::INT8)],
+                )
+                .await?
+                .iter()
+                .map(|r| r.get::<_, i64>(0))
+                .collect(),
+            _ => return Ok(()),
+        };
         for user in users {
-            let rows=client.query_typed("SELECT COALESCE(mb.email,u.email) FROM mailboxes mb JOIN users u ON u.id=mb.user_id WHERE mb.user_id=$1 AND mb.is_primary=true LIMIT 1",&[(&user,Type::INT8)]).await?;
+            let rows = client
+                .query_typed(crate::sql::NOTIFY_USER_EMAIL.sql, &[(&user, Type::INT8)])
+                .await?;
             let Some(email) = rows.first().map(|r| r.get::<_, String>(0)) else {
                 continue;
             };
@@ -86,7 +102,7 @@ impl ApprovalNotify {
             let size = (text.len() + html.len()) as i64;
             let title = format!("Approval required: {subject}");
             // Go's entire delivery transaction is this canonical reducer call. Do not retry an unknown commit.
-            if client.query_typed("SELECT deliver($1,$2,$3,'SetJoin Approvals',$4,$5::text::jsonb,'[]'::jsonb,'[]'::jsonb,$6,'','',$7,$8,$9,FALSE,clock_timestamp(),'none','none','none',0::real,'{}'::jsonb)",&[(&raw,Type::TEXT),(&message,Type::TEXT),(&from,Type::TEXT),(&email,Type::TEXT),(&to,Type::TEXT),(&title,Type::TEXT),(&text,Type::TEXT),(&html,Type::TEXT),(&size,Type::INT8)]).await.is_err(){eprintln!("approval notify: delivery failed");}
+            if client.query_typed(crate::sql::NOTIFY_DELIVER.sql,&[(&raw,Type::TEXT),(&message,Type::TEXT),(&from,Type::TEXT),(&email,Type::TEXT),(&to,Type::TEXT),(&title,Type::TEXT),(&text,Type::TEXT),(&html,Type::TEXT),(&size,Type::INT8)]).await.is_err(){eprintln!("approval notify: delivery failed");}
         }
         drop(client);
         driver.await??;

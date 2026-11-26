@@ -681,6 +681,50 @@ class FamilyIsolation(unittest.TestCase):
                     result.stderr,
                 )
 
+    def test_domain_crates_cannot_reference_admin_worker_or_pre_auth_seams(self):
+        cases = (
+            ("AdminWorkerPool", "pub fn leak(_p: &AdminWorkerPool) {}\n"),
+            ("PreAuthReadTx", "pub fn leak(_t: &PreAuthReadTx) {}\n"),
+            (
+                "begin_pre_auth_read",
+                "pub fn leak(g: &G) { g.begin_pre_auth_read(); }\n",
+            ),
+            (
+                "run_pre_auth_read_contract",
+                "pub fn leak(g: &G) { g.run_pre_auth_read_contract(); }\n",
+            ),
+            (
+                "run_pre_auth_read_pipelined",
+                "pub fn leak(p: &P) { p.run_pre_auth_read_pipelined(); }\n",
+            ),
+        )
+        for token, source in cases:
+            with (
+                self.subTest(token=token),
+                tempfile.TemporaryDirectory(prefix="gofree-t1-preauth-") as tmp,
+            ):
+                root = pathlib.Path(tmp)
+                dom = root / "crates/domains/sample"
+                (dom / "src").mkdir(parents=True)
+                (dom / "src/lib.rs").write_text(source)
+                (dom / "Cargo.toml").write_text(
+                    '[package]\nname = "setjoin-sample"\nversion = "0.1.0"\n'
+                )
+                (root / "Cargo.toml").write_text(
+                    '[workspace]\nresolver = "2"\nmembers = ["crates/domains/sample"]\n'
+                )
+                result = subprocess.run(
+                    ["python3", str(GUARD), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    f"forbidden capability token {token} in "
+                    "crates/domains/sample/src/lib.rs",
+                    result.stderr,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

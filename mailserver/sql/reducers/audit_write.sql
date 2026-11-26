@@ -16,5 +16,8 @@ BEGIN
   END IF;
   INSERT INTO admin_audit_log (user_id, ip, action, target_type, target_id, before_state, after_state, notes)
     VALUES (p_actor, p_ip, p_action, p_target_type, p_target_id, p_before, p_after, p_notes);
+  IF p_tier = 'core' THEN
+    PERFORM set_config('app.core_audit_written', '1', true);
+  END IF;
 END;
 $$ LANGUAGE plpgsql VOLATILE;

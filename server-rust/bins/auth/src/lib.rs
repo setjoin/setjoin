@@ -11,6 +11,7 @@ mod http_threat;
 mod ingress;
 mod issuance;
 mod oidc;
+pub mod policy_composition;
 mod possession;
 mod push;
 mod recovery;

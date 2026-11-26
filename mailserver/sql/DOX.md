@@ -2488,3 +2488,7 @@ emitting `app_notify('group_membership_changed', ...)` on `user_group_members`,
 `distribution_groups` (`{"all": true}`). `setjoin_authz::groups::GroupResolver`
 subscribes via `DB_DIRECT_DSN` (`listen` / `listen_watch`) with subscribe-before-refresh
 invalidation. Proof: `tests/group_membership_notify.pg`.
+
+## Blob GC (V288, #550)
+
+`V288__blob_mark_and_sweep_gc.sql` introduces expand-only companion GC tables (`blob_gc_state`, `blob_gc_shadow_runs`, `blob_gc_shadow_discrepancies`, `blob_gc_config` — all `ENABLE`+`FORCE ROW LEVEL SECURITY` with zero policies and worker-only ACLs restated in `scripts/provision-roles.sql`), partial 64-hex root-lookup indexes matching `blob_has_live_reference()` 1:1 (enforced by `config/blob-reference-manifest.json` + `scripts/check-blob-reference-manifest.sh`), and `reducers/blob_gc.sql`. `public.blobs` columns and `public.feature_toggles` stay unchanged. Worker reducers are `SECURITY INVOKER` (`BZ003` BYPASSRLS guard, `exact_worker`); `blob_gc_reactivate` is narrow `SECURITY DEFINER` (`setjoin_worker`-owned, granted to `setjoin_app`) so all uploaders serialize on `pg_advisory_xact_lock(blob_gc_lock_key(sha256))`. Proof: `tests/blob_mark_and_sweep_gc.pg`.

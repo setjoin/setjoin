@@ -54,7 +54,7 @@ use crate::{
 use hyper::HeaderMap;
 use serde_json::{Map, Value};
 use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{PreAuthReadTx, Row, ScopedExecutor, SqlContract, StatementFailure, ToSql, Type};
 use std::{
     collections::BTreeSet,
     fmt,
@@ -670,6 +670,7 @@ pub struct PolicyGate<K: KeySource + 'static> {
     attachment_secrets: Vec<Vec<u8>>,
     replay: Arc<dpop::ReplayCache>,
     geo: Option<Arc<CountryDb>>,
+    tx_factory: Option<TxFactory>,
 }
 
 impl<K: KeySource + 'static> PolicyGate<K> {
@@ -694,7 +695,51 @@ impl<K: KeySource + 'static> PolicyGate<K> {
             attachment_secrets: Vec::new(),
             replay: Arc::new(dpop::ReplayCache::default()),
             geo: None,
+            tx_factory: None,
         }
+    }
+
+    /// Attach a capability-gated [`TxFactory`] (sharing its [`GroupResolver`]
+    /// and private pre-auth [`AdminWorkerPool`] seam) (#546a).
+    pub fn with_tx_factory(mut self, factory: TxFactory) -> Self {
+        let groups = factory.group_resolver().clone();
+        self.engine = Arc::new(Engine::with_group_resolver(
+            self.exec.clone(),
+            groups.clone(),
+        ));
+        self.groups = groups;
+        self.tx_factory = Some(factory);
+        self
+    }
+
+    pub fn tx_factory(&self) -> Option<&TxFactory> {
+        self.tx_factory.as_ref()
+    }
+
+    /// Open a private `BEGIN READ ONLY` pre-authentication credential-proof
+    /// transaction backed by `TxFactory`'s encapsulated `AdminWorkerPool` (#546a).
+    pub async fn begin_pre_auth_read(&self) -> Result<PreAuthReadTx, StatementFailure> {
+        let factory = self.tx_factory.as_ref().ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "policy gate tx_factory not configured".into(),
+        })?;
+        factory.begin_pre_auth_read().await
+    }
+
+    /// Execute a static [`SqlScope::AuthPreScope`] pre-authentication contract
+    /// through `TxFactory`'s private `AdminWorkerPool` seam (#546a).
+    pub async fn run_pre_auth_read_contract(
+        &self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        let factory = self.tx_factory.as_ref().ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "policy gate tx_factory not configured".into(),
+        })?;
+        factory.run_pre_auth_read_contract(contract, values).await
     }
 
     pub fn with_group_resolver(mut self, groups: Arc<GroupResolver>) -> Self {

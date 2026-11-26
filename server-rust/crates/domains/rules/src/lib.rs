@@ -1,5 +1,7 @@
 //! Rules and templates (F09). Frozen Go is authoritative; see DOX.md.
 #![forbid(unsafe_code)]
+pub mod sql;
+pub use sql::SQL_CONTRACTS;
 use setjoin_authz::AuthContext;
 use setjoin_pg::{Row, ScopedExecutor, StatementFailure, Type};
 fn invalid() -> StatementFailure {
@@ -20,12 +22,6 @@ fn done(v: String) -> String {
         .replace('\u{2029}', "\\u2029")
         + "\n"
 }
-fn nano(column: &str) -> String {
-    format!("to_char({column} AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', {column} AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char({column} AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z'")
-}
-fn columns() -> String {
-    format!("id,mailbox_id,name,enabled,priority,run_on,is_transport_rule,conditions::text,actions::text,stop_processing,{},{}",nano("created_at"),nano("updated_at"))
-}
 fn rule(r: &Row) -> Result<String, StatementFailure> {
     let id: i64 = r.try_get(0).map_err(|_| invalid())?;
     let mb: Option<i64> = r.try_get(1).map_err(|_| invalid())?;
@@ -39,7 +35,9 @@ pub async fn personal_list(
     actor: &AuthContext,
 ) -> Result<String, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read_iterated(&format!("SELECT {} FROM rules WHERE mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$1) AND is_transport_rule=FALSE ORDER BY priority,id",columns()),&[(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read_iterated(sql::PERSONAL_LIST.sql, &[(&user, Type::INT8)])
+        .await?;
     Ok(done(format!(
         "[{}]",
         rows.iter()
@@ -101,14 +99,11 @@ pub async fn personal_count(
     actor: &AuthContext,
 ) -> Result<i64, StatementFailure> {
     let mb = actor.mailbox_id();
-    exec.read(
-        "SELECT count(*) FROM rules WHERE mailbox_id=$1",
-        &[(&mb, Type::INT8)],
-    )
-    .await?
-    .first()
-    .and_then(|r| r.try_get(0).ok())
-    .ok_or_else(invalid)
+    exec.read(sql::PERSONAL_COUNT.sql, &[(&mb, Type::INT8)])
+        .await?
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(invalid)
 }
 pub const PERSONAL_RULE_CAP: i64 = 100;
 pub const ACTIVE_SWEEP_CAP: i64 = 3;
@@ -171,7 +166,25 @@ pub async fn personal_create(
     } else {
         PERSONAL_RULE_CAP
     };
-    write_capped(exec,a,op,"personal.create","SELECT count(*) FROM rules WHERE mailbox_id=$1",cap,"INSERT INTO rules(mailbox_id,name,enabled,priority,run_on,is_transport_rule,conditions,actions,stop_processing) SELECT $1,$4,$5,$6::bigint::int,$7,FALSE,$8::text::jsonb,$9::text::jsonb,$10 WHERE $2::bigint>0 AND $3::text<>'' RETURNING id::text",&[(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    write_capped(
+        exec,
+        a,
+        op,
+        "personal.create",
+        sql::PERSONAL_COUNT.sql,
+        cap,
+        sql::PERSONAL_CREATE.sql,
+        &[
+            (&r.name, Type::TEXT),
+            (&r.enabled, Type::BOOL),
+            (&r.priority, Type::INT8),
+            (&r.run_on, Type::TEXT),
+            (&r.conditions.0, Type::TEXT),
+            (&r.actions.0, Type::TEXT),
+            (&r.stop, Type::BOOL),
+        ],
+    )
+    .await
 }
 pub async fn personal_update(
     exec: &ScopedExecutor,
@@ -180,7 +193,24 @@ pub async fn personal_update(
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"personal.update","WITH changed AS(UPDATE rules SET name=COALESCE(NULLIF($5,''),name),enabled=$6,priority=$7::bigint::int,run_on=$8,conditions=COALESCE($9::text::jsonb,conditions),actions=COALESCE($10::text::jsonb,actions),stop_processing=$11,updated_at=now() WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    write(
+        exec,
+        a,
+        op,
+        "personal.update",
+        sql::PERSONAL_UPDATE.sql,
+        &[
+            (&id, Type::INT8),
+            (&r.name, Type::TEXT),
+            (&r.enabled, Type::BOOL),
+            (&r.priority, Type::INT8),
+            (&r.run_on, Type::TEXT),
+            (&r.conditions.0, Type::TEXT),
+            (&r.actions.0, Type::TEXT),
+            (&r.stop, Type::BOOL),
+        ],
+    )
+    .await
 }
 pub async fn personal_delete(
     exec: &ScopedExecutor,
@@ -188,14 +218,26 @@ pub async fn personal_delete(
     id: i64,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"personal.delete","WITH changed AS(DELETE FROM rules WHERE id=$4 AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2) AND is_transport_rule=FALSE AND $1::bigint>=0 AND $3::text<>'' RETURNING id) SELECT EXISTS(SELECT 1 FROM changed)::text",&[(&id,Type::INT8)]).await
+    write(
+        exec,
+        a,
+        op,
+        "personal.delete",
+        sql::PERSONAL_DELETE.sql,
+        &[(&id, Type::INT8)],
+    )
+    .await
 }
 pub async fn active_sweeps(
     exec: &ScopedExecutor,
     a: &AuthContext,
 ) -> Result<i64, StatementFailure> {
     let mb = a.mailbox_id();
-    exec.read("SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','enqueued','processing')",&[(&mb,Type::INT8)]).await?.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)
+    exec.read(sql::ACTIVE_SWEEPS.sql, &[(&mb, Type::INT8)])
+        .await?
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(invalid)
 }
 /// `Committed("cap")` means the mailbox already has [`ACTIVE_SWEEP_CAP`] sweeps in
 /// progress and nothing was enqueued (security fix 2026-11-05, #484: counted under the
@@ -217,9 +259,9 @@ pub async fn apply(
         a,
         op,
         "personal.apply",
-        "SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','enqueued','processing')",
+        sql::ACTIVE_SWEEPS.sql,
         cap,
-        "SELECT rules_apply_retroactive($1,$4,$5)::text WHERE $2::bigint>0 AND $3::text<>''",
+        sql::APPLY_RETROACTIVE.sql,
         &[(&id, Type::INT8), (&window, Type::TEXT)],
     )
     .await
@@ -230,7 +272,12 @@ pub async fn apply_status(
     id: &str,
 ) -> Result<Option<String>, StatementFailure> {
     let user = a.user_id();
-    let rows=exec.read("SELECT status,(payload->>'processed')::bigint,(payload->>'truncated')::boolean FROM scheduled_actions WHERE id=$1::text::uuid AND action_kind='rules_retro' AND mailbox_id IN(SELECT id FROM mailboxes WHERE user_id=$2)",&[(&id,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            sql::APPLY_STATUS.sql,
+            &[(&id, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await?;
     let Some(row) = rows.first() else {
         return Ok(None);
     };
@@ -250,23 +297,10 @@ pub async fn admin_list(
     mailbox: Option<i64>,
 ) -> Result<String, StatementFailure> {
     let rows = if let Some(mb) = mailbox {
-        exec.read_iterated(
-            &format!(
-                "SELECT {} FROM rules WHERE mailbox_id=$1 ORDER BY priority,id",
-                columns()
-            ),
-            &[(&mb, Type::INT8)],
-        )
-        .await?
+        exec.read_iterated(sql::ADMIN_LIST_BY_MAILBOX.sql, &[(&mb, Type::INT8)])
+            .await?
     } else {
-        exec.read_iterated(
-            &format!(
-                "SELECT {} FROM rules ORDER BY is_transport_rule DESC,priority,id",
-                columns()
-            ),
-            &[],
-        )
-        .await?
+        exec.read_iterated(sql::ADMIN_LIST_ALL.sql, &[]).await?
     };
     Ok(done(format!(
         "[{}]",
@@ -278,22 +312,16 @@ pub async fn admin_list(
 }
 pub async fn admin_get(exec: &ScopedExecutor, id: i64) -> Result<Option<String>, StatementFailure> {
     let rows = exec
-        .read(
-            &format!("SELECT {} FROM rules WHERE id=$1", columns()),
-            &[(&id, Type::INT8)],
-        )
+        .read(sql::ADMIN_GET.sql, &[(&id, Type::INT8)])
         .await?;
     rows.first().map(|r| rule(r).map(done)).transpose()
 }
 pub async fn mailbox_exists(exec: &ScopedExecutor, id: i64) -> bool {
-    exec.read(
-        "SELECT EXISTS(SELECT 1 FROM mailboxes WHERE id=$1)",
-        &[(&id, Type::INT8)],
-    )
-    .await
-    .ok()
-    .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
+    exec.read(sql::MAILBOX_EXISTS.sql, &[(&id, Type::INT8)])
+        .await
+        .ok()
+        .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+        .unwrap_or(false)
 }
 pub async fn admin_create(
     exec: &ScopedExecutor,
@@ -301,7 +329,25 @@ pub async fn admin_create(
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"admin.create","SELECT rule_config_create($2,$4,$5,$6,$7::bigint::int,$8,$9,$10::text::jsonb,$11::text::jsonb,$12)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    write(
+        exec,
+        a,
+        op,
+        "admin.create",
+        sql::ADMIN_CREATE.sql,
+        &[
+            (&r.mailbox_id, Type::INT8),
+            (&r.name, Type::TEXT),
+            (&r.enabled, Type::BOOL),
+            (&r.priority, Type::INT8),
+            (&r.run_on, Type::TEXT),
+            (&r.transport, Type::BOOL),
+            (&r.conditions.0, Type::TEXT),
+            (&r.actions.0, Type::TEXT),
+            (&r.stop, Type::BOOL),
+        ],
+    )
+    .await
 }
 pub async fn admin_update(
     exec: &ScopedExecutor,
@@ -310,7 +356,26 @@ pub async fn admin_update(
     r: &input::Rule,
     op: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    write(exec,a,op,"admin.update","SELECT rule_config_update($2,$4,$5,$6,$7,$8::bigint::int,$9,$10,$11::text::jsonb,$12::text::jsonb,$13)::text WHERE $1::bigint>=0 AND $3::text<>''",&[(&id,Type::INT8),(&r.mailbox_id,Type::INT8),(&r.name,Type::TEXT),(&r.enabled,Type::BOOL),(&r.priority,Type::INT8),(&r.run_on,Type::TEXT),(&r.transport,Type::BOOL),(&r.conditions.0,Type::TEXT),(&r.actions.0,Type::TEXT),(&r.stop,Type::BOOL)]).await
+    write(
+        exec,
+        a,
+        op,
+        "admin.update",
+        sql::ADMIN_UPDATE.sql,
+        &[
+            (&id, Type::INT8),
+            (&r.mailbox_id, Type::INT8),
+            (&r.name, Type::TEXT),
+            (&r.enabled, Type::BOOL),
+            (&r.priority, Type::INT8),
+            (&r.run_on, Type::TEXT),
+            (&r.transport, Type::BOOL),
+            (&r.conditions.0, Type::TEXT),
+            (&r.actions.0, Type::TEXT),
+            (&r.stop, Type::BOOL),
+        ],
+    )
+    .await
 }
 pub async fn admin_delete(
     exec: &ScopedExecutor,
@@ -323,7 +388,7 @@ pub async fn admin_delete(
         a,
         op,
         "admin.delete",
-        "SELECT rule_config_delete($2,$4)::text WHERE $1::bigint>=0 AND $3::text<>''",
+        sql::ADMIN_DELETE.sql,
         &[(&id, Type::INT8)],
     )
     .await
@@ -332,10 +397,7 @@ pub async fn admin_delete(
 /// finding the rule. Keep the same request outcome; do not redesign its preview.
 pub async fn admin_test(exec: &ScopedExecutor, id: i64) -> Result<bool, StatementFailure> {
     let rows = exec
-        .read(
-            "SELECT mailbox_id,conditions::text,actions::text FROM rules WHERE id=$1",
-            &[(&id, Type::INT8)],
-        )
+        .read(sql::ADMIN_TEST_LOOKUP.sql, &[(&id, Type::INT8)])
         .await?;
     let Some(row) = rows.first() else {
         return Ok(false);

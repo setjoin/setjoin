@@ -6,7 +6,11 @@ pub async fn blocked_audit(
     user: i64,
     ip: &str,
 ) -> Result<(), StatementFailure> {
-    exec.read("SELECT audit_write($1,'app_blocked','app',NULL,NULL,NULL,$2::text::inet,'contacts','routine')",&[(&user,Type::INT8),(&ip,Type::TEXT)]).await?;
+    exec.read(
+        crate::sql::CARDDAV_BLOCKED_AUDIT.sql,
+        &[(&user, Type::INT8), (&ip, Type::TEXT)],
+    )
+    .await?;
     Ok(())
 }
 
@@ -17,7 +21,9 @@ pub struct Book {
     pub description: String,
 }
 pub async fn books(exec: &ScopedExecutor, user: i64) -> Result<Vec<Book>, StatementFailure> {
-    let rows=exec.read("SELECT ab.id,ab.mailbox_id,ab.name,coalesce(ab.description,'') FROM addressbooks ab JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE mb.user_id=$1 ORDER BY ab.name",&[(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(crate::sql::CARDDAV_BOOKS.sql, &[(&user, Type::INT8)])
+        .await?;
     Ok(rows
         .iter()
         .map(|r| Book {
@@ -49,10 +55,9 @@ pub async fn get_contact(
     book: i64,
     uid: &str,
 ) -> Result<Option<Contact>, StatementFailure> {
-    let sql=format!("SELECT {},c.id,c.etag,c.addressbook_id FROM contacts c JOIN addressbooks ab ON ab.id=c.addressbook_id JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE c.addressbook_id=$1 AND c.vcard_uid=$2 AND mb.user_id=$3",crate::contacts::CONTACT_COLUMNS);
     let rows = exec
         .read(
-            &sql,
+            crate::sql::CARDDAV_GET_CONTACT.sql,
             &[(&book, Type::INT8), (&uid, Type::TEXT), (&user, Type::INT8)],
         )
         .await?;
@@ -64,7 +69,12 @@ pub async fn book(
     user: i64,
     id: i64,
 ) -> Result<Option<Book>, StatementFailure> {
-    let rows=exec.read("SELECT ab.id,ab.mailbox_id,ab.name,coalesce(ab.description,'') FROM addressbooks ab JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE ab.id=$1 AND mb.user_id=$2",&[(&id,Type::INT8),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            crate::sql::CARDDAV_BOOK.sql,
+            &[(&id, Type::INT8), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().map(|r| Book {
         id: r.get(0),
         mailbox: r.get(1),
@@ -77,9 +87,11 @@ pub async fn list_contacts(
     user: i64,
     book: i64,
 ) -> Result<Vec<Contact>, StatementFailure> {
-    let sql=format!("SELECT {},c.id,c.etag,c.addressbook_id FROM contacts c JOIN addressbooks ab ON ab.id=c.addressbook_id JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE c.addressbook_id=$1 AND mb.user_id=$2 ORDER BY c.display_name",crate::contacts::CONTACT_COLUMNS);
     let rows = exec
-        .read(&sql, &[(&book, Type::INT8), (&user, Type::INT8)])
+        .read(
+            crate::sql::CARDDAV_LIST_CONTACTS.sql,
+            &[(&book, Type::INT8), (&user, Type::INT8)],
+        )
         .await?;
     rows.iter().map(contact).collect()
 }
@@ -91,10 +103,9 @@ pub async fn search_contacts(
     text: &str,
 ) -> Result<Vec<Contact>, StatementFailure> {
     let pattern = format!("%{text}%");
-    let sql=format!("SELECT {},c.id,c.etag,c.addressbook_id FROM contacts c JOIN addressbooks ab ON ab.id=c.addressbook_id JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE mb.user_id=$1 AND ($2<=0 OR c.addressbook_id=$2) AND ($3='' OR c.display_name ILIKE $4 OR c.emails::text ILIKE $4) ORDER BY c.display_name LIMIT 1000",crate::contacts::CONTACT_COLUMNS);
     let rows = exec
         .read(
-            &sql,
+            crate::sql::CARDDAV_SEARCH_CONTACTS.sql,
             &[
                 (&user, Type::INT8),
                 (&book, Type::INT8),
@@ -113,9 +124,11 @@ pub async fn contacts_by_uids(
     uids: &[String],
 ) -> Result<Vec<Contact>, StatementFailure> {
     let uids = uids.to_vec();
-    let sql=format!("SELECT {},c.id,c.etag,c.addressbook_id FROM contacts c JOIN addressbooks ab ON ab.id=c.addressbook_id JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE c.vcard_uid=ANY($1) AND mb.user_id=$2",crate::contacts::CONTACT_COLUMNS);
     let rows = exec
-        .read(&sql, &[(&uids, Type::TEXT_ARRAY), (&user, Type::INT8)])
+        .read(
+            crate::sql::CARDDAV_CONTACTS_BY_UIDS.sql,
+            &[(&uids, Type::TEXT_ARRAY), (&user, Type::INT8)],
+        )
         .await?;
     Ok(rows.iter().filter_map(|r| contact(r).ok()).collect())
 }
@@ -131,7 +144,18 @@ pub async fn sync(
         MailboxId::new(book.mailbox).expect("owned book"),
         Generation(1),
     );
-    let rows=exec.read_scoped(&scope,"SELECT caldav_changes($1,'ContactCard',$2,$3)::text WHERE EXISTS(SELECT 1 FROM addressbooks ab JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE ab.id=$2 AND ab.mailbox_id=$1 AND mb.user_id=$4)",&[(&book.mailbox,Type::INT8),(&book.id,Type::INT8),(&since,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read_scoped(
+            &scope,
+            crate::sql::CARDDAV_SYNC.sql,
+            &[
+                (&book.mailbox, Type::INT8),
+                (&book.id, Type::INT8),
+                (&since, Type::TEXT),
+                (&user, Type::INT8),
+            ],
+        )
+        .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
 
@@ -174,9 +198,44 @@ pub async fn publish(
             .unwrap_or_else(|| "{}".into()))
     };
     match kind {
-        Operation::Create=>publisher.run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),"SELECT jmap_contact_set_create(ab.mailbox_id,$3::text::jsonb)::text FROM addressbooks ab JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE ab.id=$2 AND mb.user_id=$1",&[(&user,Type::INT8),(&book,Type::INT8),(&payload,Type::TEXT)],project).await,
-        Operation::Update=>publisher.run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),"SELECT jmap_contact_set_update(ab.mailbox_id,$4::text::jsonb)::text FROM addressbooks ab JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE ab.id=$2 AND mb.user_id=$1 AND $3::bigint>0",&[(&user,Type::INT8),(&book,Type::INT8),(&contact,Type::INT8),(&payload,Type::TEXT)],project).await,
-        Operation::Delete=>publisher.run_user_command(ActorId::new(user).expect("verified actor"),OperationId(operation),"SELECT jmap_contact_set_destroy(ab.mailbox_id,ARRAY[$3::bigint])::text FROM addressbooks ab JOIN mailboxes mb ON mb.id=ab.mailbox_id WHERE ab.id=$2 AND mb.user_id=$1 AND $3::bigint>0",&[(&user,Type::INT8),(&book,Type::INT8),(&contact,Type::INT8)],project).await,
+        Operation::Create => {
+            publisher
+                .run_user_command(
+                    ActorId::new(user).expect("verified actor"),
+                    OperationId(operation),
+                    crate::sql::CARDDAV_CREATE.sql,
+                    &[(&user, Type::INT8), (&book, Type::INT8), (&payload, Type::TEXT)],
+                    project,
+                )
+                .await
+        }
+        Operation::Update => {
+            publisher
+                .run_user_command(
+                    ActorId::new(user).expect("verified actor"),
+                    OperationId(operation),
+                    crate::sql::CARDDAV_UPDATE.sql,
+                    &[
+                        (&user, Type::INT8),
+                        (&book, Type::INT8),
+                        (&contact, Type::INT8),
+                        (&payload, Type::TEXT),
+                    ],
+                    project,
+                )
+                .await
+        }
+        Operation::Delete => {
+            publisher
+                .run_user_command(
+                    ActorId::new(user).expect("verified actor"),
+                    OperationId(operation),
+                    crate::sql::CARDDAV_DELETE.sql,
+                    &[(&user, Type::INT8), (&book, Type::INT8), (&contact, Type::INT8)],
+                    project,
+                )
+                .await
+        }
     }
 }
 
@@ -192,13 +251,23 @@ pub async fn gal_users(
     limit: Option<i64>,
 ) -> Result<Vec<String>, StatementFailure> {
     let pattern = format!("%{text}%");
-    let visible = if setjoin_contracts::mutants::on("gal-manager-disclosed") {
-        ""
+    let sql = if setjoin_contracts::mutants::on("gal-manager-disclosed") {
+        crate::sql::CARDDAV_GAL_USERS_MUTANT.sql
     } else {
-        " AND EXISTS (SELECT 1 FROM directory_visible_users(caller.id) mv WHERE mv.id=mgr.id)"
+        crate::sql::CARDDAV_GAL_USERS.sql
     };
-    let sql = format!("SELECT (to_jsonb(v)||jsonb_build_object('manager_name',mgr.display_name,'updated_micros',(extract(epoch FROM u.updated_at)*1000000)::bigint,'rev',to_char(u.updated_at AT TIME ZONE 'UTC','YYYYMMDD\"T\"HH24MISS\"Z\"')))::text FROM mailboxes caller CROSS JOIN LATERAL directory_visible_users(caller.id) v JOIN users u ON u.id=v.id LEFT JOIN users mgr ON mgr.id=u.manager_id AND mgr.enabled{visible} WHERE caller.user_id=$1 AND caller.is_primary AND ($2::bigint IS NULL OR v.id=$2) AND ($3='' OR v.display_name ILIKE $4 OR v.address_blob ILIKE $4) ORDER BY v.display_name LIMIT $5");
-    let rows=exec.read(&sql,&[(&user,Type::INT8),(&id,Type::INT8),(&text,Type::TEXT),(&pattern,Type::TEXT),(&limit,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            sql,
+            &[
+                (&user, Type::INT8),
+                (&id, Type::INT8),
+                (&text, Type::TEXT),
+                (&pattern, Type::TEXT),
+                (&limit, Type::INT8),
+            ],
+        )
+        .await?;
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 /// Go's best-effort disclosure journal: no business write is acknowledged by
@@ -212,7 +281,11 @@ pub async fn gal_record(
         return Ok(());
     }
     let ids = ids.to_vec();
-    exec.read("SELECT gal_visibility_record(mb.id,$2) FROM mailboxes mb WHERE mb.user_id=$1 AND mb.is_primary",&[(&user,Type::INT8),(&ids,Type::INT8_ARRAY)]).await?;
+    exec.read(
+        crate::sql::CARDDAV_GAL_RECORD.sql,
+        &[(&user, Type::INT8), (&ids, Type::INT8_ARRAY)],
+    )
+    .await?;
     Ok(())
 }
 pub async fn gal_sync(
@@ -224,7 +297,7 @@ pub async fn gal_sync(
 ) -> setjoin_pg::CommandOutcome<String, StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
     let user = actor.user_id();
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"carddav-gal-sync"}).run_user_command(ActorId::new(user).expect("verified user"),OperationId(operation),"SELECT gal_changes(mb.id,$2,$3)::text FROM mailboxes mb WHERE mb.user_id=$1 AND mb.is_primary",&[(&user,Type::INT8),(&micros,Type::INT8),(&count,Type::INT8)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_default())).await
+    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F17",command:"carddav-gal-sync"}).run_user_command(ActorId::new(user).expect("verified user"),OperationId(operation),crate::sql::CARDDAV_GAL_SYNC.sql,&[(&user,Type::INT8),(&micros,Type::INT8),(&count,Type::INT8)],|rows|Ok(rows.first().map(|r|r.get(0)).unwrap_or_default())).await
 }
 
 pub async fn primary_mailbox(
@@ -232,10 +305,7 @@ pub async fn primary_mailbox(
     user: i64,
 ) -> Result<Option<i64>, StatementFailure> {
     let rows = exec
-        .read(
-            "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary",
-            &[(&user, Type::INT8)],
-        )
+        .read(crate::sql::CARDDAV_PRIMARY_MAILBOX.sql, &[(&user, Type::INT8)])
         .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
@@ -277,7 +347,7 @@ pub async fn lookup_operation(
     let op = setjoin_pg::operation_hex(operation);
     let command = kind.command();
     match exec.run_user_command(ActorId::new(user).map_err(|_|invalid())?,operation,
-        "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F17' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.enabled AND identity_transition_admission_allowed(u.id))",
+        crate::sql::DAV_LOOKUP_OPERATION.sql,
         &[(&user,Type::INT8),(&op,Type::TEXT),(&command,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await {
         setjoin_pg::CommandOutcome::Committed(found)=>Ok(found),_=>Err(invalid()),
     }

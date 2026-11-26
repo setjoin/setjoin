@@ -30,8 +30,10 @@ BEGIN
         RAISE EXCEPTION 'recovery item is incomplete or digest differs'
             USING ERRCODE='BZ251',HINT='{"type":"continuity_chunk_mismatch"}';
     END IF;
+    PERFORM pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key(p_object_ref));
     UPDATE mail_recovery_upload_items SET status='verified',object_ref=p_object_ref
      WHERE session_id=p_session_id AND item_id=p_item_id;
+    PERFORM public.blob_gc_reactivate(p_object_ref);
     RETURN jsonb_build_object('itemId',p_item_id,'status','verified','replayed',false);
 END;
 $$;

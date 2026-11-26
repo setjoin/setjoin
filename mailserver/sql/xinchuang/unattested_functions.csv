@@ -57,6 +57,16 @@ approval_request_cancel,approval_request_cancel.sql
 approval_request_create,approval_request_create.sql
 approval_resolve_approver,approval_resolve_approver.sql
 audit_write,audit_write.sql
+blob_gc_claim_purging,blob_gc.sql
+blob_gc_live_sources,blob_gc.sql
+blob_gc_lock_key,blob_gc.sql
+blob_gc_mark,blob_gc.sql
+blob_gc_reactivate,blob_gc.sql
+blob_gc_record_worm_lock,blob_gc.sql
+blob_gc_register_and_reactivate,blob_gc.sql
+blob_gc_shadow_reconcile,blob_gc.sql
+blob_has_live_reference,blob_gc.sql
+blob_is_held_or_retained,blob_gc.sql
 blob_upload_account,blob_upload_account.sql
 booking_cancel,booking_pages.sql
 booking_confirm,booking_pages.sql

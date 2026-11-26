@@ -273,6 +273,20 @@ impl<K: KeySource> RecoveryCommands<K> {
         } else {
             "application/octet-stream"
         };
+        // Serialize with Mark-and-Sweep GC (#550) BEFORE writing the canonical 64-hex S3 key:
+        // blocks until any in-flight Tx 2B completes its S3 DELETE, or flips a purging row
+        // back to active so Tx 2B aborts with 0 S3 deletes.
+        if self
+            .worker_exec
+            .protocol_statement(
+                "SELECT public.blob_gc_reactivate($1)",
+                &[(&meta.digest, setjoin_pg::Type::TEXT)],
+            )
+            .await
+            .is_err()
+        {
+            return failed();
+        }
         if store
             .put_file(&meta.digest, &temporary.0, meta.size as u64, content_type)
             .await

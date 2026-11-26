@@ -254,3 +254,9 @@ notify_intents	COVERED	notify_decouple.pg	setjoin_app direct SELECT on notify_in
 
 # ── V287 distributed SKIP LOCKED worker_schedules (Wave 2.2, #549). ─────────
 worker_schedules	COVERED	worker_schedules.pg	setjoin_app direct SELECT on worker_schedules is denied	V287: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT and worker_schedule_* / work_release reducers raise 42501.
+
+# ── V288 Mark-and-Sweep S3 Blob GC worker-only companion tables (#550). ─────
+blob_gc_state	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_state direct SELECT denied for setjoin_app	V288: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT/UPDATE/DELETE fail with 42501 while blob_gc_reactivate and blob_upload_account succeed.
+blob_gc_shadow_runs	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_shadow_runs direct SELECT denied for setjoin_app	V288: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT fail with 42501.
+blob_gc_shadow_discrepancies	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_shadow_discrepancies direct SELECT denied for setjoin_app	V288: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT fail with 42501.
+blob_gc_config	COVERED	blob_mark_and_sweep_gc.pg	blob_gc_config direct SELECT denied for setjoin_app	V288: FORCE RLS deny-all + REVOKE ALL FROM setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/UPDATE fail with 42501.

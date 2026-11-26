@@ -45,6 +45,11 @@ impl<S: ObjectStore> BlobCleanup<S> {
 
     /// One maintenance pass: cleanup queue, orphaned message blobs, and durable
     /// `blob.s3_reap_retry` WorkQueue retries.
+    /// When `BLOB_GC_MODE=live` (or `blob_gc_config.mode='live'`), Mark-and-Sweep GC owns
+    /// canonical `blobs` and bare 64-hex keys: legacy `process_cleanup_queue` and
+    /// `retry_failed_reaps` are disabled, and `process_orphaned_blobs` fences bare 64-hex
+    /// keys while continuing to reap prefixed keys (`inbound/*`, `blobs/*`, `dmarc/*`)
+    /// with the full cross-table check (#550).
     pub async fn tick(&self) {
         let conn = match self.db.connect().await {
             Ok(c) => c,
@@ -53,9 +58,44 @@ impl<S: ObjectStore> BlobCleanup<S> {
                 return;
             }
         };
-        self.process_cleanup_queue(&conn).await;
-        self.process_orphaned_blobs(&conn).await;
-        self.retry_failed_reaps(&conn).await;
+        let gc_mode = match crate::blob_gc::effective_mode(&conn).await {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("blob cleanup: invalid BLOB_GC_MODE config (failing closed): {e}");
+                return;
+            }
+        };
+        match gc_mode {
+            crate::blob_gc::GcMode::Off => {
+                self.process_cleanup_queue(&conn).await;
+                self.process_orphaned_blobs(&conn, false).await;
+                self.retry_failed_reaps(&conn).await;
+                drop(conn);
+            }
+            crate::blob_gc::GcMode::Shadow => {
+                drop(conn);
+                let gc = crate::blob_gc::BlobGcWorker::new(self.db.clone(), self.store.clone());
+                if let Err(e) = gc.tick_with_mode(crate::blob_gc::GcMode::Shadow).await {
+                    eprintln!("blob-gc shadow tick failed: {e}");
+                }
+                match self.db.connect().await {
+                    Ok(legacy_conn) => {
+                        self.process_cleanup_queue(&legacy_conn).await;
+                        self.process_orphaned_blobs(&legacy_conn, false).await;
+                        self.retry_failed_reaps(&legacy_conn).await;
+                    }
+                    Err(e) => eprintln!("blob cleanup: legacy reconnect failed after shadow: {e}"),
+                }
+            }
+            crate::blob_gc::GcMode::Live => {
+                self.process_orphaned_blobs(&conn, true).await;
+                drop(conn);
+                let gc = crate::blob_gc::BlobGcWorker::new(self.db.clone(), self.store.clone());
+                if let Err(e) = gc.tick_with_mode(crate::blob_gc::GcMode::Live).await {
+                    eprintln!("blob-gc live tick failed: {e}");
+                }
+            }
+        }
     }
 
     async fn enqueue_reap_retry(&self, conn: &WorkerConnection, sha: &str) {
@@ -197,7 +237,12 @@ impl<S: ObjectStore> BlobCleanup<S> {
 
     /// The sibling queue for message raw bodies. `raw_ref` is an exact object
     /// key (never assumed to be a sha); inline message text is only dequeued.
-    async fn process_orphaned_blobs(&self, conn: &WorkerConnection) {
+    /// When `fence_bare_sha256` is true (`BLOB_GC_MODE=live`), bare 64-hex keys
+    /// are handed to Mark-and-Sweep GC (never deleted here), while prefixed keys
+    /// (`inbound/*`, `blobs/*`, `dmarc/*`) continue to be reaped after checking
+    /// all 5 raw_ref tables (`messages`, `outbound_queue`, `outbound_queue_hot`,
+    /// `journal_queue`, `held_inbound_messages`).
+    async fn process_orphaned_blobs(&self, conn: &WorkerConnection, fence_bare_sha256: bool) {
         let rows = match conn
             .query("SELECT raw_ref FROM orphaned_message_blobs", &[])
             .await
@@ -210,14 +255,22 @@ impl<S: ObjectStore> BlobCleanup<S> {
             .filter_map(|r| r.try_get::<_, String>(0).ok())
             .collect();
         for raw_ref in refs {
+            if fence_bare_sha256 && crate::blob_gc::is_bare_sha256(&raw_ref) {
+                // Fenced off for Mark-and-Sweep GC (#550): never perform lock-free
+                // deletion of bare 64-hex canonical keys here.
+                continue;
+            }
             if !is_inline_message(&raw_ref) {
-                let still_orphaned = match conn
-                    .query(
-                        "SELECT NOT EXISTS (SELECT 1 FROM messages WHERE raw_ref = $1)",
-                        &[(&raw_ref, Type::TEXT)],
-                    )
-                    .await
-                {
+                let check_sql = if fence_bare_sha256 {
+                    "SELECT NOT EXISTS (SELECT 1 FROM messages WHERE raw_ref = $1) \
+                        AND NOT EXISTS (SELECT 1 FROM outbound_queue WHERE raw_ref = $1) \
+                        AND NOT EXISTS (SELECT 1 FROM outbound_queue_hot WHERE raw_ref = $1) \
+                        AND NOT EXISTS (SELECT 1 FROM journal_queue WHERE raw_ref = $1) \
+                        AND NOT EXISTS (SELECT 1 FROM held_inbound_messages WHERE raw_ref = $1)"
+                } else {
+                    "SELECT NOT EXISTS (SELECT 1 FROM messages WHERE raw_ref = $1)"
+                };
+                let still_orphaned = match conn.query(check_sql, &[(&raw_ref, Type::TEXT)]).await {
                     Ok(rows) => rows
                         .first()
                         .and_then(|r| r.try_get::<_, bool>(0).ok())

@@ -377,13 +377,23 @@ impl<K: KeySource> BlobCommands<K> {
         }
         let _ = self.store.remove(&temp_key).await;
         if let Some((work_item_id, mode, retain_until)) = worm_armed {
-            // Fast path: apply inline; on success cancel deferred work item.
-            // On failure, log and expedite the durable WorkQueue item (run_at = now()
-            // + 'work' bell) while still returning HTTP 201 (Go parity).
+            // Fast path: apply inline; record WORM lock horizon before cancelling
+            // the deferred work item. On failure, log and expedite the durable
+            // WorkQueue item (run_at = now() + 'work' bell) while still returning HTTP 201.
             match crate::blob_retention::apply_until(&*self.store, &mode, &hash, &retain_until)
                 .await
             {
                 Ok(()) => {
+                    let _ = self
+                        .worker_exec
+                        .protocol_statement(
+                            "SELECT public.blob_gc_record_worm_lock($1, $2::text::timestamptz, 'worm_put_apply')",
+                            &[
+                                (&hash, setjoin_pg::Type::TEXT),
+                                (&retain_until, setjoin_pg::Type::TEXT),
+                            ],
+                        )
+                        .await;
                     let _ = self
                         .worker_exec
                         .protocol_query(

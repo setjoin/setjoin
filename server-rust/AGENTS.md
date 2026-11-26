@@ -25,7 +25,13 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
     adapter over injected trusted stores; see its [DOX.md](crates/domains/recording/DOX.md).
   - `crates/pg` (`setjoin-pg`) — scoped executor, workers and standalone
     operator connections; [contract](crates/pg/DOX.md).
+  - `crates/sql-catalog` (`setjoin-sql-catalog`, #541) — zero-proc-macro typed
+    SQL contract catalog (`SqlContract`, `SqlScope`, `pg_rfc3339!`);
+    [contract](crates/sql-catalog/DOX.md).
   - `tests/conformance` — DB-backed parity and recorded-golden harness; [contract](DOX.md#conformance-harness-contract).
+  - `tests/sql-contracts` (`setjoin-sql-contracts`, `verify-sql-contracts`, #541) —
+    disposable-Postgres SQL contract verifier gated by `scripts/check-rust-sql-contracts.sh`
+    and `scripts/check-rust-sql-contracts-selftest.sh`; [contract](crates/sql-catalog/DOX.md).
 - `pilot/` — separate pilot workspace; [contract](DOX.md#pilot-workspace-contract).
 - `tools/schema-simulation/` — separate tooling workspace; [contract](DOX.md#schema-simulation-workspace).
 
@@ -140,7 +146,7 @@ Go list handlers that ignore Rows.Err: see the [iterated-read contract](crates/p
 Typed worker error projection: [PG contract](crates/pg/DOX.md#typed-worker-query-failures-348).
 
 - `bins/auth` (`setjoin-auth`, #112) — standalone identity HTTP process with fail-closed native HTTP IP-rule admission; [contract](bins/auth/DOX.md).
-- `bins/setjoind` (`setjoind`, #543) — unified server binary (`--subsystems=all|http,auth,protocols,workers`), in-process/remote `AuthAuthority`, shared `ListenHub`, strict schema refusal; [contract](bins/setjoind/DOX.md).
+- `bins/setjoind` (#543) — unified binary (`--subsystems`), `AuthAuthority`, `ListenHub`, strict schema refusal; [contract](bins/setjoind/DOX.md).
 - `crates/domains/identity` (`setjoin-identity`, #112) — F21 login/session/token, MFA and connector slices; [contract](crates/domains/identity/DOX.md).
 Authentication-time user transactions: [pg contract](crates/pg/DOX.md#authentication-time-user-transactions-112).
 - `crates/tls` (`setjoin-tls`, #413) — native TLS, certificates and Go-compatible session tickets; [contract](crates/tls/DOX.md).
@@ -169,4 +175,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/certificates` — shared Go certificate/PEM profile and recipient trust cache; [contract](crates/certificates/DOX.md).
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
-- `crates/workqueue` (`setjoin-workqueue`, #548/#549) — durable `FOR UPDATE SKIP LOCKED` work queue, `worker_schedules` leases, DLQ operator helpers (`operator` feature), and privileged `worker` feature (isolated from `crates/domains/*` by `scripts/check-rust-family-isolation.py`). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS` checks, durable WORM arming, and legacy drain-then-retire.
+- `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` feature (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.

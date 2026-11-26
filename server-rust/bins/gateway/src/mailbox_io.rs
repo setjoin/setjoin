@@ -249,6 +249,13 @@ impl<S: ObjectStore> Importer<'_, S> {
             fields.message_id.clone()
         };
         let reference = hex(&Sha256::digest(raw));
+        self.worker
+            .protocol_statement(
+                "SELECT public.blob_gc_reactivate($1)",
+                &[(&reference, setjoin_pg::Type::TEXT)],
+            )
+            .await
+            .map_err(|_| Fail::Generic)?;
         self.store
             .put(&reference, raw, "message/rfc822")
             .await

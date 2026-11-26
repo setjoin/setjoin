@@ -58,6 +58,16 @@ approval_request_cancel.sql	approval_request_cancel	MUST	core	lifecycle/authorit
 approval_request_create.sql	approval_request_create	MUST	core	lifecycle/authority transition (WP3 core class)
 approval_resolve_approver.sql	approval_resolve_approver	READ_ONLY	-	pure read path (guard re-derives no DML)
 audit_write.sql	audit_write	AUDIT_SINK	-	the single INSERT path into admin_audit_log
+blob_gc.sql	blob_gc_claim_purging	EXEMPT	-	background blob GC Tx 2A state transition; not an authority decision
+blob_gc.sql	blob_gc_live_sources	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_gc_lock_key	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_gc_mark	EXEMPT	-	background blob GC Phase 1 mark sweep; not an authority decision
+blob_gc.sql	blob_gc_reactivate	EXEMPT	-	high-frequency blob upload reactivation helper; not an authority decision
+blob_gc.sql	blob_gc_record_worm_lock	MUST	core	records S3 Object Lock 403 detection and reverts blob to active with core audit warning
+blob_gc.sql	blob_gc_register_and_reactivate	EXEMPT	-	content-addressed blob catalog admission and GC reactivation; not an authority decision
+blob_gc.sql	blob_gc_shadow_reconcile	MUST	core	shadow reconciliation alerts via core audit when Mark-and-Sweep and ref_count=0 diverge
+blob_gc.sql	blob_has_live_reference	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_is_held_or_retained	READ_ONLY	-	pure read path (guard re-derives no DML)
 blob_upload_account.sql	blob_upload_account	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 booking_pages.sql	booking_cancel	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
 booking_pages.sql	booking_confirm	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes

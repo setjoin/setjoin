@@ -60,11 +60,12 @@ pub mod workers;
 
 pub use auth::MailboxAuthContext;
 #[cfg(feature = "mint")]
-pub use capability::mint;
+pub use capability::{mint, AdminWorkerPool, PreAuthReadTx};
 pub use capability::{
-    AdminReadTx, AdminSensitiveRead, AdminWriteTx, AppPool, AuditEvent, AuditEventError, Audited,
-    MailboxTx, ReadOnly, ReadWrite, Standard, Unaudited, UserTx, VerifiedAdmin, VerifiedMailbox,
-    VerifiedUser,
+    AdminReadTx, AdminReducerOutcome, AdminRollbackOnlyTx, AdminSensitiveRead, AdminWriteTx,
+    AppPool, AuditEvent, AuditEventError, Audited, MailboxTx, ReadOnly, ReadWrite, Standard,
+    Unaudited, UserTx, VerifiedAdmin, VerifiedMailbox, VerifiedUser, DEFAULT_EFFECT_CONCURRENCY,
+    EFFECT_BODY_TIMEOUT, EFFECT_IDLE_IN_TX_TIMEOUT_MS,
 };
 #[cfg(feature = "worker-pool")]
 pub use capability::{WorkerPool, WorkerTx};
@@ -88,7 +89,11 @@ pub use pool::{
     CANCEL_SEMAPHORE_PERMITS, DEFAULT_PREPARED_CACHE_CAP, MIN_PGBOUNCER_MAX_PREPARED,
     PGBOUNCER_PREPARED_HEADROOM,
 };
-pub use tokio_postgres::{types::Type, Row};
+pub use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope};
+pub use tokio_postgres::{
+    types::{ToSql, Type},
+    Row,
+};
 
 #[cfg(test)]
 mod tests;

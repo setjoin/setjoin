@@ -27,16 +27,7 @@ pub fn valid(p: &SyncPut) -> bool {
 /// `(offline_mail, connectivity_aware_sync, biometric_unlock, windows_sso_unlock)`; every
 /// registry default is OFF, so an absent row is OFF.
 pub async fn toggles(exec: &ScopedExecutor) -> Result<[bool; 4], StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT \
-             COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.offline_mail'), false), \
-             COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.connectivity_aware_sync'), false), \
-             COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.biometric_unlock'), false), \
-             COALESCE((SELECT enabled FROM feature_toggles WHERE key='feature.windows_sso_unlock'), false)",
-            &[],
-        )
-        .await?;
+    let rows = exec.read(crate::sql::SYNC_TOGGLES.sql, &[]).await?;
     let row = rows.first().ok_or_else(invalid)?;
     let get = |i| row.try_get::<_, bool>(i).map_err(|_| invalid());
     Ok([get(0)?, get(1)?, get(2)?, get(3)?])
@@ -44,15 +35,12 @@ pub async fn toggles(exec: &ScopedExecutor) -> Result<[bool; 4], StatementFailur
 
 /// Go reads these on the request pool with no user GUC.
 pub async fn primary_mailbox(exec: &ScopedExecutor, user: i64) -> Option<i64> {
-    exec.read(
-        "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
-        &[(&user, Type::INT8)],
-    )
-    .await
-    .ok()?
-    .first()?
-    .try_get(0)
-    .ok()
+    exec.read(crate::sql::PRIMARY_MAILBOX.sql, &[(&user, Type::INT8)])
+        .await
+        .ok()?
+        .first()?
+        .try_get(0)
+        .ok()
 }
 
 /// `registeredOfflineDeviceID`: the user's oldest device whose fingerprint hash matches.
@@ -63,7 +51,7 @@ pub async fn device(exec: &ScopedExecutor, user: i64, fingerprint: &str) -> Opti
     let bytes = fingerprint.as_bytes();
     let id: i64 = exec
         .read(
-            "SELECT id FROM user_devices WHERE user_id = $1 AND fingerprint_hash = sha256($2::bytea) ORDER BY id ASC LIMIT 1",
+            crate::sql::SYNC_DEVICE.sql,
             &[(&user, Type::INT8), (&bytes, Type::BYTEA)],
         )
         .await
@@ -101,7 +89,7 @@ pub async fn capabilities(
     let rows = exec
         .read_scoped(
             &scope(actor),
-            "SELECT effective_capabilities($1, $2)::text",
+            crate::sql::SYNC_CAPABILITIES.sql,
             &[(&mailbox, Type::INT8), (&device, Type::INT8)],
         )
         .await;
@@ -150,9 +138,7 @@ pub async fn put(
         ),
         &auth,
         deadline(),
-        "SELECT rust_offline_device_set_preferences((SELECT id FROM mailboxes WHERE user_id = $2::bigint AND is_primary = TRUE LIMIT 1), \
-         $4::bigint, $5::boolean, $6::int, $7::boolean, $8::text, $9::text)::text \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
+        crate::sql::SYNC_PUT.sql,
         &[
             (&device, Type::INT8),
             (&p.opt_in, Type::BOOL),

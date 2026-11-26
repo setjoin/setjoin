@@ -74,15 +74,46 @@
 //!     AdminPrincipal::default()
 //! }
 //! ```
+//!
+//! ## `SubmitCapability` cannot call `run_mailbox_effect_write` or `run_mailbox_locked_tx`
+//! ```compile_fail
+//! use setjoin_authz::principals::{SubmitCapability, TxFactory};
+//! use setjoin_contracts::command::CommandEnvelope;
+//! use setjoin_pg::ReceiptCommand;
+//! use std::time::Instant;
+//! async fn escalate_effect(factory: &TxFactory, cap: &SubmitCapability, env: &CommandEnvelope<()>) {
+//!     let cmd = ReceiptCommand { family: "t", command: "c" };
+//!     let _ = factory.run_mailbox_effect_write(cap, cmd, env, Instant::now(), async |_tx| Ok(())).await;
+//! }
+//! ```
+//!
+//! ## `CalendarCapability` cannot call `run_mailbox_locked_tx`
+//! ```compile_fail
+//! use setjoin_authz::principals::{CalendarCapability, TxFactory};
+//! use setjoin_contracts::command::CommandEnvelope;
+//! use std::time::Instant;
+//! async fn escalate_cal_lock(factory: &TxFactory, cap: &CalendarCapability, env: &CommandEnvelope<()>) {
+//!     let _ = factory.run_mailbox_locked_tx(cap, env, Instant::now(), async |_tx| Ok::<_, ()>(())).await;
+//! }
+//! ```
+//!
+//! ## `AdminPermissionProof` cannot be forged directly
+//! ```compile_fail
+//! use setjoin_authz::principals::AdminPermissionProof;
+//! fn forge_proof() -> AdminPermissionProof {
+//!     AdminPermissionProof { }
+//! }
+//! ```
 
 use crate::groups::{GroupMembership, GroupResolveError, GroupResolver};
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Generation, MailboxId},
+    ids::{ActorId, Generation, MailboxId, OperationId},
 };
 use setjoin_pg::{
-    AdminReadTx, AdminSensitiveRead, AdminWriteTx, AppPool, AuditEvent, CommandOutcome, MailboxTx,
-    Param, ReadOnly, ReadWrite, ReceiptCommand, Rejection, Row, Standard, StatementFailure, Type,
+    AdminReadTx, AdminSensitiveRead, AdminWorkerPool, AdminWriteTx, AppPool, AuditEvent,
+    CommandOutcome, MailboxTx, OperationLookup, Param, PreAuthReadTx, ReadOnly, ReadWrite,
+    ReceiptCommand, Rejection, Row, SqlContract, Standard, StatementFailure, ToSql, Type,
     Unaudited, UserTx, VerifiedAdmin, VerifiedMailbox, VerifiedUser,
 };
 use std::{
@@ -741,8 +772,93 @@ impl AdminPrincipal {
             && required.iter().any(|p| GLOBAL_ONLY_PERMISSIONS.contains(p))
     }
 
+    /// Mint a sealed RBAC [`AdminPermissionProof`] after verifying this admin
+    /// holds `perm` and satisfies global-only scope restrictions (#546a).
+    pub fn require_permission(&self, perm: &str) -> Result<AdminPermissionProof, PrincipalError> {
+        self.require_any_permission(&[perm])
+    }
+
+    /// Mint a sealed RBAC [`AdminPermissionProof`] after verifying this admin
+    /// holds at least one of `required` and satisfies global-only scope rules.
+    pub fn require_any_permission(
+        &self,
+        required: &[&str],
+    ) -> Result<AdminPermissionProof, PrincipalError> {
+        if required.is_empty() {
+            return Err(PrincipalError::Forbidden("admin permission required"));
+        }
+        if self.refused_for_scope(required) {
+            return Err(PrincipalError::Forbidden(
+                "global admin scope required for permission",
+            ));
+        }
+        if !self.allows_any(required) {
+            return Err(PrincipalError::Forbidden(
+                "missing required admin permission",
+            ));
+        }
+        Ok(AdminPermissionProof {
+            verified: self.verified_admin(),
+            enforced_domain_scope: self.enforced_domain_scope,
+            sod_enforced: self.sod_enforced,
+        })
+    }
+
+    /// Mint a sealed RBAC [`AdminPermissionProof`] requiring an unrestricted
+    /// global assignment holding at least one of `required`.
+    pub fn require_global_permission(
+        &self,
+        required: &[&str],
+    ) -> Result<AdminPermissionProof, PrincipalError> {
+        if required.is_empty() {
+            return Err(PrincipalError::Forbidden(
+                "global admin permission required",
+            ));
+        }
+        if self.enforced_domain_scope.is_some() || !self.global_any(required) {
+            return Err(PrincipalError::Forbidden(
+                "unrestricted global admin permission required",
+            ));
+        }
+        Ok(AdminPermissionProof {
+            verified: self.verified_admin(),
+            enforced_domain_scope: None,
+            sod_enforced: self.sod_enforced,
+        })
+    }
+
     pub(crate) fn verified_admin(&self) -> VerifiedAdmin {
         setjoin_pg::mint::admin(self.actor, self.generation)
+    }
+}
+
+/// Sealed RBAC permission proof minted exclusively from [`AdminPrincipal`]
+/// (`require_permission` / `require_any_permission` / `require_global_permission`).
+///
+/// Required by [`TxFactory`] before vending any cross-tenant `AdminReadTx`,
+/// `AdminSensitiveRead`, or `AdminWriteTx` over [`AdminWorkerPool`] (#546a).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdminPermissionProof {
+    verified: VerifiedAdmin,
+    enforced_domain_scope: Option<i64>,
+    sod_enforced: bool,
+}
+
+impl AdminPermissionProof {
+    pub const fn actor(&self) -> ActorId {
+        self.verified.actor()
+    }
+
+    pub const fn enforced_domain_scope(&self) -> Option<i64> {
+        self.enforced_domain_scope
+    }
+
+    pub const fn sod_enforced(&self) -> bool {
+        self.sod_enforced
+    }
+
+    pub(crate) fn verified(&self) -> &VerifiedAdmin {
+        &self.verified
     }
 }
 
@@ -846,30 +962,68 @@ fn check_sod_violations(
 
 /// Capability-gated database transaction factory.
 ///
-/// Wraps `#540`'s [`AppPool`] privately inside `setjoin-authz` and exposes
-/// typed transaction constructors strictly gated on verified principals and
-/// capability proofs.
+/// Wraps `#540`'s [`AppPool`] (`setjoin_app`, `NOBYPASSRLS`) for all tenant
+/// mailbox/user transactions alongside an encapsulated [`AdminWorkerPool`]
+/// (`setjoin_worker`, `BYPASSRLS`) for RBAC-proved cross-tenant admin
+/// transactions and private pre-auth credential proofs (#546a).
 #[derive(Clone)]
 pub struct TxFactory {
     pool: AppPool,
+    admin_pool: Option<AdminWorkerPool>,
     groups: Arc<GroupResolver>,
 }
 
 impl TxFactory {
-    /// Construct a `TxFactory` with its own bounded-LRU [`GroupResolver`].
+    /// Construct a `TxFactory` with its own bounded-LRU [`GroupResolver`] and
+    /// no cross-tenant [`AdminWorkerPool`] (admin/pre-auth paths fail closed).
     pub fn new(pool: AppPool) -> Self {
         let groups = Arc::new(GroupResolver::new(pool.clone()));
-        Self { pool, groups }
+        Self {
+            pool,
+            admin_pool: None,
+            groups,
+        }
     }
 
     /// Construct a `TxFactory` sharing an externally-managed [`GroupResolver`]
     /// (for example, one subscribed to `group_membership_changed` over `DB_DIRECT_DSN`).
     pub fn with_group_resolver(pool: AppPool, groups: Arc<GroupResolver>) -> Self {
-        Self { pool, groups }
+        Self {
+            pool,
+            admin_pool: None,
+            groups,
+        }
+    }
+
+    /// Canonical composition-root constructor wiring both `AppPool` (`setjoin_app`,
+    /// `NOBYPASSRLS`) and encapsulated `AdminWorkerPool` (`setjoin_worker`,
+    /// `BYPASSRLS`) plus the shared [`GroupResolver`] (#546a).
+    pub fn with_admin_pool(
+        pool: AppPool,
+        admin_pool: AdminWorkerPool,
+        groups: Arc<GroupResolver>,
+    ) -> Self {
+        Self {
+            pool,
+            admin_pool: Some(admin_pool),
+            groups,
+        }
+    }
+
+    pub fn has_admin_worker_pool(&self) -> bool {
+        self.admin_pool.is_some()
     }
 
     pub fn group_resolver(&self) -> &Arc<GroupResolver> {
         &self.groups
+    }
+
+    fn require_admin_pool(&self) -> Result<&AdminWorkerPool, StatementFailure> {
+        self.admin_pool.as_ref().ok_or_else(|| StatementFailure {
+            sqlstate: None,
+            hint: None,
+            message: "admin worker pool not configured".into(),
+        })
     }
 
     // ---- Internal principal minting helpers (called only by PolicyGate) ----
@@ -1301,6 +1455,97 @@ SELECT ra.role_group_id, \
             .await
     }
 
+    /// Run a receipted mailbox effect write strictly from a [`MutateCapability`]
+    /// (`Owner | full_access` ONLY) with `SET LOCAL idle_in_transaction_session_timeout = 8000`,
+    /// bounded peripheral timeout (`<= 5s`), bounded concurrency semaphore, and
+    /// preamble advisory lock preceding row locks (`#481`, `#546a`).
+    pub async fn run_mailbox_effect_write<C, T, F>(
+        &self,
+        cap: &MutateCapability,
+        command: ReceiptCommand,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        body: F,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        F: AsyncFnOnce(&mut MailboxTx<ReadWrite>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_mailbox_effect_write(command, envelope, cap.verified(), deadline, body)
+            .await
+    }
+
+    /// Run a receipted mailbox submission effect write strictly from a
+    /// [`SubmitCapability`] (`Owner | full_access | send_as | send_on_behalf`),
+    /// keeping submission separate from [`MutateCapability`] (#546a).
+    pub async fn run_mailbox_submit_effect_write<C, T, F>(
+        &self,
+        cap: &SubmitCapability,
+        command: ReceiptCommand,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        body: F,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        F: AsyncFnOnce(&mut MailboxTx<ReadWrite>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_mailbox_effect_write(command, envelope, cap.verified(), deadline, body)
+            .await
+    }
+
+    /// Run a multi-statement locked mailbox transaction strictly from a
+    /// [`MutateCapability`] (`Owner | full_access` ONLY), acquiring the
+    /// preamble advisory lock (`setjoin-command:...`) before any row locks (`#481`)
+    /// without inserting into `rust_operation_receipts` (for domains owning their
+    /// own durable receipt such as `mailbox_audit_log`).
+    pub async fn run_mailbox_locked_tx<C, T, E, F>(
+        &self,
+        cap: &MutateCapability,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        body: F,
+    ) -> CommandOutcome<T, E>
+    where
+        F: AsyncFnOnce(&mut MailboxTx<ReadWrite>) -> Result<T, E>,
+    {
+        self.pool
+            .run_mailbox_write(envelope, cap.verified(), deadline, body)
+            .await
+    }
+
+    /// Run a multi-statement locked calendar transaction strictly from a
+    /// [`CalendarCapability`] (`Owner | full_access | manage_calendar`),
+    /// acquiring the preamble advisory lock before any row locks (`#481`).
+    pub async fn run_calendar_locked_tx<C, T, E, F>(
+        &self,
+        cap: &CalendarCapability,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        body: F,
+    ) -> CommandOutcome<T, E>
+    where
+        F: AsyncFnOnce(&mut MailboxTx<ReadWrite>) -> Result<T, E>,
+    {
+        self.pool
+            .run_mailbox_write(envelope, cap.verified(), deadline, body)
+            .await
+    }
+
+    /// Resolve whether a receipted mailbox command committed under current
+    /// authority, waiting on the same advisory operation lock before reading at
+    /// `READ COMMITTED READ ONLY` (#546a).
+    pub async fn lookup_mailbox_command(
+        &self,
+        cap: &ReadCapability,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<OperationLookup, StatementFailure> {
+        self.pool
+            .lookup_mailbox_command(cap.verified(), operation, command)
+            .await
+    }
+
     // ---- Mailbox-less User transactions ----
 
     pub async fn begin_user_read(
@@ -1363,69 +1608,109 @@ SELECT ra.role_group_id, \
             .await
     }
 
-    // ---- Admin transactions ----
+    /// Run a receipted mailbox-less user effect write transaction with
+    /// `SET LOCAL idle_in_transaction_session_timeout = 8000`, `<= 5s`
+    /// peripheral timeout, bounded concurrency semaphore, and preamble
+    /// advisory lock (`#481`, `#546a`).
+    pub async fn run_user_effect_write<C, T, F>(
+        &self,
+        principal: &UserPrincipal,
+        command: ReceiptCommand,
+        envelope: &CommandEnvelope<C>,
+        deadline: Instant,
+        body: F,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        F: AsyncFnOnce(&mut UserTx<ReadWrite>) -> Result<T, StatementFailure>,
+    {
+        self.pool
+            .run_user_effect_write(
+                command,
+                envelope,
+                &principal.verified_user(),
+                deadline,
+                body,
+            )
+            .await
+    }
+
+    /// Resolve whether a receipted mailbox-less user command committed under
+    /// current authority (#546a).
+    pub async fn lookup_user_command(
+        &self,
+        principal: &UserPrincipal,
+        operation: OperationId,
+        command: ReceiptCommand,
+    ) -> Result<OperationLookup, StatementFailure> {
+        self.pool
+            .lookup_user_command(&principal.verified_user(), operation, command)
+            .await
+    }
+
+    // ---- Cross-tenant Admin transactions (strictly on AdminWorkerPool + RBAC proof) ----
 
     pub async fn begin_admin_read(
         &self,
-        principal: &AdminPrincipal,
+        proof: &AdminPermissionProof,
     ) -> Result<AdminReadTx<Standard>, StatementFailure> {
-        self.pool
-            .begin_admin_read(&principal.verified_admin())
+        self.require_admin_pool()?
+            .begin_admin_read(proof.verified())
             .await
     }
 
     pub async fn run_admin_read_pipelined(
         &self,
-        principal: &AdminPrincipal,
+        proof: &AdminPermissionProof,
         sql: &'static str,
         params: &[Param<'_>],
     ) -> Result<Vec<Row>, StatementFailure> {
-        self.pool
-            .run_admin_read_pipelined(&principal.verified_admin(), sql, params)
+        self.require_admin_pool()?
+            .run_admin_read_pipelined(proof.verified(), sql, params)
             .await
     }
 
     pub async fn run_admin_sensitive_read(
         &self,
-        principal: &AdminPrincipal,
+        proof: &AdminPermissionProof,
         audit: &AuditEvent,
         sql: &'static str,
         params: &[Param<'_>],
     ) -> Result<Vec<Row>, StatementFailure> {
-        self.pool
-            .run_admin_sensitive_read(&principal.verified_admin(), audit, sql, params)
+        self.require_admin_pool()?
+            .run_admin_sensitive_read(proof.verified(), audit, sql, params)
             .await
     }
 
     pub async fn run_admin_sensitive_read_with<T, F>(
         &self,
-        principal: &AdminPrincipal,
+        proof: &AdminPermissionProof,
         audit: &AuditEvent,
         body: F,
     ) -> Result<T, StatementFailure>
     where
         F: AsyncFnOnce(&mut AdminSensitiveRead) -> Result<T, StatementFailure>,
     {
-        self.pool
-            .run_admin_sensitive_read_with(&principal.verified_admin(), audit, body)
+        self.require_admin_pool()?
+            .run_admin_sensitive_read_with(proof.verified(), audit, body)
             .await
     }
 
     pub async fn begin_admin_write<C>(
         &self,
-        principal: &AdminPrincipal,
+        proof: &AdminPermissionProof,
         envelope: &CommandEnvelope<C>,
         deadline: Instant,
     ) -> Result<AdminWriteTx<Unaudited>, Rejection<StatementFailure>> {
-        self.pool
-            .begin_admin_write(envelope, &principal.verified_admin(), deadline)
+        let admin = self.admin_pool.as_ref().ok_or(Rejection::Unavailable)?;
+        admin
+            .begin_admin_write(envelope, proof.verified(), deadline)
             .await
     }
 
     #[allow(clippy::too_many_arguments)]
     pub async fn run_admin_write_pipelined<C, T, P>(
         &self,
-        principal: &AdminPrincipal,
+        proof: &AdminPermissionProof,
         envelope: &CommandEnvelope<C>,
         deadline: Instant,
         audit: &AuditEvent,
@@ -1437,10 +1722,13 @@ SELECT ra.role_group_id, \
     where
         P: FnOnce(Vec<Row>) -> Result<T, StatementFailure>,
     {
-        self.pool
+        let Some(admin) = self.admin_pool.as_ref() else {
+            return CommandOutcome::RolledBack(Rejection::Unavailable);
+        };
+        admin
             .run_admin_write_pipelined(
                 envelope,
-                &principal.verified_admin(),
+                proof.verified(),
                 deadline,
                 audit,
                 sql,
@@ -1448,6 +1736,30 @@ SELECT ra.role_group_id, \
                 receipt,
                 project,
             )
+            .await
+    }
+
+    // ---- Private pre-auth credential-proof seam (strictly AdminWorkerPool READ ONLY) ----
+
+    /// Open a read-only pre-authentication credential-proof transaction on the
+    /// private [`AdminWorkerPool`] so `setjoin_app` never needs a `users`
+    /// password-hash lookup helper (#546a).
+    ///
+    /// Restricted to `pub(crate)` so domain crates holding `&TxFactory` cannot
+    /// obtain a cross-tenant `PreAuthReadTx` without going through `PolicyGate`.
+    pub(crate) async fn begin_pre_auth_read(&self) -> Result<PreAuthReadTx, StatementFailure> {
+        self.require_admin_pool()?.begin_pre_auth_read().await
+    }
+
+    /// Execute a static [`SqlScope::AuthPreScope`] pre-authentication contract
+    /// on the private [`AdminWorkerPool`] in `BEGIN READ ONLY` (#546a).
+    pub(crate) async fn run_pre_auth_read_contract(
+        &self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        self.require_admin_pool()?
+            .run_pre_auth_read_contract(contract, values)
             .await
     }
 }

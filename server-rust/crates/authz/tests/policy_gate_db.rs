@@ -1915,3 +1915,439 @@ async fn surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifec
         fixture::remove(&owner, a).await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn phase546a_tx_factory_pool_separation_rbac_proof_effect_helpers_and_listen_hub() {
+    use setjoin_contracts::{
+        authority::{AuthorityKey, ResourceScope},
+        command::CommandEnvelope,
+        ids::{ActorId, Digest, Generation, OperationId},
+    };
+    use setjoin_pg::{
+        AdminWorkerPool, AuditEvent, ColumnSpec, CommandOutcome, ListenHub, OperationLookup,
+        ReceiptCommand, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type,
+    };
+    use std::time::Instant;
+
+    let Some(db) = Db::for_case("phase546a_tx_factory") else {
+        return;
+    };
+    let owner = db.connect().await.unwrap();
+    let has_explicit_app = db.app.is_some();
+    let app_dsn = db.app.as_deref().unwrap_or(&db.dsn);
+    let explicit_worker_dsn = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|v| !v.is_empty());
+    let has_explicit_worker = explicit_worker_dsn.is_some();
+    let worker_dsn = explicit_worker_dsn.unwrap_or_else(|| db.dsn.clone());
+
+    let app_pool = AppPool::from_dsn(app_dsn, 4).unwrap();
+    let admin_pool = AdminWorkerPool::from_dsn(&worker_dsn, 2).unwrap();
+    let app_exec = ScopedExecutor::from_dsn(app_dsn, 4).unwrap();
+    let groups = Arc::new(GroupResolver::new(app_pool.clone()));
+
+    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+    let hub = ListenHub::spawn_with_watch(db.direct.clone(), stop_rx.clone()).unwrap();
+    hub.wait_connected().await.unwrap();
+    let listener_handle = groups
+        .clone()
+        .subscribe_listen_hub(&hub, stop_rx)
+        .await
+        .unwrap();
+
+    let factory = TxFactory::with_admin_pool(app_pool.clone(), admin_pool, groups.clone());
+    assert!(factory.has_admin_worker_pool());
+    let gate = PolicyGate::new(app_exec.clone(), Arc::new(StaticKeys::new()), ISSUER)
+        .with_tx_factory(factory.clone());
+
+    let alice = fixture::account(&owner, "p546a-alice").await.unwrap();
+    let admin = fixture::account(&owner, "p546a-admin").await.unwrap();
+    let domain_admin = fixture::account(&owner, "p546a-dom-admin").await.unwrap();
+
+    // Seed global admin + domain-scoped admin roles.
+    let dom_id: i64 = owner
+        .query_one(
+            "SELECT domain_id FROM users WHERE id = $1",
+            &[&domain_admin.user],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    let global_role: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups (name, permissions, sod_class) \
+             VALUES ($1, ARRAY['users.read','audit.read'], 'audit') RETURNING id",
+            &[&format!("p546a-global-{}", admin.user)],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments (user_id, role_group_id) VALUES ($1, $2)",
+            &[&admin.user, &global_role],
+        )
+        .await
+        .unwrap();
+
+    let scoped_role: i64 = owner
+        .query_one(
+            "INSERT INTO admin_role_groups (name, permissions, domain_scope, sod_class) \
+             VALUES ($1, ARRAY['users.read','audit.read'], $2, 'audit') RETURNING id",
+            &[&format!("p546a-scoped-{}", domain_admin.user), &dom_id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    owner
+        .execute(
+            "INSERT INTO admin_role_assignments (user_id, role_group_id) VALUES ($1, $2)",
+            &[&domain_admin.user, &scoped_role],
+        )
+        .await
+        .unwrap();
+
+    let now = now_unix();
+    let jwt_for = |uid: i64| {
+        sign_hs256(&json!({
+            "iss": ISSUER,
+            "aud": "mailserver-gateway",
+            "typ": "access",
+            "uid": uid,
+            "email": format!("u{uid}@546a.test"),
+            "iat": now - 5,
+            "exp": now + 300,
+        }))
+    };
+
+    // 1. Tenant capabilities: effect writes, locked txs, and command lookups run on setjoin_app.
+    let alice_tok = jwt_for(alice.user);
+    let alice_adm = gate
+        .admit(&base_req(
+            ProtocolSurface::Http,
+            GateCredential::Jwt {
+                token: &alice_tok,
+                from_cookie: false,
+            },
+            None,
+        ))
+        .await
+        .unwrap();
+    let mb_p = alice_adm
+        .mint_mailbox(&factory, MailboxId::new(alice.mailbox).unwrap())
+        .await
+        .unwrap();
+    let user_p = alice_adm.mint_user(&factory).await.unwrap();
+
+    let dl = Instant::now() + Duration::from_secs(5);
+    let mb_auth = AuthorityKey {
+        actor: ActorId::new(alice.user).unwrap(),
+        scope: ResourceScope::Mailbox(MailboxId::new(alice.mailbox).unwrap()),
+        generation: Generation(1),
+    };
+    let user_auth = AuthorityKey {
+        actor: ActorId::new(alice.user).unwrap(),
+        scope: ResourceScope::User(ActorId::new(alice.user).unwrap()),
+        generation: Generation(1),
+    };
+    let mk_env = |op_byte: u8, authority: AuthorityKey| CommandEnvelope {
+        operation: OperationId([op_byte; 16]),
+        authority,
+        binding: setjoin_contracts::command::ContractBinding {
+            major: 1,
+            definition: Digest([
+                0x33, 0x2b, 0x05, 0xbd, 0x4b, 0xa4, 0x04, 0x7f, 0xdd, 0xe6, 0xaf, 0xc7, 0xe7, 0xaf,
+                0x0b, 0x8f, 0xe5, 0xb0, 0xf2, 0xb1, 0xdb, 0xb9, 0x51, 0x21, 0x4e, 0x82, 0xea, 0x1f,
+                0x7d, 0xdf, 0x44, 0x68,
+            ]),
+            fixtures: Digest([
+                0x11, 0x40, 0x1b, 0xc5, 0xed, 0xf4, 0x10, 0x25, 0xb2, 0xf9, 0xa8, 0x5d, 0x99, 0x98,
+                0x94, 0xdb, 0x79, 0xaf, 0xea, 0x4b, 0xee, 0xfa, 0x2f, 0xd1, 0x48, 0x68, 0x81, 0xd6,
+                0x27, 0xf8, 0xe8, 0xbc,
+            ]),
+        },
+        payload_digest: Digest([0x22; 32]),
+        command: (),
+    };
+
+    let cmd_mut = ReceiptCommand {
+        family: "authz546a",
+        command: "mutate_effect",
+    };
+    let env_mut = mk_env(0xA1, mb_auth);
+    let out_mut = factory
+        .run_mailbox_effect_write(
+            &mb_p.require_mutate().unwrap(),
+            cmd_mut,
+            &env_mut,
+            dl,
+            async |tx| {
+                let rows = tx
+                    .query(
+                        "SELECT (NOT r.rolsuper AND NOT r.rolbypassrls), current_user::text \
+                           FROM pg_roles r WHERE r.rolname = current_user",
+                        &[],
+                    )
+                    .await?;
+                Ok((rows[0].get::<_, bool>(0), rows[0].get::<_, String>(1)))
+            },
+        )
+        .await;
+    match out_mut {
+        CommandOutcome::Committed((non_bypass, role)) => {
+            if has_explicit_app {
+                assert!(non_bypass);
+                assert_eq!(role, "setjoin_app");
+            }
+        }
+        other => panic!("expected Committed mailbox effect write, got {other:?}"),
+    }
+    assert_eq!(
+        factory
+            .lookup_mailbox_command(&mb_p.require_read().unwrap(), env_mut.operation, cmd_mut)
+            .await
+            .unwrap(),
+        OperationLookup::Committed
+    );
+
+    let cmd_sub = ReceiptCommand {
+        family: "authz546a",
+        command: "submit_effect",
+    };
+    let env_sub = mk_env(0xA2, mb_auth);
+    let out_sub = factory
+        .run_mailbox_submit_effect_write(
+            &mb_p.require_submit().unwrap(),
+            cmd_sub,
+            &env_sub,
+            dl,
+            async |tx| {
+                let rows = tx
+                    .query(
+                        "SELECT (NOT r.rolsuper AND NOT r.rolbypassrls), current_user::text \
+                           FROM pg_roles r WHERE r.rolname = current_user",
+                        &[],
+                    )
+                    .await?;
+                Ok((rows[0].get::<_, bool>(0), rows[0].get::<_, String>(1)))
+            },
+        )
+        .await;
+    match out_sub {
+        CommandOutcome::Committed((non_bypass, role)) => {
+            if has_explicit_app {
+                assert!(non_bypass);
+                assert_eq!(role, "setjoin_app");
+            }
+        }
+        other => panic!("expected Committed submit effect write, got {other:?}"),
+    }
+
+    let env_cal = mk_env(0xA3, mb_auth);
+    let out_cal = factory
+        .run_calendar_locked_tx(
+            &mb_p.require_manage_calendar().unwrap(),
+            &env_cal,
+            dl,
+            async |tx| {
+                tx.prelock_mailbox_hierarchy().await?;
+                Ok::<_, setjoin_pg::StatementFailure>(tx.mailbox().get())
+            },
+        )
+        .await;
+    assert!(matches!(out_cal, CommandOutcome::Committed(id) if id == alice.mailbox));
+
+    let env_lock = mk_env(0xA4, mb_auth);
+    let out_lock = factory
+        .run_mailbox_locked_tx(&mb_p.require_mutate().unwrap(), &env_lock, dl, async |tx| {
+            Ok::<_, setjoin_pg::StatementFailure>(tx.actor().get())
+        })
+        .await;
+    assert!(matches!(out_lock, CommandOutcome::Committed(id) if id == alice.user));
+
+    let cmd_usr = ReceiptCommand {
+        family: "authz546a",
+        command: "user_effect",
+    };
+    let env_usr = mk_env(0xA5, user_auth);
+    let out_usr = factory
+        .run_user_effect_write(&user_p, cmd_usr, &env_usr, dl, async |tx| {
+            let rows = tx
+                .query(
+                    "SELECT (NOT r.rolsuper AND NOT r.rolbypassrls), current_user::text \
+                       FROM pg_roles r WHERE r.rolname = current_user",
+                    &[],
+                )
+                .await?;
+            Ok((rows[0].get::<_, bool>(0), rows[0].get::<_, String>(1)))
+        })
+        .await;
+    match out_usr {
+        CommandOutcome::Committed((non_bypass, role)) => {
+            if has_explicit_app {
+                assert!(non_bypass);
+                assert_eq!(role, "setjoin_app");
+            }
+        }
+        other => panic!("expected Committed user effect write, got {other:?}"),
+    }
+    assert_eq!(
+        factory
+            .lookup_user_command(&user_p, env_usr.operation, cmd_usr)
+            .await
+            .unwrap(),
+        OperationLookup::Committed
+    );
+
+    // 2. RBAC permission proofs + AdminWorkerPool execution (`setjoin_worker`).
+    let dom_tok = jwt_for(domain_admin.user);
+    let dom_adm = gate
+        .admit(&base_req(
+            ProtocolSurface::Http,
+            GateCredential::Jwt {
+                token: &dom_tok,
+                from_cookie: false,
+            },
+            None,
+        ))
+        .await
+        .unwrap();
+    let dom_p = dom_adm.mint_admin(&factory).await.unwrap();
+    assert_eq!(dom_p.enforced_domain_scope(), Some(dom_id));
+    // Domain-scoped admin MUST be refused global-only `audit.read`!
+    assert!(matches!(
+        dom_p.require_permission("audit.read"),
+        Err(PrincipalError::Forbidden(_))
+    ));
+    assert!(matches!(
+        dom_p.require_permission("roles.manage"),
+        Err(PrincipalError::Forbidden(_))
+    ));
+    assert!(dom_p.require_permission("users.read").is_ok());
+
+    let admin_tok = jwt_for(admin.user);
+    let admin_adm = gate
+        .admit(&base_req(
+            ProtocolSurface::Http,
+            GateCredential::Jwt {
+                token: &admin_tok,
+                from_cookie: false,
+            },
+            None,
+        ))
+        .await
+        .unwrap();
+    let admin_p = admin_adm.mint_admin(&factory).await.unwrap();
+    let audit_proof = admin_p.require_global_permission(&["audit.read"]).unwrap();
+    let ev = AuditEvent::new("authz546a.sensitive", "user").unwrap();
+    let sens = factory
+        .run_admin_sensitive_read(
+            &audit_proof,
+            &ev,
+            "SELECT (r.rolbypassrls OR r.rolsuper), current_user::text \
+               FROM pg_roles r WHERE r.rolname = current_user",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert!(sens[0].get::<_, bool>(0));
+    if has_explicit_worker {
+        assert_eq!(sens[0].get::<_, String>(1), "setjoin_worker");
+    }
+
+    // 3. Private pre-auth credential proof seam on PolicyGate runs on worker/owner.
+    static PRE_AUTH_TEST: SqlContract = SqlContract {
+        id: "authz546a.pre_auth",
+        domain: "authz",
+        sql: "SELECT u.id, (r.rolbypassrls OR r.rolsuper), current_user::text \
+                FROM users u JOIN pg_roles r ON r.rolname = current_user WHERE u.id = $1",
+        params: &[Type::INT8],
+        columns: &[
+            ColumnSpec::named("id", Type::INT8),
+            ColumnSpec::unnamed(Type::BOOL),
+            ColumnSpec::unnamed(Type::TEXT),
+        ],
+        scope: SqlScope::AuthPreScope,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
+    };
+    let pre = gate
+        .run_pre_auth_read_contract(&PRE_AUTH_TEST, &[&alice.user])
+        .await
+        .unwrap();
+    assert_eq!(pre[0].get::<_, i64>(0), alice.user);
+    assert!(pre[0].get::<_, bool>(1));
+    if has_explicit_worker {
+        assert_eq!(pre[0].get::<_, String>(2), "setjoin_worker");
+    }
+
+    // 4. Fail-closed TxFactory / PolicyGate without AdminWorkerPool refuses admin & pre-auth reads.
+    let app_only_factory = TxFactory::new(app_pool);
+    assert!(!app_only_factory.has_admin_worker_pool());
+    assert!(app_only_factory
+        .begin_admin_read(&audit_proof)
+        .await
+        .is_err());
+    let app_only_gate = PolicyGate::new(app_exec, Arc::new(StaticKeys::new()), ISSUER)
+        .with_tx_factory(app_only_factory);
+    assert!(app_only_gate.begin_pre_auth_read().await.is_err());
+
+    // 5. ListenHub group_membership_changed per-user invalidation on GroupResolver.
+    let grp_id: i64 = 954602;
+    let m0 = groups.resolve(alice.user).await.unwrap();
+    assert!(!m0.has_ca_group(CaGroupId::new(grp_id).unwrap()));
+    let cached_before = groups.cached_len();
+    assert!(cached_before >= 1);
+    owner
+        .execute(
+            "INSERT INTO user_group_members (group_id, user_id) VALUES ($1, $2)",
+            &[&grp_id, &alice.user],
+        )
+        .await
+        .unwrap();
+    let wait_until = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < wait_until && groups.cached_len() >= cached_before {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        groups.cached_len(),
+        cached_before - 1,
+        "targeted per-user notification must evict only alice from GroupResolver cache"
+    );
+    let m1 = groups.resolve(alice.user).await.unwrap();
+    assert!(m1.has_ca_group(CaGroupId::new(grp_id).unwrap()));
+
+    let _ = stop_tx.send(true);
+    listener_handle.abort();
+    let _ = listener_handle.await;
+
+    // Clean up test fixtures.
+    for op in [env_mut.operation, env_sub.operation, env_usr.operation] {
+        let _ = owner
+            .execute(
+                "DELETE FROM public.rust_operation_receipts WHERE operation_id = $1::text::uuid",
+                &[&setjoin_pg::operation_hex(op)],
+            )
+            .await;
+    }
+    let _ = owner
+        .execute(
+            "DELETE FROM user_group_members WHERE group_id = $1 AND user_id = $2",
+            &[&grp_id, &alice.user],
+        )
+        .await;
+    for r in [global_role, scoped_role] {
+        let _ = owner
+            .execute(
+                "DELETE FROM admin_role_assignments WHERE role_group_id = $1",
+                &[&r],
+            )
+            .await;
+        let _ = owner
+            .execute("DELETE FROM admin_role_groups WHERE id = $1", &[&r])
+            .await;
+    }
+    for a in [&alice, &admin, &domain_admin] {
+        fixture::remove(&owner, a).await.unwrap();
+    }
+}

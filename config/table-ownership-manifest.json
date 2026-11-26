@@ -1,0 +1,4145 @@
+{
+  "schema_version": 1,
+  "legacy_rls_pending_ceiling": 57,
+  "legacy_rls_pending_tables": [
+    "addressbooks",
+    "aliases",
+    "app_passwords",
+    "approval_delegations",
+    "blob_user_charges",
+    "blob_user_usage",
+    "calendar_acls",
+    "calendar_events",
+    "calendars",
+    "contact_group_members",
+    "contact_groups",
+    "contacts",
+    "email_templates",
+    "event_attendees",
+    "folders",
+    "mailbox_audit_log",
+    "mailboxes",
+    "message_attachments",
+    "message_recalls",
+    "mfa_reauth_step_ups",
+    "migration_jobs",
+    "oauth_tokens",
+    "oidc_auth_requests",
+    "oidc_tokens",
+    "passkey_credentials",
+    "password_history",
+    "push_devices",
+    "push_mfa_challenges",
+    "quarantined_messages",
+    "quick_steps",
+    "read_receipts",
+    "recipient_smime_certs",
+    "reminders",
+    "rules",
+    "scheduled_actions",
+    "sessions",
+    "signatures",
+    "tags",
+    "task_activity",
+    "tasks",
+    "totp_pending_enrollments",
+    "totp_removal_step_ups",
+    "user_app_entitlements",
+    "user_imap_settings",
+    "user_notification_prefs",
+    "user_sender_list",
+    "user_signatures",
+    "user_smime_certs",
+    "user_spam_model",
+    "users",
+    "vacation_replies",
+    "vacation_settings",
+    "vote_responses",
+    "vt_timezone",
+    "webauthn_ceremonies",
+    "webhook_subscriptions",
+    "ws_subscriptions"
+  ],
+  "legacy_write_migration_ceiling": 20,
+  "r1_r3_allowlist": [
+    {
+      "file": "server-rust/crates/domains/admin-identity/src/idv2_ops.rs",
+      "table": "users",
+      "reason": "Admin identity-v2 operational summary aggregating users by sync_source across org."
+    },
+    {
+      "file": "server-rust/crates/domains/admin-identity/src/org_policies.rs",
+      "table": "users",
+      "reason": "Admin department listing counting member users per department across org."
+    },
+    {
+      "file": "server-rust/crates/domains/approvals/src/sql.rs",
+      "table": "drive_access_request_details",
+      "reason": "Approval detail projection fragment joined inside approval_requests scoped query."
+    },
+    {
+      "file": "server-rust/crates/domains/approvals/src/sql.rs",
+      "table": "approval_requests",
+      "reason": "Internal approver notification lookup by already-authorized approval request id."
+    },
+    {
+      "file": "server-rust/crates/domains/calendar/src/sql.rs",
+      "table": "vt_timezone",
+      "reason": "CalDAV VTIMEZONE fragment composed with caller-scoped calendar_id predicate."
+    },
+    {
+      "file": "server-rust/crates/domains/compliance/src/chat.rs",
+      "table": "chat_channels",
+      "reason": "Compliance admin chat oversight query listing held, GxP, and retention-configured channels across org."
+    },
+    {
+      "file": "server-rust/crates/domains/compliance/src/chat_export.rs",
+      "table": "chat_channels",
+      "reason": "Compliance admin eDiscovery chat export lookup of target channel metadata by channel id."
+    },
+    {
+      "file": "server-rust/crates/domains/compliance/src/chat_export.rs",
+      "table": "drive_file_versions",
+      "reason": "Compliance admin eDiscovery chat attachment export across held channels."
+    },
+    {
+      "file": "server-rust/crates/domains/compliance/src/chat_export.rs",
+      "table": "scheduled_actions",
+      "reason": "Compliance admin chat export job status lookup across org."
+    },
+    {
+      "file": "server-rust/crates/domains/compliance/src/export.rs",
+      "table": "messages",
+      "reason": "Compliance admin eDiscovery message export by selected search-result message IDs."
+    },
+    {
+      "file": "server-rust/crates/domains/conditional-access/src/console.rs",
+      "table": "users",
+      "reason": "Admin Conditional Access what-if console lookup of target user by email."
+    },
+    {
+      "file": "server-rust/crates/domains/devices/src/lockdown.rs",
+      "table": "devices",
+      "reason": "Admin device lockdown target user_id resolution passed into admin_can_reach_perm."
+    },
+    {
+      "file": "server-rust/crates/domains/devices/src/mdm.rs",
+      "table": "mdm_device_state",
+      "reason": "Admin MDM fleet listing base SELECT composed dynamically with domain/scope WHERE suffix."
+    },
+    {
+      "file": "server-rust/crates/domains/devices/src/offline.rs",
+      "table": "user_devices",
+      "reason": "Admin offline command target user_id resolution passed into admin_can_reach_perm."
+    },
+    {
+      "file": "server-rust/crates/domains/directory-sync/src/ldap/engine.rs",
+      "table": "users",
+      "reason": "Directory LDAP sync lookup matching org users by email."
+    },
+    {
+      "file": "server-rust/crates/domains/drive/src/core.rs",
+      "table": "drive_spaces",
+      "reason": "Drive space admin/classification lookup gated by space ACL / admin permission check."
+    },
+    {
+      "file": "server-rust/crates/domains/drive/src/part_b.rs",
+      "table": "drive_audit_alarms",
+      "reason": "Admin Drive audit alarm listing gated by SQL drive_has_admin_perm($1, 'drive.manage')."
+    },
+    {
+      "file": "server-rust/crates/domains/guests/src/sponsors.sql",
+      "table": "users",
+      "reason": "Guest admin sponsor transfer search filtered by SQL guest_admin_can_transfer_to($1, $2, u.id)."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/issuance.rs",
+      "table": "oauth_tokens",
+      "reason": "Bearer/refresh token introspection lookup by cryptographic token_hash."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/issuance.rs",
+      "table": "users",
+      "reason": "SCIM/federated identity lookup by scim_external_id."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/login.rs",
+      "table": "users",
+      "reason": "Pre-auth password login lookup on users by email."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/oidc/consumers.rs",
+      "table": "oidc_tokens",
+      "reason": "OIDC token lookup by token/refresh hash and literal WHERE false no-op update."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/oidc/grants.rs",
+      "table": "oidc_auth_requests",
+      "reason": "OIDC authorization code redemption lookup by single-use code_hash."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/oidc/grants.rs",
+      "table": "oidc_tokens",
+      "reason": "OIDC refresh grant lookup by cryptographic refresh token hash."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/oidc/requests.rs",
+      "table": "oidc_auth_requests",
+      "reason": "OIDC authorization request lookup by opaque flow id."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/password.rs",
+      "table": "users",
+      "reason": "Pre-auth password login/reset credential lookup on users by email."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/rp/account.rs",
+      "table": "users",
+      "reason": "Pre-auth SAML/OIDC relying-party login lookup by external subject/issuer."
+    },
+    {
+      "file": "server-rust/crates/domains/identity/src/webauthn.rs",
+      "table": "users",
+      "reason": "Pre-auth WebAuthn login lookup on users by email."
+    },
+    {
+      "file": "server-rust/crates/domains/jmap/src/email_list.rs",
+      "table": "messages",
+      "reason": "list_sql! macro injects m.mailbox_id = $1 predicate via list_sql!(@where)."
+    },
+    {
+      "file": "server-rust/crates/domains/mail-security/src/quarantine.rs",
+      "table": "messages",
+      "reason": "Admin quarantine message preview lookup gated by admin_can_reach_perm."
+    },
+    {
+      "file": "server-rust/crates/domains/mail-security/src/quarantine.rs",
+      "table": "quarantined_messages",
+      "reason": "Admin quarantine dashboard counts and preview gated by admin permission."
+    },
+    {
+      "file": "server-rust/crates/domains/mail-security/src/spam.rs",
+      "table": "user_spam_model",
+      "reason": "Admin fleet-wide spam model health statistics."
+    },
+    {
+      "file": "server-rust/crates/domains/mail-security/src/trace.rs",
+      "table": "delivery_attempts",
+      "reason": "Message delivery trace query composed with dynamic {scope} mailbox/admin predicate."
+    },
+    {
+      "file": "server-rust/crates/domains/mailboxes/src/migration.rs",
+      "table": "migration_jobs",
+      "reason": "Admin migration job list/get/delete with admin permission and dynamic scope."
+    },
+    {
+      "file": "server-rust/crates/domains/meet/src/lib.rs",
+      "table": "meetings",
+      "reason": "Meeting room/lobby/recording lookup by meeting id after participant/host authorization."
+    },
+    {
+      "file": "server-rust/crates/domains/platform/src/monitor.rs",
+      "table": "messages",
+      "reason": "Admin platform health monitor 24h message volume/size aggregates."
+    },
+    {
+      "file": "server-rust/crates/domains/platform/src/monitor.rs",
+      "table": "quarantined_messages",
+      "reason": "Admin platform health monitor quarantine backlog/virus counts."
+    },
+    {
+      "file": "server-rust/crates/domains/platform/src/storage.rs",
+      "table": "message_attachments",
+      "reason": "Admin storage DR scan checking blob ref_count against message_attachments."
+    },
+    {
+      "file": "server-rust/crates/domains/platform/src/webhook_secret.rs",
+      "table": "webhook_subscriptions",
+      "reason": "Admin/system webhook secret key rotation lookup and update by subscription id."
+    },
+    {
+      "file": "server-rust/crates/domains/platform/src/webhooks.rs",
+      "table": "webhook_subscriptions",
+      "reason": "Admin webhook subscriptions listing across org."
+    },
+    {
+      "file": "server-rust/crates/domains/rules/src/sql.rs",
+      "table": "rules",
+      "reason": "Admin transport rules listing/inspection/dry-run gated by admin permission."
+    },
+    {
+      "file": "server-rust/crates/domains/static/src/metrics.rs",
+      "table": "approval_requests",
+      "reason": "Prometheus metrics aggregate count of pending approval_requests."
+    },
+    {
+      "file": "server-rust/crates/domains/static/src/website.rs",
+      "table": "users",
+      "reason": "First-run bootstrap setup check counting total users."
+    }
+  ],
+  "tables": {
+    "_test_notify_log": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "access_review_campaigns": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "access_review_items": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "addressbooks": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Addressbook metadata lookup."
+        }
+      ]
+    },
+    "admin_audit_log": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "chat",
+          "mode": "read_only",
+          "reason": "Admin audit trail read for domain activity view."
+        },
+        {
+          "consumer": "conditional-access",
+          "mode": "read_only",
+          "reason": "Admin audit trail read for domain activity view."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Admin audit trail read for domain activity view."
+        },
+        {
+          "consumer": "identity",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Legacy direct admin audit inserts during push/recovery/TOTP flows; migrate to compliance audit reducer."
+        }
+      ]
+    },
+    "admin_permissions": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "admin_role_activation_policy": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "admin_role_assignments": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "approvals",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "blobs",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "chat",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "conditional-access",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "devices",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        },
+        {
+          "consumer": "rules",
+          "mode": "read_only",
+          "reason": "RBAC admin permission/scope-set check in domain handler."
+        }
+      ]
+    },
+    "admin_role_groups": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "approvals",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "chat",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "conditional-access",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "devices",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        },
+        {
+          "consumer": "rules",
+          "mode": "read_only",
+          "reason": "RBAC admin role group permission lookup in domain handler."
+        }
+      ]
+    },
+    "admin_scope_set_members": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "admin_scope_sets": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "aliases": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Admin user-lifecycle alias creation/updates directly on aliases; migrate to mailboxes reducer."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Mailbox alias/address resolution."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Mailbox alias/address resolution."
+        }
+      ]
+    },
+    "app_passwords": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "User app-password inventory read in admin-identity."
+        }
+      ]
+    },
+    "approval_delegations": {
+      "owner": "approvals",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "delegator_user_id",
+      "read_contracts": []
+    },
+    "approval_policies": {
+      "owner": "approvals",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "approval_requests": {
+      "owner": "approvals",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "requester_user_id",
+      "read_contracts": [
+        {
+          "consumer": "blobs",
+          "mode": "read_only",
+          "reason": "Approval request status/evidence lookup."
+        },
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Approval request status/evidence lookup."
+        }
+      ]
+    },
+    "audit_chain_cutover": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "audit_log": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "identity",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Direct impersonation audit insert on audit_log; migrate to compliance audit reducer."
+        }
+      ]
+    },
+    "audit_policy": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "Admin audit policy/reason-required gate check."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Admin audit policy/reason-required gate check."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "Admin audit policy/reason-required gate check."
+        },
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Admin audit policy/reason-required gate check."
+        }
+      ]
+    },
+    "auth_attempts": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "auth_event_log": {
+      "owner": "identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Auth event log lookup in mail-security threat analytics."
+        }
+      ]
+    },
+    "auth_lockouts": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "auth_methods": {
+      "owner": "platform",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "auth_strengths": {
+      "owner": "conditional-access",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "backup_runs": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "blob_cleanup_queue": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "blob_gc_config": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_shadow_discrepancies": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_shadow_runs": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_state": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_user_charges": {
+      "owner": "blobs",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Per-user blob quota charge lookup in JMAP."
+        }
+      ]
+    },
+    "blob_user_usage": {
+      "owner": "blobs",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "blobs": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "chat",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Direct blob insert for chat avatar/preview storage in chat/members.rs; migrate to blobs adapter."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Content-addressed blob metadata/storage-ref lookup."
+        },
+        {
+          "consumer": "platform",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Storage DR repair/reimport updates blobs metadata directly; migrate to blobs adapter."
+        }
+      ]
+    },
+    "booking_pages": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "booking_requests": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "bulk_role_jobs": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Platform background job runner updates bulk_role_jobs progress/status; migrate to admin-identity reducer."
+        }
+      ]
+    },
+    "ca_signin_log": {
+      "owner": "conditional-access",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "ca_templates": {
+      "owner": "conditional-access",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "calendar_acls": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "calendar_id -> calendars.mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Calendar share ACL lookup."
+        }
+      ]
+    },
+    "calendar_events": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "calendar_id -> calendars.mailbox_id",
+      "read_contracts": []
+    },
+    "calendar_subscriptions": {
+      "owner": "calendar",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "calendars": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Calendar ownership/ACL lookup."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Calendar ownership/ACL lookup."
+        }
+      ]
+    },
+    "chat_audit_log": {
+      "owner": "chat",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Chat audit log lookup for compliance oversight."
+        }
+      ]
+    },
+    "chat_case_hold_channels": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "chat",
+          "mode": "read_only",
+          "reason": "Held channel check in chat domain."
+        }
+      ]
+    },
+    "chat_case_holds": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "chat",
+          "mode": "read_only",
+          "reason": "Active legal hold check in chat domain."
+        }
+      ]
+    },
+    "chat_channel_members": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": [
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Chat channel membership check for Drive attachment authorization."
+        },
+        {
+          "consumer": "guests",
+          "mode": "read_only",
+          "reason": "Guest detail and listing SQL queries project joined chat channel memberships."
+        }
+      ]
+    },
+    "chat_channels": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "id -> chat_channel_members.user_id",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Chat channel lookup for compliance oversight."
+        },
+        {
+          "consumer": "guests",
+          "mode": "read_only",
+          "reason": "Guest detail SQL query projects joined chat channel names."
+        }
+      ]
+    },
+    "chat_ediscovery_searches": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "chat_link_previews": {
+      "owner": "chat",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "chat_mentions": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mentioned_user_id",
+      "read_contracts": []
+    },
+    "chat_message_attachments": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Chat attachment lookup for compliance export or Drive download authorization."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Chat attachment lookup for compliance export or Drive download authorization."
+        }
+      ]
+    },
+    "chat_message_pins": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": []
+    },
+    "chat_message_reactions": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "message_id -> chat_messages.channel_id -> chat_channel_members.user_id",
+      "read_contracts": []
+    },
+    "chat_message_revisions": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Chat revision history lookup for compliance export."
+        }
+      ]
+    },
+    "chat_messages": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Chat message lookup for compliance export or Drive attachment access check."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Chat message lookup for compliance export or Drive attachment access check."
+        }
+      ]
+    },
+    "chat_poll_options": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "poll_id -> chat_polls.channel_id -> chat_channel_members.user_id",
+      "read_contracts": []
+    },
+    "chat_poll_votes": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "chat_polls": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "channel_id -> chat_channel_members.user_id",
+      "read_contracts": []
+    },
+    "chat_push_intents": {
+      "owner": "chat",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "chat_retention_policies": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "chat_saved_messages": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "chat_send_counters": {
+      "owner": "chat",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "cjk_pinyin": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "cjk_surname": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "common_passwords": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "Breached/common password denylist check during admin user provisioning."
+        }
+      ]
+    },
+    "conditional_access_policies": {
+      "owner": "conditional-access",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "contact_group_members": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "group_id -> contact_groups.mailbox_id",
+      "read_contracts": []
+    },
+    "contact_groups": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "contacts": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "addressbook_id -> addressbooks.mailbox_id",
+      "read_contracts": []
+    },
+    "continuity_client_witnesses": {
+      "owner": "foundation",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "crash_events": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "cron_run_log": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "delivery_attempts": {
+      "owner": "mail-security",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "departments": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "directory-sync",
+          "mode": "legacy_write_migration_pending",
+          "reason": "LDAP sync engine upserts org departments directly; migrate to admin-identity reducer."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Org-chart department lookup."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Org-chart department lookup."
+        }
+      ]
+    },
+    "deploy_remote_fence": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "deployment_steps": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "device_auth_nonces": {
+      "owner": "devices",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "device_enroll_events": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "device_id -> devices.user_id",
+      "read_contracts": []
+    },
+    "device_events": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "device_id -> devices.user_id",
+      "read_contracts": []
+    },
+    "device_policy": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "device_id -> devices.user_id",
+      "read_contracts": []
+    },
+    "device_policy_groups": {
+      "owner": "devices",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "device_registry": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "Registered device metadata lookup."
+        }
+      ]
+    },
+    "device_telemetry": {
+      "owner": "devices",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Public telemetry ingest endpoint inserts device_telemetry; migrate to devices reducer."
+        }
+      ]
+    },
+    "devices": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "User device metadata lookup."
+        },
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "User device metadata lookup."
+        }
+      ]
+    },
+    "directory_connectors": {
+      "owner": "directory-sync",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "directory_group_generation": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "directory_group_invalidations": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "directory_group_members": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "directory_groups": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Directory group ACL/membership lookup."
+        }
+      ]
+    },
+    "distribution_group_members": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "Distribution group membership lookup."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Distribution group membership lookup."
+        }
+      ]
+    },
+    "distribution_groups": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "Distribution group lookup."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Distribution group lookup."
+        }
+      ]
+    },
+    "dlp_policies": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "dlp_policy_targets": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "dlp_violations": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "dmarc_forensic_reports": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "dmarc_reports": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "DMARC aggregate report lookup in platform monitoring."
+        }
+      ]
+    },
+    "domain_signing_keys": {
+      "owner": "platform",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "domains": {
+      "owner": "platform",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "Domain metadata and scope validation lookup."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Domain metadata and scope validation lookup."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Domain metadata and scope validation lookup."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Domain metadata and scope validation lookup."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "Domain metadata and scope validation lookup."
+        },
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Well-known discovery endpoint validates requested host against local domains."
+        }
+      ]
+    },
+    "drive_access_invalidations": {
+      "owner": "drive",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "drive_access_request_details": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "requester_user_id",
+      "read_contracts": [
+        {
+          "consumer": "approvals",
+          "mode": "read_only",
+          "reason": "Drive access approval detail projection in approvals list."
+        }
+      ]
+    },
+    "drive_access_request_policies": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_access_use_leases": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "drive_acl_breaks": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_acl_cutover_evidence": {
+      "owner": "drive",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "drive_acl_generations": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": [
+        {
+          "consumer": "office",
+          "mode": "read_only",
+          "reason": "Drive ACL generation fence lookup."
+        }
+      ]
+    },
+    "drive_acl_grants": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_acl_shadow_mismatches": {
+      "owner": "drive",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "drive_acl_shadow_state": {
+      "owner": "drive",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "drive_audit_alarms": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_audit_log": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_changes": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_chunk_gc_queue": {
+      "owner": "drive",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "drive_chunks": {
+      "owner": "drive",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Drive chunk storage-ref lookup for compliance export."
+        }
+      ]
+    },
+    "drive_export_grants": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_file_branches": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_file_locks": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_file_versions": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Drive file version lookup for compliance export."
+        }
+      ]
+    },
+    "drive_files": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_folder_admins": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_meet_history_events": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_node_closure": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_nodes": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": [
+        {
+          "consumer": "office",
+          "mode": "read_only",
+          "reason": "Drive node metadata/capability lookup."
+        }
+      ]
+    },
+    "drive_space_members": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "drive_spaces": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "owner_user_id",
+      "read_contracts": [
+        {
+          "consumer": "office",
+          "mode": "read_only",
+          "reason": "Drive space metadata/classification lookup."
+        }
+      ]
+    },
+    "drive_upload_authorizations": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "drive_upload_claims": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "drive_version_chunks": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "version_id -> drive_file_versions.space_id",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Drive version chunk mapping lookup for compliance export."
+        }
+      ]
+    },
+    "drive_version_labels": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "version_id -> drive_file_versions.space_id",
+      "read_contracts": []
+    },
+    "drive_watches": {
+      "owner": "drive",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "eap_apply_jobs": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "ediscovery_cases": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "ediscovery_search_results": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "ediscovery_searches": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "email_address_policies": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "email_templates": {
+      "owner": "rules",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "event_attendees": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "event_id -> calendar_events.calendar_id -> calendars.mailbox_id",
+      "read_contracts": []
+    },
+    "exchange_assessment_artifacts": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_attestations": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_claim_snapshots": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_decisions": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_deletion_requests": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_evidence": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_idempotency": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_leases": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_probe_results": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_projects": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_publications": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_receipts": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_runs": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_tombstones": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_upload_chunks": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_assessment_uploads": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "exchange_registry_snapshots": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "external_sender_config": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "feature_toggle_registry_state": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "feature_toggles": {
+      "owner": "platform",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "approvals",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "calendar",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "chat",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "conditional-access",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "devices",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "guests",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "meet",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        },
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "Runtime feature toggle admission check."
+        }
+      ]
+    },
+    "federation_allowlist": {
+      "owner": "foundation",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Federation peer allowlist lookup in platform admin."
+        }
+      ]
+    },
+    "federation_inbox": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "federation_inbox_cursor": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "federation_ingress_counters": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "federation_outbox": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "federation_peers": {
+      "owner": "foundation",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "federation_room_members": {
+      "owner": "foundation",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Federated room membership lookup for compliance export."
+        }
+      ]
+    },
+    "federation_rooms": {
+      "owner": "foundation",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Federated room lookup for compliance export."
+        }
+      ]
+    },
+    "field_policy": {
+      "owner": "directory-sync",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "focus_sender_overrides": {
+      "owner": "jmap",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "folders": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "gal_visibility_journal": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "geo_country_tiers": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "greylist": {
+      "owner": "mail-security",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "greylist_whitelist": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "guest_accounts": {
+      "owner": "guests",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "Guest account status lookup in admin-identity."
+        }
+      ]
+    },
+    "guest_invite_domains": {
+      "owner": "guests",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "guest_invites": {
+      "owner": "guests",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Guest invitation token/record lookup during identity onboarding."
+        }
+      ]
+    },
+    "guest_live_eviction_intents": {
+      "owner": "guests",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "guest_notification_intents": {
+      "owner": "guests",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "guest_profiles": {
+      "owner": "guests",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "health_alerts": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "health_history": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Health history metrics read in static status endpoint."
+        }
+      ]
+    },
+    "held_inbound_messages": {
+      "owner": "approvals",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "approval_request_id -> approval_requests.requester_user_id",
+      "read_contracts": []
+    },
+    "hr_expense_receipts": {
+      "owner": "approvals",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "approval_request_id -> approval_requests.requester_user_id",
+      "read_contracts": [
+        {
+          "consumer": "blobs",
+          "mode": "read_only",
+          "reason": "Approval receipt blob authorization lookup in blobs domain."
+        }
+      ]
+    },
+    "identity_address_quarantine": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_attribute_authority": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_auth_link_elevations": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "identity_auth_shadow_hours": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_auth_shadow_link_evidence": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_entitlement_grants": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_job_results": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_jobs": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_legacy_federation_pair_inventory": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "identity_link_events": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity link event metrics read in static observability."
+        }
+      ]
+    },
+    "identity_match_candidates": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity match candidate metrics read in static observability."
+        }
+      ]
+    },
+    "identity_match_decisions": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_media_admissions": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "identity_read_cohort": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity read cohort metrics read in static observability."
+        }
+      ]
+    },
+    "identity_session_eviction_intents": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_shadow_divergences": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity shadow divergence metrics read in static observability."
+        }
+      ]
+    },
+    "identity_source_batches": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_source_inbox": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity source inbox metrics read in static observability."
+        }
+      ]
+    },
+    "identity_source_leases": {
+      "owner": "directory-sync",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "identity_source_operations": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_source_quarantines": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_sources": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "Identity source/provider registry lookup."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Identity source/provider registry lookup."
+        },
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity source/provider registry lookup."
+        }
+      ]
+    },
+    "identity_sync_log": {
+      "owner": "directory-sync",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity sync log metrics read in static observability."
+        }
+      ]
+    },
+    "identity_transition_challenges": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_transition_effect_targets": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_transition_effects": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity transition effect metrics read in static observability."
+        }
+      ]
+    },
+    "identity_transition_elevations": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_transition_idempotency": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_transition_steps": {
+      "owner": "admin-identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "identity_transitions": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "Identity transition metrics read in static observability."
+        }
+      ]
+    },
+    "imap_membership_uid_backfill": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "tag_id -> tags.mailbox_id",
+      "read_contracts": []
+    },
+    "imap_membership_uid_ledger": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "tag_id -> tags.mailbox_id",
+      "read_contracts": []
+    },
+    "ip_rules": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "jmap_changes_journal": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "jmap_entity_state": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "journal_queue": {
+      "owner": "compliance",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "journaling_policies": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "link_protect_audit": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "login_events": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "Recent sign-in history lookup in user-settings."
+        }
+      ]
+    },
+    "m365_consent_states": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "mail_draft_collaboration": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_draft_revisions": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "draft_session_id -> mail_draft_collaboration.mailbox_id",
+      "read_contracts": []
+    },
+    "mail_recovery_incident_accounts": {
+      "owner": "blobs",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_recovery_incidents": {
+      "owner": "blobs",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "mail_recovery_ledger": {
+      "owner": "blobs",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_recovery_quarantine_artifacts": {
+      "owner": "blobs",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_recovery_upload_chunks": {
+      "owner": "blobs",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "session_id -> mail_recovery_upload_sessions.mailbox_id",
+      "read_contracts": []
+    },
+    "mail_recovery_upload_items": {
+      "owner": "blobs",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "session_id -> mail_recovery_upload_sessions.mailbox_id",
+      "read_contracts": []
+    },
+    "mail_recovery_upload_sessions": {
+      "owner": "blobs",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_thread_comment_mentions": {
+      "owner": "jmap",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "mail_thread_comments": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_thread_work": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_thread_work_events": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_action_links": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_changes": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_consumer_effects": {
+      "owner": "jmap",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "mail_work_digest_ledger": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_metric_actors": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_metric_conversations": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_metric_daily": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_notification_deliveries": {
+      "owner": "jmap",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "mail_work_notification_preferences": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_notification_rate_windows": {
+      "owner": "jmap",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "mail_work_operations": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mail_work_outbox": {
+      "owner": "jmap",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "mail_work_sla_policies": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mailbox_address_claims": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mailbox_audit_log": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mailbox_binding_history": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mailbox_delegates": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Delegated mailbox access verification."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Delegated mailbox access verification."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Delegated mailbox access verification."
+        }
+      ]
+    },
+    "mailbox_lifecycle": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mailbox_lifecycle_conflicts": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "mailbox_lifecycle_effect_targets": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "mailbox_lifecycle_effects": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "mailbox_lifecycle_operations": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mailbox_lifecycle_outbox": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "mailbox_lifecycle_policies": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "mailbox_purge_requests": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "mailbox_retention_domains": {
+      "owner": "mailboxes",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "mailbox_tombstones": {
+      "owner": "mailboxes",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "mailboxes": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "id",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Admin user-lifecycle updates mailbox quota/status directly; migrate to mailboxes reducer."
+        },
+        {
+          "consumer": "approvals",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "blobs",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "calendar",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "devices",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "identity",
+          "mode": "legacy_write_migration_pending",
+          "reason": "JIT SAML/OIDC RP account provisioning inserts/updates primary mailbox directly in identity/rp/account.rs; migrate to mailboxes reducer."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "office",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "rules",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        },
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "Mailbox ownership/account-scope resolution."
+        }
+      ]
+    },
+    "managed_devices": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "mdm_device_state": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "mdm_policies": {
+      "owner": "devices",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "meeting_breakouts": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_join_requests": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_lobby_mint_fences": {
+      "owner": "meet",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "meeting_local_capture_leases": {
+      "owner": "recording",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_participants": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_presentation_annotations": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_presentation_events": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_presentations": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_recordings": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_semantic_children": {
+      "owner": "recording",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "recording_id -> meeting_semantic_recordings.meeting_id",
+      "read_contracts": []
+    },
+    "meeting_semantic_exports": {
+      "owner": "recording",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "recording_id -> meeting_semantic_recordings.meeting_id",
+      "read_contracts": []
+    },
+    "meeting_semantic_recordings": {
+      "owner": "recording",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "meeting_id -> meetings.owner_user_id",
+      "read_contracts": []
+    },
+    "meeting_semantic_segments": {
+      "owner": "recording",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "recording_id -> meeting_semantic_recordings.meeting_id",
+      "read_contracts": []
+    },
+    "meetings": {
+      "owner": "meet",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "owner_user_id",
+      "read_contracts": []
+    },
+    "message_attachments": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "message_id -> messages.mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "blobs",
+          "mode": "read_only",
+          "reason": "Attachment blob reference lookup."
+        },
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Attachment blob reference lookup."
+        }
+      ]
+    },
+    "message_recalls": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "message_id -> messages.mailbox_id",
+      "read_contracts": []
+    },
+    "message_retention_tags": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "message_tags": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "message_id -> messages.mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Message tag membership lookup."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "Message tag membership lookup."
+        },
+        {
+          "consumer": "rules",
+          "mode": "read_only",
+          "reason": "Message tag membership lookup."
+        }
+      ]
+    },
+    "message_trace": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Message trace count/summary in platform monitoring."
+        }
+      ]
+    },
+    "messages": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "blobs",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        },
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        },
+        {
+          "consumer": "devices",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        },
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        },
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        },
+        {
+          "consumer": "rules",
+          "mode": "read_only",
+          "reason": "Cross-domain mail content/metadata read (blob/compliance/security/rules/monitoring)."
+        }
+      ]
+    },
+    "mfa_reauth_step_ups": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "migration_checkpoints": {
+      "owner": "mailboxes",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "job_id -> migration_jobs.user_id",
+      "read_contracts": []
+    },
+    "migration_jobs": {
+      "owner": "mailboxes",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "identity",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Self-service migration route updates migration_jobs; migrate to mailboxes reducer."
+        }
+      ]
+    },
+    "migration_object_operations": {
+      "owner": "mailboxes",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "job_id -> migration_jobs.user_id",
+      "read_contracts": []
+    },
+    "migration_source_instances": {
+      "owner": "mailboxes",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "job_id -> migration_jobs.user_id",
+      "read_contracts": []
+    },
+    "migration_source_objects": {
+      "owner": "mailboxes",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "source_instance_id -> migration_source_instances.job_id -> migration_jobs.user_id",
+      "read_contracts": []
+    },
+    "migration_thread_reconcile_jobs": {
+      "owner": "mailboxes",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "target_mailbox_id",
+      "read_contracts": []
+    },
+    "mta_sts_policies": {
+      "owner": "mail-security",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "named_locations": {
+      "owner": "conditional-access",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "notify_intents": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "oauth_tokens": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "Active OAuth token inspection."
+        },
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "Active OAuth token inspection."
+        }
+      ]
+    },
+    "office_app_operations": {
+      "owner": "office",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "office_app_revisions": {
+      "owner": "office",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "office_editor_launches": {
+      "owner": "office",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "actor_user_id",
+      "read_contracts": []
+    },
+    "office_editor_sessions": {
+      "owner": "office",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "office_provider_health_observations": {
+      "owner": "office",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "office_provider_policies": {
+      "owner": "office",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "office_provider_qualifications": {
+      "owner": "office",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "office_save_receipts": {
+      "owner": "office",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "space_id -> drive_spaces.owner_user_id",
+      "read_contracts": []
+    },
+    "office_user_preferences": {
+      "owner": "office",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "office_wopi_locks": {
+      "owner": "office",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "offline_policies": {
+      "owner": "devices",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "oidc_auth_requests": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "oidc_clients": {
+      "owner": "identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "oidc_link_completions": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "oidc_tokens": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "org_default_channels": {
+      "owner": "chat",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "orphaned_message_blobs": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "outbound_queue": {
+      "owner": "mail-security",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "guests",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Guest invitation notification enqueues email directly into outbound_queue; migrate to mail-security/delivery reducer."
+        },
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Outbound queue depth check in platform monitoring."
+        }
+      ]
+    },
+    "outbound_queue_hot": {
+      "owner": "mail-security",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "passkey_credentials": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "password_history": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "push_devices": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "push_intents": {
+      "owner": "jmap",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "push_mfa_challenges": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "quarantined_messages": {
+      "owner": "mail-security",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Quarantined message count in platform monitoring."
+        }
+      ]
+    },
+    "quick_steps": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "rate_limit_counters": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "read_receipts": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "message_id -> messages.mailbox_id",
+      "read_contracts": []
+    },
+    "recipient_smime_certs": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "owner_user_id",
+      "read_contracts": []
+    },
+    "reminders": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "restore_config_policy_catalog": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "restore_config_quarantine": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "restore_jobs": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "retention_policies": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "rules": {
+      "owner": "rules",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "rust_operation_receipts": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "calendar",
+          "mode": "read_only",
+          "reason": "Idempotent Rust operation receipt verification."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Idempotent Rust operation receipt verification."
+        }
+      ]
+    },
+    "saml_assertion_replay": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "saml_link_completions": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "saml_sp_registrations": {
+      "owner": "identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "SAML SP registration lookup in admin-identity."
+        }
+      ]
+    },
+    "saved_searches": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "scheduled_action_log": {
+      "owner": "rules",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "scheduled_actions": {
+      "owner": "rules",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Scheduled compliance export job status lookup."
+        }
+      ]
+    },
+    "schema_migrations": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Schema migration version check in platform health/status."
+        }
+      ]
+    },
+    "scim_tokens": {
+      "owner": "directory-sync",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "security_event_outbox": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "sender_control_operations": {
+      "owner": "mail-security",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "sender_control_state": {
+      "owner": "mail-security",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "sender_feedback_outbox": {
+      "owner": "mail-security",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "sender_list_operations": {
+      "owner": "mail-security",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "session_activity": {
+      "owner": "conditional-access",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "session_revocations": {
+      "owner": "conditional-access",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Session revocation lookup during identity token validation."
+        }
+      ]
+    },
+    "sessions": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "Active user session inspection."
+        },
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "Active user session inspection."
+        }
+      ]
+    },
+    "sharing_defaults": {
+      "owner": "drive",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "signatures": {
+      "owner": "user-settings",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "signing_keys": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "smime_cert_revocations": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "smime_journal_certs": {
+      "owner": "compliance",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "smime_revocation_blocklist": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "smime_trust_anchors": {
+      "owner": "mail-security",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "smtp_sessions": {
+      "owner": "mail-security",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "sso_admin_role_legacy_inventory": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "sso_admin_role_provenance": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "sso_distribution_group_legacy_inventory": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "sso_distribution_group_provenance": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "storage_dr_scans": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "storage_migrations": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "sync_conflicts": {
+      "owner": "directory-sync",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "system_config": {
+      "owner": "platform",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "Runtime configuration key lookup."
+        },
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "Runtime configuration key lookup."
+        },
+        {
+          "consumer": "conditional-access",
+          "mode": "read_only",
+          "reason": "Runtime configuration key lookup."
+        },
+        {
+          "consumer": "directory-sync",
+          "mode": "legacy_write_migration_pending",
+          "reason": "LDAP sync admin/engine persists sync settings in system_config; migrate to platform config reducer."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Runtime configuration key lookup."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "Runtime configuration key lookup."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "legacy_write_migration_pending",
+          "reason": "DLP settings handler updates system_config directly; migrate to platform config reducer."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Migration settings handler updates system_config directly; migrate to platform config reducer."
+        }
+      ]
+    },
+    "tags": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": [
+        {
+          "consumer": "mail-security",
+          "mode": "read_only",
+          "reason": "Mailbox tag metadata lookup."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "Mailbox tag metadata lookup."
+        },
+        {
+          "consumer": "rules",
+          "mode": "read_only",
+          "reason": "Mailbox tag metadata lookup."
+        }
+      ]
+    },
+    "task_activity": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "task_list_members": {
+      "owner": "jmap",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "task_lists": {
+      "owner": "jmap",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "owner_user_id",
+      "read_contracts": []
+    },
+    "tasks": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "terms_of_use": {
+      "owner": "platform",
+      "security_class": "org_global",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Active terms of use lookup during identity login."
+        }
+      ]
+    },
+    "terms_of_use_acceptance": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "threat_feed_blocks": {
+      "owner": "mail-security",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "totp_counter_claims": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "totp_pending_enrollments": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "totp_removal_step_ups": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "upgrade_challenges": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_control_state": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "Upgrade control state lookup in mailboxes exchange assessment."
+        }
+      ]
+    },
+    "upgrade_elevations": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_history": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Upgrade history lookup in platform system status."
+        }
+      ]
+    },
+    "upgrade_intent_events": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_intents": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_readiness": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_recovery_sets": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_release_catalog": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_restore_proofs": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "upgrade_schema_migration_evidence": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "used_password_reset_tokens": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "used_saml_assertions": {
+      "owner": "identity",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "user_app_entitlements": {
+      "owner": "admin-identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "guests",
+          "mode": "read_only",
+          "reason": "Guest detail SQL query projects guest app entitlements."
+        }
+      ]
+    },
+    "user_devices": {
+      "owner": "devices",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "User registered device lookup."
+        },
+        {
+          "consumer": "user-settings",
+          "mode": "read_only",
+          "reason": "User registered device lookup."
+        }
+      ]
+    },
+    "user_group_members": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "user_identity_links": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "External identity link resolution."
+        },
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "External identity link resolution."
+        }
+      ]
+    },
+    "user_image_allow": {
+      "owner": "mail-security",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "user_imap_settings": {
+      "owner": "user-settings",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "user_lifecycle_authorities": {
+      "owner": "admin-identity",
+      "security_class": "org_global",
+      "rls_posture": "enforced",
+      "read_contracts": [
+        {
+          "consumer": "directory-sync",
+          "mode": "read_only",
+          "reason": "User lifecycle authority lookup."
+        }
+      ]
+    },
+    "user_notification_prefs": {
+      "owner": "user-settings",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "user_risk": {
+      "owner": "conditional-access",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "identity",
+          "mode": "read_only",
+          "reason": "Cross-domain read from identity into conditional-access-owned table user_risk."
+        }
+      ]
+    },
+    "user_sender_list": {
+      "owner": "mail-security",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "jmap",
+          "mode": "legacy_write_migration_pending",
+          "reason": "JMAP message handler writes sender allow/block list directly; migrate to mail-security reducer."
+        }
+      ]
+    },
+    "user_signatures": {
+      "owner": "user-settings",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "user_smime_certs": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "user_spam_model": {
+      "owner": "mail-security",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "users": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "id",
+      "read_contracts": [
+        {
+          "consumer": "admin-identity",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "approvals",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "calendar",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "chat",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "compliance",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "conditional-access",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "devices",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "directory-sync",
+          "mode": "legacy_write_migration_pending",
+          "reason": "LDAP sync engine updates synced user attributes directly; migrate to identity reducer."
+        },
+        {
+          "consumer": "drive",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "guests",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "jmap",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "mail-security",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Spam filter settings handler updates user spam preferences on users; migrate to identity reducer."
+        },
+        {
+          "consumer": "mailboxes",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "meet",
+          "mode": "read_only",
+          "reason": "Meeting lobby lookup resolves authenticated participant display name and email."
+        },
+        {
+          "consumer": "static",
+          "mode": "read_only",
+          "reason": "User identity/email/profile/domain lookup."
+        },
+        {
+          "consumer": "user-settings",
+          "mode": "legacy_write_migration_pending",
+          "reason": "User profile/settings handlers update display/locale fields on users; migrate to identity reducer."
+        }
+      ]
+    },
+    "vacation_replies": {
+      "owner": "user-settings",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "vacation_settings": {
+      "owner": "user-settings",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "mailbox_id",
+      "read_contracts": []
+    },
+    "vip_senders": {
+      "owner": "jmap",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "vote_responses": {
+      "owner": "jmap",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "message_id -> messages.mailbox_id",
+      "read_contracts": []
+    },
+    "vt_timezone": {
+      "owner": "calendar",
+      "security_class": "mailbox_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "calendar_id -> calendars.mailbox_id",
+      "read_contracts": []
+    },
+    "webauthn_ceremonies": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "webauthn_login_replays": {
+      "owner": "identity",
+      "security_class": "user_scoped",
+      "rls_posture": "enforced",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    },
+    "webhook_deliveries": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "not_applicable",
+      "read_contracts": []
+    },
+    "webhook_publications": {
+      "owner": "platform",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "webhook_subscriptions": {
+      "owner": "platform",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": [
+        {
+          "consumer": "identity",
+          "mode": "legacy_write_migration_pending",
+          "reason": "Self-service webhook subscription management in identity/self_service.rs; migrate to platform reducer."
+        }
+      ]
+    },
+    "work_dead_letters": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "work_items": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "worker_schedules": {
+      "owner": "foundation",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "ws_subscriptions": {
+      "owner": "foundation",
+      "security_class": "user_scoped",
+      "rls_posture": "pending_wave1_cutover",
+      "rls_tracking_issue": "#546",
+      "rls_scope_column": "user_id",
+      "read_contracts": []
+    }
+  }
+}

@@ -302,7 +302,16 @@ BEGIN
         ('public.worker_schedule_claim(text[],text,integer,integer)'),
         ('public.worker_schedule_heartbeat(text,bigint,text,integer)'),
         ('public.worker_schedule_complete(text,bigint,text,text,integer,text,timestamptz)'),
-        ('public.worker_schedule_release(text,bigint,text)')
+        ('public.worker_schedule_release(text,bigint,text)'),
+        -- #550 (V288): Mark-and-Sweep S3 Blob GC worker-only SECURITY INVOKER reducers
+        -- (blob_gc_reactivate is deliberately omitted so setjoin_app retains EXECUTE).
+        ('public.blob_has_live_reference(text)'),
+        ('public.blob_gc_live_sources(text)'),
+        ('public.blob_is_held_or_retained(text,integer)'),
+        ('public.blob_gc_mark(integer,integer,integer)'),
+        ('public.blob_gc_claim_purging(text,integer,integer,integer)'),
+        ('public.blob_gc_record_worm_lock(text,timestamptz,text)'),
+        ('public.blob_gc_shadow_reconcile(integer,integer,integer)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -379,11 +388,11 @@ BEGIN
   END LOOP;
 END $$;
 
--- Durable WorkQueue tables and notify_intents (V286, #548) are FORCE-RLS deny-all
--- to setjoin_app and reachable only by setjoin_worker (BYPASSRLS) and operators
--- (app writes flow through narrow worker-owned SECURITY DEFINER seams). Restate
--- table and sequence grants here after the blanket GRANT above so reprovisioning
--- preserves the app denial.
+-- Durable WorkQueue tables and notify_intents (V286, #548) and worker_schedules (V287, #549)
+-- are FORCE-RLS deny-all to setjoin_app and reachable only by setjoin_worker (BYPASSRLS) and
+-- operators (app writes flow through narrow worker-owned SECURITY DEFINER seams). Restate
+-- table and sequence grants here after the blanket GRANT above so reprovisioning preserves
+-- the app denial.
 DO $$
 DECLARE
   t     text;
@@ -411,4 +420,45 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
+END $$;
+
+-- Mark-and-Sweep S3 Blob GC companion tables (V288, #550): FORCE RLS with zero policies
+-- and worker-only table/sequence ACLs. The blanket GRANT above re-widens them whenever
+-- this script runs after V288, so the worker-only posture is restated here (idempotent).
+DO $$
+DECLARE
+  t text;
+  s text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['blob_gc_state','blob_gc_shadow_runs','blob_gc_shadow_discrepancies','blob_gc_config'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO setjoin_worker', t);
+    END IF;
+  END LOOP;
+  FOREACH s IN ARRAY ARRAY['blob_gc_shadow_runs_id_seq','blob_gc_shadow_discrepancies_id_seq'] LOOP
+    IF to_regclass('public.' || s) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON SEQUENCE public.%I FROM PUBLIC, setjoin_app, setjoin_worker', s);
+      EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO setjoin_worker', s);
+    END IF;
+  END LOOP;
+  -- Re-assert narrow SECURITY DEFINER ownership + ACLs on blob_gc_reactivate(text)
+  -- so provisioning is order-independent regardless of migration/reprovision order.
+  IF to_regprocedure('public.blob_gc_reactivate(text)') IS NOT NULL THEN
+    DECLARE
+      v_had_create boolean := false;
+    BEGIN
+      SELECT has_schema_privilege('setjoin_worker', 'public', 'CREATE') INTO v_had_create;
+      IF NOT v_had_create THEN
+        GRANT CREATE ON SCHEMA public TO setjoin_worker;
+      END IF;
+      ALTER FUNCTION public.blob_gc_reactivate(text) OWNER TO setjoin_worker;
+      IF NOT v_had_create THEN
+        REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+      END IF;
+      REVOKE ALL ON FUNCTION public.blob_gc_reactivate(text) FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION public.blob_gc_reactivate(text) TO setjoin_app, setjoin_worker, setjoin_owner;
+    END;
+  END IF;
 END $$;

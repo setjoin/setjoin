@@ -1142,3 +1142,18 @@ Workers use the established worker credential; these wrappers add no grants.
 | `worker_schedule_heartbeat` | worker_schedules.sql | Fenced lease extension predicated on `(task_name, fencing_token, lease_owner)` and `lease_expires_at > clock_timestamp()` | `setjoin_worker` (`BZ003` otherwise) | extends `lease_expires_at` |
 | `worker_schedule_complete` | worker_schedules.sql | Fenced completion recording outcome, truncated error (`<= 4096B`), and coalescing `next_due_at >= clock_timestamp()` | `setjoin_worker` (`BZ003` otherwise) | clears lease & advances `next_due_at` |
 | `worker_schedule_release` | worker_schedules.sql | Fenced graceful shutdown handoff clearing lease with `next_due_at <= clock_timestamp()` for `<1s` peer pickup | `setjoin_worker` (`BZ003` otherwise) | releases `worker_schedules` lease |
+
+### Mark-and-Sweep S3 Blob GC (#550, V288)
+
+| Function | File | Purpose | Key Parameters | Notifies/State Bumps |
+|----------|------|---------|----------------|----------------------|
+| `blob_gc_lock_key` | blob_gc.sql | Deterministic per-`sha256` transaction advisory-lock key (`hashtextextended('blob-gc:' \|\| sha256, 0)`). | `p_sha256` | none |
+| `blob_gc_reactivate` | blob_gc.sql | Narrow `SECURITY DEFINER` (`setjoin_worker`-owned, granted to `setjoin_app`) helper that locks per-`sha256` and reactivates `reclaim_eligible`/`purging` rows in deny-all `blob_gc_state` (never mutates `worm_locked_until`). | `p_sha256` | none |
+| `blob_gc_register_and_reactivate` | blob_gc.sql | Atomic per-`sha256` advisory lock + `blobs` admission + `blob_gc_reactivate` for non-quota uploaders (`chat_unfurl`, `platform_storage`). | `p_sha256`, `p_minio_ref`, `p_size_bytes`, `p_content_type` | none |
+| `blob_has_live_reference` | blob_gc.sql | Worker-only (`SECURITY INVOKER`, `BZ003` BYPASSRLS guard) authoritative 14-root live-reference check matching `config/blob-reference-manifest.json` 1:1. | `p_sha256` | none |
+| `blob_gc_live_sources` | blob_gc.sql | Worker-only enumerator of all live-root `table.column` sources holding `p_sha256` for shadow discrepancy reporting. | `p_sha256` | none |
+| `blob_is_held_or_retained` | blob_gc.sql | Worker-only legal-hold, retention-tag (including infinite `expires_at IS NULL`), detached `mailbox_lifecycle` retention, and WORM gate. | `p_sha256`, `p_worm_days` | none |
+| `blob_gc_mark` | blob_gc.sql | Worker-only Phase 1 mark sweep (`>= 1440` min grace floor, `FOR UPDATE SKIP LOCKED`) transitioning unreferenced unheld blobs to `reclaim_eligible` and reactivating newly referenced/held rows. | `p_grace_minutes`, `p_worm_days`, `p_batch_size` | none |
+| `blob_gc_claim_purging` | blob_gc.sql | Worker-only Phase 2 Tx 2A atomic lock + re-verify + cooldown check transitioning `reclaim_eligible` → `purging` (or resetting `active`). | `p_sha256`, `p_grace_minutes`, `p_cooldown_minutes`, `p_worm_days` | none |
+| `blob_gc_record_worm_lock` | blob_gc.sql | Worker-only handler for S3 `403` Object Lock rejections in Tx 2B: records `worm_locked_until`, reverts to `active`, and writes a core audit warning. | `p_sha256`, `p_worm_locked_until`, `p_reason` | `audit_write(..., 'core')` |
+| `blob_gc_shadow_reconcile` | blob_gc.sql | Worker-only shadow reconciliation (Phase 1 mark only, zero deletes) comparing `reclaim_eligible` set against `ref_count = 0`, recording `blob_gc_shadow_runs`/`blob_gc_shadow_discrepancies`. | `p_grace_minutes`, `p_worm_days`, `p_batch_size` | `audit_write(..., 'core')` + `pg_notify('blob_gc_alert', ...)` on drift |

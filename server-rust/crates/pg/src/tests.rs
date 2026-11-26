@@ -492,3 +492,99 @@ fn rejection_log_summary_carries_sqlstate_not_postgres_text() {
         assert_eq!(r.log_summary(), want);
     }
 }
+
+#[test]
+fn contract_param_zip_and_scope_checks_enforce_exact_arity_and_scope() {
+    use crate::capability::{check_contract_scope, zip_contract_params};
+    use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope};
+
+    static RO_CONTRACT: SqlContract = SqlContract {
+        id: "test.ro",
+        domain: "test",
+        sql: "SELECT $1::bigint",
+        params: &[Type::INT8],
+        columns: &[ColumnSpec::unnamed(Type::INT8)],
+        scope: SqlScope::MailboxReadOnly,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
+    };
+    static WORKER_CONTRACT: SqlContract = SqlContract {
+        id: "test.worker",
+        domain: "test",
+        sql: "SELECT 1",
+        params: &[],
+        columns: &[ColumnSpec::unnamed(Type::INT4)],
+        scope: SqlScope::WorkerBypass,
+        rls_check: RlsCheck::PrepareAndExplain,
+        audit: SqlAuditPosture::Standard,
+    };
+
+    // Exact arity passes; short or extra values are refused locally before wire I/O.
+    let v: i64 = 42;
+    let zipped = zip_contract_params(&RO_CONTRACT, &[&v]).expect("matching arity");
+    assert_eq!(zipped.len(), 1);
+    assert_eq!(zipped[0].1, Type::INT8);
+
+    let short = zip_contract_params(&RO_CONTRACT, &[]).unwrap_err();
+    assert!(short.message.contains("parameter count mismatch"));
+    let extra = zip_contract_params(&RO_CONTRACT, &[&v, &v]).unwrap_err();
+    assert!(extra.message.contains("parameter count mismatch"));
+
+    // Scope mismatches fail closed before executing any SQL.
+    assert!(check_contract_scope(
+        &RO_CONTRACT,
+        &[SqlScope::MailboxReadOnly],
+        "MailboxTx<ReadOnly>"
+    )
+    .is_ok());
+    let mismatch = check_contract_scope(
+        &WORKER_CONTRACT,
+        &[SqlScope::MailboxReadOnly],
+        "contract scope mismatch for MailboxTx<ReadOnly>",
+    )
+    .unwrap_err();
+    assert!(mismatch.message.contains("contract scope mismatch"));
+    assert!(check_contract_scope(
+        &RO_CONTRACT,
+        &[SqlScope::MailboxReadWrite],
+        "MailboxTx<ReadWrite>::execute_contract"
+    )
+    .is_err());
+    assert!(
+        check_contract_scope(&RO_CONTRACT, &[SqlScope::UserScoped], "UserTx<ReadOnly>").is_err()
+    );
+    assert!(check_contract_scope(
+        &RO_CONTRACT,
+        &[SqlScope::AdminRead],
+        "AdminReadTx<Standard>"
+    )
+    .is_err());
+}
+
+#[test]
+fn begin_sql_with_idle_timeout_appends_local_guc() {
+    use crate::pipeline::build_begin_sql_with_idle_timeout;
+    let sql = build_begin_sql_with_idle_timeout(
+        "BEGIN READ WRITE",
+        Duration::from_millis(5000),
+        Some(8_000),
+        PlanCacheHint::Auto,
+    );
+    assert_eq!(
+        sql,
+        "BEGIN READ WRITE; SET LOCAL statement_timeout = 5000; \
+         SET LOCAL idle_in_transaction_session_timeout = 8000"
+    );
+    let custom = build_begin_sql_with_idle_timeout(
+        "BEGIN READ WRITE",
+        Duration::from_millis(2500),
+        Some(8_000),
+        PlanCacheHint::ForceCustomPlan,
+    );
+    assert_eq!(
+        custom,
+        "BEGIN READ WRITE; SET LOCAL statement_timeout = 2500; \
+         SET LOCAL idle_in_transaction_session_timeout = 8000; \
+         SET LOCAL plan_cache_mode = force_custom_plan"
+    );
+}
