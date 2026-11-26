@@ -9,13 +9,13 @@
 	// counterparts (grill Q2 — 60s poll of the rows actually rendered here;
 	// ponytail: "visible" == "in this list", no virtualization/viewport
 	// intersection tracking for a list this size).
+	import { onDestroy } from 'svelte';
 	import type { Conversation } from '$lib/chat/api';
 	import * as chatApi from '$lib/chat/api';
+	import { createPresencePoller } from '$lib/chat/presencePoller';
 	import { Badge, IconButton, Input } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { t } from '$lib/i18n';
-
-	const PRESENCE_POLL_MS = 60_000; // grill Q2 — clients poll <=1/60s
 
 	let {
 		conversations,
@@ -123,26 +123,21 @@
 			for (const id of counterpartIds(c)) ids.add(id);
 		}
 		if (ids.size === 0) return;
-		try {
-			const result = await chatApi.getPresence([...ids]);
-			const next: Record<number, boolean> = {};
-			for (const id of ids) next[id] = result[String(id)] ?? false;
-			presence = next;
-		} catch {
-			// stale presence beats a broken poll loop — next tick retries
-		}
+		const result = await chatApi.getPresence([...ids]);
+		const next: Record<number, boolean> = {};
+		for (const id of ids) next[id] = result[String(id)] ?? false;
+		presence = next;
 	}
+
+	// #389: jittered steady-state poll (>=60s) + full-jitter exponential backoff on errors.
+	const presencePoller = createPresencePoller(pollPresence);
+	onDestroy(() => presencePoller.stop());
 
 	$effect(() => {
 		conversations;
 		void resolveDmTitles();
-		void pollPresence();
+		void presencePoller.triggerNow();
 		void loadThreadsUnread();
-	});
-
-	$effect(() => {
-		const timer = setInterval(pollPresence, PRESENCE_POLL_MS);
-		return () => clearInterval(timer);
 	});
 
 	function isOnline(c: Conversation): boolean {
