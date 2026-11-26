@@ -1,20 +1,25 @@
-//! The `WORM_MODE` PUT retention adapter (#301, pairs with #419): Go's
-//! `RetentionPolicyRegistry.ApplyAll` after a blob PUT, and the process-local retry ledger
-//! its cleanup tick drains.
+//! The `WORM_MODE` PUT retention adapter (#301, upgraded to durable `WorkQueue`
+//! in Wave 2.2 #549).
 //!
-//! Go arms S3 Object Lock retention (`PutObjectRetention`, mode from `WORM_MODE`, retain-until
-//! `now + WORM_RETENTION_DAYS` calendar days) on the canonical key after a successful upload.
-//! A failure is logged and non-fatal: the PUT still answers 201 and the key joins a bounded
-//! in-memory ledger (1024, an arbitrary entry evicted when full) that the `blob-cleanup`
-//! tick retries. Go refuses to start with an invalid `WORM_MODE`/`WORM_RETENTION_DAYS`, so an
-//! invalid configuration is "not served here" and PUT stays with Go.
-use crate::recovery_worker::ObjectStore;
-use std::{collections::HashSet, sync::Mutex};
+//! Arms S3 Object Lock retention (`PutObjectRetention`, mode from `WORM_MODE`,
+//! retain-until `now + WORM_RETENTION_DAYS` calendar days) on the canonical key.
+//! All process-local in-memory retry ledgers are retired: durable-first enqueue
+//! on `"blob.worm_arm"` happens BEFORE `store.promote`, and retries/DLQ live
+//! exclusively in PostgreSQL `work_items` / `work_dead_letters`.
+
+use crate::recovery_worker::{ObjectStore, RetentionError};
+use serde::{Deserialize, Serialize};
 
 /// Go's `DefaultWORMRetentionDays` (7 years).
 pub const DEFAULT_DAYS: i64 = 2557;
-/// Go's `maxRetryLedger`.
-const MAX_LEDGER: usize = 1024;
+/// Durable WorkQueue kind for S3 Object Lock retention arming.
+pub const WORK_KIND_WORM_ARM: &str = "blob.worm_arm";
+/// Durable WorkQueue kind for post-row-delete S3 object reap retries.
+pub const WORK_KIND_REAP_RETRY: &str = "blob.s3_reap_retry";
+/// Per-kind concurrency cap for `blob.worm_arm`.
+pub const WORM_MAX_CONCURRENCY: i32 = 8;
+/// Max retry attempts before moving a failing `blob.worm_arm` job to DLQ.
+pub const WORM_MAX_ATTEMPTS: i32 = 20;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Worm {
@@ -29,6 +34,27 @@ pub enum Config {
     On(Worm),
     /// Go's `ValidateWORMConfig` would refuse to start.
     Invalid,
+}
+
+/// Durable JSON payload stored on `work_items` for `kind = "blob.worm_arm"`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WormArmPayload {
+    pub sha256: String,
+    pub object_key: String,
+    pub mode: String,
+    pub retain_days: i64,
+    pub retain_until: String,
+    pub version_id: Option<String>,
+}
+
+/// Canonical idempotency key for `blob.worm_arm`.
+pub fn worm_idempotency_key(sha256: &str, retain_until: &str) -> String {
+    format!("{WORK_KIND_WORM_ARM}:{sha256}:{retain_until}")
+}
+
+/// Canonical idempotency key for `blob.s3_reap_retry`.
+pub fn reap_idempotency_key(sha256: &str) -> String {
+    format!("blob_reap:{sha256}")
 }
 
 /// Go's `WORM_MODE` / `WORM_RETENTION_DAYS` as `ValidateWORMConfig` reads them.
@@ -63,42 +89,24 @@ pub fn retain_until(now: chrono::DateTime<chrono::Utc>, days: i64) -> String {
     crate::admin_job_workers::go_rfc3339_nano(now + chrono::Duration::days(days))
 }
 
-static LEDGER: std::sync::LazyLock<Mutex<HashSet<String>>> =
-    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
-
-/// Go's `noteRetentionRetry`.
-pub fn note_retry(key: &str) {
-    let mut ledger = LEDGER.lock().unwrap();
-    if ledger.len() >= MAX_LEDGER {
-        if let Some(evict) = ledger.iter().next().cloned() {
-            ledger.remove(&evict);
-        }
-    }
-    ledger.insert(key.to_owned());
+/// Apply WORM retention using an explicit pre-computed `retain_until` timestamp.
+pub async fn apply_until<S: ObjectStore>(
+    store: &S,
+    mode: &str,
+    key: &str,
+    until: &str,
+) -> Result<(), RetentionError> {
+    store.retain_object(key, mode, until).await
 }
 
-pub fn pending() -> Vec<String> {
-    LEDGER.lock().unwrap().iter().cloned().collect()
-}
-
-/// Go's `ApplyAll` for the one WORM policy.
-pub async fn apply<S: ObjectStore>(store: &S, worm: &Worm, key: &str) -> Result<(), String> {
+/// Apply WORM retention for `now + worm.days`.
+pub async fn apply<S: ObjectStore>(
+    store: &S,
+    worm: &Worm,
+    key: &str,
+) -> Result<(), RetentionError> {
     let until = retain_until(chrono::Utc::now(), worm.days);
-    store.retain_object(key, &worm.mode, &until).await
-}
-
-/// Go's `retryFailedRetention`: drained by the cleanup tick, nothing when WORM is off.
-pub async fn retry_failed<S: ObjectStore>(store: &S) {
-    let Config::On(worm) = config() else {
-        return;
-    };
-    for key in pending() {
-        if let Err(e) = apply(store, &worm, &key).await {
-            eprintln!("blob retention retry: apply still failing key={key}: {e}");
-            continue;
-        }
-        LEDGER.lock().unwrap().remove(&key);
-    }
+    apply_until(store, &worm.mode, key, &until).await
 }
 
 #[cfg(test)]

@@ -74,6 +74,9 @@ const CLAIM_SQL: &str = "SELECT id, kind, payload::text, idempotency_key, priori
 
 const HEARTBEAT_SQL: &str = "SELECT public.work_queue_heartbeat($1, $2, $3, $4)";
 const COMPLETE_SQL: &str = "SELECT public.work_queue_complete($1, $2, $3)";
+const RELEASE_SQL: &str = "SELECT public.work_release($1, $2, $3)";
+const CANCEL_PENDING_SQL: &str = "SELECT public.work_cancel_pending($1)";
+const EXPEDITE_SQL: &str = "SELECT public.work_expedite($1)";
 const FAIL_SQL: &str = "SELECT outcome, dead_letter_id \
      FROM public.work_queue_fail($1, $2, $3, $4, $5, $6)";
 const RECLAIM_SQL: &str = "SELECT reclaimed, dead_lettered \
@@ -290,6 +293,74 @@ impl WorkQueue {
                 ],
             )
             .await?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .unwrap_or(false))
+    }
+
+    /// Gracefully release a safe-to-retry leased item on shutdown via
+    /// `public.work_release` (resets `status = 'pending'`, decrements
+    /// `attempts = GREATEST(attempts - 1, 0)`, and rings the `'work'` bell).
+    pub async fn release(
+        &self,
+        id: i64,
+        claim_generation: i32,
+        worker_id: &str,
+    ) -> Result<bool, WorkQueueError> {
+        let mut tx = self.pool.begin_read_write().await?;
+        let rows = match tx
+            .query(
+                RELEASE_SQL,
+                &[
+                    (&id, Type::INT8),
+                    (&claim_generation, Type::INT4),
+                    (&worker_id, Type::TEXT),
+                ],
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(err) => {
+                let _ = tx.rollback().await;
+                return Err(err.into());
+            }
+        };
+        tx.commit().await?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .unwrap_or(false))
+    }
+
+    /// Cancel a deferred `'pending'` work item (e.g. inline WORM retention succeeded).
+    pub async fn cancel_pending(&self, id: i64) -> Result<bool, WorkQueueError> {
+        let mut tx = self.pool.begin_read_write().await?;
+        let rows = match tx.query(CANCEL_PENDING_SQL, &[(&id, Type::INT8)]).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                let _ = tx.rollback().await;
+                return Err(err.into());
+            }
+        };
+        tx.commit().await?;
+        Ok(rows
+            .first()
+            .and_then(|r| r.try_get::<_, bool>(0).ok())
+            .unwrap_or(false))
+    }
+
+    /// Expedite a deferred `'pending'` work item to run immediately and ring `'work'`.
+    pub async fn expedite(&self, id: i64) -> Result<bool, WorkQueueError> {
+        let mut tx = self.pool.begin_read_write().await?;
+        let rows = match tx.query(EXPEDITE_SQL, &[(&id, Type::INT8)]).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                let _ = tx.rollback().await;
+                return Err(err.into());
+            }
+        };
+        tx.commit().await?;
         Ok(rows
             .first()
             .and_then(|r| r.try_get::<_, bool>(0).ok())

@@ -148,4 +148,4 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [SMTP security](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
 
 - [SMTP iMIP](DOX.md#rust-smtp-imip-transactions-526) (#526).
-- WorkQueue (`V286`, #548).
+- WorkQueue/schedules (V286–V287, #548–#549).

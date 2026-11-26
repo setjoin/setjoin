@@ -4,15 +4,16 @@ mod drain_oracle;
 use http_body_util::BodyExt;
 use hyper::{Method, Request, Response};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use setjoin_conformance::{fixture, harness::Db};
 use setjoin_gateway::{
-    Config, Gateway, RouteTable, TrustedProxies,
-    blob_cleanup::BlobCleanup,
     blobs::{BlobCommands, BlobRoute},
     recovery_worker::S3Store,
+    supervisor::worm::WormArmConsumer,
+    Config, Gateway, RouteTable, TrustedProxies,
 };
-use setjoin_pg::{ScopedExecutor, workers::WorkerDatabase};
+use setjoin_pg::{ScopedExecutor, WorkerPool};
+use setjoin_workqueue::WorkQueue;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
@@ -82,7 +83,7 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
     };
     let owner = db.connect().await?;
     // The worker scans these entire queues: isolate its seed in our disposable DB.
-    owner.batch_execute("DELETE FROM blob_cleanup_queue; DELETE FROM orphaned_message_blobs; DELETE FROM blobs WHERE ref_count=0").await?;
+    owner.batch_execute("DELETE FROM blob_cleanup_queue; DELETE FROM orphaned_message_blobs; DELETE FROM blobs WHERE ref_count=0; DELETE FROM work_items WHERE kind='blob.worm_arm'; DELETE FROM work_dead_letters WHERE kind='blob.worm_arm'").await?;
     let account = fixture::account(&owner, "blobs3-retention").await?;
     let hash = format!("{:x}", Sha256::digest(PAYLOAD.as_bytes()));
     let peer = Arc::new(Mutex::new(Peer::default()));
@@ -96,6 +97,9 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
             let signed=common::s3::observe(&request,&body).expect("independent SigV4 verification");
             let key=request.uri().path().strip_prefix("/mailblobs/").unwrap();
             let mut peer=state.lock().unwrap();
+            if request.method()==Method::GET&&request.uri().query()==Some("retention="){
+                return Response::builder().status(404).header("content-type","application/xml").body(common::full("<Error><Code>NoSuchObjectLockConfiguration</Code><Message>not set</Message></Error>")).unwrap();
+            }
             if request.method()==Method::PUT&&request.uri().query()==Some("retention="){
                 assert_eq!(key,hash);assert!(peer.objects.contains_key(key));
                 let retention:Retention=quick_xml::de::from_reader(body.as_ref()).unwrap();
@@ -138,7 +142,8 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
         "test-access",
         "test-secret",
     )?);
-    let worker = BlobCleanup::new(WorkerDatabase::new(&db.dsn)?, store.clone());
+    let work_queue = WorkQueue::new(WorkerPool::from_dsn(&db.dsn, 4).map_err(|e| e.0)?);
+    let worm_consumer = WormArmConsumer::new(store.clone());
     let recording = std::env::var_os("GOFREE_RECORD_BLOBS3_RETENTION").is_some();
     let result=async{
         let audit_before: i64=owner.query_one("SELECT count(*) FROM admin_audit_log WHERE user_id=$1",&[&account.user]).await?.get(0);
@@ -164,7 +169,7 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
             let metrics=String::from_utf8(common::body_bytes(metrics).await.to_vec())?;
             task.abort();let _=task.await;
             if !metrics.lines().any(|v|v=="setjoin_gateway_proxied_to_go_total 0"){return Err(format!("WORM PUT forwarded: {metrics}").into());}
-            if !skip_ticks{for _ in 0..4{worker.tick().await;}}
+            if !skip_ticks{for _ in 0..4{let _ = worm_consumer.drain_once(&work_queue, "worm-recorded", Some(std::time::Duration::ZERO)).await?;}}
             json!({"status":status,"body":body})
         };
         let mut effects=vec![];
@@ -193,8 +198,17 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
     // tick, after observing it. No private retry-state hooks are used.
     peer.lock().unwrap().accept_all = true;
     if !recording {
-        worker.tick().await;
+        let _ = worm_consumer
+            .drain_once(
+                &work_queue,
+                "worm-recorded-cleanup",
+                Some(std::time::Duration::ZERO),
+            )
+            .await;
     }
+    owner
+        .batch_execute("DELETE FROM work_items WHERE kind='blob.worm_arm'; DELETE FROM work_dead_letters WHERE kind='blob.worm_arm'")
+        .await?;
     owner
         .execute("DELETE FROM blobs WHERE sha256=$1", &[&hash])
         .await?;

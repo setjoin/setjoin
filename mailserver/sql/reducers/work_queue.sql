@@ -495,6 +495,91 @@ BEGIN
 END;
 $$;
 
+-- Fenced graceful lease release on SIGTERM/shutdown for safe-to-retry items:
+-- resets status to 'pending', decrements attempts = GREATEST(attempts - 1, 0)
+-- so routine deploys never exhaust max_attempts into DLQ, and emits a 'work' bell.
+CREATE OR REPLACE FUNCTION work_release(
+    p_id         BIGINT,
+    p_generation INT,
+    p_worker_id  TEXT
+) RETURNS BOOLEAN
+LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_kind TEXT;
+BEGIN
+    PERFORM public.work_queue_require_worker();
+
+    UPDATE public.work_items
+       SET status           = 'pending',
+           lease_expires_at = NULL,
+           locked_by        = NULL,
+           run_at           = LEAST(run_at, clock_timestamp()),
+           attempts         = GREATEST(attempts - 1, 0),
+           updated_at       = clock_timestamp()
+     WHERE id = p_id
+       AND status = 'leased'
+       AND claim_generation = p_generation
+       AND locked_by = p_worker_id
+       AND lease_expires_at > clock_timestamp()
+    RETURNING kind INTO v_kind;
+
+    IF FOUND THEN
+        PERFORM public.emit_wakeup_bell('work', v_kind);
+        RETURN TRUE;
+    END IF;
+    RETURN FALSE;
+END;
+$$;
+
+-- Cancel a deferred pending work item (e.g. inline WORM retention succeeded
+-- before the deferred durable-first item became due).
+CREATE OR REPLACE FUNCTION work_cancel_pending(
+    p_id BIGINT
+) RETURNS BOOLEAN
+LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    PERFORM public.work_queue_require_worker();
+
+    DELETE FROM public.work_items
+     WHERE id = p_id
+       AND status = 'pending';
+
+    RETURN FOUND;
+END;
+$$;
+
+-- Expedite a deferred pending work item to run immediately and ring the 'work' bell
+-- (e.g. inline WORM retention failed after promote).
+CREATE OR REPLACE FUNCTION work_expedite(
+    p_id BIGINT
+) RETURNS BOOLEAN
+LANGUAGE plpgsql VOLATILE SECURITY INVOKER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_kind TEXT;
+BEGIN
+    PERFORM public.work_queue_require_worker();
+
+    UPDATE public.work_items
+       SET run_at     = LEAST(run_at, clock_timestamp()),
+           updated_at = clock_timestamp()
+     WHERE id = p_id
+       AND status = 'pending'
+    RETURNING kind INTO v_kind;
+
+    IF FOUND THEN
+        PERFORM public.emit_wakeup_bell('work', v_kind);
+        RETURN TRUE;
+    END IF;
+    RETURN FALSE;
+END;
+$$;
+
 -- Fenced failure settlement: retries with backoff or moves to work_dead_letters
 -- when permanent or attempts >= max_attempts. Truncates last_error <= 4096 UTF-8 bytes.
 CREATE OR REPLACE FUNCTION work_queue_fail(
@@ -1150,6 +1235,9 @@ BEGIN
         'public.work_queue_claim(text,text[],integer,integer,integer)',
         'public.work_queue_heartbeat(bigint,integer,text,integer)',
         'public.work_queue_complete(bigint,integer,text)',
+        'public.work_release(bigint,integer,text)',
+        'public.work_cancel_pending(bigint)',
+        'public.work_expedite(bigint)',
         'public.work_queue_fail(bigint,integer,text,text,double precision,boolean)',
         'public.work_queue_reclaim_expired(integer)',
         'public.work_queue_dlq_list(text,boolean,integer,integer)',

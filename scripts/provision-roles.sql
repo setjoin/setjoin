@@ -285,6 +285,9 @@ BEGIN
         ('public.work_queue_claim(text,text[],integer,integer,integer)'),
         ('public.work_queue_heartbeat(bigint,integer,text,integer)'),
         ('public.work_queue_complete(bigint,integer,text)'),
+        ('public.work_release(bigint,integer,text)'),
+        ('public.work_cancel_pending(bigint)'),
+        ('public.work_expedite(bigint)'),
         ('public.work_queue_fail(bigint,integer,text,text,double precision,boolean)'),
         ('public.work_queue_reclaim_expired(integer)'),
         ('public.work_queue_dlq_list(text,boolean,integer,integer)'),
@@ -293,7 +296,13 @@ BEGIN
         ('public.work_queue_dlq_purge(bigint,text,integer,boolean)'),
         ('public.prune_work_dead_letters(integer,integer)'),
         ('public.promote_due_scheduled_actions(integer)'),
-        ('public.execute_scheduled_action_work(uuid,text,integer,integer,boolean)')
+        ('public.execute_scheduled_action_work(uuid,text,integer,integer,boolean)'),
+        -- #549 (V287): distributed SKIP LOCKED worker schedule leases stay strictly worker-only.
+        ('public.worker_schedule_register(text,text,integer,text,text)'),
+        ('public.worker_schedule_claim(text[],text,integer,integer)'),
+        ('public.worker_schedule_heartbeat(text,bigint,text,integer)'),
+        ('public.worker_schedule_complete(text,bigint,text,text,integer,text,timestamptz)'),
+        ('public.worker_schedule_release(text,bigint,text)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -380,12 +389,22 @@ DECLARE
   t     text;
   v_seq text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['work_items','work_dead_letters','notify_intents'] LOOP
+  FOREACH t IN ARRAY ARRAY['work_items','work_dead_letters','notify_intents','worker_schedules'] LOOP
     IF to_regclass('public.' || t) IS NOT NULL THEN
       EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
       EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
       EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO setjoin_worker', t);
-      v_seq := pg_get_serial_sequence('public.' || t, 'id');
+      IF EXISTS (
+        SELECT 1
+          FROM pg_attribute
+         WHERE attrelid = ('public.' || t)::regclass
+           AND attname = 'id'
+           AND NOT attisdropped
+      ) THEN
+        v_seq := pg_get_serial_sequence('public.' || t, 'id');
+      ELSE
+        v_seq := NULL;
+      END IF;
       IF v_seq IS NOT NULL THEN
         EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, setjoin_app, setjoin_worker', v_seq);
         EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %s TO setjoin_worker', v_seq);

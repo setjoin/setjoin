@@ -6,7 +6,7 @@ use hyper::{Method, Request, Response};
 use setjoin_authz::token::KeySource;
 use setjoin_pg::ScopedExecutor;
 
-use crate::{Body, BoxFuture, Intercept, RequestContext, recovery_worker::S3Store};
+use crate::{recovery_worker::S3Store, Body, BoxFuture, Intercept, RequestContext};
 
 pub struct BlobCommands<K: KeySource> {
     pub exec: ScopedExecutor,
@@ -313,16 +313,95 @@ impl<K: KeySource> BlobCommands<K> {
                 return response;
             }
         }
+        // Durable-first WORM arming (#549): enqueue `blob.worm_arm` (run_at = now() + 30s)
+        // BEFORE `store.promote` so a crash or split HTTP/workers node can never lose the
+        // retention intent. If enqueue fails, abort before promote (HTTP 500).
+        let worm_armed = if let Some(worm) = &worm {
+            let retain_until = crate::blob_retention::retain_until(chrono::Utc::now(), worm.days);
+            let payload = crate::blob_retention::WormArmPayload {
+                sha256: hash.clone(),
+                object_key: hash.clone(),
+                mode: worm.mode.clone(),
+                retain_days: worm.days,
+                retain_until: retain_until.clone(),
+                version_id: None,
+            };
+            let Ok(payload_text) = serde_json::to_string(&payload) else {
+                let _ = self.store.remove(&temp_key).await;
+                return reply(500, "upload failed\n");
+            };
+            let idem = crate::blob_retention::worm_idempotency_key(&hash, &retain_until);
+            let delay_secs = 30.0_f64;
+            let priority = 0_i16;
+            let max_attempts = crate::blob_retention::WORM_MAX_ATTEMPTS;
+            let kind = crate::blob_retention::WORK_KIND_WORM_ARM;
+            let Ok(rows) = self
+                .worker_exec
+                .protocol_query(
+                    "SELECT work_item_id, coalesced \
+                     FROM public.work_enqueue($1, $2::text::jsonb, $3, now() + make_interval(secs => $4), $5, $6)",
+                    &[
+                        (&kind, setjoin_pg::Type::TEXT),
+                        (&payload_text, setjoin_pg::Type::TEXT),
+                        (&idem, setjoin_pg::Type::TEXT),
+                        (&delay_secs, setjoin_pg::Type::FLOAT8),
+                        (&priority, setjoin_pg::Type::INT2),
+                        (&max_attempts, setjoin_pg::Type::INT4),
+                    ],
+                )
+                .await
+            else {
+                let _ = self.store.remove(&temp_key).await;
+                return reply(500, "upload failed\n");
+            };
+            let Some(work_item_id) = rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) else {
+                let _ = self.store.remove(&temp_key).await;
+                return reply(500, "upload failed\n");
+            };
+            Some((work_item_id, worm.mode.clone(), retain_until))
+        } else {
+            None
+        };
         let promoted = self.store.promote(&temp_key, &hash).await;
-        let _ = self.store.remove(&temp_key).await;
         if promoted.is_err() {
+            if let Some((work_item_id, _, _)) = worm_armed {
+                let _ = self
+                    .worker_exec
+                    .protocol_query(
+                        "SELECT public.work_cancel_pending($1)",
+                        &[(&work_item_id, setjoin_pg::Type::INT8)],
+                    )
+                    .await;
+            }
             return reply(500, "upload failed\n");
         }
-        if let Some(worm) = &worm {
-            // Non-fatal: the blob is stored; the cleanup tick retries the lock.
-            if let Err(e) = crate::blob_retention::apply(&*self.store, worm, &hash).await {
-                eprintln!("retention policy apply failed key={hash}: {e}");
-                crate::blob_retention::note_retry(&hash);
+        let _ = self.store.remove(&temp_key).await;
+        if let Some((work_item_id, mode, retain_until)) = worm_armed {
+            // Fast path: apply inline; on success cancel deferred work item.
+            // On failure, log and expedite the durable WorkQueue item (run_at = now()
+            // + 'work' bell) while still returning HTTP 201 (Go parity).
+            match crate::blob_retention::apply_until(&*self.store, &mode, &hash, &retain_until)
+                .await
+            {
+                Ok(()) => {
+                    let _ = self
+                        .worker_exec
+                        .protocol_query(
+                            "SELECT public.work_cancel_pending($1)",
+                            &[(&work_item_id, setjoin_pg::Type::INT8)],
+                        )
+                        .await;
+                }
+                Err(e) => {
+                    eprintln!("retention policy apply failed key={hash}: {e}");
+                    let _ = self
+                        .worker_exec
+                        .protocol_query(
+                            "SELECT public.work_expedite($1)",
+                            &[(&work_item_id, setjoin_pg::Type::INT8)],
+                        )
+                        .await;
+                }
             }
         }
         reply(201, "")

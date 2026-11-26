@@ -180,6 +180,8 @@ fn db_text(e: tokio_postgres::Error) -> String {
 /// The tick acts on every due zero-ref blob and every orphaned ref, so each
 /// case starts (and ends) with those tables clear of anything foreign.
 const CLEAN: &str = "DELETE FROM blob_cleanup_queue; DELETE FROM orphaned_message_blobs;
+    DELETE FROM work_items WHERE kind = 'blob.s3_reap_retry';
+    DELETE FROM work_dead_letters WHERE kind = 'blob.s3_reap_retry';
     DELETE FROM messages WHERE message_id LIKE 'gofree-blobs2-%';
     DELETE FROM blobs WHERE ref_count=0 OR minio_ref LIKE 'gofree-b2/%';";
 

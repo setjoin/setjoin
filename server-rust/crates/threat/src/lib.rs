@@ -1,17 +1,20 @@
+mod denylist;
 pub mod registry;
 pub mod tracker;
-mod denylist;
 pub use denylist::AuthDenylist;
 mod watchers;
 pub use watchers::Watchers;
 mod gate;
 mod suppressed;
-pub use suppressed::note_suppressed_refusal;
-pub use gate::{CaptchaStep, Config, ConnectionMeta, Decision, Gate, ThreatAction, ThreatGate, WorkerPools, RECORD_POOL_SIZE, WORKER_POOL_SIZE};
 pub use gate::{
-    bounded_name, cap_agent, fingerprint, ip_rule_blocked, mask_ip, stored_fingerprint,
-    refusal_budget, MAX_STORED_AGENT, MAX_STORED_NAME, REFUSAL_INSERT,
+    bounded_name, cap_agent, fingerprint, ip_rule_blocked, mask_ip, refusal_budget,
+    stored_fingerprint, MAX_STORED_AGENT, MAX_STORED_NAME, REFUSAL_INSERT,
 };
+pub use gate::{
+    CaptchaStep, Config, ConnectionMeta, Decision, Gate, ThreatAction, ThreatGate, WorkerPools,
+    RECORD_POOL_SIZE, WORKER_POOL_SIZE,
+};
+pub use suppressed::note_suppressed_refusal;
 // Shared authentication runtime tasks and protocol threat admission (#420).
 use setjoin_pg::{workers::WorkerDatabase, Type};
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -84,16 +87,33 @@ pub fn admit_runtime(rust_on: &str, _go_off: &str) -> Result<bool, String> {
 }
 impl RuntimeTasks {
     pub async fn run(&self) {
+        self.run_until(std::future::pending()).await
+    }
+
+    /// Cooperative graceful-shutdown entrypoint supervised by `setjoind` /
+    /// `WorkerSupervisor` (#549).
+    pub async fn run_until(&self, stop: impl std::future::Future<Output = ()>) {
+        let stop = std::pin::pin!(stop);
+        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+        let mut feed_rx = stop_rx.clone();
+        let mut gc_rx = stop_rx;
         let feed = async {
             let mut ticks = tokio::time::interval(std::time::Duration::from_secs(1800));
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                ticks.tick().await;
-                if let Err(error) = self
-                    .feed_tick("https://www.spamhaus.org/drop/drop.txt")
-                    .await
-                {
-                    eprintln!("auth threat feed refresh: {error}");
+                tokio::select! {
+                    biased;
+                    _ = feed_rx.changed() => return,
+                    _ = ticks.tick() => {}
+                }
+                tokio::select! {
+                    biased;
+                    _ = feed_rx.changed() => return,
+                    res = self.feed_tick("https://www.spamhaus.org/drop/drop.txt") => {
+                        if let Err(error) = res {
+                            eprintln!("auth threat feed refresh: {error}");
+                        }
+                    }
                 }
             }
         };
@@ -102,14 +122,28 @@ impl RuntimeTasks {
             let mut ticks = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
             ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                ticks.tick().await;
-                if let Err(error) = self.cleanup_tick().await {
-                    eprintln!("auth token cleanup: {error}");
+                tokio::select! {
+                    biased;
+                    _ = gc_rx.changed() => return,
+                    _ = ticks.tick() => {}
+                }
+                tokio::select! {
+                    biased;
+                    _ = gc_rx.changed() => return,
+                    res = self.cleanup_tick() => {
+                        if let Err(error) = res {
+                            eprintln!("auth token cleanup: {error}");
+                        }
+                    }
                 }
             }
         };
+        let stopper = async {
+            stop.await;
+            let _ = stop_tx.send(true);
+        };
         // Independent Go goroutines: a slow feed must not delay retention.
-        tokio::join!(feed, gc);
+        tokio::join!(stopper, feed, gc);
     }
 }
 /// Owned process tasks are aborted on every shutdown/error path.

@@ -302,7 +302,7 @@ struct InProcessAuthBundle {
     _saml_listener: Option<setjoin_identity::saml::Listener>,
     _rp_listener: Option<setjoin_identity::rp::Listener>,
     _ca_listener: Option<setjoin_auth::ca::CaListener>,
-    _auth_runtime: Option<setjoin_threat::RuntimeHandle>,
+    auth_runtime: Option<setjoin_threat::RuntimeTasks>,
 }
 
 async fn init_in_process_auth(
@@ -370,9 +370,7 @@ async fn init_in_process_auth(
         let tasks = setjoin_threat::RuntimeTasks::new(&config.dsn, config.worker_dsn.as_deref())
             .map_err(|e| e.to_string())?;
         eprintln!("auth-runtime armed: feed=30m token_gc=1m");
-        Some(setjoin_threat::RuntimeHandle(tokio::spawn(async move {
-            tasks.run().await
-        })))
+        Some(tasks)
     } else {
         None
     };
@@ -415,7 +413,7 @@ async fn init_in_process_auth(
         _saml_listener: saml_listener,
         _rp_listener: rp_listener,
         _ca_listener: ca_listener,
-        _auth_runtime: auth_runtime,
+        auth_runtime,
     })
 }
 
@@ -482,7 +480,13 @@ pub async fn run_subsystems(
 
     // Auth-only mode (`--subsystems=auth`): bind standalone auth listener or Slot::Auth.
     if subsystems.auth && !subsystems.http && !subsystems.protocols && !subsystems.workers {
-        let auth = init_in_process_auth(false, listen_hub.as_ref()).await?;
+        let mut auth = init_in_process_auth(false, listen_hub.as_ref()).await?;
+        let auth_runtime_task = auth.auth_runtime.take().map(|tasks| {
+            let stop = shutdown.clone();
+            tokio::spawn(async move {
+                tasks.run_until(stop.cancelled_owned()).await;
+            })
+        });
         let listener = match activated.auth.take() {
             Some(listener) => listener,
             None => TcpListener::bind(&auth.config_listen)
@@ -557,6 +561,9 @@ pub async fn run_subsystems(
         if let Some(handle) = auth_notify_drain {
             let _ = handle.await;
         }
+        if let Some(handle) = auth_runtime_task {
+            let _ = handle.await;
+        }
         signal_task.abort();
         let _ = signal_task.await;
         drop(auth);
@@ -569,39 +576,79 @@ pub async fn run_subsystems(
 
     // Co-located auth (when `subsystems.auth` is active alongside other subsystems)
     // OR RemoteAuthAuthority (when `subsystems.auth` is false).
-    let (auth_bundle, auth_authority, shared_gate, standalone_auth_listener) = if subsystems.auth {
-        let bundle = init_in_process_auth(subsystems.http, listen_hub.as_ref()).await?;
-        let authority = bundle.authority.clone();
-        let gate = bundle.shared_gate.clone();
-        // In unified mode (`http` + `auth`), `auth` does NOT bind LISTEN_ADDR;
-        // only bind standalone auth if `http` is disabled OR systemd explicitly
-        // passed a dedicated `Slot::Auth` descriptor.
-        let auth_listener = if !subsystems.http {
-            Some(match activated.auth.take() {
-                Some(l) => l,
-                None => TcpListener::bind(&bundle.config_listen)
-                    .await
-                    .map_err(|e| format!("auth listen {}: {e}", bundle.config_listen))?,
-            })
+    let (mut auth_bundle, auth_authority, shared_gate, standalone_auth_listener) =
+        if subsystems.auth {
+            let bundle = init_in_process_auth(subsystems.http, listen_hub.as_ref()).await?;
+            let authority = bundle.authority.clone();
+            let gate = bundle.shared_gate.clone();
+            // In unified mode (`http` + `auth`), `auth` does NOT bind LISTEN_ADDR;
+            // only bind standalone auth if `http` is disabled OR systemd explicitly
+            // passed a dedicated `Slot::Auth` descriptor.
+            let auth_listener = if !subsystems.http {
+                Some(match activated.auth.take() {
+                    Some(l) => l,
+                    None => TcpListener::bind(&bundle.config_listen)
+                        .await
+                        .map_err(|e| format!("auth listen {}: {e}", bundle.config_listen))?,
+                })
+            } else {
+                activated.auth.take()
+            };
+            (Some(bundle), Some(authority), Some(gate), auth_listener)
         } else {
-            activated.auth.take()
+            let remote = if subsystems.http || subsystems.protocols {
+                build_remote_auth_authority()?
+            } else {
+                None
+            };
+            (None, remote, None, None)
         };
-        (Some(bundle), Some(authority), Some(gate), auth_listener)
-    } else {
-        let remote = if subsystems.http || subsystems.protocols {
-            build_remote_auth_authority()?
-        } else {
-            None
-        };
-        (None, remote, None, None)
-    };
 
     // If we have an explicit standalone auth listener alongside other subsystems
     // (e.g. `--subsystems=auth,workers` or explicit `Slot::Auth`), bind and build
     // TLS BEFORE `READY=1`, then pass the serve task into `RuntimeOptions::extra_tasks`
     // so it drains concurrently within the single 30-second shutdown budget BEFORE
     // `listen_hub` shuts down.
-    let mut extra_tasks = Vec::new();
+    // Guard spawned extra tasks (e.g. auth_runtime, standalone auth listener,
+    // notify_drain) so any early boot error cancels and aborts them cleanly
+    // instead of detaching orphan JoinHandles.
+    struct ExtraTasksGuard {
+        shutdown: CancellationToken,
+        handles: Vec<tokio::task::JoinHandle<()>>,
+    }
+    impl ExtraTasksGuard {
+        fn new(shutdown: CancellationToken) -> Self {
+            Self {
+                shutdown,
+                handles: Vec::new(),
+            }
+        }
+        fn push(&mut self, h: tokio::task::JoinHandle<()>) {
+            self.handles.push(h);
+        }
+        fn take(mut self) -> Vec<tokio::task::JoinHandle<()>> {
+            std::mem::take(&mut self.handles)
+        }
+    }
+    impl Drop for ExtraTasksGuard {
+        fn drop(&mut self) {
+            if !self.handles.is_empty() {
+                self.shutdown.cancel();
+                for h in self.handles.drain(..) {
+                    h.abort();
+                }
+            }
+        }
+    }
+
+    let mut extra_tasks = ExtraTasksGuard::new(shutdown.clone());
+    // Absorb `setjoin_threat::RuntimeTasks` into supervised graceful shutdown (#549).
+    if let Some(tasks) = auth_bundle.as_mut().and_then(|b| b.auth_runtime.take()) {
+        let stop = shutdown.clone();
+        extra_tasks.push(tokio::spawn(async move {
+            tasks.run_until(stop.cancelled_owned()).await;
+        }));
+    }
     if let (Some(bundle), Some(listener)) = (&auth_bundle, standalone_auth_listener) {
         let tls = build_auth_tls(bundle.tls_cert.as_deref(), bundle.tls_key.as_deref())?;
         let bound = listener
@@ -653,6 +700,13 @@ pub async fn run_subsystems(
         }
     }
 
+    let schedule_leases = !matches!(
+        std::env::var("SETJOIN_SCHEDULE_LEASES")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("off" | "false" | "0")
+    );
     let options = RuntimeOptions {
         subsystems,
         auth_authority,
@@ -665,9 +719,11 @@ pub async fn run_subsystems(
         shared_threat_gate: shared_gate,
         reload_auth_on_sighup: subsystems.auth,
         drain_timeout: DEFAULT_DRAIN_TIMEOUT,
-        extra_tasks,
+        extra_tasks: extra_tasks.take(),
         always_run_notify_drain: subsystems.workers,
         enable_work_queue: false,
+        use_schedule_leases: subsystems.workers && schedule_leases,
+        require_worker_bypassrls: subsystems.workers,
     };
 
     let result = run_with_options(configuration, options).await;

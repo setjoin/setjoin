@@ -66,6 +66,7 @@ pub mod rtc;
 pub mod runtime;
 pub mod served_stats;
 pub mod smtp_runtime;
+pub mod supervisor;
 pub mod surface;
 pub mod ticket_keys;
 pub mod tls_runtime;

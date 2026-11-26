@@ -24,8 +24,12 @@ use setjoin_pg::{MailboxTx, ReadWrite, Row, ScopedExecutor, StatementFailure, Ty
 #[cfg(feature = "operator")]
 pub mod operator;
 #[cfg(feature = "worker")]
+pub mod schedule;
+#[cfg(feature = "worker")]
 pub mod worker;
 
+#[cfg(feature = "worker")]
+pub use schedule::{ScheduleCredential, ScheduleOutcome, ScheduleRow, ScheduleSpec, ScheduleStore};
 #[cfg(feature = "worker")]
 pub use worker::{
     ClaimSpec, KindCap, ScheduledActionOutcome, WorkConsumerConfig, WorkQueue,

@@ -1074,8 +1074,10 @@ webhook_publication_fanout,webhook_publication_fanout.sql
 webhook_publication_prune,webhook_publication_prune.sql
 webhook_user_changed_publish,webhook_user_changed_publish.sql
 webhook_user_deleted_publish,webhook_user_deleted_publish.sql
+work_cancel_pending,work_queue.sql
 work_enqueue,work_queue.sql
 work_enqueue_app,work_queue.sql
+work_expedite,work_queue.sql
 work_queue_claim,work_queue.sql
 work_queue_complete,work_queue.sql
 work_queue_dlq_inspect,work_queue.sql
@@ -1087,4 +1089,10 @@ work_queue_heartbeat,work_queue.sql
 work_queue_reclaim_expired,work_queue.sql
 work_queue_require_worker,work_queue.sql
 work_queue_stats,work_queue.sql
+work_release,work_queue.sql
 work_truncate_utf8,work_queue.sql
+worker_schedule_claim,worker_schedules.sql
+worker_schedule_complete,worker_schedules.sql
+worker_schedule_heartbeat,worker_schedules.sql
+worker_schedule_register,worker_schedules.sql
+worker_schedule_release,worker_schedules.sql

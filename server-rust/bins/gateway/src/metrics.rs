@@ -13,6 +13,8 @@ pub const PATH: &str = "/_gateway/metrics";
 
 /// 1 when the continuity signing key did not load, so Continuity/* is left to Go (#377).
 pub static CONTINUITY_SIGNER_MISSING: AtomicU64 = AtomicU64::new(0);
+/// Count of un-replayed `blob.worm_arm` items in `work_dead_letters` (Wave 2.2, #549).
+pub static WORM_ARM_DEAD_LETTERS: AtomicU64 = AtomicU64::new(0);
 
 pub struct GoProxies([AtomicU64; 23]);
 
@@ -39,6 +41,10 @@ impl GoProxies {
         body.push_str(&format!(
             "# HELP setjoin_gateway_jmap_continuity_signer_missing 1 when Continuity/* stays with Go because the signing key did not load.\n# TYPE setjoin_gateway_jmap_continuity_signer_missing gauge\nsetjoin_gateway_jmap_continuity_signer_missing {}\n",
             CONTINUITY_SIGNER_MISSING.load(Ordering::Relaxed)
+        ));
+        body.push_str(&format!(
+            "# HELP setjoin_worm_arm_dead_letters Un-replayed dead-lettered S3 WORM retention arming jobs.\n# TYPE setjoin_worm_arm_dead_letters gauge\nsetjoin_worm_arm_dead_letters {}\n",
+            WORM_ARM_DEAD_LETTERS.load(Ordering::Relaxed)
         ));
         Response::builder()
             .header("content-type", "text/plain; version=0.0.4; charset=utf-8")

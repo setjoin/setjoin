@@ -116,6 +116,8 @@ use setjoin_db::lifecycle::{
     accepted_contract, ConnectionDisposition, LifecycleError, Phase, RollbackObservation,
     TransactionLifecycle,
 };
+#[cfg(feature = "worker-pool")]
+use std::time::Duration;
 use std::{marker::PhantomData, sync::Arc, time::Instant};
 use tokio_postgres::{types::Type, Row};
 
@@ -1956,6 +1958,12 @@ pub struct WorkerPool {
     audit_keys: Option<Arc<AuditKeys>>,
 }
 
+/// Maximum per-transaction `statement_timeout` allowed for
+/// [`WorkerPool::begin_read_write_bounded`] (10 minutes, covering long periodic
+/// maintenance tasks such as `chat-purge-expired`).
+#[cfg(feature = "worker-pool")]
+pub const MAX_BOUNDED_WORKER_TIMEOUT: Duration = Duration::from_secs(600);
+
 #[cfg(feature = "worker-pool")]
 impl WorkerPool {
     pub fn from_dsn(dsn: &str, max_size: usize) -> Result<Self, ConfigError> {
@@ -1998,6 +2006,49 @@ impl WorkerPool {
         }
     }
 
+    /// Fail-closed boot check verifying that this worker pool's PostgreSQL role
+    /// holds `rolbypassrls OR rolsuper`.
+    ///
+    /// Returns the verified PostgreSQL role name on success, or refuses with an
+    /// actionable `mailctl schema provision-roles --write-dsns` error when the
+    /// role is constrained by RLS (e.g. `setjoin_app`).
+    pub async fn verify_bypassrls(&self) -> Result<String, StatementFailure> {
+        let mut tx = self.begin_repeatable_read_only().await?;
+        let rows = match tx
+            .query(
+                "SELECT current_user::text, (rolbypassrls OR rolsuper) \
+                 FROM pg_catalog.pg_roles WHERE rolname = current_user",
+                &[],
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(err) => {
+                let _ = tx.rollback().await;
+                return Err(err);
+            }
+        };
+        tx.commit().await?;
+        let Some(row) = rows.first() else {
+            return Err(StatementFailure::refused(
+                "worker role verification returned no rows; run `mailctl schema provision-roles --write-dsns`",
+            ));
+        };
+        let role: String = row
+            .try_get(0)
+            .map_err(|_| StatementFailure::refused("worker role verification: invalid role"))?;
+        let ok: bool = row
+            .try_get(1)
+            .map_err(|_| StatementFailure::refused("worker role verification: invalid flag"))?;
+        if !ok {
+            return Err(StatementFailure::refused_owned(format!(
+                "worker credential role {role:?} lacks BYPASSRLS or superuser; \
+                 run `mailctl schema provision-roles --write-dsns`"
+            )));
+        }
+        Ok(role)
+    }
+
     /// Begin a `BEGIN READ WRITE` worker transaction with empty tenant GUCs
     /// and deployment audit keys.
     pub async fn begin_read_write(&self) -> Result<WorkerTx, StatementFailure> {
@@ -2013,6 +2064,75 @@ impl WorkerPool {
             lease,
             read_only: false,
         })
+    }
+
+    /// Begin a `BEGIN READ WRITE` worker transaction with an explicit per-transaction
+    /// `SET LOCAL statement_timeout` clamped to `1ms..=600s` (bypassing the 2s
+    /// interactive request statement timeout for long-running maintenance tasks).
+    pub async fn begin_read_write_bounded(
+        &self,
+        timeout: Duration,
+    ) -> Result<WorkerTx, StatementFailure> {
+        let clamped = timeout.clamp(Duration::from_millis(1), MAX_BOUNDED_WORKER_TIMEOUT);
+        let preamble = self.worker_preamble();
+        let preamble_step = preamble.to_step()?;
+        let begin_sql = build_begin_sql("BEGIN READ WRITE", clamped, self.pool.plan_cache_hint);
+        let handshake_budget = (self.pool.timeouts.statement * 2).max(Duration::from_secs(5));
+        let deadline = Instant::now() + handshake_budget;
+
+        for attempt in 0..2 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(StatementFailure::refused("worker transaction timed out"));
+            }
+            let lease = self
+                .pool
+                .get()
+                .await
+                .map_err(|_| StatementFailure::refused("worker pool unavailable"))?;
+            let client = lease.client();
+            let begun = tokio::time::timeout(remaining, async {
+                tokio::join!(
+                    biased;
+                    client.batch_execute(&begin_sql),
+                    preamble_step.execute(client),
+                )
+            })
+            .await;
+            match begun {
+                Ok((Ok(()), Ok(_))) => {
+                    return Ok(WorkerTx {
+                        lease,
+                        read_only: false,
+                    });
+                }
+                Ok((Err(e), _)) if attempt == 0 && e.as_db_error().is_none() => {
+                    lease.quarantine();
+                    continue;
+                }
+                Ok((Err(e), _)) => {
+                    lease.quarantine();
+                    return Err(StatementFailure::from_db(&e));
+                }
+                Err(_) => {
+                    lease.quarantine();
+                    return Err(StatementFailure::refused("worker transaction timed out"));
+                }
+                Ok((Ok(()), Err(e))) => {
+                    let failure = StatementFailure::from_db(&e);
+                    if e.as_db_error().is_some()
+                        && matches!(lease.client().batch_execute("ROLLBACK").await, Ok(()))
+                        && !lease.is_closed()
+                    {
+                        lease.keep();
+                    } else {
+                        lease.quarantine();
+                    }
+                    return Err(failure);
+                }
+            }
+        }
+        Err(StatementFailure::refused("worker pool unavailable"))
     }
 
     /// Begin a `BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY` worker

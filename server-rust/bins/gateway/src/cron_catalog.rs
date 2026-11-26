@@ -11,9 +11,9 @@ use crate::workers::Action;
 use setjoin_pg::workers::WorkerDatabase;
 use std::sync::Arc;
 
-/// Which credential a task runs on. Go runs every task on its worker pool; the
-/// two statements that need schema ownership (`REFRESH MATERIALIZED VIEW`, and
-/// partition DDL, which boot also runs on the owner pool) use the owner here.
+/// Which credential a task runs on. Per `scripts/provision-roles.sql`,
+/// `antiphish_contact_graph` is owned by `setjoin_worker`, so only
+/// `create-monthly-partitions` requires the schema-owner credential.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Credential {
     Worker,
@@ -40,7 +40,7 @@ pub const CATALOG: &[(&str, &str, Credential)] = &[
     ("prune-used-password-reset-tokens", "SELECT prune_used_password_reset_tokens()", Credential::Worker),
     ("approval-expire-due", "SELECT approval_expire_due()", Credential::Worker),
     ("health-check", "SELECT health_check()", Credential::Worker),
-    ("refresh-antiphish-contact-graph", "REFRESH MATERIALIZED VIEW antiphish_contact_graph", Credential::Owner),
+    ("refresh-antiphish-contact-graph", "REFRESH MATERIALIZED VIEW antiphish_contact_graph", Credential::Worker),
     ("reset-sending-quotas", "SELECT reset_sending_quotas()", Credential::Worker),
     ("prune-auth-lockouts", "SELECT prune_old_lockouts()", Credential::Worker),
     ("enforce-retention", "SELECT enforce_retention()", Credential::Worker),
@@ -66,6 +66,25 @@ pub const CATALOG: &[(&str, &str, Credential)] = &[
 /// The credential `name` runs on, or None for a task Go does not have.
 pub fn credential(name: &str) -> Option<Credential> {
     CATALOG.iter().find(|(n, ..)| *n == name).map(|(.., c)| *c)
+}
+
+/// The frozen SQL statement for `name`, or None if unknown.
+pub fn statement(name: &str) -> Option<&'static str> {
+    CATALOG
+        .iter()
+        .find(|(n, ..)| *n == name)
+        .map(|(_, sql, _)| *sql)
+}
+
+/// All 30 periodic maintenance tasks supervised under `worker_schedules`
+/// (`dispatch-scheduled-actions` is superseded by the durable `WorkQueue`
+/// promoter from Wave 2.1 #548).
+pub fn supervised_tasks() -> Vec<(&'static str, &'static str, Credential)> {
+    CATALOG
+        .iter()
+        .copied()
+        .filter(|(name, _, _)| *name != "dispatch-scheduled-actions")
+        .collect()
 }
 
 /// The Rust callback for Go cron task `name`, or None when Go has no such task.

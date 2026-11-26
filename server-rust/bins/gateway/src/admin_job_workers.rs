@@ -11,10 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use setjoin_pg::workers::{WorkerConnection, WorkerDatabase};
 use setjoin_pg::Type;
-use std::collections::HashMap;
 use std::future::Future;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 type Error = String;
 
@@ -84,7 +82,9 @@ pub struct BulkRoleJobs {
 impl BulkRoleJobs {
     pub const INTERVAL: Duration = Duration::from_secs(3);
 
-    /// Startup reclaim of rows a crashed server left `running`.
+    /// Frozen-Go parity helper for `admin_job_workers_recorded` only.
+    /// NEVER called at runtime startup (#549): blind `UPDATE ... WHERE status='running'`
+    /// clobbers active jobs on peer HA nodes.
     pub async fn reclaim(&self) -> Result<(), Error> {
         let c = self.db.connect_session().await.map_err(|e| e.to_string())?;
         c.query(
@@ -95,7 +95,46 @@ impl BulkRoleJobs {
         .map(|_| ())
     }
 
-    /// One Go ticker iteration: drain every queued job.
+    /// Execute one specific queued `bulk_role_jobs` row by ID (used by the
+    /// durable `WorkQueue` `admin.bulk_role_apply` consumer, #549).
+    pub async fn process_job_by_id(&self, job_id: i64) -> Result<bool, Error> {
+        let c = self.db.connect_session().await.map_err(|e| e.to_string())?;
+        begin(&c).await?;
+        let rows = match c
+            .query(
+                "SELECT id FROM bulk_role_jobs WHERE id=$1 AND status='queued' FOR UPDATE SKIP LOCKED",
+                &[(&job_id, Type::INT8)],
+            )
+            .await
+        {
+            Ok(rows) => rows,
+            Err(error) => {
+                rollback(&c).await;
+                return Err(error);
+            }
+        };
+        if rows.is_empty() {
+            rollback(&c).await;
+            return Ok(false);
+        }
+        if let Err(error) = c
+            .query(
+                "UPDATE bulk_role_jobs SET status='running', updated_at=now() WHERE id=$1",
+                &[(&job_id, Type::INT8)],
+            )
+            .await
+        {
+            rollback(&c).await;
+            return Err(error);
+        }
+        let applied = c
+            .query_detailed("SELECT bulk_role_job_apply($1)", &[(&job_id, Type::INT8)])
+            .await
+            .map(|_| ());
+        self.settle_applied(&c, job_id, applied).await
+    }
+
+    /// One Go ticker iteration: drain every queued job (legacy drain-then-retire leg).
     pub async fn tick(&self) -> Result<(), Error> {
         let c = self.db.connect_session().await.map_err(|e| e.to_string())?;
         loop {
@@ -124,6 +163,15 @@ impl BulkRoleJobs {
                 return Err(error);
             }
         };
+        self.settle_applied(c, id, applied).await
+    }
+
+    async fn settle_applied(
+        &self,
+        c: &WorkerConnection,
+        id: i64,
+        applied: Result<(), setjoin_pg::StatementFailure>,
+    ) -> Result<bool, Error> {
         match applied {
             Ok(()) => {
                 // The reducer may have set status='error'; only promote running to done.
@@ -187,7 +235,9 @@ impl BulkRoleJobs {
         let Some(row) = rows.first() else {
             return Ok(None);
         };
-        let id: i64 = row.get(0);
+        let id: i64 = row
+            .try_get(0)
+            .map_err(|e| format!("bulkroles: invalid job id: {e}"))?;
         c.query(
             "UPDATE bulk_role_jobs SET status='running',updated_at=now() WHERE id=$1",
             &[(&id, Type::INT8)],
@@ -202,9 +252,6 @@ impl BulkRoleJobs {
 
     pub async fn run_until(self: std::sync::Arc<Self>, stop: impl Future<Output = ()>) {
         eprintln!("bulkroles worker started interval={:?}", Self::INTERVAL);
-        if let Err(error) = self.reclaim().await {
-            eprintln!("bulkroles: failed to reclaim running jobs on startup: {error}");
-        }
         every(Self::INTERVAL, false, stop, || async {
             let _ = self.tick().await;
         })
@@ -214,67 +261,23 @@ impl BulkRoleJobs {
 
 // ------------------------------------------------------- email-address-policy-jobs
 
-const MAX_PERSIST_FAILURES: u32 = 5;
-const BASE_RETRY_BACKOFF: Duration = Duration::from_secs(6);
-const MAX_RETRY_BACKOFF: Duration = Duration::from_secs(300);
-
-#[derive(Default)]
-struct RetryState {
-    attempts: u32,
-    next_retry: Option<Instant>,
-    dead: bool,
-}
-
-/// `email-address-policy-jobs` (Go `eapjobs.Worker`), including the in-memory
-/// backoff and dead-letter budget for jobs whose error cannot be persisted.
+/// `email-address-policy-jobs` (`eap_apply_jobs` status/progress table +
+/// `SKIP LOCKED` legacy drain + durable `WorkQueue` `admin.eap_apply` consumer, #549).
+/// Process-local in-memory DLQ (`failures`) and blind multi-node startup `reclaim()`
+/// are retired.
 pub struct EapJobs {
     pub db: WorkerDatabase,
-    failures: Mutex<HashMap<i64, RetryState>>,
 }
 
 impl EapJobs {
     pub const INTERVAL: Duration = Duration::from_secs(3);
 
     pub fn new(db: WorkerDatabase) -> Self {
-        Self {
-            db,
-            failures: Mutex::new(HashMap::new()),
-        }
+        Self { db }
     }
 
-    fn excluded(&self, now: Instant) -> Vec<i64> {
-        let failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        failures
-            .iter()
-            .filter(|(_, s)| s.dead || s.next_retry.is_some_and(|t| now < t))
-            .map(|(id, _)| *id)
-            .collect()
-    }
-
-    fn note_failure(&self, now: Instant, job: i64) {
-        let mut failures = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        let state = failures.entry(job).or_default();
-        state.attempts += 1;
-        let shift = (state.attempts - 1).min(20);
-        let backoff = BASE_RETRY_BACKOFF
-            .checked_mul(1u32 << shift)
-            .filter(|b| *b <= MAX_RETRY_BACKOFF)
-            .unwrap_or(MAX_RETRY_BACKOFF);
-        state.next_retry = Some(now + backoff);
-        if state.attempts >= MAX_PERSIST_FAILURES {
-            state.dead = true;
-            eprintln!("eapjobs: job {job} dead-lettered after repeated error-persist failures; it will not be re-claimed until restart");
-        }
-    }
-
-    fn clear_failure(&self, job: i64) {
-        self.failures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&job);
-    }
-
-    /// Startup reclaim, as Go's `Run` prologue.
+    /// Frozen-Go parity helper for `admin_job_workers_recorded` only.
+    /// NEVER called at runtime startup (#549).
     pub async fn reclaim(&self) -> Result<(), Error> {
         let c = self.db.connect_session().await.map_err(|e| e.to_string())?;
         c.query(
@@ -285,7 +288,36 @@ impl EapJobs {
         .map(|_| ())
     }
 
-    /// One Go ticker iteration: drain queued jobs, stopping on the first error.
+    /// Execute one specific queued `eap_apply_jobs` row by ID (used by the
+    /// durable `WorkQueue` `admin.eap_apply` consumer, #549).
+    pub async fn process_job_by_id(&self, job_id: i64) -> Result<bool, Error> {
+        let c = self.db.connect_session().await.map_err(|e| e.to_string())?;
+        begin(&c)
+            .await
+            .map_err(|e| format!("eapjobs: begin tx: {e}"))?;
+        let claim = c
+            .query(
+                "UPDATE eap_apply_jobs SET status = 'running', updated_at = now() \
+                 WHERE id = (SELECT id FROM eap_apply_jobs WHERE id = $1 AND status = 'queued' FOR UPDATE SKIP LOCKED) \
+                 RETURNING id, policy_id",
+                &[(&job_id, Type::INT8)],
+            )
+            .await;
+        let rows = match claim {
+            Ok(rows) => rows,
+            Err(error) => {
+                rollback(&c).await;
+                return Err(format!("eapjobs: claim job: {error}"));
+            }
+        };
+        let Some(row) = rows.first() else {
+            rollback(&c).await;
+            return Ok(false);
+        };
+        self.apply_claimed(&c, row).await
+    }
+
+    /// One Go ticker iteration: drain queued jobs via `FOR UPDATE SKIP LOCKED`.
     pub async fn tick(&self) -> Result<(), Error> {
         let c = self.db.connect_session().await.map_err(|e| e.to_string())?;
         loop {
@@ -299,11 +331,12 @@ impl EapJobs {
         begin(c)
             .await
             .map_err(|e| format!("eapjobs: begin tx: {e}"))?;
-        let excluded = self.excluded(Instant::now());
         let claim = c
             .query(
-                "UPDATE eap_apply_jobs SET status = 'running', updated_at = now() WHERE id = ( SELECT id FROM eap_apply_jobs WHERE status = 'queued' AND NOT (id = ANY($1)) ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1 ) RETURNING id, policy_id",
-                &[(&excluded, Type::INT8_ARRAY)],
+                "UPDATE eap_apply_jobs SET status = 'running', updated_at = now() \
+                 WHERE id = ( SELECT id FROM eap_apply_jobs WHERE status = 'queued' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1 ) \
+                 RETURNING id, policy_id",
+                &[],
             )
             .await;
         let rows = match claim {
@@ -317,8 +350,28 @@ impl EapJobs {
             rollback(c).await;
             return Ok(false);
         };
-        let job: i64 = row.get(0);
-        let policy: Option<i64> = row.get(1);
+        self.apply_claimed(c, row).await
+    }
+
+    async fn apply_claimed(
+        &self,
+        c: &WorkerConnection,
+        row: &setjoin_pg::Row,
+    ) -> Result<bool, Error> {
+        let job: i64 = match row.try_get(0) {
+            Ok(id) => id,
+            Err(e) => {
+                rollback(c).await;
+                return Err(format!("eapjobs: invalid job id: {e}"));
+            }
+        };
+        let policy: Option<i64> = match row.try_get(1) {
+            Ok(policy) => policy,
+            Err(e) => {
+                rollback(c).await;
+                return Err(format!("eapjobs: invalid policy_id: {e}"));
+            }
+        };
 
         // Total up front: the bulk apply sweeps every policy-enabled primary mailbox.
         match c
@@ -329,15 +382,16 @@ impl EapJobs {
             .await
         {
             Ok(rows) => {
-                let total: i32 = rows[0].get(0);
-                if let Err(error) = c
-                    .query(
-                        "UPDATE eap_apply_jobs SET total=$2 WHERE id=$1",
-                        &[(&job, Type::INT8), (&total, Type::INT4)],
-                    )
-                    .await
-                {
-                    eprintln!("eapjobs: failed to set initial total job={job}: {error}");
+                if let Some(total) = rows.first().and_then(|r| r.try_get::<_, i32>(0).ok()) {
+                    if let Err(error) = c
+                        .query(
+                            "UPDATE eap_apply_jobs SET total=$2 WHERE id=$1",
+                            &[(&job, Type::INT8), (&total, Type::INT4)],
+                        )
+                        .await
+                    {
+                        eprintln!("eapjobs: failed to set initial total job={job}: {error}");
+                    }
                 }
             }
             Err(error) => {
@@ -352,22 +406,21 @@ impl EapJobs {
             )
             .await;
         let applied: i32 = match applied {
-            Ok(rows) => rows[0].get(0),
+            Ok(rows) => rows
+                .first()
+                .and_then(|r| r.try_get::<_, i32>(0).ok())
+                .unwrap_or(0),
             Err(error) => {
                 // The transaction is aborted: record the failure on a clean statement.
                 rollback(c).await;
-                match c
+                if let Err(update) = c
                     .query(
                         "UPDATE eap_apply_jobs SET status = 'error', error = $2, updated_at = now() WHERE id = $1",
                         &[(&job, Type::INT8), (&error, Type::TEXT)],
                     )
                     .await
                 {
-                    Ok(_) => self.clear_failure(job),
-                    Err(update) => {
-                        eprintln!("eapjobs: failed to mark job as error job={job}: {update} (reducer {error})");
-                        self.note_failure(Instant::now(), job);
-                    }
+                    eprintln!("eapjobs: failed to mark job as error job={job}: {update} (reducer {error})");
                 }
                 eprintln!("eapjobs: reducer failed job={job} policy={policy:?}: {error}");
                 return Err(error);
@@ -386,16 +439,12 @@ impl EapJobs {
         commit(c)
             .await
             .map_err(|e| format!("eapjobs: commit: {e}"))?;
-        self.clear_failure(job);
         eprintln!("eapjobs: job completed job={job} policy={policy:?} applied={applied}");
         Ok(true)
     }
 
     pub async fn run_until(self: std::sync::Arc<Self>, stop: impl Future<Output = ()>) {
         eprintln!("eap apply worker started interval={:?}", Self::INTERVAL);
-        if let Err(error) = self.reclaim().await {
-            eprintln!("eapjobs: failed to reclaim running jobs on startup: {error}");
-        }
         every(Self::INTERVAL, false, stop, || async {
             let _ = self.tick().await;
         })

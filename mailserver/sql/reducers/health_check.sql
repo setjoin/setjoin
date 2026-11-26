@@ -21,6 +21,7 @@ DECLARE
   v_secevents_failed INT;
   v_secevents_age    NUMERIC;
   v_wq_dlq           BIGINT;
+  v_worm_dlq         BIGINT;
   v_wq_due_age_m     NUMERIC;
   v_notify_backlog   BIGINT;
   v_esc_window_min   INT;
@@ -182,6 +183,19 @@ BEGIN
     'Un-replayed dead-lettered work items (inspect/replay via mailctl work dlq)'
   );
 
+  -- 3h2. Durable S3 WORM arming dead-letter count (Wave 2.2, #549)
+  SELECT COUNT(*) INTO v_worm_dlq
+  FROM work_dead_letters WHERE kind = 'blob.worm_arm' AND replayed_at IS NULL;
+
+  INSERT INTO health_history (check_name, status, value, threshold, details) VALUES (
+    'worm_arm_dead_letters',
+    CASE WHEN v_worm_dlq > COALESCE(get_hc_config('hc_worm_arm_dlq_error', 0), 0) THEN 'error'
+         ELSE 'ok' END,
+    v_worm_dlq,
+    COALESCE(get_hc_config('hc_worm_arm_dlq_error', 0), 0),
+    'Un-replayed dead-lettered S3 WORM retention arming jobs (inspect/replay via mailctl work dlq --kind blob.worm_arm)'
+  );
+
   -- 3i. Durable WorkQueue oldest due item age in minutes (Wave 2.1, #548)
   SELECT COALESCE(EXTRACT(EPOCH FROM (now() - MIN(run_at)))/60, 0)
   INTO v_wq_due_age_m
@@ -330,7 +344,8 @@ BEGIN
           'outbound_queue_depth',
           'security_event_outbox_failed',
           'security_event_outbox_pending_age_minutes',
-          'work_queue_dead_letters')
+          'work_queue_dead_letters',
+          'worm_arm_dead_letters')
     ),
     streaks AS (
       -- Current consecutive-error streak per check: an error row counts only

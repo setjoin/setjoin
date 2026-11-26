@@ -198,7 +198,7 @@ the affected targets and default guards with assigned full-schema owner/app
 DSNs, `REQUIRE_DB=1`, task-owned target and two Cargo jobs. Never treat a DB skip
 as pass.
 
-## Security (#531 F3)
-Security (#531 F3, owner-approved 2026-11-06): `blob-cleanup` checks at startup (`BlobCleanup::worker_bypasses_rls`, `pg_roles.rolbypassrls OR rolsuper` for `current_user`) that the worker credential is not filtered by row security, logs and refuses to run otherwise (its global `ref_count`/`messages.raw_ref` re-checks must see every tenant). `DB_WORKER_DSN` (or `DB_DSN` when unset) must therefore be `setjoin_worker`/BYPASSRLS. A transient check failure retries each tick. Mutant `blob-cleanup-no-bypass-check`; test `blob_cleanup_refuses_a_credential_without_bypassrls`.
+## Security (#531 F3, #549)
+Security (#531 F3, owner-approved 2026-11-06; unified in Wave 2.2 #549): `WorkerSupervisor::boot` checks at startup (`WorkerPool::verify_bypassrls`, `pg_roles.rolbypassrls OR rolsuper` for `current_user`) that the worker credential is not filtered by row security, failing closed BEFORE `READY=1` otherwise (so `blob-cleanup`'s global `ref_count`/`messages.raw_ref` re-checks and all other supervised workers see every tenant). `DB_WORKER_DSN` (or `DB_DSN` when unset) must therefore be `setjoin_worker`/BYPASSRLS. Mutant `blob-cleanup-no-bypass-check`; test `blob_cleanup_refuses_a_credential_without_bypassrls`.
 
 Foundation receipts / protected audits and the WORM retry handoff qualification (#419): [RECEIPTS.md](RECEIPTS.md).

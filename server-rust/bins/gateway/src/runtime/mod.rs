@@ -52,11 +52,24 @@ pub struct RuntimeOptions {
     /// `subsystems.workers` (false in legacy `setjoin-server` unless opted in via
     /// `RUST_WORKERS_ON=work-queue`).
     pub enable_work_queue: bool,
+    /// Use distributed `SKIP LOCKED` `worker_schedules` leases instead of legacy
+    /// session advisory locks (`SETJOIN_SCHEDULE_LEASES=on|off`).
+    pub use_schedule_leases: bool,
+    /// Run fail-closed `WorkerSupervisor::boot` `BYPASSRLS` check BEFORE `READY=1`
+    /// whenever `subsystems.workers` is active with a database DSN (#549).
+    pub require_worker_bypassrls: bool,
 }
 
 impl RuntimeOptions {
     /// Legacy `setjoin-server` defaults.
     pub fn legacy(activated: Activated, sd_notify: SdNotify) -> Self {
+        let schedule_leases = matches!(
+            std::env::var("SETJOIN_SCHEDULE_LEASES")
+                .ok()
+                .as_deref()
+                .map(str::trim),
+            Some("on" | "true" | "1")
+        );
         Self {
             subsystems: Subsystems::ALL,
             auth_authority: None,
@@ -76,6 +89,9 @@ impl RuntimeOptions {
             always_run_notify_drain: !(std::env::var("RUST_WORKERS_ON").as_deref() == Ok("")
                 && workers::listed("GO_WORKERS_OFF", crate::notify_drain::NAME)),
             enable_work_queue: false,
+            use_schedule_leases: schedule_leases,
+            require_worker_bypassrls: schedule_leases
+                || workers::listed("RUST_WORKERS_ON", crate::blob_cleanup::NAME),
         }
     }
 }
@@ -193,8 +209,35 @@ pub fn run_legacy_cli() -> ExitCode {
 /// activation, `sd_notify`, and a unified concurrent graceful drain.
 pub async fn run_with_options(
     configuration: Arc<crate::configuration::Runtime>,
-    options: RuntimeOptions,
+    mut options: RuntimeOptions,
 ) -> Result<(), String> {
+    // Guard caller-provided extra_tasks (e.g. setjoind auth_runtime / standalone
+    // auth listener) so any early boot failure cancels shutdown and aborts them
+    // cleanly instead of leaving detached JoinHandles running.
+    struct ExtraTasksGuard {
+        shutdown: CancellationToken,
+        handles: Vec<tokio::task::JoinHandle<()>>,
+    }
+    impl ExtraTasksGuard {
+        fn take(mut self) -> Vec<tokio::task::JoinHandle<()>> {
+            std::mem::take(&mut self.handles)
+        }
+    }
+    impl Drop for ExtraTasksGuard {
+        fn drop(&mut self) {
+            if !self.handles.is_empty() {
+                self.shutdown.cancel();
+                for h in self.handles.drain(..) {
+                    h.abort();
+                }
+            }
+        }
+    }
+    let extra_tasks_guard = ExtraTasksGuard {
+        shutdown: options.shutdown.clone(),
+        handles: std::mem::take(&mut options.extra_tasks),
+    };
+
     let subsystems = options.subsystems;
     if subsystems.is_empty() {
         return Err("at least one subsystem must be enabled".into());
@@ -365,8 +408,8 @@ pub async fn run_with_options(
     } else {
         None
     };
-    let push_drain = if subsystems.workers {
-        workers::push_drain_worker()?
+    let mut push_drain = if subsystems.workers {
+        workers::push_drain_worker()?.map(Arc::new)
     } else {
         None
     };
@@ -420,11 +463,164 @@ pub async fn run_with_options(
     } else {
         None
     };
-    let cron = if subsystems.workers {
+    let mut admin_jobs = if subsystems.workers {
+        Some(workers::admin_job_workers()?)
+    } else {
+        None
+    };
+    let hub_reserve = if options.listen_hub.is_some() {
+        Duration::from_secs(2)
+    } else {
+        Duration::ZERO
+    };
+    let s3_configured = std::env::var("S3_ENDPOINT")
+        .or_else(|_| std::env::var("MINIO_ENDPOINT"))
+        .ok()
+        .is_some_and(|s| !s.is_empty());
+    let worm_enabled = matches!(
+        crate::blob_retention::config(),
+        crate::blob_retention::Config::On(_)
+    );
+    let need_supervisor = subsystems.workers
+        && (options.require_worker_bypassrls
+            || options.use_schedule_leases
+            || work_queue.is_some()
+            || blob_cleanup.is_some()
+            || (s3_configured && worm_enabled)
+            || push_drain.is_some()
+            || admin_jobs
+                .as_ref()
+                .is_some_and(|a| a.bulk.is_some() || a.eap.is_some()));
+
+    // Wave 2.2 (#549): fail-closed WorkerSupervisor::boot() BYPASSRLS check
+    // BEFORE spawning any worker task or signalling READY=1.
+    let mut supervisor = if need_supervisor {
+        if let Some(request_dsn) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) {
+            let worker_dsn = std::env::var("DB_WORKER_DSN")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(request_dsn);
+            let owner_dsn = std::env::var("DB_OWNER_DSN").ok().filter(|s| !s.is_empty());
+            let sup_drain = options
+                .drain_timeout
+                .saturating_sub(hub_reserve)
+                .max(Duration::from_millis(200));
+            let sup_cfg = crate::supervisor::SupervisorConfig::new(worker_dsn)
+                .with_owner_dsn(owner_dsn)
+                .with_audit_keys(
+                    std::env::var("DB_ENCRYPTION_KEY").unwrap_or_default(),
+                    std::env::var("AUDIT_HMAC_KEY").unwrap_or_default(),
+                )
+                .with_listen_hub(options.listen_hub.clone())
+                .with_drain_timeout(sup_drain);
+            Some(crate::supervisor::WorkerSupervisor::boot(sup_cfg).await?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let cron = if subsystems.workers && !options.use_schedule_leases {
         workers::cron_scheduler(work_queue.is_some()).await?
     } else {
         None
     };
+    if let Some(sup) = supervisor.as_mut() {
+        let mut wq_consumer_spawned = false;
+        if options.use_schedule_leases {
+            let configured = std::env::var("RUST_WORKERS_ON").unwrap_or_default();
+            let requested: Vec<&str> = configured
+                .split(',')
+                .map(str::trim)
+                .filter_map(|name| name.strip_prefix("cron:"))
+                .filter(|name| !(work_queue.is_some() && *name == "dispatch-scheduled-actions"))
+                .collect();
+            if !requested.is_empty() {
+                let mut tasks = Vec::new();
+                for name in requested {
+                    let Some((spec_str, timeout_secs)) = crate::workers::go_task_spec(name) else {
+                        return Err(format!("cron:{name} has no Rust implementation yet"));
+                    };
+                    let Some(sql) = crate::cron_catalog::statement(name) else {
+                        return Err(format!("cron:{name} has no Rust implementation yet"));
+                    };
+                    let cred = match crate::cron_catalog::credential(name)
+                        .unwrap_or(crate::cron_catalog::Credential::Worker)
+                    {
+                        crate::cron_catalog::Credential::Worker => {
+                            setjoin_workqueue::ScheduleCredential::Worker
+                        }
+                        crate::cron_catalog::Credential::Owner => {
+                            setjoin_workqueue::ScheduleCredential::Owner
+                        }
+                    };
+                    tasks.push(crate::supervisor::schedule::ScheduledTask {
+                        spec: setjoin_workqueue::ScheduleSpec {
+                            task_name: name.to_owned(),
+                            schedule_spec: spec_str,
+                            timeout_secs: timeout_secs.clamp(1, 600) as i32,
+                            schedule_tz: "UTC".to_owned(),
+                            credential: cred,
+                        },
+                        handler: crate::supervisor::schedule::ScheduleHandler::Sql {
+                            sql,
+                            credential: cred,
+                        },
+                    });
+                }
+                let runner = crate::supervisor::schedule::ScheduleRunner::new(
+                    tasks,
+                    crate::supervisor::schedule::ScheduleRunnerConfig::default(),
+                );
+                runner.register_all(&sup.ctx().schedule_store).await?;
+                sup.spawn("schedule-runner", move |ctx| runner.run(ctx));
+            }
+        }
+        // Durable WORM arming & S3 reap retry consumers when S3 storage is configured
+        // and any of blob-cleanup, work-queue, or WORM retention is active.
+        if (blob_cleanup.is_some() || work_queue.is_some() || worm_enabled) && s3_configured {
+            if let Ok(store) = crate::recovery_worker::S3Store::from_env() {
+                let store = Arc::new(store);
+                let worm_consumer = crate::supervisor::worm::WormArmConsumer::new(store.clone());
+                sup.spawn("worm-arm-consumer", move |ctx| worm_consumer.run(ctx));
+                let reap_consumer = crate::supervisor::worm::BlobReapRetryConsumer::new(store);
+                sup.spawn("blob-reap-retry-consumer", move |ctx| {
+                    reap_consumer.run(ctx)
+                });
+                wq_consumer_spawned = true;
+            }
+        }
+        // Wire durable WorkQueue + legacy SKIP LOCKED drain consumer for
+        // bulk_role_jobs, eap_apply_jobs, and guest_notification_intents,
+        // taking ownership so standalone loops are not duplicated.
+        let sup_bulk = admin_jobs.as_mut().and_then(|a| a.bulk.take());
+        let sup_eap = admin_jobs.as_mut().and_then(|a| a.eap.take());
+        let sup_push = push_drain.take();
+        if sup_bulk.is_some() || sup_eap.is_some() || sup_push.is_some() {
+            let legacy_consumer =
+                crate::supervisor::legacy::LegacyJobDrainConsumer::new(sup_bulk, sup_eap, sup_push);
+            sup.spawn("legacy-job-drain", move |ctx| legacy_consumer.run(ctx));
+            wq_consumer_spawned = true;
+        }
+        // Reclaim expired WorkQueue leases whenever supervised WorkQueue
+        // consumers are active without the standalone `work-queue` worker.
+        if wq_consumer_spawned && work_queue.is_none() {
+            sup.spawn("work-reclaim-expired", |ctx| async move {
+                let mut tick = tokio::time::interval(Duration::from_secs(10));
+                tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    tokio::select! {
+                        biased;
+                        _ = ctx.cancel.cancelled() => return Ok(()),
+                        _ = tick.tick() => {
+                            let _ = ctx.work_queue.reclaim_expired(100).await;
+                        }
+                    }
+                }
+            });
+        }
+    }
     let ldap = if subsystems.http || subsystems.workers {
         workers::ldap_runtime()?
     } else {
@@ -437,11 +633,6 @@ pub async fn run_with_options(
     };
     let identity_workers = if subsystems.workers {
         Some(workers::identity_workers()?)
-    } else {
-        None
-    };
-    let admin_jobs = if subsystems.workers {
-        Some(workers::admin_job_workers()?)
     } else {
         None
     };
@@ -1311,37 +1502,58 @@ pub async fn run_with_options(
         },
     }
 
-    // Unified concurrent shutdown drain bounded by `options.drain_timeout` (30s).
+    // Unified single-deadline graceful shutdown (Wave 2.2 #549):
+    //   T0          : STOPPING=1, cancel stop_claiming (stops new claims immediately)
+    //   T0 -> T0+25s: cooperative settlement across HTTP, workers, extra_tasks, supervisor
+    //   T0+25..28s  : abort stragglers, reap handles, release tracked safe leases
+    //   <= T0+30s   : bounded ListenHub::shutdown() before hard exit ceiling
+    let t0 = std::time::Instant::now();
+    let hard_deadline = t0 + options.drain_timeout;
+    let coop_budget = if options.drain_timeout >= Duration::from_secs(30) {
+        Duration::from_secs(25)
+    } else {
+        options
+            .drain_timeout
+            .mul_f64(25.0 / 30.0)
+            .max(Duration::from_millis(50))
+    };
+
     let _ = options.sd_notify.notify_stopping();
     let _ = watch_stop_tx.send(true);
     let listen_hub_shutdown = options.listen_hub;
-    let mut extra_tasks = options.extra_tasks;
-    let drain_result = tokio::time::timeout(options.drain_timeout, async {
-        let mut first_error: Option<String> = None;
+    let mut extra_tasks = extra_tasks_guard.take();
+
+    let mut first_error: Option<String> = None;
+    let sup_shutdown_handle =
+        supervisor.map(|sup| tokio::spawn(async move { sup.shutdown().await }));
+
+    let coop_result = tokio::time::timeout(coop_budget, async {
         let http_drain = async {
             if !serving_done {
                 serving.await;
             }
         };
         let bg_drain = async {
+            let mut bg_err: Option<String> = None;
             while let Some(joined) = bg_tasks.join_next().await {
                 match joined {
                     Ok((_, Ok(()))) => {}
                     Ok((name, Err(err))) => {
-                        if first_error.is_none() {
-                            first_error = Some(format!("{name}: {err}"));
+                        if bg_err.is_none() {
+                            bg_err = Some(format!("{name}: {err}"));
                         }
                     }
                     Err(err) => {
-                        if first_error.is_none() {
-                            first_error = Some(format!("background task join error: {err}"));
+                        if bg_err.is_none() {
+                            bg_err = Some(format!("background task join error: {err}"));
                         }
                     }
                 }
             }
+            bg_err
         };
         let extra_drain = async {
-            for handle in extra_tasks.iter_mut() {
+            while let Some(handle) = extra_tasks.pop() {
                 let _ = handle.await;
             }
         };
@@ -1362,7 +1574,7 @@ pub async fn run_with_options(
                 dispatcher.shutdown().await;
             }
         };
-        tokio::join!(
+        let (_, bg_err, _, _, _, _) = tokio::join!(
             http_drain,
             bg_drain,
             extra_drain,
@@ -1370,31 +1582,79 @@ pub async fn run_with_options(
             tls_drain,
             webhook_drain
         );
-        if let Some(hub) = listen_hub_shutdown {
-            hub.shutdown().await;
-        }
-        first_error
+        bg_err
     })
     .await;
 
-    match drain_result {
-        Ok(Some(err)) => {
-            eprintln!("setjoin-gateway: shutting down (with error: {err})");
-            return Err(err);
-        }
+    match coop_result {
+        Ok(Some(err)) => first_error = Some(err),
         Ok(None) => {}
         Err(_) => {
             eprintln!(
-                "setjoin-gateway: unified shutdown drain expired after {:?}; aborting remaining tasks",
-                options.drain_timeout
+                "setjoin-gateway: cooperative drain expired after {:?}; aborting remaining tasks within {:?} ceiling",
+                coop_budget, options.drain_timeout
             );
             bg_tasks.abort_all();
-            while bg_tasks.join_next().await.is_some() {}
-            for handle in extra_tasks {
+            let reap_budget = hard_deadline
+                .saturating_duration_since(std::time::Instant::now())
+                .min(Duration::from_secs(2));
+            let _ = tokio::time::timeout(reap_budget, async {
+                while bg_tasks.join_next().await.is_some() {}
+                for handle in extra_tasks {
+                    if !handle.is_finished() {
+                        handle.abort();
+                        let _ = handle.await;
+                    }
+                }
+            })
+            .await;
+        }
+    }
+
+    // Await WorkerSupervisor shutdown (which handles its own abort + safe-lease release)
+    // using the full remaining deadline minus the ListenHub teardown reserve (no 4s clamp).
+    if let Some(mut handle) = sup_shutdown_handle {
+        let sup_budget = hard_deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .saturating_sub(hub_reserve);
+        match tokio::time::timeout(sup_budget, &mut handle).await {
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(err))) => {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+            Ok(Err(err)) => {
+                if first_error.is_none() {
+                    first_error = Some(format!("worker supervisor join error: {err}"));
+                }
+            }
+            Err(_) => {
                 handle.abort();
-                let _ = handle.await;
+                let post_abort = hard_deadline
+                    .saturating_duration_since(std::time::Instant::now())
+                    .saturating_sub(hub_reserve)
+                    .min(Duration::from_millis(500));
+                if !post_abort.is_zero() {
+                    let _ = tokio::time::timeout(post_abort, &mut handle).await;
+                }
             }
         }
+    }
+
+    // Tear down shared ListenHub before the hard 30s ceiling.
+    if let Some(hub) = listen_hub_shutdown {
+        let hub_budget = hard_deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .min(Duration::from_secs(2));
+        if !hub_budget.is_zero() {
+            let _ = tokio::time::timeout(hub_budget, hub.shutdown()).await;
+        }
+    }
+
+    if let Some(err) = first_error {
+        eprintln!("setjoin-gateway: shutting down (with error: {err})");
+        return Err(err);
     }
 
     eprintln!("setjoin-gateway: shutting down");
