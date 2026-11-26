@@ -943,4 +943,163 @@ mod basic_tests {
         })
         .await
     }
+
+    #[tokio::test]
+    async fn rrule_put_validation_rejects_unsupported_and_accepts_rfc5545_vectors(
+    ) -> Result<(), BoxError> {
+        with_fixture(|owner, exec, keys, a, _email| async move {
+            let cal_id: i64 = owner
+                .query_one(
+                    "INSERT INTO calendars(mailbox_id,name,timezone,is_default) \
+                     VALUES($1,'CalDAV RRULE','UTC',true) RETURNING id",
+                    &[&a.mailbox],
+                )
+                .await?
+                .get(0);
+            let route = CalDavRoute::new(exec, keys, "mailserver".into()).await;
+            let (addr, server) = spawn_gateway(None, route).await?;
+            let bearer = format!("Bearer {}", common::recovery_token(a.user));
+
+            let put_ics = |uid: &str, ics: String| {
+                let bearer = bearer.clone();
+                let uri = format!("/caldav/{cal_id}/{uid}.ics");
+                async move {
+                    let req = Request::builder()
+                        .method("PUT")
+                        .uri(uri)
+                        .header("host", "mail.test")
+                        .header("authorization", bearer)
+                        .header("content-type", "text/calendar; charset=utf-8")
+                        .body(common::full(ics))?;
+                    let resp = common::send(addr, req).await;
+                    let status = resp.status().as_u16();
+                    let content_type = resp
+                        .headers()
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_owned();
+                    let body = String::from_utf8(common::body_bytes(resp).await.to_vec())?;
+                    Ok::<_, BoxError>((status, content_type, body))
+                }
+            };
+
+            // Unsupported RRULEs must be rejected with 400 + CalDAV XML error without touching DB.
+            for (uid, prop_line, expected_token) in [
+                ("bad-hourly", "RRULE:FREQ=HOURLY;COUNT=3", "HOURLY"),
+                (
+                    "bad-minutely",
+                    "RRULE:FREQ=MINUTELY;INTERVAL=15",
+                    "MINUTELY",
+                ),
+                ("bad-secondly", "RRULE:FREQ=SECONDLY;COUNT=5", "SECONDLY"),
+                (
+                    "bad-dup-freq",
+                    "RRULE:FREQ=HOURLY;FREQ=DAILY;COUNT=3",
+                    "Duplicate FREQ",
+                ),
+                ("bad-byhour", "RRULE:FREQ=DAILY;BYHOUR=9,17", "BYHOUR"),
+                ("bad-lower-rrule", "rrule:BYHOUR=9;FREQ=DAILY", "BYHOUR"),
+                ("bad-bare-rrule", "rrule:", "FREQ"),
+                ("bad-byminute", "RRULE:FREQ=DAILY;BYMINUTE=30", "BYMINUTE"),
+                ("bad-bysecond", "RRULE:FREQ=DAILY;BYSECOND=0", "BYSECOND"),
+                ("bad-byeaster", "RRULE:FREQ=YEARLY;BYEASTER=1", "BYEASTER"),
+            ] {
+                let ics = format!(
+                    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n\
+                     UID:{uid}\r\nSUMMARY:Bad RRULE\r\n\
+                     DTSTART:19970902T090000Z\r\nDTEND:19970902T100000Z\r\n\
+                     {prop_line}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+                );
+                let (status, ct, body) = put_ics(uid, ics).await?;
+                assert_eq!(
+                    status, 400,
+                    "{prop_line}: unexpected status {status} body={body}"
+                );
+                assert!(
+                    ct.contains("application/xml"),
+                    "{prop_line}: expected XML content-type, got {ct}"
+                );
+                assert!(
+                    body.contains("<c:valid-calendar-data/>"),
+                    "{prop_line}: missing valid-calendar-data tag in {body}"
+                );
+                assert!(
+                    body.contains("<d:responsedescription>") && body.contains(expected_token),
+                    "{prop_line}: missing description for {expected_token} in {body}"
+                );
+                let count: i64 = owner
+                    .query_one(
+                        "SELECT count(*) FROM calendar_events WHERE calendar_id=$1 AND uid=$2",
+                        &[&cal_id, &uid],
+                    )
+                    .await?
+                    .get(0);
+                assert_eq!(
+                    count, 0,
+                    "{prop_line}: rejected PUT must not insert DB rows"
+                );
+            }
+
+            // Valid RFC 5545 vectors (DATE-form UNTIL, inclusive UNTIL, WKST=SU, lowercase rrule:) must succeed.
+            for (uid, dtstart, dtend, prop_line, expected_stored) in [
+                (
+                    "ok-date-until",
+                    "DTSTART;VALUE=DATE:19970902",
+                    "DTEND;VALUE=DATE:19970903",
+                    "RRULE:FREQ=DAILY;UNTIL=19970905",
+                    "FREQ=DAILY;UNTIL=19970905",
+                ),
+                (
+                    "ok-inclusive-until",
+                    "DTSTART:19970902T090000Z",
+                    "DTEND:19970902T100000Z",
+                    "RRULE:FREQ=DAILY;UNTIL=19970904T090000Z",
+                    "FREQ=DAILY;UNTIL=19970904T090000Z",
+                ),
+                (
+                    "ok-wkst-su",
+                    "DTSTART:19970902T090000Z",
+                    "DTEND:19970902T100000Z",
+                    "RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU;COUNT=3",
+                    "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU;COUNT=3",
+                ),
+                (
+                    "ok-lower-rrule",
+                    "DTSTART:19970902T090000Z",
+                    "DTEND:19970902T100000Z",
+                    "rrule:FREQ=DAILY;COUNT=3",
+                    "rrule:FREQ=DAILY;COUNT=3",
+                ),
+            ] {
+                let ics = format!(
+                    "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\n\
+                     UID:{uid}\r\nSUMMARY:Valid RRULE\r\n\
+                     {dtstart}\r\n{dtend}\r\n\
+                     {prop_line}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+                );
+                let (status, _, body) = put_ics(uid, ics).await?;
+                assert_eq!(
+                    status, 201,
+                    "{prop_line}: expected 201, got {status} body={body}"
+                );
+                let stored: String = owner
+                    .query_one(
+                        "SELECT rrule FROM calendar_events WHERE calendar_id=$1 AND uid=$2",
+                        &[&cal_id, &uid],
+                    )
+                    .await?
+                    .get(0);
+                assert_eq!(stored, expected_stored);
+            }
+
+            server.abort();
+            let _ = server.await;
+            owner
+                .execute("DELETE FROM calendars WHERE id=$1", &[&cal_id])
+                .await?;
+            Ok(())
+        })
+        .await
+    }
 }

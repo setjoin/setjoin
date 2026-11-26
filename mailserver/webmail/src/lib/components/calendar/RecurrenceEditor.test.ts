@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte/svelte5';
 import RecurrenceEditor from './RecurrenceEditor.svelte';
-import { buildRrule } from '$lib/calendar/rrule';
+import { buildRrule, parseRrule } from '$lib/calendar/rrule';
 import type { RecurrenceParts } from '$lib/calendar/rrule';
 
 describe('RecurrenceEditor', () => {
@@ -74,5 +74,23 @@ describe('RecurrenceEditor', () => {
 		await fireEvent.input(untilInput, { target: { value: '' } });
 		const cleared = onChange.mock.calls.at(-1)?.[0] as RecurrenceParts;
 		expect(cleared.end).toEqual({ type: 'never' });
+	});
+
+	it('hydrates DATE-form UNTIL and falls back to none on unsupported RRULE via parseRrule', () => {
+		const onChange = vi.fn();
+		const { unmount } = render(RecurrenceEditor, {
+			value: parseRrule('FREQ=DAILY;UNTIL=20261231'),
+			onChange
+		});
+		const untilInput = screen.getByLabelText('On date') as HTMLInputElement;
+		expect(untilInput.value).toBe('2026-12-31');
+		unmount();
+
+		render(RecurrenceEditor, {
+			value: parseRrule('FREQ=HOURLY;COUNT=5'),
+			onChange
+		});
+		const select = screen.getByLabelText('Repeat') as HTMLSelectElement;
+		expect(select.value).toBe('none');
 	});
 });

@@ -69,6 +69,7 @@ DECLARE
   v_delegator_mbox BIGINT;
   v_delegator_user BIGINT;
   v_delegator_name TEXT;
+  v_rrule_err      TEXT;
 BEGIN
   PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
   PERFORM 1 FROM calendars
@@ -139,6 +140,14 @@ BEGIN
             jsonb_build_object('type', 'forbidden', 'description', 'Not authorized to send on behalf of ' || v_delegated_from));
           CONTINUE;
         END IF;
+      END IF;
+
+      -- Reject unsupported RRULE frequencies / sub-day / Easter parts at create time.
+      v_rrule_err := validate_rrule(v_obj->>'recurrenceRule');
+      IF v_rrule_err IS NOT NULL THEN
+        v_notCreated := v_notCreated || jsonb_build_object(v_key,
+          jsonb_build_object('type', 'invalidArguments', 'description', v_rrule_err));
+        CONTINUE;
       END IF;
 
       INSERT INTO calendar_events (
@@ -594,6 +603,7 @@ DECLARE
   v_old_state   BIGINT;
   v_new_state   BIGINT;
   v_event_cal_id BIGINT;
+  v_rrule_err   TEXT;
 BEGIN
   PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
   PERFORM 1 FROM calendars
@@ -612,6 +622,15 @@ BEGIN
   FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
+      IF v_patch ? 'recurrenceRule' THEN
+        v_rrule_err := validate_rrule(v_patch->>'recurrenceRule');
+        IF v_rrule_err IS NOT NULL THEN
+          v_notUpdated := v_notUpdated || jsonb_build_object(v_id::TEXT,
+            jsonb_build_object('type', 'invalidArguments', 'description', v_rrule_err));
+          CONTINUE;
+        END IF;
+      END IF;
+
       SELECT ce.calendar_id INTO v_event_cal_id
       FROM calendar_events ce
       JOIN calendars c ON c.id = ce.calendar_id
