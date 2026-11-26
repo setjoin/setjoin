@@ -27,6 +27,8 @@ BEGIN
         RETURN jsonb_build_object('status', 'permanent_fail', 'note', 'send action missing message reference');
     END IF;
 
+    PERFORM 1 FROM mailboxes WHERE id = v_mailbox_id FOR KEY SHARE;
+
     -- Idempotency guard: if this action's egress is already enqueued (same
     -- dedup_key), this is a reclaim after a crash — do nothing, report ok.
     IF v_dedup IS NOT NULL AND EXISTS (

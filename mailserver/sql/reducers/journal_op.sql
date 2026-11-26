@@ -32,8 +32,8 @@ DECLARE
                  ELSE 'updated'
                END;
 BEGIN
-  IF p_mailbox_id IS NULL THEN
-    RETURN;  -- parent-table join found nothing (cascade) — nothing to journal
+  IF p_mailbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id) THEN
+    RETURN;  -- parent-table join found nothing or mailbox deleted (cascade) — nothing to journal
   END IF;
   PERFORM append_change(p_mailbox_id, p_datatype,
                         bump_entity_state(p_mailbox_id, p_datatype),
@@ -55,7 +55,7 @@ CREATE OR REPLACE FUNCTION journal_resync(
   p_datatype   TEXT
 ) RETURNS VOID AS $$
 BEGIN
-  IF p_mailbox_id IS NULL THEN
+  IF p_mailbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id) THEN
     RETURN;
   END IF;
   PERFORM append_change(p_mailbox_id, p_datatype,

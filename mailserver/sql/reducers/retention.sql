@@ -54,19 +54,24 @@ DECLARE
   v_deleted         INT := 0;
 BEGIN
   FOR v_row IN
-    SELECT t.message_id, t.received_at, p.action,
-           m.message_id AS rfc_msgid, m.from_addr, m.mailbox_id,
-           m.size_bytes
-    FROM message_retention_tags t
-    JOIN retention_policies p ON p.id = t.policy_id
-    JOIN messages m ON m.id = t.message_id AND m.received_at = t.received_at
-    WHERE t.expires_at IS NOT NULL
-      AND t.expires_at <= now()
-      AND p.action = 'delete'
-    ORDER BY t.expires_at
-    LIMIT p_batch_size
+    SELECT * FROM (
+      SELECT t.message_id, t.received_at, p.action,
+             m.message_id AS rfc_msgid, m.from_addr, m.mailbox_id,
+             m.size_bytes
+      FROM message_retention_tags t
+      JOIN retention_policies p ON p.id = t.policy_id
+      JOIN messages m ON m.id = t.message_id AND m.received_at = t.received_at
+      WHERE t.expires_at IS NOT NULL
+        AND t.expires_at <= now()
+        AND p.action = 'delete'
+      ORDER BY t.expires_at
+      LIMIT p_batch_size
+    ) batch
+    ORDER BY batch.mailbox_id, batch.message_id
   LOOP
     BEGIN
+      PERFORM 1 FROM mailboxes WHERE id = v_row.mailbox_id FOR KEY SHARE;
+
       DELETE FROM message_retention_tags
       WHERE message_id = v_row.message_id AND received_at = v_row.received_at;
 

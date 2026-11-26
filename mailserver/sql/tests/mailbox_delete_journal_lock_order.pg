@@ -1,0 +1,445 @@
+-- pgTAP: Issue #481 — Mailbox delete vs journaled mutation lock ordering & cascade 23503 fix.
+BEGIN;
+SELECT plan(47);
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- Fixture: divergent user_id != mailbox_id accounts with populated calendars,
+-- addressbooks, contacts, tasks, shared task lists, and messages.
+-- ───────────────────────────────────────────────────────────────────────────
+INSERT INTO domains (name, is_local) VALUES ('lock481.test', TRUE);
+
+INSERT INTO users (id, username, domain_id, email, display_name, scim_external_id) VALUES
+  (8481, 'u481_admin', (SELECT id FROM domains WHERE name = 'lock481.test'), 'admin@lock481.test', 'Admin 481', NULL),
+  (8482, 'u481_a',     (SELECT id FROM domains WHERE name = 'lock481.test'), 'a@lock481.test',     'User A',    NULL),
+  (8483, 'u481_b',     (SELECT id FROM domains WHERE name = 'lock481.test'), 'b@lock481.test',     'User B',    NULL),
+  (8484, 'u481_c',     (SELECT id FROM domains WHERE name = 'lock481.test'), 'c@lock481.test',     'User C',    'scim-ext-481-c');
+
+INSERT INTO admin_role_assignments (user_id, role_group_id) VALUES (8481, 1);
+
+INSERT INTO mailboxes (id, user_id, domain_id, email, type, display_name, is_primary) VALUES
+  (9481, 8481, (SELECT id FROM domains WHERE name = 'lock481.test'), 'admin@lock481.test', 'personal', 'Admin Mbox', TRUE),
+  (9482, 8482, (SELECT id FROM domains WHERE name = 'lock481.test'), 'a@lock481.test',     'personal', 'Mbox A',     TRUE),
+  (9483, 8483, (SELECT id FROM domains WHERE name = 'lock481.test'), 'b@lock481.test',     'personal', 'Mbox B',     TRUE),
+  (9484, 8484, (SELECT id FROM domains WHERE name = 'lock481.test'), 'c@lock481.test',     'personal', 'Mbox C',     TRUE);
+
+SELECT create_system_tags(9482);
+SELECT create_system_tags(9483);
+SELECT create_system_tags(9484);
+
+INSERT INTO calendars (id, mailbox_id, name, is_default) VALUES
+  (9482, 9482, 'Default A', TRUE),
+  (9483, 9483, 'Default B', TRUE),
+  (9484, 9484, 'Default C', TRUE);
+
+INSERT INTO calendar_events (id, calendar_id, uid, title, start_at, end_at, organizer_email, is_meeting) VALUES
+  (9482, 9482, 'evt-481-a', 'Meeting A', now(), now() + interval '1 hour', 'a@lock481.test', TRUE),
+  (9483, 9483, 'evt-481-b', 'Meeting B', now(), now() + interval '1 hour', 'b@lock481.test', TRUE),
+  (9484, 9484, 'evt-481-c', 'Meeting C', now(), now() + interval '1 hour', 'c@lock481.test', TRUE);
+
+INSERT INTO event_attendees (event_id, email, name, role, status) VALUES
+  (9482, 'a@lock481.test', 'User A', 'required', 'needs-action'),
+  (9483, 'b@lock481.test', 'User B', 'required', 'needs-action');
+
+INSERT INTO addressbooks (id, mailbox_id, name, is_default) VALUES
+  (9482, 9482, 'Default AB A', TRUE),
+  (9483, 9483, 'Default AB B', TRUE),
+  (9484, 9484, 'Default AB C', TRUE);
+
+INSERT INTO contacts (addressbook_id, vcard_uid, display_name) VALUES
+  (9482, 'vcard-481-a', 'Contact A'),
+  (9483, 'vcard-481-b', 'Contact B'),
+  (9484, 'vcard-481-c', 'Contact C');
+
+INSERT INTO tasks (mailbox_id, title) VALUES
+  (9482, 'Task A'),
+  (9483, 'Task B'),
+  (9484, 'Task C');
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 1. Cascade 23503 regressions (Group A + Group B): deleting populated
+--    mailboxes / users must never fail with 23503 from journal_op / journal_resync.
+-- ───────────────────────────────────────────────────────────────────────────
+SAVEPOINT cascade_mb;
+SELECT lives_ok(
+  $$ SELECT rust_admin_mailbox_delete(9482, 0) $$,
+  'rust_admin_mailbox_delete succeeds without 23503 on populated calendar/addressbook/task mailbox'
+);
+SELECT ok(NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = 9482), 'mailbox 9482 deleted cleanly');
+ROLLBACK TO SAVEPOINT cascade_mb;
+RELEASE SAVEPOINT cascade_mb;
+
+SAVEPOINT cascade_user;
+SELECT is(
+  (rust_admin_user_delete(8481, 8483, 0))->>'status',
+  '204',
+  'rust_admin_user_delete succeeds (204) without 23503 on populated user'
+);
+SELECT ok(NOT EXISTS (SELECT 1 FROM users WHERE id = 8483), 'user 8483 deleted cleanly');
+ROLLBACK TO SAVEPOINT cascade_user;
+RELEASE SAVEPOINT cascade_user;
+
+SAVEPOINT cascade_scim;
+SELECT lives_ok(
+  $$ SELECT scim_delete_user('scim-ext-481-c', TRUE) $$,
+  'scim_delete_user hard-delete succeeds without 23503 on populated user'
+);
+SELECT ok(NOT EXISTS (SELECT 1 FROM users WHERE id = 8484), 'SCIM user 8484 deleted cleanly');
+ROLLBACK TO SAVEPOINT cascade_scim;
+RELEASE SAVEPOINT cascade_scim;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 2. pg_locks RowShareLock proofs under SET LOCAL ROLE setjoin_app
+--    (including non-owner task_lists FORCE RLS 0-row tolerance).
+-- ───────────────────────────────────────────────────────────────────────────
+-- Prepare a shared task list owned by A (8482) with member B (8483) and a task
+-- created on B's mailbox (9483) in A's list.
+SELECT (task_list_create(8482, 'Shared 481'))->>'id' AS shared_list_id \gset
+SELECT task_list_add_member(8482, :shared_list_id::bigint, 'b@lock481.test');
+INSERT INTO tasks (mailbox_id, list_id, title)
+VALUES (9483, :shared_list_id::bigint, 'Member task in A list')
+RETURNING id AS member_task_id \gset
+
+-- Seed a message for B (9483) so jmap_email_set_update can mutate it.
+INSERT INTO messages (mailbox_id, folder_id, message_id, subject, from_addr, to_addrs, thread_id, raw_ref, size_bytes, received_at)
+VALUES (9483, get_tag_id('Inbox', 9483), '<msg-481@lock481.test>', 'Hello 481', 'a@lock481.test', '[]'::jsonb, 't-481', 'raw-481', 100, now())
+RETURNING id AS b_msg_id \gset
+
+-- (a) jmap_calendar_event_set_create under setjoin_app holds RowShareLock on mailboxes
+SAVEPOINT lock_cal_create;
+SELECT set_config('app.current_mailbox_id', '9483', true);
+SELECT set_config('app.current_user_id', '8483', true);
+SET LOCAL ROLE setjoin_app;
+SELECT jmap_calendar_event_set_create(9483, 8483, 'b@lock481.test', '{"c1":{"title":"App Evt"}}'::jsonb);
+SELECT EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailboxes'::regclass AND mode = 'RowShareLock'
+) AS locked_cal_create \gset
+RESET ROLE;
+ROLLBACK TO SAVEPOINT lock_cal_create;
+RELEASE SAVEPOINT lock_cal_create;
+SELECT ok(:'locked_cal_create'::boolean, 'jmap_calendar_event_set_create holds RowShareLock on mailboxes under setjoin_app');
+
+-- (b) jmap_calendar_event_rsvp under setjoin_app holds RowShareLock on mailboxes
+SAVEPOINT lock_rsvp;
+SELECT set_config('app.current_mailbox_id', '9483', true);
+SELECT set_config('app.current_user_id', '8483', true);
+SET LOCAL ROLE setjoin_app;
+SELECT jmap_calendar_event_rsvp(9483, 9483, 'b@lock481.test', 'accepted');
+SELECT EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailboxes'::regclass AND mode = 'RowShareLock'
+) AS locked_rsvp \gset
+RESET ROLE;
+ROLLBACK TO SAVEPOINT lock_rsvp;
+RELEASE SAVEPOINT lock_rsvp;
+SELECT ok(:'locked_rsvp'::boolean, 'jmap_calendar_event_rsvp holds RowShareLock on mailboxes under setjoin_app');
+
+-- (c) jmap_contact_set_create under setjoin_app holds RowShareLock on mailboxes
+SAVEPOINT lock_contact;
+SELECT set_config('app.current_mailbox_id', '9483', true);
+SELECT set_config('app.current_user_id', '8483', true);
+SET LOCAL ROLE setjoin_app;
+SELECT jmap_contact_set_create(9483, '{"k1":{"displayName":"App Contact"}}'::jsonb);
+SELECT EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailboxes'::regclass AND mode = 'RowShareLock'
+) AS locked_contact \gset
+RESET ROLE;
+ROLLBACK TO SAVEPOINT lock_contact;
+RELEASE SAVEPOINT lock_contact;
+SELECT ok(:'locked_contact'::boolean, 'jmap_contact_set_create holds RowShareLock on mailboxes under setjoin_app');
+
+-- (d) jmap_mailbox_set_update under setjoin_app holds RowShareLock on mailboxes
+SAVEPOINT lock_mb_upd;
+SELECT set_config('app.current_mailbox_id', '9483', true);
+SELECT set_config('app.current_user_id', '8483', true);
+SET LOCAL ROLE setjoin_app;
+SELECT jmap_mailbox_set_update(9483, jsonb_build_object(get_tag_id('Inbox', 9483)::text, '{"sortOrder":5}'::jsonb));
+SELECT EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailboxes'::regclass AND mode = 'RowShareLock'
+) AS locked_mb_upd \gset
+RESET ROLE;
+ROLLBACK TO SAVEPOINT lock_mb_upd;
+RELEASE SAVEPOINT lock_mb_upd;
+SELECT ok(:'locked_mb_upd'::boolean, 'jmap_mailbox_set_update holds RowShareLock on mailboxes under setjoin_app');
+
+-- (e) jmap_email_set_update under setjoin_app holds RowShareLock on mailboxes
+SAVEPOINT lock_email_upd;
+SELECT set_config('app.current_mailbox_id', '9483', true);
+SELECT set_config('app.current_user_id', '8483', true);
+SET LOCAL ROLE setjoin_app;
+SELECT jmap_email_set_update(9483, jsonb_build_object(:b_msg_id::text, '{"keywords":{"$seen":true}}'::jsonb));
+SELECT EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailboxes'::regclass AND mode = 'RowShareLock'
+) AS locked_email_upd \gset
+RESET ROLE;
+ROLLBACK TO SAVEPOINT lock_email_upd;
+RELEASE SAVEPOINT lock_email_upd;
+SELECT ok(:'locked_email_upd'::boolean, 'jmap_email_set_update holds RowShareLock on mailboxes under setjoin_app');
+
+-- (f) rust_calendar_subscribe + rust_calendar_unsubscribe under setjoin_app hold RowShareLock on mailboxes
+SAVEPOINT lock_cal_sub;
+SELECT set_config('app.current_mailbox_id', '9483', true);
+SELECT set_config('app.current_user_id', '8483', true);
+SET LOCAL ROLE setjoin_app;
+SELECT sub_id AS new_sub_id FROM rust_calendar_subscribe(9483, 8483, 'Feed 481', 'https://example.test/feed.ics') \gset
+SELECT EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailboxes'::regclass AND mode = 'RowShareLock'
+) AS locked_sub \gset
+SELECT rust_calendar_unsubscribe(9483, 8483, :new_sub_id::bigint) AS unsub_rows \gset
+RESET ROLE;
+ROLLBACK TO SAVEPOINT lock_cal_sub;
+RELEASE SAVEPOINT lock_cal_sub;
+SELECT ok(:'locked_sub'::boolean, 'rust_calendar_subscribe holds RowShareLock on mailboxes under setjoin_app');
+SELECT is(:unsub_rows::bigint, 1::bigint, 'rust_calendar_unsubscribe deletes owned subscription calendar under setjoin_app');
+
+-- (g) Non-owner task_lists FORCE RLS 0-row tolerance under setjoin_app:
+--     User B (8483, mailbox 9483) updates AND destroys their task living in A's shared task list.
+SAVEPOINT lock_task_rls;
+SELECT set_config('app.current_mailbox_id', '9483', true);
+SELECT set_config('app.current_user_id', '8483', true);
+SET LOCAL ROLE setjoin_app;
+SELECT jmap_task_set_update(9483, jsonb_build_object(:member_task_id::text, '{"title":"Updated Under RLS"}'::jsonb)) AS task_upd_res \gset
+SELECT EXISTS (
+  SELECT 1 FROM pg_locks WHERE pid = pg_backend_pid() AND granted
+    AND locktype = 'relation' AND relation = 'mailboxes'::regclass AND mode = 'RowShareLock'
+) AS locked_task_rls \gset
+SELECT jmap_task_set_destroy(9483, ARRAY[:member_task_id::bigint]) AS task_del_res \gset
+RESET ROLE;
+ROLLBACK TO SAVEPOINT lock_task_rls;
+RELEASE SAVEPOINT lock_task_rls;
+SELECT ok(:'locked_task_rls'::boolean, 'jmap_task_set_update holds RowShareLock on mailboxes under setjoin_app');
+SELECT is((:'task_upd_res'::jsonb)->'notUpdated', '{}'::jsonb, 'non-owner jmap_task_set_update tolerates 0-row task_lists lock under FORCE RLS');
+SELECT is((:'task_del_res'::jsonb)->'notDestroyed', '{}'::jsonb, 'non-owner jmap_task_set_destroy tolerates 0-row task_lists lock under FORCE RLS');
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 3. pg_get_functiondef lock-order assertions across Groups A-F.
+-- ───────────────────────────────────────────────────────────────────────────
+SELECT ok(
+  position('NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id)' IN pg_get_functiondef('journal_op(bigint,text,bigint,text,bigint,text)'::regprocedure)) > 0,
+  'journal_op guards against deleted mailbox (23503 fix)'
+);
+
+SELECT ok(
+  position('NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id)' IN pg_get_functiondef('journal_resync(bigint,text)'::regprocedure)) > 0,
+  'journal_resync guards against deleted mailbox (23503 fix)'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('rust_admin_mailbox_delete(bigint,bigint)'::regprocedure)) > 0
+  AND position('PERFORM admin_authority_fence()' IN pg_get_functiondef('rust_admin_mailbox_delete(bigint,bigint)'::regprocedure))
+      < position('FOR UPDATE' IN pg_get_functiondef('rust_admin_mailbox_delete(bigint,bigint)'::regprocedure))
+  AND position('FOR UPDATE' IN pg_get_functiondef('rust_admin_mailbox_delete(bigint,bigint)'::regprocedure))
+      < position('DELETE FROM aliases' IN pg_get_functiondef('rust_admin_mailbox_delete(bigint,bigint)'::regprocedure)),
+  'rust_admin_mailbox_delete orders admin_authority_fence -> mailboxes FOR UPDATE -> DELETE'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('rust_admin_user_delete(bigint,bigint,bigint)'::regprocedure)) > 0
+  AND position('PERFORM admin_authority_fence()' IN pg_get_functiondef('rust_admin_user_delete(bigint,bigint,bigint)'::regprocedure))
+      < position('FROM users' IN pg_get_functiondef('rust_admin_user_delete(bigint,bigint,bigint)'::regprocedure))
+  AND position('FROM users' IN pg_get_functiondef('rust_admin_user_delete(bigint,bigint,bigint)'::regprocedure))
+      < position('ORDER BY id FOR UPDATE' IN pg_get_functiondef('rust_admin_user_delete(bigint,bigint,bigint)'::regprocedure)),
+  'rust_admin_user_delete orders admin_authority_fence -> users FOR UPDATE -> mailboxes ORDER BY id FOR UPDATE'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('scim_delete_user(text,boolean)'::regprocedure)) > 0
+  AND position('FROM users WHERE id = v_user_id FOR UPDATE' IN pg_get_functiondef('scim_delete_user(text,boolean)'::regprocedure)) > 0
+  AND position('FROM users WHERE id = v_user_id FOR UPDATE' IN pg_get_functiondef('scim_delete_user(text,boolean)'::regprocedure))
+      < position('FROM mailboxes WHERE user_id = v_user_id ORDER BY id FOR UPDATE' IN pg_get_functiondef('scim_delete_user(text,boolean)'::regprocedure)),
+  'scim_delete_user hard-delete arm orders admin_authority_fence -> users FOR UPDATE -> mailboxes ORDER BY id FOR UPDATE'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('mailbox_purge_execute(bigint,uuid,uuid,text)'::regprocedure)) > 0
+  AND position('FROM mailboxes WHERE id=v_mailbox_id FOR UPDATE' IN pg_get_functiondef('mailbox_purge_execute(bigint,uuid,uuid,text)'::regprocedure))
+      < position('FROM mailbox_purge_requests WHERE id=p_purge_request_id FOR UPDATE' IN pg_get_functiondef('mailbox_purge_execute(bigint,uuid,uuid,text)'::regprocedure))
+  AND position('FROM mailbox_purge_requests WHERE id=p_purge_request_id FOR UPDATE' IN pg_get_functiondef('mailbox_purge_execute(bigint,uuid,uuid,text)'::regprocedure))
+      < position('FROM mailbox_lifecycle WHERE mailbox_id=v_p.mailbox_id FOR UPDATE' IN pg_get_functiondef('mailbox_purge_execute(bigint,uuid,uuid,text)'::regprocedure)),
+  'mailbox_purge_execute orders admin_authority_fence -> mailboxes -> mailbox_purge_requests -> mailbox_lifecycle'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('mailbox_lifecycle_transition(bigint,bigint,uuid,text,bigint,text,text,bigint,text,bigint,bigint,text,timestamptz,text,text)'::regprocedure)) > 0
+  AND position('FROM users WHERE id=p_target_user_id FOR KEY SHARE' IN pg_get_functiondef('mailbox_lifecycle_transition(bigint,bigint,uuid,text,bigint,text,text,bigint,text,bigint,bigint,text,timestamptz,text,text)'::regprocedure))
+      < position('FROM mailboxes WHERE id=p_mailbox_id FOR UPDATE' IN pg_get_functiondef('mailbox_lifecycle_transition(bigint,bigint,uuid,text,bigint,text,text,bigint,text,bigint,bigint,text,timestamptz,text,text)'::regprocedure))
+  AND position('FROM mailboxes WHERE id=p_mailbox_id FOR UPDATE' IN pg_get_functiondef('mailbox_lifecycle_transition(bigint,bigint,uuid,text,bigint,text,text,bigint,text,bigint,bigint,text,timestamptz,text,text)'::regprocedure))
+      < position('FROM mailbox_lifecycle WHERE mailbox_id=p_mailbox_id FOR UPDATE' IN pg_get_functiondef('mailbox_lifecycle_transition(bigint,bigint,uuid,text,bigint,text,text,bigint,text,bigint,bigint,text,timestamptz,text,text)'::regprocedure)),
+  'mailbox_lifecycle_transition orders admin_authority_fence -> users(reconnect) -> mailboxes -> mailbox_lifecycle'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('scim_delete_group(bigint,bigint,bigint)'::regprocedure))
+  < position('FROM identity_sources' IN pg_get_functiondef('scim_delete_group(bigint,bigint,bigint)'::regprocedure)),
+  'scim_delete_group takes admin_authority_fence before identity_sources'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('identity_source_attributes_apply(bigint,bigint,bigint,uuid,text,jsonb)'::regprocedure))
+  < position('identity_sources' IN pg_get_functiondef('identity_source_attributes_apply(bigint,bigint,bigint,uuid,text,jsonb)'::regprocedure)),
+  'identity_source_attributes_apply takes admin_authority_fence before identity_sources'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('identity_source_entry_apply(bigint,bigint,uuid,text)'::regprocedure))
+  < position('FROM identity_sources' IN pg_get_functiondef('identity_source_entry_apply(bigint,bigint,uuid,text)'::regprocedure)),
+  'identity_source_entry_apply takes admin_authority_fence before identity_sources'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('scim_apply_group_members(bigint,bigint,text,text[],boolean)'::regprocedure))
+  < position('FROM identity_sources' IN pg_get_functiondef('scim_apply_group_members(bigint,bigint,text,text[],boolean)'::regprocedure)),
+  'scim_apply_group_members takes admin_authority_fence before identity_sources'
+);
+
+SELECT ok(
+  position('PERFORM admin_authority_fence()' IN pg_get_functiondef('scim_remove_group_members(bigint,bigint,text,text[])'::regprocedure))
+  < position('FROM identity_sources' IN pg_get_functiondef('scim_remove_group_members(bigint,bigint,text,text[])'::regprocedure)),
+  'scim_remove_group_members takes admin_authority_fence before identity_sources'
+);
+
+SELECT ok(
+  position('FROM mailboxes WHERE id = v_page.mailbox_id FOR KEY SHARE' IN pg_get_functiondef('booking_confirm(text,text)'::regprocedure))
+  < position('booking_page:' IN pg_get_functiondef('booking_confirm(text,text)'::regprocedure))
+  AND position('booking_page:' IN pg_get_functiondef('booking_confirm(text,text)'::regprocedure))
+  < position('FOR NO KEY UPDATE' IN pg_get_functiondef('booking_confirm(text,text)'::regprocedure))
+  AND position('FOR NO KEY UPDATE' IN pg_get_functiondef('booking_confirm(text,text)'::regprocedure))
+  < position('FOR UPDATE' IN pg_get_functiondef('booking_confirm(text,text)'::regprocedure)),
+  'booking_confirm orders mailboxes -> booking_page -> calendars -> booking_requests'
+);
+
+SELECT ok(
+  position('FROM mailboxes WHERE id = v_req.mailbox_id FOR KEY SHARE' IN pg_get_functiondef('booking_cancel(text)'::regprocedure))
+  < position('FROM calendars WHERE id = v_cal_id AND mailbox_id = v_req.mailbox_id FOR NO KEY UPDATE' IN pg_get_functiondef('booking_cancel(text)'::regprocedure))
+  AND position('FROM calendars WHERE id = v_cal_id AND mailbox_id = v_req.mailbox_id FOR NO KEY UPDATE' IN pg_get_functiondef('booking_cancel(text)'::regprocedure))
+  < position('FROM calendar_events WHERE id = v_req.event_id AND calendar_id = v_cal_id FOR NO KEY UPDATE' IN pg_get_functiondef('booking_cancel(text)'::regprocedure))
+  AND position('FROM calendar_events WHERE id = v_req.event_id AND calendar_id = v_cal_id FOR NO KEY UPDATE' IN pg_get_functiondef('booking_cancel(text)'::regprocedure))
+  < position('FOR UPDATE' IN pg_get_functiondef('booking_cancel(text)'::regprocedure)),
+  'booking_cancel orders mailboxes -> calendars -> calendar_events -> booking_requests'
+);
+
+SELECT ok(
+  position('FROM mailboxes' IN pg_get_functiondef('calendar_book_resource(bigint,bigint,bigint,bigint,bigint)'::regprocedure)) > 0
+  AND position('ORDER BY id FOR KEY SHARE' IN pg_get_functiondef('calendar_book_resource(bigint,bigint,bigint,bigint,bigint)'::regprocedure))
+      < position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('calendar_book_resource(bigint,bigint,bigint,bigint,bigint)'::regprocedure))
+  AND position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('calendar_book_resource(bigint,bigint,bigint,bigint,bigint)'::regprocedure))
+      < position('FOR SHARE' IN pg_get_functiondef('calendar_book_resource(bigint,bigint,bigint,bigint,bigint)'::regprocedure)),
+  'calendar_book_resource orders sorted mailboxes -> sorted calendars -> calendar_events'
+);
+
+SELECT ok(
+  position('ORDER BY id FOR KEY SHARE' IN pg_get_functiondef('rust_calendar_unsubscribe(bigint,bigint,bigint)'::regprocedure))
+  < position('FOR UPDATE' IN pg_get_functiondef('rust_calendar_unsubscribe(bigint,bigint,bigint)'::regprocedure))
+  AND position('FOR UPDATE' IN pg_get_functiondef('rust_calendar_unsubscribe(bigint,bigint,bigint)'::regprocedure))
+  < position('DELETE FROM calendars' IN pg_get_functiondef('rust_calendar_unsubscribe(bigint,bigint,bigint)'::regprocedure)),
+  'rust_calendar_unsubscribe orders mailboxes -> calendars FOR UPDATE -> DELETE'
+);
+
+SELECT ok(
+  position('FROM users WHERE id IN (p_user_id, v_member_id) ORDER BY id FOR KEY SHARE' IN pg_get_functiondef('task_list_add_member(bigint,bigint,text)'::regprocedure))
+  < position('FOR NO KEY UPDATE' IN pg_get_functiondef('task_list_add_member(bigint,bigint,text)'::regprocedure)),
+  'task_list_add_member orders sorted users FOR KEY SHARE -> task_lists FOR NO KEY UPDATE'
+);
+
+SELECT ok(
+  position('ORDER BY id FOR KEY SHARE' IN pg_get_functiondef('task_list_delete(bigint,bigint)'::regprocedure))
+  < position('FROM task_lists WHERE id = p_list_id AND owner_user_id = p_user_id FOR UPDATE' IN pg_get_functiondef('task_list_delete(bigint,bigint)'::regprocedure)),
+  'task_list_delete orders sorted mailboxes FOR KEY SHARE -> task_lists FOR UPDATE'
+);
+
+SELECT ok(
+  position('FROM users WHERE id = p_recaller_user_id FOR KEY SHARE' IN pg_get_functiondef('recall_message(text,bigint,bigint,text)'::regprocedure))
+  < position('ORDER BY id FOR KEY SHARE' IN pg_get_functiondef('recall_message(text,bigint,bigint,text)'::regprocedure))
+  AND position('ORDER BY id FOR KEY SHARE' IN pg_get_functiondef('recall_message(text,bigint,bigint,text)'::regprocedure))
+  < position('FOR UPDATE OF m' IN pg_get_functiondef('recall_message(text,bigint,bigint,text)'::regprocedure)),
+  'recall_message orders users -> sorted mailboxes -> sorted messages'
+);
+
+SELECT ok(
+  position('FROM users WHERE id IN (p_actor_user_id, p_assignee_user_id) ORDER BY id FOR KEY SHARE' IN pg_get_functiondef('mail_work_set(bigint,bigint,text,uuid,text,bigint,bigint,text,timestamptz,text,text)'::regprocedure))
+  < position('FROM mailboxes WHERE id=p_mailbox_id FOR UPDATE' IN pg_get_functiondef('mail_work_set(bigint,bigint,text,uuid,text,bigint,bigint,text,timestamptz,text,text)'::regprocedure)),
+  'mail_work_set orders sorted users -> mailboxes FOR UPDATE'
+);
+
+SELECT ok(
+  position('FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('notify_contact_state(bigint,text,bigint)'::regprocedure)) > 0,
+  'notify_contact_state pre-locks addressbooks ORDER BY id FOR NO KEY UPDATE'
+);
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- 4. Review-round lock-upgrade (FOR UPDATE before check_quota/send) and
+--    calendar batch pre-lock assertions.
+-- ───────────────────────────────────────────────────────────────────────────
+SELECT ok(
+  position('PERFORM 1 FROM mailboxes WHERE id = v_mailbox.id FOR UPDATE' IN pg_get_functiondef('deliver(text,text,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,text,bigint,boolean,timestamp with time zone,text,text,text,real,jsonb,text,text,boolean,text,boolean,integer,text,text,text,text,text,boolean,bigint,timestamp with time zone)'::regprocedure)) > 0
+  AND position('PERFORM 1 FROM mailboxes WHERE id = v_mailbox.id FOR UPDATE' IN pg_get_functiondef('deliver(text,text,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,text,bigint,boolean,timestamp with time zone,text,text,text,real,jsonb,text,text,boolean,text,boolean,integer,text,text,text,text,text,boolean,bigint,timestamp with time zone)'::regprocedure))
+      < position('IF NOT check_quota(v_mailbox.id' IN pg_get_functiondef('deliver(text,text,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,text,bigint,boolean,timestamp with time zone,text,text,text,real,jsonb,text,text,boolean,text,boolean,integer,text,text,text,text,text,boolean,bigint,timestamp with time zone)'::regprocedure)),
+  'deliver pre-locks mailboxes FOR UPDATE before check_quota'
+);
+
+SELECT ok(
+  position('FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE' IN pg_get_functiondef('import_message(bigint,bigint,text,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,bigint,boolean,boolean,text,timestamp with time zone,bigint,text,bigint,bigint)'::regprocedure)) > 0
+  AND position('FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE' IN pg_get_functiondef('import_message(bigint,bigint,text,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,bigint,boolean,boolean,text,timestamp with time zone,bigint,text,bigint,bigint)'::regprocedure))
+      < position('check_quota(' IN pg_get_functiondef('import_message(bigint,bigint,text,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,bigint,boolean,boolean,text,timestamp with time zone,bigint,text,bigint,bigint)'::regprocedure)),
+  'import_message pre-locks mailboxes FOR UPDATE before check_quota'
+);
+
+SELECT ok(
+  position('FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE' IN pg_get_functiondef('jmap_email_recover(bigint,bigint[])'::regprocedure)) > 0
+  AND position('FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE' IN pg_get_functiondef('jmap_email_recover(bigint,bigint[])'::regprocedure))
+      < position('check_quota(' IN pg_get_functiondef('jmap_email_recover(bigint,bigint[])'::regprocedure)),
+  'jmap_email_recover pre-locks mailboxes FOR UPDATE before check_quota'
+);
+
+SELECT ok(
+  position('FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE' IN pg_get_functiondef('jmap_email_set_create(bigint,jsonb)'::regprocedure)) > 0
+  AND position('FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE' IN pg_get_functiondef('jmap_email_set_create(bigint,jsonb)'::regprocedure))
+      < position('check_quota(' IN pg_get_functiondef('jmap_email_set_create(bigint,jsonb)'::regprocedure)),
+  'jmap_email_set_create pre-locks mailboxes FOR UPDATE before check_quota'
+);
+
+SELECT ok(
+  position('FROM mailboxes WHERE id=v_prelock_mailbox_id FOR UPDATE' IN pg_get_functiondef('mail_recovery_artifact_ingest(bigint,uuid,text,text)'::regprocedure)) > 0
+  AND position('FROM mailboxes WHERE id=v_prelock_mailbox_id FOR UPDATE' IN pg_get_functiondef('mail_recovery_artifact_ingest(bigint,uuid,text,text)'::regprocedure))
+      < position('check_quota(' IN pg_get_functiondef('mail_recovery_artifact_ingest(bigint,uuid,text,text)'::regprocedure)),
+  'mail_recovery_artifact_ingest pre-locks mailboxes FOR UPDATE before check_quota'
+);
+
+SELECT ok(
+  position('FROM mailboxes mb' IN pg_get_functiondef('send(bigint,bigint,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,text,bigint,boolean,timestamp with time zone,boolean,boolean,bigint,timestamp with time zone)'::regprocedure)) > 0
+  AND position('FOR UPDATE;' IN pg_get_functiondef('send(bigint,bigint,text,text,text,jsonb,jsonb,jsonb,text,text,text,text,text,bigint,boolean,timestamp with time zone,boolean,boolean,bigint,timestamp with time zone)'::regprocedure)) > 0,
+  'send locks mailboxes FOR UPDATE (no FOR NO KEY UPDATE lock-upgrade deadlock)'
+);
+
+SELECT ok(
+  position('FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE' IN pg_get_functiondef('jmap_email_submission_set(bigint,bigint,jsonb,jsonb,jsonb)'::regprocedure)) > 0,
+  'jmap_email_submission_set locks mailboxes FOR UPDATE before calling send()'
+);
+
+SELECT ok(
+  position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('jmap_calendar_event_set_create(bigint,bigint,text,jsonb)'::regprocedure)) > 0
+  AND position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('jmap_calendar_event_set_create(bigint,bigint,text,jsonb)'::regprocedure))
+      < position('FOR v_key, v_obj IN' IN pg_get_functiondef('jmap_calendar_event_set_create(bigint,bigint,text,jsonb)'::regprocedure)),
+  'jmap_calendar_event_set_create pre-locks distinct calendars ORDER BY id FOR NO KEY UPDATE before loop'
+);
+
+SELECT ok(
+  position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('jmap_calendar_event_set_update(bigint,jsonb)'::regprocedure)) > 0
+  AND position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('jmap_calendar_event_set_update(bigint,jsonb)'::regprocedure))
+      < position('FOR v_id, v_patch IN' IN pg_get_functiondef('jmap_calendar_event_set_update(bigint,jsonb)'::regprocedure)),
+  'jmap_calendar_event_set_update pre-locks distinct calendars ORDER BY id FOR NO KEY UPDATE before loop'
+);
+
+SELECT ok(
+  position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('jmap_calendar_event_set_destroy(bigint,bigint[])'::regprocedure)) > 0
+  AND position('ORDER BY id FOR NO KEY UPDATE' IN pg_get_functiondef('jmap_calendar_event_set_destroy(bigint,bigint[])'::regprocedure))
+      < position('FOREACH v_id IN ARRAY' IN pg_get_functiondef('jmap_calendar_event_set_destroy(bigint,bigint[])'::regprocedure)),
+  'jmap_calendar_event_set_destroy pre-locks distinct calendars ORDER BY id FOR NO KEY UPDATE before loop'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

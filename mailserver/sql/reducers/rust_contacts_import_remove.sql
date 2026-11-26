@@ -6,6 +6,11 @@ CREATE OR REPLACE FUNCTION rust_contacts_import_remove(
 DECLARE
  v_rows bigint;
 BEGIN
+ PERFORM 1 FROM mailboxes WHERE id = p_owner FOR KEY SHARE;
+ PERFORM 1 FROM addressbooks WHERE id = p_book AND mailbox_id = p_owner FOR SHARE;
+ IF NOT FOUND THEN
+  RETURN 0;
+ END IF;
  DELETE FROM contacts c USING addressbooks ab
   WHERE ab.id = c.addressbook_id AND c.addressbook_id = p_book AND c.vcard_uid = p_uid
     AND ab.mailbox_id = p_owner;

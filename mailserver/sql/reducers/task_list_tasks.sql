@@ -108,9 +108,67 @@ DECLARE
   v_delta         INTERVAL;
   v_rr_count      INT;
   v_new_rrule     TEXT;
+  v_user_ids      BIGINT[];
+  v_mailbox_ids   BIGINT[];
 BEGIN
   SELECT state_seq INTO v_old_state FROM task_lists
   WHERE id = p_list_id AND task_list_role(p_list_id, p_user_id) IS NOT NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
+  END IF;
+
+  -- Canonical lock order: users (sorted) -> mailboxes (sorted) -> task_lists -> tasks (sorted).
+  SELECT array_agg(DISTINCT u_id ORDER BY u_id) INTO v_user_ids
+  FROM (
+    SELECT p_user_id AS u_id WHERE p_user_id IS NOT NULL
+    UNION
+    SELECT ri.user_id AS u_id
+      FROM jsonb_each(COALESCE(p_creates, '{}'::JSONB)) e(k, obj)
+      CROSS JOIN LATERAL resolve_identity(NULLIF(btrim(e.obj->>'assigneeEmail'), '')) ri
+     WHERE NULLIF(btrim(e.obj->>'assigneeEmail'), '') IS NOT NULL
+       AND ri.user_id IS NOT NULL
+    UNION
+    SELECT ri.user_id AS u_id
+      FROM jsonb_each(COALESCE(p_updates, '{}'::JSONB)) e(k, patch)
+      CROSS JOIN LATERAL resolve_identity(NULLIF(btrim(e.patch->>'assigneeEmail'), '')) ri
+     WHERE (e.patch ? 'assigneeEmail')
+       AND NULLIF(btrim(e.patch->>'assigneeEmail'), '') IS NOT NULL
+       AND ri.user_id IS NOT NULL
+  ) u;
+
+  IF v_user_ids IS NOT NULL THEN
+    PERFORM 1 FROM users WHERE id = ANY(v_user_ids) ORDER BY id FOR KEY SHARE;
+  END IF;
+
+  SELECT array_agg(DISTINCT mb_id ORDER BY mb_id) INTO v_mailbox_ids
+  FROM (
+    SELECT mb.id AS mb_id
+      FROM mailboxes mb
+     WHERE v_user_ids IS NOT NULL
+       AND mb.user_id = ANY(v_user_ids)
+       AND mb.is_primary
+    UNION
+    SELECT t.mailbox_id AS mb_id
+      FROM tasks t
+     WHERE t.list_id = p_list_id
+       AND (
+         (p_updates IS NOT NULL AND t.id IN (
+           SELECT k::BIGINT FROM jsonb_object_keys(p_updates) AS k WHERE k ~ '^[0-9]+$'
+         ))
+         OR (p_destroys IS NOT NULL AND t.id IN (
+           SELECT d::BIGINT FROM jsonb_array_elements_text(p_destroys) AS d WHERE d ~ '^[0-9]+$'
+         ))
+       )
+  ) m;
+
+  IF v_mailbox_ids IS NOT NULL THEN
+    PERFORM 1 FROM mailboxes WHERE id = ANY(v_mailbox_ids) ORDER BY id FOR KEY SHARE;
+  END IF;
+
+  SELECT state_seq INTO v_old_state FROM task_lists
+  WHERE id = p_list_id AND task_list_role(p_list_id, p_user_id) IS NOT NULL
+  FOR NO KEY UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'task list not found'
       USING ERRCODE = 'BZ132', HINT = '{"type":"notFound"}';
@@ -197,7 +255,7 @@ BEGIN
 
   -- ── update ────────────────────────────────────────────────────────────
   IF p_updates IS NOT NULL THEN
-    FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+    FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
     LOOP
       BEGIN
         v_assignee_set := v_patch ? 'assigneeEmail';
@@ -339,7 +397,7 @@ BEGIN
 
   -- ── destroy ───────────────────────────────────────────────────────────
   IF p_destroys IS NOT NULL THEN
-    FOR v_id IN SELECT jsonb_array_elements_text(p_destroys)::BIGINT
+    FOR v_id IN SELECT d::BIGINT FROM jsonb_array_elements_text(p_destroys) AS d ORDER BY d::BIGINT
     LOOP
       BEGIN
         DELETE FROM tasks WHERE id = v_id AND list_id = p_list_id

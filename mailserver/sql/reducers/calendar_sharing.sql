@@ -239,14 +239,15 @@ CREATE OR REPLACE FUNCTION jmap_calendar_share_set(
   p_revokes     JSONB DEFAULT '[]'::JSONB
 ) RETURNS JSONB AS $$
 DECLARE
-  v_owner_mbox BIGINT;
-  v_caller_uid BIGINT;
-  v_is_owner   BOOLEAN := FALSE;
-  v_is_admin   BOOLEAN := FALSE;
-  v_grant      JSONB;
-  v_revoke     JSONB;
-  v_target_uid BIGINT;
-  v_level      TEXT;
+  v_owner_mbox  BIGINT;
+  v_caller_uid  BIGINT;
+  v_is_owner    BOOLEAN := FALSE;
+  v_is_admin    BOOLEAN := FALSE;
+  v_grant       JSONB;
+  v_revoke      JSONB;
+  v_target_uid  BIGINT;
+  v_target_uids BIGINT[];
+  v_level       TEXT;
 BEGIN
   SELECT mailbox_id INTO v_owner_mbox FROM calendars WHERE id = p_calendar_id;
   IF v_owner_mbox IS NULL THEN
@@ -254,7 +255,33 @@ BEGIN
       USING ERRCODE = 'BZ001', HINT = '{"type":"forbidden"}';
   END IF;
 
-  -- Owner = the account's mailbox owns the calendar.
+  -- Canonical lock order: users (ORDER BY id) -> mailboxes (ORDER BY id) -> calendars.
+  SELECT array_agg(DISTINCT ri.user_id ORDER BY ri.user_id)
+    INTO v_target_uids
+  FROM (
+    SELECT g->>'userEmail' AS email
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p_grants) = 'array' THEN p_grants ELSE '[]'::JSONB END) g
+     WHERE g->>'level' IN ('freebusy', 'read', 'write', 'admin')
+    UNION ALL
+    SELECT r->>'userEmail' AS email
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p_revokes) = 'array' THEN p_revokes ELSE '[]'::JSONB END) r
+  ) req
+  CROSS JOIN LATERAL resolve_identity(req.email) ri
+  WHERE ri.user_id IS NOT NULL;
+
+  IF v_target_uids IS NOT NULL THEN
+    PERFORM 1 FROM users WHERE id = ANY(v_target_uids) ORDER BY id FOR KEY SHARE;
+  END IF;
+
+  PERFORM 1 FROM mailboxes WHERE id IN (p_mailbox_id, v_owner_mbox) ORDER BY id FOR KEY SHARE;
+
+  SELECT mailbox_id INTO v_owner_mbox FROM calendars WHERE id = p_calendar_id FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Calendar not found'
+      USING ERRCODE = 'BZ001', HINT = '{"type":"forbidden"}';
+  END IF;
+
+  -- Owner = the account's mailbox owns the calendar. Re-checked under lock.
   v_is_owner := (v_owner_mbox = p_mailbox_id);
 
   -- Admin grantee: the caller's user holds an 'admin' grant on this calendar.

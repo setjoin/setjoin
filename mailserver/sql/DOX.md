@@ -1931,7 +1931,7 @@ inline SQL (follow-up: retire it). Server contract:
 [Mailboxes DOX](../../server-rust/crates/domains/mailboxes/DOX.md).
 `tests/rust_admin_mailbox.pg` covers scope fences, the swallowed tag failure and cascade order.
 
-`rust_calendar_subscribe` (#296) is Go's webcal subscribe transaction (mirrored calendar, then its `calendar_subscriptions` row) for the Rust gateway; pgTAP: `tests/rust_calendar_subscribe.pg`.
+`rust_calendar_subscribe` / `rust_calendar_unsubscribe` (#296, #481) own Go's webcal subscribe transaction (mirrored calendar, then its `calendar_subscriptions` row) and canonical-lock-order unsubscribe delete for the Rust gateway; pgTAP: `tests/rust_calendar_subscribe.pg`, `tests/mailbox_delete_journal_lock_order.pg`.
 
 `rust_contacts_import_write`/`_remove` (#297) are Go's per-row contacts import statements (owner-mailbox book check in the same WHERE; upsert regenerates the etag) called one autocommit statement per row, with no tenant GUC and no receipt, as Go's pool does; pgTAP: `tests/rust_contacts_import.pg`.
 

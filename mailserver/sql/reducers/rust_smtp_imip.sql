@@ -44,6 +44,7 @@ BEGIN
  WHERE m.id=(p_context->>'mailbox')::bigint AND u.id=(p_context->>'user')::bigint
  AND u.email=lower(p_context->>'email') AND m.is_primary=TRUE;
  IF v_mailbox IS NULL THEN RETURN NULL; END IF;
+ PERFORM 1 FROM mailboxes WHERE id=v_mailbox FOR KEY SHARE;
  IF p_recurrence IS NOT NULL THEN
   SELECT ce.id INTO v_master FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id
    WHERE ce.uid=p_event->>'uid' AND c.mailbox_id=v_mailbox AND ce.recurrence_override IS NULL LIMIT 1;
@@ -65,12 +66,21 @@ GRANT EXECUTE ON FUNCTION rust_smtp_imip_request_gate(jsonb,text),rust_smtp_imip
 -- that same organizer and recipient mailbox, locking it through the mutation.
 CREATE OR REPLACE FUNCTION rust_smtp_imip_cancel_occurrence(p_uid text,p_mailbox_id bigint,p_organizer text,p_recurrence timestamptz)
 RETURNS jsonb LANGUAGE plpgsql VOLATILE AS $$
-DECLARE v_master bigint;
+DECLARE v_master bigint; v_cal_id bigint;
 BEGIN
- SELECT ce.id INTO v_master FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id
- WHERE ce.uid=p_uid AND c.mailbox_id=p_mailbox_id AND ce.recurrence_override IS NULL
- AND lower(ce.organizer_email)=lower(p_organizer) LIMIT 1 FOR UPDATE OF ce;
+ PERFORM 1 FROM mailboxes WHERE id=p_mailbox_id FOR KEY SHARE;
+ SELECT ce.id, ce.calendar_id INTO v_master, v_cal_id
+  FROM calendar_events ce JOIN calendars c ON c.id=ce.calendar_id
+  WHERE ce.uid=p_uid AND c.mailbox_id=p_mailbox_id AND ce.recurrence_override IS NULL
+  AND lower(ce.organizer_email)=lower(p_organizer) LIMIT 1;
  IF v_master IS NULL THEN RETURN NULL; END IF;
+ PERFORM 1 FROM calendars WHERE id=v_cal_id AND mailbox_id=p_mailbox_id FOR NO KEY UPDATE;
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ PERFORM 1 FROM calendar_events
+  WHERE id=v_master AND calendar_id=v_cal_id AND uid=p_uid
+    AND recurrence_override IS NULL AND lower(organizer_email)=lower(p_organizer)
+  FOR UPDATE;
+ IF NOT FOUND THEN RETURN NULL; END IF;
  RETURN jmap_calendar_event_set_occurrence(p_mailbox_id,v_master,p_recurrence,'this','{"excluded":true}'::jsonb);
 END $$;
 ALTER FUNCTION rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz) OWNER TO setjoin_worker;

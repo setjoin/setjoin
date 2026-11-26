@@ -331,7 +331,7 @@ impl Inner {
                 obj["organizer_email"] = json!(email);
             }
             let text = obj.to_string();
-            let query="INSERT INTO calendar_events(calendar_id,uid,component_type,title,description,location,start_at,end_at,all_day,timezone,rrule,rdate,exdate,status,priority,percent_complete,completed_at,due_at,organizer_email,organizer_name,recurrence_id) SELECT $1,x->>'uid',x->>'component',x->>'title',x->>'description',x->>'location',(x->>'start')::timestamptz,(x->>'end')::timestamptz,(x->>'isAllDay')::boolean,x->>'timeZone',x->>'recurrenceRule',NULLIF(ARRAY(SELECT v::timestamptz FROM jsonb_array_elements_text(COALESCE(x->'rdate','[]')) v),ARRAY[]::timestamptz[]),NULLIF(ARRAY(SELECT v::timestamptz FROM jsonb_array_elements_text(COALESCE(x->'exdate','[]')) v),ARRAY[]::timestamptz[]),$3,NULLIF((x->>'priority')::int,0),COALESCE((x->>'percent_complete')::int,0),(x->>'completed_at')::timestamptz,(x->>'due_at')::timestamptz,NULLIF(x->>'organizer_email',''),NULLIF(x->>'organizer_name',''),(x->>'recurrence_id')::timestamptz FROM (SELECT $2::text::jsonb x) q WHERE EXISTS(SELECT 1 FROM calendars c WHERE c.id=$1 AND ($4<=0 OR c.mailbox_id=$4)) RETURNING id";
+            let query="WITH m AS MATERIALIZED (SELECT id FROM mailboxes WHERE id IN (SELECT mailbox_id FROM calendars WHERE id=$1 AND ($4<=0 OR mailbox_id=$4)) FOR KEY SHARE), p AS MATERIALIZED (SELECT c.id FROM calendars c WHERE c.id=$1 AND c.mailbox_id IN (SELECT id FROM m) FOR SHARE) INSERT INTO calendar_events(calendar_id,uid,component_type,title,description,location,start_at,end_at,all_day,timezone,rrule,rdate,exdate,status,priority,percent_complete,completed_at,due_at,organizer_email,organizer_name,recurrence_id) SELECT p.id,x->>'uid',x->>'component',x->>'title',x->>'description',x->>'location',(x->>'start')::timestamptz,(x->>'end')::timestamptz,(x->>'isAllDay')::boolean,x->>'timeZone',x->>'recurrenceRule',NULLIF(ARRAY(SELECT v::timestamptz FROM jsonb_array_elements_text(COALESCE(x->'rdate','[]')) v),ARRAY[]::timestamptz[]),NULLIF(ARRAY(SELECT v::timestamptz FROM jsonb_array_elements_text(COALESCE(x->'exdate','[]')) v),ARRAY[]::timestamptz[]),$3,NULLIF((x->>'priority')::int,0),COALESCE((x->>'percent_complete')::int,0),(x->>'completed_at')::timestamptz,(x->>'due_at')::timestamptz,NULLIF(x->>'organizer_email',''),NULLIF(x->>'organizer_name',''),(x->>'recurrence_id')::timestamptz FROM p CROSS JOIN (SELECT $2::text::jsonb x) q RETURNING id";
             match db
                 .query(
                     query,
@@ -379,8 +379,14 @@ impl Inner {
         };
         let sql=format!("SELECT EXISTS(SELECT 1 FROM {table} t WHERE t.{parent}=$1 AND t.{uidcol}=$2{ownership})");
         if strategy == "overwrite" {
-            let sql =
-                format!("DELETE FROM {table} t WHERE t.{parent}=$1 AND t.{uidcol}=$2{ownership}");
+            let parent_table = if table == "calendar_events" {
+                "calendars"
+            } else {
+                "addressbooks"
+            };
+            let sql = format!(
+                "WITH m AS MATERIALIZED (SELECT id FROM mailboxes WHERE id IN (SELECT mailbox_id FROM {parent_table} WHERE id=$1 AND ($3<=0 OR mailbox_id=$3)) FOR KEY SHARE), p AS MATERIALIZED (SELECT a.id FROM {parent_table} a WHERE a.id=$1 AND a.mailbox_id IN (SELECT id FROM m) FOR SHARE) DELETE FROM {table} t USING p WHERE t.{parent}=p.id AND t.{uidcol}=$2"
+            );
             let _ = db
                 .query(
                     &sql,
@@ -458,7 +464,7 @@ impl Inner {
                 obj["displayName"] = json!(card.n);
             }
             let text = obj.to_string();
-            let query="INSERT INTO contacts(addressbook_id,vcard_uid,display_name,first_name,last_name,company,job_title,emails,phones,urls,instant_msgs,addresses,notes,birthday,anniversary) SELECT $1,x->>'uid',x->>'displayName',x->>'firstName',x->>'lastName',x->>'company',x->>'jobTitle',x->'emails',x->'phones',x->'urls',x->'instantMessengers',x->'addresses',x->>'notes',(x->>'birthday')::date,(x->>'anniversary')::date FROM (SELECT $2::text::jsonb x) q WHERE EXISTS(SELECT 1 FROM addressbooks a WHERE a.id=$1 AND ($3<=0 OR a.mailbox_id=$3)) RETURNING id";
+            let query="WITH m AS MATERIALIZED (SELECT id FROM mailboxes WHERE id IN (SELECT mailbox_id FROM addressbooks WHERE id=$1 AND ($3<=0 OR mailbox_id=$3)) FOR KEY SHARE), p AS MATERIALIZED (SELECT a.id FROM addressbooks a WHERE a.id=$1 AND a.mailbox_id IN (SELECT id FROM m) FOR SHARE) INSERT INTO contacts(addressbook_id,vcard_uid,display_name,first_name,last_name,company,job_title,emails,phones,urls,instant_msgs,addresses,notes,birthday,anniversary) SELECT p.id,x->>'uid',x->>'displayName',x->>'firstName',x->>'lastName',x->>'company',x->>'jobTitle',x->'emails',x->'phones',x->'urls',x->'instantMessengers',x->'addresses',x->>'notes',(x->>'birthday')::date,(x->>'anniversary')::date FROM p CROSS JOIN (SELECT $2::text::jsonb x) q RETURNING id";
             match db
                 .query(
                     query,
