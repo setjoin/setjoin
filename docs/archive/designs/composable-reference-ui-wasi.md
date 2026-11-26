@@ -10,7 +10,7 @@ Task: `sj-plan-all-20260906`, local Mac; no runtime resources created.
 
 CP0.4
 requests a UI/WASI reporting reference. The
-[extension design](extension-control-plane-public-system-apps.md#ui-model) owns
+[extension design](../../design/extension-control-plane-public-system-apps.md#ui-model) owns
 slots, isolated rich UI, capability mediation and the future E5 WIT boundary.
 CP5
 owns integration and native lifetimes;

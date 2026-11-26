@@ -12,7 +12,7 @@ result. It is a document-processing Provider, not a storage backend, an Office
 editor session, or permission to replace SeaweedFS/S3.
 
 Authority comes from the CP0 contract-freeze plan,
-the [extension control-plane design](extension-control-plane-public-system-apps.md),
+the [extension control-plane design](../../design/extension-control-plane-public-system-apps.md),
 the app-data lifecycle amendment
 and the [lifecycle packet](composable-lifecycle-transitions.md). Drive owns source
 versions, ACLs, accepted output, conflicts, quota, retention, deletion and audit.

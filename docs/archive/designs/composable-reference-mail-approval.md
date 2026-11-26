@@ -11,7 +11,7 @@ protected Mail system-app boundary. It does not authorize a generic workflow
 engine, replace the existing approval app, or add an endpoint. It supplies the
 Mail reference required by the CP0 contract-freeze plan.
 
-The [extension control-plane design](extension-control-plane-public-system-apps.md)
+The [extension control-plane design](../../design/extension-control-plane-public-system-apps.md)
 owns the trust classes, scoped broker and future contracts. Its first-party
 Outbound Mail Approval vertical owns policy UX, approver chains, assigned
 worklists, reminders and isolated UI contributions. Mail reducers retain message
