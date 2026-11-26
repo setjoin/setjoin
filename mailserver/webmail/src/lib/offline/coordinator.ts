@@ -156,6 +156,8 @@ export interface CoordinatorPorts {
 	onEvent?: (event: CoordinatorEvent) => void;
 	/** Lease owner identity for CAS claims (defaults deterministic). */
 	ownerId?: string;
+	/** Optional shared CriticalActivityCounter (ARCH-023: single instance across SyncCoordinator & offline mail). */
+	critical?: CriticalActivityCounter;
 }
 
 /** Requested/effective policy inputs carried for the E2 eligibility resolver. */
@@ -259,20 +261,23 @@ export function createCoordinator(ports: CoordinatorPorts): Coordinator {
 	// across admission cycles instead of resetting per run.
 	let scheduler: SchedulerSnapshot = createSchedulerState();
 
-	const critical: CriticalActivityCounter = createCriticalActivityCounter({
-		onTransition: (count) => {
-			emit({ kind: 'critical-transition', count });
-			// The Critical activity counter feeds the E2 scheduler's admission
-			// gate: 0→1 clears any quiet stamp, →0 opens the 5s quiet window.
-			scheduler = setCriticalActivity(scheduler, count, ports.clock.nowMonoMs());
-			if (count > 0) {
-				// A 0→1 Critical transition aborts optional network I/O immediately;
-				// only the last committed checkpoint survives, and the job returns
-				// to the queue with its queue age preserved.
-				for (const entry of running.values()) entry.controller.abort();
-			}
-		},
+	const handleCriticalTransition = (count: number): void => {
+		emit({ kind: 'critical-transition', count });
+		// The Critical activity counter feeds the E2 scheduler's admission
+		// gate: 0→1 clears any quiet stamp, →0 opens the 5s quiet window.
+		scheduler = setCriticalActivity(scheduler, count, ports.clock.nowMonoMs());
+		if (count > 0) {
+			// A 0→1 Critical transition aborts optional network I/O immediately;
+			// only the last committed checkpoint survives, and the job returns
+			// to the queue with its queue age preserved.
+			for (const entry of running.values()) entry.controller.abort();
+		}
+	};
+	const ownsCritical = ports.critical === undefined;
+	const critical: CriticalActivityCounter = ports.critical ?? createCriticalActivityCounter({
+		onTransition: handleCriticalTransition,
 	});
+	const unsubscribeCritical = ownsCritical ? null : critical.subscribe(handleCriticalTransition);
 
 	function jobKey(accountId: string, kind: CoordinatorTriggerKind): string {
 		return `${kind}:${accountId}`;
@@ -805,7 +810,8 @@ export function createCoordinator(ports: CoordinatorPorts): Coordinator {
 			if (disposed) return;
 			disposed = true;
 			for (const entry of running.values()) entry.controller.abort();
-			critical.teardown();
+			if (unsubscribeCritical) unsubscribeCritical();
+			else critical.teardown();
 		},
 		get disposed(): boolean {
 			return disposed;

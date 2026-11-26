@@ -140,6 +140,17 @@ export interface DriveMirrorBridge {
     nodeId: number,
     appId: "microsoft-office" | "wps-office" | "libreoffice" | "collabora-office",
   ): Promise<void>;
+  /** Forward a validated SyncWakeup hint to main-process MirrorService (Wave 2.8, #555). */
+  notifyWakeup?(hint: { scopeKind: "space"; scopeId: string; seq: number }): Promise<boolean>;
+  /** Inform main whether the renderer wakeup bridge is connected (globally or per space); slows/restores polling (#555). */
+  setWakeupConnected?(connected: boolean, spaceId?: number): Promise<void>;
+  /** Forward a validated scope_revoked hint to main-process MirrorService (#555). */
+  notifyScopeRevoked?(hint: {
+    scopeKind: "space";
+    scopeId: string;
+    subtreeAnchorId?: string;
+    reason?: string;
+  }): Promise<boolean>;
 }
 
 /** Chunk reference inside a Drive manifest (4 MiB fixed chunks, spec §3.1). */

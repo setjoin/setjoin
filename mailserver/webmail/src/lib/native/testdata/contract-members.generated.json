@@ -102,7 +102,11 @@
         "status",
         "version"
       ],
-      "optional": []
+      "optional": [
+        "notifyScopeRevoked",
+        "notifyWakeup",
+        "setWakeupConnected"
+      ]
     },
     "DriveBridge": {
       "required": [

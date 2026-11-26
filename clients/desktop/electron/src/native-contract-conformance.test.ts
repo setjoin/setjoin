@@ -119,6 +119,12 @@ function argsFor(path: string, arity: number): unknown[] {
   if (path === "notify") return [{ title: "contract" }];
   if (path === "driveMirror.configure")
     return [{ serverOrigin: "https://setjoin.invalid", spaces: [] }];
+  if (path === "driveMirror.notifyWakeup")
+    return [{ scopeKind: "space", scopeId: "1", seq: 1 }];
+  if (path === "driveMirror.setWakeupConnected")
+    return [true];
+  if (path === "driveMirror.notifyScopeRevoked")
+    return [{ scopeKind: "space", scopeId: "1" }];
   if (path === "recoveryBlob.writeChunk")
     return ["handle", 0, new Uint8Array([1])];
   return Array.from({ length: arity }, () => "x");
@@ -131,6 +137,7 @@ async function exerciseProjectedMethods(
   const recordingInvoke = async (channel: string): Promise<unknown> => {
     invoked.push(channel);
     if (channel === "db_query") return "[]";
+    if (channel === "db_migrate_store") return JSON.stringify({ version: 1 });
     if (channel === "pick_file") return null;
     return undefined;
   };
@@ -145,7 +152,10 @@ async function exerciseProjectedMethods(
   for (const [interfaceName, property] of Object.entries(groupProperty)) {
     const group = executable[property] as Record<string, unknown> | undefined;
     if (!group) continue;
-    for (const member of contract.groups[interfaceName].required) {
+    for (const member of [
+      ...contract.groups[interfaceName].required,
+      ...contract.groups[interfaceName].optional,
+    ]) {
       const value = group[member];
       if (typeof value === "function") {
         await value(...argsFor(`${property}.${member}`, value.length));

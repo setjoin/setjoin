@@ -35,6 +35,7 @@
 	import { MeetStore } from '$lib/meet/store.svelte';
 	import type { PresentationCleanup } from '$lib/meet/presentationStore.svelte';
 	import { subscribeEvent } from '$lib/jmap/websocket';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
 	import { effectiveCaps, isGuestSession } from '$lib/stores/session';
 	import { user } from '$lib/stores/auth';
 	import { Button, Input, EmptyState, Spinner, Badge, showToast } from '$lib/components/ui';
@@ -319,6 +320,27 @@
 		return guestSession
 			? subscribeGuestMeetEvents(handler, () => void store.reconcileCurrentMeeting())
 			: subscribeEvent('MeetEvent', handler);
+	});
+	// Wave 2.8 (#555): register active meeting scope on SyncCoordinator for
+	// reconnect catch-up without re-subscribing the underlying Meet event stream
+	// when store.meeting resolves.
+	$effect(() => {
+		const meetingId = store.meeting?.meetingId;
+		if (meetingId == null) return;
+		const guestSession = $user?.accountType === 'guest' || $isGuestSession;
+		return getWebmailSyncCoordinator(guestSession ? 'guest' : 'member').register({
+			consumerId: `meet:room:${meetingId}`,
+			scope: { kind: 'channel', id: `meet-${meetingId}` },
+			lane: 'foreground',
+			debounceMs: 0,
+			runDeltaStep: async (ctx) => {
+				ctx.fence.assertCommitAllowed();
+				if (ctx.trigger === 'reconnect') {
+					await store.reconcileCurrentMeeting();
+				}
+				return { kind: 'complete', recordsProcessed: 0 };
+			},
+		});
 	});
 	onDestroy(() => store.room?.disconnect());
 

@@ -36,7 +36,7 @@ export type ChangesResult =
  *  without instantiating the real HTTP class (DriveHttp structurally
  *  satisfies this already). */
 export interface DriveHttpLike {
-	changes(spaceId: number, since: string | null, max?: number): Promise<ChangesResult>;
+	changes(spaceId: number, since: string | null, max?: number, maxPages?: number): Promise<ChangesResult>;
 	accessInvalidations(spaceId: number, cursor: string | null, max?: number): Promise<AccessInvalidationPage>;
 	visibilitySnapshot(
 		spaceId: number,
@@ -92,6 +92,36 @@ interface RenamePayload {
 interface MovePayload {
 	nodeId: number;
 	newParentId: number | null;
+}
+
+export interface SyncExecutionBudget {
+	readonly maxRecords: number;
+	readonly maxBytes: number;
+	readonly deadlineMonoMs: number;
+}
+
+export interface SyncExecutionFence {
+	readonly signal?: AbortSignal;
+	readonly fence?: {
+		assertCommitAllowed(): void;
+	};
+	readonly budget?: SyncExecutionBudget;
+}
+
+interface BusyRevocationItem {
+	readonly nodeId: number;
+	readonly relPath: string;
+	readonly forceQuarantine: boolean;
+}
+
+class BusyRevocationError extends Error {
+	constructor(
+		message: string,
+		readonly items: readonly BusyRevocationItem[],
+	) {
+		super(message);
+		this.name = 'BusyRevocationError';
+	}
 }
 
 export class SyncEngine {
@@ -276,25 +306,157 @@ export class SyncEngine {
 
 	// ── the one two-way delta pass ───────────────────────────────────────────
 
-	async syncOnce(): Promise<{ uploaded: number; downloaded: number; issues: number }> {
-		const access = await this.reconcileAccess();
-		const up = await this.drainOutbound();
-		const down = await this.pullAndApply();
+	private assertAllowed(exec?: SyncExecutionFence): void {
+		exec?.fence?.assertCommitAllowed();
+		if (exec?.signal?.aborted) {
+			const err = new Error('drive-sync: aborted');
+			err.name = 'AbortError';
+			throw err;
+		}
+	}
+
+	async syncOnce(exec?: SyncExecutionFence): Promise<{
+		uploaded: number;
+		downloaded: number;
+		issues: number;
+		appliedChanges?: number;
+		cursorAdvanced?: boolean;
+		bytesProcessed?: number;
+		hasMore?: boolean;
+	}> {
+		this.assertAllowed(exec);
+		await this.drainPendingRevocations();
+		this.assertAllowed(exec);
+		const access = await this.reconcileAccess(exec);
+		this.assertAllowed(exec);
+		const up = await this.drainOutbound(exec);
+		this.assertAllowed(exec);
+		const down = await this.pullAndApply(exec);
 		return {
 			uploaded: up.uploaded,
 			downloaded: access.downloaded + down.downloaded,
 			issues: access.issues + up.issues + down.issues,
+			appliedChanges: down.appliedChanges,
+			cursorAdvanced: down.cursorAdvanced,
+			bytesProcessed: down.bytesProcessed,
+			...(up.hasMore || down.hasMore ? { hasMore: true } : {}),
 		};
 	}
 
-	private async reconcileAccess(): Promise<{ downloaded: number; issues: number }> {
+	/**
+	 * Server-authoritative visibility reconciliation (ARCH-020, #555):
+	 * unconditionally runs `fullVisibilityReconcile()` so client-side `dc_nodes`
+	 * closure is never treated as authoritative for subtree revocations.
+	 */
+	async reconcileVisibility(exec?: SyncExecutionFence): Promise<{ downloaded: number; issues: number }> {
+		this.assertAllowed(exec);
+		await this.drainPendingRevocations();
+		this.assertAllowed(exec);
+		const state = await this.d.index.getSyncState(this.d.spaceId);
+		const page = await this.d.http.accessInvalidations(this.d.spaceId, state.accessCursor);
+		this.assertAllowed(exec);
+		return this.fullVisibilityReconcile(page.cursor, page.epoch, exec);
+	}
+
+	/**
+	 * Retries every persisted `'busy'` revocation for this space until each
+	 * resolves to `'purged' | 'quarantined' | 'absent'` (#555).
+	 */
+	async drainPendingRevocations(): Promise<{ resolved: number; remaining: number }> {
+		const pending = await this.d.index.listPendingRevocations(this.d.spaceId);
+		let resolved = 0;
+		let remaining = 0;
+		const resolvedNodeIds = new Set<number>();
+		const stillBusyNodeIds = new Set<number>();
+		for (const row of pending) {
+			const mirror = row.nodeId > 0 ? await this.d.index.getMirror(row.nodeId) : null;
+			const isBranchRow = row.nodeId > 0 && mirror != null && mirror.relPath !== row.relPath;
+			const outcome =
+				row.nodeId > 0 && !isBranchRow
+					? await this.d.store.revoke(row.nodeId, row.forceQuarantine)
+					: await this.d.store.revokePath(row.relPath, row.forceQuarantine);
+			if (outcome === 'busy') {
+				remaining += 1;
+				if (row.nodeId > 0) stillBusyNodeIds.add(row.nodeId);
+				await this.recordIssue(
+					'revocation-busy',
+					row.relPath,
+					'close the file so revoked local content can be removed',
+				);
+				continue;
+			}
+			await this.d.index.clearPendingRevocation(row.spaceId, row.nodeId, row.relPath);
+			if (row.nodeId > 0) resolvedNodeIds.add(row.nodeId);
+			resolved += 1;
+		}
+		for (const nodeId of resolvedNodeIds) {
+			if (!stillBusyNodeIds.has(nodeId)) {
+				await this.d.index.removeNodeState(nodeId);
+			}
+		}
+		return { resolved, remaining };
+	}
+
+	/**
+	 * Full-space local revocation purge (#555): revokes every locally mirrored
+	 * node in this space and clears space-scoped sync state + root capabilities.
+	 * Any `'busy'` file/branch persists a durable pending-revocation marker and
+	 * `'revocation-busy'` issue so retry ticks keep purging until the file handle
+	 * closes (never orphans plaintext files on disk).
+	 */
+	async purgeSpaceLocal(): Promise<{ purged: number; busy: number }> {
+		const known = await this.d.index.nodeIds(this.d.spaceId);
+		let purged = 0;
+		let busy = 0;
+		for (const nodeId of known) {
+			try {
+				await this.applyAccessRevocation(nodeId);
+				purged += 1;
+			} catch (err) {
+				if (err instanceof BusyRevocationError) {
+					for (const item of err.items) {
+						busy += 1;
+						await this.d.index.recordPendingRevocation({
+							spaceId: this.d.spaceId,
+							nodeId: item.nodeId,
+							relPath: item.relPath,
+							forceQuarantine: item.forceQuarantine,
+							atMs: this.d.now(),
+						});
+						await this.recordIssue(
+							'revocation-busy',
+							item.relPath,
+							'close the file so revoked local content can be removed',
+						);
+					}
+				} else {
+					throw err;
+				}
+			}
+		}
+		const drained = await this.drainPendingRevocations();
+		// Clear space-scoped cursor/epoch and root capabilities so revoked space
+		// metadata never lingers after purge.
+		await this.d.index.setRootCapabilities(this.d.spaceId, []);
+		await this.d.index.setSyncState(this.d.spaceId, {
+			version: 2,
+			contentState: null,
+			accessCursor: null,
+			aclEpoch: null,
+		});
+		return { purged: purged + drained.resolved, busy: Math.max(busy, drained.remaining) };
+	}
+
+	private async reconcileAccess(exec?: SyncExecutionFence): Promise<{ downloaded: number; issues: number }> {
 		const state = await this.d.index.getSyncState(this.d.spaceId);
 		const page = await this.d.http.accessInvalidations(this.d.spaceId,state.accessCursor);
+		this.assertAllowed(exec);
 		const epochChanged = page.epoch != null && page.epoch !== state.aclEpoch;
 		if (state.aclEpoch == null || page.fullReconcile || page.invalidations.length > 0 || epochChanged) {
-			return this.fullVisibilityReconcile(page.cursor,page.epoch);
+			return this.fullVisibilityReconcile(page.cursor,page.epoch,exec);
 		}
 		if (page.cursor !== state.accessCursor) {
+			this.assertAllowed(exec);
 			await this.d.index.setSyncState(this.d.spaceId,{...state,accessCursor:page.cursor,aclEpoch:page.epoch});
 		}
 		return { downloaded: 0, issues: 0 };
@@ -302,12 +464,34 @@ export class SyncEngine {
 
 	// ── upload leg ────────────────────────────────────────────────────────────
 
-	private async drainOutbound(): Promise<{ uploaded: number; issues: number }> {
+	private isBudgetExceeded(exec: SyncExecutionFence | undefined, processed: number, bytesProcessed = 0): boolean {
+		const budget = exec?.budget;
+		if (!budget) return false;
+		if (processed >= budget.maxRecords) return true;
+		if (bytesProcessed >= budget.maxBytes) return true;
+		const mono = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		return mono >= budget.deadlineMonoMs;
+	}
+
+	private async drainOutbound(
+		exec?: SyncExecutionFence,
+	): Promise<{ uploaded: number; issues: number; hasMore: boolean }> {
 		const now = this.d.now();
-		const rows = await this.d.index.due(now, 50);
+		const limit = exec?.budget ? Math.max(1, Math.min(50, exec.budget.maxRecords)) : 50;
+		const rows = await this.d.index.due(now, limit + 1);
+		const hasMoreFromLimit = rows.length > limit;
+		const batch = hasMoreFromLimit ? rows.slice(0, limit) : rows;
 		let uploaded = 0;
 		let issues = 0;
-		for (const row of rows) {
+		let processed = 0;
+		let stoppedByBudget = false;
+		for (const row of batch) {
+			if (processed > 0 && this.isBudgetExceeded(exec, processed)) {
+				stoppedByBudget = true;
+				break;
+			}
+			this.assertAllowed(exec);
+			processed += 1;
 			try {
 				if (await this.quarantineUnauthorizedOutbound(row)) {
 					issues++;
@@ -353,7 +537,7 @@ export class SyncEngine {
 				}
 			}
 		}
-		return { uploaded, issues };
+		return { uploaded, issues, hasMore: hasMoreFromLimit || stoppedByBudget };
 	}
 
 	private outboundNode(row: OutboundRow): { nodeId: number; required: string } | null {
@@ -555,13 +739,46 @@ export class SyncEngine {
 
 	// ── download leg ──────────────────────────────────────────────────────────
 
-	private async pullAndApply(): Promise<{ downloaded: number; issues: number }> {
+	private async pullAndApply(exec?: SyncExecutionFence): Promise<{
+		downloaded: number;
+		appliedChanges: number;
+		cursorAdvanced: boolean;
+		bytesProcessed: number;
+		issues: number;
+		hasMore: boolean;
+	}> {
+		this.assertAllowed(exec);
 		const state = await this.d.index.getSyncState(this.d.spaceId);
 		const cursor = state.contentState;
-		if (cursor === null) return this.fullVisibilityReconcile(state.accessCursor,state.aclEpoch);
+		if (cursor === null) {
+			const res = await this.fullVisibilityReconcile(state.accessCursor, state.aclEpoch, exec);
+			return {
+				...res,
+				appliedChanges: res.downloaded,
+				cursorAdvanced: true,
+				bytesProcessed: 0,
+				hasMore: false,
+			};
+		}
 
-		const res = await this.d.http.changes(this.d.spaceId, cursor);
-		if (res.resync) return this.fullVisibilityReconcile(state.accessCursor,state.aclEpoch);
+		// When a SyncBudget is supplied, bound DriveHttp.changes() to at most 1 page
+		// capped by maxRecords so a large backlog yields cleanly between steps (#555).
+		const pageMax = exec?.budget ? Math.max(1, Math.min(200, exec.budget.maxRecords)) : undefined;
+		const res =
+			pageMax !== undefined
+				? await this.d.http.changes(this.d.spaceId, cursor, pageMax, 1)
+				: await this.d.http.changes(this.d.spaceId, cursor);
+		this.assertAllowed(exec);
+		if (res.resync) {
+			const full = await this.fullVisibilityReconcile(state.accessCursor, state.aclEpoch, exec);
+			return {
+				...full,
+				appliedChanges: full.downloaded,
+				cursorAdvanced: true,
+				bytesProcessed: 0,
+				hasMore: false,
+			};
+		}
 
 		// Group by nodeId keeping the LAST op — the feed already arrives
 		// seq-ascending, so a later Map.set simply overwrites an earlier one.
@@ -569,21 +786,55 @@ export class SyncEngine {
 		for (const c of res.changed) lastOpByNode.set(c.nodeId, c);
 		const ids = [...lastOpByNode.keys()];
 		const metas = await this.d.http.nodesMeta(ids);
+		this.assertAllowed(exec);
 		const metaById = new Map(metas.map((m) => [m.nodeId, m]));
 
 		let downloaded = 0;
+		let appliedChanges = 0;
+		let bytesProcessed = 0;
 		let issues = 0;
+		let stoppedByBudget = false;
 		for (const nodeId of lastOpByNode.keys()) {
+			if (appliedChanges > 0 && this.isBudgetExceeded(exec, appliedChanges, bytesProcessed)) {
+				stoppedByBudget = true;
+				break;
+			}
+			this.assertAllowed(exec);
 			const meta = metaById.get(nodeId);
 			const r = meta ? await this.applyNode(meta) : await this.applyRemove(nodeId);
-			if (r === 'downloaded') downloaded++;
+			appliedChanges += 1;
+			if (r === 'downloaded') {
+				downloaded++;
+				bytesProcessed += meta?.sizeBytes ?? 0;
+			}
 			if (r === 'issue') issues++;
+		}
+		if (stoppedByBudget) {
+			// Leave cursor unmoved so the next step finishes the remaining nodes
+			// (every already-applied file is sha-gated and idempotent).
+			return {
+				downloaded,
+				appliedChanges,
+				cursorAdvanced: false,
+				bytesProcessed,
+				issues,
+				hasMore: true,
+			};
 		}
 		// Cursor persists only after the WHOLE batch applies — a crash mid-loop
 		// leaves the cursor unmoved, so the next run re-applies the same batch
 		// (every apply is sha-gated, so re-applying is a no-op).
-		await this.d.index.setSyncState(this.d.spaceId,{...state,contentState:res.newState});
-		return { downloaded, issues };
+		this.assertAllowed(exec);
+		const cursorAdvanced = res.newState !== cursor;
+		await this.d.index.setSyncState(this.d.spaceId, { ...state, contentState: res.newState });
+		return {
+			downloaded,
+			appliedChanges,
+			cursorAdvanced,
+			bytesProcessed,
+			issues,
+			hasMore: Boolean(res.hasMore),
+		};
 	}
 
 	private async applyNode(meta: NodeMeta): Promise<'downloaded' | 'ok' | 'issue'> {
@@ -874,8 +1125,10 @@ export class SyncEngine {
 	private async fullVisibilityReconcile(
 		accessCursor: string | null,
 		expectedEpoch: string | null,
+		exec?: SyncExecutionFence,
 	): Promise<{ downloaded: number; issues: number }> {
 		for (let attempt=0;attempt<3;attempt++) {
+			this.assertAllowed(exec);
 			const priorState=await this.d.index.getSyncState(this.d.spaceId);
 			let anchorState: string | null;
 			try {
@@ -895,6 +1148,7 @@ export class SyncEngine {
 			let rootCapabilities: string[]=[];
 			try {
 				for (let pageNo=0;pageNo<10_000;pageNo++) {
+					this.assertAllowed(exec);
 					const page=await this.d.http.visibilitySnapshot(this.d.spaceId,after,epoch);
 					if (epoch==null) epoch=page.epoch;
 					rootCapabilities=page.rootCapabilities;
@@ -919,23 +1173,50 @@ export class SyncEngine {
 				visible.length=0; rootCapabilities=[]; epoch=null;
 			}
 
+			// Write barrier: fence synchronously BEFORE opening the local DB commit transaction.
+			this.assertAllowed(exec);
 			const orderedVisible=dependencyOrder(visible);
 			const seen=new Set(orderedVisible.map((n)=>n.nodeId));
 			const known=await this.d.index.nodeIds(this.d.spaceId);
 			let downloaded=0; let issues=0;
-			await this.d.index.transaction(async()=>{
-				await this.d.index.setRootCapabilities(this.d.spaceId,rootCapabilities);
-				for (const meta of orderedVisible) {
-					if ((await this.applyNode(meta))==='downloaded') downloaded++;
-				}
-				for (const nodeId of known) {
-					if (seen.has(nodeId)) continue;
-					issues+=await this.applyAccessRevocation(nodeId);
-				}
-				await this.d.index.setSyncState(this.d.spaceId,{
-					version:2,contentState:anchorState,accessCursor,aclEpoch:epoch,
+			try {
+				await this.d.index.transaction(async()=>{
+					this.assertAllowed(exec);
+					await this.d.index.setRootCapabilities(this.d.spaceId,rootCapabilities);
+					for (const meta of orderedVisible) {
+						this.assertAllowed(exec);
+						if ((await this.applyNode(meta))==='downloaded') downloaded++;
+					}
+					for (const nodeId of known) {
+						if (seen.has(nodeId)) continue;
+						issues+=await this.applyAccessRevocation(nodeId);
+					}
+					this.assertAllowed(exec);
+					await this.d.index.setSyncState(this.d.spaceId,{
+						version:2,contentState:anchorState,accessCursor,aclEpoch:epoch,
+					});
 				});
-			});
+			} catch (err) {
+				if (err instanceof BusyRevocationError) {
+					// Transaction rolled back so aclEpoch/accessCursor did NOT advance;
+					// persist durable retry markers outside the rolled-back tx (#555).
+					for (const item of err.items) {
+						await this.d.index.recordPendingRevocation({
+							spaceId: this.d.spaceId,
+							nodeId: item.nodeId,
+							relPath: item.relPath,
+							forceQuarantine: item.forceQuarantine,
+							atMs: this.d.now(),
+						});
+						await this.recordIssue(
+							'revocation-busy',
+							item.relPath,
+							'close the file so revoked local content can be removed',
+						);
+					}
+				}
+				throw err;
+			}
 			return {downloaded,issues};
 		}
 		throw new Error('drive-sync: ACL epoch changed during every visibility snapshot attempt');
@@ -946,12 +1227,27 @@ export class SyncEngine {
 		const relPath=mirror?.relPath ?? (await this.d.index.relPath(nodeId)) ?? '';
 		const pending=await this.d.index.quarantineOutbound(nodeId,relPath,'access-revoked',this.d.now());
 		const branches=await this.d.index.branchMirrorsForNode(nodeId);
+		const busyItems: BusyRevocationItem[]=[];
+		// Revoke ALL branches + the main file even if one branch is busy so
+		// remaining non-busy files are never left exposed on disk (#555 4d).
 		for (const branch of branches) {
 			const outcome=await this.d.store.revokePath(branch.relPath,pending>0);
-			if (outcome==='busy') throw new Error(`drive-sync: busy revoked branch ${branch.relPath}`);
+			if (outcome==='busy') {
+				busyItems.push({ nodeId, relPath: branch.relPath, forceQuarantine: pending > 0 });
+			} else {
+				await this.d.index.removeBranchMirror(branch.nodeId, branch.branchId);
+			}
 		}
 		const outcome=await this.d.store.revoke(nodeId,pending>0);
-		if (outcome==='busy') throw new Error(`drive-sync: busy revoked file ${relPath}`);
+		if (outcome==='busy') {
+			busyItems.push({ nodeId, relPath, forceQuarantine: pending > 0 });
+		}
+		if (busyItems.length > 0) {
+			const label = busyItems.some((b) => b.relPath === relPath)
+				? `drive-sync: busy revoked file ${relPath}`
+				: `drive-sync: busy revoked branch ${busyItems[0].relPath}`;
+			throw new BusyRevocationError(label, busyItems);
+		}
 		await this.d.index.removeNodeState(nodeId);
 		if (outcome==='quarantined' || pending>0) {
 			await this.recordIssue('access-revoked',relPath,'access was removed; pending local work was quarantined and was not uploaded');

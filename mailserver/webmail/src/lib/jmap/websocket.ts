@@ -13,6 +13,8 @@
 // the stability threshold (15s), preventing thundering herds and flapping loops.
 import { browser } from '$app/environment';
 import { ReconnectBackoff, type ReconnectBackoffOptions } from '$lib/ws/backoff';
+import { scopeKeyString, type ScopeKey } from '$lib/sync/core/types.js';
+import { validateScopeAttachList } from '$lib/sync/core/validate.js';
 
 type StateChangeHandler = (changes: Record<string, unknown>) => void;
 type ControlHandler = (payload: Record<string, unknown>) => void;
@@ -37,6 +39,12 @@ export interface SubscribeOptions {
 /** Configuration for a WebSocket push hub instance (used by tests to inject RNG/clock). */
 export interface WebSocketHubOptions {
 	backoff?: ReconnectBackoffOptions;
+	/**
+	 * Whether the connected gateway accepts Wave 2.5 `ScopeAttach`/`ScopeDetach`
+	 * client frames (default `false` until Wave 2.5 `#552` advertises support so
+	 * mixed-version gateways do not receive `unknownType` errors).
+	 */
+	scopeAttachSupported?: boolean;
 }
 
 export interface WebSocketHub {
@@ -44,6 +52,11 @@ export interface WebSocketHub {
 	subscribeControl(type: string, handler: ControlHandler): () => void;
 	subscribeType(atType: string, handler: AtTypeHandler): () => void;
 	subscribeEvent<T extends object>(atType: string, handler: (event: T) => void): () => void;
+	subscribeReconnect(handler: () => void): () => void;
+	subscribeConnectionState(handler: (connected: boolean) => void): () => void;
+	isConnected(): boolean;
+	setScopeAttachSupported(supported: boolean): void;
+	setAttachedScopes(scopes: readonly ScopeKey[]): void;
 	handleRawMessage(raw: string): void;
 	disconnect(): void;
 }
@@ -80,6 +93,82 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 	// first consumer; SessionRevoked stays a one-off handled inline elsewhere and
 	// isn't rerouted through this to avoid touching working code.
 	const atTypeHandlers = new Map<string, Set<AtTypeHandler>>();
+	const reconnectListeners = new Set<() => void>();
+	const connectionStateListeners = new Set<(connected: boolean) => void>();
+	const attachedScopes = new Map<string, ScopeKey>();
+	let scopeAttachSupported = options.scopeAttachSupported ?? false;
+	let connected = false;
+
+	function notifyConnectionState(next: boolean): void {
+		if (connected === next) return;
+		connected = next;
+		for (const handler of [...connectionStateListeners]) {
+			try {
+				handler(next);
+			} catch (e) {
+				console.error('WebSocket connectionState listener error', e);
+			}
+		}
+	}
+
+	function subscribeReconnect(handler: () => void): () => void {
+		reconnectListeners.add(handler);
+		return () => reconnectListeners.delete(handler);
+	}
+
+	function subscribeConnectionState(handler: (isOpen: boolean) => void): () => void {
+		connectionStateListeners.add(handler);
+		try {
+			handler(connected);
+		} catch (e) {
+			console.error('WebSocket connectionState listener error', e);
+		}
+		return () => connectionStateListeners.delete(handler);
+	}
+
+	function isConnected(): boolean {
+		return connected;
+	}
+
+	function setScopeAttachSupported(supported: boolean): void {
+		const prev = scopeAttachSupported;
+		scopeAttachSupported = supported;
+		if (!prev && supported && attachedScopes.size > 0) {
+			sendScopeFrame('ScopeAttach', [...attachedScopes.values()]);
+		}
+	}
+
+	function sendScopeFrame(atType: 'ScopeAttach' | 'ScopeDetach', scopes: readonly ScopeKey[]): void {
+		if (!scopeAttachSupported || scopes.length === 0 || !ws || ws.readyState !== WebSocket.OPEN) return;
+		ws.send(
+			JSON.stringify({
+				'@type': atType,
+				scopes: scopes.map((s) => ({ scopeKind: s.kind, scopeId: s.id })),
+			}),
+		);
+	}
+
+	function setAttachedScopes(scopes: readonly ScopeKey[]): void {
+		const validated = validateScopeAttachList(scopes);
+		if (!validated) return;
+		const nextMap = new Map<string, ScopeKey>();
+		for (const scope of validated) {
+			nextMap.set(scopeKeyString(scope), scope);
+		}
+		const added: ScopeKey[] = [];
+		const removed: ScopeKey[] = [];
+		for (const [k, s] of nextMap) {
+			if (!attachedScopes.has(k)) added.push(s);
+		}
+		for (const [k, s] of attachedScopes) {
+			if (!nextMap.has(k)) removed.push(s);
+		}
+		attachedScopes.clear();
+		for (const [k, s] of nextMap) attachedScopes.set(k, s);
+
+		if (removed.length > 0) sendScopeFrame('ScopeDetach', removed);
+		if (added.length > 0) sendScopeFrame('ScopeAttach', added);
+	}
 
 	function subscribeControl(type: string, handler: ControlHandler): () => void {
 		let set = controlHandlers.get(type);
@@ -145,6 +234,13 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 				console.error('WebSocket reconnect listener error', e);
 			}
 		}
+		for (const handler of reconnectListeners) {
+			try {
+				handler();
+			} catch (e) {
+				console.error('WebSocket reconnect listener error', e);
+			}
+		}
 	}
 
 	// handleRawMessage is the single message entry point (exported for tests). A
@@ -157,6 +253,14 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 			msg = JSON.parse(raw);
 		} catch (e) {
 			console.error('WebSocket parse error', e);
+			return;
+		}
+		if (typeof msg.type === 'string' && msg.type === 'urn:ietf:params:jmap:error:unknownType') {
+			// Mixed-version gateway compatibility (#555): pre-#552 gateways answer
+			// unrecognized @type frames (such as ScopeAttach/ScopeDetach) with an
+			// RFC 8887 unknownType error. Latch scopeAttachSupported off silently
+			// without logging errors or reconnecting.
+			scopeAttachSupported = false;
 			return;
 		}
 		if (typeof msg.type === 'string' && controlHandlers.has(msg.type)) {
@@ -223,9 +327,14 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 			// #389: record open time only; attempt counter resets on a later
 			// disconnect solely if the socket stayed up past the stability threshold.
 			backoff.markConnected();
+			notifyConnectionState(true);
 			// Advertise the union of every registered listener's types (re-advertised
 			// here on every (re)connect from the live registry).
 			sendPushEnable();
+			// Re-attach the live scope union on initial connect and every reconnect (#555).
+			if (scopeAttachSupported && attachedScopes.size > 0) {
+				sendScopeFrame('ScopeAttach', [...attachedScopes.values()]);
+			}
 			// #222: pushes sent while the socket was down are gone — tell every
 			// listener that opted in so it can resync from its last known state.
 			if (everOpened) notifyReconnect();
@@ -249,6 +358,7 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 		socket.onclose = () => {
 			if (ws !== socket) return;
 			ws = null;
+			notifyConnectionState(false);
 			const delayMs = backoff.markDisconnected();
 			reconnectTimer = setTimeout(() => {
 				reconnectTimer = null;
@@ -301,6 +411,11 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 		}
 		listeners.clear();
 		controlHandlers.clear();
+		atTypeHandlers.clear();
+		reconnectListeners.clear();
+		notifyConnectionState(false);
+		connectionStateListeners.clear();
+		attachedScopes.clear();
 		everOpened = false;
 		backoff.reset();
 		if (ws) {
@@ -317,6 +432,11 @@ export function createWebSocketHub(options: WebSocketHubOptions = {}): WebSocket
 		subscribeControl,
 		subscribeType,
 		subscribeEvent,
+		subscribeReconnect,
+		subscribeConnectionState,
+		isConnected,
+		setScopeAttachSupported,
+		setAttachedScopes,
 		handleRawMessage,
 		disconnect,
 	};
@@ -334,6 +454,26 @@ export function subscribeType(atType: string, handler: AtTypeHandler): () => voi
 
 export function subscribeEvent<T extends object>(atType: string, handler: (event: T) => void): () => void {
 	return defaultHub.subscribeEvent(atType, handler);
+}
+
+export function subscribeReconnect(handler: () => void): () => void {
+	return defaultHub.subscribeReconnect(handler);
+}
+
+export function subscribeConnectionState(handler: (connected: boolean) => void): () => void {
+	return defaultHub.subscribeConnectionState(handler);
+}
+
+export function isConnected(): boolean {
+	return defaultHub.isConnected();
+}
+
+export function setScopeAttachSupported(supported: boolean): void {
+	defaultHub.setScopeAttachSupported(supported);
+}
+
+export function setAttachedScopes(scopes: readonly ScopeKey[]): void {
+	defaultHub.setAttachedScopes(scopes);
 }
 
 export function __handleRawMessage(raw: string): void {

@@ -370,6 +370,20 @@ function createWindow(): void {
 		},
 	});
 	currentWindow = win;
+	if (typeof win.on === "function") {
+		win.on("closed", () => {
+			if (currentWindow === win) currentWindow = undefined;
+			// Window-closed resilience (#555): restore main-process polling loop immediately
+			// when the renderer wakeup channel closes so mirror sync/revocations never stall.
+			mirrorService?.setWakeupConnected(false);
+		});
+	}
+	if (typeof win.webContents?.on === "function") {
+		win.webContents.on("render-process-gone", () => {
+			// Renderer crash resilience (#555): restore main-process polling loop immediately.
+			mirrorService?.setWakeupConnected(false);
+		});
+	}
 
 	// ── Connectivity E6 harness surface (the M5 localCapture genre: see the
 	// module header for the honesty posture). Inert unless the instance was
@@ -606,6 +620,9 @@ app.on("browser-window-blur", () => mamLifecycleOwner?.pause());
 app.on("browser-window-focus", () => mamLifecycleOwner?.resume());
 
 app.on("window-all-closed", () => {
+	// Window-closed resilience (#555): ensure main-process polling is active even
+	// if the renderer window closed without delivering a wakeup disconnect event.
+	mirrorService?.setWakeupConnected(false);
 	// Keep syncing with every window closed (arch D5/D6, the tray is the
 	// affordance) — quit only when there's no mirror running to keep alive for.
 	if (process.platform !== "darwin" && !mirrorService?.isRunning()) app.quit();

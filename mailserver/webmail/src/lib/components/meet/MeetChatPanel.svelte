@@ -39,6 +39,8 @@
 	import type { ChatWireEvent, RosterMember } from '$lib/chat/api';
 	import { subscribeEvent } from '$lib/jmap/websocket';
 	import { subscribeGuestChatEvents } from '$lib/chat/guestEventSource';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createChatChannelSyncAdapter } from '$lib/sync/webmail/adapters/chatOnline';
 	import { isGuestSession } from '$lib/stores/session';
 	import { user } from '$lib/stores/auth';
 	import MessageList from '$lib/components/chat/MessageList.svelte';
@@ -87,9 +89,22 @@
 	$effect(() => {
 		const handler = (evt: ChatWireEvent) => void chatStore.applyEvent(evt);
 		const guestSession = $user?.accountType === 'guest' || $isGuestSession;
-		return guestSession
+		const cid = channelId;
+		const coord = getWebmailSyncCoordinator(guestSession ? 'guest' : 'member');
+		const offSync = coord.register(
+			createChatChannelSyncAdapter({
+				store: chatStore,
+				channelId: cid,
+				consumerId: `meet-chat:channel:${cid}`,
+			}),
+		);
+		const offStream = guestSession
 			? subscribeGuestChatEvents(handler, () => void chatStore.onSocketOpen())
 			: subscribeEvent<ChatWireEvent>('ChatEvent', handler);
+		return () => {
+			offSync();
+			offStream();
+		};
 	});
 
 	/** B3 Task 8: switches to the chat tab (mounting Composer, which the Q&A
