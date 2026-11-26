@@ -6,23 +6,32 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { t } from '$lib/i18n';
 	import { RemindersStore } from '$lib/stores/reminders.svelte';
-	import { PushHandlerStore } from '$lib/stores/pushHandler.svelte';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createJmapRefreshAdapter, REMINDERS_DEBOUNCE_MS } from '$lib/sync/webmail/adapters/jmapOnline';
 	import type { Reminder } from '$lib/jmap/client';
 
 	const store = new RemindersStore();
-	const push = new PushHandlerStore();
+	let offRemindersSync: (() => void) | null = null;
 
 	onMount(() => {
 		store.load();
-		// A reminder fire (bump_reminder_state) pushes a "state"-bearing payload on the
-		// mailbox tag: channel → the gateway emits an Email/Mailbox/Thread StateChange, and
-		// task/calendar changes push their own domains. Re-fetch on any of those; the load()
-		// guard coalesces bursts. ponytail: a dedicated Reminder StateChange key would target
-		// this precisely — add if the re-fetch volume ever matters.
-		push.register(['Email', 'Task', 'Calendar'], () => store.load(), { debounceMs: 500 });
+		// Wave 2.8 (#555): route Reminder wakeups + reconnect catch-up through
+		// SyncCoordinator with 500ms debounce.
+		offRemindersSync = getWebmailSyncCoordinator('member').register(
+			createJmapRefreshAdapter({
+				consumerId: 'pim:reminders',
+				mailboxScopeId: 'primary',
+				dataTypes: ['Email', 'Task', 'Calendar'],
+				debounceMs: REMINDERS_DEBOUNCE_MS,
+				refresh: () => store.load(),
+			}),
+		);
 	});
 
-	onDestroy(() => push.teardown());
+	onDestroy(() => {
+		offRemindersSync?.();
+		offRemindersSync = null;
+	});
 
 	function iconFor(sourceType: Reminder['sourceType']): 'CalendarClock' | 'SquareCheck' | 'Flag' | 'BellRing' {
 		switch (sourceType) {

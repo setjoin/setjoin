@@ -36,6 +36,12 @@
 	import { DriveSearchStore } from '$lib/drive/search.svelte';
 	import { driveWatches } from '$lib/drive/watches.svelte';
 	import { subscribeEvent } from '$lib/jmap/websocket';
+	import { mirrorBridge } from '$lib/drive/mirrorBridge.svelte';
+	import { VaultStore } from '$lib/drive/sync/vaultstore.js';
+	import { getNative, hasCapability, isNative } from '$lib/native';
+	import { getWebmailSyncCoordinator, subscribeMemberWsConnected } from '$lib/sync/webmail/runtime.svelte';
+	import { createDriveOnlineSyncAdapter } from '$lib/sync/webmail/adapters/driveOnline';
+	import { createDriveVaultSyncAdapter } from '$lib/sync/webmail/adapters/driveNative';
 	import { uploadOrchestrator, uploadErrorMessage } from '$lib/drive/uploadOrchestrator.svelte';
 	import { VersionSaveFlow } from '$lib/drive/versionSave.svelte';
 
@@ -265,15 +271,45 @@
 		}
 	}
 
-	async function loadListing() {
-		if (selectedSpaceId === null) return;
+	let listingGen = 0;
+	const spaceRevocationEpoch = new Map<number, number>();
+
+	function bumpSpaceRevocationEpoch(spaceId: number): void {
+		listingGen += 1;
+		spaceRevocationEpoch.set(spaceId, (spaceRevocationEpoch.get(spaceId) ?? 0) + 1);
+	}
+
+	async function loadListing(opts?: {
+		signal?: AbortSignal;
+		fence?: { isCommitAllowed(): boolean };
+	}) {
+		const targetSpaceId = selectedSpaceId;
+		if (targetSpaceId === null) return;
+		const gen = ++listingGen;
+		const revEpoch = spaceRevocationEpoch.get(targetSpaceId) ?? 0;
+		const isStale = (): boolean =>
+			gen !== listingGen ||
+			selectedSpaceId !== targetSpaceId ||
+			(spaceRevocationEpoch.get(targetSpaceId) ?? 0) !== revEpoch ||
+			Boolean(opts?.signal?.aborted) ||
+			(opts?.fence !== undefined && !opts.fence.isCommitAllowed());
 		listingLoading = true;
 		try {
-			listing = await api.tree(selectedSpaceId, { parent: currentFolderId, deleted: deletedView });
+			const nextListing = await api.tree(targetSpaceId, { parent: currentFolderId, deleted: deletedView });
+			if (isStale()) return;
+			listing = nextListing;
 		} catch (e) {
+			if (isStale()) return;
+			const status = (e as { status?: unknown } | null)?.status;
+			if (status === 403 || status === 404) {
+				// Revoked folder / subtree: never leave stale revoked rows visible (#555).
+				listing = [];
+				selectedFile = null;
+				accessNode = null;
+			}
 			bannerError = driveErrorMessage(e);
 		} finally {
-			listingLoading = false;
+			if (gen === listingGen) listingLoading = false;
 		}
 	}
 
@@ -344,10 +380,18 @@
 	$effect(() => {
 		void loadSpaces();
 		const timer = setInterval(() => {
-			if (selectedSpaceId === null) return;
+			const pollSpaceId = selectedSpaceId;
+			if (pollSpaceId === null) return;
+			const revEpoch = spaceRevocationEpoch.get(pollSpaceId) ?? 0;
 			api
-				.changes(selectedSpaceId, sinceSeq)
+				.changes(pollSpaceId, sinceSeq)
 				.then((res) => {
+					if (
+						selectedSpaceId !== pollSpaceId ||
+						(spaceRevocationEpoch.get(pollSpaceId) ?? 0) !== revEpoch
+					) {
+						return;
+					}
 					if (res.cannotCalculateChanges) {
 						sinceSeq = 0;
 						void loadListing();
@@ -375,6 +419,98 @@
 			showToast(watchToastText(event.nodeId, event.op));
 		});
 		return unsubscribe;
+	});
+
+	// ── Wave 2.8 (#555): Drive online + native VaultStore + Electron mirror wakeup wiring ──
+	$effect(() => {
+		const spaceId = selectedSpaceId;
+		if (spaceId === null) return;
+		const coord = getWebmailSyncCoordinator('member');
+		const unsubs: Array<() => void> = [];
+
+		unsubs.push(
+			coord.register(
+				createDriveOnlineSyncAdapter({
+					spaceId,
+					getSinceSeq: () => sinceSeq,
+					setSinceSeq: (seq) => {
+						sinceSeq = seq;
+					},
+					fetchChanges: (sid, since) => api.changes(sid, since),
+					reloadListing: (signal, fence) => loadListing({ signal, fence }),
+					clearSpaceView: () => {
+						bumpSpaceRevocationEpoch(spaceId);
+						listingLoading = false;
+						listing = [];
+						selectedFile = null;
+						accessNode = null;
+					},
+				}),
+			),
+		);
+
+		if (isNative() && hasCapability('drive')) {
+			const native = getNative();
+			if (native.drive && native.db) {
+				const vaultStore = new VaultStore(native.drive, native.db, spaceId, () => null);
+				// Ensure dc_manifest_spaces and backfill are initialized before any revocation purge (#555).
+				void vaultStore.open().catch(() => {});
+				unsubs.push(
+					coord.register(
+						createDriveVaultSyncAdapter({
+							spaceId,
+							vaultStore,
+							reconcileVisibility: () => loadListing(),
+						}),
+					),
+				);
+			}
+		}
+
+		if (mirrorBridge.available) {
+			// Track actual member WS connectivity scoped to THIS spaceId so sibling
+			// mirrored spaces keep fast main-process polling and WS drops revert
+			// immediately (#555).
+			unsubs.push(
+				subscribeMemberWsConnected((connected) => {
+					void mirrorBridge.setWakeupConnected(connected, spaceId);
+				}),
+			);
+			unsubs.push(
+				coord.register({
+					consumerId: `drive-electron-forward:${spaceId}`,
+					scope: { kind: 'space', id: String(spaceId) },
+					lane: 'background',
+					debounceMs: 0,
+					runDeltaStep: async (ctx) => {
+						ctx.fence.assertCommitAllowed();
+						if (ctx.wakeup) {
+							await mirrorBridge.notifyWakeup({
+								scopeKind: 'space',
+								scopeId: String(spaceId),
+								seq: ctx.wakeup.seq,
+							});
+						}
+						return { kind: 'complete', recordsProcessed: 0 };
+					},
+					purgeScopeCache: async (event) => {
+						await mirrorBridge.notifyScopeRevoked({
+							scopeKind: 'space',
+							scopeId: event.scopeId,
+							subtreeAnchorId: event.subtreeAnchorId,
+							reason: event.reason,
+						});
+					},
+				}),
+			);
+		}
+
+		return () => {
+			for (const off of unsubs) off();
+			if (mirrorBridge.available) {
+				void mirrorBridge.setWakeupConnected(false, spaceId);
+			}
+		};
 	});
 
 	// ── node actions ─────────────────────────────────────────────────────────

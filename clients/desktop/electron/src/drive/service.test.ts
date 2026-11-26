@@ -674,7 +674,7 @@ describe('MirrorService — P4 office auto-soft-checkout (Task 16)', () => {
 });
 
 describe('makeDriveMirrorHandlers', () => {
-	it('registers exactly the 8 drive_mirror_* channels', () => {
+	it('registers exactly the 11 drive_mirror_* channels (8 core + 3 Wave 2.8 wakeup nudge channels)', () => {
 		const svc = new MirrorService({
 			native: fakeNative(),
 			userDataDir: '/tmp',
@@ -693,8 +693,11 @@ describe('makeDriveMirrorHandlers', () => {
 				'drive_mirror_open_office',
 				'drive_mirror_refresh_token',
 				'drive_mirror_resync',
+				'drive_mirror_scope_revoked_nudge',
 				'drive_mirror_set_paused',
 				'drive_mirror_status',
+				'drive_mirror_wakeup_nudge',
+				'drive_mirror_wakeup_state',
 			].sort()
 		);
 	});

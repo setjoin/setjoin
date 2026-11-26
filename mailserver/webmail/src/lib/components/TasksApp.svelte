@@ -5,7 +5,8 @@
 	import { goto } from '$app/navigation';
 
 	import { loadSession, galSearch, taskActivityList, taskCommentCreate } from '$lib/jmap/client';
-	import { PushHandlerStore } from '$lib/stores/pushHandler.svelte';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createJmapRefreshAdapter, PIM_DEBOUNCE_MS } from '$lib/sync/webmail/adapters/jmapOnline';
 	import { parseError } from '$lib/errors';
 	import { validate, required, maxLength, normalize } from '$lib/validation';
 	import { Dialog, Button, IconButton, Input, Select, Textarea, Checkbox, Spinner, EmptyState, Menu, showToast } from '$lib/components/ui';
@@ -91,7 +92,7 @@
 	let commentTextarea = $state<HTMLTextAreaElement | null>(null);
 
 	let mounted = $state(false);
-	const push = new PushHandlerStore();
+	let offTasksSync: (() => void) | null = null;
 	const taskActions = new TasksActionCoordinator({
 		async create(target, data) {
 			return target.kind === 'list'
@@ -126,20 +127,20 @@
 				| undefined;
 			sharedListsEnabled = !!tasksCap?.sharedLists;
 			if (sharedListsEnabled) await loadLists();
-			// Cross-tab/device reactivity: re-fetch on any Task push
-			// (notify_task_state → task:{mailbox_id}). No debounce — refreshTasks'
-			// own loading guard coalesces; the $effect handles the initial + filter loads.
-			// The shared-list seam (notify_task_list_state) pushes on the SAME
-			// task:{mailbox_id} channel (zero new subscription plumbing), so a
-			// 'tasklist_changed' event surfaces here too — the push framework
-			// abstracts it to the generic 'Task changed' signal (no per-list id),
-			// so onTaskListPush(null) means "refetch whatever's on screen".
-			push.register(['Task'], (changes) => {
-				if (changes && (changes as Record<string, unknown>).Task) {
-					refreshTasks();
-					if (sharedListsEnabled) onTaskListPush(null);
-				}
-			});
+			// Cross-tab/device reactivity via SyncCoordinator (#555): re-fetch on
+			// Task SyncWakeup, legacy StateChange, and reconnect catch-up.
+			offTasksSync = getWebmailSyncCoordinator('member').register(
+				createJmapRefreshAdapter({
+					consumerId: 'pim:tasks',
+					mailboxScopeId: 'primary',
+					dataTypes: ['Task'],
+					debounceMs: PIM_DEBOUNCE_MS,
+					refresh: async () => {
+						await refreshTasks();
+						if (sharedListsEnabled) onTaskListPush(null);
+					},
+				}),
+			);
 		} catch (e) {
 			error = parseError(e).message;
 		} finally {
@@ -150,7 +151,8 @@
 	});
 
 	onDestroy(() => {
-		push.teardown();
+		offTasksSync?.();
+		offTasksSync = null;
 		if (assigneeTimer) clearTimeout(assigneeTimer);
 		if (mentionTimer) clearTimeout(mentionTimer);
 	});
