@@ -431,6 +431,24 @@ async fn run_with_mutant(case: &str, mutant: bool) -> Result<(), BoxError> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let server = tokio::spawn(gateway.serve(listener));
+        // Wave 2.1 (#548): app_notify unconditionally writes notify_intents; run
+        // NotifyIntentDrain during write-repeat cases so WebSocket LISTEN receives
+        // StateChange frames promptly while preserving the recorded parity contract.
+        let (drain_stop_tx, drain_stop_rx) = tokio::sync::oneshot::channel::<()>();
+        let drain_task = if case.starts_with("write-repeat") && !recording {
+            let worker = setjoin_gateway::notify_drain::NotifyIntentDrain::new(
+                setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,
+            );
+            Some(tokio::spawn(async move {
+                worker
+                    .run_until(async move {
+                        let _ = drain_stop_rx.await;
+                    })
+                    .await;
+            }))
+        } else {
+            None
+        };
         let observation = async {
             let before=if case.starts_with("write-repeat") {Some((snapshot(&owner,&account).await?,snapshot(&owner,&foreign).await?))} else {None};
             let mut effects=json!({});let mut audit=json!([]);let mut notify=json!([]);
@@ -638,6 +656,10 @@ async fn run_with_mutant(case: &str, mutant: bool) -> Result<(), BoxError> {
             }
             Ok::<_,BoxError>(())
         }.await;
+        let _ = drain_stop_tx.send(());
+        if let Some(task) = drain_task {
+            let _ = task.await;
+        }
         server.abort(); let _ = server.await;
         let observation = observation?;
         proxy_check?;

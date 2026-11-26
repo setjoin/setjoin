@@ -126,7 +126,7 @@ BEGIN
                sa.status, sa.fire_at, sa.payload->>'body' AS body
           FROM scheduled_actions sa
          WHERE sa.action_kind = 'chat_send'
-           AND sa.status IN ('pending', 'failed')          -- contract #7
+           AND sa.status IN ('pending', 'enqueued', 'failed')          -- contract #7
            AND (sa.payload->>'channelId')::bigint = p_channel_id
          ORDER BY sa.id DESC
          LIMIT v_lim

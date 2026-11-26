@@ -45,6 +45,7 @@ admin_scope_within.sql	admin_scope_within	READ_ONLY	-	pure read path (guard re-d
 admin_set_reaches.sql	admin_set_reaches	READ_ONLY	-	pure read path (guard re-derives no DML)
 admin_sod_precheck.sql	admin_sod_precheck	READ_ONLY	-	pure read path (guard re-derives no DML)
 app_notify.sql	app_notify	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
+app_notify.sql	app_notify_enqueue_intent	EXEMPT	-	narrow worker-owned SECURITY DEFINER enqueue seam for FORCE-RLS notify_intents; not an authority transition
 append_change.sql	append_change	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 append_change.sql	append_email_change	READ_ONLY	-	pure read path (guard re-derives no DML)
 rule_engine.sql	apply_action	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
@@ -1174,3 +1175,21 @@ webhook_publication_fanout.sql	webhook_publication_fanout	EXEMPT	-	publication f
 webhook_publication_prune.sql	webhook_publication_prune	EXEMPT	-	publication fanout transport; not an authority decision
 webhook_user_changed_publish.sql	webhook_user_changed_publish	EXEMPT	-	publication fanout transport; not an authority decision
 webhook_user_deleted_publish.sql	webhook_user_deleted_publish	EXEMPT	-	publication fanout transport; not an authority decision
+work_queue.sql	emit_wakeup_bell	EXEMPT	-	content-free wakeup bell transport (writes notify_intents only); not an authority transition
+work_queue.sql	execute_scheduled_action_work	EXEMPT	-	background workqueue dispatcher handoff for scheduled_actions; underlying action handlers own business audit
+work_queue.sql	promote_due_scheduled_actions	EXEMPT	-	background workqueue promoter moving due pending scheduled_actions to enqueued; operational transport
+work_queue.sql	prune_work_dead_letters	EXEMPT	-	retention housekeeping pruning replayed dead-letter rows older than retention window
+work_queue.sql	work_enqueue	EXEMPT	-	durable workqueue enqueue transport (worker-only); not an authority transition
+work_queue.sql	work_enqueue_app	EXEMPT	-	narrow allowlisted domain-safe workqueue enqueue seam (stamps R2 actor context); operational transport
+work_queue.sql	work_queue_claim	EXEMPT	-	worker SKIP LOCKED lease acquisition transport; not an authority transition
+work_queue.sql	work_queue_complete	EXEMPT	-	fenced workqueue completion settlement; operational transport
+work_queue.sql	work_queue_dlq_inspect	READ_ONLY	-	pure read path (guard re-derives no DML)
+work_queue.sql	work_queue_dlq_list	READ_ONLY	-	pure read path (guard re-derives no DML)
+work_queue.sql	work_queue_dlq_purge	EXEMPT	-	operator DLQ retention/cleanup command; operational queue maintenance
+work_queue.sql	work_queue_dlq_replay	EXEMPT	-	operator DLQ replay re-enqueue command; logs scheduled_action_log when applicable
+work_queue.sql	work_queue_fail	EXEMPT	-	fenced workqueue retry/dead-letter settlement; operational transport
+work_queue.sql	work_queue_heartbeat	EXEMPT	-	fenced workqueue lease extension; operational transport
+work_queue.sql	work_queue_reclaim_expired	EXEMPT	-	expired-lease crash recovery and poison-pill dead-lettering; operational transport
+work_queue.sql	work_queue_require_worker	READ_ONLY	-	pure read path checking BYPASSRLS/superuser privilege (guard re-derives no DML)
+work_queue.sql	work_queue_stats	READ_ONLY	-	pure scalar stats read path (guard re-derives no DML)
+work_queue.sql	work_truncate_utf8	READ_ONLY	-	pure IMMUTABLE UTF-8 byte-safe truncation helper (guard re-derives no DML)

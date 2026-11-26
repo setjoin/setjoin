@@ -277,7 +277,23 @@ BEGIN
         ('public.rust_smtp_inbound_security(jsonb,text,text,boolean,text)'),
         ('public.rust_smtp_imip_request_gate(jsonb,text)'),
         ('public.rust_smtp_imip_request_apply(jsonb,jsonb,timestamptz)'),
-        ('public.rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz)')
+        ('public.rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz)'),
+        -- #548 (V286): durable WorkQueue worker/operator reducers stay strictly worker-only
+        -- after the broad GRANT EXECUTE ON ALL FUNCTIONS pass above.
+        ('public.work_queue_require_worker()'),
+        ('public.work_enqueue(text,jsonb,text,timestamptz,smallint,integer)'),
+        ('public.work_queue_claim(text,text[],integer,integer,integer)'),
+        ('public.work_queue_heartbeat(bigint,integer,text,integer)'),
+        ('public.work_queue_complete(bigint,integer,text)'),
+        ('public.work_queue_fail(bigint,integer,text,text,double precision,boolean)'),
+        ('public.work_queue_reclaim_expired(integer)'),
+        ('public.work_queue_dlq_list(text,boolean,integer,integer)'),
+        ('public.work_queue_dlq_inspect(bigint)'),
+        ('public.work_queue_dlq_replay(bigint,boolean,boolean)'),
+        ('public.work_queue_dlq_purge(bigint,text,integer,boolean)'),
+        ('public.prune_work_dead_letters(integer,integer)'),
+        ('public.promote_due_scheduled_actions(integer)'),
+        ('public.execute_scheduled_action_work(uuid,text,integer,integer,boolean)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -350,6 +366,30 @@ BEGIN
       EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
       EXECUTE format('REVOKE ALL ON public.%I FROM setjoin_app, setjoin_worker', t);
       EXECUTE format('GRANT SELECT, INSERT, DELETE ON public.%I TO setjoin_worker', t);
+    END IF;
+  END LOOP;
+END $$;
+
+-- Durable WorkQueue tables and notify_intents (V286, #548) are FORCE-RLS deny-all
+-- to setjoin_app and reachable only by setjoin_worker (BYPASSRLS) and operators
+-- (app writes flow through narrow worker-owned SECURITY DEFINER seams). Restate
+-- table and sequence grants here after the blanket GRANT above so reprovisioning
+-- preserves the app denial.
+DO $$
+DECLARE
+  t     text;
+  v_seq text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['work_items','work_dead_letters','notify_intents'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
+      EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO setjoin_worker', t);
+      v_seq := pg_get_serial_sequence('public.' || t, 'id');
+      IF v_seq IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, setjoin_app, setjoin_worker', v_seq);
+        EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %s TO setjoin_worker', v_seq);
+      END IF;
     END IF;
   END LOOP;
 END $$;

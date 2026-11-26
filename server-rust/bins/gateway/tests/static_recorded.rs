@@ -180,9 +180,27 @@ const PROCESS_LINES: [&str; 8] = [
     "gateway_goroutines_total ",
 ];
 
-/// Process counters differ per process; every other metrics line is compared.
+/// Post-Go Wave 2.1 (#548) durable WorkQueue metrics exposed on `/metrics`.
+const POST_GO_METRIC_PREFIXES: [&str; 4] = [
+    "setjoin_work_queue_pending",
+    "setjoin_work_queue_leased",
+    "setjoin_work_queue_dead_letters",
+    "setjoin_work_queue_oldest_due_age_seconds",
+];
+
+fn is_post_go_metric_line(line: &str) -> bool {
+    POST_GO_METRIC_PREFIXES.iter().any(|name| {
+        line.starts_with(&format!("{name} "))
+            || line.starts_with(&format!("# HELP {name} "))
+            || line.starts_with(&format!("# TYPE {name} "))
+    })
+}
+
+/// Process counters differ per process; post-Go Wave 2.1 WorkQueue families are
+/// scrubbed as a documented divergence; every other metrics line is compared.
 fn blur_metrics(text: &str) -> String {
     text.lines()
+        .filter(|line| !is_post_go_metric_line(line))
         .map(
             |line| match PROCESS_LINES.iter().find(|p| line.starts_with(**p)) {
                 Some(prefix) => format!("{prefix}<n>\n"),

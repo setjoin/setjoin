@@ -77,8 +77,8 @@ BEGIN
       -- a message; or a channel whose messages were all purged on an earlier run —
       -- kept its verbatim body in a no-RLS `payload` FOREVER. Nothing else in the
       -- repo reaps these rows. Do not "tidy" this back below the CONTINUE.
-      -- status <> 'pending': never destroy an UNFIRED scheduled message (that is
-      -- silent content loss, not retention).
+      -- status NOT IN ('pending', 'enqueued'): never destroy an UNFIRED scheduled
+      -- message (that is silent content loss, not retention).
       --
       -- F4 (pipeline review fix): RETURNING id captures a count + id range so
       -- this destruction folds into the SAME purge.execute act below
@@ -96,7 +96,7 @@ BEGIN
         DELETE FROM scheduled_actions
          WHERE action_kind = 'chat_send'
            AND (payload->>'channelId')::bigint = v_ch.id
-           AND status <> 'pending'
+           AND status NOT IN ('pending', 'enqueued')
            AND created_at + make_interval(days => v_ret) <= now()
         RETURNING id
       )

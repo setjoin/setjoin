@@ -255,6 +255,7 @@ pub(super) fn session_worker() -> Result<Option<(Arc<SessionDenylist>, String)>,
                     | "setup-control"
                     | "federation-residue-reap"
                     | "outbound-mail"
+                    | "work-queue"
             )
     }) {
         return Err("RUST_WORKERS_ON contains an unknown worker".into());
@@ -465,24 +466,96 @@ pub(super) fn webhook_workers(
     ))
 }
 
-/// `RUST_WORKERS_ON=notify-intent-drain` takes Go's `notify-intent-drain`
-/// (#408). Both would drain one queue (SKIP LOCKED keeps rows single-delivery,
-/// but two drainers double the idle DELETEs and race the ordering), so Go must
-/// be off first. The queue is cross-tenant: worker credential, never request.
-pub(super) fn notify_drain_worker() -> Result<Option<crate::notify_drain::NotifyIntentDrain>, String>
-{
+/// `notify-intent-drain` (#408, Wave 2.1 #548): runs unconditionally in
+/// `setjoind` (`always_on = true`) whenever `DB_DSN` is present, and in legacy
+/// `setjoin-server` when `RUST_WORKERS_ON` lists `notify-intent-drain`.
+pub(super) fn notify_drain_worker(
+    always_on: bool,
+) -> Result<Option<crate::notify_drain::NotifyIntentDrain>, String> {
     use crate::notify_drain::NAME;
-    if !listed("RUST_WORKERS_ON", NAME) {
+    let explicit = listed("RUST_WORKERS_ON", NAME);
+    if !explicit && !always_on {
         return Ok(None);
     }
-    let request = std::env::var("DB_DSN")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .ok_or("DB_DSN is required for notify-intent-drain")?;
+    let Some(request) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
+        if explicit {
+            return Err("DB_DSN is required for notify-intent-drain".into());
+        }
+        return Ok(None);
+    };
     let worker = std::env::var("DB_WORKER_DSN").ok();
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())
         .map_err(|e| format!("DB_WORKER_DSN: {e}"))?;
     Ok(Some(crate::notify_drain::NotifyIntentDrain::new(db)))
+}
+
+/// Durable WorkQueue consumer (`work-queue`, Wave 2.1 #548): promotes due
+/// `scheduled_actions` to `'enqueued'` and executes `scheduled_action.*` items
+/// atomically in one `WorkerTx`. Gated on `RUST_WORKERS_ON=work-queue` or
+/// `always_on` (`setjoind` with `subsystems.workers`).
+///
+/// Verifies that the pool role holds `rolbypassrls OR rolsuper` before
+/// activating so constrained-DSN setups never suppress legacy
+/// `dispatch-scheduled-actions` without a working WorkQueue consumer.
+pub(super) async fn work_queue_worker(
+    always_on: bool,
+    listen_hub: Option<setjoin_pg::ListenHub>,
+) -> Result<Option<setjoin_workqueue::WorkScheduledActionConsumer>, String> {
+    let explicit = listed("RUST_WORKERS_ON", "work-queue");
+    if !explicit && !always_on {
+        return Ok(None);
+    }
+    let Some(request) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
+        if explicit {
+            return Err("DB_DSN is required for work-queue".into());
+        }
+        return Ok(None);
+    };
+    let worker_dsn = std::env::var("DB_WORKER_DSN")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let dsn = worker_dsn.as_deref().unwrap_or(&request);
+    let mut pool = setjoin_pg::WorkerPool::from_dsn(dsn, 8)
+        .map_err(|e| format!("work-queue worker pool: {}", e.0))?;
+    let (encryption, hmac) = (
+        std::env::var("DB_ENCRYPTION_KEY").unwrap_or_default(),
+        std::env::var("AUDIT_HMAC_KEY").unwrap_or_default(),
+    );
+    if !encryption.is_empty() || !hmac.is_empty() {
+        pool = pool.with_audit_keys(encryption, hmac);
+    }
+    let role_ok = match pool.begin_repeatable_read_only().await {
+        Ok(mut tx) => {
+            let res = tx
+                .query(
+                    "SELECT (rolbypassrls OR rolsuper) FROM pg_catalog.pg_roles WHERE rolname = current_user",
+                    &[],
+                )
+                .await;
+            let _ = tx.commit().await;
+            res.ok()
+                .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+                .unwrap_or(false)
+        }
+        Err(_) => false,
+    };
+    if !role_ok {
+        if explicit {
+            return Err(
+                "work-queue requires a BYPASSRLS or superuser worker DSN (DB_WORKER_DSN)".into(),
+            );
+        }
+        eprintln!(
+            "work-queue: skipping auto-enable because worker DSN lacks BYPASSRLS; keeping legacy dispatch-scheduled-actions"
+        );
+        return Ok(None);
+    }
+    let queue = setjoin_workqueue::WorkQueue::new(pool);
+    Ok(Some(setjoin_workqueue::WorkScheduledActionConsumer::new(
+        queue,
+        setjoin_workqueue::WorkConsumerConfig::default(),
+        listen_hub,
+    )))
 }
 
 /// `RUST_WORKERS_ON=security-event-delivery` takes Go's `security-event-delivery`
@@ -809,12 +882,17 @@ pub(super) fn drive_watch_worker(
 /// `GO_WORKERS_OFF=cron:<task>` (or `cron`) first; the scheduler then holds only
 /// that task's own lock, never Go's scheduler lock. Only tasks with a Rust
 /// callback are accepted, so an unported task cannot be switched off by mistake.
-pub(super) async fn cron_scheduler() -> Result<Option<crate::workers::CronScheduler>, String> {
+pub(super) async fn cron_scheduler(
+    work_queue_active: bool,
+) -> Result<Option<crate::workers::CronScheduler>, String> {
     let configured = std::env::var("RUST_WORKERS_ON").unwrap_or_default();
     let tasks: Vec<_> = configured
         .split(',')
         .map(str::trim)
         .filter_map(|name| name.strip_prefix("cron:"))
+        // Wave 2.1 (#548): mutual exclusion with WorkQueue scheduled_actions
+        // consumer while keeping cron_catalog.rs:34 intact for parity tests.
+        .filter(|name| !(work_queue_active && *name == "dispatch-scheduled-actions"))
         .collect();
     if tasks.is_empty() {
         return Ok(None);

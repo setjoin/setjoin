@@ -48,7 +48,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- chat_scheduled_list: the caller's own pending + FAILED chat_send rows.
+-- chat_scheduled_list: the caller's own pending + enqueued + FAILED chat_send rows.
 -- Failed rows stay visible (grill-decided, plan Task 2): silent content loss
 -- is the wrong brand for a compliance product — the failure reason (the
 -- handler's caught BZ, in payload->>'failureCode') and the still-readable
@@ -62,11 +62,11 @@ CREATE OR REPLACE FUNCTION chat_scheduled_list(p_user_id bigint) RETURNS jsonb A
            ) ORDER BY fire_at ASC), '[]'::jsonb)
       FROM scheduled_actions
      WHERE action_kind = 'chat_send'
-       AND status IN ('pending', 'failed')
+       AND status IN ('pending', 'enqueued', 'failed')
        AND payload->>'userId' = p_user_id::text;
 $$ LANGUAGE sql STABLE;
 
--- chat_scheduled_cancel: works on pending AND failed (dismiss); ownership +
+-- chat_scheduled_cancel: works on pending, enqueued, AND failed (dismiss); ownership +
 -- id + status all folded into ONE DELETE (R1/R3, no check-then-act window).
 -- Anti-oracle (BZ179): doesn't exist, belongs to another user, or already
 -- fired/processing all fail identically — a client can't probe which.
@@ -80,7 +80,7 @@ BEGIN
         DELETE FROM scheduled_actions
          WHERE id = p_action_id
            AND action_kind = 'chat_send'
-           AND status IN ('pending', 'failed')
+           AND status IN ('pending', 'enqueued', 'failed')
            AND payload->>'userId' = p_user_id::text
         RETURNING 1
     )

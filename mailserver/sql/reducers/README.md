@@ -1113,3 +1113,25 @@ Workers use the established worker credential; these wrappers add no grants.
 |----------|------|---------|----------------|----------------------|
 | `rust_identity_smime_cert_delete` | rust_identity_smime_cert_delete.sql | Frozen-Go owned deletion + newest-survivor promotion; opaque phase verdicts, exception rollback of the whole pair. | verified user id, certificate id | none (Go parity) |
 | `rust_identity_smime_cert_default` | rust_identity_smime_cert_default.sql | Frozen-Go owned default switch with whole-function rollback and opaque phase verdicts. | verified user id, certificate id | none (Go parity) |
+
+### Durable WorkQueue, DLQ & Content-Free Wakeup Bells (Wave 2.1, #548, V286)
+
+| Function | File | Contract | Authority | Effects |
+|---|---|---|---|---|
+| `work_truncate_utf8` | work_queue.sql | UTF-8 character-boundary-safe byte truncation helper (`<= 4096` bytes) | pure `IMMUTABLE` | none |
+| `work_queue_require_worker` | work_queue.sql | `SECURITY INVOKER` privilege gate requiring `rolbypassrls OR rolsuper` (else `BZ003`) | current_user role attributes | none |
+| `app_notify_enqueue_intent` | app_notify.sql | Narrow worker-owned `SECURITY DEFINER` (`SET search_path = pg_catalog, public`, `REVOKE ALL FROM PUBLIC`) enqueue seam into FORCE-RLS `notify_intents`; validates channel regex and payload `<= 7900`B | p_channel, p_payload | Validated `notify_intents` row; `BZ040` on invalid channel or oversized payload |
+| `emit_wakeup_bell` | work_queue.sql | Unconditionally enqueues content-free `('sync'\|'work', token <= 128B)` wakeup via `app_notify_enqueue_intent` (+ `_test_notify_log` under capture) | app or worker | `notify_intents` row |
+| `work_enqueue` | work_queue.sql | Worker-only enqueue with optional `(kind, idempotency_key)` coalescing and `'work'` wakeup bell | `setjoin_worker` (`BZ003` otherwise) | `work_items` + wakeup bell |
+| `work_enqueue_app` | work_queue.sql | Narrow allowlisted app enqueue (`SECURITY DEFINER`, `setjoin_worker` owned); R2 GUC actor stamping + prefixed idempotency key + clamped priority/delay | `app.current_user_id` / `app.current_mailbox_id` | `work_items` + wakeup bell |
+| `work_queue_stats` | work_queue.sql | Scalar queue counts (`pending`, `leased`, `dead_letters`, `oldest_due_age_secs`); zero payload/tenant data | `SECURITY DEFINER`, `setjoin_worker` owned | none |
+| `work_queue_claim` | work_queue.sql | `FOR UPDATE SKIP LOCKED` claim with monotonic `claim_generation` and optional ordered 64-bit advisory-locked per-kind `max_concurrency` | `setjoin_worker` (`BZ003` otherwise) | leases `work_items` rows |
+| `work_queue_heartbeat` | work_queue.sql | Lease-valid extension predicated on `(id, claim_generation, locked_by)` and `lease_expires_at > now()` | `setjoin_worker` (`BZ003` otherwise) | extends `lease_expires_at` |
+| `work_queue_complete` | work_queue.sql | Fenced completion deleting leased `work_items` row | `setjoin_worker` (`BZ003` otherwise) | deletes `work_items` row |
+| `work_queue_fail` | work_queue.sql | Fenced retry with backoff or dead-letter transition on permanent failure / max attempts; truncates `last_error <= 4096B` | `setjoin_worker` (`BZ003` otherwise) | retries or moves to `work_dead_letters` |
+| `work_queue_reclaim_expired` | work_queue.sql | Reclaims expired leases to `pending` or moves attempt-exhausted poison pills to `work_dead_letters` | `setjoin_worker` (`BZ003` otherwise) | re-pends / dead-letters + wakeup |
+| `work_queue_dlq_list` / `work_queue_dlq_inspect` | work_queue.sql | Operator dead-letter listing (limit `1..=500`) and single-row inspection | `setjoin_worker` (`BZ003` otherwise) | none |
+| `work_queue_dlq_replay` | work_queue.sql | `FOR UPDATE`-serialized replay; refuses already-replayed (unless force), non-`'failed'` `scheduled_actions`, and active idempotency conflicts | `setjoin_worker` (`BZ003` otherwise) | re-enqueues + updates `work_dead_letters` & `scheduled_actions` |
+| `work_queue_dlq_purge` / `prune_work_dead_letters` | work_queue.sql | Operator DLQ purge and bounded 30-day replayed DLQ retention sweep | `setjoin_worker` (`BZ003` otherwise) | deletes `work_dead_letters` rows |
+| `promote_due_scheduled_actions` | work_queue.sql | Promotes due `'pending'` `scheduled_actions` to `'enqueued'` and enqueues `scheduled_action.<kind>` work items | `setjoin_worker` (`BZ003` otherwise) | updates `scheduled_actions`, logs, enqueues `work_items` |
+| `execute_scheduled_action_work` | work_queue.sql | Single-tx `scheduled_action.*` handler using `p_attempt >= p_max_attempts`; refuses `'pending'`, idempotent on `'done'`/`'failed'` | `setjoin_worker` (`BZ003` otherwise) | executes `run_scheduled_action`, updates `scheduled_actions` + log |

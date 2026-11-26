@@ -617,6 +617,70 @@ class FamilyIsolation(unittest.TestCase):
                     result.stderr,
                 )
 
+    def test_workqueue_worker_feature_restricted_and_never_default(self):
+        with tempfile.TemporaryDirectory(prefix="gofree-t1-wq-dom-") as tmp:
+            root = pathlib.Path(tmp)
+            wq = root / "crates/workqueue"
+            (wq / "src").mkdir(parents=True)
+            (wq / "src/lib.rs").write_text("")
+            (wq / "Cargo.toml").write_text(
+                '[package]\nname = "setjoin-workqueue"\nversion = "0.1.0"\n'
+                "[features]\nworker = []\n"
+            )
+            dom = root / "crates/domains/alpha"
+            (dom / "src").mkdir(parents=True)
+            (dom / "src/lib.rs").write_text("")
+            (dom / "Cargo.toml").write_text(
+                '[package]\nname = "alpha"\nversion = "0.1.0"\n'
+                "[dependencies]\n"
+                'setjoin-workqueue = { path = "../../workqueue", features = ["worker"] }\n'
+            )
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nresolver = "2"\n'
+                'members = ["crates/workqueue", "crates/domains/alpha"]\n'
+            )
+            result = subprocess.run(
+                ["python3", str(GUARD), str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                'forbidden setjoin-workqueue feature "worker" in alpha',
+                result.stderr,
+            )
+
+        for features_toml in (
+            'default = ["worker"]\nworker = []\n',
+            'default = ["alias"]\nalias = ["worker"]\nworker = []\n',
+        ):
+            with (
+                self.subTest(features_toml=features_toml),
+                tempfile.TemporaryDirectory(prefix="gofree-t1-wq-def-") as tmp,
+            ):
+                root = pathlib.Path(tmp)
+                wq = root / "crates/workqueue"
+                (wq / "src").mkdir(parents=True)
+                (wq / "src/lib.rs").write_text("")
+                (wq / "Cargo.toml").write_text(
+                    '[package]\nname = "setjoin-workqueue"\nversion = "0.1.0"\n'
+                    f"[features]\n{features_toml}"
+                )
+                (root / "Cargo.toml").write_text(
+                    '[workspace]\nresolver = "2"\n'
+                    'members = ["crates/workqueue"]\n'
+                )
+                result = subprocess.run(
+                    ["python3", str(GUARD), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    'forbidden default feature "worker" in setjoin-workqueue',
+                    result.stderr,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

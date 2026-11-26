@@ -293,6 +293,8 @@ struct InProcessAuthBundle {
     authority: Arc<dyn AuthAuthority>,
     server: Arc<AuthServer>,
     config_listen: String,
+    config_dsn: String,
+    config_worker_dsn: Option<String>,
     tls_cert: Option<String>,
     tls_key: Option<String>,
     shared_gate: Arc<setjoin_threat::Gate>,
@@ -376,6 +378,8 @@ async fn init_in_process_auth(
     };
 
     let config_listen = config.listen.clone();
+    let config_dsn = config.dsn.clone();
+    let config_worker_dsn = config.worker_dsn.clone();
     let tls_cert = config.tls_cert.clone();
     let tls_key = config.tls_key.clone();
 
@@ -402,6 +406,8 @@ async fn init_in_process_auth(
         authority,
         server,
         config_listen,
+        config_dsn,
+        config_worker_dsn,
         tls_cert,
         tls_key,
         shared_gate: gate,
@@ -517,11 +523,40 @@ pub async fn run_subsystems(
 
         let serve_stop = shutdown.clone();
         let notify_stop = sd_notify.clone();
+        // Wave 2.1 (#548): spawn lightweight NotifyIntentDrain in standalone
+        // `--subsystems=auth` mode using the resolved auth/YAML config DSN so
+        // session_revoke / identity_link intents are never stranded even on
+        // YAML-only setups when `workers` is stopped or on another host.
+        let resolved_dsn = if !auth.config_dsn.is_empty() {
+            Some(auth.config_dsn.clone())
+        } else {
+            let s = configuration.startup_settings().string("db.dsn");
+            (!s.is_empty()).then_some(s)
+        };
+        let resolved_worker = auth.config_worker_dsn.clone().or_else(|| {
+            let s = configuration.startup_settings().string("db.worker_dsn");
+            (!s.is_empty()).then_some(s)
+        });
+        let auth_notify_drain = resolved_dsn
+            .and_then(|dsn| {
+                setjoin_pg::workers::WorkerDatabase::from_dsns(&dsn, resolved_worker.as_deref())
+                    .ok()
+            })
+            .map(|db| {
+                let stop = shutdown.clone();
+                let worker = setjoin_gateway::notify_drain::NotifyIntentDrain::new(db);
+                tokio::spawn(async move {
+                    worker.run_until(stop.cancelled_owned()).await;
+                })
+            });
         setjoin_auth::serve_http_until(auth.server.clone(), listener, tls, async move {
             serve_stop.cancelled().await;
             let _ = notify_stop.notify_stopping();
         })
         .await;
+        if let Some(handle) = auth_notify_drain {
+            let _ = handle.await;
+        }
         signal_task.abort();
         let _ = signal_task.await;
         drop(auth);
@@ -580,6 +615,44 @@ pub async fn run_subsystems(
         }));
     }
 
+    // Wave 2.1 (#548): run NotifyIntentDrain unconditionally whenever any
+    // subsystem that can invoke app_notify is active, using resolved config DSN.
+    if !subsystems.workers {
+        let resolved_dsn = auth_bundle
+            .as_ref()
+            .map(|b| b.config_dsn.clone())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                let s = configuration.startup_settings().string("db.dsn");
+                (!s.is_empty()).then_some(s)
+            })
+            .or_else(|| std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()));
+        let resolved_worker = auth_bundle
+            .as_ref()
+            .and_then(|b| b.config_worker_dsn.clone())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                let s = configuration.startup_settings().string("db.worker_dsn");
+                (!s.is_empty()).then_some(s)
+            })
+            .or_else(|| {
+                std::env::var("DB_WORKER_DSN")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
+        if let Some(dsn) = resolved_dsn {
+            if let Ok(db) =
+                setjoin_pg::workers::WorkerDatabase::from_dsns(&dsn, resolved_worker.as_deref())
+            {
+                let stop = shutdown.clone();
+                let drainer = setjoin_gateway::notify_drain::NotifyIntentDrain::new(db);
+                extra_tasks.push(tokio::spawn(async move {
+                    drainer.run_until(stop.cancelled_owned()).await;
+                }));
+            }
+        }
+    }
+
     let options = RuntimeOptions {
         subsystems,
         auth_authority,
@@ -593,6 +666,8 @@ pub async fn run_subsystems(
         reload_auth_on_sighup: subsystems.auth,
         drain_timeout: DEFAULT_DRAIN_TIMEOUT,
         extra_tasks,
+        always_run_notify_drain: subsystems.workers,
+        enable_work_queue: false,
     };
 
     let result = run_with_options(configuration, options).await;

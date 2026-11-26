@@ -195,7 +195,7 @@ pub async fn active_sweeps(
     a: &AuthContext,
 ) -> Result<i64, StatementFailure> {
     let mb = a.mailbox_id();
-    exec.read("SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','processing')",&[(&mb,Type::INT8)]).await?.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)
+    exec.read("SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','enqueued','processing')",&[(&mb,Type::INT8)]).await?.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)
 }
 /// `Committed("cap")` means the mailbox already has [`ACTIVE_SWEEP_CAP`] sweeps in
 /// progress and nothing was enqueued (security fix 2026-11-05, #484: counted under the
@@ -217,7 +217,7 @@ pub async fn apply(
         a,
         op,
         "personal.apply",
-        "SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','processing')",
+        "SELECT count(*) FROM scheduled_actions WHERE mailbox_id=$1 AND action_kind='rules_retro' AND status IN('pending','enqueued','processing')",
         cap,
         "SELECT rules_apply_retroactive($1,$4,$5)::text WHERE $2::bigint>0 AND $3::text<>''",
         &[(&id, Type::INT8), (&window, Type::TEXT)],

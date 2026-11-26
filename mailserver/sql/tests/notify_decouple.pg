@@ -1,36 +1,78 @@
--- notify_decouple.pg — the NOTIFY-decouple seam (V088 + app_notify).
--- INERT proof: with feature.notify_decouple OFF (the seeded default),
--- app_notify behaves byte-identically to today — the _test_notify_log capture
--- tee fires and NO durable intent row is written. With the toggle ON, the push
--- becomes a durable notify_intents row (drained by the Go notifyjobs worker on
--- its own short txns) and the direct pg_notify is suppressed; the capture tee
--- still fires on both branches so "did this reducer push?" stays assertable.
+-- notify_decouple.pg — Wave 2.1 (#548): feature.notify_decouple is retired in
+-- app_notify.sql; app_notify unconditionally writes durable notify_intents rows
+-- via narrow SECURITY DEFINER app_notify_enqueue_intent (while notify_intents
+-- itself is FORCE-RLS deny-all to setjoin_app with poison-row CHECK constraints).
 BEGIN;
-SELECT plan(7);
+SELECT plan(19);
 
 SELECT set_config('app.capture_notify', 'on', false);
 
--- The V088 seed: toggle row exists, OFF.
+-- The V088 seed row remains untouched in feature_toggles (V275 golden parity).
 SELECT is((SELECT enabled FROM feature_toggles WHERE key = 'feature.notify_decouple'),
-  FALSE, 'feature.notify_decouple is seeded OFF (V088)');
+  FALSE, 'feature.notify_decouple seed row remains untouched (V088/V275 parity)');
 
--- ── Toggle OFF (default): byte-identical to the direct path ─────────────
+-- ── V286: notify_intents FORCE RLS deny-all posture ─────────────────────────
+SELECT is(
+  (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.notify_intents'::regclass),
+  true, 'V286: notify_intents has RLS enabled');
+SELECT is(
+  (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'public.notify_intents'::regclass),
+  true, 'V286: notify_intents RLS is FORCEd');
+SELECT is(
+  (SELECT count(*)::int FROM pg_policies WHERE tablename = 'notify_intents'),
+  0, 'V286: notify_intents has ZERO permissive policies');
+SELECT is(
+  has_function_privilege('public', 'public.app_notify_enqueue_intent(text,text)', 'EXECUTE'),
+  false, 'PUBLIC has NO EXECUTE on SECURITY DEFINER app_notify_enqueue_intent');
+
+-- ── Toggle OFF: app_notify unconditionally writes notify_intents + capture tee ─
 SELECT lives_ok($$SELECT app_notify('nd_test:1', '{"e":"off"}')$$,
-  'app_notify runs with the toggle off');
+  'app_notify runs with historical toggle off');
 SELECT is((SELECT payload FROM _test_notify_log WHERE channel = 'nd_test:1'),
-  '{"e":"off"}', 'toggle off → capture tee unchanged');
-SELECT is((SELECT count(*)::int FROM notify_intents WHERE channel LIKE 'nd_test:%'),
-  0, 'toggle off → no durable intent row');
+  '{"e":"off"}', 'capture tee records payload');
+SELECT is((SELECT count(*)::int FROM notify_intents
+            WHERE channel = 'nd_test:1' AND payload = '{"e":"off"}'),
+  1, 'app_notify unconditionally writes durable notify_intents row');
 
--- ── Toggle ON: durable intent instead of the hot-commit pg_notify ───────
+-- ── Toggle ON: identical decoupled behavior ─────────────────────────────────
 UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.notify_decouple';
 SELECT lives_ok($$SELECT app_notify('nd_test:2', '{"e":"on"}')$$,
-  'app_notify runs with the toggle on');
+  'app_notify runs with historical toggle on');
 SELECT is((SELECT count(*)::int FROM notify_intents
             WHERE channel = 'nd_test:2' AND payload = '{"e":"on"}'),
-  1, 'toggle on → exactly one intent row, verbatim channel+payload');
+  1, 'toggle on -> exactly one intent row, verbatim channel+payload');
 SELECT is((SELECT payload FROM _test_notify_log WHERE channel = 'nd_test:2'),
-  '{"e":"on"}', 'toggle on → capture tee still fires (push stays assertable)');
+  '{"e":"on"}', 'toggle on -> capture tee still fires (push stays assertable)');
+
+-- ── setjoin_app cannot read/delete/insert notify_intents directly, but CAN
+--    enqueue validated rows through app_notify / emit_wakeup_bell ────────────
+SET LOCAL ROLE setjoin_app;
+SELECT throws_ok(
+  $$ SELECT count(*) FROM public.notify_intents $$,
+  '42501', NULL, 'setjoin_app direct SELECT on notify_intents is denied');
+SELECT throws_ok(
+  $$ DELETE FROM public.notify_intents $$,
+  '42501', NULL, 'setjoin_app direct DELETE on notify_intents is denied');
+SELECT throws_ok(
+  $$ INSERT INTO public.notify_intents (channel, payload) VALUES ('nd_app', 'x') $$,
+  '42501', NULL, 'setjoin_app direct INSERT on notify_intents is denied');
+SELECT lives_ok(
+  $$ SELECT public.app_notify('nd_app:1', '{"ok":true}') $$,
+  'setjoin_app can enqueue via app_notify -> app_notify_enqueue_intent');
+SELECT lives_ok(
+  $$ SELECT public.emit_wakeup_bell('work', 'nd_test') $$,
+  'setjoin_app can enqueue content-free wakeup via emit_wakeup_bell');
+SELECT throws_ok(
+  $$ SELECT public.app_notify('bad channel!', '{}') $$,
+  'BZ040', NULL, 'app_notify rejects invalid channel name');
+SELECT throws_ok(
+  $$ SELECT public.app_notify('nd_app:big', repeat('a', 7901)) $$,
+  'BZ040', NULL, 'app_notify rejects payload > 7900 bytes');
+RESET ROLE;
+
+SELECT is(
+  (SELECT count(*)::int FROM public.notify_intents WHERE channel IN ('nd_app:1', 'work')),
+  2, 'setjoin_app app_notify and emit_wakeup_bell persisted into notify_intents');
 
 SELECT * FROM finish();
 ROLLBACK;

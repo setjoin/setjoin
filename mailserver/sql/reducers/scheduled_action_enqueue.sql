@@ -44,11 +44,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- cancel_scheduled_action: delete the matching pending action for this owner.
+-- cancel_scheduled_action: delete the matching pending/enqueued action for this owner.
 -- Matches on action_kind + a payload subset (e.g. {message_id}); ownership via
--- p_mailbox_id in the same DELETE (R3). Only pending rows are cancellable (a
--- processing/done/failed action has already fired or is mid-flight). Returns the
--- number of cancelled rows.
+-- p_mailbox_id in the same DELETE (R3). Pending and promoted-but-unstarted
+-- ('enqueued') rows are cancellable (if a work_items row was already enqueued,
+-- execute_scheduled_action_work observes the missing scheduled_action and
+-- completes harmlessly); processing/done/failed actions have already fired or
+-- are mid-flight. Returns the number of cancelled rows.
 CREATE OR REPLACE FUNCTION cancel_scheduled_action(
     p_mailbox_id    BIGINT,
     p_kind          TEXT,
@@ -61,7 +63,7 @@ BEGIN
         DELETE FROM scheduled_actions
         WHERE mailbox_id = p_mailbox_id
           AND action_kind = p_kind
-          AND status = 'pending'
+          AND status IN ('pending', 'enqueued')
           AND payload @> COALESCE(p_payload_match, '{}'::JSONB)
         RETURNING 1
     )

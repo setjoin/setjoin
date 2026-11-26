@@ -44,6 +44,14 @@ pub struct RuntimeOptions {
     /// concurrently inside the single `drain_timeout` window before `listen_hub`
     /// tears down (#543).
     pub extra_tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Start `NotifyIntentDrain` unconditionally when `subsystems.workers` and
+    /// `DB_DSN` are configured (true in `setjoind`, false in legacy `setjoin-server`
+    /// which gates it on `RUST_WORKERS_ON=notify-intent-drain`).
+    pub always_run_notify_drain: bool,
+    /// Start the durable WorkQueue scheduled-action consumer automatically under
+    /// `subsystems.workers` (false in legacy `setjoin-server` unless opted in via
+    /// `RUST_WORKERS_ON=work-queue`).
+    pub enable_work_queue: bool,
 }
 
 impl RuntimeOptions {
@@ -62,6 +70,12 @@ impl RuntimeOptions {
             reload_auth_on_sighup: false,
             drain_timeout: DEFAULT_DRAIN_TIMEOUT,
             extra_tasks: Vec::new(),
+            // Wave 2.1 (#548): run NotifyIntentDrain unconditionally in default
+            // setjoin-server so app_notify never strands intents; honor the
+            // legacy idle matrix (RUST_WORKERS_ON="" + GO_WORKERS_OFF=notify-intent-drain).
+            always_run_notify_drain: !(std::env::var("RUST_WORKERS_ON").as_deref() == Ok("")
+                && workers::listed("GO_WORKERS_OFF", crate::notify_drain::NAME)),
+            enable_work_queue: false,
         }
     }
 }
@@ -317,8 +331,13 @@ pub async fn run_with_options(
     } else {
         (None, None)
     };
-    let notify_drain = if subsystems.workers {
-        workers::notify_drain_worker()?
+    let notify_drain = if subsystems.workers || options.always_run_notify_drain {
+        workers::notify_drain_worker(options.always_run_notify_drain)?
+    } else {
+        None
+    };
+    let work_queue = if subsystems.workers {
+        workers::work_queue_worker(options.enable_work_queue, options.listen_hub.clone()).await?
     } else {
         None
     };
@@ -402,7 +421,7 @@ pub async fn run_with_options(
         None
     };
     let cron = if subsystems.workers {
-        workers::cron_scheduler().await?
+        workers::cron_scheduler(work_queue.is_some()).await?
     } else {
         None
     };
@@ -897,6 +916,13 @@ pub async fn run_with_options(
         bg_tasks.spawn(async move {
             worker.run_until(stop.cancelled_owned()).await;
             ("notify-intent-drain", Ok(()))
+        });
+    }
+    if let Some(worker) = work_queue {
+        let stop = root_stop.clone();
+        bg_tasks.spawn(async move {
+            worker.run_until(stop).await;
+            ("work-queue", Ok(()))
         });
     }
     if let Some(worker) = secevents {

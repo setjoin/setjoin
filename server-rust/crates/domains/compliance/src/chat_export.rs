@@ -66,7 +66,7 @@ impl Snapshot {
         self.connection.rows("SELECT chat_ediscovery_message_json(m.id)::text FROM chat_messages m WHERE m.channel_id=$1 ORDER BY m.id",&[(&channel,Type::INT8)]).await
     }
     pub async fn scheduled(&self, channel: i64) -> Result<WorkerRows, String> {
-        self.connection.rows("SELECT sa.id::text,(sa.payload->>'userId')::bigint,sa.status,rtrim(rtrim(to_char(sa.fire_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US'),'0'),'.')||'Z',sa.payload->>'body' FROM scheduled_actions sa WHERE sa.action_kind='chat_send' AND sa.status IN ('pending','failed') AND (sa.payload->>'channelId')::bigint=$1 ORDER BY sa.id",&[(&channel,Type::INT8)]).await
+        self.connection.rows("SELECT sa.id::text,(sa.payload->>'userId')::bigint,sa.status,rtrim(rtrim(to_char(sa.fire_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US'),'0'),'.')||'Z',sa.payload->>'body' FROM scheduled_actions sa WHERE sa.action_kind='chat_send' AND sa.status IN ('pending','enqueued','failed') AND (sa.payload->>'channelId')::bigint=$1 ORDER BY sa.id",&[(&channel,Type::INT8)]).await
     }
     pub async fn manifest_channel(
         &self,

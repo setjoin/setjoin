@@ -51,7 +51,7 @@ BEGIN
             SELECT 1 FROM scheduled_actions
             WHERE action_kind = 'remind'
               AND mailbox_id = v_rec.mailbox_id
-              AND status IN ('pending','processing')
+              AND status IN ('pending','enqueued','processing')
               AND payload @> jsonb_build_object('source_type','event','source_id',v_rec.source_id,'fire_at',v_fire)
         ) AND NOT EXISTS (
             -- Already fired (ledger row exists): never re-enqueue. The ledger UNIQUE
@@ -84,7 +84,7 @@ BEGIN
             SELECT 1 FROM scheduled_actions
             WHERE action_kind = 'remind'
               AND mailbox_id = v_rec.mailbox_id
-              AND status IN ('pending','processing')
+              AND status IN ('pending','enqueued','processing')
               AND payload @> jsonb_build_object('source_type','task','source_id',v_rec.source_id,'fire_at',v_rec.fire_at)
         ) AND NOT EXISTS (
             -- Already fired (ledger row exists): never re-enqueue. tasks.reminder_at
@@ -120,7 +120,7 @@ BEGIN
                   AND NOT EXISTS (
                     SELECT 1 FROM scheduled_actions sa
                     WHERE sa.action_kind='remind' AND sa.mailbox_id = m.mailbox_id
-                      AND sa.status IN ('pending','processing')
+                      AND sa.status IN ('pending','enqueued','processing')
                       AND sa.payload @> jsonb_build_object('source_type','flag','source_id',m.id,'fire_at',m.flag_due_at))
                   AND NOT EXISTS (
                     SELECT 1 FROM reminders r

@@ -527,11 +527,16 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                     Reply::new(401, None, "no-store", Bytes::new())
                 } else {
                     let identity = metrics::collect_identity(&self.exec).await;
+                    let work_queue = metrics::collect_work_queue(&self.exec).await;
                     Reply::new(
                         200,
                         Some("text/plain; version=0.0.4"),
                         "no-store",
-                        metrics::render(&crate::served_stats::snapshot(), &identity),
+                        metrics::render_with_work_queue(
+                            &crate::served_stats::snapshot(),
+                            &identity,
+                            Some(&work_queue),
+                        ),
                     )
                 }
             }

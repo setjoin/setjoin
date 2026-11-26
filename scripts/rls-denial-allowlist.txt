@@ -246,3 +246,8 @@ webauthn_login_replays	PENDING	-	-	V277: per-user FORCE-RLS replay marker (user_
 oidc_link_completions	PENDING	-	-	V282: worker-only FORCE-RLS (USING/WITH CHECK current_user='setjoin_worker', REVOKE ALL FROM setjoin_app); rust_identity_rp_link_hold.pg checks has_table_privilege=false, no SET LOCAL ROLE setjoin_app denial proof yet.
 saml_assertion_replay	PENDING	-	-	V281: worker-only FORCE-RLS (USING/WITH CHECK current_user='setjoin_worker', REVOKE ALL FROM setjoin_app); no SET LOCAL ROLE setjoin_app denial proof yet.
 saml_link_completions	PENDING	-	-	V281: worker-only FORCE-RLS (USING/WITH CHECK current_user='setjoin_worker', REVOKE ALL FROM setjoin_app); no SET LOCAL ROLE setjoin_app denial proof yet.
+
+# ── V286 durable WorkQueue, DLQ & notify_intents (Wave 2.1, #548). ──────────
+work_items	COVERED	work_queue.pg	setjoin_app direct SELECT on work_items is denied	V286: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct table access and worker-only reducers raise 42501/BZ003.
+work_dead_letters	COVERED	work_queue.pg	setjoin_app direct SELECT on work_dead_letters is denied	V286: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct table access and DLQ reducers raise 42501/BZ003.
+notify_intents	COVERED	notify_decouple.pg	setjoin_app direct SELECT on notify_intents is denied	V286: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/DELETE fail with 42501 while app_notify/emit_wakeup_bell enqueue via SECURITY DEFINER app_notify_enqueue_intent.

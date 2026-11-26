@@ -82,7 +82,7 @@ async fn decoupled_event_reaches_listeners_through_rust() -> Result<(), BoxError
     let mut child = gateway(&db, "notify-intent-drain", "notify-intent-drain")?;
     let mut seen = Vec::new();
     for _ in 0..60 {
-        seen = listener.drain(&owner).await?;
+        seen = listener.drain_raw(&owner).await?;
         if !seen.is_empty() {
             break;
         }

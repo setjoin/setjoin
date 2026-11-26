@@ -128,7 +128,10 @@ const CASES: &[Case] = &[
         // schema load carries only the migrations' fixed months, so create the
         // rolling window first (the same reducer the create-monthly-partitions task runs).
         seed: &["SELECT create_monthly_partitions()", "DELETE FROM health_history WHERE checked_at > now() - interval '5 minutes'"],
-        observe: &[("health", "SELECT regexp_replace(check_name,'[0-9]{4}_[0-9]{2}','YYYY_MM')||':'||status FROM health_history WHERE checked_at > now() - interval '5 minutes' ORDER BY (check_name LIKE 'partition:%'), (check_name LIKE 'partition:login_events%'), CASE WHEN check_name LIKE 'partition:%' THEN check_name COLLATE \"C\" END, id")],
+        // Wave 2.1 (#548) post-Go divergence: exclude the 3 new durable WorkQueue /
+        // notify_intents health checks from frozen-Go golden comparison while leaving
+        // health-check.json immutable.
+        observe: &[("health", "SELECT regexp_replace(check_name,'[0-9]{4}_[0-9]{2}','YYYY_MM')||':'||status FROM health_history WHERE checked_at > now() - interval '5 minutes' AND check_name NOT IN ('work_queue_dead_letters','work_queue_due_age_minutes','notify_intents_backlog') ORDER BY (check_name LIKE 'partition:%'), (check_name LIKE 'partition:login_events%'), CASE WHEN check_name LIKE 'partition:%' THEN check_name COLLATE \"C\" END, id")],
         cleanup: &["DELETE FROM health_history WHERE checked_at > now() - interval '5 minutes'"],
     },
     Case {
