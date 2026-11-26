@@ -1446,6 +1446,91 @@ impl ScopedExecutor {
             _ => CommandOutcome::Unknown { operation },
         }
     }
+    /// One acknowledged anonymous protocol transaction without receipt
+    /// persistence or advisory operation locking (#473). Runs `admit(sql)`,
+    /// begins a transaction with `SET LOCAL statement_timeout`, clears both
+    /// `app.current_user_id` and `app.current_mailbox_id` transaction-locally,
+    /// executes `sql` and decodes its rows, then explicitly `COMMIT`s.
+    ///
+    /// On SQL/decode error (other than statement timeout `57014`), rolls back
+    /// cleanly and returns the connection to the pool; on timeout, cancelled
+    /// future, or non-`RolledBack` `COMMIT` error, drops the lease without
+    /// pooling it so no open-transaction connection can ever return to the pool.
+    pub async fn run_protocol_tx<T, D>(
+        &self,
+        sql: &'static str,
+        params: &[Param<'_>],
+        decode: D,
+    ) -> Result<T, StatementFailure>
+    where
+        D: FnOnce(&[Row]) -> Result<T, StatementFailure>,
+    {
+        admit(sql).map_err(StatementFailure::refused)?;
+        let object = self
+            .pool
+            .get()
+            .await
+            .map_err(|_| StatementFailure::refused("pool unavailable"))?;
+        let object = ReadLease(Some(object));
+        let begin = format!("BEGIN; {}", statement_timeout_sql(self.timeouts.statement));
+        match tokio::time::timeout(self.timeouts.statement, object.batch_execute(&begin)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(StatementFailure::from_db(&e)),
+            Err(_) => return Err(StatementFailure::refused("protocol tx timed out")),
+        }
+        let work = async {
+            object
+                .query_typed(
+                    "SELECT set_config('app.current_user_id','',true),set_config('app.current_mailbox_id','',true)",
+                    &[],
+                )
+                .await
+                .map_err(|e| StatementFailure::from_db(&e))?;
+            let typed: Vec<_> = params.iter().map(|(v, t)| (*v, t.clone())).collect();
+            let rows = object
+                .query_typed(sql, &typed)
+                .await
+                .map_err(|e| StatementFailure::from_db(&e))?;
+            decode(&rows)
+        };
+        let value = match tokio::time::timeout(self.timeouts.statement, work).await {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                if e.sqlstate.as_deref() != Some("57014")
+                    && !object.is_closed()
+                    && matches!(
+                        tokio::time::timeout(
+                            self.timeouts.statement,
+                            object.batch_execute("ROLLBACK"),
+                        )
+                        .await,
+                        Ok(Ok(()))
+                    )
+                {
+                    object.keep();
+                }
+                return Err(e);
+            }
+            Err(_) => return Err(StatementFailure::refused("protocol tx timed out")),
+        };
+        match tokio::time::timeout(self.timeouts.statement, object.batch_execute("COMMIT")).await {
+            Ok(Ok(())) => {
+                object.keep();
+                Ok(value)
+            }
+            Ok(Err(e)) => {
+                let code = e.as_db_error().map(|d| d.code().code());
+                if commit_failure_observation(code) == CommitObservation::RolledBack
+                    && !object.is_closed()
+                {
+                    object.keep();
+                }
+                Err(StatementFailure::from_db(&e))
+            }
+            Err(_) => Err(StatementFailure::refused("protocol tx commit timed out")),
+        }
+    }
+
     /// Wait for the original anonymous operation lock before observing its
     /// receipt. Caller re-proves the same current protocol credential first.
     pub async fn lookup_protocol_operation(

@@ -122,17 +122,6 @@ impl AuthServer {
         };
         let policy = match device_trust::checkin(&self.exec, &device, &checkin.events).await {
             Ok(policy) => policy,
-            Err(CheckinError::Unknown(operation)) => {
-                let mut r = failure(500, "internal error", false);
-                r.headers_mut().insert(
-                    "x-operation-id",
-                    uuid::Uuid::from_bytes(operation.0)
-                        .to_string()
-                        .parse()
-                        .unwrap(),
-                );
-                return r;
-            }
             Err(CheckinError::Failed) => return failure(500, "internal error", false),
         };
         let version = policy.version();

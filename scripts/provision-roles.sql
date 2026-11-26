@@ -277,7 +277,9 @@ BEGIN
         ('public.rust_smtp_inbound_security(jsonb,text,text,boolean,text)'),
         ('public.rust_smtp_imip_request_gate(jsonb,text)'),
         ('public.rust_smtp_imip_request_apply(jsonb,jsonb,timestamptz)'),
-        ('public.rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz)')
+        ('public.rust_smtp_imip_cancel_occurrence(text,bigint,text,timestamptz)'),
+        -- #473: bounded retention sweep for rust_operation_receipts (worker-only).
+        ('public.prune_rust_operation_receipts(integer)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -320,10 +322,14 @@ END $$;
 
 -- Rust commit receipts are system metadata, owned by the DDL credential even
 -- on a fresh cluster where V276 ran before roles existed. No user data / RLS.
+-- The blanket table GRANT above re-widens UPDATE/DELETE whenever this script
+-- runs after V276/V284, so the V284 narrowing is restated here (idempotent; #473).
 DO $$ BEGIN
   IF to_regclass('public.rust_operation_receipts') IS NOT NULL THEN
     ALTER TABLE public.rust_operation_receipts OWNER TO setjoin_owner;
-    GRANT SELECT, INSERT ON public.rust_operation_receipts TO setjoin_app, setjoin_worker;
+    REVOKE ALL ON public.rust_operation_receipts FROM PUBLIC, setjoin_app, setjoin_worker;
+    GRANT SELECT, INSERT ON public.rust_operation_receipts TO setjoin_app;
+    GRANT SELECT, INSERT, DELETE ON public.rust_operation_receipts TO setjoin_worker;
   END IF;
 END $$;
 

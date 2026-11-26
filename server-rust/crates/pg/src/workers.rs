@@ -232,6 +232,12 @@ impl WorkerConnection {
     pub async fn batch(&self, statements: &'static str) -> Result<(), String> {
         self.inner.batch(statements).await
     }
+
+    /// Begin a transaction with a server-side `SET LOCAL statement_timeout`
+    /// bounded to `1..=10_000` ms.
+    pub async fn begin_with_timeout(&self, timeout: std::time::Duration) -> Result<(), String> {
+        self.inner.begin_with_timeout(timeout).await
+    }
 }
 
 #[derive(Clone, Debug)]
