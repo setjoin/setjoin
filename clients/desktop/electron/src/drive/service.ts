@@ -16,6 +16,12 @@ import type {
 	DriveMirrorSpaceStatus,
 	DriveMirrorStatus,
 } from '../../../../../mailserver/webmail/src/lib/native/types.js';
+import { SyncCoordinator } from '../../../../../mailserver/webmail/src/lib/sync/core/coordinator.js';
+import type { ScopeRevokedEvent, StepOutcome, SyncStepContext } from '../../../../../mailserver/webmail/src/lib/sync/core/types.js';
+import {
+	validateScopeRevoked,
+	validateSyncWakeup,
+} from '../../../../../mailserver/webmail/src/lib/sync/core/validate.js';
 import type { NativeBinding } from '../native.js';
 import { appKeyDbFile } from '../handlers/db.js';
 import { FolderMirror } from './mirror.js';
@@ -75,6 +81,16 @@ export interface MirrorServiceDeps {
 	deviceLabel: string;
 	locale: string;
 	pollMs?: number;
+	/** Safety-net poll interval while an active renderer wakeup bridge is connected (default 5 min). */
+	safetyNetPollMs?: number;
+	/** Per-space minimum interval (ms) between untrusted renderer wakeup hints (default 250ms). */
+	wakeupMinIntervalMs?: number;
+	/** Per-space minimum interval (ms) between untrusted renderer scope_revoked hints (default 500ms). */
+	revokeMinIntervalMs?: number;
+	/** Minimum interval (ms) between renderer disconnect-induced reconnect catch-ups (default 1000ms). */
+	reconnectMinIntervalMs?: number;
+	/** Retry interval (ms) for draining `'busy'` pending revocations after a revoked space detaches (default 5000ms). */
+	busyRevocationRetryMs?: number;
 	/** Renewal margin before the token's expiresAt (default 30 min). */
 	renewMarginMs?: number;
 	openPath: (p: string) => Promise<void> | void;
@@ -139,7 +155,21 @@ export class MirrorService {
 	private spaces = new Map<number, SpaceRuntime>();
 	private blockedSpaces = new Map<number, BlockedSpace>();
 	private paused = false;
+	/** Explicit running state independent of whether pollTimer is temporarily
+	 *  slowed/suspended while renderer wakeup bridge is connected (#555). */
+	private running = false;
+	private wakeupConnected = false;
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
+	private syncCoordinator = new SyncCoordinator();
+	private adapterUnsubs = new Map<number, () => void>();
+	/** Untrusted renderer IPC rate-limiting & burst accounting (#555). */
+	private lastWakeupAtMs = new Map<number, number>();
+	private lastRevokeAtMs = new Map<string, number>();
+	private lastReconnectAtMs = 0;
+	private globalNudgeWindowStartMs = 0;
+	private globalNudgeCount = 0;
+	/** Detached revoked spaces that still have `'busy'` open files awaiting purge retry (#555 4d). */
+	private busyRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
 	/** LR-6: absolute paths this device has forced OS-read-only for a
 	 *  hard-locked-by-another-user file. Idempotent chmod + the restore set
 	 *  for stop() (a dead mirror must not strand read-only files). */
@@ -282,14 +312,107 @@ export class MirrorService {
 				issues: 0,
 			});
 		}
-		return { running: this.pollTimer != null && !this.paused, paused: this.paused, perSpace, issues };
+		return { running: this.running && !this.paused, paused: this.paused, perSpace, issues };
+	}
+
+	// ── wakeup bridge (untrusted renderer IPC hints, #555) ───────────────────
+
+	private allowGlobalNudge(now: number): boolean {
+		if (now - this.globalNudgeWindowStartMs >= 1_000) {
+			this.globalNudgeWindowStartMs = now;
+			this.globalNudgeCount = 0;
+		}
+		if (this.globalNudgeCount >= 32) return false;
+		this.globalNudgeCount += 1;
+		return true;
+	}
+
+	/**
+	 * Marks whether an active renderer wakeup bridge is connected.
+	 * While connected, the 30s blind poll slows to `safetyNetPollMs`; on
+	 * disconnect / window close, the main-process polling loop is immediately
+	 * restored so mirror sync and revocations never stall. `isRunning()` stays
+	 * `true` across both states. Rapid toggles are rate-limited so a compromised
+	 * renderer cannot DoS `handleReconnect()`.
+	 */
+	setWakeupConnected(connected: boolean): void {
+		if (this.wakeupConnected === connected) return;
+		this.wakeupConnected = connected;
+		if (this.running) {
+			this.reschedulePollTimer();
+			if (!connected && !this.paused) {
+				const now = Date.now();
+				const minGap = this.deps.reconnectMinIntervalMs ?? 1_000;
+				if (now - this.lastReconnectAtMs >= minGap) {
+					this.lastReconnectAtMs = now;
+					this.syncCoordinator.handleReconnect();
+				}
+			}
+		}
+	}
+
+	isWakeupConnected(): boolean {
+		return this.wakeupConnected;
+	}
+
+	/**
+	 * Untrusted renderer IPC wakeup nudge (#555): validated fail-closed via
+	 * `core/validate.ts` and rate-limited per space + globally. Never trusts
+	 * data payloads — solely nudges MirrorService to query the authenticated
+	 * server using its own main-process bearer token.
+	 */
+	notifyWakeup(rawHint: unknown): boolean {
+		if (this.paused || !this.running) return false;
+		const wakeup = validateSyncWakeup(rawHint);
+		if (wakeup?.scopeKind !== 'space') return false;
+		const spaceId = Number(wakeup.scopeId);
+		if (!Number.isSafeInteger(spaceId) || !this.spaces.has(spaceId)) return false;
+		const now = Date.now();
+		const minGap = this.deps.wakeupMinIntervalMs ?? 250;
+		const last = this.lastWakeupAtMs.get(spaceId) ?? 0;
+		if (now - last < minGap || !this.allowGlobalNudge(now)) return false;
+		this.lastWakeupAtMs.set(spaceId, now);
+		this.syncCoordinator.handleWakeup(wakeup);
+		return true;
+	}
+
+	/**
+	 * Untrusted renderer IPC scope_revoked nudge (#555): validated fail-closed
+	 * and rate-limited so a compromised renderer cannot DoS `reconcileVisibility()`.
+	 * Runs on SyncCoordinator's security lane immediately when admitted.
+	 */
+	async notifyScopeRevoked(rawHint: unknown): Promise<boolean> {
+		const evt = validateScopeRevoked(rawHint);
+		if (evt?.scopeKind !== 'space') return false;
+		const spaceId = Number(evt.scopeId);
+		if (!Number.isSafeInteger(spaceId) || !this.spaces.has(spaceId)) return false;
+		const now = Date.now();
+		const minGap = this.deps.revokeMinIntervalMs ?? 500;
+		const rateKey = `${spaceId}:${evt.subtreeAnchorId ?? '*'}`;
+		const last = this.lastRevokeAtMs.get(rateKey) ?? 0;
+		if (now - last < minGap || !this.allowGlobalNudge(now)) return false;
+		this.lastRevokeAtMs.set(rateKey, now);
+		await this.syncCoordinator.handleScopeRevoked(evt);
+		return true;
+	}
+
+	/** Exposed for tests to await coordinator-scheduled wakeup passes. */
+	async flushSyncCoordinator(): Promise<void> {
+		await this.syncCoordinator.flush();
 	}
 
 	// ── lifecycle ────────────────────────────────────────────────────────────
 
 	async stop(): Promise<void> {
+		this.running = false;
+		this.wakeupConnected = false;
 		if (this.pollTimer) clearInterval(this.pollTimer);
 		this.pollTimer = null;
+		for (const timer of this.busyRetryTimers.values()) clearTimeout(timer);
+		this.busyRetryTimers.clear();
+		for (const unsub of this.adapterUnsubs.values()) unsub();
+		this.adapterUnsubs.clear();
+		this.syncCoordinator.dispose();
 		for (const rt of this.spaces.values()) await rt.mirror.stop();
 		for (const abs of this.readOnlyApplied) {
 			await fsp.chmod(abs, 0o644).catch(() => {}); // best-effort -- the process is shutting down regardless
@@ -298,7 +421,7 @@ export class MirrorService {
 	}
 
 	isRunning(): boolean {
-		return this.pollTimer != null && !this.paused;
+		return this.running && !this.paused;
 	}
 
 	// ── internals ────────────────────────────────────────────────────────────
@@ -334,6 +457,8 @@ export class MirrorService {
 		const wanted = new Set(this.pendingSpaces.map((s) => s.spaceId));
 		for (const [id, rt] of this.spaces) {
 			if (!wanted.has(id)) {
+				this.adapterUnsubs.get(id)?.();
+				this.adapterUnsubs.delete(id);
 				await rt.mirror.stop();
 				this.spaces.delete(id); // files stay on disk -- un-mirroring never deletes
 			} else {
@@ -360,6 +485,8 @@ export class MirrorService {
 			if (remoteSpace?.aclMode === 'acl' && cfg.acceptUnmanagedAclRisk !== true) {
 				const active = this.spaces.get(cfg.spaceId);
 				if (active) {
+					this.adapterUnsubs.get(cfg.spaceId)?.();
+					this.adapterUnsubs.delete(cfg.spaceId);
 					await active.mirror.stop();
 					this.spaces.delete(cfg.spaceId);
 				}
@@ -384,7 +511,7 @@ export class MirrorService {
 				todayYmd: () => new Date().toISOString().slice(0, 10),
 				now: () => Date.now(),
 			});
-			this.spaces.set(cfg.spaceId, {
+			const runtime: SpaceRuntime = {
 				spaceId: cfg.spaceId,
 				name,
 				root,
@@ -396,27 +523,123 @@ export class MirrorService {
 				lastSyncMs: null,
 				aclMode: remoteSpace?.aclMode ?? 'legacy',
 				unmanagedAclRiskAccepted: cfg.acceptUnmanagedAclRisk === true,
-			});
+			};
+			this.spaces.set(cfg.spaceId, runtime);
+			this.registerSpaceAdapter(runtime);
 		}
 	}
 
+	private scheduleBusyRevocationRetry(spaceId: number, engine: SyncEngine): void {
+		if (!this.running || this.busyRetryTimers.has(spaceId)) return;
+		const retryMs = this.deps.busyRevocationRetryMs ?? 5_000;
+		const timer = setTimeout(() => {
+			this.busyRetryTimers.delete(spaceId);
+			if (!this.running) return;
+			void engine
+				.drainPendingRevocations()
+				.then((drained) => {
+					if (drained.remaining > 0) {
+						this.scheduleBusyRevocationRetry(spaceId, engine);
+					}
+					this.notify();
+				})
+				.catch(() => {
+					this.scheduleBusyRevocationRetry(spaceId, engine);
+				});
+		}, retryMs);
+		this.busyRetryTimers.set(spaceId, timer);
+	}
+
+	private registerSpaceAdapter(rt: SpaceRuntime): void {
+		this.adapterUnsubs.get(rt.spaceId)?.();
+		const unsub = this.syncCoordinator.register({
+			consumerId: `electron-mirror:${rt.spaceId}`,
+			scope: { kind: 'space', id: String(rt.spaceId) },
+			lane: 'offline-native',
+			debounceMs: 0,
+			runDeltaStep: async (ctx: SyncStepContext): Promise<StepOutcome> => {
+				ctx.fence.assertCommitAllowed();
+				if (this.paused || !this.spaces.has(rt.spaceId)) {
+					return { kind: 'complete', recordsProcessed: 0 };
+				}
+				await this.maybeRenewToken();
+				ctx.fence.assertCommitAllowed();
+				await this.runPass(rt, { signal: ctx.signal, fence: ctx.fence });
+				return { kind: 'complete', recordsProcessed: 1 };
+			},
+			reconcileScopeMembership: async (ctx: SyncStepContext): Promise<StepOutcome> => {
+				ctx.fence.assertCommitAllowed();
+				await this.maybeRenewToken();
+				ctx.fence.assertCommitAllowed();
+				const res = await rt.engine.reconcileVisibility({ signal: ctx.signal, fence: ctx.fence });
+				return { kind: 'complete', recordsProcessed: res.downloaded };
+			},
+			purgeScopeCache: async (event: ScopeRevokedEvent): Promise<void> => {
+				if (event.scopeKind !== 'space' || event.scopeId !== String(rt.spaceId)) return;
+				await this.maybeRenewToken();
+				if (event.subtreeAnchorId !== undefined) {
+					// ARCH-020: always run server-authoritative fullVisibilityReconcile().
+					await rt.engine.reconcileVisibility();
+					return;
+				}
+				// Full-space revocation (4b + 4d): stop watching & detach space from
+				// active sync map so pollOnce() never syncs a revoked space, purge local
+				// files, and keep a bounded retry timer alive while any file is 'busy'.
+				this.spaces.delete(rt.spaceId);
+				this.adapterUnsubs.get(rt.spaceId)?.();
+				this.adapterUnsubs.delete(rt.spaceId);
+				await rt.mirror.stop();
+				const purged = await rt.engine.purgeSpaceLocal();
+				if (purged.busy > 0) {
+					this.scheduleBusyRevocationRetry(rt.spaceId, rt.engine);
+				}
+				this.notify();
+			},
+		});
+		this.adapterUnsubs.set(rt.spaceId, unsub);
+	}
+
+	private currentPollIntervalMs(): number {
+		const base = this.deps.pollMs ?? 30_000;
+		if (this.wakeupConnected) {
+			return this.deps.safetyNetPollMs ?? Math.max(300_000, base * 10);
+		}
+		return base;
+	}
+
+	private reschedulePollTimer(): void {
+		if (this.pollTimer) {
+			clearInterval(this.pollTimer);
+			this.pollTimer = null;
+		}
+		if (!this.running) return;
+		this.pollTimer = setInterval(() => void this.pollOnce(), this.currentPollIntervalMs());
+	}
+
 	private startPollLoop(): void {
-		if (this.pollTimer) return;
-		this.pollTimer = setInterval(() => void this.pollOnce(), this.deps.pollMs ?? 30_000);
+		if (this.running) return;
+		this.running = true;
+		this.reschedulePollTimer();
 		void this.pollOnce();
 	}
 
 	private async pollOnce(): Promise<void> {
 		if (this.paused) return;
 		await this.maybeRenewToken();
-		for (const rt of this.spaces.values()) {
-			await this.runPass(rt);
+		// Route periodic passes through SyncCoordinator so pollOnce() shares
+		// single-flight coalescing and revocation fencing with wakeup/revoke hints (#555 4b).
+		for (const rt of [...this.spaces.values()]) {
+			this.syncCoordinator.trigger({ kind: 'space', id: String(rt.spaceId) }, { immediate: true });
 		}
+		await this.syncCoordinator.flush();
 	}
 
 	/** A thrown pass marks the space 'error' and keeps the loop alive — the
 	 *  next tick retries (spec: a transient failure must not wedge sync). */
-	private async runPass(rt: SpaceRuntime): Promise<void> {
+	private async runPass(
+		rt: SpaceRuntime,
+		exec?: { signal?: AbortSignal; fence?: { assertCommitAllowed(): void } },
+	): Promise<void> {
 		if (!this.token) {
 			rt.state = 'auth-expired';
 			this.notify();
@@ -425,17 +648,22 @@ export class MirrorService {
 		rt.state = 'syncing';
 		this.notify();
 		try {
+			exec?.fence?.assertCommitAllowed();
 			const changesBeforeScan = rt.mirror.drainLocalChanges() as LocalChange[];
 			for (const c of changesBeforeScan) await rt.engine.onLocalChange(c);
 			await rt.mirror.scanLocal();
 			const changesAfterScan = rt.mirror.drainLocalChanges() as LocalChange[];
 			for (const c of changesAfterScan) await rt.engine.onLocalChange(c);
 			await this.maybeSoftCheckout(rt, [...changesBeforeScan, ...changesAfterScan]);
-			await rt.engine.syncOnce();
+			await rt.engine.syncOnce(exec);
+			exec?.fence?.assertCommitAllowed();
 			await this.applyLockChmods(rt);
 			rt.state = 'idle';
 			rt.lastSyncMs = Date.now();
 		} catch (err) {
+			if (err instanceof Error && (err.name === 'SyncFenceAbortedError' || err.name === 'AbortError')) {
+				return;
+			}
 			if (err instanceof DriveApiError && err.status === 401) {
 				rt.state = 'auth-expired';
 				this.token = null;
@@ -580,5 +808,19 @@ export function makeDriveMirrorHandlers(service: MirrorService): HandlerMap {
 		drive_mirror_office_choices: () => service.localOfficeChoices(),
 		drive_mirror_open_office: (spaceId: unknown, nodeId: unknown, appId: unknown) =>
 			service.openLocalOffice(Number(spaceId), Number(nodeId), String(appId) as LocalOfficeAppId),
+		...makeDriveMirrorWakeupHandlers(service),
+	};
+}
+
+/**
+ * Origin-gated renderer→main wakeup nudge channels (#555), included in
+ * `makeDriveMirrorHandlers` and registered exclusively through `registerHandlers`
+ * in `ipc.ts`.
+ */
+export function makeDriveMirrorWakeupHandlers(service: MirrorService): HandlerMap {
+	return {
+		drive_mirror_wakeup_nudge: (hint: unknown) => service.notifyWakeup(hint),
+		drive_mirror_wakeup_state: (connected: unknown) => service.setWakeupConnected(Boolean(connected)),
+		drive_mirror_scope_revoked_nudge: (hint: unknown) => service.notifyScopeRevoked(hint),
 	};
 }

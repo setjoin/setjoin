@@ -29,6 +29,17 @@ const VAULT_CHUNK_REFS_BACKFILL = `INSERT OR IGNORE INTO dc_manifest_chunks(node
 	SELECT m.node_id,json_extract(c.value,'$.sha256')
 	  FROM dc_manifests m,json_each(m.manifest_json,'$.chunks') c
 	 WHERE json_type(c.value,'$.sha256')='text'`;
+// Allowlist-safe companion table mapping each cached manifest node to its owning
+// Drive space (Wave 2.8, #555). Uses CREATE TABLE/INDEX rather than ALTER TABLE
+// so Electron's SQL statement allowlist (`handlers/db.ts`) accepts it verbatim.
+const VAULT_MANIFEST_SPACES_DDL = `CREATE TABLE IF NOT EXISTS dc_manifest_spaces (
+	node_id INTEGER PRIMARY KEY, space_id INTEGER NOT NULL)`;
+const VAULT_MANIFEST_SPACES_INDEX_DDL = `CREATE INDEX IF NOT EXISTS dc_manifest_spaces_space_idx
+	ON dc_manifest_spaces (space_id, node_id)`;
+const VAULT_MANIFEST_SPACES_BACKFILL = `INSERT OR IGNORE INTO dc_manifest_spaces(node_id, space_id)
+	SELECT m.node_id, n.space_id
+	  FROM dc_manifests m
+	  JOIN dc_nodes n ON n.node_id = m.node_id`;
 
 const APP = 'drive';
 
@@ -54,10 +65,18 @@ export class VaultStore implements ContentStore {
 		await this.db.exec(APP, VAULT_PURGE_DDL, []);
 		await this.db.exec(APP, VAULT_CHUNK_REFS_DDL, []);
 		await this.db.exec(APP, VAULT_CHUNK_REFS_INDEX_DDL, []);
+		await this.db.exec(APP, VAULT_MANIFEST_SPACES_DDL, []);
+		await this.db.exec(APP, VAULT_MANIFEST_SPACES_INDEX_DDL, []);
 		// Existing vaults predate the normalized reference index. SQLite/SQLCipher
 		// JSON1 performs one idempotent set-based backfill; subsequent opens touch
 		// only missing rows.
 		await this.db.exec(APP, VAULT_CHUNK_REFS_BACKFILL, []);
+		// Backfill dc_manifest_spaces for pre-upgrade manifests when dc_nodes is present.
+		try {
+			await this.db.exec(APP, VAULT_MANIFEST_SPACES_BACKFILL, []);
+		} catch {
+			// Standalone vault DBs without dc_nodes table yet skip backfill cleanly.
+		}
 	}
 
 	private chunkUrl(sha256: string): string {
@@ -144,6 +163,11 @@ export class VaultStore implements ContentStore {
 				 VALUES (?, ?, COALESCE((SELECT pinned FROM dc_manifests WHERE node_id = ?), 0), ?)`,
 				[nodeId, JSON.stringify(plan), nodeId, Date.now()],
 			);
+			await this.db.exec(
+				APP,
+				'INSERT OR REPLACE INTO dc_manifest_spaces (node_id, space_id) VALUES (?, ?)',
+				[nodeId, this.spaceId],
+			);
 			await this.db.exec(APP, 'DELETE FROM dc_manifest_chunks WHERE node_id = ?', [nodeId]);
 			for (const c of plan.chunks) {
 				await this.db.exec(
@@ -223,6 +247,7 @@ export class VaultStore implements ContentStore {
 					[nodeId, JSON.stringify(manifest), Date.now()],
 				);
 				await this.db.exec(APP, 'DELETE FROM dc_manifests WHERE node_id = ?', [nodeId]);
+				await this.db.exec(APP, 'DELETE FROM dc_manifest_spaces WHERE node_id = ?', [nodeId]);
 				await this.db.exec(APP, 'DELETE FROM dc_manifest_chunks WHERE node_id = ?', [nodeId]);
 				await this.db.exec(APP, 'COMMIT', []);
 			} catch (err) {
@@ -250,6 +275,31 @@ export class VaultStore implements ContentStore {
 		const present = (await this.readLocalManifest(nodeId)) != null || (await this.queuedPurgeManifest(nodeId)) != null;
 		await this.remove(nodeId);
 		return present ? 'purged' : 'absent';
+	}
+
+	/** Returns all cached manifest node IDs belonging to `spaceId`. */
+	async listSpaceNodeIds(spaceId: number = this.spaceId): Promise<number[]> {
+		const rows = await this.db.query<{ node_id: number }>(
+			APP,
+			'SELECT node_id FROM dc_manifest_spaces WHERE space_id = ? ORDER BY node_id',
+			[spaceId],
+		);
+		return rows.map((r) => r.node_id);
+	}
+
+	/**
+	 * Single-space `scope_revoked` purge (#555): removes every `dc_manifests` row
+	 * and now-unreferenced `dc_chunks` belonging to `spaceId` WITHOUT touching
+	 * sibling spaces or calling `db.wipe('drive')`.
+	 */
+	async purgeSpace(spaceId: number = this.spaceId): Promise<number> {
+		const nodeIds = await this.listSpaceNodeIds(spaceId);
+		let purged = 0;
+		for (const nodeId of nodeIds) {
+			const outcome = await this.revoke(nodeId, false);
+			if (outcome === 'purged') purged += 1;
+		}
+		return purged;
 	}
 
 	private async queuedPurgeManifest(nodeId: number): Promise<Manifest | null> {

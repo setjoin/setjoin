@@ -76,6 +76,13 @@ export const DC_SCHEMA: string[] = [
 	   id INTEGER PRIMARY KEY AUTOINCREMENT, space_id INTEGER NOT NULL,
 	   node_id INTEGER, rel_path TEXT NOT NULL, kind TEXT NOT NULL,
 	   payload TEXT NOT NULL, reason TEXT NOT NULL, at_ms INTEGER NOT NULL)`,
+	// Wave 2.8 (#555): durable pending-revocation retry queue for FolderMirror
+	// `'busy'` outcomes (open file handle on Windows/macOS). Retried on tick
+	// until every revoked file resolves to 'purged' | 'quarantined' | 'absent'.
+	`CREATE TABLE IF NOT EXISTS dc_pending_revocations (
+	   space_id INTEGER NOT NULL, node_id INTEGER NOT NULL, rel_path TEXT NOT NULL,
+	   force_quarantine INTEGER NOT NULL DEFAULT 0, created_at_ms INTEGER NOT NULL,
+	   PRIMARY KEY (space_id, node_id, rel_path))`,
 ];
 
 export async function applySchema(db: DbLike): Promise<void> {
@@ -130,6 +137,21 @@ interface IssueSqlRow {
 	code: string;
 	detail: string | null;
 	at_ms: number;
+}
+interface PendingRevocationSqlRow {
+	space_id: number;
+	node_id: number;
+	rel_path: string;
+	force_quarantine: number;
+	created_at_ms: number;
+}
+
+export interface PendingRevocationRow {
+	spaceId: number;
+	nodeId: number;
+	relPath: string;
+	forceQuarantine: boolean;
+	createdAtMs: number;
 }
 
 function nodeFromRow(r: NodeRow): NodeMeta {
@@ -532,5 +554,48 @@ export class SqlMirrorIndex {
 			detail: r.detail ?? '',
 			atMs: r.at_ms,
 		}));
+	}
+
+	// ── dc_pending_revocations (#555 FolderMirror 'busy' retry queue) ────────
+
+	async recordPendingRevocation(row: {
+		spaceId: number;
+		nodeId: number;
+		relPath: string;
+		forceQuarantine: boolean;
+		atMs: number;
+	}): Promise<void> {
+		await this.db.exec(
+			`INSERT OR REPLACE INTO dc_pending_revocations
+			   (space_id, node_id, rel_path, force_quarantine, created_at_ms)
+			 VALUES (?, ?, ?, ?, ?)`,
+			[row.spaceId, row.nodeId, row.relPath, row.forceQuarantine ? 1 : 0, row.atMs],
+		);
+	}
+
+	async listPendingRevocations(spaceId?: number): Promise<PendingRevocationRow[]> {
+		const rows =
+			spaceId === undefined
+				? await this.db.query<PendingRevocationSqlRow>(
+						`SELECT * FROM dc_pending_revocations ORDER BY created_at_ms ASC`,
+					)
+				: await this.db.query<PendingRevocationSqlRow>(
+						`SELECT * FROM dc_pending_revocations WHERE space_id = ? ORDER BY created_at_ms ASC`,
+						[spaceId],
+					);
+		return rows.map((r) => ({
+			spaceId: r.space_id,
+			nodeId: r.node_id,
+			relPath: r.rel_path,
+			forceQuarantine: r.force_quarantine !== 0,
+			createdAtMs: r.created_at_ms,
+		}));
+	}
+
+	async clearPendingRevocation(spaceId: number, nodeId: number, relPath: string): Promise<void> {
+		await this.db.exec(
+			`DELETE FROM dc_pending_revocations WHERE space_id = ? AND node_id = ? AND rel_path = ?`,
+			[spaceId, nodeId, relPath],
+		);
 	}
 }

@@ -1,13 +1,30 @@
 import { subscribeControl } from '../jmap/websocket';
 import { getNative, isNative, hasCapability } from '../native';
 import { readOwnDeviceId } from '../native/deviceId';
+import { drainActiveOfflineCoordinator, hasActiveOfflineCoordinator } from './boot';
 import { isOfflineAvailable } from './store';
 import type { OfflineCaps } from './caps';
 import { offline } from './state.svelte';
 
+export type PreWipeHook = () => Promise<void> | void;
+
+const preWipeHooks = new Set<PreWipeHook>();
+
+/**
+ * Register a security-lane pre-wipe hook (e.g. SyncCoordinator abort/fence)
+ * that executes AFTER fail-closed deviceId targeting succeeds and BEFORE
+ * `db.wipe(...)` runs.
+ */
+export function registerPreWipeHook(hook: PreWipeHook): () => void {
+	preWipeHooks.add(hook);
+	return () => preWipeHooks.delete(hook);
+}
+
 export interface WipeDeps {
 	/** Tears down the session (drops cookies/tokens, navigates to security-event screen). */
 	logout: () => void;
+	/** Optional pre-wipe abort hook (runs after deviceId match, before clearOfflineCache). */
+	beforeWipe?: PreWipeHook;
 	/** Override the cache-clear (tests). Defaults to the offline-core 'mail' store wipe. */
 	clearOfflineCache?: () => Promise<void>;
 	/**
@@ -94,6 +111,22 @@ export function installWipeHandler(deps: WipeDeps): () => void {
 		// over-wipe a sibling.
 		if (deviceId !== undefined && (await ownDeviceId()) !== deviceId) {
 			return;
+		}
+
+		// Security lane: abort in-flight SyncCoordinator & E4-I offline coordinator
+		// work BEFORE wiping SQLCipher storage so late writes can never race db.wipe.
+		if (deps.beforeWipe || preWipeHooks.size > 0 || hasActiveOfflineCoordinator()) {
+			const aborts: Array<Promise<unknown>> = [];
+			if (deps.beforeWipe) {
+				aborts.push(Promise.resolve().then(() => deps.beforeWipe!()));
+			}
+			for (const hook of [...preWipeHooks]) {
+				aborts.push(Promise.resolve().then(() => hook()));
+			}
+			if (hasActiveOfflineCoordinator()) {
+				aborts.push(drainActiveOfflineCoordinator());
+			}
+			await Promise.allSettled(aborts);
 		}
 
 		try {

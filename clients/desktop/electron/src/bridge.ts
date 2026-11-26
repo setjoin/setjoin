@@ -218,6 +218,12 @@ export function buildBridge(invoke: Invoke) {
         invoke("drive_mirror_office_choices") as Promise<unknown>,
       openOffice: (spaceId: number, nodeId: number, appId: string) =>
         invoke("drive_mirror_open_office", spaceId, nodeId, appId) as Promise<void>,
+      notifyWakeup: (hint: unknown) =>
+        invoke("drive_mirror_wakeup_nudge", hint) as Promise<boolean>,
+      setWakeupConnected: (connected: boolean) =>
+        invoke("drive_mirror_wakeup_state", connected) as Promise<void>,
+      notifyScopeRevoked: (hint: unknown) =>
+        invoke("drive_mirror_scope_revoked_nudge", hint) as Promise<boolean>,
     },
 
     // Drive P3 secure-vault byte plane (ARCH-017) — control/metadata ONLY

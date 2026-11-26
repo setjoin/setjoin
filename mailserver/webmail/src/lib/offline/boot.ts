@@ -65,6 +65,7 @@ import {
 	type CoordinatorTrigger,
 	type CoordinatorTriggerKind,
 } from './coordinator';
+import { createCriticalActivityCounter, type CriticalActivityCounter } from './criticalScope';
 import {
 	createDurableJobPersistence,
 	durableJobPersistenceAvailable,
@@ -352,6 +353,30 @@ const state: ModuleState = {
 	session: null,
 };
 
+// ARCH-023: single shared CriticalActivityCounter instance reused by both
+// offline/boot.ts's E4-I coordinator and SyncCoordinator. Inert (zero listeners
+// or globals) until consumers subscribe.
+let sharedCriticalActivity: CriticalActivityCounter = createCriticalActivityCounter();
+
+export function getSharedCriticalActivity(): CriticalActivityCounter {
+	return sharedCriticalActivity;
+}
+
+/** True when an E4-I offline coordinator composition is currently active. */
+export function hasActiveOfflineCoordinator(): boolean {
+	return state.current !== null;
+}
+
+/**
+ * Security-lane pre-wipe hook: aborts and drains any active E4-I offline
+ * coordinator BEFORE `db.wipe('mail')` executes. No-op when inert.
+ */
+export async function drainActiveOfflineCoordinator(): Promise<void> {
+	const current = state.current;
+	if (current === null) return;
+	await current.coordinator.drainForRollback();
+}
+
 /**
  * Capability-observation seam (the native owners' entry point). Stores the
  * LATEST validated observation and binds its lifecycle epoch on the live
@@ -522,6 +547,7 @@ export async function composeOfflineCoordinator(input: {
 	const coordinator = createCoordinator({
 		clock,
 		random,
+		critical: sharedCriticalActivity,
 		// Policy re-reads the CURRENT projection on every admission: a session
 		// refresh that drops syncQoS maps to flagEnabled false and stops work
 		// at the next step boundary.
@@ -860,4 +886,6 @@ export function __resetBootForTests(): void {
 	state.lastInertReason = 'not-composed';
 	state.session = null;
 	seamGeneration = 0;
+	sharedCriticalActivity.teardown();
+	sharedCriticalActivity = createCriticalActivityCounter();
 }

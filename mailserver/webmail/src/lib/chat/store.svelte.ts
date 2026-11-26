@@ -269,6 +269,10 @@ export class ChatStore {
 	 *  unresolved request from the prior identity can never populate state for
 	 *  the next one, even when numeric channel/message ids are reused. */
 	#sessionGeneration = 0;
+	/** Per-channel monotonic revocation epoch (#555): bumped synchronously on
+	 *  `scope_revoked` so late-settling fetches for that channel cannot repopulate
+	 *  evicted messages or cursors. */
+	#channelRevocationEpoch = new Map<number, number>();
 
 	/** Design F14 — total unread across every conversation + whether any of them mentions me.
 	 *  Mirrors ChannelList.svelte's showBadge() mute rules (whole-pipeline review UX #6): a
@@ -304,6 +308,7 @@ export class ChatStore {
 		this.#replayQueueByChannel.clear();
 		this.#conversationReconcile = null;
 		this.#federationRevokedChannels.clear();
+		this.#channelRevocationEpoch.clear();
 		this.#conversationLoadGeneration += 1;
 
 		this.conversations = [];
@@ -338,11 +343,17 @@ export class ChatStore {
 
 	async openChannel(channelId: number): Promise<void> {
 		const generation = this.#sessionGeneration;
+		const revEpoch = this.#channelRevocationEpoch.get(channelId) ?? 0;
 		this.activeChannelId = channelId;
 		this.atBottom = true;
 		this.unseenBelow = 0;
 		const rows = await chatApi.listMessages(channelId);
-		if (generation !== this.#sessionGeneration) return;
+		if (
+			generation !== this.#sessionGeneration ||
+			(this.#channelRevocationEpoch.get(channelId) ?? 0) !== revEpoch
+		) {
+			return;
+		}
 		// chat_messages_list is newest-first; reverse once here so every reader sees ASC.
 		this.messagesByChannel[channelId] = rows
 			.slice()
@@ -368,11 +379,17 @@ export class ChatStore {
 	 *  no separate stitch method is needed here. */
 	async openChannelAt(channelId: number, seq: number): Promise<void> {
 		const generation = this.#sessionGeneration;
+		const revEpoch = this.#channelRevocationEpoch.get(channelId) ?? 0;
 		this.activeChannelId = channelId;
 		this.atBottom = false;
 		this.unseenBelow = 0;
 		const rows = await chatApi.listMessages(channelId, { aroundSeq: seq });
-		if (generation !== this.#sessionGeneration) return;
+		if (
+			generation !== this.#sessionGeneration ||
+			(this.#channelRevocationEpoch.get(channelId) ?? 0) !== revEpoch
+		) {
+			return;
+		}
 		// aroundSeq mode returns ascending already (chat_messages_list) —
 		// unlike the normal DESC page openChannel() reverses, no reverse here.
 		this.messagesByChannel[channelId] = rows.map((m) => ({ ...m, status: 'sent' as const }));
@@ -807,20 +824,162 @@ export class ChatStore {
 		for (const row of replay.messages) this.#upsertMessage(channelId, row);
 	}
 
+	/** Current monotonic replay cursor for `channelId` (read-only accessor for SyncCoordinator). */
+	getReplayCursor(channelId: number): number {
+		return this.#maxSeqFor(channelId);
+	}
+
+	/**
+	 * Non-additive channel snapshot replacement (#553/#555): replaces the channel's
+	 * cached timeline with the authoritative server snapshot, removing vanished/
+	 * deleted messages and preserving server-authoritative order (ARCH-008: zero
+	 * client-side re-sorting).
+	 */
+	replaceChannelSnapshot(channelId: number, messages: ChatMessage[], cursor?: number): void {
+		const nextRows: StoreMessage[] = messages.map((m) => ({ ...m, status: 'sent' as const }));
+		this.messagesByChannel = {
+			...this.messagesByChannel,
+			[channelId]: nextRows,
+		};
+		const rowMax = nextRows.reduce((max, m) => (m.seq > max ? m.seq : max), 0);
+		const nextCursor = cursor !== undefined ? Math.max(cursor, rowMax) : rowMax;
+		this.#replayCursorByChannel.set(channelId, nextCursor);
+	}
+
+	/**
+	 * Fetches a fresh server-authoritative page and replaces the channel's timeline
+	 * non-additively (triggered on `#553` `resync` / `tombstoneFloorExceeded`).
+	 */
+	async resyncChannelSnapshot(channelId: number, limit = 50): Promise<void> {
+		const generation = this.#sessionGeneration;
+		const revEpoch = this.#channelRevocationEpoch.get(channelId) ?? 0;
+		const page = await chatApi.listMessages(channelId, { limit });
+		if (
+			generation !== this.#sessionGeneration ||
+			(this.#channelRevocationEpoch.get(channelId) ?? 0) !== revEpoch
+		) {
+			return;
+		}
+		// chat_messages_list is newest-first; reverse once to ASC without re-sorting.
+		this.replaceChannelSnapshot(channelId, page.slice().reverse());
+	}
+
+	/**
+	 * Security-lane channel revocation (`scope_revoked`, #555): synchronously bumps
+	 * the channel's revocation epoch and evicts all 7 channel-scoped slices:
+	 * `messagesByChannel`, `conversations`, `typingUsers`, `peerReadSeq`,
+	 * `pollResultsByPollId`, `pendingAttachments`, and `#replayCursorByChannel`.
+	 */
+	revokeChannelScope(channelId: number): void {
+		this.#channelRevocationEpoch.set(
+			channelId,
+			(this.#channelRevocationEpoch.get(channelId) ?? 0) + 1,
+		);
+		// Fence any in-flight loadConversations() so it cannot restore this revoked channel.
+		this.#conversationLoadGeneration += 1;
+
+		// 1. Evict cached poll results owned by messages in this channel.
+		const priorRows = this.messagesByChannel[channelId] ?? [];
+		const nextPolls = { ...this.pollResultsByPollId };
+		let pollsChanged = false;
+		for (const row of priorRows) {
+			const pollId = (row.payload as { pollId?: number } | null | undefined)?.pollId;
+			if (pollId != null && pollId in nextPolls) {
+				delete nextPolls[pollId];
+				pollsChanged = true;
+			}
+		}
+		if (pollsChanged) this.pollResultsByPollId = nextPolls;
+
+		// 2. Evict messagesByChannel.
+		if (channelId in this.messagesByChannel) {
+			const nextMessages = { ...this.messagesByChannel };
+			delete nextMessages[channelId];
+			this.messagesByChannel = nextMessages;
+		}
+
+		// 3. Evict from conversations + active selection.
+		this.conversations = this.conversations.filter((c) => c.channelId !== channelId);
+		if (this.activeChannelId === channelId) {
+			this.activeChannelId = null;
+			this.atBottom = true;
+			this.unseenBelow = 0;
+		}
+
+		// 4. Evict typingUsers & timers for this channel.
+		this.typingUsers = this.typingUsers.filter((t) => t.channelId !== channelId);
+		const typingPrefix = `${channelId}:`;
+		for (const [k, timer] of [...this.#typingTimers.entries()]) {
+			if (k.startsWith(typingPrefix)) {
+				clearTimeout(timer);
+				this.#typingTimers.delete(k);
+			}
+		}
+
+		// 5. Evict peerReadSeq.
+		if (channelId in this.peerReadSeq) {
+			const nextPeer = { ...this.peerReadSeq };
+			delete nextPeer[channelId];
+			this.peerReadSeq = nextPeer;
+		}
+
+		// 6. Evict pendingAttachments & abort in-flight uploads for this channel.
+		const nextPending = { ...this.pendingAttachments };
+		let pendingChanged = false;
+		for (const key of Object.keys(nextPending)) {
+			if (key.startsWith(typingPrefix)) {
+				for (const item of nextPending[key]) {
+					this.#uploadAborts.get(item.clientId)?.abort();
+					this.#uploadAborts.delete(item.clientId);
+					this.#uploadTasks.delete(item.clientId);
+				}
+				delete nextPending[key];
+				pendingChanged = true;
+			}
+		}
+		if (pendingChanged) this.pendingAttachments = nextPending;
+
+		// 7. Evict #replayCursorByChannel (plus queue/space/revocation bookkeeping).
+		this.#replayCursorByChannel.delete(channelId);
+		this.#replayQueueByChannel.delete(channelId);
+		this.#spaceIdByChannel.delete(channelId);
+		this.#federationRevokedChannels.delete(channelId);
+	}
+
 	#serializeReplay(channelId: number, request: () => Promise<ChatReplay>): Promise<void> {
 		const generation = this.#sessionGeneration;
+		const revEpoch = this.#channelRevocationEpoch.get(channelId) ?? 0;
 		const execute = async () => {
-			if (generation !== this.#sessionGeneration) return;
+			if (
+				generation !== this.#sessionGeneration ||
+				(this.#channelRevocationEpoch.get(channelId) ?? 0) !== revEpoch
+			) {
+				return;
+			}
 			let replay: ChatReplay;
 			try {
 				replay = await request();
 			} catch (err) {
 				// A late failure belongs to the identity that issued the request;
 				// after reset it must not surface in the next session either.
-				if (generation !== this.#sessionGeneration) return;
+				if (
+					generation !== this.#sessionGeneration ||
+					(this.#channelRevocationEpoch.get(channelId) ?? 0) !== revEpoch
+				) {
+					return;
+				}
 				throw err;
 			}
-			if (generation !== this.#sessionGeneration) return;
+			if (
+				generation !== this.#sessionGeneration ||
+				(this.#channelRevocationEpoch.get(channelId) ?? 0) !== revEpoch
+			) {
+				return;
+			}
+			if (replay.resync) {
+				await this.resyncChannelSnapshot(channelId);
+				return;
+			}
 			this.#applyReplay(channelId, replay);
 		};
 		const previous = this.#replayQueueByChannel.get(channelId);
@@ -857,8 +1016,14 @@ export class ChatStore {
 	 *  0 tells the caller there is no older page left to fetch. */
 	async loadOlderMessages(channelId: number, beforeSeq: number, limit = 50): Promise<number> {
 		const generation = this.#sessionGeneration;
+		const revEpoch = this.#channelRevocationEpoch.get(channelId) ?? 0;
 		const page = await chatApi.listMessages(channelId, { beforeSeq, limit });
-		if (generation !== this.#sessionGeneration) return 0;
+		if (
+			generation !== this.#sessionGeneration ||
+			(this.#channelRevocationEpoch.get(channelId) ?? 0) !== revEpoch
+		) {
+			return 0;
+		}
 		if (page.length === 0) return 0;
 		const rows = this.messagesByChannel[channelId] ?? (this.messagesByChannel[channelId] = []);
 		const existing = new Set(rows.map((r) => r.messageId));

@@ -119,11 +119,19 @@
 			// Cross-tab/device reactivity: re-fetch on any Contact push
 			// (notify_contact_state → contact:{mailbox_id}); the producer is already
 			// live, this wires the consumer.
-			push.register(['Contact'], (changes) => {
-				if (changes && (changes as Record<string, unknown>).Contact) {
-					refreshContacts();
-				}
-			});
+			push.register(
+				['Contact'],
+				(changes) => {
+					if (changes && (changes as Record<string, unknown>).Contact) {
+						refreshContacts();
+					}
+				},
+				{
+					onReconnect: () => {
+						refreshContacts();
+					},
+				},
+			);
 		} catch (e) {
 			error = parseError(e).message;
 		}

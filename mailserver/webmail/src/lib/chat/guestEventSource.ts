@@ -3,10 +3,30 @@ import { ReconnectBackoff, type ReconnectBackoffOptions } from '$lib/ws/backoff'
 
 const guestEventSourceURL = '/api/jmap/eventsource?types=*&ping=30';
 
-type GuestEventName = 'chat' | 'meet';
+export type GuestEventName = 'chat' | 'meet' | 'sync_wakeup' | 'scope_revoked';
+
+const GUEST_EVENT_NAMES: readonly GuestEventName[] = ['chat', 'meet', 'sync_wakeup', 'scope_revoked'];
 
 export interface GuestEventSourceOptions {
 	backoff?: ReconnectBackoffOptions;
+}
+
+interface GuestSubscriber {
+	eventName: GuestEventName;
+	handler: (event: Record<string, unknown>) => void;
+	onOpen?: () => void;
+	disposed: boolean;
+}
+
+export interface GuestEventSourceHub {
+	subscribe<T extends object>(
+		eventName: GuestEventName,
+		handler: (event: T) => void,
+		onOpen?: () => void,
+	): () => void;
+	disconnect(): void;
+	readonly subscriberCount: number;
+	readonly isOpen: boolean;
 }
 
 // Mailbox-less guests cannot use the JMAP WebSocket protocol because that
@@ -19,81 +39,23 @@ export interface GuestEventSourceOptions {
 // `error`, we immediately close the failed EventSource to suppress native
 // fixed-interval retries and reopen a fresh stream using full-jitter
 // exponential backoff (~1s base, ~60s cap, stability-gated reset).
-function subscribeGuestEvents<T extends object>(
-	eventName: GuestEventName,
-	handler: (event: T) => void,
-	onOpen?: () => void,
-	options?: GuestEventSourceOptions,
-): () => void {
-	if (!browser) return () => {};
-
+//
+// #555: One shared ref-counted EventSource serves ChatApp, MeetApp,
+// MeetChatPanel, and SyncCoordinator's guest wakeup transport, listening to
+// 'chat', 'meet', 'sync_wakeup', and 'scope_revoked'. Late subscribers joining
+// an already-open stream receive a deterministic `onOpen` catch-up microtask
+// without re-opening the SSE connection; reconnect invokes every active
+// subscriber's `onOpen`.
+export function createGuestEventSourceHub(options?: GuestEventSourceOptions): GuestEventSourceHub {
 	const backoff = new ReconnectBackoff(options?.backoff);
+	const subscribers = new Set<GuestSubscriber>();
 	let source: EventSource | null = null;
 	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-	let disposed = false;
-
 	let detachCurrent: (() => void) | null = null;
+	let open = false;
 
-	function connect(): void {
-		if (disposed || source !== null) return;
-		if (reconnectTimer !== null) {
-			clearTimeout(reconnectTimer);
-			reconnectTimer = null;
-		}
-
-		const current = new EventSource(guestEventSourceURL);
-		source = current;
-
-		const onEvent: EventListener = (raw) => {
-			if (disposed || source !== current) return;
-			const data = (raw as MessageEvent<unknown>).data;
-			if (typeof data !== 'string') return;
-			try {
-				const event: unknown = JSON.parse(data);
-				if (!event || typeof event !== 'object' || Array.isArray(event)) return;
-				handler(event as T);
-			} catch {
-				// A malformed server/extension frame is isolated to that frame and
-				// does not tear down or reconnect the authenticated stream.
-			}
-		};
-
-		const handleOpen: EventListener = () => {
-			if (disposed || source !== current) return;
-			backoff.markConnected();
-			onOpen?.();
-		};
-
-		const detach = () => {
-			current.removeEventListener(eventName, onEvent);
-			current.removeEventListener('open', handleOpen);
-			current.removeEventListener('error', handleError);
-			current.close();
-		};
-
-		const handleError: EventListener = () => {
-			if (disposed || source !== current) return;
-			source = null;
-			detachCurrent = null;
-			// Close immediately so the browser's unjittered auto-reconnect cannot fire.
-			detach();
-			const delayMs = backoff.markDisconnected();
-			reconnectTimer = setTimeout(() => {
-				reconnectTimer = null;
-				connect();
-			}, delayMs);
-		};
-
-		detachCurrent = detach;
-		current.addEventListener(eventName, onEvent);
-		current.addEventListener('open', handleOpen);
-		current.addEventListener('error', handleError);
-	}
-
-	connect();
-
-	return () => {
-		disposed = true;
+	function closeStream(): void {
+		open = false;
 		if (reconnectTimer !== null) {
 			clearTimeout(reconnectTimer);
 			reconnectTimer = null;
@@ -106,8 +68,168 @@ function subscribeGuestEvents<T extends object>(
 		} else {
 			source = null;
 		}
+	}
+
+	function connect(): void {
+		if (!browser || typeof EventSource === 'undefined' || subscribers.size === 0 || source !== null) return;
+		if (reconnectTimer !== null) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+		}
+
+		const current = new EventSource(guestEventSourceURL);
+		source = current;
+
+		const namedListeners: Array<[GuestEventName, EventListener]> = GUEST_EVENT_NAMES.map((name) => {
+			const listener: EventListener = (raw) => {
+				if (source !== current) return;
+				const data = (raw as MessageEvent<unknown>).data;
+				if (typeof data !== 'string') return;
+				let parsed: unknown;
+				try {
+					parsed = JSON.parse(data);
+				} catch {
+					// A malformed server/extension frame is isolated to that frame and
+					// does not tear down or reconnect the authenticated stream.
+					return;
+				}
+				if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+				const payload = parsed as Record<string, unknown>;
+				for (const sub of [...subscribers]) {
+					if (sub.disposed || sub.eventName !== name) continue;
+					try {
+						sub.handler(payload);
+					} catch (e) {
+						console.error('Guest EventSource listener error', e);
+					}
+				}
+			};
+			return [name, listener];
+		});
+
+		const handleOpen: EventListener = () => {
+			if (source !== current) return;
+			open = true;
+			backoff.markConnected();
+			for (const sub of [...subscribers]) {
+				if (sub.disposed || !sub.onOpen) continue;
+				try {
+					sub.onOpen();
+				} catch (e) {
+					console.error('Guest EventSource onOpen error', e);
+				}
+			}
+		};
+
+		const detach = () => {
+			for (const [name, listener] of namedListeners) {
+				current.removeEventListener(name, listener);
+			}
+			current.removeEventListener('open', handleOpen);
+			current.removeEventListener('error', handleError);
+			current.close();
+		};
+
+		const handleError: EventListener = () => {
+			if (source !== current) return;
+			open = false;
+			source = null;
+			detachCurrent = null;
+			// Close immediately so the browser's unjittered auto-reconnect cannot fire.
+			detach();
+			if (subscribers.size === 0) return;
+			const delayMs = backoff.markDisconnected();
+			reconnectTimer = setTimeout(() => {
+				reconnectTimer = null;
+				connect();
+			}, delayMs);
+		};
+
+		detachCurrent = detach;
+		for (const [name, listener] of namedListeners) {
+			current.addEventListener(name, listener);
+		}
+		current.addEventListener('open', handleOpen);
+		current.addEventListener('error', handleError);
+	}
+
+	function subscribe<T extends object>(
+		eventName: GuestEventName,
+		handler: (event: T) => void,
+		onOpen?: () => void,
+	): () => void {
+		if (!browser) return () => {};
+		const sub: GuestSubscriber = {
+			eventName,
+			handler: handler as (event: Record<string, unknown>) => void,
+			onOpen,
+			disposed: false,
+		};
+		subscribers.add(sub);
+
+		if (source === null && reconnectTimer === null) {
+			connect();
+		} else if (open && onOpen) {
+			// Deterministic late-subscriber catch-up: joining an already-open stream
+			// runs the subscriber's onOpen microtask without re-opening SSE.
+			queueMicrotask(() => {
+				if (!sub.disposed && open) {
+					try {
+						onOpen();
+					} catch (e) {
+						console.error('Guest EventSource late onOpen error', e);
+					}
+				}
+			});
+		}
+
+		return () => {
+			if (sub.disposed) return;
+			sub.disposed = true;
+			subscribers.delete(sub);
+			if (subscribers.size === 0) {
+				closeStream();
+				backoff.reset();
+			}
+		};
+	}
+
+	function disconnect(): void {
+		for (const sub of subscribers) sub.disposed = true;
+		subscribers.clear();
+		closeStream();
 		backoff.reset();
+	}
+
+	return {
+		subscribe,
+		disconnect,
+		get subscriberCount(): number {
+			return subscribers.size;
+		},
+		get isOpen(): boolean {
+			return open;
+		},
 	};
+}
+
+const defaultGuestHub = createGuestEventSourceHub();
+
+function subscribeGuestEvents<T extends object>(
+	eventName: GuestEventName,
+	handler: (event: T) => void,
+	onOpen?: () => void,
+	options?: GuestEventSourceOptions,
+): () => void {
+	if (!browser) return () => {};
+	// Preserve #389's isolated injectable `options.backoff` contract for tests
+	// (e.g. seeded single-client and 100-client reconnect spread tests), while
+	// all standard callers share the single ref-counted EventSource hub.
+	if (options?.backoff) {
+		const isolated = createGuestEventSourceHub(options);
+		return isolated.subscribe(eventName, handler, onOpen);
+	}
+	return defaultGuestHub.subscribe(eventName, handler, onOpen);
 }
 
 export function subscribeGuestChatEvents<T extends object>(
@@ -124,4 +246,24 @@ export function subscribeGuestMeetEvents<T extends object>(
 	options?: GuestEventSourceOptions,
 ): () => void {
 	return subscribeGuestEvents('meet', handler, onOpen, options);
+}
+
+export function subscribeGuestSyncWakeup<T extends object = Record<string, unknown>>(
+	handler: (event: T) => void,
+	onOpen?: () => void,
+	options?: GuestEventSourceOptions,
+): () => void {
+	return subscribeGuestEvents('sync_wakeup', handler, onOpen, options);
+}
+
+export function subscribeGuestScopeRevoked<T extends object = Record<string, unknown>>(
+	handler: (event: T) => void,
+	onOpen?: () => void,
+	options?: GuestEventSourceOptions,
+): () => void {
+	return subscribeGuestEvents('scope_revoked', handler, onOpen, options);
+}
+
+export function disconnectGuestEventSource(): void {
+	defaultGuestHub.disconnect();
 }

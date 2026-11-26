@@ -134,12 +134,21 @@
 			// 'tasklist_changed' event surfaces here too — the push framework
 			// abstracts it to the generic 'Task changed' signal (no per-list id),
 			// so onTaskListPush(null) means "refetch whatever's on screen".
-			push.register(['Task'], (changes) => {
-				if (changes && (changes as Record<string, unknown>).Task) {
-					refreshTasks();
-					if (sharedListsEnabled) onTaskListPush(null);
-				}
-			});
+			push.register(
+				['Task'],
+				(changes) => {
+					if (changes && (changes as Record<string, unknown>).Task) {
+						refreshTasks();
+						if (sharedListsEnabled) onTaskListPush(null);
+					}
+				},
+				{
+					onReconnect: () => {
+						refreshTasks();
+						if (sharedListsEnabled) onTaskListPush(null);
+					},
+				},
+			);
 		} catch (e) {
 			error = parseError(e).message;
 		} finally {

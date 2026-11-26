@@ -39,6 +39,8 @@
   } from '$lib/onboarding/host';
   import { installWipeHandler, installCapsHandler } from '$lib/offline/wipe';
   import { composeOfflineCoordinatorForSession } from '$lib/offline/boot';
+  import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+  import { createOfflineMailSyncAdapter } from '$lib/sync/webmail/adapters/offlineMail';
   import { installPushActionHandler } from '$lib/native/pushAction.svelte';
   import { installServiceWorkerGenerationCoordinator, type ServiceWorkerGenerationCoordinator } from '$lib/native/sw-coordinator';
   import { markProductInteractive, markProductReady } from '$lib/performance/marks';
@@ -144,6 +146,16 @@
   $effect(() => {
     if (!$authenticated) return;
     return composeOfflineCoordinatorForSession($jmapSession, $user);
+  });
+
+  // Wave 2.8 (#555): activate the singleton Webmail SyncCoordinator for every
+  // authenticated session (wires auth session teardown + pre-wipe hooks and
+  // registers the E4-I default-inert offline-mail adapter for member sessions).
+  $effect(() => {
+    if (!$authenticated) return;
+    const coord = getWebmailSyncCoordinator(guestSession ? 'guest' : 'member');
+    if (guestSession) return;
+    return coord.register(createOfflineMailSyncAdapter({ mailboxScopeId: 'primary' }));
   });
 
   // Active app detection from current route

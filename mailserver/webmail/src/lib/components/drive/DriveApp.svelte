@@ -36,6 +36,12 @@
 	import { DriveSearchStore } from '$lib/drive/search.svelte';
 	import { driveWatches } from '$lib/drive/watches.svelte';
 	import { subscribeEvent } from '$lib/jmap/websocket';
+	import { mirrorBridge } from '$lib/drive/mirrorBridge.svelte';
+	import { VaultStore } from '$lib/drive/sync/vaultstore.js';
+	import { getNative, hasCapability, isNative } from '$lib/native';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createDriveOnlineSyncAdapter } from '$lib/sync/webmail/adapters/driveOnline';
+	import { createDriveVaultSyncAdapter } from '$lib/sync/webmail/adapters/driveNative';
 	import { uploadOrchestrator, uploadErrorMessage } from '$lib/drive/uploadOrchestrator.svelte';
 	import { VersionSaveFlow } from '$lib/drive/versionSave.svelte';
 
@@ -375,6 +381,87 @@
 			showToast(watchToastText(event.nodeId, event.op));
 		});
 		return unsubscribe;
+	});
+
+	// ── Wave 2.8 (#555): Drive online + native VaultStore + Electron mirror wakeup wiring ──
+	$effect(() => {
+		const spaceId = selectedSpaceId;
+		if (spaceId === null) return;
+		const coord = getWebmailSyncCoordinator('member');
+		const unsubs: Array<() => void> = [];
+
+		unsubs.push(
+			coord.register(
+				createDriveOnlineSyncAdapter({
+					spaceId,
+					getSinceSeq: () => sinceSeq,
+					setSinceSeq: (seq) => {
+						sinceSeq = seq;
+					},
+					fetchChanges: (sid, since) => api.changes(sid, since),
+					reloadListing: () => loadListing(),
+					clearSpaceView: () => {
+						listing = [];
+						selectedFile = null;
+						accessNode = null;
+					},
+				}),
+			),
+		);
+
+		if (isNative() && hasCapability('drive')) {
+			const native = getNative();
+			if (native.drive && native.db) {
+				const vaultStore = new VaultStore(native.drive, native.db, spaceId, () => null);
+				unsubs.push(
+					coord.register(
+						createDriveVaultSyncAdapter({
+							spaceId,
+							vaultStore,
+							reconcileVisibility: () => loadListing(),
+						}),
+					),
+				);
+			}
+		}
+
+		if (mirrorBridge.available) {
+			void mirrorBridge.setWakeupConnected(true);
+			unsubs.push(
+				coord.register({
+					consumerId: `drive-electron-forward:${spaceId}`,
+					scope: { kind: 'space', id: String(spaceId) },
+					lane: 'background',
+					debounceMs: 0,
+					runDeltaStep: async (ctx) => {
+						ctx.fence.assertCommitAllowed();
+						if (ctx.wakeup) {
+							await mirrorBridge.notifyWakeup({
+								scopeKind: 'space',
+								scopeId: String(spaceId),
+								seq: ctx.wakeup.seq,
+							});
+						}
+						return { kind: 'complete', recordsProcessed: 0 };
+					},
+					purgeScopeCache: async (event) => {
+						await mirrorBridge.notifyScopeRevoked({
+							scopeKind: 'space',
+							scopeId: event.scopeId,
+							subtreeAnchorId: event.subtreeAnchorId,
+							reason: event.reason,
+						});
+					},
+				}),
+			);
+		}
+
+		return () => {
+			for (const off of unsubs) off();
+			if (mirrorBridge.available) {
+				void mirrorBridge.setWakeupConnected(false);
+			}
+		};
 	});
 
 	// ── node actions ─────────────────────────────────────────────────────────

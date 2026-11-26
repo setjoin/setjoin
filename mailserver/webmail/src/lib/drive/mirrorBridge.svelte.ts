@@ -101,6 +101,38 @@ class MirrorBridgeState {
 	async openRoot(spaceId: number): Promise<void> {
 		await this.bridge?.openRoot(spaceId);
 	}
+
+	async notifyWakeup(hint: { scopeKind: 'space'; scopeId: string; seq: number }): Promise<boolean> {
+		if (!this.available || !this.bridge?.notifyWakeup) return false;
+		try {
+			return await this.bridge.notifyWakeup(hint);
+		} catch {
+			return false;
+		}
+	}
+
+	async setWakeupConnected(connected: boolean): Promise<void> {
+		if (!this.available || !this.bridge?.setWakeupConnected) return;
+		try {
+			await this.bridge.setWakeupConnected(connected);
+		} catch {
+			/* best-effort bridge hint */
+		}
+	}
+
+	async notifyScopeRevoked(hint: {
+		scopeKind: 'space';
+		scopeId: string;
+		subtreeAnchorId?: string;
+		reason?: string;
+	}): Promise<boolean> {
+		if (!this.available || !this.bridge?.notifyScopeRevoked) return false;
+		try {
+			return await this.bridge.notifyScopeRevoked(hint);
+		} catch {
+			return false;
+		}
+	}
 }
 
 export const mirrorBridge = new MirrorBridgeState();

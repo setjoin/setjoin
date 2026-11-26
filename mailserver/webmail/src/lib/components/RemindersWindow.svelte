@@ -19,7 +19,10 @@
 		// task/calendar changes push their own domains. Re-fetch on any of those; the load()
 		// guard coalesces bursts. ponytail: a dedicated Reminder StateChange key would target
 		// this precisely — add if the re-fetch volume ever matters.
-		push.register(['Email', 'Task', 'Calendar'], () => store.load(), { debounceMs: 500 });
+		push.register(['Email', 'Task', 'Calendar'], () => store.load(), {
+			debounceMs: 500,
+			onReconnect: () => store.load(),
+		});
 	});
 
 	onDestroy(() => push.teardown());

@@ -435,13 +435,17 @@ export const ensureSpace = (channelId: number) =>
  *  jump-to-message mode instead (target row + up to `limit` per side,
  *  ASCENDING — NOT the normal DESC page); ChatStore.openChannelAt is the
  *  only caller that passes it. */
-export const listMessages = (channelId: number, opts: { beforeSeq?: number; limit?: number; aroundSeq?: number } = {}) => {
+export const listMessages = (
+	channelId: number,
+	opts: { beforeSeq?: number; limit?: number; aroundSeq?: number; signal?: AbortSignal } = {},
+) => {
 	const params = new URLSearchParams();
 	if (opts.beforeSeq != null) params.set('beforeSeq', String(opts.beforeSeq));
 	if (opts.limit != null) params.set('limit', String(opts.limit));
 	if (opts.aroundSeq != null) params.set('aroundSeq', String(opts.aroundSeq));
 	const qs = params.toString();
-	return chatFetch<ChatMessage[]>(`/channels/${channelId}/messages${qs ? '?' + qs : ''}`);
+	const path = `/channels/${channelId}/messages${qs ? '?' + qs : ''}`;
+	return opts.signal ? chatFetch<ChatMessage[]>(path, { signal: opts.signal }) : chatFetch<ChatMessage[]>(path);
 };
 
 export interface ChatReplay {
@@ -450,6 +454,9 @@ export interface ChatReplay {
 	 *  returned row when the intervening mutations are hidden by a guest's
 	 *  immutable history floor. */
 	cursor: number;
+	/** Wave 2.6 (#553) / Wave 2.8 (#555): true when the server's tombstone floor
+	 *  was exceeded and the client must replace channel state non-additively. */
+	resync?: boolean;
 }
 
 /** Ascending replay since `seq` (exclusive) — the reconnect/backfill path
@@ -457,15 +464,31 @@ export interface ChatReplay {
  *  additive cursor header is lifted into this client-only envelope. Missing
  *  headers fall back to the largest safe row/request cursor for rolling
  *  compatibility and can never rewind. */
-export const sinceMessages = async (channelId: number, seq: number): Promise<ChatReplay> => {
-	const res = await chatFetchResponse(`/channels/${channelId}/messages/since?seq=${seq}`);
-	const messages = (await res.json()) as ChatMessage[];
+export const sinceMessages = async (channelId: number, seq: number, signal?: AbortSignal): Promise<ChatReplay> => {
+	const path = `/channels/${channelId}/messages/since?seq=${seq}`;
+	const res = signal ? await chatFetchResponse(path, { signal }) : await chatFetchResponse(path);
+	const body = (await res.json()) as ChatMessage[] | { messages?: ChatMessage[]; cursor?: number; resync?: boolean };
+	const headerResync = res.headers.get('X-Setjoin-Chat-Resync') === '1';
+	const isEnvelope = !Array.isArray(body) && typeof body === 'object' && body !== null;
+	const messages: ChatMessage[] = Array.isArray(body)
+		? body
+		: Array.isArray(body?.messages)
+			? body.messages
+			: [];
 	const rawCursor = res.headers.get('X-Setjoin-Chat-Cursor');
 	const parsedCursor = rawCursor == null ? Number.NaN : Number(rawCursor);
+	const bodyCursor = isEnvelope && typeof body.cursor === 'number' ? body.cursor : Number.NaN;
 	const rowCursor = messages.reduce((max, message) => Math.max(max, message.seq), seq);
+	const effectiveCursor = Number.isSafeInteger(parsedCursor) && parsedCursor >= 0
+		? Math.max(seq, parsedCursor)
+		: Number.isSafeInteger(bodyCursor) && bodyCursor >= 0
+			? Math.max(seq, bodyCursor)
+			: rowCursor;
+	const resync = headerResync || (isEnvelope && body.resync === true);
 	return {
 		messages,
-		cursor: Number.isSafeInteger(parsedCursor) && parsedCursor >= 0 ? Math.max(seq, parsedCursor) : rowCursor,
+		cursor: effectiveCursor,
+		...(resync ? { resync: true } : {}),
 	};
 };
 

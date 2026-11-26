@@ -246,17 +246,26 @@
 			} catch {
 				delegations = [];
 			}
-			push.register(['Calendar', 'CalendarEvent'], (changes) => {
-				const c = changes as Record<string, unknown>;
-				if (c && (c.Calendar || c.CalendarEvent)) {
-					refreshEvents();
-					// Re-fetch subscription status too — a webcal sync (async first
-					// fetch, or the worker's periodic tick) pushes on the same
-					// calendar channel; this is how "Updated Xh ago" / the failure
-					// dot settle without a manual reload (no per-subscription push).
-					calendarSubscriptions.load().catch(() => {});
-				}
-			});
+			push.register(
+				['Calendar', 'CalendarEvent'],
+				(changes) => {
+					const c = changes as Record<string, unknown>;
+					if (c && (c.Calendar || c.CalendarEvent)) {
+						refreshEvents();
+						// Re-fetch subscription status too — a webcal sync (async first
+						// fetch, or the worker's periodic tick) pushes on the same
+						// calendar channel; this is how "Updated Xh ago" / the failure
+						// dot settle without a manual reload (no per-subscription push).
+						calendarSubscriptions.load().catch(() => {});
+					}
+				},
+				{
+					onReconnect: () => {
+						refreshEvents();
+						calendarSubscriptions.load().catch(() => {});
+					},
+				},
+			);
 		} catch (e) {
 			error = parseError(e).message;
 		} finally {
