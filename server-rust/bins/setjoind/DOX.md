@@ -15,8 +15,10 @@
 - **Strict pre-bind schema verification:** `setjoin_boot::run_for_subsystems(subsystems, true)` refuses any schema version mismatch (`actual != expected`) before binding any listener or accepting connections on inherited systemd FDs.
 - **Socket activation & `sd_notify`:** Inherited `LISTEN_FDS` are atomically wrapped in `OwnedFd` with `FD_CLOEXEC`, validated against active subsystems (`Slot::Auth`, `http`, `https`, `acme`, `imap`, `imaps`, `smtp`, `smtps`, `submission`, `federation`), and closed on any refusal. `NOTIFY_SOCKET` is scrubbed at startup; `READY=1` is sent only after all active listeners bind, and `STOPPING=1` is sent when the unified 30-second concurrent graceful drain begins.
 - **Retired inventory override:** `GATEWAY_ROUTE_INVENTORY` is rejected fail-closed in `setjoind`.
+- **Release N compiled ELF compatibility shims (#544):** `setjoin-server-shim` (packaged as `setjoin-server`, fixed `http,protocols,workers`) and `setjoin-auth-shim` (packaged as `setjoin-auth`, fixed `auth`) are `std`-only compiled ELF binaries (plus `libc` on Linux for `O_RDONLY | O_NOFOLLOW | O_CLOEXEC` + `fstat` + `execveat(AT_EMPTY_PATH)` / `fexecve`). They answer `--version`/`-V` as `setjoin-server <ver>` / `setjoin-auth <ver>` for `smoke-rust-floor.sh`, fail closed (exit `2`) on conflicting `--subsystems` or `SETJOIND_SUBSYSTEMS`, normalize `SETJOIND_SUBSYSTEMS`, verify single-link regular non-writable sibling `setjoind` via `current_exe()`, and preserve PID plus inherited FDs `3..12` with zero leaked non-`CLOEXEC` FDs.
 
 ## Verification
 
 - `cargo test --manifest-path server-rust/Cargo.toml -p setjoind -- --test-threads=1`
+- `cargo test --manifest-path server-rust/Cargo.toml -p setjoind --test shims -- --test-threads=1`
 - `python3 scripts/check-rust-family-isolation.py`

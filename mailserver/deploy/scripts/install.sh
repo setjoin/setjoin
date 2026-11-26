@@ -671,23 +671,23 @@ fi
 # Refuse before schema/runtime changes. Final install repeats this under both locks.
 "$UPDATER_SOURCE" check-swap --state-dir "$UPDATER_DATA_DIR/journal" --dsn-file "$UPDATER_DSN_FILE" \
   || die "updater swap refused: finish or recover the in-progress update with the installed updater first."
-# The Rust server (setjoin-server, unit setjoin-gateway.service, ARCH-031): a
-# release archive stages it at server-rust/setjoin-server; a source checkout builds it.
+# Release N unified server + compiled ELF shims (#544): a release archive stages
+# server-rust/setjoind alongside setjoin-server and setjoin-auth shims; a source
+# checkout builds all three from package setjoind. Split units remain unchanged.
+SETJOIND_SOURCE="$ROOT/server-rust/setjoind"
 SERVER_SOURCE="$ROOT/server-rust/setjoin-server"
-if [ ! -x "$SERVER_SOURCE" ]; then
-  command -v cargo >/dev/null 2>&1 || die "setjoin-server missing ($SERVER_SOURCE) and 'cargo' not found — use a release archive or install the Rust toolchain."
-  info "Building setjoin-server (cargo build --release)…"
-  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}" cargo build --release --locked -p setjoin-gateway )
-  install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/setjoin-server" "$SERVER_SOURCE"
-fi
-# setjoin-auth (Rust identity process, #359b): a release archive stages it at
-# server-rust/setjoin-auth; a source checkout builds it.
 AUTH_SOURCE="$ROOT/server-rust/setjoin-auth"
-if [ ! -x "$AUTH_SOURCE" ]; then
-  command -v cargo >/dev/null 2>&1 || die "setjoin-auth missing ($AUTH_SOURCE) and 'cargo' not found — use a release archive or install the Rust toolchain."
-  info "Building setjoin-auth (cargo build --release)…"
-  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}" cargo build --release --locked -p setjoin-auth )
-  install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/setjoin-auth" "$AUTH_SOURCE"
+if [ ! -x "$SERVER_SOURCE" ] || [ ! -x "$AUTH_SOURCE" ]; then
+  command -v cargo >/dev/null 2>&1 || die "setjoin-server/setjoin-auth missing ($SERVER_SOURCE / $AUTH_SOURCE) and 'cargo' not found — use a release archive or install the Rust toolchain."
+  info "Building setjoind and compatibility shims (cargo build --release)…"
+  ( cd "$ROOT/server-rust" && CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/server-rust/target}" cargo build --release --locked -p setjoind )
+  install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/setjoind" "$SETJOIND_SOURCE"
+  install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/setjoin-server-shim" "$SERVER_SOURCE"
+  install -m 0755 "${CARGO_TARGET_DIR:-$ROOT/server-rust/target}/release/setjoin-auth-shim" "$AUTH_SOURCE"
+elif { grep -aq 'SETJOIND_SHIM_V1' "$SERVER_SOURCE" 2>/dev/null ||
+       grep -aq 'SETJOIND_SHIM_V1' "$AUTH_SOURCE" 2>/dev/null; } &&
+     [ ! -x "$SETJOIND_SOURCE" ]; then
+  die "pre-staged Release N shim ($SERVER_SOURCE / $AUTH_SOURCE) requires executable $SETJOIND_SOURCE — refusing incomplete cohort."
 fi
 
 # setjoin-sfu (LiveKit) — pinned v1.13.5 release binary, sha256-verified
@@ -1398,6 +1398,10 @@ install -o root -g root -m 0644 \
 install -m 0755 "$ROOT/server-rust/mailctl" "$INSTALL_DIR/mailctl"
 install -m 0755 "$SERVER_SOURCE" "$INSTALL_DIR/setjoin-server"
 install -m 0755 "$AUTH_SOURCE" "$INSTALL_DIR/setjoin-auth"
+if [ -x "$SETJOIND_SOURCE" ]; then
+  # Keep setjoind root-owned so adopt-current-layout's trusted_owner check accepts it.
+  install -o root -g root -m 0755 "$SETJOIND_SOURCE" "$INSTALL_DIR/setjoind"
+fi
 if [ "$MEET_CAPTIONS_ENABLED" = "true" ]; then
   mkdir -p "$INSTALL_DIR/bin"
   install -m 0755 "$ROOT/server-rust/asrbotd" "$INSTALL_DIR/bin/asrbotd"

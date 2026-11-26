@@ -120,8 +120,7 @@ fn words(dsn: &str) -> Result<Vec<(String, String, String)>> {
 }
 pub fn parse(dsn: &str) -> Result<Parsed> {
     let (mut found, mut root) = (None, None);
-    let rest;
-    if dsn.starts_with("postgres://") || dsn.starts_with("postgresql://") {
+    let rest = if dsn.starts_with("postgres://") || dsn.starts_with("postgresql://") {
         let (base, query) = dsn.split_once('?').unwrap_or((dsn, ""));
         let mut keep = Vec::new();
         for pair in query.split('&').filter(|p| !p.is_empty()) {
@@ -132,11 +131,11 @@ pub fn parse(dsn: &str) -> Result<Parsed> {
                 _ => keep.push(pair),
             }
         }
-        rest = if keep.is_empty() {
+        if keep.is_empty() {
             base.to_owned()
         } else {
             format!("{base}?{}", keep.join("&"))
-        };
+        }
     } else {
         let mut keep = Vec::new();
         for (k, v, raw) in words(dsn)? {
@@ -146,15 +145,17 @@ pub fn parse(dsn: &str) -> Result<Parsed> {
                 _ => keep.push(raw),
             }
         }
-        rest = keep.join(" ");
-    }
+        keep.join(" ")
+    };
     Ok(Parsed {
         dsn: rest,
         mode: match found {
             Some(v) => mode(&v)?,
             None => Mode::Prefer,
         },
-        root_cert: root.filter(|r| !r.is_empty() && r != "system").map(PathBuf::from),
+        root_cert: root
+            .filter(|r| !r.is_empty() && r != "system")
+            .map(PathBuf::from),
     })
 }
 
@@ -290,16 +291,26 @@ mod tests {
     #[test]
     fn default_is_prefer_and_params_are_stripped() {
         let p = parse("postgres://u:p@h/db").unwrap();
-        assert_eq!((p.mode, p.dsn.as_str()), (Mode::Prefer, "postgres://u:p@h/db"));
-        let p = parse("postgres://u@h/db?sslmode=verify-full&application_name=x&sslrootcert=%2Fca.pem")
-            .unwrap();
+        assert_eq!(
+            (p.mode, p.dsn.as_str()),
+            (Mode::Prefer, "postgres://u:p@h/db")
+        );
+        let p =
+            parse("postgres://u@h/db?sslmode=verify-full&application_name=x&sslrootcert=%2Fca.pem")
+                .unwrap();
         assert_eq!(p.mode, Mode::VerifyFull);
         assert_eq!(p.dsn, "postgres://u@h/db?application_name=x");
         assert_eq!(p.root_cert.unwrap(), PathBuf::from("/ca.pem"));
         let p = parse("host=h dbname=db sslmode=require user='a b'").unwrap();
-        assert_eq!((p.mode, p.dsn.as_str()), (Mode::Require, "host=h dbname=db user='a b'"));
+        assert_eq!(
+            (p.mode, p.dsn.as_str()),
+            (Mode::Require, "host=h dbname=db user='a b'")
+        );
         assert_eq!(parse("host=h sslmode=disable").unwrap().mode, Mode::Disable);
-        assert_eq!(parse("host=h sslmode=verify-ca").unwrap().mode, Mode::VerifyCa);
+        assert_eq!(
+            parse("host=h sslmode=verify-ca").unwrap().mode,
+            Mode::VerifyCa
+        );
         assert!(parse("host=h sslmode=bogus").is_err());
     }
 }

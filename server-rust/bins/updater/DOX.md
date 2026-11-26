@@ -238,3 +238,17 @@ captures an optional flat `setjoin-auth` (4–6 entries) and quarantines `setjoi
 before stop/migration or rollback switch if any fixed core unit executes a binary from `current/`
 that is absent from the target release. `setjoin-auth.service` executes `setjoin-auth` directly
 without Go `authserverd` chaining, so `START`/`STOP` and the login probe are unchanged.
+
+#544: Two-release expand–contract support for `core_setjoind` (`setjoind`, mode 0500 → immutable 0555):
+- `stage.rs` and `adopt.rs` support Release N expand (`setjoind` + both shims + `mailctl` + `webmail`)
+  and Release N+1 unified contract (`setjoind` + `mailctl` + `webmail`, 3-entry adoption), rejecting
+  mixed legacy Go + `setjoind` and half-shim layouts, and quarantining `setjoind.prev`.
+- `host.rs` classifies `UnitTopology::{LegacyGo, Split, Unified}` and fails closed on `Mixed` (except
+  non-destructive `recovery::evidence()`, which observes all 4 units while keeping `Split`/`LegacyGo`
+  goldens byte-identical). `load_effective_gateway_env` recognizes `setjoind.env` alongside `gateway.env`.
+- `host::readiness()` keeps `Split`/`LegacyGo` byte-identical on `curl`, and in `Unified` probes fixed
+  loopback `https://127.0.0.1/ready` (HTTP 200) and `https://127.0.0.1/.well-known/jwks.json` (HTTP 200,
+  `application/json` containing `"keys"`, 64 KiB cap) via bounded `reqwest`.
+- `recovery::activate()` calls `host::require_unit_binaries` on the target rollback cohort BEFORE
+  `host::stop()` and `stage::previous()`, preventing unified hosts from stopping onto a Release N-1
+  cohort lacking `setjoind`.

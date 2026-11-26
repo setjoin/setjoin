@@ -64,7 +64,7 @@ async fn evidence(
 ) -> Result<PathBuf> {
     secure_dir(dir, 0o700)?;
     let mut units = BTreeMap::new();
-    for unit in ["setjoin-auth", "setjoin-gateway", "setjoin-updater"] {
+    for unit in host::evidence_units_in(Path::new("/etc/systemd/system")) {
         let state = if let Ok(exe) = host::executable("systemctl") {
             match tokio::process::Command::new(exe)
                 .args(["is-active", unit])
@@ -359,6 +359,12 @@ async fn activate(
             .last()
             .filter(|_| s.recovery_required)
             .map_or_else(|| s.current.clone(), |e| e.release_id.clone());
+        let target_release = if s.current == failed {
+            &s.previous
+        } else {
+            &s.current
+        };
+        host::require_unit_binaries(&root.join("releases").join(target_release))?;
         host::stop().await?;
         if s.current == failed {
             stage::previous(root, &failed)?;
@@ -400,7 +406,7 @@ fn stdin_is_terminal() -> bool {
     {
         // Restored Go bug: any character device on fd 0 counts.
         use std::os::unix::fs::FileTypeExt;
-        return std::fs::metadata("/proc/self/fd/0").is_ok_and(|m| m.file_type().is_char_device());
+        std::fs::metadata("/proc/self/fd/0").is_ok_and(|m| m.file_type().is_char_device())
     }
     #[cfg(not(feature = "oracle-mutants"))]
     {

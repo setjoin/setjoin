@@ -366,3 +366,251 @@ cmp -s "$im/units/setjoin-auth.service.pre359" "$im/units/setjoin-auth.service" 
   exit 1
 }
 echo 'upgraded-host auth.env migration + posture check + rollback: PASS'
+
+# ── D. Release N shim refusal & Release N+1 setjoind cutover/rollback (#544) ─
+# 1. Flat upgrade refuses a Release N shim binary when setjoind is missing.
+sh_dir="$real_tmp/shim-refuse"
+mkdir -p "$sh_dir/install" "$sh_dir/new" "$sh_dir/config" "$sh_dir/units"
+printf 'SETJOIND_SHIM_V1\n' >"$sh_dir/new/setjoin-server"
+printf 'SETJOIND_SHIM_V1\n' >"$sh_dir/new/setjoin-auth"
+chmod 755 "$sh_dir/new/setjoin-server" "$sh_dir/new/setjoin-auth"
+if PATH="$tmp/bin:$PATH" INSTALL_DIR="$sh_dir/install" SETJOIN_CONFIG_DIR="$sh_dir/config" \
+  SYSTEMD_DIR="$sh_dir/units" UPGRADE_TEST_LOG="$sh_dir/systemctl.log" \
+  bash "$UPGRADE_SCRIPT" "$sh_dir/new/setjoin-server" '' '' "$sh_dir/new/setjoin-auth" >"$sh_dir/out" 2>&1; then
+  echo 'shim without setjoind was accepted' >&2
+  exit 1
+fi
+grep -q 'without a companion setjoind' "$sh_dir/out" || {
+  cat "$sh_dir/out" >&2
+  echo 'expected shim-without-setjoind refusal message' >&2
+  exit 1
+}
+
+# 2. migrate-to-setjoind preconditions, atomic cutover, refresh-gateway-env, and rollback-to-split-units.
+cu="$real_tmp/cutover"
+mkdir -p "$cu/bin" "$cu/install/releases/r1" "$cu/install/releases/r2" \
+  "$cu/config/db-credentials.d" "$cu/units" "$cu/updater-journal"
+cp "$tmp/bin/systemctl" "$tmp/bin/chown" "$cu/bin/"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$cu/bin/sleep"
+cat >"$cu/bin/curl" <<'MOCK'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    *jwks.json*)
+      if [ "${CUTOVER_FAIL_READY:-0}" = "1" ]; then exit 1; fi
+      printf '{"keys":[{"kty":"EC"}]}\n'
+      exit 0
+      ;;
+    */ready*|*/health*)
+      if [ "${CUTOVER_FAIL_READY:-0}" = "1" ]; then exit 1; fi
+      printf '{"status":"ok"}\n'
+      exit 0
+      ;;
+  esac
+done
+exit 0
+MOCK
+cat >"$cu/bin/setjoin-recovery" <<'MOCK'
+#!/usr/bin/env bash
+if [ "${CUTOVER_RECOVERY_REQUIRED:-0}" = "1" ]; then
+  printf '{"current":"r2","previous":"r1","intent_id":"1","intent_state":"recovery_required","recovery_required":true,"database_reconciliation_required":false}\n'
+else
+  printf '{"current":"r2","previous":"r1","intent_id":"1","intent_state":"verified","recovery_required":false,"database_reconciliation_required":false}\n'
+fi
+MOCK
+chmod 755 "$cu/bin/curl" "$cu/bin/sleep" "$cu/bin/setjoin-recovery"
+if ! command -v flock >/dev/null 2>&1; then
+  cat >"$cu/bin/flock" <<'MOCK'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-n" ] && [ -n "${2:-}" ]; then
+  exec python3 -c 'import fcntl, sys
+try:
+    fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    sys.exit(1)
+' "$2"
+fi
+exit 1
+MOCK
+  chmod 755 "$cu/bin/flock"
+fi
+
+for rel in r1 r2; do
+  printf '#!/bin/sh\nexit 0\n' >"$cu/install/releases/$rel/setjoind"
+  printf '#!/bin/sh\nexit 0\n' >"$cu/install/releases/$rel/setjoin-server"
+  printf '#!/bin/sh\nexit 0\n' >"$cu/install/releases/$rel/setjoin-auth"
+  chmod 755 "$cu/install/releases/$rel/"*
+done
+ln -s "$cu/install/releases/r1" "$cu/install/previous"
+ln -s "$cu/install/releases/r2" "$cu/install/current"
+
+cat >"$cu/config/config.env" <<'ENV'
+HOSTNAME=mail.example.test
+DB_DSN=postgres://setjoin_app:apppw@127.0.0.1:5432/mailserver
+DB_DIRECT_DSN=postgres://setjoin_app:apppw@127.0.0.1:5432/mailserver
+AUTHSERVER_URL=http://127.0.0.1:8443
+TLS_CERT=/etc/setjoin/certs/server.pem
+TLS_KEY=/etc/setjoin/certs/server-key.pem
+ENV
+cat >"$cu/config/db-credentials.d/db-credentials.env" <<'ENV'
+DB_WORKER_DSN=postgres://setjoin_worker:workerpw@127.0.0.1:5432/mailserver
+DB_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver
+DB_DIRECT_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver
+ENV
+printf 'GATEWAY_LISTEN=127.0.0.1:18090\nGATEWAY_RUST_AUTH_UPSTREAM=http://127.0.0.1:8443\nWORM_MODE=\n' >"$cu/config/gateway.env"
+printf 'LISTEN_ADDR=127.0.0.1:8443\nTLS_CERT=\nTLS_KEY=\n' >"$cu/config/auth.env"
+chgrp "$group" "$cu/config" "$cu/config/db-credentials.d" "$cu/config/db-credentials.d/db-credentials.env"
+chmod 755 "$cu/config"
+chmod 750 "$cu/config/db-credentials.d"
+chmod 600 "$cu/config/db-credentials.d/db-credentials.env" "$cu/config/config.env" "$cu/config/auth.env"
+
+printf '[Service]\nExecStart=%s/install/current/setjoin-server\n' "$cu" >"$cu/units/setjoin-gateway.service"
+printf '[Service]\nExecStart=%s/install/current/setjoin-auth\n' "$cu" >"$cu/units/setjoin-auth.service"
+for sock in setjoin-gateway.socket setjoin-https.socket setjoin-acme.socket \
+  setjoin-federation.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+  printf '[Socket]\nService=setjoin-gateway.service\n' >"$cu/units/$sock"
+done
+
+run_cu() {
+  PATH="$cu/bin:$PATH" TMPDIR="$real_tmp" INSTALL_DIR="$cu/install" \
+    SETJOIN_CONFIG_DIR="$cu/config" SYSTEMD_DIR="$cu/units" \
+    TLS_AUTOCERT_CACHE_DIR="$cu/autocert" UPDATER_STATE_DIR="$cu/updater-journal" \
+    SETJOIN_RECOVERY_BIN="$cu/bin/setjoin-recovery" UPGRADE_TEST_LOG="$cu/systemctl.log" \
+    DB_CRED_WANT_OWNER="$owner" DB_CRED_WANT_GROUP="$group" DB_CRED_RUNTIME_GROUP="$group" \
+    bash "$UPGRADE_SCRIPT" "$@"
+}
+
+# 2a. Active executor.lock held by updater MUST refuse cutover.
+python3 - "$cu/updater-journal/executor.lock" "$cu/lock.ready" <<'PY' &
+import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR, 0o600)
+fcntl.flock(fd, fcntl.LOCK_EX)
+open(sys.argv[2], "w").close()
+time.sleep(30)
+PY
+lock_pid=$!
+for _ in $(seq 1 50); do
+  [ -f "$cu/lock.ready" ] && break
+  sleep 0.05
+done
+if run_cu migrate-to-setjoind >"$cu/lock-refuse.out" 2>&1; then
+  kill "$lock_pid" 2>/dev/null || true
+  wait "$lock_pid" 2>/dev/null || true
+  echo 'migrate-to-setjoind succeeded while executor.lock was held' >&2
+  exit 1
+fi
+kill "$lock_pid" 2>/dev/null || true
+wait "$lock_pid" 2>/dev/null || true
+
+# 2a2. Non-terminal/recovery_required updater journal MUST refuse cutover.
+if CUTOVER_RECOVERY_REQUIRED=1 run_cu migrate-to-setjoind >"$cu/journal-refuse.out" 2>&1; then
+  echo 'migrate-to-setjoind succeeded while updater journal required recovery' >&2
+  exit 1
+fi
+
+# 2b. DB_OWNER_DSN in config.env MUST refuse cutover.
+printf 'DB_OWNER_DSN=postgres://mail:ownerpw@127.0.0.1:5432/mailserver\n' >>"$cu/config/config.env"
+if run_cu migrate-to-setjoind >"$cu/owner-refuse.out" 2>&1; then
+  echo 'migrate-to-setjoind accepted DB_OWNER_DSN inside config.env' >&2
+  exit 1
+fi
+grep -v '^DB_OWNER_DSN=' "$cu/config/config.env" >"$cu/config/config.env.tmp"
+mv "$cu/config/config.env.tmp" "$cu/config/config.env"
+chmod 600 "$cu/config/config.env"
+
+# 2c. Missing previous/setjoind MUST refuse cutover without --allow-single-cohort.
+rm -f "$cu/install/releases/r1/setjoind"
+if run_cu migrate-to-setjoind >"$cu/prev-refuse.out" 2>&1; then
+  echo 'migrate-to-setjoind accepted previous cohort lacking setjoind' >&2
+  exit 1
+fi
+printf '#!/bin/sh\nexit 0\n' >"$cu/install/releases/r1/setjoind"
+chmod 755 "$cu/install/releases/r1/setjoind"
+
+# 2d. Failed readiness during migrate-to-setjoind MUST roll back cleanly to split units.
+: >"$cu/systemctl.log"
+if CUTOVER_FAIL_READY=1 run_cu migrate-to-setjoind >"$cu/fail-cutover.out" 2>&1; then
+  echo 'migrate-to-setjoind succeeded despite failing readiness' >&2
+  exit 1
+fi
+[ ! -e "$cu/units/setjoind.service" ] || {
+  echo 'failed cutover retained setjoind.service' >&2
+  exit 1
+}
+[ -f "$cu/units/setjoin-gateway.service" ] && [ -f "$cu/units/setjoin-auth.service" ] || {
+  echo 'failed cutover did not restore split units' >&2
+  exit 1
+}
+[ ! -e "$cu/install/setjoind-cutover.prev" ] || {
+  echo 'failed cutover retained snapshot directory' >&2
+  exit 1
+}
+
+# 2e. Successful migrate-to-setjoind stops all 9 sockets first, renders unified unit/env, and purges snapshot secrets.
+: >"$cu/systemctl.log"
+run_cu migrate-to-setjoind >"$cu/ok-cutover.out" 2>&1 || {
+  cat "$cu/ok-cutover.out" >&2
+  echo 'migrate-to-setjoind failed unexpectedly' >&2
+  exit 1
+}
+stop_gw_line="$(grep -n '^stop setjoin-gateway$' "$cu/systemctl.log" | head -1 | cut -d: -f1)"
+for sock in setjoin-gateway.socket setjoin-https.socket setjoin-acme.socket \
+  setjoin-federation.socket setjoin-imap.socket setjoin-imaps.socket \
+  setjoin-smtp.socket setjoin-smtps.socket setjoin-submission.socket; do
+  sock_line="$(grep -n "^stop $sock$" "$cu/systemctl.log" | head -1 | cut -d: -f1)"
+  [ -n "$sock_line" ] && [ "$sock_line" -lt "$stop_gw_line" ] || {
+    echo "migrate-to-setjoind did not stop $sock before setjoin-gateway" >&2
+    exit 1
+  }
+done
+[ -f "$cu/units/setjoind.service" ] || {
+  echo 'setjoind.service missing after cutover' >&2
+  exit 1
+}
+[ ! -e "$cu/units/setjoin-gateway.service" ] && [ ! -e "$cu/units/setjoin-auth.service" ] || {
+  echo 'split units retained after cutover' >&2
+  exit 1
+}
+grep -qx 'Type=notify' "$cu/units/setjoind.service"
+grep -qx "ExecStart=$cu/install/current/setjoind --subsystems=all" "$cu/units/setjoind.service"
+grep -qx 'Service=setjoind.service' "$cu/units/setjoin-gateway.socket"
+grep -qx 'LISTEN_ADDR=127.0.0.1:0' "$cu/config/setjoind.env"
+! grep -q 'GATEWAY_RUST_AUTH_UPSTREAM' "$cu/config/setjoind.env"
+! grep -Eq '^TLS_CERT=' "$cu/config/setjoind-auth.env"
+grep -qx 'DB_WORKER_DSN=postgres://setjoin_worker:workerpw@127.0.0.1:5432/mailserver' "$cu/config/setjoind-auth.env"
+[ ! -e "$cu/install/setjoind-cutover.prev/config" ] || {
+  echo 'cutover left secret env copies behind after success' >&2
+  exit 1
+}
+
+# 2f. Topology-aware refresh-gateway-env on unified host MUST NOT recreate split units.
+run_cu refresh-gateway-env >"$cu/uni-refresh.out" 2>&1 || {
+  cat "$cu/uni-refresh.out" >&2
+  echo 'unified refresh-gateway-env failed' >&2
+  exit 1
+}
+[ -f "$cu/units/setjoind.service" ] && [ ! -e "$cu/units/setjoin-gateway.service" ] && [ ! -e "$cu/units/setjoin-auth.service" ] || {
+  echo 'unified refresh-gateway-env created split-brain topology' >&2
+  exit 1
+}
+
+# 2g. Rotate DB_WORKER_DSN in live db-credentials.env, then rollback-to-split-units:
+#     re-rendered auth.env MUST carry the rotated live secret (never stale snapshot).
+sed 's/workerpw/rotatedpw/' "$cu/config/db-credentials.d/db-credentials.env" >"$cu/config/db-credentials.d/db-credentials.env.new"
+mv "$cu/config/db-credentials.d/db-credentials.env.new" "$cu/config/db-credentials.d/db-credentials.env"
+chmod 600 "$cu/config/db-credentials.d/db-credentials.env"
+run_cu rollback-to-split-units >"$cu/rb-split.out" 2>&1 || {
+  cat "$cu/rb-split.out" >&2
+  echo 'rollback-to-split-units failed' >&2
+  exit 1
+}
+[ ! -e "$cu/units/setjoind.service" ] && [ -f "$cu/units/setjoin-gateway.service" ] && [ -f "$cu/units/setjoin-auth.service" ] || {
+  echo 'rollback-to-split-units did not restore split topology' >&2
+  exit 1
+}
+grep -qx 'DB_WORKER_DSN=postgres://setjoin_worker:rotatedpw@127.0.0.1:5432/mailserver' "$cu/config/auth.env" || {
+  echo 'rollback-to-split-units did not re-render live rotated DB_WORKER_DSN' >&2
+  exit 1
+}
+echo 'Release N shim refusal + Release N+1 setjoind cutover/refresh/rollback: PASS'

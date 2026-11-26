@@ -178,6 +178,10 @@ declare -A OUR_UNIT_ALLOW=()
 for unit in "${SETJOIN_ALL_UNITS[@]}"; do
   OUR_UNIT_ALLOW["$unit"]=1
 done
+if [ -f "$ROOT/mailserver/deploy/setjoind.service.template" ]; then
+  OUR_UNIT_ALLOW["setjoind"]=1
+  OUR_UNIT_ALLOW["setjoind.service"]=1
+fi
 for socket_tmpl in "$ROOT"/mailserver/deploy/*.socket.template; do
   [ -e "$socket_tmpl" ] || continue
   OUR_UNIT_ALLOW["$(basename "$socket_tmpl" .template)"]=1

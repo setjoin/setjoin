@@ -107,13 +107,23 @@ class ServerRelease(unittest.TestCase):
                     self.assertIn("mailserver/deploy/scripts/install.sh", found)
 
     def _package(self, root, roots_env):
-        for name in ("setjoin-server", "setjoin-auth", "mailctl", "asrbotd", "setjoin-updater"):
+        for name in (
+            "setjoin-server",
+            "setjoin-auth",
+            "mailctl",
+            "asrbotd",
+            "setjoin-updater",
+        ):
             (root / name).write_bytes(elf("amd64", name))
         webmail = root / "webmail"
         webmail.mkdir(exist_ok=True)
         (webmail / "index.html").write_text("webmail")
         out = root / "out.tar.gz"
-        env = {k: v for k, v in os.environ.items() if k != "SETJOIN_RELEASE_TRUST_ROOTS"}
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k != "SETJOIN_RELEASE_TRUST_ROOTS"
+        }
         env.update(roots_env)
         result = subprocess.run(
             [
@@ -145,12 +155,17 @@ class ServerRelease(unittest.TestCase):
             root = Path(directory)
             roots = root / "roots.json"
             roots.write_text(json.dumps(good))
-            result, out = self._package(root, {"SETJOIN_RELEASE_TRUST_ROOTS": str(roots)})
+            result, out = self._package(
+                root, {"SETJOIN_RELEASE_TRUST_ROOTS": str(roots)}
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             with tarfile.open(out, mode="r|gz") as archive:
                 for member in archive:
-                    if member.name.removeprefix("./") == "server-rust/release-roots.json":
-                        self.assertEqual(archive.extractfile(member).read(), roots.read_bytes())
+                    member_name = member.name.removeprefix("./")
+                    if member_name == "server-rust/release-roots.json":
+                        self.assertEqual(
+                            archive.extractfile(member).read(), roots.read_bytes()
+                        )
                         self.assertEqual(member.mode & 0o777, 0o644)
                         break
                 else:
@@ -212,6 +227,116 @@ class ServerRelease(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertFalse(output.exists())
                     binary.write_bytes(original)
+
+    def test_expand_and_unified_cohorts_stage_setjoind_and_validate_elf(self):
+        with tempfile.TemporaryDirectory(prefix="setjoind-pkg-") as directory:
+            root = Path(directory)
+            setjoind = root / "setjoind"
+            server = root / "setjoin-server"
+            rustauth = root / "setjoin-auth"
+            mailctl = root / "mailctl"
+            asrbotd = root / "asrbotd"
+            updater = root / "setjoin-updater"
+            webmail = root / "webmail"
+            webmail.mkdir()
+            (webmail / "index.html").write_text("webmail")
+
+            for arch in ("amd64", "arm64", "loong64"):
+                with self.subTest(arch=arch):
+                    setjoind.write_bytes(elf(arch, "rust:setjoind"))
+                    server.write_bytes(elf(arch, "rust:server-shim"))
+                    rustauth.write_bytes(elf(arch, "rust:auth-shim"))
+                    mailctl.write_bytes(elf(arch, "rust:mailctl"))
+                    asrbotd.write_bytes(elf(arch, "rust:asrbotd"))
+                    updater.write_bytes(elf(arch, "rust:updater"))
+
+                    expand_out = root / f"{arch}-expand.tar.gz"
+                    res = subprocess.run(
+                        [
+                            "bash",
+                            str(ROOT / "scripts/package-server-release.sh"),
+                            "--setjoind",
+                            str(setjoind),
+                            arch,
+                            str(server),
+                            str(rustauth),
+                            str(mailctl),
+                            str(asrbotd),
+                            str(updater),
+                            str(webmail),
+                            str(expand_out),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(res.returncode, 0, res.stderr)
+                    with tarfile.open(expand_out, mode="r|gz") as archive:
+                        names = {m.name.removeprefix("./") for m in archive}
+                    for req in (
+                        "server-rust/setjoind",
+                        "server-rust/setjoin-server",
+                        "server-rust/setjoin-auth",
+                        "server-rust/mailctl",
+                        "server-rust/setjoin-updater",
+                    ):
+                        self.assertIn(req, names)
+
+                    unified_out = root / f"{arch}-unified.tar.gz"
+                    res = subprocess.run(
+                        [
+                            "bash",
+                            str(ROOT / "scripts/package-server-release.sh"),
+                            "--cohort=unified",
+                            "--setjoind",
+                            str(setjoind),
+                            arch,
+                            str(mailctl),
+                            str(asrbotd),
+                            str(updater),
+                            str(webmail),
+                            str(unified_out),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(res.returncode, 0, res.stderr)
+                    with tarfile.open(unified_out, mode="r|gz") as archive:
+                        names = {m.name.removeprefix("./") for m in archive}
+                    self.assertIn("server-rust/setjoind", names)
+                    self.assertNotIn("server-rust/setjoin-server", names)
+                    self.assertNotIn("server-rust/setjoin-auth", names)
+
+            # Wrong ELF arch on setjoind MUST be rejected.
+            setjoind.write_bytes(elf("arm64", "wrong-arch"))
+            server.write_bytes(elf("amd64", "rust:server-shim"))
+            rustauth.write_bytes(elf("amd64", "rust:auth-shim"))
+            mailctl.write_bytes(elf("amd64", "rust:mailctl"))
+            asrbotd.write_bytes(elf("amd64", "rust:asrbotd"))
+            updater.write_bytes(elf("amd64", "rust:updater"))
+            bad_out = root / "bad.tar.gz"
+            res = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "scripts/package-server-release.sh"),
+                    "--setjoind",
+                    str(setjoind),
+                    "amd64",
+                    str(server),
+                    str(rustauth),
+                    str(mailctl),
+                    str(asrbotd),
+                    str(updater),
+                    str(webmail),
+                    str(bad_out),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(res.returncode, 0)
+            self.assertFalse(bad_out.exists())
 
 
 if __name__ == "__main__":
