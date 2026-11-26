@@ -19,6 +19,14 @@
 //! }
 //! ```
 //!
+//! ## `MailboxTx<ReadOnly>` has no `execute_contract`
+//! ```compile_fail
+//! use setjoin_pg::{MailboxTx, ReadOnly, SqlContract};
+//! async fn mutate_contract(tx: &mut MailboxTx<ReadOnly>, c: &'static SqlContract) {
+//!     let _ = tx.execute_contract(c, &[]).await;
+//! }
+//! ```
+//!
 //! ## `AdminReadTx<Standard>` has no mutating methods
 //! ```compile_fail
 //! use setjoin_pg::{AdminReadTx, Standard};
@@ -116,8 +124,12 @@ use setjoin_db::lifecycle::{
     accepted_contract, ConnectionDisposition, LifecycleError, Phase, RollbackObservation,
     TransactionLifecycle,
 };
+use setjoin_sql_catalog::{SqlContract, SqlScope};
 use std::{marker::PhantomData, sync::Arc, time::Instant};
-use tokio_postgres::{types::Type, Row};
+use tokio_postgres::{
+    types::{ToSql, Type},
+    Row,
+};
 
 // ---------------------------------------------------------------------------
 // Sealed type-state markers
@@ -444,6 +456,34 @@ impl InteractiveStmtError {
     }
 }
 
+pub(crate) fn zip_contract_params<'a>(
+    contract: &'static SqlContract,
+    values: &[&'a (dyn ToSql + Sync)],
+) -> Result<Vec<Param<'a>>, StatementFailure> {
+    if values.len() != contract.params.len() {
+        return Err(StatementFailure::refused(
+            "contract parameter count mismatch",
+        ));
+    }
+    Ok(values
+        .iter()
+        .copied()
+        .zip(contract.params.iter().cloned())
+        .collect())
+}
+
+pub(crate) fn check_contract_scope(
+    contract: &'static SqlContract,
+    allowed: &[SqlScope],
+    err_msg: &'static str,
+) -> Result<(), StatementFailure> {
+    if allowed.contains(&contract.scope) {
+        Ok(())
+    } else {
+        Err(StatementFailure::refused(err_msg))
+    }
+}
+
 async fn run_interactive_statement(
     lease: &ManagedLease,
     sql: &str,
@@ -631,6 +671,22 @@ impl MailboxTx<ReadOnly> {
             .map_err(InteractiveStmtError::into_failure)
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::MailboxReadOnly`]
+    /// via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadOnly],
+            "contract scope mismatch for MailboxTx<ReadOnly>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
     /// Close the read-only transaction cleanly and return the connection to the pool.
     pub async fn finish(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
@@ -667,6 +723,38 @@ impl MailboxTx<ReadWrite> {
         params: &[Param<'_>],
     ) -> Result<u64, StatementFailure> {
         self.run_rw_stmt(sql, params).await.map(|(_, n)| n)
+    }
+
+    /// Execute a static [`SqlContract`] scoped to mailbox reads or writes and
+    /// return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadOnly, SqlScope::MailboxReadWrite],
+            "contract scope mismatch for MailboxTx<ReadWrite>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::MailboxReadWrite`]
+    /// and return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::MailboxReadWrite],
+            "contract scope mismatch for MailboxTx<ReadWrite>::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
     }
 
     async fn run_rw_stmt(
@@ -809,6 +897,22 @@ impl UserTx<ReadOnly> {
             .map_err(InteractiveStmtError::into_failure)
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::UserScoped`]
+    /// inside this `BEGIN READ ONLY` user transaction.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for UserTx<ReadOnly>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
     pub async fn finish(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
             Ok(()) => {
@@ -842,6 +946,38 @@ impl UserTx<ReadWrite> {
         params: &[Param<'_>],
     ) -> Result<u64, StatementFailure> {
         self.run_rw_stmt(sql, params).await.map(|(_, n)| n)
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::UserScoped`] and
+    /// return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for UserTx<ReadWrite>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::UserScoped`] and
+    /// return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::UserScoped],
+            "contract scope mismatch for UserTx<ReadWrite>::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
     }
 
     async fn run_rw_stmt(
@@ -982,6 +1118,22 @@ impl AdminReadTx<Standard> {
             .map_err(InteractiveStmtError::into_failure)
     }
 
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminRead`]
+    /// inside this `BEGIN READ ONLY` admin transaction.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead],
+            "contract scope mismatch for AdminReadTx<Standard>",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
     pub async fn finish(self) -> Result<(), StatementFailure> {
         match self.lease.client().batch_execute("COMMIT").await {
             Ok(()) => {
@@ -1028,6 +1180,22 @@ impl AdminSensitiveRead {
             .map(|(rows, _)| rows)
             .map_err(InteractiveStmtError::into_failure)
     }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminRead`]
+    /// inside this audited `BEGIN READ ONLY` transaction.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead],
+            "contract scope mismatch for AdminSensitiveRead",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
 }
 
 /// Admin write transaction handle with compile-time audit enforcement:
@@ -1064,6 +1232,38 @@ impl<A: sealed::AuditState> AdminWriteTx<A> {
         params: &[Param<'_>],
     ) -> Result<u64, StatementFailure> {
         self.run_stmt(sql, params).await.map(|(_, n)| n)
+    }
+
+    /// Execute a static [`SqlContract`] scoped to admin reads or writes and
+    /// return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminRead, SqlScope::AdminWrite],
+            "contract scope mismatch for AdminWriteTx",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::AdminWrite`] and
+    /// return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::AdminWrite],
+            "contract scope mismatch for AdminWriteTx::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
     }
 
     async fn run_stmt(
@@ -1282,6 +1482,38 @@ impl WorkerTx {
             .await
             .map(|(_, n)| n)
             .map_err(InteractiveStmtError::into_failure)
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::WorkerBypass`]
+    /// and return its rows via unnamed `query_typed_raw`.
+    pub async fn query_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::WorkerBypass],
+            "contract scope mismatch for WorkerTx",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.query(contract.sql, &params).await
+    }
+
+    /// Execute a static [`SqlContract`] scoped to [`SqlScope::WorkerBypass`]
+    /// and return its affected-row count via unnamed `query_typed_raw`.
+    pub async fn execute_contract(
+        &mut self,
+        contract: &'static SqlContract,
+        values: &[&(dyn ToSql + Sync)],
+    ) -> Result<u64, StatementFailure> {
+        check_contract_scope(
+            contract,
+            &[SqlScope::WorkerBypass],
+            "contract scope mismatch for WorkerTx::execute_contract",
+        )?;
+        let params = zip_contract_params(contract, values)?;
+        self.execute(contract.sql, &params).await
     }
 
     pub async fn commit(self) -> Result<(), StatementFailure> {

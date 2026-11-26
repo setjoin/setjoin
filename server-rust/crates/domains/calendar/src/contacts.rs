@@ -17,9 +17,7 @@ pub async fn owned_mailbox_for_book(
 ) -> Result<Option<i64>, StatementFailure> {
     let rows = exec
         .read(
-            "SELECT mb.id FROM addressbooks ab \
-               JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-              WHERE ab.id = $1 AND mb.user_id = $2",
+            crate::sql::OWNED_MAILBOX_FOR_BOOK.sql,
             &[(&book, Type::INT8), (&user, Type::INT8)],
         )
         .await?;
@@ -37,10 +35,7 @@ pub async fn owns_contact(
 ) -> Result<bool, StatementFailure> {
     let rows = exec
         .read(
-            "SELECT true FROM contacts c \
-               JOIN addressbooks ab ON ab.id = c.addressbook_id \
-               JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-              WHERE c.id = $1 AND mb.user_id = $2",
+            crate::sql::OWNS_CONTACT.sql,
             &[(&contact, Type::INT8), (&user, Type::INT8)],
         )
         .await?;
@@ -50,10 +45,7 @@ pub async fn owns_contact(
 /// Go's `contactStore.exists`; a failed read counts as "absent", as in Go.
 pub async fn exists(exec: &ScopedExecutor, book: i64, uid: &str, owner: i64) -> bool {
     exec.read(
-        "SELECT EXISTS(\
-           SELECT 1 FROM contacts c \
-             JOIN addressbooks ab ON ab.id = c.addressbook_id \
-            WHERE c.addressbook_id = $1 AND c.vcard_uid = $2 AND ab.mailbox_id = $3)",
+        crate::sql::CONTACT_EXISTS.sql,
         &[
             (&book, Type::INT8),
             (&uid, Type::TEXT),
@@ -98,7 +90,7 @@ pub async fn write_contact(
 ) -> Result<i64, StatementFailure> {
     let rows = exec
         .read(
-            "SELECT rust_contacts_import_write($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
+            crate::sql::WRITE_CONTACT.sql,
             &[
                 (&owner, Type::INT8),
                 (&book, Type::INT8),
@@ -134,7 +126,7 @@ pub async fn remove_contact(
 ) -> Result<i64, StatementFailure> {
     let rows = exec
         .read(
-            "SELECT rust_contacts_import_remove($1,$2,$3)",
+            crate::sql::REMOVE_CONTACT.sql,
             &[
                 (&owner, Type::INT8),
                 (&book, Type::INT8),
@@ -150,12 +142,9 @@ pub async fn remove_contact(
 /// Go's `notify_contact_state(mailbox, 'contact_created', NULL)`: the state bump
 /// and push fan-out of a finished import, one reducer call.
 pub async fn notify_import(exec: &ScopedExecutor, owner: i64) -> Result<(), StatementFailure> {
-    exec.read(
-        "SELECT notify_contact_state($1, 'contact_created', NULL)",
-        &[(&owner, Type::INT8)],
-    )
-    .await
-    .map(|_| ())
+    exec.read(crate::sql::NOTIFY_IMPORT.sql, &[(&owner, Type::INT8)])
+        .await
+        .map(|_| ())
 }
 
 /// The CSV export rows of an owned book, in Go's order. The ownership of `user`
@@ -168,15 +157,7 @@ pub async fn export_csv_rows(
 ) -> Result<Vec<[String; 8]>, StatementFailure> {
     let rows = exec
         .read(
-            "SELECT COALESCE(first_name,''), COALESCE(last_name,''), COALESCE(display_name,''), \
-                    COALESCE(company,''), COALESCE(job_title,''), \
-                    COALESCE(emails,'[]'::jsonb)::text, COALESCE(phones,'[]'::jsonb)::text, \
-                    COALESCE(notes,'') \
-               FROM contacts \
-              WHERE addressbook_id = $1 \
-                AND EXISTS (SELECT 1 FROM addressbooks ab JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-                             WHERE ab.id = $1 AND mb.user_id = $2) \
-              ORDER BY display_name",
+            crate::sql::EXPORT_CSV_ROWS.sql,
             &[(&book, Type::INT8), (&user, Type::INT8)],
         )
         .await?;
@@ -216,12 +197,6 @@ pub struct ContactRow {
     pub updated_at: String,
 }
 
-pub(crate) const CONTACT_COLUMNS: &str = "c.vcard_uid, c.display_name, c.first_name, c.last_name, c.company, \
-     c.job_title, c.department, c.emails::text, c.phones::text, c.addresses::text, c.urls::text, \
-     c.instant_msgs::text, c.notes, to_char(c.birthday,'YYYYMMDD'), to_char(c.anniversary,'YYYYMMDD'), \
-     c.avatar_sha256, to_jsonb(c.categories)::text, \
-     to_char(c.updated_at AT TIME ZONE 'UTC','YYYYMMDD\"T\"HH24MISS\"Z\"')";
-
 pub(crate) fn contact_row(row: &setjoin_pg::Row) -> Result<ContactRow, StatementFailure> {
     let get = |i: usize| row.try_get::<_, String>(i).map_err(|_| invalid());
     let maybe = |i: usize| row.try_get::<_, Option<String>>(i).map_err(|_| invalid());
@@ -253,15 +228,11 @@ pub async fn export_vcard_rows(
     book: i64,
     user: i64,
 ) -> Result<Vec<ContactRow>, StatementFailure> {
-    let sql = format!(
-        "SELECT {CONTACT_COLUMNS} FROM contacts c \
-           JOIN addressbooks ab ON ab.id = c.addressbook_id \
-           JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-          WHERE c.addressbook_id = $1 AND mb.user_id = $2 \
-          ORDER BY c.display_name"
-    );
     let rows = exec
-        .read(&sql, &[(&book, Type::INT8), (&user, Type::INT8)])
+        .read(
+            crate::sql::EXPORT_VCARD_ROWS.sql,
+            &[(&book, Type::INT8), (&user, Type::INT8)],
+        )
         .await?;
     rows.iter().map(contact_row).collect()
 }
@@ -272,14 +243,11 @@ pub async fn export_vcard_row(
     contact: i64,
     user: i64,
 ) -> Result<Option<ContactRow>, StatementFailure> {
-    let sql = format!(
-        "SELECT {CONTACT_COLUMNS} FROM contacts c \
-           JOIN addressbooks ab ON ab.id = c.addressbook_id \
-           JOIN mailboxes mb ON mb.id = ab.mailbox_id \
-          WHERE c.id = $1 AND mb.user_id = $2"
-    );
     let rows = exec
-        .read(&sql, &[(&contact, Type::INT8), (&user, Type::INT8)])
+        .read(
+            crate::sql::EXPORT_VCARD_ROW.sql,
+            &[(&contact, Type::INT8), (&user, Type::INT8)],
+        )
         .await?;
     rows.first().map(contact_row).transpose()
 }

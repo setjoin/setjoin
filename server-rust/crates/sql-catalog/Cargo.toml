@@ -1,0 +1,13 @@
+[package]
+name = "setjoin-sql-catalog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "setjoin_sql_catalog"
+path = "src/lib.rs"
+
+[dependencies]
+tokio-postgres = "0.7.18"

@@ -11,7 +11,9 @@ pub mod prefs;
 pub mod profile;
 pub mod security;
 pub mod settings;
+pub mod sql;
 pub mod sync;
+pub use sql::SQL_CONTRACTS;
 use serde_json::Value;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
@@ -71,12 +73,6 @@ pub fn s(text: &str) -> String {
 /// Go's `Encoder` output: the document plus its trailing newline.
 pub fn done(text: String) -> String {
     text + "\n"
-}
-/// RFC 3339 with Go's trimmed fractional seconds (`time.Time` JSON), UTC.
-pub(crate) fn nano(column: &str) -> String {
-    format!(
-        "to_char({column} AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', {column} AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char({column} AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z'"
-    )
 }
 pub(crate) fn first_i64(rows: &[Row]) -> Result<i64, StatementFailure> {
     rows.first()
