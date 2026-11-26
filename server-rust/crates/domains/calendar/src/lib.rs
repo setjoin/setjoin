@@ -7,9 +7,11 @@
 //! (`booking_*`, `calendar_free_busy_multi`); this crate only calls them the way
 //! frozen Go does and returns their JSON text unchanged.
 #![forbid(unsafe_code)]
+pub mod carddav;
 pub mod contacts;
 pub mod dav;
-pub mod carddav;
+pub mod sql;
+pub use sql::SQL_CONTRACTS;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
@@ -68,12 +70,7 @@ pub async fn flag(
     key: &str,
     default: bool,
 ) -> Result<bool, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT enabled FROM feature_toggles WHERE key = $1",
-            &[(&key, Type::TEXT)],
-        )
-        .await?;
+    let rows = exec.read(sql::FLAG.sql, &[(&key, Type::TEXT)]).await?;
     Ok(rows.first().map_or(default, |r| r.get(0)))
 }
 
@@ -104,7 +101,7 @@ pub async fn entitled_app(
     let user = actor.user_id();
     Ok(exec
         .read(
-            "SELECT check_user_app_entitlement($1,$2)",
+            sql::ENTITLED_APP.sql,
             &[(&user, Type::INT8), (&app, Type::TEXT)],
         )
         .await?
@@ -122,11 +119,7 @@ pub async fn page_list(
     let mailbox = actor.mailbox_id();
     text0(
         &exec
-            .read_scoped(
-                &scope(actor),
-                "SELECT booking_page_list($1)::text",
-                &[(&mailbox, Type::INT8)],
-            )
+            .read_scoped(&scope(actor), sql::PAGE_LIST.sql, &[(&mailbox, Type::INT8)])
             .await?,
     )
 }
@@ -146,7 +139,7 @@ pub async fn page_upsert(
         &envelope(&auth, operation, page),
         &auth,
         deadline(),
-        "SELECT booking_page_upsert($1, $4::text::jsonb)::text WHERE $2::bigint > 0 AND $3::text <> ''",
+        sql::PAGE_UPSERT.sql,
         &[(&page, Type::TEXT)],
         |rows| text0(rows),
     )
@@ -167,7 +160,7 @@ pub async fn page_delete(
         &envelope(&auth, operation, &id.to_string()),
         &auth,
         deadline(),
-        "SELECT booking_page_delete($1, $4)::text WHERE $2::bigint > 0 AND $3::text <> ''",
+        sql::PAGE_DELETE.sql,
         &[(&id, Type::INT8)],
         |rows| text0(rows),
     )
@@ -186,10 +179,7 @@ pub async fn public_get(
     slug: &str,
 ) -> Result<Option<String>, StatementFailure> {
     let rows = exec
-        .read(
-            "SELECT COALESCE(booking_page_public_get($1), 'null'::jsonb)::text",
-            &[(&slug, Type::TEXT)],
-        )
+        .read(sql::BOOKING_PUBLIC_GET.sql, &[(&slug, Type::TEXT)])
         .await?;
     let out = text0(&rows)?;
     Ok((out != "null").then_some(out))
@@ -204,7 +194,7 @@ pub async fn slots(
     text0(
         &exec
             .read(
-                "SELECT booking_slots($1, $2::text::date, $3::text::date)::text",
+                sql::BOOKING_SLOTS.sql,
                 &[(&slug, Type::TEXT), (&from, Type::TEXT), (&to, Type::TEXT)],
             )
             .await?,
@@ -225,7 +215,7 @@ pub async fn create(
     text0(
         &exec
             .read(
-                "SELECT booking_create($1, $2::text::timestamptz, $3, $4, $5::text::jsonb, $6, $7::text::inet)::text",
+                sql::BOOKING_CREATE.sql,
                 &[
                     (&slug, Type::TEXT),
                     (&start, Type::TEXT),
@@ -248,7 +238,7 @@ pub async fn confirm(
     text0(
         &exec
             .read(
-                "SELECT booking_confirm($1, $2)::text",
+                sql::BOOKING_CONFIRM.sql,
                 &[(&verify_hash, Type::TEXT), (&cancel_hash, Type::TEXT)],
             )
             .await?,
@@ -258,16 +248,13 @@ pub async fn confirm(
 pub async fn cancel(exec: &ScopedExecutor, cancel_hash: &str) -> Result<String, StatementFailure> {
     text0(
         &exec
-            .read(
-                "SELECT booking_cancel($1)::text",
-                &[(&cancel_hash, Type::TEXT)],
-            )
+            .read(sql::BOOKING_CANCEL.sql, &[(&cancel_hash, Type::TEXT)])
             .await?,
     )
 }
 
 /// The SQL of the booking-expiry sweep (Go's `Sweeper`), one fixed statement.
-pub const EXPIRE_DUE: &str = "SELECT booking_expire_due()";
+pub const EXPIRE_DUE: &str = sql::BOOKING_EXPIRE_DUE.sql;
 
 // ---- free/busy ----
 
@@ -285,7 +272,7 @@ pub async fn free_busy(
     text0(
         &exec
             .read(
-                "SELECT calendar_free_busy_multi($1, $2, $3::text::timestamptz, $4::text::timestamptz)::text",
+                sql::FREE_BUSY_MULTI.sql,
                 &[
                     (&mailbox, Type::INT8),
                     (&ids, Type::INT8_ARRAY),
@@ -300,12 +287,7 @@ pub async fn free_busy(
 /// Go's per-result email enrichment query (user email, else `<name>@resources`).
 pub async fn entity_email(exec: &ScopedExecutor, entity: &str) -> Option<String> {
     let rows = exec
-        .read(
-            "SELECT COALESCE(\
-               (SELECT email FROM users u JOIN mailboxes m ON m.user_id = u.id WHERE m.id = $1::text::bigint),\
-               (SELECT name || '@resources' FROM calendars WHERE id = $1::text::bigint))",
-            &[(&entity, Type::TEXT)],
-        )
+        .read(sql::ENTITY_EMAIL.sql, &[(&entity, Type::TEXT)])
         .await
         .ok()?;
     rows.first()?.try_get::<_, Option<String>>(0).ok()?
@@ -333,13 +315,7 @@ pub async fn subscriptions(
     let rows = exec
         .read_scoped(
             &scope(actor),
-            "SELECT s.id, s.calendar_id::text, c.name, s.url, \
-                    to_char(s.last_fetch_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), \
-                    s.last_status, s.last_error, s.refresh_interval_minutes \
-               FROM calendar_subscriptions s \
-               JOIN calendars c ON c.id = s.calendar_id \
-              WHERE s.user_id = $1 \
-              ORDER BY s.created_at",
+            sql::SUBSCRIPTIONS_LIST.sql,
             &[(&user, Type::INT8)],
         )
         .await?;
@@ -368,7 +344,7 @@ pub async fn subscription_count(
     actor: &AuthContext,
 ) -> Result<i64, StatementFailure> {
     let user = actor.user_id();
-    let sql = "SELECT count(*) FROM calendar_subscriptions WHERE user_id = $1";
+    let sql = sql::SUBSCRIPTION_COUNT.sql;
     let rows = if setjoin_contracts::mutants::on("subscription-cap-unscoped") {
         exec.read(sql, &[(&user, Type::INT8)]).await?
     } else {
@@ -396,7 +372,7 @@ pub async fn subscribe(
         &envelope(&auth, operation, &format!("{name}\n{url}")),
         &auth,
         deadline(),
-        "SELECT sub_id, calendar_id FROM rust_calendar_subscribe($1, $2, $4, $5) WHERE $3::text <> ''",
+        sql::SUBSCRIBE.sql,
         &[(&name, Type::TEXT), (&url, Type::TEXT)],
         |rows| match rows {
             [row] => Ok((
@@ -425,10 +401,7 @@ pub async fn unsubscribe(
         &envelope(&auth, operation, &id.to_string()),
         &auth,
         deadline(),
-        "WITH gone AS (DELETE FROM calendars c USING calendar_subscriptions s \
-          WHERE c.id = s.calendar_id AND s.id = $4 AND s.user_id = $2 \
-            AND $1::bigint >= 0 AND $3::text <> '' RETURNING c.id) \
-         SELECT count(*)::bigint FROM gone",
+        sql::UNSUBSCRIBE.sql,
         &[(&id, Type::INT8)],
         |rows| match rows {
             [row] => Ok(row.try_get::<_, i64>(0).map_err(|_| invalid())? > 0),

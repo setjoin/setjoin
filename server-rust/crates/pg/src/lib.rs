@@ -88,6 +88,7 @@ pub use pool::{
     CANCEL_SEMAPHORE_PERMITS, DEFAULT_PREPARED_CACHE_CAP, MIN_PGBOUNCER_MAX_PREPARED,
     PGBOUNCER_PREPARED_HEADROOM,
 };
+pub use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlContract, SqlScope};
 pub use tokio_postgres::{types::Type, Row};
 
 #[cfg(test)]

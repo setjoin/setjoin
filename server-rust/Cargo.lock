@@ -6064,6 +6064,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
  "tokio",
  "tokio-postgres",
@@ -6208,6 +6209,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 
@@ -6243,6 +6245,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 
@@ -6755,6 +6758,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "tokio",
  "tokio-postgres",
  "tokio-util",
@@ -6850,6 +6854,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 
@@ -6910,6 +6915,30 @@ dependencies = [
  "regex",
  "setjoin-mime",
  "setjoin-pg",
+]
+
+[[package]]
+name = "setjoin-sql-catalog"
+version = "0.0.0"
+dependencies = [
+ "tokio-postgres",
+]
+
+[[package]]
+name = "setjoin-sql-contracts"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "setjoin-approvals",
+ "setjoin-blobs",
+ "setjoin-calendar",
+ "setjoin-pg",
+ "setjoin-rules",
+ "setjoin-sql-catalog",
+ "setjoin-user-settings",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]
@@ -6995,6 +7024,7 @@ dependencies = [
  "setjoin-contracts",
  "setjoin-db",
  "setjoin-pg",
+ "setjoin-sql-catalog",
  "sha2 0.10.9",
 ]
 

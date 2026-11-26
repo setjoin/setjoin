@@ -8,7 +8,7 @@
 //! rule: IMAP PUT, view PUT, newsletter PUT and signature DELETE are Go's one statement (one
 //! receipted Rust statement, ownership in its WHERE); undo-send PUT (read, merge, write) and
 //! signature PUT (count, clear, upsert, role flip) call reducers.
-use super::{command, deadline, done, envelope, first_i64, go_marshal, invalid, nano, s, scope};
+use super::{command, deadline, done, envelope, first_i64, go_marshal, invalid, s, scope};
 use serde_json::Value;
 use setjoin_authz::AuthContext;
 use setjoin_pg::{CommandOutcome, Row, ScopedExecutor, StatementFailure, Type};
@@ -25,13 +25,7 @@ pub fn ok_body() -> String {
 pub async fn imap_get(exec: &ScopedExecutor, actor: &AuthContext) -> String {
     let user = actor.user_id();
     let row = exec
-        .read_scoped(
-            &scope(actor),
-            "SELECT COALESCE(expose_all, FALSE), COALESCE(show_subscribed_only, TRUE), \
-             COALESCE(exposed_tag_ids, '{}'), COALESCE(folder_separator, '/') \
-             FROM user_imap_settings WHERE user_id = $1",
-            &[(&user, Type::INT8)],
-        )
+        .read_scoped(&scope(actor), crate::sql::IMAP_GET.sql, &[(&user, Type::INT8)])
         .await
         .ok()
         .and_then(|rows| rows.into_iter().next());
@@ -79,14 +73,7 @@ pub async fn imap_put(
         &envelope(&auth, operation, &payload),
         &auth,
         deadline(),
-        "INSERT INTO user_imap_settings (user_id, expose_all, show_subscribed_only, exposed_tag_ids, folder_separator) \
-         SELECT $2::bigint, $4::boolean, $5::boolean, $6::bigint[], $7::text WHERE $1::bigint >= 0 AND $3::text <> '' \
-         ON CONFLICT (user_id) DO UPDATE SET \
-           expose_all = COALESCE($4::boolean, user_imap_settings.expose_all), \
-           show_subscribed_only = COALESCE($5::boolean, user_imap_settings.show_subscribed_only), \
-           exposed_tag_ids = CASE WHEN $6::BIGINT[] IS NOT NULL THEN $6::bigint[] ELSE user_imap_settings.exposed_tag_ids END, \
-           folder_separator = COALESCE($7::text, user_imap_settings.folder_separator) \
-         RETURNING 1",
+        crate::sql::IMAP_PUT.sql,
         &[
             (&body.expose_all, Type::BOOL),
             (&body.show_subscribed_only, Type::BOOL),
@@ -113,7 +100,7 @@ async fn prefs_text(exec: &ScopedExecutor, actor: &AuthContext) -> Option<String
     let rows = exec
         .read_scoped(
             &scope(actor),
-            "SELECT view_prefs::text FROM users WHERE id = $1",
+            crate::sql::VIEW_PREFS_GET.sql,
             &[(&user, Type::INT8)],
         )
         .await
@@ -172,8 +159,7 @@ pub async fn view_put(
         &envelope(&auth, operation, prefs),
         &auth,
         deadline(),
-        "WITH written AS (UPDATE users SET view_prefs = $4::text::jsonb WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
-         SELECT count(*)::bigint FROM written",
+        crate::sql::VIEW_PREFS_PUT.sql,
         &[(&prefs, Type::TEXT)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -221,7 +207,7 @@ pub async fn undo_put(
         &envelope(&auth, operation, &format!("undo:{delay}")),
         &auth,
         deadline(),
-        "SELECT rust_settings_undo_delay_put($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
+        crate::sql::UNDO_DELAY_PUT.sql,
         &[(&delay, Type::INT8)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -275,9 +261,7 @@ pub async fn newsletter_put(
         &envelope(&auth, operation, patch),
         &auth,
         deadline(),
-        "WITH written AS (UPDATE users SET view_prefs = COALESCE(view_prefs, '{}'::jsonb) || $4::text::jsonb \
-         WHERE id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
-         SELECT count(*)::bigint FROM written",
+        crate::sql::NEWSLETTER_PUT.sql,
         &[(&patch, Type::TEXT)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -292,14 +276,12 @@ pub async fn signature_list(
     actor: &AuthContext,
 ) -> Result<String, StatementFailure> {
     let user = actor.user_id();
-    let sql = format!(
-        "SELECT id, alias_email, signature_html, signature_text, is_default, default_for, {}, {} \
-         FROM user_signatures WHERE user_id = $1 ORDER BY alias_email",
-        nano("created_at"),
-        nano("updated_at")
-    );
     let rows = exec
-        .read_scoped(&scope(actor), &sql, &[(&user, Type::INT8)])
+        .read_scoped(
+            &scope(actor),
+            crate::sql::SIGNATURE_LIST.sql,
+            &[(&user, Type::INT8)],
+        )
         .await?;
     let render = |r: &Row| -> Option<String> {
         Some(format!(
@@ -329,7 +311,7 @@ pub async fn signature_others(
         &exec
             .read_scoped(
                 &scope(actor),
-                "SELECT COUNT(*)::bigint FROM user_signatures WHERE user_id = $1 AND alias_email <> $2",
+                crate::sql::SIGNATURE_OTHERS.sql,
                 &[(&user, Type::INT8), (&alias, Type::TEXT)],
             )
             .await?,
@@ -361,7 +343,7 @@ pub async fn signature_put(
         ),
         &auth,
         deadline(),
-        "SELECT rust_settings_signature_put($2, $4, $5, $6, $7, $8) WHERE $1::bigint >= 0 AND $3::text <> ''",
+        crate::sql::SIGNATURE_PUT.sql,
         &[
             (&alias, Type::TEXT),
             (&html, Type::TEXT),
@@ -388,8 +370,7 @@ pub async fn signature_delete(
         &envelope(&auth, operation, &format!("signature.delete:{id}")),
         &auth,
         deadline(),
-        "WITH gone AS (DELETE FROM user_signatures WHERE id = $4::bigint AND user_id = $2::bigint \
-         AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM gone",
+        crate::sql::SIGNATURE_DELETE.sql,
         &[(&id, Type::INT8)],
         |rows| first_i64(rows).map(|n| n > 0),
     )

@@ -36,10 +36,7 @@ impl Capability {
     async fn scope(&self, exec: &ScopedExecutor) -> Result<MailboxAuthContext, StatementFailure> {
         let user = self.claims.a;
         let rows = exec
-            .read(
-                "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary=true LIMIT 1",
-                &[(&user, Type::INT8)],
-            )
+            .read(crate::sql::EMAIL_PRIMARY_MAILBOX.sql, &[(&user, Type::INT8)])
             .await?;
         let mailbox = rows
             .first()
@@ -85,7 +82,13 @@ impl Capability {
     ) -> Result<Option<(String, String, String)>, StatementFailure> {
         let user = self.claims.a;
         let id = self.claims.r;
-        let rows=exec.read_scoped(&self.scope(exec).await?,"SELECT subject,status,consumer_type FROM approval_requests r WHERE id=$1 AND (requester_user_id=$2 OR (approver_kind='user' AND approver_ref=$2) OR (approver_kind='role_group' AND EXISTS(SELECT 1 FROM public.admin_role_assignments a WHERE a.user_id=$2 AND a.role_group_id=r.approver_ref AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until))) OR EXISTS(SELECT 1 FROM public.admin_role_assignments a JOIN public.admin_role_groups g ON g.id=a.role_group_id WHERE a.user_id=$2 AND (a.expires_at IS NULL OR a.expires_at>now()) AND public.admin_assignment_active(a.eligible,a.activated_until) AND g.permissions && ARRAY['approvals.view','approvals.manage']::text[]))",&[(&id,Type::INT8),(&user,Type::INT8)]).await?;
+        let rows = exec
+            .read_scoped(
+                &self.scope(exec).await?,
+                crate::sql::EMAIL_REQUEST.sql,
+                &[(&id, Type::INT8), (&user, Type::INT8)],
+            )
+            .await?;
         Ok(rows.first().map(|r| (r.get(0), r.get(1), r.get(2))))
     }
 }

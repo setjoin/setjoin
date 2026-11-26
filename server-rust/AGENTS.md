@@ -25,7 +25,13 @@ Canonical Rust server workspace for Setjoin (Go-free spec `#25` completed; Go se
     adapter over injected trusted stores; see its [DOX.md](crates/domains/recording/DOX.md).
   - `crates/pg` (`setjoin-pg`) — scoped executor, workers and standalone
     operator connections; [contract](crates/pg/DOX.md).
+  - `crates/sql-catalog` (`setjoin-sql-catalog`, #541) — zero-proc-macro typed
+    SQL contract catalog (`SqlContract`, `SqlScope`, `pg_rfc3339!`);
+    [contract](crates/sql-catalog/DOX.md).
   - `tests/conformance` — DB-backed parity and recorded-golden harness; [contract](DOX.md#conformance-harness-contract).
+  - `tests/sql-contracts` (`setjoin-sql-contracts`, `verify-sql-contracts`, #541) —
+    disposable-Postgres SQL contract verifier gated by `scripts/check-rust-sql-contracts.sh`
+    and `scripts/check-rust-sql-contracts-selftest.sh`; [contract](crates/sql-catalog/DOX.md).
 - `pilot/` — separate pilot workspace; [contract](DOX.md#pilot-workspace-contract).
 - `tools/schema-simulation/` — separate tooling workspace; [contract](DOX.md#schema-simulation-workspace).
 

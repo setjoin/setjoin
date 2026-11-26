@@ -47,7 +47,9 @@ pub async fn resolve(
         });
     }
     let user = a.user_id();
-    let rows=exec.read("SELECT COALESCE((SELECT array_agg(DISTINCT p) FROM public.admin_role_assignments ra JOIN public.admin_role_groups rg ON rg.id=ra.role_group_id CROSS JOIN LATERAL unnest(rg.permissions) p WHERE ra.user_id=$1 AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND public.admin_assignment_active(ra.eligible,ra.activated_until)),'{}'::text[]), (SELECT MIN(COALESCE(ra.domain_override,rg.domain_scope)) FROM public.admin_role_assignments ra JOIN public.admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND public.admin_assignment_active(ra.eligible,ra.activated_until))",&[(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(crate::sql::AUTHORITY_RESOLVE.sql, &[(&user, Type::INT8)])
+        .await?;
     let r = rows.first().ok_or_else(invalid)?;
     Ok(Authority {
         permissions: r.get(0),
@@ -63,5 +65,13 @@ pub async fn denied(
 ) {
     let before =
         serde_json::json!({"actor":a.email(),"target":path,"missingPermission":detail}).to_string();
-    let _=write(exec,a,op,"console.denied","SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core')::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",&[(&before,Type::TEXT),(&path,Type::TEXT)]).await;
+    let _ = write(
+        exec,
+        a,
+        op,
+        "console.denied",
+        crate::sql::AUTHORITY_DENIED_AUDIT.sql,
+        &[(&before, Type::TEXT), (&path, Type::TEXT)],
+    )
+    .await;
 }
