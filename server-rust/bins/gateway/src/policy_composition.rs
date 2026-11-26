@@ -234,6 +234,115 @@ pub fn tx_factory_from_executors(
     }
 }
 
+/// Run a 1-RTT `BEGIN READ ONLY` user-scoped query on `AppPool` (`setjoin_app`,
+/// `NOBYPASSRLS`) via a minted [`setjoin_pg::VerifiedUser`].
+pub(crate) async fn user_read(
+    exec: &ScopedExecutor,
+    actor: setjoin_contracts::ids::ActorId,
+    sql: &'static str,
+    params: &[setjoin_pg::Param<'_>],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let app_pool = exec
+        .try_app_pool()
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            sqlstate: None,
+            message: "AppPool unavailable".into(),
+            hint: None,
+        })?;
+    let principal = setjoin_pg::mint::user(actor, setjoin_contracts::ids::Generation(1));
+    app_pool
+        .run_user_read_pipelined(&principal, sql, params)
+        .await
+}
+
+/// Run a 1-RTT `BEGIN READ ONLY` mailbox-scoped query on `AppPool`
+/// (`setjoin_app`, `NOBYPASSRLS`) via a minted [`setjoin_pg::VerifiedMailbox`].
+pub(crate) async fn mailbox_read(
+    exec: &ScopedExecutor,
+    auth: &setjoin_pg::MailboxAuthContext,
+    sql: &'static str,
+    params: &[setjoin_pg::Param<'_>],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let app_pool = exec
+        .try_app_pool()
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            sqlstate: None,
+            message: "AppPool unavailable".into(),
+            hint: None,
+        })?;
+    let principal =
+        setjoin_pg::mint::mailbox(auth.actor(), auth.mailbox(), auth.authority().generation);
+    app_pool
+        .run_mailbox_read_pipelined(&principal, sql, params)
+        .await
+}
+
+/// Run a 1-RTT `BEGIN READ ONLY` query on `WorkerPool` (`DB_WORKER_DSN` /
+/// `setjoin_worker`, `BYPASSRLS`) carrying the authenticated mailbox/actor
+/// GUCs and deployment encryption/audit keys (for cross-user S/MIME directory
+/// and key lookups).
+pub(crate) async fn worker_mailbox_read(
+    worker: &ScopedExecutor,
+    auth: &setjoin_pg::MailboxAuthContext,
+    sql: &'static str,
+    params: &[setjoin_pg::Param<'_>],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let worker_pool = worker
+        .try_worker_pool()
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            sqlstate: None,
+            message: "WorkerPool unavailable".into(),
+            hint: None,
+        })?;
+    worker_pool
+        .run_read_only_pipelined(Some(auth.actor()), Some(auth.mailbox()), sql, params)
+        .await
+}
+
+/// Run a 1-RTT `BEGIN READ ONLY` user-attributed query on `WorkerPool`
+/// (`DB_WORKER_DSN` / `setjoin_worker`, `BYPASSRLS`) for cross-user worker
+/// reducers (`TaskList/*`, `TaskAssigned/*`, `Calendar/delegateList`).
+pub(crate) async fn worker_user_read(
+    worker: &ScopedExecutor,
+    actor: setjoin_contracts::ids::ActorId,
+    sql: &'static str,
+    params: &[setjoin_pg::Param<'_>],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let worker_pool = worker
+        .try_worker_pool()
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            sqlstate: None,
+            message: "WorkerPool unavailable".into(),
+            hint: None,
+        })?;
+    worker_pool
+        .run_read_only_pipelined(Some(actor), None, sql, params)
+        .await
+}
+
+/// Run a `BEGIN READ WRITE` user-attributed reducer command on `WorkerPool`
+/// (`DB_WORKER_DSN` / `setjoin_worker`, `BYPASSRLS`), decoding `decode(&rows)`
+/// before `COMMIT` so decode failures roll back cleanly.
+pub(crate) async fn worker_user_write<T, D>(
+    worker: &ScopedExecutor,
+    actor: setjoin_contracts::ids::ActorId,
+    operation: setjoin_contracts::ids::OperationId,
+    sql: &'static str,
+    params: &[setjoin_pg::Param<'_>],
+    decode: D,
+) -> setjoin_pg::CommandOutcome<T, setjoin_pg::StatementFailure>
+where
+    D: FnOnce(&[setjoin_pg::Row]) -> Result<T, setjoin_pg::StatementFailure>,
+{
+    let Some(worker_pool) = worker.try_worker_pool() else {
+        return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    worker_pool
+        .run_user_write(actor, operation, deadline, sql, params, decode)
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

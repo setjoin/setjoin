@@ -70,7 +70,8 @@ pub(crate) async fn resolve_account(
     // V288 FORCE-RLS: mailboxes requires app.current_user_id scope under setjoin_app.
     let rows = tokio::time::timeout(
         PRECHECK_TIMEOUT,
-        exec.read_user_scoped(
+        crate::policy_composition::user_read(
+            exec,
             actor,
             "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
             &[(&user_id, Type::INT8)],
@@ -88,7 +89,8 @@ pub(crate) async fn resolve_account(
         // V090 FORCE-RLS: mailbox_delegates requires app.current_user_id scope.
         let rows = tokio::time::timeout(
             PRECHECK_TIMEOUT,
-            exec.read_user_scoped(
+            crate::policy_composition::user_read(
+                exec,
                 actor,
                 "SELECT permission::text FROM mailbox_delegates WHERE mailbox_id=$1 AND user_id=$2",
                 &[(&account, Type::INT8), (&user_id, Type::INT8)],

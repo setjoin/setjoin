@@ -689,14 +689,17 @@ impl AuthServer {
                 // The address is no proof of identity, but a provisioned user must not collide
                 // with one that exists (the legacy JIT does not check aliases).
                 let address = setjoin_authz::address::canonical(&email);
-                let taken = self
-                    .exec
-                    .read(
-                        "SELECT identity_address_claim_count(lower($1))>0",
-                        &[(&address.as_str(), setjoin_pg::Type::TEXT)],
-                    )
-                    .await
-                    .map(|r| r[0].get::<_, bool>(0));
+                let taken = crate::policy_composition::pre_auth_read(
+                    self.pre_auth_pool.as_ref(),
+                    "SELECT identity_address_claim_count(lower($1))>0",
+                    &[(&address.as_str(), setjoin_pg::Type::TEXT)],
+                )
+                .await
+                .map(|r| {
+                    r.first()
+                        .and_then(|row| row.try_get::<_, bool>(0).ok())
+                        .unwrap_or(true)
+                });
                 if taken.unwrap_or(true) && !setjoin_identity::mutants::on("saml-jit-collision") {
                     return (
                         Self::failure(409, "explicit account linking is required", path),

@@ -16,7 +16,7 @@
     "reviewer": "owner 2026-11-05",
     "review": "owner-approved security fix 2026-11-05",
     "reason": "owner-approved security fix 2026-11-05 (#499): an invalidation clears the loaded flag, so a failed reload fails closed",
-    "secure_test": "crates/domains/conditional-access/tests/secfix3_policy.rs::invalidated_policy_cache_fails_closed_when_the_reload_fails",
+    "secure_test": "bins/gateway/tests/secfix3_policy.rs::invalidated_policy_cache_fails_closed_when_the_reload_fails",
     "mutant": "policy-invalidate-keeps-loaded"
   },
   {
@@ -26,7 +26,7 @@
     "reviewer": "owner 2026-11-05",
     "review": "owner-approved security fix 2026-11-05",
     "reason": "owner-approved security fix 2026-11-05 (#499): legacy step_up policies are classified as enforcing on evaluation errors",
-    "secure_test": "crates/domains/conditional-access/tests/secfix3_policy.rs::legacy_step_up_policy_counts_as_enforcing_on_evaluation_errors",
+    "secure_test": "bins/gateway/tests/secfix3_policy.rs::legacy_step_up_policy_counts_as_enforcing_on_evaluation_errors",
     "mutant": "step-up-not-enforcing"
   },
   {
@@ -36,7 +36,7 @@
     "reviewer": "owner 2026-11-05",
     "review": "owner-approved security fix 2026-11-05",
     "reason": "owner-approved security fix 2026-11-05 (#499): a geo tier lookup error takes the checked failure path instead of low risk",
-    "secure_test": "crates/domains/conditional-access/tests/secfix3_policy.rs::geo_tier_lookup_error_takes_the_checked_failure_path",
+    "secure_test": "bins/gateway/tests/secfix3_policy.rs::geo_tier_lookup_error_takes_the_checked_failure_path",
     "mutant": "geo-error-is-low-risk"
   },
   {

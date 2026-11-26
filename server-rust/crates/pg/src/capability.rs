@@ -3635,6 +3635,121 @@ impl WorkerPool {
         }
     }
 
+    /// Run a 1-RTT pipelined `BEGIN READ ONLY` query on `WorkerPool`
+    /// (`DB_WORKER_DSN` / `setjoin_worker`, `BYPASSRLS`) with optional
+    /// transaction-local actor/mailbox GUCs and deployment audit/encryption keys.
+    pub async fn run_read_only_pipelined(
+        &self,
+        actor: Option<ActorId>,
+        mailbox: Option<MailboxId>,
+        sql: &'static str,
+        params: &[Param<'_>],
+    ) -> Result<Vec<Row>, StatementFailure> {
+        let preamble = Preamble {
+            mailbox: mailbox.map_or_else(String::new, |m| m.decimal()),
+            actor: actor.map_or_else(String::new, |a| a.decimal()),
+            operation_id: None,
+            audit_keys: self.audit_keys.clone(),
+            lock_key: None,
+        };
+        execute_read_pipeline(&self.pool, &preamble, sql, params, None).await
+    }
+
+    /// Run a `BEGIN READ WRITE` user-attributed reducer command on `WorkerPool`
+    /// (`DB_WORKER_DSN` / `setjoin_worker`, `BYPASSRLS`) with transaction-local
+    /// `app.current_user_id`, `app.rust_operation_id`, advisory operation lock,
+    /// and deployment audit/encryption keys.
+    ///
+    /// Decodes `decode(&rows)` **before** `COMMIT` so any decode failure rolls
+    /// back cleanly instead of committing and returning `Unknown`.
+    pub async fn run_user_write<T, D>(
+        &self,
+        actor: ActorId,
+        operation: OperationId,
+        deadline: Instant,
+        sql: &'static str,
+        params: &[Param<'_>],
+        decode: D,
+    ) -> CommandOutcome<T, StatementFailure>
+    where
+        D: FnOnce(&[Row]) -> Result<T, StatementFailure>,
+    {
+        if let Err(e) = admit(sql).map_err(StatementFailure::refused) {
+            return CommandOutcome::RolledBack(Rejection::Statement(e));
+        }
+        let op_hex = operation_hex(operation);
+        let lock = format!("setjoin-command:0:{}:{op_hex}", actor.get());
+        let preamble = Preamble {
+            mailbox: String::new(),
+            actor: actor.decimal(),
+            operation_id: Some(op_hex),
+            audit_keys: self.audit_keys.clone(),
+            lock_key: Some(lock),
+        };
+        let lease = match begin_write_with_retry(&self.pool, &preamble, deadline).await {
+            Ok(l) => l,
+            Err(r) => return CommandOutcome::RolledBack(r),
+        };
+        let rows = match run_interactive_statement(&lease, sql, params, false).await {
+            Ok((rows, _)) => rows,
+            Err(err) => {
+                let transport = err.is_transport_loss() || lease.is_closed();
+                let failure = err.into_failure();
+                if transport {
+                    lease.quarantine();
+                } else {
+                    match lease.client().batch_execute("ROLLBACK").await {
+                        Ok(()) if !lease.is_closed() => lease.keep(),
+                        _ => lease.quarantine(),
+                    }
+                }
+                return CommandOutcome::RolledBack(Rejection::Statement(failure));
+            }
+        };
+        let value = match decode(&rows) {
+            Ok(v) => v,
+            Err(failure) => {
+                match lease.client().batch_execute("ROLLBACK").await {
+                    Ok(()) if !lease.is_closed() => lease.keep(),
+                    _ => lease.quarantine(),
+                }
+                return CommandOutcome::RolledBack(Rejection::Body(failure));
+            }
+        };
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let _ = lease.client().batch_execute("ROLLBACK").await;
+            lease.quarantine();
+            return CommandOutcome::RolledBack(Rejection::Authority(
+                LifecycleError::DeadlineElapsed,
+            ));
+        }
+        match tokio::time::timeout(remaining, lease.client().batch_execute("COMMIT")).await {
+            Ok(Ok(())) => {
+                if !lease.is_closed() {
+                    lease.keep();
+                } else {
+                    lease.quarantine();
+                }
+                CommandOutcome::Committed(value)
+            }
+            Ok(Err(e)) => {
+                let failure = StatementFailure::from_db(&e);
+                let obs = commit_failure_observation(failure.sqlstate.as_deref());
+                lease.quarantine();
+                if matches!(obs, CommitObservation::RolledBack) {
+                    CommandOutcome::RolledBack(Rejection::Statement(failure))
+                } else {
+                    CommandOutcome::Unknown { operation }
+                }
+            }
+            Err(_) => {
+                lease.quarantine();
+                CommandOutcome::Unknown { operation }
+            }
+        }
+    }
+
     /// Begin a `BEGIN READ WRITE` worker transaction with empty tenant GUCs
     /// and deployment audit keys.
     pub async fn begin_read_write(&self) -> Result<WorkerTx, StatementFailure> {

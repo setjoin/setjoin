@@ -387,7 +387,7 @@ through a registered callback and a second scheduler connection.
   runs as `setjoin_app` via `DB_APP_DSN` when set) on the same schema;
   absent → `CONFORMANCE-SKIP (reason=no-db …)`
   per case plus a per-root count from the guard, `REQUIRE_DB` → FAIL.
-- `setjoin-jmap` DB tests (`crates/domains/jmap/tests/set_seen_db.rs`: audit
+- `setjoin-jmap` DB tests (`bins/gateway/tests/set_seen_db.rs`: audit
   row, audit failure rolls back, foreign-mailbox refusal) use the
   conformance gate and fixtures; they run serially within the file (one adds
   a trigger to the partitioned audit table).

@@ -15,7 +15,7 @@ A `DELETE` followed by `BEGIN` in the same simple-query message belongs to that
 transaction, so putting semicolons between them does not release partition locks.
 Do not combine these calls. Do not suspend FK triggers for identity cleanup.
 
-Verification: `setjoin-jmap --test set_seen_db` exercises cleanup after both
+Verification: `setjoin-gateway --test set_seen_db` exercises cleanup after both
 actual COMMIT-loss outcomes. The full Rust lane must leave the assigned database
 empty for mailctl's bootstrap oracle. Shared cluster lock settings stay unchanged.
 

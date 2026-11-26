@@ -186,6 +186,42 @@ impl<K: KeySource + 'static> PolicyRuntime<K> {
     }
 }
 
+/// Run a 1-RTT `BEGIN READ ONLY` user-scoped query on `AppPool` (`setjoin_app`,
+/// `NOBYPASSRLS`) via a minted [`setjoin_pg::VerifiedUser`].
+pub(crate) async fn user_read(
+    exec: &ScopedExecutor,
+    actor: setjoin_contracts::ids::ActorId,
+    sql: &'static str,
+    params: &[setjoin_pg::Param<'_>],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let app_pool = exec
+        .try_app_pool()
+        .ok_or_else(|| setjoin_pg::StatementFailure {
+            sqlstate: None,
+            message: "AppPool unavailable".into(),
+            hint: None,
+        })?;
+    let principal = setjoin_pg::mint::user(actor, setjoin_contracts::ids::Generation(1));
+    app_pool
+        .run_user_read_pipelined(&principal, sql, params)
+        .await
+}
+
+/// Run a 1-RTT `BEGIN READ ONLY` pre-authentication / org-policy query via
+/// `AdminWorkerPool::run_pre_auth_read_pipelined` (`DB_WORKER_DSN` / `setjoin_worker`).
+pub(crate) async fn pre_auth_read(
+    pool: Option<&setjoin_pg::AdminWorkerPool>,
+    sql: &'static str,
+    params: &[setjoin_pg::Param<'_>],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let admin_pool = pool.ok_or_else(|| setjoin_pg::StatementFailure {
+        sqlstate: None,
+        message: "AdminWorkerPool unavailable".into(),
+        hint: None,
+    })?;
+    admin_pool.run_pre_auth_read_pipelined(sql, params).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

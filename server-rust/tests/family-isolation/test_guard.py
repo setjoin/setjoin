@@ -661,6 +661,58 @@ class FamilyIsolation(unittest.TestCase):
                     result.stderr,
                 )
 
+    def test_domain_crates_cannot_reference_scoped_executor_in_src_or_tests(self):
+        cases = (
+            ("src/lib.rs", "ScopedExecutor", "use setjoin_pg::ScopedExecutor;\n"),
+            ("src/lib.rs", "ScopedExecutor", "pub fn leak(_exec: &ScopedExecutor) {}\n"),
+            ("tests/integration.rs", "ScopedExecutor", "use setjoin_pg::ScopedExecutor;\n"),
+            (
+                "tests/integration.rs",
+                "ScopedExecutor",
+                "fn helper() { let _ = ScopedExecutor::from_dsn(\"\", 1); }\n",
+            ),
+            ("src/lib.rs", "WorkerDatabase", "use setjoin_pg::workers::WorkerDatabase;\n"),
+            ("src/lib.rs", "WorkerDatabase", "pub fn leak(_db: &WorkerDatabase) {}\n"),
+            (
+                "tests/integration.rs",
+                "WorkerDatabase",
+                "use setjoin_pg::workers::WorkerDatabase;\n",
+            ),
+            (
+                "tests/integration.rs",
+                "WorkerDatabase",
+                "fn helper() { let _ = WorkerDatabase::from_dsns(\"\", None); }\n",
+            ),
+        )
+        for rel_file, expected_token, source in cases:
+            with (
+                self.subTest(rel_file=rel_file, token=expected_token, source=source.strip()),
+                tempfile.TemporaryDirectory(prefix="gofree-t1-scoped-exec-") as tmp,
+            ):
+                root = pathlib.Path(tmp)
+                dom = root / "crates/domains/sample"
+                (dom / "src").mkdir(parents=True)
+                (dom / "tests").mkdir(parents=True)
+                (dom / "src/lib.rs").write_text("")
+                (dom / rel_file).write_text(source)
+                (dom / "Cargo.toml").write_text(
+                    '[package]\nname = "setjoin-sample"\nversion = "0.1.0"\n'
+                )
+                (root / "Cargo.toml").write_text(
+                    '[workspace]\nresolver = "2"\nmembers = ["crates/domains/sample"]\n'
+                )
+                result = subprocess.run(
+                    ["python3", str(GUARD), str(root)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    f"forbidden capability token {expected_token} in "
+                    f"crates/domains/sample/{rel_file}",
+                    result.stderr,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

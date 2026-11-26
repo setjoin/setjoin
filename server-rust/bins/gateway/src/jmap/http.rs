@@ -405,11 +405,14 @@ async fn guest_session(
     let mut download = false;
     if meet || drive {
         if let Ok(actor) = ActorId::new(user) {
-            if let Ok(rows) = exec.read_user_scoped(
+            if let Ok(rows) = crate::policy_composition::user_read(
+                exec,
                 actor,
                 "SELECT guest_profile_flag($1,'allow_meet_create'),guest_profile_flag($1,'allow_meet_host'),guest_profile_flag($1,'allow_download')",
                 &[(&user, Type::INT8)],
-            ).await {
+            )
+            .await
+            {
                 if let Some(r) = rows.first() {
                     if meet {
                         create = r.try_get(0).unwrap_or(false);

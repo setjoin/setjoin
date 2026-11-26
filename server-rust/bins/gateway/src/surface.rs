@@ -665,7 +665,7 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
             let nonce = crate::jmap::random().unwrap_or([0; 16]);
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), nonce);
             if kind == Kind::Telemetry {
-                return crate::telemetry::serve(&this.exec, r, &c, id).await;
+                return crate::telemetry::serve(&this.exec, this.worker.as_ref(), r, &c, id).await;
             }
             if matches!(kind, Kind::Caldav | Kind::Carddav) {
                 let key = if kind == Kind::Caldav {

@@ -30,6 +30,7 @@ impl VerifiedDevice {
 
 pub struct DeviceResolver {
     exec: ScopedExecutor,
+    worker: Option<ScopedExecutor>,
     master: Zeroizing<Vec<u8>>,
     profile: CryptoProfile,
 }
@@ -37,9 +38,18 @@ impl DeviceResolver {
     pub fn new(exec: ScopedExecutor, master: Vec<u8>, profile: CryptoProfile) -> Self {
         Self {
             exec,
+            worker: None,
             master: Zeroizing::new(master),
             profile,
         }
+    }
+    /// Attach the private worker/pre-auth executor (`DB_WORKER_DSN` /
+    /// `setjoin_worker`, `BYPASSRLS`) used strictly for unauthenticated
+    /// device-signed routes (`verify_request` without a verified `user_id`,
+    /// such as `/device/checkin`, `/device/wipe-ack`, and `/device/telemetry`).
+    pub fn with_worker(mut self, worker: ScopedExecutor) -> Self {
+        self.worker = Some(worker);
+        self
     }
     pub async fn resolve(&self, proof: &Proof, r: DeviceRequest<'_>) -> Binding {
         self.resolve_for_user(proof.user_id(), r).await
@@ -51,9 +61,7 @@ impl DeviceResolver {
         self.checked_user(user_id, r).await.unwrap_or_default()
     }
     async fn checked_user(&self, user_id: i64, r: DeviceRequest<'_>) -> Option<Binding> {
-        if user_id <= 0 {
-            return None;
-        }
+        let actor = setjoin_contracts::ids::ActorId::new(user_id).ok()?;
         let id = r
             .headers
             .get("x-device-id")?
@@ -64,17 +72,26 @@ impl DeviceResolver {
         // Owner-approved security fix 2026-11-05 (#499): ownership is checked
         // BEFORE the proof consumes the device's single-use nonce, so a foreign
         // caller cannot burn another user's device nonce with a refused request.
-        let rows=self.exec.read("SELECT enroll_state,revoked_at IS NOT NULL FROM devices WHERE id=$1 AND user_id=$2",&[(&id,Type::INT8),(&user_id,Type::INT8)]).await.ok()?;
+        let rows = self
+            .exec
+            .read_user_scoped(
+                actor,
+                "SELECT enroll_state,revoked_at IS NOT NULL FROM devices WHERE id=$1 AND user_id=$2",
+                &[(&id, Type::INT8), (&user_id, Type::INT8)],
+            )
+            .await
+            .ok()?;
         let restored = setjoin_contracts::mutants::on("device-nonce-before-ownership");
         if !restored {
             rows.first()?;
         }
-        self.verify_request(id, r).await?;
+        let scope = (!restored).then_some(actor);
+        self.verify_request_inner(id, scope, r).await?;
         let row = rows.first()?;
         Some(Binding {
-            bound: !row.get::<_, bool>(1),
+            bound: !row.try_get::<_, bool>(1).ok()?,
             device_id: id,
-            enroll_state: row.get(0),
+            enroll_state: row.try_get(0).ok()?,
         })
     }
 
@@ -82,6 +99,15 @@ impl DeviceResolver {
     /// this exact request's proof. Unlike session attribution, it needs no JWT
     /// or X-Device-ID header and grants authority only to the proved device.
     pub async fn verify_request(&self, id: i64, r: DeviceRequest<'_>) -> Option<VerifiedDevice> {
+        self.verify_request_inner(id, None, r).await
+    }
+
+    async fn verify_request_inner(
+        &self,
+        id: i64,
+        user_scope: Option<setjoin_contracts::ids::ActorId>,
+        r: DeviceRequest<'_>,
+    ) -> Option<VerifiedDevice> {
         if id <= 0 {
             return None;
         }
@@ -118,9 +144,30 @@ impl DeviceResolver {
         if (now - timestamp).abs() > 300.0 || format!("{:x}", Sha256::digest(r.body)) != hash {
             return None;
         }
-        // This is a credential lookup, not a user-data read: Go verifies the
-        // hardware proof before attributing it to the verified session below.
-        let rows=self.exec.read("SELECT hmac_secret,hmac_secret_enc,hmac_secret_key_id FROM devices WHERE id=$1 AND revoked_at IS NULL AND enroll_state<>'revoked'",&[(&id,Type::INT8)]).await.ok()?;
+        // Authenticated callers (`checked_user`) read under `setjoin_app` with
+        // transaction-local `app.current_user_id`; unauthenticated device-signed
+        // callers (`checkin`/`wipe-ack`/`telemetry`) use the pre-auth worker pool.
+        let rows = match user_scope {
+            Some(actor) => self
+                .exec
+                .read_user_scoped(
+                    actor,
+                    "SELECT hmac_secret,hmac_secret_enc,hmac_secret_key_id FROM devices WHERE id=$1 AND revoked_at IS NULL AND enroll_state<>'revoked'",
+                    &[(&id, Type::INT8)],
+                )
+                .await
+                .ok()?,
+            None => self
+                .worker
+                .as_ref()
+                .unwrap_or(&self.exec)
+                .read(
+                    "SELECT hmac_secret,hmac_secret_enc,hmac_secret_key_id FROM devices WHERE id=$1 AND revoked_at IS NULL AND enroll_state<>'revoked'",
+                    &[(&id, Type::INT8)],
+                )
+                .await
+                .ok()?,
+        };
         let row = rows.first()?;
         let legacy: Option<String> = row.get(0);
         let envelope: Option<Vec<u8>> = row.get(1);
@@ -177,13 +224,42 @@ impl DeviceResolver {
         mac.verify_slice(&signature).ok()?;
         // The deployment-wide single-use claim commits before attribution, as
         // in Go. Its reducer owns expiry cleanup plus the nonce INSERT atomically.
-        self.exec
-            .protocol_statement(
-                "SELECT device_nonce_claim($1,$2,660)",
-                &[(&id, Type::INT8), (&nonce, Type::TEXT)],
-            )
-            .await
-            .ok()?;
+        match user_scope {
+            Some(actor) => {
+                let mut h = Sha256::new();
+                h.update(id.to_be_bytes());
+                h.update(b":");
+                h.update(nonce.as_bytes());
+                let digest = h.finalize();
+                let mut op = [0u8; 16];
+                op.copy_from_slice(&digest[..16]);
+                match self
+                    .exec
+                    .run_user_command(
+                        actor,
+                        setjoin_contracts::ids::OperationId(op),
+                        "SELECT device_nonce_claim($1,$2,660)",
+                        &[(&id, Type::INT8), (&nonce, Type::TEXT)],
+                        |_| Ok(()),
+                    )
+                    .await
+                {
+                    setjoin_pg::CommandOutcome::Committed(()) => {}
+                    _ => return None,
+                }
+            }
+            None => {
+                self.worker
+                    .as_ref()
+                    .unwrap_or(&self.exec)
+                    .protocol_statement(
+                        "SELECT device_nonce_claim($1,$2,660)",
+                        &[(&id, Type::INT8), (&nonce, Type::TEXT)],
+                    )
+                    .await
+                    .ok()?;
+            }
+        }
         Some(VerifiedDevice(id))
     }
 }

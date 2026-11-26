@@ -110,9 +110,27 @@ impl<K: KeySource + 'static> Intercept for PresenceRoute<K> {
             }
             let mut admitted = HashSet::new();
             if identity.is_guest() && !ids.is_empty() {
-                match commands.exec.read_user_scoped(actor,"SELECT DISTINCT m2.user_id FROM chat_channel_members m1 JOIN chat_channel_members m2 ON m2.channel_id=m1.channel_id WHERE m1.user_id=$1 AND m2.user_id=ANY($2)",&[(&user,Type::INT8),(&ids,Type::INT8_ARRAY)]).await {
-                    Ok(rows)=>{admitted.extend(rows.iter().map(|r|r.get::<_,i64>(0)));},
-                    Err(_)=>return crate::chat_channels::problem(500,"presence scope lookup failed","/chat/presence",&c,id,&language),
+                match crate::policy_composition::user_read(
+                    &commands.exec,
+                    actor,
+                    "SELECT DISTINCT m2.user_id FROM chat_channel_members m1 JOIN chat_channel_members m2 ON m2.channel_id=m1.channel_id WHERE m1.user_id=$1 AND m2.user_id=ANY($2)",
+                    &[(&user, Type::INT8), (&ids, Type::INT8_ARRAY)],
+                )
+                .await
+                {
+                    Ok(rows) => {
+                        admitted.extend(rows.iter().filter_map(|r| r.try_get::<_, i64>(0).ok()));
+                    }
+                    Err(_) => {
+                        return crate::chat_channels::problem(
+                            500,
+                            "presence scope lookup failed",
+                            "/chat/presence",
+                            &c,
+                            id,
+                            &language,
+                        );
+                    }
                 }
             }
             let mut out = serde_json::Map::new();

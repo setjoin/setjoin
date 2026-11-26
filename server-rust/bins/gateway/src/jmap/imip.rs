@@ -158,9 +158,13 @@ pub(crate) async fn sender_allowed(
     user: i64,
     from: &str,
 ) -> Result<bool, setjoin_pg::StatementFailure> {
-    let rows = exec
-        .read_user_scoped(actor, SENDER, &[(&user, Type::INT8), (&from, Type::TEXT)])
-        .await?;
+    let rows = crate::policy_composition::user_read(
+        exec,
+        actor,
+        SENDER,
+        &[(&user, Type::INT8), (&from, Type::TEXT)],
+    )
+    .await?;
     Ok(rows.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 

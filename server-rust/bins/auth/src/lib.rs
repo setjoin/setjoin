@@ -54,6 +54,7 @@ pub struct AuthServer {
     internal_key: std::sync::RwLock<String>,
     pub exec: setjoin_pg::ScopedExecutor,
     auth_db: setjoin_pg::AuthDb,
+    pre_auth_pool: Option<setjoin_pg::AdminWorkerPool>,
     device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
     legacy: Option<setjoin_authz::legacy_jwt::LegacyKeys>,
@@ -162,6 +163,7 @@ impl AuthServer {
     }
     pub fn new(exec: setjoin_pg::ScopedExecutor) -> Self {
         let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
+        let pre_auth_pool = exec.try_worker_pool().map(|w| w.admin_pool());
         let device_resolver = setjoin_authz::device::DeviceResolver::new(
             exec.clone(),
             Vec::new(),
@@ -177,6 +179,7 @@ impl AuthServer {
             internal_key: std::sync::RwLock::new(String::new()),
             exec,
             auth_db,
+            pre_auth_pool,
             device_resolver,
             keys: None,
             legacy: None,
@@ -224,11 +227,6 @@ impl AuthServer {
         } else {
             exec
         };
-        let device_resolver = setjoin_authz::device::DeviceResolver::new(
-            exec.clone(),
-            config.secret.as_bytes().to_vec(),
-            config.profile,
-        );
         let pem = if matches!(
             config.profile,
             setjoin_config_secret::CryptoProfile::Smx
@@ -272,6 +270,13 @@ impl AuthServer {
             }
             None => exec.clone(),
         };
+        let pre_auth_pool = auth_worker.try_worker_pool().map(|w| w.admin_pool());
+        let device_resolver = setjoin_authz::device::DeviceResolver::new(
+            exec.clone(),
+            config.secret.as_bytes().to_vec(),
+            config.profile,
+        )
+        .with_worker(auth_worker.clone());
         let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), auth_worker);
         let forgot_password = login::enabled(&auth_db, "feature.forgot_password")
             .await
@@ -414,6 +419,7 @@ impl AuthServer {
             captcha_used: Default::default(),
             exec,
             auth_db,
+            pre_auth_pool,
             device_resolver,
             keys: Some(Arc::new(keys)),
             legacy: Some(legacy),

@@ -62,6 +62,10 @@ HARD_BANNED_PATTERNS = [
     ("run_pre_auth_read_pipelined", re.compile(r"\brun_pre_auth_read_pipelined\b")),
     ("WorkerPool", re.compile(r"\bWorkerPool\b")),
     ("WorkerTx", re.compile(r"\bWorkerTx\b")),
+    ("WorkerDatabase", re.compile(r"\bWorkerDatabase\b")),
+    ("ScopedExecutor", re.compile(r"\bScopedExecutor\b")),
+    ("from_authenticated_session", re.compile(r"\bfrom_authenticated_session\b")),
+    ("from_authenticated_user", re.compile(r"\bfrom_authenticated_user\b")),
     ("deadpool_postgres", re.compile(r"\bdeadpool_postgres\b")),
 ]
 

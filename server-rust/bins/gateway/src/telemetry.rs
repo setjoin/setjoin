@@ -131,6 +131,7 @@ async fn insert_report(
 
 pub async fn serve(
     exec: &ScopedExecutor,
+    worker_exec: Option<&ScopedExecutor>,
     mut r: Request<Body>,
     c: &RequestContext,
     id: String,
@@ -147,13 +148,22 @@ pub async fn serve(
     if claimed <= 0 {
         return reply(400, Some("device_id is required"), c, id);
     }
-    let resolver = DeviceResolver::new(
+    let mut resolver = DeviceResolver::new(
         exec.clone(),
         device_hmac_key_from_env(),
         setjoin_config_secret::CryptoProfile::parse(
             &std::env::var("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default(),
         ),
     );
+    if let Some(w) = worker_exec {
+        resolver = resolver.with_worker(w.clone());
+    } else if let Ok(dsn) = std::env::var("DB_WORKER_DSN") {
+        if !dsn.trim().is_empty() {
+            if let Ok(w) = ScopedExecutor::from_dsn(&dsn, 2) {
+                resolver = resolver.with_worker(w);
+            }
+        }
+    }
     let target = r.uri().path_and_query().map_or("/", |p| p.as_str());
     let inner = target.strip_prefix("/api").unwrap_or(target);
     let Some(device) = resolver

@@ -56,5 +56,25 @@
     "reviewer": "owner 2026-11-26",
     "reviewed": true,
     "review": "owner-approved security fix 2026-11-26"
+  },
+  {
+    "baseline": "goldens/transition-rls.json",
+    "sha256": "02290a2f2e521e18f57a924a1be8c428492bc77bf6f94c0a92346d7ec97fc1d6",
+    "expectation": "security/transition-rls.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC devices_admin_read SELECT policy; without app.current_user_id under setjoin_app, device_enroll_transition fails closed on the initial SELECT as 409 device_not_found instead of leaking device existence and failing later on UPDATE with 500)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
+  },
+  {
+    "baseline": "goldens/transition-rls-own.json",
+    "sha256": "2dd14fcfecd2457d15768919b100331faef964665e1267e91c5a4433dfb3d9e5",
+    "expectation": "security/transition-rls-own.json",
+    "reason": "owner-approved security fix 2026-11-26 (#546e Wave 1.8e V289: dropped legacy open TO PUBLIC devices_admin_read SELECT policy; rust_device_enroll_transition clears app.current_user_id so under setjoin_app the initial SELECT fails closed as 409 device_not_found instead of reading through the open policy and failing later on UPDATE with 500)",
+    "issue": "#546",
+    "reviewer": "owner 2026-11-26",
+    "reviewed": true,
+    "review": "owner-approved security fix 2026-11-26"
   }
 ]

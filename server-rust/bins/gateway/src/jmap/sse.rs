@@ -426,13 +426,14 @@ async fn write(
     }
 }
 async fn drive_admin(exec: &setjoin_pg::ScopedExecutor, actor: ActorId) -> bool {
-    exec.read_user_scoped(
+    crate::policy_composition::user_read(
+        exec,
         actor,
         "SELECT drive_has_admin_perm($1,'drive.view') OR drive_has_admin_perm($1,'drive.manage')",
         &[(&actor.get(), Type::INT8)],
     )
     .await
-    .is_ok_and(|r| r[0].get::<_, bool>(0))
+    .is_ok_and(|r| r.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 
 fn raw(event: &super::hub::Event) -> Option<String> {

@@ -117,6 +117,9 @@ impl<K: KeySource + 'static> RuntimeAccess<K> {
     pub fn with_workers(mut self, exec: ScopedExecutor, db: WorkerDatabase) -> Self {
         self.sessions = Some(Arc::new(crate::workers::SessionDenylist::new(db.clone())));
         self.own_sessions = true;
+        if let Some(dev) = self.device.take() {
+            self.device = Some(dev.with_worker(exec.clone()));
+        }
         self.worker = Some(exec);
         self.worker_db = Some(db);
         self
@@ -142,7 +145,11 @@ impl<K: KeySource + 'static> RuntimeAccess<K> {
         master: Vec<u8>,
         profile: setjoin_config_secret::CryptoProfile,
     ) -> Self {
-        self.device = Some(DeviceResolver::new(self.exec.clone(), master, profile));
+        let mut dev = DeviceResolver::new(self.exec.clone(), master, profile);
+        if let Some(worker) = &self.worker {
+            dev = dev.with_worker(worker.clone());
+        }
+        self.device = Some(dev);
         self
     }
     pub fn session_cache(&self) -> Option<Arc<crate::workers::SessionDenylist>> {

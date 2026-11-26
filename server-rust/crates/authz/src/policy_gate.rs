@@ -1587,10 +1587,13 @@ impl<K: KeySource + 'static> PolicyGate<K> {
                 return Err(GateDenial::SessionRevoked);
             }
         }
+        let actor = setjoin_contracts::ids::ActorId::new(user_id)
+            .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
         let iat_f64 = issued_at as f64;
         let durable = tokio::time::timeout(
             crate::precheck_timeout(),
-            self.exec.read(
+            self.exec.read_user_scoped(
+                actor,
                 "SELECT EXISTS(SELECT 1 FROM session_revocations \
                   WHERE user_id = $1 AND expires_at > now() \
                     AND ((scope = 'all' AND not_before >= to_timestamp($2::float8)) \
@@ -1606,7 +1609,7 @@ impl<K: KeySource + 'static> PolicyGate<K> {
         )
         .await;
         let revoked = match durable {
-            Ok(Ok(rows)) => Some(rows[0].get::<_, bool>(0)),
+            Ok(Ok(rows)) => rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()),
             _ => None,
         };
         if revoked == Some(true) {
@@ -2040,10 +2043,13 @@ pub async fn check_protocol_post_auth(
     surface: ProtocolSurface,
     user_id: i64,
 ) -> Result<(), GateDenial> {
+    let actor = setjoin_contracts::ids::ActorId::new(user_id)
+        .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
     let iat = SENTINEL_NON_JWT_IAT as f64;
     let revoked_rows = tokio::time::timeout(
         crate::precheck_timeout(),
-        exec.read(
+        exec.read_user_scoped(
+            actor,
             "SELECT EXISTS(SELECT 1 FROM session_revocations \
               WHERE user_id = $1 AND expires_at > now() \
                 AND scope = 'all' AND not_before >= to_timestamp($2::float8))",
@@ -2195,10 +2201,13 @@ pub async fn check_session_revocation(
     family: &str,
     iat: f64,
 ) -> Result<(), GateDenial> {
+    let actor = setjoin_contracts::ids::ActorId::new(user_id)
+        .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
     let cached = denylist.is_some_and(|d| d.is_revoked(user_id, jti, family, iat as i64));
     let durable = tokio::time::timeout(
         crate::precheck_timeout(),
-        exec.read(
+        exec.read_user_scoped(
+            actor,
             "SELECT EXISTS(SELECT 1 FROM session_revocations \
               WHERE user_id = $1 AND expires_at > now() \
                 AND ((scope = 'all' AND not_before >= to_timestamp($2::float8)) \
@@ -2214,7 +2223,7 @@ pub async fn check_session_revocation(
     )
     .await;
     let revoked = match durable {
-        Ok(Ok(rows)) => Some(rows[0].get::<_, bool>(0)),
+        Ok(Ok(rows)) => rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()),
         _ => None,
     };
     if cached || revoked == Some(true) {

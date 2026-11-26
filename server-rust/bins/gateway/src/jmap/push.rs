@@ -519,13 +519,14 @@ pub(super) async fn app_allowed(
 }
 async fn drive_admin(exec: &setjoin_pg::ScopedExecutor, scope: &MailboxAuthContext) -> bool {
     let user = scope.actor().get();
-    exec.read_user_scoped(
+    crate::policy_composition::user_read(
+        exec,
         scope.actor(),
         "SELECT drive_has_admin_perm($1,'drive.view') OR drive_has_admin_perm($1,'drive.manage')",
         &[(&user, Type::INT8)],
     )
     .await
-    .is_ok_and(|r| r[0].get::<_, bool>(0))
+    .is_ok_and(|r| r.first().and_then(|row| row.try_get::<_, bool>(0).ok()) == Some(true))
 }
 pub(super) fn origin_host(raw: &str) -> Option<&str> {
     if raw.trim() != raw || raw.bytes().any(|b| b.is_ascii_control()) {

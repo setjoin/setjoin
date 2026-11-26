@@ -209,9 +209,25 @@ pub async fn revocation(
         identity.token_id(),
         identity.token_family(),
     );
-    let rows = exec.read("SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
-        &[(&user,Type::INT8),(&iat,Type::FLOAT8),(&jti,Type::TEXT),(&family,Type::TEXT)]).await?;
-    Ok(rows[0].get::<_, bool>(0))
+    let Ok(actor) = setjoin_contracts::ids::ActorId::new(user) else {
+        return Ok(false);
+    };
+    let rows = exec
+        .read_user_scoped(
+            actor,
+            "SELECT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND expires_at>now() AND ((scope='all' AND not_before>=to_timestamp($2::float8)) OR (scope='jti' AND $3<>'' AND jti=$3) OR (scope='family' AND $4<>'' AND family_id=$4)))",
+            &[
+                (&user, Type::INT8),
+                (&iat, Type::FLOAT8),
+                (&jti, Type::TEXT),
+                (&family, Type::TEXT),
+            ],
+        )
+        .await?;
+    Ok(rows
+        .first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .unwrap_or(true))
 }
 /// Durable twin of Go's process-local denylist; also closes the subscribe race.
 pub async fn revoked(exec: &ScopedExecutor, identity: &PushIdentity) -> bool {
