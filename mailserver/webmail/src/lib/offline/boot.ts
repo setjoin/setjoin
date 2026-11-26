@@ -65,7 +65,12 @@ import {
 	type CoordinatorTrigger,
 	type CoordinatorTriggerKind,
 } from './coordinator';
-import { createCriticalActivityCounter, type CriticalActivityCounter } from './criticalScope';
+import {
+	getSharedCriticalActivity,
+	resetSharedCriticalActivityForTests,
+	type CriticalActivityCounter,
+} from './criticalScope';
+export { getSharedCriticalActivity };
 import {
 	createDurableJobPersistence,
 	durableJobPersistenceAvailable,
@@ -356,11 +361,8 @@ const state: ModuleState = {
 // ARCH-023: single shared CriticalActivityCounter instance reused by both
 // offline/boot.ts's E4-I coordinator and SyncCoordinator. Inert (zero listeners
 // or globals) until consumers subscribe.
-let sharedCriticalActivity: CriticalActivityCounter = createCriticalActivityCounter();
-
-export function getSharedCriticalActivity(): CriticalActivityCounter {
-	return sharedCriticalActivity;
-}
+// Shared CriticalActivityCounter lives in `./criticalScope` (re-exported above)
+// so both E4-I offline boot and SyncCoordinator share one instance (ARCH-023).
 
 /** True when an E4-I offline coordinator composition is currently active. */
 export function hasActiveOfflineCoordinator(): boolean {
@@ -547,7 +549,7 @@ export async function composeOfflineCoordinator(input: {
 	const coordinator = createCoordinator({
 		clock,
 		random,
-		critical: sharedCriticalActivity,
+		critical: getSharedCriticalActivity(),
 		// Policy re-reads the CURRENT projection on every admission: a session
 		// refresh that drops syncQoS maps to flagEnabled false and stops work
 		// at the next step boundary.
@@ -886,6 +888,5 @@ export function __resetBootForTests(): void {
 	state.lastInertReason = 'not-composed';
 	state.session = null;
 	seamGeneration = 0;
-	sharedCriticalActivity.teardown();
-	sharedCriticalActivity = createCriticalActivityCounter();
+	resetSharedCriticalActivityForTests();
 }

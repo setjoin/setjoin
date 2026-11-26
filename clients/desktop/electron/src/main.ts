@@ -378,6 +378,12 @@ function createWindow(): void {
 			mirrorService?.setWakeupConnected(false);
 		});
 	}
+	if (typeof win.webContents?.on === "function") {
+		win.webContents.on("render-process-gone", () => {
+			// Renderer crash resilience (#555): restore main-process polling loop immediately.
+			mirrorService?.setWakeupConnected(false);
+		});
+	}
 
 	// ── Connectivity E6 harness surface (the M5 localCapture genre: see the
 	// module header for the honesty posture). Inert unless the instance was

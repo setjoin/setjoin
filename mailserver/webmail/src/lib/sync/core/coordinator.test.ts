@@ -505,4 +505,89 @@ describe('SyncCoordinator core', () => {
 		expect(order).toEqual(['purge-start', 'purge-end', 'delta-start']);
 		coord.dispose();
 	});
+
+	it('enforces maxGlobalConcurrency=1 across multiple scopes (Finding #3)', async () => {
+		const coord = new SyncCoordinator({ maxGlobalConcurrency: 1 });
+		let inFlight = 0;
+		let maxObserved = 0;
+		const completed: string[] = [];
+
+		for (const id of ['1', '2', '3']) {
+			coord.register({
+				consumerId: `space-${id}`,
+				scope: { kind: 'space', id },
+				runDeltaStep: async () => {
+					inFlight += 1;
+					maxObserved = Math.max(maxObserved, inFlight);
+					await Promise.resolve();
+					await Promise.resolve();
+					completed.push(id);
+					inFlight -= 1;
+					return { kind: 'complete' };
+				},
+			});
+		}
+
+		coord.trigger({ kind: 'space', id: '1' });
+		coord.trigger({ kind: 'space', id: '2' });
+		coord.trigger({ kind: 'space', id: '3' });
+		await coord.flush();
+
+		expect(maxObserved).toBe(1);
+		expect(completed).toEqual(['1', '2', '3']);
+		coord.dispose();
+	});
+
+	it('notifies onScopeRevoked observers even when no adapter is registered for that scope (Finding #9)', async () => {
+		const coord = new SyncCoordinator();
+		const observed: Array<{ scopeKind: string; scopeId: string }> = [];
+		const off = coord.onScopeRevoked((evt) => {
+			observed.push({ scopeKind: evt.scopeKind, scopeId: evt.scopeId });
+		});
+
+		await coord.handleScopeRevoked({ scopeKind: 'channel', scopeId: '404' });
+		expect(observed).toEqual([{ scopeKind: 'channel', scopeId: '404' }]);
+		off();
+		coord.dispose();
+	});
+
+	it('holds wipe admission fence closed mid-wipe so new wakeups/triggers cannot start during db.wipe (Finding #11)', async () => {
+		const coord = new SyncCoordinator();
+		let runs = 0;
+		coord.register({
+			consumerId: 'mail-offline',
+			scope: { kind: 'mailbox', id: 'primary' },
+			runDeltaStep: async () => {
+				runs += 1;
+				return { kind: 'complete' };
+			},
+		});
+
+		let finishWipe!: () => void;
+		const wipeGate = new Promise<void>((r) => {
+			finishWipe = r;
+		});
+
+		const wipeP = coord.runWithWipeFence('offline.wipe', async () => {
+			// Mid-wipe wakeups & manual triggers MUST be rejected while fence is held!
+			coord.handleWakeup({ scopeKind: 'mailbox', scopeId: 'primary', seq: 1 });
+			coord.trigger({ kind: 'mailbox', id: 'primary' });
+			await Promise.resolve();
+			expect(runs).toBe(0);
+			await wipeGate;
+		});
+
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+		coord.trigger({ kind: 'mailbox', id: 'primary' });
+		expect(runs).toBe(0);
+
+		finishWipe();
+		await wipeP;
+
+		// After fence releases, normal triggers resume cleanly.
+		coord.trigger({ kind: 'mailbox', id: 'primary' });
+		await coord.flush();
+		expect(runs).toBe(1);
+		coord.dispose();
+	});
 });

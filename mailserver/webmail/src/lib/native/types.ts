@@ -142,8 +142,8 @@ export interface DriveMirrorBridge {
   ): Promise<void>;
   /** Forward a validated SyncWakeup hint to main-process MirrorService (Wave 2.8, #555). */
   notifyWakeup?(hint: { scopeKind: "space"; scopeId: string; seq: number }): Promise<boolean>;
-  /** Inform main whether the renderer wakeup bridge is connected; slows/restores polling (#555). */
-  setWakeupConnected?(connected: boolean): Promise<void>;
+  /** Inform main whether the renderer wakeup bridge is connected (globally or per space); slows/restores polling (#555). */
+  setWakeupConnected?(connected: boolean, spaceId?: number): Promise<void>;
   /** Forward a validated scope_revoked hint to main-process MirrorService (#555). */
   notifyScopeRevoked?(hint: {
     scopeKind: "space";

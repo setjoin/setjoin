@@ -94,11 +94,18 @@ interface MovePayload {
 	newParentId: number | null;
 }
 
+export interface SyncExecutionBudget {
+	readonly maxRecords: number;
+	readonly maxBytes: number;
+	readonly deadlineMonoMs: number;
+}
+
 export interface SyncExecutionFence {
 	readonly signal?: AbortSignal;
 	readonly fence?: {
 		assertCommitAllowed(): void;
 	};
+	readonly budget?: SyncExecutionBudget;
 }
 
 interface BusyRevocationItem {
@@ -308,7 +315,9 @@ export class SyncEngine {
 		}
 	}
 
-	async syncOnce(exec?: SyncExecutionFence): Promise<{ uploaded: number; downloaded: number; issues: number }> {
+	async syncOnce(
+		exec?: SyncExecutionFence,
+	): Promise<{ uploaded: number; downloaded: number; issues: number; hasMore?: boolean }> {
 		this.assertAllowed(exec);
 		await this.drainPendingRevocations();
 		this.assertAllowed(exec);
@@ -321,6 +330,7 @@ export class SyncEngine {
 			uploaded: up.uploaded,
 			downloaded: access.downloaded + down.downloaded,
 			issues: access.issues + up.issues + down.issues,
+			...(up.hasMore || down.hasMore ? { hasMore: true } : {}),
 		};
 	}
 
@@ -445,13 +455,33 @@ export class SyncEngine {
 
 	// ── upload leg ────────────────────────────────────────────────────────────
 
-	private async drainOutbound(exec?: SyncExecutionFence): Promise<{ uploaded: number; issues: number }> {
+	private isBudgetExceeded(exec: SyncExecutionFence | undefined, processed: number): boolean {
+		const budget = exec?.budget;
+		if (!budget) return false;
+		if (processed >= budget.maxRecords) return true;
+		const mono = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		return mono >= budget.deadlineMonoMs;
+	}
+
+	private async drainOutbound(
+		exec?: SyncExecutionFence,
+	): Promise<{ uploaded: number; issues: number; hasMore: boolean }> {
 		const now = this.d.now();
-		const rows = await this.d.index.due(now, 50);
+		const limit = exec?.budget ? Math.max(1, Math.min(50, exec.budget.maxRecords)) : 50;
+		const rows = await this.d.index.due(now, limit + 1);
+		const hasMoreFromLimit = rows.length > limit;
+		const batch = hasMoreFromLimit ? rows.slice(0, limit) : rows;
 		let uploaded = 0;
 		let issues = 0;
-		for (const row of rows) {
+		let processed = 0;
+		let stoppedByBudget = false;
+		for (const row of batch) {
+			if (processed > 0 && this.isBudgetExceeded(exec, processed)) {
+				stoppedByBudget = true;
+				break;
+			}
 			this.assertAllowed(exec);
+			processed += 1;
 			try {
 				if (await this.quarantineUnauthorizedOutbound(row)) {
 					issues++;
@@ -497,7 +527,7 @@ export class SyncEngine {
 				}
 			}
 		}
-		return { uploaded, issues };
+		return { uploaded, issues, hasMore: hasMoreFromLimit || stoppedByBudget };
 	}
 
 	private outboundNode(row: OutboundRow): { nodeId: number; required: string } | null {
@@ -699,15 +729,27 @@ export class SyncEngine {
 
 	// ── download leg ──────────────────────────────────────────────────────────
 
-	private async pullAndApply(exec?: SyncExecutionFence): Promise<{ downloaded: number; issues: number }> {
+	private async pullAndApply(
+		exec?: SyncExecutionFence,
+	): Promise<{ downloaded: number; issues: number; hasMore: boolean }> {
 		this.assertAllowed(exec);
 		const state = await this.d.index.getSyncState(this.d.spaceId);
 		const cursor = state.contentState;
-		if (cursor === null) return this.fullVisibilityReconcile(state.accessCursor,state.aclEpoch,exec);
+		if (cursor === null) {
+			const res = await this.fullVisibilityReconcile(state.accessCursor, state.aclEpoch, exec);
+			return { ...res, hasMore: false };
+		}
 
-		const res = await this.d.http.changes(this.d.spaceId, cursor);
+		const pageMax = exec?.budget ? Math.max(1, Math.min(200, exec.budget.maxRecords)) : undefined;
+		const res =
+			pageMax !== undefined
+				? await this.d.http.changes(this.d.spaceId, cursor, pageMax)
+				: await this.d.http.changes(this.d.spaceId, cursor);
 		this.assertAllowed(exec);
-		if (res.resync) return this.fullVisibilityReconcile(state.accessCursor,state.aclEpoch,exec);
+		if (res.resync) {
+			const full = await this.fullVisibilityReconcile(state.accessCursor, state.aclEpoch, exec);
+			return { ...full, hasMore: false };
+		}
 
 		// Group by nodeId keeping the LAST op — the feed already arrives
 		// seq-ascending, so a later Map.set simply overwrites an earlier one.
@@ -731,8 +773,8 @@ export class SyncEngine {
 		// leaves the cursor unmoved, so the next run re-applies the same batch
 		// (every apply is sha-gated, so re-applying is a no-op).
 		this.assertAllowed(exec);
-		await this.d.index.setSyncState(this.d.spaceId,{...state,contentState:res.newState});
-		return { downloaded, issues };
+		await this.d.index.setSyncState(this.d.spaceId, { ...state, contentState: res.newState });
+		return { downloaded, issues, hasMore: Boolean(res.hasMore) };
 	}
 
 	private async applyNode(meta: NodeMeta): Promise<'downloaded' | 'ok' | 'issue'> {

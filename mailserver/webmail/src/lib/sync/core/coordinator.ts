@@ -18,6 +18,7 @@ import {
 	type OfflineWipeEvent,
 	type RevocationFence,
 	type ScopeKey,
+	type ScopeRevokedEvent,
 	type ScopeSyncState,
 	type StepOutcome,
 	type SyncBudget,
@@ -61,6 +62,11 @@ export interface SyncCoordinatorOptions {
 	onWarning?: ValidationWarnFn;
 	/** Security-lane callback executed AFTER in-flight sync steps are aborted & settled. */
 	onOfflineWipe?: (event: OfflineWipeEvent) => Promise<void> | void;
+	/**
+	 * Optional cap on simultaneously running consumer steps across all scopes
+	 * (e.g. `1` in Electron MirrorService to serialize shared SQLite access).
+	 */
+	maxGlobalConcurrency?: number;
 }
 
 interface ConsumerEntry {
@@ -122,6 +128,7 @@ export class SyncCoordinator {
 	readonly #maxRecords: number;
 	readonly #maxBytes: number;
 	readonly #maxDurationMs: number;
+	readonly #maxGlobalConcurrency: number;
 	readonly #onWarning: ValidationWarnFn;
 	readonly #onOfflineWipe?: (event: OfflineWipeEvent) => Promise<void> | void;
 	readonly #critical?: CriticalActivityLike;
@@ -131,8 +138,13 @@ export class SyncCoordinator {
 	readonly #entriesByScope = new Map<string, Set<ConsumerEntry>>();
 	readonly #revocationEpochs = new Map<string, number>();
 	readonly #purgeMutexByScope = new Map<string, Promise<void>>();
+	readonly #scopeRevokedListeners = new Set<(event: ScopeRevokedEvent) => Promise<void> | void>();
 	readonly #unsubscribers: Array<() => void> = [];
+	readonly #concurrencyWaitQueue: ConsumerEntry[] = [];
+	readonly #queuedForConcurrency = new Set<ConsumerEntry>();
 
+	#activeRunCount = 0;
+	#wipeFenceDepth = 0;
 	#sessionGeneration = 0;
 	#disposed = false;
 
@@ -149,6 +161,10 @@ export class SyncCoordinator {
 		this.#maxRecords = options.budget?.maxRecords ?? DEFAULT_SYNC_BUDGET_RECORDS;
 		this.#maxBytes = options.budget?.maxBytes ?? DEFAULT_SYNC_BUDGET_BYTES;
 		this.#maxDurationMs = options.budget?.maxDurationMs ?? DEFAULT_SYNC_BUDGET_MS;
+		this.#maxGlobalConcurrency =
+			options.maxGlobalConcurrency !== undefined && options.maxGlobalConcurrency > 0
+				? Math.floor(options.maxGlobalConcurrency)
+				: Number.POSITIVE_INFINITY;
 		this.#onWarning =
 			options.onWarning ??
 			((reason, detail) => {
@@ -324,6 +340,16 @@ export class SyncCoordinator {
 	}
 
 	/**
+	 * Subscribes a session-level security-lane observer invoked on every validated
+	 * `scope_revoked` event — even when no consumer adapter is currently registered
+	 * for that `scopeId` (e.g. evicting cached inactive Chat channels in ChatStore).
+	 */
+	onScopeRevoked(listener: (event: ScopeRevokedEvent) => Promise<void> | void): () => void {
+		this.#scopeRevokedListeners.add(listener);
+		return () => this.#scopeRevokedListeners.delete(listener);
+	}
+
+	/**
 	 * Security-lane `scope_revoked` handler. NEVER blocked by `criticalActivity > 0`,
 	 * debounce timers, or rollout flags.
 	 *
@@ -348,6 +374,7 @@ export class SyncCoordinator {
 
 		for (const entry of consumers) {
 			this.#clearTimers(entry);
+			this.#removeFromConcurrencyQueue(entry);
 			entry.dirty = false;
 			entry.pendingMode = null;
 			entry.budgetYieldPending = false;
@@ -389,6 +416,16 @@ export class SyncCoordinator {
 						});
 					}
 				}
+				for (const listener of [...this.#scopeRevokedListeners]) {
+					try {
+						await listener(event);
+					} catch (err) {
+						this.#onWarning('scope_revoked: observer failed', {
+							scopeKey,
+							error: err instanceof Error ? err.message : String(err),
+						});
+					}
+				}
 			});
 
 		this.#purgeMutexByScope.set(scopeKey, next);
@@ -402,17 +439,49 @@ export class SyncCoordinator {
 
 	/**
 	 * Security-lane `offline.wipe` handler. NEVER blocked by `criticalActivity > 0`
-	 * or rollout flags. Synchronously bumps `sessionGeneration`, cancels all timers,
-	 * aborts all in-flight sync steps, awaits their settlement, then invokes
-	 * `onOfflineWipe`.
+	 * or rollout flags. Holds an explicit wipe admission fence while aborting
+	 * in-flight steps and running `onOfflineWipe` so no new sync step can be
+	 * admitted mid-wipe.
 	 */
 	async handleOfflineWipe(raw: unknown): Promise<void> {
 		if (this.#disposed) return;
 		const event = validateOfflineWipe(raw, this.#onWarning);
 		if (!event) return;
-		await this.abortAllInFlightAndFence('offline.wipe');
-		if (this.#onOfflineWipe) {
-			await this.#onOfflineWipe(event);
+		await this.runWithWipeFence('offline.wipe', async () => {
+			if (this.#onOfflineWipe) {
+				await this.#onOfflineWipe(event);
+			}
+		});
+	}
+
+	/**
+	 * Acquires an admission-blocking wipe fence, aborts & drains all in-flight sync
+	 * work, and returns an idempotent release function. While held, no new step can
+	 * be scheduled or acquire the bumped sessionGeneration.
+	 */
+	async beginWipeFence(reason = 'offline.wipe'): Promise<() => void> {
+		this.#wipeFenceDepth += 1;
+		let released = false;
+		try {
+			await this.abortAllInFlightAndFence(reason);
+		} catch (err) {
+			this.#wipeFenceDepth = Math.max(0, this.#wipeFenceDepth - 1);
+			throw err;
+		}
+		return () => {
+			if (released) return;
+			released = true;
+			this.#wipeFenceDepth = Math.max(0, this.#wipeFenceDepth - 1);
+		};
+	}
+
+	/** Runs `fn` with all sync admission fenced closed across the entire async wipe. */
+	async runWithWipeFence<T>(reason: string, fn: () => Promise<T>): Promise<T> {
+		const release = await this.beginWipeFence(reason);
+		try {
+			return await fn();
+		} finally {
+			release();
 		}
 	}
 
@@ -422,10 +491,14 @@ export class SyncCoordinator {
 	 */
 	async abortAllInFlightAndFence(reason = 'session fenced'): Promise<void> {
 		this.#sessionGeneration += 1;
+		this.#concurrencyWaitQueue.length = 0;
+		this.#queuedForConcurrency.clear();
 		const active: Promise<void>[] = [];
 		for (const entry of this.#entries.values()) {
 			this.#clearTimers(entry);
 			entry.dirty = false;
+			entry.pendingMode = null;
+			entry.budgetYieldPending = false;
 			entry.deferredByCritical = false;
 			if (entry.controller) {
 				entry.controller.abort(new SyncFenceAbortedError(reason));
@@ -468,20 +541,33 @@ export class SyncCoordinator {
 		this.#transport?.setAttachedScopes?.([]);
 	}
 
-	/** Awaits any currently running steps (and pending purges) for the given scope or all scopes. */
+	/** Awaits any currently running steps (and pending purges / queued concurrency slots) for the given scope or all scopes. */
 	async flush(scope?: ScopeKey): Promise<void> {
 		const targetKey = scope ? scopeKeyString(scope) : null;
-		const waits: Promise<void>[] = [];
-		for (const entry of this.#entries.values()) {
-			if (targetKey && entry.scopeKey !== targetKey) continue;
-			if (entry.inFlight) waits.push(entry.inFlight.catch(() => {}));
-		}
-		for (const [k, p] of this.#purgeMutexByScope) {
-			if (targetKey && k !== targetKey) continue;
-			waits.push(p.catch(() => {}));
-		}
-		if (waits.length > 0) {
+		// Loop because bounded global concurrency may start queued entries once
+		// earlier runs settle.
+		while (true) {
+			const waits: Promise<void>[] = [];
+			for (const entry of this.#entries.values()) {
+				if (entry.inFlight && (!targetKey || entry.scopeKey === targetKey || this.#queuedForConcurrency.size > 0)) {
+					waits.push(entry.inFlight.catch(() => {}));
+				}
+			}
+			for (const [k, p] of this.#purgeMutexByScope) {
+				if (targetKey && k !== targetKey) continue;
+				waits.push(p.catch(() => {}));
+			}
+			if (waits.length === 0) break;
 			await Promise.allSettled(waits);
+			// If nothing matching targetKey is still in-flight or queued, stop.
+			const stillPending =
+				[...this.#entries.values()].some(
+					(e) =>
+						(!targetKey || e.scopeKey === targetKey) &&
+						(e.inFlight !== null || this.#queuedForConcurrency.has(e)),
+				) ||
+				[...this.#purgeMutexByScope.keys()].some((k) => !targetKey || k === targetKey);
+			if (!stillPending) break;
 		}
 	}
 
@@ -511,6 +597,7 @@ export class SyncCoordinator {
 	#unregisterEntry(entry: ConsumerEntry): void {
 		entry.disposed = true;
 		this.#clearTimers(entry);
+		this.#removeFromConcurrencyQueue(entry);
 		if (entry.controller) {
 			entry.controller.abort(new SyncFenceAbortedError('adapter unregistered'));
 		}
@@ -521,6 +608,27 @@ export class SyncCoordinator {
 			if (set.size === 0) this.#entriesByScope.delete(entry.scopeKey);
 		}
 		this.#syncAttachedScopes();
+	}
+
+	#removeFromConcurrencyQueue(entry: ConsumerEntry): void {
+		if (!this.#queuedForConcurrency.delete(entry)) return;
+		const idx = this.#concurrencyWaitQueue.indexOf(entry);
+		if (idx >= 0) this.#concurrencyWaitQueue.splice(idx, 1);
+	}
+
+	#drainConcurrencyQueue(): void {
+		if (this.#disposed || this.#wipeFenceDepth > 0) return;
+		while (this.#activeRunCount < this.#maxGlobalConcurrency && this.#concurrencyWaitQueue.length > 0) {
+			const next = this.#concurrencyWaitQueue.shift()!;
+			this.#queuedForConcurrency.delete(next);
+			if (next.disposed || next.detached || next.inFlight || next.storageFull) continue;
+			if (isPreemptibleLane(next.lane) && this.#critical?.isActive()) {
+				next.deferredByCritical = true;
+				this.#emitState(next);
+				continue;
+			}
+			this.#startEntryRun(next);
+		}
 	}
 
 	#syncAttachedScopes(): void {
@@ -559,7 +667,7 @@ export class SyncCoordinator {
 	}
 
 	#resumeDeferredPreemptible(): void {
-		if (this.#disposed) return;
+		if (this.#disposed || this.#wipeFenceDepth > 0) return;
 		if (this.#critical?.isActive()) return;
 		for (const entry of this.#entries.values()) {
 			if (entry.disposed || entry.detached || entry.storageFull) continue;
@@ -576,7 +684,7 @@ export class SyncCoordinator {
 		wakeup: SyncWakeup | undefined,
 		immediate: boolean,
 	): void {
-		if (this.#disposed || entry.disposed || entry.detached) return;
+		if (this.#disposed || this.#wipeFenceDepth > 0 || entry.disposed || entry.detached) return;
 
 		// Preserve strongest trigger semantics (reconnect > wakeup > manual).
 		if (trigger === 'reconnect' || entry.pendingTrigger !== 'reconnect') {
@@ -599,6 +707,9 @@ export class SyncCoordinator {
 			this.#emitState(entry);
 			return;
 		}
+		if (this.#queuedForConcurrency.has(entry)) {
+			return;
+		}
 
 		// Cancel any pending backoff timer when an explicit trigger/wakeup arrives.
 		if (entry.backoffTimer !== null) {
@@ -612,7 +723,7 @@ export class SyncCoordinator {
 			}
 			entry.debounceTimer = setTimeout(() => {
 				entry.debounceTimer = null;
-				if (this.#disposed || entry.disposed || entry.detached) return;
+				if (this.#disposed || this.#wipeFenceDepth > 0 || entry.disposed || entry.detached) return;
 				if (isPreemptibleLane(entry.lane) && this.#critical?.isActive()) {
 					entry.deferredByCritical = true;
 					this.#emitState(entry);
@@ -631,8 +742,17 @@ export class SyncCoordinator {
 	}
 
 	#startEntryRun(entry: ConsumerEntry): void {
-		if (entry.inFlight || this.#disposed || entry.disposed || entry.detached) return;
+		if (entry.inFlight || this.#disposed || this.#wipeFenceDepth > 0 || entry.disposed || entry.detached) return;
+		if (this.#activeRunCount >= this.#maxGlobalConcurrency) {
+			if (!this.#queuedForConcurrency.has(entry)) {
+				this.#queuedForConcurrency.add(entry);
+				this.#concurrencyWaitQueue.push(entry);
+			}
+			return;
+		}
+		this.#activeRunCount += 1;
 		const run = this.#executeCycle(entry).finally(() => {
+			this.#activeRunCount = Math.max(0, this.#activeRunCount - 1);
 			if (entry.inFlight === run) {
 				entry.inFlight = null;
 			}
@@ -641,6 +761,7 @@ export class SyncCoordinator {
 
 			if (
 				!this.#disposed &&
+				this.#wipeFenceDepth === 0 &&
 				!entry.disposed &&
 				!entry.detached &&
 				entry.dirty &&
@@ -657,7 +778,9 @@ export class SyncCoordinator {
 					// Yield one turn before resuming a SyncBudget-paused multi-page resync/reconcile.
 					entry.debounceTimer = setTimeout(() => {
 						entry.debounceTimer = null;
-						if (this.#disposed || entry.disposed || entry.detached || entry.storageFull) return;
+						if (this.#disposed || this.#wipeFenceDepth > 0 || entry.disposed || entry.detached || entry.storageFull) {
+							return;
+						}
 						if (isPreemptibleLane(entry.lane) && this.#critical?.isActive()) {
 							entry.deferredByCritical = true;
 							this.#emitState(entry);
@@ -669,6 +792,7 @@ export class SyncCoordinator {
 					this.#scheduleEntry(entry, entry.pendingTrigger, entry.pendingWakeup, entry.debounceMs === 0);
 				}
 			}
+			this.#drainConcurrencyQueue();
 		});
 		entry.inFlight = run;
 		this.#emitState(entry);
@@ -691,6 +815,7 @@ export class SyncCoordinator {
 			sessionGeneration: startSessionGen,
 			isCommitAllowed: () =>
 				!this.#disposed &&
+				this.#wipeFenceDepth === 0 &&
 				!entry.disposed &&
 				!entry.detached &&
 				!controller.signal.aborted &&

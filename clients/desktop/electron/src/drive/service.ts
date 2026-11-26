@@ -108,6 +108,9 @@ interface SpaceRuntime {
 	http: DriveHttp;
 	state: DriveMirrorSpaceStatus['state'];
 	lastSyncMs: number | null;
+	lastPolledAtMs: number;
+	verifyBeforeNextPass: boolean;
+	manualResyncRequested: boolean;
 	aclMode: 'legacy' | 'shadow' | 'acl';
 	unmanagedAclRiskAccepted: boolean;
 }
@@ -158,9 +161,11 @@ export class MirrorService {
 	/** Explicit running state independent of whether pollTimer is temporarily
 	 *  slowed/suspended while renderer wakeup bridge is connected (#555). */
 	private running = false;
-	private wakeupConnected = false;
+	private wakeupConnectedAll = false;
+	private wakeupConnectedSpaces = new Set<number>();
 	private pollTimer: ReturnType<typeof setInterval> | null = null;
-	private syncCoordinator = new SyncCoordinator();
+	/** Global concurrency = 1 serializes shared SQLCipher `drive` store transactions across spaces (#555). */
+	private syncCoordinator = new SyncCoordinator({ maxGlobalConcurrency: 1 });
 	private adapterUnsubs = new Map<number, () => void>();
 	/** Untrusted renderer IPC rate-limiting & burst accounting (#555). */
 	private lastWakeupAtMs = new Map<number, number>();
@@ -208,10 +213,14 @@ export class MirrorService {
 			throw new Error(`resync: unknown space ${spaceId}`);
 		}
 		const targets = spaceId != null ? [this.spaces.get(spaceId) as SpaceRuntime] : [...this.spaces.values()];
+		// Route manual resync through SyncCoordinator so it respects single-flight
+		// coalescing, shared-DB serialization, and revocation fencing (#555).
 		for (const rt of targets) {
-			await rt.mirror.verify();
-			await this.runPass(rt);
+			rt.verifyBeforeNextPass = true;
+			rt.manualResyncRequested = true;
+			this.syncCoordinator.trigger({ kind: 'space', id: String(rt.spaceId) }, { immediate: true });
 		}
+		await this.syncCoordinator.flush(spaceId != null ? { kind: 'space', id: String(spaceId) } : undefined);
 	}
 
 	async openRoot(spaceId: number): Promise<void> {
@@ -327,32 +336,82 @@ export class MirrorService {
 		return true;
 	}
 
+	private isSpaceWakeupConnected(spaceId: number): boolean {
+		return this.wakeupConnectedAll || this.wakeupConnectedSpaces.has(spaceId);
+	}
+
+	private allSpacesWakeupCovered(): boolean {
+		if (this.spaces.size === 0) return false;
+		if (this.wakeupConnectedAll) return true;
+		for (const id of this.spaces.keys()) {
+			if (!this.wakeupConnectedSpaces.has(id)) return false;
+		}
+		return true;
+	}
+
 	/**
-	 * Marks whether an active renderer wakeup bridge is connected.
-	 * While connected, the 30s blind poll slows to `safetyNetPollMs`; on
-	 * disconnect / window close, the main-process polling loop is immediately
-	 * restored so mirror sync and revocations never stall. `isRunning()` stays
-	 * `true` across both states. Rapid toggles are rate-limited so a compromised
-	 * renderer cannot DoS `handleReconnect()`.
+	 * Marks whether an active renderer wakeup bridge is connected (globally when
+	 * `spaceId` is omitted, or scoped to a single viewed space when `spaceId` is
+	 * passed). Only spaces actively covered by a connected renderer WS slow to
+	 * `safetyNetPollMs`; sibling mirrored spaces keep the 30s main-process poll.
+	 * On disconnect / window close / render-process-gone, fast polling is restored
+	 * immediately with rate-limited reconnect catch-up. `isRunning()` stays `true`.
 	 */
-	setWakeupConnected(connected: boolean): void {
-		if (this.wakeupConnected === connected) return;
-		this.wakeupConnected = connected;
+	setWakeupConnected(connected: boolean, spaceId?: number): void {
+		let changed = false;
+		let disconnectedScope: number | null | 'all' = null;
+		if (spaceId !== undefined) {
+			if (connected) {
+				const rt = this.spaces.get(spaceId);
+				if (rt && !this.wakeupConnectedSpaces.has(spaceId)) {
+					this.wakeupConnectedSpaces.add(spaceId);
+					if (rt.lastPolledAtMs === 0) rt.lastPolledAtMs = Date.now();
+					changed = true;
+				}
+			} else if (this.wakeupConnectedSpaces.delete(spaceId)) {
+				changed = true;
+				disconnectedScope = spaceId;
+			}
+		} else if (connected) {
+			if (!this.wakeupConnectedAll) {
+				this.wakeupConnectedAll = true;
+				const now = Date.now();
+				for (const rt of this.spaces.values()) {
+					if (rt.lastPolledAtMs === 0) rt.lastPolledAtMs = now;
+				}
+				changed = true;
+			}
+		} else if (this.wakeupConnectedAll || this.wakeupConnectedSpaces.size > 0) {
+			this.wakeupConnectedAll = false;
+			this.wakeupConnectedSpaces.clear();
+			changed = true;
+			disconnectedScope = 'all';
+		}
+
+		if (!changed) return;
 		if (this.running) {
 			this.reschedulePollTimer();
-			if (!connected && !this.paused) {
+			if (disconnectedScope !== null && !this.paused) {
 				const now = Date.now();
 				const minGap = this.deps.reconnectMinIntervalMs ?? 1_000;
 				if (now - this.lastReconnectAtMs >= minGap) {
 					this.lastReconnectAtMs = now;
-					this.syncCoordinator.handleReconnect();
+					if (disconnectedScope === 'all') {
+						this.syncCoordinator.handleReconnect();
+					} else {
+						this.syncCoordinator.trigger(
+							{ kind: 'space', id: String(disconnectedScope) },
+							{ immediate: true },
+						);
+					}
 				}
 			}
 		}
 	}
 
-	isWakeupConnected(): boolean {
-		return this.wakeupConnected;
+	isWakeupConnected(spaceId?: number): boolean {
+		if (spaceId !== undefined) return this.isSpaceWakeupConnected(spaceId);
+		return this.wakeupConnectedAll || this.wakeupConnectedSpaces.size > 0;
 	}
 
 	/**
@@ -378,22 +437,69 @@ export class MirrorService {
 
 	/**
 	 * Untrusted renderer IPC scope_revoked nudge (#555): validated fail-closed
-	 * and rate-limited so a compromised renderer cannot DoS `reconcileVisibility()`.
-	 * Runs on SyncCoordinator's security lane immediately when admitted.
+	 * and rate-limited. NEVER trusts renderer IPC as authority to delete mirrored
+	 * files — always verifies access against the authenticated server using
+	 * MirrorService's own main-process native token first, purging/detaching a
+	 * full space ONLY if the server confirms access loss (HTTP 403/404 or space
+	 * absent from `/spaces`).
 	 */
 	async notifyScopeRevoked(rawHint: unknown): Promise<boolean> {
 		const evt = validateScopeRevoked(rawHint);
 		if (evt?.scopeKind !== 'space') return false;
 		const spaceId = Number(evt.scopeId);
-		if (!Number.isSafeInteger(spaceId) || !this.spaces.has(spaceId)) return false;
+		const rt = Number.isSafeInteger(spaceId) ? this.spaces.get(spaceId) : undefined;
+		if (!rt) return false;
 		const now = Date.now();
 		const minGap = this.deps.revokeMinIntervalMs ?? 500;
 		const rateKey = `${spaceId}:${evt.subtreeAnchorId ?? '*'}`;
 		const last = this.lastRevokeAtMs.get(rateKey) ?? 0;
 		if (now - last < minGap || !this.allowGlobalNudge(now)) return false;
 		this.lastRevokeAtMs.set(rateKey, now);
-		await this.syncCoordinator.handleScopeRevoked(evt);
+
+		await this.maybeRenewToken();
+		if (!this.token) {
+			// Cannot confirm revocation with the authenticated server without a token;
+			// never delete local files on an unverified renderer hint.
+			return true;
+		}
+
+		if (evt.subtreeAnchorId !== undefined) {
+			// Subtree revocation: purgeScopeCache runs server-authoritative
+			// reconcileVisibility() via main's bearer token (never trusts local/renderer closure).
+			await this.syncCoordinator.handleScopeRevoked(evt);
+			return true;
+		}
+
+		// Full-space revocation hint: confirm access loss with the authenticated server
+		// BEFORE detaching or deleting any local mirrored files.
+		const confirmedRevoked = await this.confirmFullSpaceRevocation(rt);
+		if (confirmedRevoked) {
+			await this.syncCoordinator.handleScopeRevoked(evt);
+		}
 		return true;
+	}
+
+	private async confirmFullSpaceRevocation(rt: SpaceRuntime): Promise<boolean> {
+		try {
+			await rt.engine.reconcileVisibility();
+		} catch (err) {
+			if (err instanceof DriveApiError && (err.status === 403 || err.status === 404)) {
+				return true;
+			}
+			// Transient network/5xx/401: fail safe — do NOT delete user files.
+			return false;
+		}
+		// Visibility probe returned 200 OK; double-check membership in /spaces in case
+		// the space was removed without returning 403/404 on invalidations.
+		try {
+			const remoteSpaces = await rt.http.spaces();
+			return !remoteSpaces.some((s) => s.id === rt.spaceId);
+		} catch (err) {
+			if (err instanceof DriveApiError && (err.status === 403 || err.status === 404)) {
+				return true;
+			}
+			return false;
+		}
 	}
 
 	/** Exposed for tests to await coordinator-scheduled wakeup passes. */
@@ -405,7 +511,8 @@ export class MirrorService {
 
 	async stop(): Promise<void> {
 		this.running = false;
-		this.wakeupConnected = false;
+		this.wakeupConnectedAll = false;
+		this.wakeupConnectedSpaces.clear();
 		if (this.pollTimer) clearInterval(this.pollTimer);
 		this.pollTimer = null;
 		for (const timer of this.busyRetryTimers.values()) clearTimeout(timer);
@@ -521,11 +628,17 @@ export class MirrorService {
 				http,
 				state: 'idle',
 				lastSyncMs: null,
+				lastPolledAtMs: 0,
+				verifyBeforeNextPass: false,
+				manualResyncRequested: false,
 				aclMode: remoteSpace?.aclMode ?? 'legacy',
 				unmanagedAclRiskAccepted: cfg.acceptUnmanagedAclRisk === true,
 			};
 			this.spaces.set(cfg.spaceId, runtime);
 			this.registerSpaceAdapter(runtime);
+		}
+		if (this.running) {
+			this.reschedulePollTimer();
 		}
 	}
 
@@ -559,19 +672,38 @@ export class MirrorService {
 			debounceMs: 0,
 			runDeltaStep: async (ctx: SyncStepContext): Promise<StepOutcome> => {
 				ctx.fence.assertCommitAllowed();
-				if (this.paused || !this.spaces.has(rt.spaceId)) {
+				const manual = rt.manualResyncRequested;
+				const verify = rt.verifyBeforeNextPass;
+				rt.manualResyncRequested = false;
+				rt.verifyBeforeNextPass = false;
+				if ((this.paused && !manual) || !this.spaces.has(rt.spaceId)) {
 					return { kind: 'complete', recordsProcessed: 0 };
 				}
 				await this.maybeRenewToken();
 				ctx.fence.assertCommitAllowed();
-				await this.runPass(rt, { signal: ctx.signal, fence: ctx.fence });
-				return { kind: 'complete', recordsProcessed: 1 };
+				if (verify) {
+					await rt.mirror.verify();
+					ctx.fence.assertCommitAllowed();
+				}
+				const pass = await this.runPass(rt, {
+					signal: ctx.signal,
+					fence: ctx.fence,
+					budget: ctx.budget,
+				});
+				return {
+					kind: pass.hasMore ? 'partial' : 'complete',
+					recordsProcessed: pass.processed,
+				};
 			},
 			reconcileScopeMembership: async (ctx: SyncStepContext): Promise<StepOutcome> => {
 				ctx.fence.assertCommitAllowed();
 				await this.maybeRenewToken();
 				ctx.fence.assertCommitAllowed();
-				const res = await rt.engine.reconcileVisibility({ signal: ctx.signal, fence: ctx.fence });
+				const res = await rt.engine.reconcileVisibility({
+					signal: ctx.signal,
+					fence: ctx.fence,
+					budget: ctx.budget,
+				});
 				return { kind: 'complete', recordsProcessed: res.downloaded };
 			},
 			purgeScopeCache: async (event: ScopeRevokedEvent): Promise<void> => {
@@ -582,10 +714,11 @@ export class MirrorService {
 					await rt.engine.reconcileVisibility();
 					return;
 				}
-				// Full-space revocation (4b + 4d): stop watching & detach space from
-				// active sync map so pollOnce() never syncs a revoked space, purge local
-				// files, and keep a bounded retry timer alive while any file is 'busy'.
+				// Server-confirmed full-space revocation (4b + 4d): stop watching & detach
+				// space from active sync map so pollOnce() never syncs a revoked space,
+				// purge local files, and keep a bounded retry timer alive while any file is 'busy'.
 				this.spaces.delete(rt.spaceId);
+				this.wakeupConnectedSpaces.delete(rt.spaceId);
 				this.adapterUnsubs.get(rt.spaceId)?.();
 				this.adapterUnsubs.delete(rt.spaceId);
 				await rt.mirror.stop();
@@ -599,10 +732,15 @@ export class MirrorService {
 		this.adapterUnsubs.set(rt.spaceId, unsub);
 	}
 
+	private safetyNetIntervalMs(): number {
+		const base = this.deps.pollMs ?? 30_000;
+		return this.deps.safetyNetPollMs ?? Math.max(300_000, base * 10);
+	}
+
 	private currentPollIntervalMs(): number {
 		const base = this.deps.pollMs ?? 30_000;
-		if (this.wakeupConnected) {
-			return this.deps.safetyNetPollMs ?? Math.max(300_000, base * 10);
+		if (this.allSpacesWakeupCovered()) {
+			return this.safetyNetIntervalMs();
 		}
 		return base;
 	}
@@ -626,9 +764,17 @@ export class MirrorService {
 	private async pollOnce(): Promise<void> {
 		if (this.paused) return;
 		await this.maybeRenewToken();
+		const now = Date.now();
+		const safetyMs = this.safetyNetIntervalMs();
 		// Route periodic passes through SyncCoordinator so pollOnce() shares
-		// single-flight coalescing and revocation fencing with wakeup/revoke hints (#555 4b).
+		// single-flight coalescing, DB serialization, and revocation fencing (#555 4b).
+		// Wakeup-covered spaces skip fast ticks until safetyNetIntervalMs elapses,
+		// while non-covered sibling spaces keep polling on every base tick (#555).
 		for (const rt of [...this.spaces.values()]) {
+			if (this.isSpaceWakeupConnected(rt.spaceId) && rt.lastPolledAtMs > 0 && now - rt.lastPolledAtMs < safetyMs) {
+				continue;
+			}
+			rt.lastPolledAtMs = now;
 			this.syncCoordinator.trigger({ kind: 'space', id: String(rt.spaceId) }, { immediate: true });
 		}
 		await this.syncCoordinator.flush();
@@ -638,15 +784,21 @@ export class MirrorService {
 	 *  next tick retries (spec: a transient failure must not wedge sync). */
 	private async runPass(
 		rt: SpaceRuntime,
-		exec?: { signal?: AbortSignal; fence?: { assertCommitAllowed(): void } },
-	): Promise<void> {
+		exec?: {
+			signal?: AbortSignal;
+			fence?: { assertCommitAllowed(): void };
+			budget?: { maxRecords: number; maxBytes: number; deadlineMonoMs: number };
+		},
+	): Promise<{ processed: number; hasMore: boolean }> {
 		if (!this.token) {
 			rt.state = 'auth-expired';
 			this.notify();
-			return;
+			return { processed: 0, hasMore: false };
 		}
 		rt.state = 'syncing';
 		this.notify();
+		let processed = 0;
+		let hasMore = false;
 		try {
 			exec?.fence?.assertCommitAllowed();
 			const changesBeforeScan = rt.mirror.drainLocalChanges() as LocalChange[];
@@ -655,14 +807,16 @@ export class MirrorService {
 			const changesAfterScan = rt.mirror.drainLocalChanges() as LocalChange[];
 			for (const c of changesAfterScan) await rt.engine.onLocalChange(c);
 			await this.maybeSoftCheckout(rt, [...changesBeforeScan, ...changesAfterScan]);
-			await rt.engine.syncOnce(exec);
+			const res = await rt.engine.syncOnce(exec);
+			processed = res.uploaded + res.downloaded;
+			hasMore = Boolean(res.hasMore);
 			exec?.fence?.assertCommitAllowed();
 			await this.applyLockChmods(rt);
 			rt.state = 'idle';
 			rt.lastSyncMs = Date.now();
 		} catch (err) {
 			if (err instanceof Error && (err.name === 'SyncFenceAbortedError' || err.name === 'AbortError')) {
-				return;
+				return { processed, hasMore: false };
 			}
 			if (err instanceof DriveApiError && err.status === 401) {
 				rt.state = 'auth-expired';
@@ -672,6 +826,7 @@ export class MirrorService {
 			}
 		}
 		this.notify();
+		return { processed, hasMore };
 	}
 
 	/** LR-6: the poll cycle learns hard locks from the live per-space lock list
@@ -820,7 +975,11 @@ export function makeDriveMirrorHandlers(service: MirrorService): HandlerMap {
 export function makeDriveMirrorWakeupHandlers(service: MirrorService): HandlerMap {
 	return {
 		drive_mirror_wakeup_nudge: (hint: unknown) => service.notifyWakeup(hint),
-		drive_mirror_wakeup_state: (connected: unknown) => service.setWakeupConnected(Boolean(connected)),
+		drive_mirror_wakeup_state: (connected: unknown, spaceId?: unknown) =>
+			service.setWakeupConnected(
+				Boolean(connected),
+				typeof spaceId === 'number' && Number.isSafeInteger(spaceId) ? spaceId : undefined,
+			),
 		drive_mirror_scope_revoked_nudge: (hint: unknown) => service.notifyScopeRevoked(hint),
 	};
 }

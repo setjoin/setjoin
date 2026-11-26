@@ -273,6 +273,7 @@ export class ChatStore {
 	 *  `scope_revoked` so late-settling fetches for that channel cannot repopulate
 	 *  evicted messages or cursors. */
 	#channelRevocationEpoch = new Map<number, number>();
+	#globalRevocationEpoch = 0;
 
 	/** Design F14 — total unread across every conversation + whether any of them mentions me.
 	 *  Mirrors ChannelList.svelte's showBadge() mute rules (whole-pipeline review UX #6): a
@@ -812,15 +813,31 @@ export class ChatStore {
 	 *  ('sending'/'failed') rows carry a synthetic seq and are excluded, or every
 	 *  backfill/reconcile while a send is in flight would ask the server for
 	 *  "since Number.MAX_SAFE_INTEGER" and get nothing back. */
+	#isServerConfirmedRow(m: Pick<StoreMessage, 'messageId' | 'seq' | 'status'>): boolean {
+		return (
+			m.status === 'sent' &&
+			m.messageId > 0 &&
+			Number.isSafeInteger(m.seq) &&
+			m.seq > 0 &&
+			m.seq < Number.MAX_SAFE_INTEGER
+		);
+	}
+
+	#safeCursorValue(seq: number): number {
+		return Number.isSafeInteger(seq) && seq >= 0 && seq < Number.MAX_SAFE_INTEGER ? seq : 0;
+	}
+
 	#maxSeqFor(channelId: number): number {
 		const rows = this.messagesByChannel[channelId];
-		const rowMax = rows?.reduce((max, m) => (m.status === 'sent' && m.seq > max ? m.seq : max), 0) ?? 0;
+		const rowMax =
+			rows?.reduce((max, m) => (this.#isServerConfirmedRow(m) && m.seq > max ? m.seq : max), 0) ?? 0;
 		return Math.max(rowMax, this.#replayCursorByChannel.get(channelId) ?? 0);
 	}
 
 	#applyReplay(channelId: number, replay: ChatReplay): void {
 		const current = this.#replayCursorByChannel.get(channelId) ?? 0;
-		this.#replayCursorByChannel.set(channelId, Math.max(current, replay.cursor));
+		const safeReplayCursor = this.#safeCursorValue(replay.cursor);
+		this.#replayCursorByChannel.set(channelId, Math.max(current, safeReplayCursor));
 		for (const row of replay.messages) this.#upsertMessage(channelId, row);
 	}
 
@@ -830,19 +847,51 @@ export class ChatStore {
 	}
 
 	/**
+	 * Incremental replay application for SyncCoordinator (`chatOnline` adapter, #555):
+	 * applies server rows via `#upsertMessage` and advances the server replay cursor
+	 * monotonically without modifying pending/failed local optimistic rows or letting
+	 * synthetic `Number.MAX_SAFE_INTEGER` seqs enter `#replayCursorByChannel`.
+	 */
+	applyIncrementalReplay(channelId: number, replay: ChatReplay): void {
+		this.#applyReplay(channelId, replay);
+	}
+
+	/**
 	 * Non-additive channel snapshot replacement (#553/#555): replaces the channel's
-	 * cached timeline with the authoritative server snapshot, removing vanished/
-	 * deleted messages and preserving server-authoritative order (ARCH-008: zero
-	 * client-side re-sorting).
+	 * server-confirmed timeline with the authoritative server snapshot, removing
+	 * vanished/deleted messages and preserving server-authoritative order (ARCH-008:
+	 * zero client-side re-sorting). Any local in-flight `'sending'` or `'failed'`
+	 * optimistic rows are preserved at the tail with their status intact and NEVER
+	 * advance `#replayCursorByChannel`.
 	 */
 	replaceChannelSnapshot(channelId: number, messages: ChatMessage[], cursor?: number): void {
-		const nextRows: StoreMessage[] = messages.map((m) => ({ ...m, status: 'sent' as const }));
+		const serverRows: StoreMessage[] = [];
+		const serverIds = new Set<number>();
+		for (const raw of messages) {
+			const maybeStore = raw as Partial<StoreMessage>;
+			if (
+				maybeStore.status === 'sending' ||
+				maybeStore.status === 'failed' ||
+				raw.messageId <= 0 ||
+				!Number.isSafeInteger(raw.seq) ||
+				raw.seq >= Number.MAX_SAFE_INTEGER
+			) {
+				continue;
+			}
+			serverIds.add(raw.messageId);
+			serverRows.push({ ...raw, status: 'sent' as const });
+		}
+		const existing = this.messagesByChannel[channelId] ?? [];
+		const localPending = existing.filter(
+			(row) => (row.status === 'sending' || row.status === 'failed') && !serverIds.has(row.messageId),
+		);
 		this.messagesByChannel = {
 			...this.messagesByChannel,
-			[channelId]: nextRows,
+			[channelId]: [...serverRows, ...localPending],
 		};
-		const rowMax = nextRows.reduce((max, m) => (m.seq > max ? m.seq : max), 0);
-		const nextCursor = cursor !== undefined ? Math.max(cursor, rowMax) : rowMax;
+		const rowMax = serverRows.reduce((max, m) => (m.seq > max ? m.seq : max), 0);
+		const safeCursor = cursor !== undefined ? this.#safeCursorValue(cursor) : 0;
+		const nextCursor = Math.max(safeCursor, rowMax);
 		this.#replayCursorByChannel.set(channelId, nextCursor);
 	}
 
@@ -871,6 +920,7 @@ export class ChatStore {
 	 * `pollResultsByPollId`, `pendingAttachments`, and `#replayCursorByChannel`.
 	 */
 	revokeChannelScope(channelId: number): void {
+		this.#globalRevocationEpoch += 1;
 		this.#channelRevocationEpoch.set(
 			channelId,
 			(this.#channelRevocationEpoch.get(channelId) ?? 0) + 1,
@@ -1201,16 +1251,37 @@ export class ChatStore {
 		const row = this.messagesByChannel[channelId]?.find((r) => r.messageId === messageId);
 		const pollId = (row?.payload as { pollId?: number } | null | undefined)?.pollId;
 		if (pollId == null || !(pollId in this.pollResultsByPollId)) return;
-		await this.loadPollResults(pollId);
+		await this.loadPollResults(pollId, channelId);
+	}
+
+	#findChannelIdForPoll(pollId: number): number | null {
+		for (const [cidRaw, rows] of Object.entries(this.messagesByChannel)) {
+			if (rows.some((r) => (r.payload as { pollId?: number } | null | undefined)?.pollId === pollId)) {
+				const cid = Number(cidRaw);
+				if (Number.isSafeInteger(cid)) return cid;
+			}
+		}
+		return null;
 	}
 
 	/** Loads (or refreshes) one poll's tally/voter cache — Task 15's poll
 	 *  render calls this; applyEvent's 'poll_voted' arm calls it again only
-	 *  for an already-cached, currently-active-channel poll. */
-	async loadPollResults(pollId: number): Promise<void> {
+	 *  for an already-cached, currently-active-channel poll. Fenced by both
+	 *  session generation and channel revocation epoch (#555). */
+	async loadPollResults(pollId: number, channelId?: number): Promise<void> {
 		const generation = this.#sessionGeneration;
+		const ownerChannelId = channelId ?? this.#findChannelIdForPoll(pollId);
+		const revEpoch =
+			ownerChannelId != null ? (this.#channelRevocationEpoch.get(ownerChannelId) ?? 0) : null;
+		const globalRevEpoch = this.#globalRevocationEpoch;
 		const results = await chatApi.pollResults(pollId);
-		if (generation === this.#sessionGeneration) this.pollResultsByPollId[pollId] = results;
+		if (generation !== this.#sessionGeneration) return;
+		if (ownerChannelId != null) {
+			if ((this.#channelRevocationEpoch.get(ownerChannelId) ?? 0) !== revEpoch) return;
+		} else if (this.#globalRevocationEpoch !== globalRevEpoch) {
+			return;
+		}
+		this.pollResultsByPollId[pollId] = results;
 	}
 
 	/** Monotonic, same non-rewind guarantee as #syncReadWatermark — a stale/

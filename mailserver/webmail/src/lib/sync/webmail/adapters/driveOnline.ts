@@ -19,7 +19,7 @@ export interface DriveOnlineSyncAdapterOptions {
 	getSinceSeq: () => number;
 	setSinceSeq: (seq: number) => void;
 	fetchChanges: (spaceId: number, sinceSeq: number, signal: AbortSignal) => Promise<DriveChangesResponse>;
-	reloadListing: (signal?: AbortSignal) => Promise<void>;
+	reloadListing: (signal?: AbortSignal, fence?: SyncStepContext['fence']) => Promise<void>;
 	clearSpaceView: () => void;
 }
 
@@ -56,12 +56,12 @@ export function createDriveOnlineSyncAdapter(options: DriveOnlineSyncAdapterOpti
 				if (typeof res.newState === 'number' && Number.isFinite(res.newState)) {
 					options.setSinceSeq(res.newState);
 				}
-				await options.reloadListing(ctx.signal);
+				await options.reloadListing(ctx.signal, ctx.fence);
 				ctx.fence.assertCommitAllowed();
 				return { kind: 'complete', recordsProcessed: res.changed.length };
 			}
 			if (ctx.trigger === 'reconnect') {
-				await options.reloadListing(ctx.signal);
+				await options.reloadListing(ctx.signal, ctx.fence);
 				ctx.fence.assertCommitAllowed();
 			}
 			return { kind: 'complete', recordsProcessed: 0 };
@@ -70,7 +70,7 @@ export function createDriveOnlineSyncAdapter(options: DriveOnlineSyncAdapterOpti
 		async runFullResyncStep(ctx: SyncStepContext): Promise<StepOutcome> {
 			ctx.fence.assertCommitAllowed();
 			options.setSinceSeq(0);
-			await options.reloadListing(ctx.signal);
+			await options.reloadListing(ctx.signal, ctx.fence);
 			ctx.fence.assertCommitAllowed();
 			return { kind: 'complete', recordsProcessed: 1 };
 		},

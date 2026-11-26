@@ -17,7 +17,15 @@ import type { ScopeRevokedEvent, StepOutcome, SyncScopeAdapter, SyncStepContext 
 export interface DriveVaultSyncAdapterOptions {
 	spaceId: number;
 	vaultStore: VaultStore;
-	/** Optional server-authoritative visibility reconciler for subtree revocations (ARCH-020). */
+	/**
+	 * Optional server-authoritative manifest visibility filter for subtree
+	 * revocations (ARCH-020): given the space's cached node IDs, returns the
+	 * subset still visible on the server so revoked descendants are evicted.
+	 * When omitted, subtree revocation fails closed by purging all cached
+	 * manifests for `spaceId` so no revoked descendant can survive.
+	 */
+	reconcileManifests?: (cachedNodeIds: readonly number[]) => Promise<readonly number[]>;
+	/** Optional server-authoritative UI visibility refresh for subtree revocations (ARCH-020). */
 	reconcileVisibility?: () => Promise<void>;
 	/** Optional delta sync hook when a space wakeup arrives. */
 	onWakeupSync?: (ctx: SyncStepContext) => Promise<StepOutcome>;
@@ -55,11 +63,20 @@ export function createDriveVaultSyncAdapter(options: DriveVaultSyncAdapterOption
 		async purgeScopeCache(event: ScopeRevokedEvent): Promise<void> {
 			if (event.scopeKind !== 'space' || event.scopeId !== String(spaceId)) return;
 			if (event.subtreeAnchorId !== undefined) {
-				// Optional immediate local eviction of the anchor node, ALWAYS followed
-				// by server-authoritative fullVisibilityReconcile() (ARCH-020).
-				const anchorId = Number(event.subtreeAnchorId);
-				if (Number.isSafeInteger(anchorId) && anchorId > 0) {
-					await vaultStore.revoke(anchorId, false);
+				// ARCH-020: local parent/child closure is never authoritative.
+				if (options.reconcileManifests) {
+					const cachedIds = await vaultStore.listSpaceNodeIds(spaceId);
+					const stillVisible = new Set(await options.reconcileManifests(cachedIds));
+					for (const nodeId of cachedIds) {
+						if (!stillVisible.has(nodeId)) {
+							await vaultStore.revoke(nodeId, false);
+						}
+					}
+				} else {
+					// Fail closed when no server-side manifest visibility index is wired:
+					// purge all disposable cached manifests for this space so revoked
+					// descendants can never survive on disk.
+					await vaultStore.purgeSpace(spaceId);
 				}
 				if (options.reconcileVisibility) {
 					await options.reconcileVisibility();
@@ -117,9 +134,16 @@ export function createDriveMirrorSyncAdapter(options: DriveMirrorSyncAdapterOpti
 		async runDeltaStep(ctx: SyncStepContext): Promise<StepOutcome> {
 			ctx.fence.assertCommitAllowed();
 			try {
-				const res = await engine.syncOnce({ signal: ctx.signal, fence: ctx.fence });
+				const res = await engine.syncOnce({
+					signal: ctx.signal,
+					fence: ctx.fence,
+					budget: ctx.budget,
+				});
 				ctx.fence.assertCommitAllowed();
-				return { kind: 'complete', recordsProcessed: res.uploaded + res.downloaded };
+				return {
+					kind: res.hasMore ? 'partial' : 'complete',
+					recordsProcessed: res.uploaded + res.downloaded,
+				};
 			} catch (err) {
 				if (err instanceof DriveApiError && err.status === 409) {
 					return { kind: 'cannotCalculateChanges', detail: 'drive_mirror_http_409' };

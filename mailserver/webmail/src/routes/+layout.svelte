@@ -148,14 +148,38 @@
     return composeOfflineCoordinatorForSession($jmapSession, $user);
   });
 
-  // Wave 2.8 (#555): activate the singleton Webmail SyncCoordinator for every
-  // authenticated session (wires auth session teardown + pre-wipe hooks and
-  // registers the E4-I default-inert offline-mail adapter for member sessions).
+  // Wave 2.8 (#555): activate the singleton Webmail SyncCoordinator, install the
+  // session-scoped `offline.wipe` control handler (reinstalled cleanly across SPA
+  // logout → re-login), evict ANY cached inactive Chat channel on `scope_revoked`,
+  // and register the E4-I default-inert offline-mail adapter for member sessions.
   $effect(() => {
     if (!$authenticated) return;
     const coord = getWebmailSyncCoordinator(guestSession ? 'guest' : 'member');
-    if (guestSession) return;
-    return coord.register(createOfflineMailSyncAdapter({ mailboxScopeId: 'primary' }));
+    const offRevoke = coord.onScopeRevoked((event) => {
+      if (event.scopeKind !== 'channel') return;
+      const cid = Number(event.scopeId);
+      if (Number.isSafeInteger(cid) && cid > 0) {
+        chatStore.revokeChannelScope(cid);
+      }
+    });
+    const offWipe = guestSession
+      ? null
+      : installWipeHandler({
+          logout: () => {
+            // Fire auth logout (clears tokens/cookies) then navigate to the security-event
+            // screen. Errors are ignored — we navigate regardless so the user is never
+            // left in a limbo half-auth state.
+            void logout().finally(() => goto('/security-event?reason=remote-wipe'));
+          },
+        });
+    const offOfflineMail = guestSession
+      ? null
+      : coord.register(createOfflineMailSyncAdapter({ mailboxScopeId: 'primary' }));
+    return () => {
+      offOfflineMail?.();
+      offWipe?.();
+      offRevoke();
+    };
   });
 
   // Active app detection from current route
@@ -310,18 +334,6 @@
     }
     document.addEventListener('keydown', onKeydown);
 
-    // Wire the remote-wipe push handler. The logout passed here MUST navigate to
-    // /security-event (not the plain login form) — honest-recovery-path requirement
-    // (brief §DESIGN). The wipe handler owns session teardown; this bootstrap just
-    // composes the correct destination. Returns an unsubscribe cleaned up on unmount.
-    const offWipe = installWipeHandler({
-      logout: () => {
-        // Fire auth logout (clears tokens/cookies) then navigate to the security-event
-        // screen. Errors are ignored — we navigate regardless so the user is never
-        // left in a limbo half-auth state.
-        void logout().finally(() => goto('/security-event?reason=remote-wipe'));
-      },
-    });
     // Native-shell push action bridge (QoL #9): window.__setjoinPushAction.
     const offPushAction = installPushActionHandler();
     // Native-shell push-MFA registration: capture the OS push token + device
@@ -332,7 +344,6 @@
 
     return () => {
       document.removeEventListener('keydown', onKeydown);
-      offWipe();
       offPushAction();
 			swGenerationCoordinator?.dispose();
 			swGenerationCoordinator = null;

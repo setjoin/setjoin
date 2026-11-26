@@ -5,7 +5,8 @@
 
 	import { loadSession, uploadBlob, sha256Hex, putBlob } from '$lib/jmap/client';
 	import { composeStore } from '$lib/stores/compose';
-	import { PushHandlerStore } from '$lib/stores/pushHandler.svelte';
+	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { createJmapRefreshAdapter, PIM_DEBOUNCE_MS } from '$lib/sync/webmail/adapters/jmapOnline';
 	import { parseError } from '$lib/errors';
 	import { validate, required, maxLength, isEmail, normalize } from '$lib/validation';
 	import {
@@ -100,7 +101,7 @@
 		avatar: ''
 	});
 
-	const push = new PushHandlerStore();
+	let offContactsSync: (() => void) | null = null;
 
 	onMount(async () => {
 		try {
@@ -116,21 +117,16 @@
 			if ($selectedAddressBookId) {
 				await refreshContacts();
 			}
-			// Cross-tab/device reactivity: re-fetch on any Contact push
-			// (notify_contact_state → contact:{mailbox_id}); the producer is already
-			// live, this wires the consumer.
-			push.register(
-				['Contact'],
-				(changes) => {
-					if (changes && (changes as Record<string, unknown>).Contact) {
-						refreshContacts();
-					}
-				},
-				{
-					onReconnect: () => {
-						refreshContacts();
-					},
-				},
+			// Cross-tab/device reactivity via SyncCoordinator (#555): re-fetch on
+			// Contact SyncWakeup, legacy StateChange, and reconnect catch-up.
+			offContactsSync = getWebmailSyncCoordinator('member').register(
+				createJmapRefreshAdapter({
+					consumerId: 'pim:contacts',
+					mailboxScopeId: 'primary',
+					dataTypes: ['Contact'],
+					debounceMs: PIM_DEBOUNCE_MS,
+					refresh: () => refreshContacts(),
+				}),
 			);
 		} catch (e) {
 			error = parseError(e).message;
@@ -138,7 +134,8 @@
 	});
 
 	onDestroy(() => {
-		push.teardown();
+		offContactsSync?.();
+		offContactsSync = null;
 	});
 
 	function openCreateGroup() {

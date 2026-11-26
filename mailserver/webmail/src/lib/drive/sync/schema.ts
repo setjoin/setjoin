@@ -242,13 +242,35 @@ export class SqlMirrorIndex {
 		const rows = await this.db.query<{ v: string }>(`SELECT v FROM dc_meta WHERE k = ?`, [ROOT_CAPS_KEY(spaceId)]);
 		return rows.length > 0 ? (JSON.parse(rows[0].v) as string[]) : [];
 	}
+	private txTail: Promise<void> = Promise.resolve();
+
 	async begin(): Promise<void> { await this.db.exec('BEGIN'); }
 	async commit(): Promise<void> { await this.db.exec('COMMIT'); }
 	async rollback(): Promise<void> { await this.db.exec('ROLLBACK'); }
+	/**
+	 * Serializes transactions on this shared SQLite connection (#555): prevents
+	 * overlapping `BEGIN` statements when multiple spaces share one Drive DB.
+	 */
 	async transaction<T>(fn: () => Promise<T>): Promise<T> {
-		await this.begin();
-		try { const out = await fn(); await this.commit(); return out; }
-		catch (err) { await this.rollback(); throw err; }
+		const prior = this.txTail;
+		let release!: () => void;
+		this.txTail = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await prior;
+		try {
+			await this.begin();
+			try {
+				const out = await fn();
+				await this.commit();
+				return out;
+			} catch (err) {
+				await this.rollback().catch(() => {});
+				throw err;
+			}
+		} finally {
+			release();
+		}
 	}
 
 	// ── dc_nodes ─────────────────────────────────────────────────────────────

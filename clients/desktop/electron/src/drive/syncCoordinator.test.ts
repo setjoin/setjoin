@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike } from '../../../../../mailserver/webmail/src/lib/drive/sync/types.js';
 import type { NativeBinding } from '../native.js';
 import { buildBridge } from '../bridge.js';
+import { SqlMirrorIndex, applySchema } from '../../../../../mailserver/webmail/src/lib/drive/sync/schema.js';
+import { FolderMirror } from './mirror.js';
 import { makeDriveMirrorHandlers, MirrorService } from './service.js';
 
 function fakeNative(): NativeBinding {
@@ -144,21 +146,49 @@ describe('Electron MirrorService SyncCoordinator integration (#555)', () => {
 		expect(svc.isRunning()).toBe(true);
 	});
 
-	it('routes renderer bridge.driveMirror wakeup hints through makeDriveMirrorHandlers, enforces rate-limits, and detaches full-revoked spaces', async () => {
+	it('routes renderer bridge.driveMirror wakeup hints through makeDriveMirrorHandlers, enforces rate-limits, refuses unconfirmed full-space revoke, and detaches only server-confirmed revocations (#555 Findings #1, #2, #4)', async () => {
 		let changeCalls = 0;
+		let spaceRevokedOnServer = false;
 		const svc = new MirrorService({
 			native: fakeNative(),
 			userDataDir,
-			fetchFn: fakeFetch([{ id: 2, name: 'Docs' }], () => {
-				changeCalls += 1;
-			}),
+			fetchFn: async (input: string) => {
+				const url = new URL(input);
+				if (url.pathname === '/api/drive/spaces') {
+					const list = spaceRevokedOnServer ? [] : [{ id: 2, name: 'Docs', aclMode: 'legacy' }];
+					return new Response(JSON.stringify(list), { status: 200 });
+				}
+				if (url.pathname.endsWith('/access-invalidations')) {
+					if (spaceRevokedOnServer) {
+						return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
+					}
+					return new Response(
+						JSON.stringify({ cursor: 'a1', epoch: 'e1', invalidations: [], hasMore: false, fullReconcile: false }),
+						{ status: 200 },
+					);
+				}
+				if (url.pathname.endsWith('/visibility-snapshot')) {
+					return new Response(
+						JSON.stringify({ epoch: 'e1', rootCapabilities: ['read_metadata'], nodes: [], nextAfter: '0', hasMore: false }),
+						{ status: 200 },
+					);
+				}
+				if (url.pathname.endsWith('/changes')) {
+					changeCalls += 1;
+					return new Response(JSON.stringify({ newState: 'c1', changed: [], hasMore: false }), { status: 200 });
+				}
+				if (url.pathname.endsWith('/locks')) {
+					return new Response(JSON.stringify([]), { status: 200 });
+				}
+				return new Response(JSON.stringify({}), { status: 200 });
+			},
 			mirrorBase,
 			deviceLabel: 'electron-dev',
 			locale: 'en',
 			openPath: () => {},
 			pollMs: 10_000_000,
 			wakeupMinIntervalMs: 500,
-			revokeMinIntervalMs: 500,
+			revokeMinIntervalMs: 150,
 			reconnectMinIntervalMs: 500,
 		});
 		activeSvc = svc;
@@ -175,8 +205,8 @@ describe('Electron MirrorService SyncCoordinator integration (#555)', () => {
 			return fn(...args);
 		});
 
-		await bridge.driveMirror.setWakeupConnected(true);
-		expect(svc.isWakeupConnected()).toBe(true);
+		await bridge.driveMirror.setWakeupConnected(true, 2);
+		expect(svc.isWakeupConnected(2)).toBe(true);
 
 		// First wakeup admitted; immediate burst rate-limited fail-closed.
 		expect(await bridge.driveMirror.notifyWakeup({ scopeKind: 'space', scopeId: '2', seq: 1 })).toBe(true);
@@ -203,11 +233,174 @@ describe('Electron MirrorService SyncCoordinator integration (#555)', () => {
 			}),
 		).toBe(false);
 
-		// Full-space revocation detaches the space so subsequent polls/wakeups never sync it!
+		// Finding #1: spoofed renderer full-space scope_revoked hint while server STILL
+		// confirms 200 OK access MUST NOT detach or wipe the space!
+		expect(await bridge.driveMirror.notifyScopeRevoked({ scopeKind: 'space', scopeId: '2' })).toBe(true);
+		await svc.flushSyncCoordinator();
+		expect((await svc.status()).perSpace.some((s) => s.spaceId === 2)).toBe(true);
+
+		// Finding #4: manual resync routes through SyncCoordinator cleanly while space is active.
+		const callsBeforeManualResync = changeCalls;
+		await bridge.driveMirror.resync(2);
+		expect(changeCalls).toBeGreaterThan(callsBeforeManualResync);
+
+		// Finding #1: once the authenticated server actually returns 403, the revocation hint
+		// confirms access loss, detaches the space, and blocks subsequent wakeups!
+		await new Promise((r) => setTimeout(r, 170));
+		spaceRevokedOnServer = true;
 		expect(await bridge.driveMirror.notifyScopeRevoked({ scopeKind: 'space', scopeId: '2' })).toBe(true);
 		await svc.flushSyncCoordinator();
 		const callsAfterRevoke = changeCalls;
 		expect(await bridge.driveMirror.notifyWakeup({ scopeKind: 'space', scopeId: '2', seq: 99 })).toBe(false);
 		expect(changeCalls).toBe(callsAfterRevoke);
+	});
+
+	it('per-space wakeup connectivity slows only the viewed space while sibling mirrored space keeps fast polling (Finding #2)', async () => {
+		const callsBySpace = new Map<number, number>();
+		const svc = new MirrorService({
+			native: fakeNative(),
+			userDataDir,
+			fetchFn: async (input: string) => {
+				const url = new URL(input);
+				if (url.pathname === '/api/drive/spaces') {
+					return new Response(
+						JSON.stringify([
+							{ id: 1, name: 'SpaceA', aclMode: 'legacy' },
+							{ id: 2, name: 'SpaceB', aclMode: 'legacy' },
+						]),
+						{ status: 200 },
+					);
+				}
+				const sid = Number(
+					url.searchParams.get('space') ?? url.pathname.match(/\/spaces\/(\d+)/)?.[1] ?? 0,
+				);
+				if (url.pathname.endsWith('/access-invalidations')) {
+					return new Response(
+						JSON.stringify({ cursor: 'a1', epoch: 'e1', invalidations: [], hasMore: false, fullReconcile: false }),
+						{ status: 200 },
+					);
+				}
+				if (url.pathname.endsWith('/visibility-snapshot')) {
+					return new Response(
+						JSON.stringify({ epoch: 'e1', rootCapabilities: ['read_metadata'], nodes: [], nextAfter: '0', hasMore: false }),
+						{ status: 200 },
+					);
+				}
+				if (url.pathname.endsWith('/changes')) {
+					callsBySpace.set(sid, (callsBySpace.get(sid) ?? 0) + 1);
+					return new Response(JSON.stringify({ newState: 'c1', changed: [], hasMore: false }), { status: 200 });
+				}
+				if (url.pathname.endsWith('/locks')) {
+					return new Response(JSON.stringify([]), { status: 200 });
+				}
+				return new Response(JSON.stringify({}), { status: 200 });
+			},
+			mirrorBase,
+			deviceLabel: 'electron-dev',
+			locale: 'en',
+			openPath: () => {},
+			pollMs: 80,
+			safetyNetPollMs: 60_000,
+		});
+		activeSvc = svc;
+
+		await svc.configure({
+			serverOrigin: 'http://gw',
+			spaces: [
+				{ spaceId: 1, excludes: [] },
+				{ spaceId: 2, excludes: [] },
+			],
+		});
+		await svc.refreshToken('tok-multi', new Date(Date.now() + 3_600_000).toISOString());
+		await svc.flushSyncCoordinator();
+
+		// Mark ONLY space 1 as wakeup-connected (e.g. DriveApp viewing space 1).
+		svc.setWakeupConnected(true, 1);
+		expect(svc.isWakeupConnected(1)).toBe(true);
+		expect(svc.isWakeupConnected(2)).toBe(false);
+
+		const s1Before = callsBySpace.get(1) ?? 0;
+		const s2Before = callsBySpace.get(2) ?? 0;
+		await new Promise((r) => setTimeout(r, 240));
+		await svc.flushSyncCoordinator();
+
+		// Space 1 slowed to safety-net; Space 2 kept polling at 80ms!
+		expect(callsBySpace.get(1) ?? 0).toBe(s1Before);
+		expect(callsBySpace.get(2) ?? 0).toBeGreaterThan(s2Before);
+	});
+
+	it('SqlMirrorIndex.transaction serializes overlapping transactions on one shared SQLite DB (Finding #3)', async () => {
+		const rawDb = new DatabaseSync(':memory:');
+		const db = {
+			exec: async (sql: string, params: unknown[] = []) =>
+				Number(rawDb.prepare(sql).run(...(params as never[])).changes),
+			query: async <T>(sql: string, params: unknown[] = []) =>
+				rawDb.prepare(sql).all(...(params as never[])) as T[],
+		};
+		await applySchema(db);
+		const index = new SqlMirrorIndex(db);
+		const order: string[] = [];
+
+		await Promise.all([
+			index.transaction(async () => {
+				order.push('tx1-start');
+				await new Promise((r) => setTimeout(r, 15));
+				await index.setRootCapabilities(1, ['read_metadata']);
+				order.push('tx1-end');
+			}),
+			index.transaction(async () => {
+				order.push('tx2-start');
+				await index.setRootCapabilities(2, ['read_metadata']);
+				order.push('tx2-end');
+			}),
+		]);
+
+		expect(order).toEqual(['tx1-start', 'tx1-end', 'tx2-start', 'tx2-end']);
+		expect(await index.rootCapabilities(1)).toEqual(['read_metadata']);
+		expect(await index.rootCapabilities(2)).toEqual(['read_metadata']);
+	});
+
+	it('FolderMirror.revoke returns busy (never absent) when a mirrored file is unreadable/locked (Finding #5)', async () => {
+		const rawDb = new DatabaseSync(':memory:');
+		const db = {
+			exec: async (sql: string, params: unknown[] = []) =>
+				Number(rawDb.prepare(sql).run(...(params as never[])).changes),
+			query: async <T>(sql: string, params: unknown[] = []) =>
+				rawDb.prepare(sql).all(...(params as never[])) as T[],
+		};
+		await applySchema(db);
+		const index = new SqlMirrorIndex(db);
+		const root = path.join(mirrorBase, 'locked-space');
+		await fsp.mkdir(root, { recursive: true });
+		const lockedFile = path.join(root, 'secret.txt');
+		await fsp.writeFile(lockedFile, 'top-secret');
+		await index.upsertMirror({
+			nodeId: 101,
+			spaceId: 1,
+			relPath: 'secret.txt',
+			diskSha256: 'abc',
+			diskSize: 10,
+			diskMtimeMs: null,
+			baseVersionId: 1,
+			materializedOfVersion: null,
+		});
+
+		const mirror = new FolderMirror({
+			root,
+			spaceId: 1,
+			http: {} as never,
+			index,
+		});
+
+		// Make file unreadable (EACCES) — hashFile fails with EACCES, NOT ENOENT!
+		await fsp.chmod(lockedFile, 0o000);
+		try {
+			const outcome = await mirror.revoke(101, false);
+			expect(outcome).toBe('busy');
+			const issues = await index.issues(1);
+			expect(issues.some((i) => i.code === 'revocation-busy')).toBe(true);
+		} finally {
+			await fsp.chmod(lockedFile, 0o644);
+		}
 	});
 });

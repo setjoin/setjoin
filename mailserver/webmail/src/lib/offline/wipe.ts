@@ -1,32 +1,27 @@
 import { subscribeControl } from '../jmap/websocket';
 import { getNative, isNative, hasCapability } from '../native';
+import { NATIVE_DB_APP_KEYS, type NativeDbAppKey } from '../native/types';
 import { readOwnDeviceId } from '../native/deviceId';
 import { drainActiveOfflineCoordinator, hasActiveOfflineCoordinator } from './boot';
+import {
+	getPreWipeHooks,
+	registerPreWipeHook,
+	type PreWipeHook,
+	type PreWipeRelease,
+} from './criticalScope';
 import { isOfflineAvailable } from './store';
 import type { OfflineCaps } from './caps';
 import { offline } from './state.svelte';
 
-export type PreWipeHook = () => Promise<void> | void;
-
-const preWipeHooks = new Set<PreWipeHook>();
-
-/**
- * Register a security-lane pre-wipe hook (e.g. SyncCoordinator abort/fence)
- * that executes AFTER fail-closed deviceId targeting succeeds and BEFORE
- * `db.wipe(...)` runs.
- */
-export function registerPreWipeHook(hook: PreWipeHook): () => void {
-	preWipeHooks.add(hook);
-	return () => preWipeHooks.delete(hook);
-}
+export { registerPreWipeHook, type PreWipeHook, type PreWipeRelease };
 
 export interface WipeDeps {
 	/** Tears down the session (drops cookies/tokens, navigates to security-event screen). */
 	logout: () => void;
-	/** Optional pre-wipe abort hook (runs after deviceId match, before clearOfflineCache). */
+	/** Optional pre-wipe abort/fence hook (runs after deviceId match, before clearOfflineCache). */
 	beforeWipe?: PreWipeHook;
-	/** Override the cache-clear (tests). Defaults to the offline-core 'mail' store wipe. */
-	clearOfflineCache?: () => Promise<void>;
+	/** Override the cache-clear (tests). Defaults to wiping the targeted native SQLCipher store (`'mail'` when `appKey` omitted). */
+	clearOfflineCache?: (appKey: NativeDbAppKey) => Promise<void>;
 	/**
 	 * Best-effort server ack: called after the local store is cleared so the server
 	 * can set wipe_acked_at and stop re-issuing the wipe push. Defaults to a
@@ -34,6 +29,12 @@ export interface WipeDeps {
 	 * logout). Fire-and-forget — not awaited; logout proceeds regardless of ack outcome.
 	 */
 	postAck?: (deviceId: number) => Promise<void>;
+}
+
+function parseWipeAppKey(raw: unknown): NativeDbAppKey | null {
+	if (raw === undefined) return 'mail';
+	if (typeof raw !== 'string') return null;
+	return (NATIVE_DB_APP_KEYS as readonly string[]).includes(raw) ? (raw as NativeDbAppKey) : null;
 }
 
 // ownDeviceId reads this device's canonical devices.id from the native secure
@@ -78,11 +79,16 @@ export function installWipeHandler(deps: WipeDeps): () => void {
 	// independently).
 	const clear =
 		deps.clearOfflineCache ??
-		(async () => {
-			if (isNative() && hasCapability('mailDb')) {
-				await getNative().db!.wipe('mail');
+		(async (appKey: NativeDbAppKey) => {
+			if (!isNative()) return;
+			const native = getNative();
+			if (!native.db) return;
+			if (appKey === 'mail' && hasCapability('mailDb')) {
+				await native.db.wipe('mail');
+			} else if (appKey === 'drive' && (hasCapability('drive') || hasCapability('mailDb'))) {
+				await native.db.wipe('drive');
 			}
-			// plain browser: no offline store → nothing to clear.
+			// plain browser or missing capability: no offline store → nothing to clear.
 		});
 
 	// ponytail: default ack = keepalive POST so the request survives the navigation
@@ -100,6 +106,11 @@ export function installWipeHandler(deps: WipeDeps): () => void {
 
 	return subscribeControl('offline.wipe', async (payload) => {
 		const deviceId = typeof payload.deviceId === 'number' ? payload.deviceId : undefined;
+		const appKey = parseWipeAppKey(payload.appKey);
+		if (appKey === null) {
+			console.warn('offline wipe: ignoring payload with invalid appKey', payload.appKey);
+			return;
+		}
 
 		// Targeting (SECURITY): an admin wipe of ONE device carries that device's
 		// canonical devices.id (server pushes user_devices.device_id). The push fans
@@ -113,26 +124,49 @@ export function installWipeHandler(deps: WipeDeps): () => void {
 			return;
 		}
 
-		// Security lane: abort in-flight SyncCoordinator & E4-I offline coordinator
-		// work BEFORE wiping SQLCipher storage so late writes can never race db.wipe.
-		if (deps.beforeWipe || preWipeHooks.size > 0 || hasActiveOfflineCoordinator()) {
-			const aborts: Array<Promise<unknown>> = [];
-			if (deps.beforeWipe) {
-				aborts.push(Promise.resolve().then(() => deps.beforeWipe!()));
-			}
-			for (const hook of [...preWipeHooks]) {
-				aborts.push(Promise.resolve().then(() => hook()));
-			}
-			if (hasActiveOfflineCoordinator()) {
-				aborts.push(drainActiveOfflineCoordinator());
-			}
-			await Promise.allSettled(aborts);
-		}
-
+		// Security lane: acquire wipe admission fences and abort in-flight
+		// SyncCoordinator & E4-I offline coordinator work BEFORE wiping SQLCipher
+		// storage, holding fences closed across the entire clear() call so late
+		// writes or newly-admitted wakeups can never race db.wipe.
+		const releases: PreWipeRelease[] = [];
 		try {
-			await clear();
-		} catch (e) {
-			console.error('offline wipe: native cache clear failed (continuing to logout)', e);
+			const registeredHooks = getPreWipeHooks();
+			if (deps.beforeWipe || registeredHooks.length > 0 || hasActiveOfflineCoordinator()) {
+				const hookPromises: Array<Promise<PreWipeRelease | void>> = [];
+				if (deps.beforeWipe) {
+					hookPromises.push(Promise.resolve().then(() => deps.beforeWipe!()));
+				}
+				for (const hook of registeredHooks) {
+					hookPromises.push(Promise.resolve().then(() => hook()));
+				}
+				const extraAborts: Array<Promise<unknown>> = [];
+				if (hasActiveOfflineCoordinator()) {
+					extraAborts.push(drainActiveOfflineCoordinator());
+				}
+				const settled = await Promise.allSettled(hookPromises);
+				for (const item of settled) {
+					if (item.status === 'fulfilled' && typeof item.value === 'function') {
+						releases.push(item.value);
+					}
+				}
+				if (extraAborts.length > 0) {
+					await Promise.allSettled(extraAborts);
+				}
+			}
+
+			try {
+				await clear(appKey);
+			} catch (e) {
+				console.error('offline wipe: native cache clear failed (continuing to logout)', e);
+			}
+		} finally {
+			for (const release of releases) {
+				try {
+					release();
+				} catch {
+					// isolate fence-release errors
+				}
+			}
 		}
 
 		// ponytail: fire-and-forget — logout must not block on ack, and keepalive

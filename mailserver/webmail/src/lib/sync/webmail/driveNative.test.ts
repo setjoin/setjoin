@@ -445,4 +445,33 @@ describe('Drive native SyncScopeAdapters (#555)', () => {
 			vi.useRealTimers();
 		}
 	});
+
+	it('VaultStore auto-opens on purgeSpace and subtree revoke fails closed without leaving cached descendants (Finding #6)', async () => {
+		const { raw, bridge } = createSqliteDb();
+		const drive = new FakeDriveBridge(raw);
+		const writer = new VaultStore(drive, bridge, 14, () => null);
+		await writer.open();
+		await writer.putLocal(201, { contentSha256: 'anchor-sha', size: 8, chunks: [{ sha256: 'ch-anchor', size: 8 }] });
+		await writer.putLocal(202, { contentSha256: 'child-sha', size: 8, chunks: [{ sha256: 'ch-child', size: 8 }] });
+
+		// Fresh VaultStore instance where open() was NOT explicitly called yet still purges cleanly!
+		const freshVault = new VaultStore(drive, bridge, 14, () => null);
+		const reconcileUi = vi.fn(async () => {});
+		const coord = new SyncCoordinator();
+		coord.register(
+			createDriveVaultSyncAdapter({
+				spaceId: 14,
+				vaultStore: freshVault,
+				reconcileVisibility: reconcileUi,
+			}),
+		);
+
+		// Subtree revocation without a server-side reconcileManifests filter fails closed
+		// by purging ALL cached space manifests so child 202 is NEVER left cached on disk!
+		await coord.handleScopeRevoked({ scopeKind: 'space', scopeId: '14', subtreeAnchorId: '201' });
+		expect(await freshVault.readLocalManifest(201)).toBeNull();
+		expect(await freshVault.readLocalManifest(202)).toBeNull();
+		expect(reconcileUi).toHaveBeenCalledOnce();
+		coord.dispose();
+	});
 });

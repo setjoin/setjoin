@@ -56,23 +56,11 @@ export function createChatChannelSyncAdapter(options: ChatChannelSyncAdapterOpti
 			if (replay.resync) {
 				return { kind: 'tombstoneFloorExceeded', detail: 'chat_resync_sentinel' };
 			}
-			if (replay.messages.length > 0) {
-				// Apply incremental messages without re-sorting; store handles upsert.
-				const existing = store.messagesByChannel[channelId] ?? [];
-				const byId = new Map(existing.map((m) => [m.messageId, m]));
-				const merged = [...existing];
-				for (const msg of replay.messages) {
-					const prev = byId.get(msg.messageId);
-					if (prev) {
-						const idx = merged.findIndex((r) => r.messageId === msg.messageId);
-						if (idx >= 0) merged[idx] = { ...prev, ...msg, status: 'sent' };
-					} else {
-						merged.push({ ...msg, status: 'sent' });
-					}
-				}
-				store.replaceChannelSnapshot(channelId, merged, replay.cursor);
-			} else if (replay.cursor > since) {
-				store.replaceChannelSnapshot(channelId, store.messagesByChannel[channelId] ?? [], replay.cursor);
+			if (replay.messages.length > 0 || replay.cursor > since) {
+				// Apply incremental messages without touching pending/failed local
+				// optimistic rows or letting synthetic MAX_SAFE_INTEGER seqs poison
+				// #replayCursorByChannel (#555).
+				store.applyIncrementalReplay(channelId, replay);
 			}
 			if (refreshConversations) {
 				await store.loadConversations();

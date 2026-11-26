@@ -39,7 +39,7 @@
 	import { mirrorBridge } from '$lib/drive/mirrorBridge.svelte';
 	import { VaultStore } from '$lib/drive/sync/vaultstore.js';
 	import { getNative, hasCapability, isNative } from '$lib/native';
-	import { getWebmailSyncCoordinator } from '$lib/sync/webmail/runtime.svelte';
+	import { getWebmailSyncCoordinator, subscribeMemberWsConnected } from '$lib/sync/webmail/runtime.svelte';
 	import { createDriveOnlineSyncAdapter } from '$lib/sync/webmail/adapters/driveOnline';
 	import { createDriveVaultSyncAdapter } from '$lib/sync/webmail/adapters/driveNative';
 	import { uploadOrchestrator, uploadErrorMessage } from '$lib/drive/uploadOrchestrator.svelte';
@@ -271,15 +271,38 @@
 		}
 	}
 
-	async function loadListing() {
-		if (selectedSpaceId === null) return;
+	let listingGen = 0;
+	const spaceRevocationEpoch = new Map<number, number>();
+
+	function bumpSpaceRevocationEpoch(spaceId: number): void {
+		listingGen += 1;
+		spaceRevocationEpoch.set(spaceId, (spaceRevocationEpoch.get(spaceId) ?? 0) + 1);
+	}
+
+	async function loadListing(opts?: {
+		signal?: AbortSignal;
+		fence?: { isCommitAllowed(): boolean };
+	}) {
+		const targetSpaceId = selectedSpaceId;
+		if (targetSpaceId === null) return;
+		const gen = ++listingGen;
+		const revEpoch = spaceRevocationEpoch.get(targetSpaceId) ?? 0;
+		const isStale = (): boolean =>
+			gen !== listingGen ||
+			selectedSpaceId !== targetSpaceId ||
+			(spaceRevocationEpoch.get(targetSpaceId) ?? 0) !== revEpoch ||
+			Boolean(opts?.signal?.aborted) ||
+			(opts?.fence !== undefined && !opts.fence.isCommitAllowed());
 		listingLoading = true;
 		try {
-			listing = await api.tree(selectedSpaceId, { parent: currentFolderId, deleted: deletedView });
+			const nextListing = await api.tree(targetSpaceId, { parent: currentFolderId, deleted: deletedView });
+			if (isStale()) return;
+			listing = nextListing;
 		} catch (e) {
+			if (isStale()) return;
 			bannerError = driveErrorMessage(e);
 		} finally {
-			listingLoading = false;
+			if (gen === listingGen) listingLoading = false;
 		}
 	}
 
@@ -350,10 +373,18 @@
 	$effect(() => {
 		void loadSpaces();
 		const timer = setInterval(() => {
-			if (selectedSpaceId === null) return;
+			const pollSpaceId = selectedSpaceId;
+			if (pollSpaceId === null) return;
+			const revEpoch = spaceRevocationEpoch.get(pollSpaceId) ?? 0;
 			api
-				.changes(selectedSpaceId, sinceSeq)
+				.changes(pollSpaceId, sinceSeq)
 				.then((res) => {
+					if (
+						selectedSpaceId !== pollSpaceId ||
+						(spaceRevocationEpoch.get(pollSpaceId) ?? 0) !== revEpoch
+					) {
+						return;
+					}
 					if (res.cannotCalculateChanges) {
 						sinceSeq = 0;
 						void loadListing();
@@ -399,8 +430,9 @@
 						sinceSeq = seq;
 					},
 					fetchChanges: (sid, since) => api.changes(sid, since),
-					reloadListing: () => loadListing(),
+					reloadListing: (signal, fence) => loadListing({ signal, fence }),
 					clearSpaceView: () => {
+						bumpSpaceRevocationEpoch(spaceId);
 						listing = [];
 						selectedFile = null;
 						accessNode = null;
@@ -413,6 +445,8 @@
 			const native = getNative();
 			if (native.drive && native.db) {
 				const vaultStore = new VaultStore(native.drive, native.db, spaceId, () => null);
+				// Ensure dc_manifest_spaces and backfill are initialized before any revocation purge (#555).
+				void vaultStore.open().catch(() => {});
 				unsubs.push(
 					coord.register(
 						createDriveVaultSyncAdapter({
@@ -426,7 +460,14 @@
 		}
 
 		if (mirrorBridge.available) {
-			void mirrorBridge.setWakeupConnected(true);
+			// Track actual member WS connectivity scoped to THIS spaceId so sibling
+			// mirrored spaces keep fast main-process polling and WS drops revert
+			// immediately (#555).
+			unsubs.push(
+				subscribeMemberWsConnected((connected) => {
+					void mirrorBridge.setWakeupConnected(connected, spaceId);
+				}),
+			);
 			unsubs.push(
 				coord.register({
 					consumerId: `drive-electron-forward:${spaceId}`,
@@ -459,7 +500,7 @@
 		return () => {
 			for (const off of unsubs) off();
 			if (mirrorBridge.available) {
-				void mirrorBridge.setWakeupConnected(false);
+				void mirrorBridge.setWakeupConnected(false, spaceId);
 			}
 		};
 	});

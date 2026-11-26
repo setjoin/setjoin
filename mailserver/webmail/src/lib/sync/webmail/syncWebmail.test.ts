@@ -134,7 +134,10 @@ describe('Webmail SyncCoordinator integration (#555)', () => {
 	it('member WebSocket hub attaches/detaches scopes, re-sends on reconnect, and disconnect() clears atTypeHandlers & scopes', async () => {
 		vi.useFakeTimers();
 		try {
-			const hub = createWebSocketHub({ backoff: { baseDelayMs: 100, random: () => 1 } });
+			const hub = createWebSocketHub({
+				backoff: { baseDelayMs: 100, random: () => 1 },
+				scopeAttachSupported: true,
+			});
 			const transport = new WebmailWakeupTransport({ mode: 'member', wsHub: hub });
 			const coord = new SyncCoordinator({ transport });
 
@@ -695,5 +698,174 @@ describe('Webmail SyncCoordinator integration (#555)', () => {
 		expect(store.conversations).toEqual([]);
 		listSpy.mockRestore();
 		convSpy.mockRestore();
+	});
+
+	it('mixed-version WS hub suppresses ScopeAttach by default and silently latches off on unknownType (Finding #12)', () => {
+		const hubDefault = createWebSocketHub();
+		const unsub1 = hubDefault.subscribe(['Email'], () => {});
+		const sock1 = FakeWebSocket.instances[0];
+		sock1.open();
+		hubDefault.setAttachedScopes([{ kind: 'mailbox', id: 'primary' }]);
+		expect(sock1.sent.map((s) => JSON.parse(s)).filter((f) => f['@type'] === 'ScopeAttach')).toHaveLength(0);
+		unsub1();
+		hubDefault.disconnect();
+
+		// When enabled and server replies unknownType, latches off silently without erroring or closing.
+		const hubOptIn = createWebSocketHub({ scopeAttachSupported: true });
+		const unsub2 = hubOptIn.subscribe(['Email'], () => {});
+		const sock2 = FakeWebSocket.instances[1];
+		sock2.open();
+		hubOptIn.setAttachedScopes([{ kind: 'mailbox', id: 'primary' }]);
+		expect(sock2.sent.map((s) => JSON.parse(s)).filter((f) => f['@type'] === 'ScopeAttach')).toHaveLength(1);
+		hubOptIn.handleRawMessage(JSON.stringify({ '@type': 'RequestError', type: 'urn:ietf:params:jmap:error:unknownType' }));
+		hubOptIn.setAttachedScopes([
+			{ kind: 'mailbox', id: 'primary' },
+			{ kind: 'channel', id: '9' },
+		]);
+		// No second ScopeAttach frame emitted after unknownType latched off.
+		expect(sock2.sent.map((s) => JSON.parse(s)).filter((f) => f['@type'] === 'ScopeAttach')).toHaveLength(1);
+		expect(sock2.readyState).toBe(FakeWebSocket.OPEN);
+		unsub2();
+		hubOptIn.disconnect();
+	});
+
+	it('Chat incremental replay & replaceChannelSnapshot preserve optimistic rows and NEVER advance cursor to MAX_SAFE_INTEGER (Finding #8)', async () => {
+		const store = new ChatStore();
+		store.messagesByChannel = {
+			50: [
+				{ ...makeChatMsg(1, 10, 'confirmed'), status: 'sent' },
+				{
+					...makeChatMsg(-100, Number.MAX_SAFE_INTEGER, 'in-flight'),
+					clientId: 'cid-sending',
+					status: 'sending',
+				},
+				{
+					...makeChatMsg(-101, Number.MAX_SAFE_INTEGER, 'failed-local'),
+					clientId: 'cid-failed',
+					status: 'failed',
+				},
+			],
+		};
+
+		const coord = new SyncCoordinator();
+		coord.register(
+			createChatChannelSyncAdapter({
+				store,
+				channelId: 50,
+				refreshConversations: false,
+				sinceMessages: async () => ({
+					messages: [makeChatMsg(2, 11, 'remote-new')],
+					cursor: 11,
+				}),
+				listMessages: async () => [makeChatMsg(2, 11, 'remote-new'), makeChatMsg(1, 10, 'confirmed')],
+			}),
+		);
+
+		// 1. Incremental replay MUST keep sending/failed rows untouched and cursor at 11 (NOT MAX_SAFE_INTEGER!).
+		coord.handleWakeup({ scopeKind: 'channel', scopeId: '50', seq: 11 });
+		await coord.flush();
+		expect(store.getReplayCursor(50)).toBe(11);
+		const sendingRow = store.messagesByChannel[50].find((m) => m.clientId === 'cid-sending');
+		const failedRow = store.messagesByChannel[50].find((m) => m.clientId === 'cid-failed');
+		expect(sendingRow?.status).toBe('sending');
+		expect(failedRow?.status).toBe('failed');
+
+		// 2. Non-additive replaceChannelSnapshot ALSO preserves pending/failed optimistic rows & real cursor!
+		store.replaceChannelSnapshot(50, [makeChatMsg(1, 10, 'confirmed'), makeChatMsg(2, 11, 'remote-new')], 12);
+		expect(store.getReplayCursor(50)).toBe(12);
+		expect(store.messagesByChannel[50].find((m) => m.clientId === 'cid-sending')?.status).toBe('sending');
+		expect(store.messagesByChannel[50].find((m) => m.clientId === 'cid-failed')?.status).toBe('failed');
+
+		coord.dispose();
+	});
+
+	it('evicts inactive cached Chat channel via session observer & fences late-settling loadPollResults (Finding #9)', async () => {
+		const chatApi = await import('$lib/chat/api');
+		const store = new ChatStore();
+		store.messagesByChannel = {
+			77: [{ ...makeChatMsg(5, 5, 'poll-msg', { pollId: 901 }), channelId: 77, status: 'sent' }],
+		};
+
+		let resolvePoll!: (res: import('$lib/chat/api').ChatPollResults) => void;
+		const pollSpy = vi.spyOn(chatApi, 'pollResults').mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					resolvePoll = resolve;
+				}),
+		);
+
+		const coord = new SyncCoordinator();
+		const off = coord.onScopeRevoked((event) => {
+			if (event.scopeKind === 'channel') {
+				const cid = Number(event.scopeId);
+				if (Number.isSafeInteger(cid) && cid > 0) store.revokeChannelScope(cid);
+			}
+		});
+
+		const pollP = store.loadPollResults(901);
+		// Channel 77 is NOT registered as active consumer on coord — observer still evicts it!
+		await coord.handleScopeRevoked({ scopeKind: 'channel', scopeId: '77' });
+		expect(store.messagesByChannel[77]).toBeUndefined();
+
+		// Late pollResults response MUST be discarded by channel revocation fence!
+		resolvePoll({ pollId: 901, question: 'Q?', multi: false, closesAt: null, closed: false, options: [] });
+		await pollP;
+		expect(store.pollResultsByPollId[901]).toBeUndefined();
+
+		off();
+		coord.dispose();
+		pollSpy.mockRestore();
+	});
+
+	it('real installWipeHandler honors appKey, enforces fail-closed deviceId targeting, and works after logout -> re-login (Finding #10)', async () => {
+		const { installWipeHandler } = await import('$lib/offline/wipe');
+		const { __handleRawMessage, disconnect } = await import('$lib/jmap/websocket');
+		const wipeSpy = vi.fn(async () => {});
+		window.setjoinNative = {
+			version: 1,
+			capabilities: ['mailDb', 'drive', 'secureStore'],
+			secureStore: {
+				get: async (k: string) => (k === 'device_id' ? '42' : null),
+				set: async () => {},
+				remove: async () => {},
+			},
+			db: {
+				open: async () => {},
+				isOpen: async () => true,
+				exec: async () => 0,
+				query: async () => [],
+				wipe: wipeSpy,
+			},
+		} as unknown as import('$lib/native/types').SetjoinNativeBridge;
+
+		const logout1 = vi.fn();
+		const postAck = vi.fn(async () => {});
+		const off1 = installWipeHandler({ logout: logout1, postAck });
+
+		// Simulate SPA logout (disconnect clears WS controlHandlers) + re-login reinstalling handler!
+		off1();
+		disconnect();
+
+		const logout2 = vi.fn();
+		const off2 = installWipeHandler({ logout: logout2, postAck });
+
+		// 1. Sibling device wipe is ignored fail-closed.
+		__handleRawMessage(JSON.stringify({ type: 'offline.wipe', deviceId: 99, appKey: 'drive' }));
+		for (let i = 0; i < 6; i++) await Promise.resolve();
+		expect(wipeSpy).not.toHaveBeenCalled();
+		expect(logout2).not.toHaveBeenCalled();
+
+		// 2. Invalid appKey is rejected fail-closed.
+		__handleRawMessage(JSON.stringify({ type: 'offline.wipe', deviceId: 42, appKey: '../evil' }));
+		for (let i = 0; i < 6; i++) await Promise.resolve();
+		expect(wipeSpy).not.toHaveBeenCalled();
+
+		// 3. Targeted 'drive' wipe after re-login wipes 'drive' (not hardcoded 'mail') and logs out!
+		__handleRawMessage(JSON.stringify({ type: 'offline.wipe', deviceId: 42, appKey: 'drive' }));
+		await vi.waitFor(() => expect(wipeSpy).toHaveBeenCalledWith('drive'));
+		expect(logout2).toHaveBeenCalledOnce();
+
+		off2();
+		delete (window as { setjoinNative?: unknown }).setjoinNative;
 	});
 });

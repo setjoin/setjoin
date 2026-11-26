@@ -49,6 +49,9 @@ const APP = 'drive';
 export class DriveTlsError extends Error {}
 
 export class VaultStore implements ContentStore {
+	private opened = false;
+	private openPromise: Promise<void> | null = null;
+
 	constructor(
 		private drive: DriveBridge,
 		private db: OfflineDbBridge,
@@ -60,22 +63,34 @@ export class VaultStore implements ContentStore {
 	) {}
 
 	async open(): Promise<void> {
-		await this.db.open(APP);
-		await this.db.exec(APP, VAULT_META_DDL, []);
-		await this.db.exec(APP, VAULT_PURGE_DDL, []);
-		await this.db.exec(APP, VAULT_CHUNK_REFS_DDL, []);
-		await this.db.exec(APP, VAULT_CHUNK_REFS_INDEX_DDL, []);
-		await this.db.exec(APP, VAULT_MANIFEST_SPACES_DDL, []);
-		await this.db.exec(APP, VAULT_MANIFEST_SPACES_INDEX_DDL, []);
-		// Existing vaults predate the normalized reference index. SQLite/SQLCipher
-		// JSON1 performs one idempotent set-based backfill; subsequent opens touch
-		// only missing rows.
-		await this.db.exec(APP, VAULT_CHUNK_REFS_BACKFILL, []);
-		// Backfill dc_manifest_spaces for pre-upgrade manifests when dc_nodes is present.
+		if (this.opened) return;
+		if (this.openPromise) return this.openPromise;
+		const run = (async () => {
+			await this.db.open(APP);
+			await this.db.exec(APP, VAULT_META_DDL, []);
+			await this.db.exec(APP, VAULT_PURGE_DDL, []);
+			await this.db.exec(APP, VAULT_CHUNK_REFS_DDL, []);
+			await this.db.exec(APP, VAULT_CHUNK_REFS_INDEX_DDL, []);
+			await this.db.exec(APP, VAULT_MANIFEST_SPACES_DDL, []);
+			await this.db.exec(APP, VAULT_MANIFEST_SPACES_INDEX_DDL, []);
+			// Existing vaults predate the normalized reference index. SQLite/SQLCipher
+			// JSON1 performs one idempotent set-based backfill; subsequent opens touch
+			// only missing rows.
+			await this.db.exec(APP, VAULT_CHUNK_REFS_BACKFILL, []);
+			// Backfill dc_manifest_spaces for pre-upgrade manifests when dc_nodes is present.
+			try {
+				await this.db.exec(APP, VAULT_MANIFEST_SPACES_BACKFILL, []);
+			} catch {
+				// Standalone vault DBs without dc_nodes table yet skip backfill cleanly.
+			}
+			this.opened = true;
+		})();
+		this.openPromise = run;
 		try {
-			await this.db.exec(APP, VAULT_MANIFEST_SPACES_BACKFILL, []);
-		} catch {
-			// Standalone vault DBs without dc_nodes table yet skip backfill cleanly.
+			await run;
+		} catch (err) {
+			this.openPromise = null;
+			throw err;
 		}
 	}
 
@@ -279,6 +294,7 @@ export class VaultStore implements ContentStore {
 
 	/** Returns all cached manifest node IDs belonging to `spaceId`. */
 	async listSpaceNodeIds(spaceId: number = this.spaceId): Promise<number[]> {
+		if (!this.opened) await this.open();
 		const rows = await this.db.query<{ node_id: number }>(
 			APP,
 			'SELECT node_id FROM dc_manifest_spaces WHERE space_id = ? ORDER BY node_id',
@@ -293,6 +309,7 @@ export class VaultStore implements ContentStore {
 	 * sibling spaces or calling `db.wipe('drive')`.
 	 */
 	async purgeSpace(spaceId: number = this.spaceId): Promise<number> {
+		if (!this.opened) await this.open();
 		const nodeIds = await this.listSpaceNodeIds(spaceId);
 		let purged = 0;
 		for (const nodeId of nodeIds) {

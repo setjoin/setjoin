@@ -9,9 +9,8 @@
 //   aborts in-flight SyncCoordinator work AFTER fail-closed deviceId targeting
 //   and BEFORE `db.wipe('mail')` executes.
 
-import { registerAuthSessionTeardown } from '$lib/stores/auth';
-import { getSharedCriticalActivity } from '$lib/offline/boot';
-import { registerPreWipeHook } from '$lib/offline/wipe';
+import { getSharedCriticalActivity, registerPreWipeHook } from '$lib/offline/criticalScope';
+import * as wsModule from '$lib/jmap/websocket';
 import * as guestSseModule from '$lib/chat/guestEventSource';
 import { SyncCoordinator } from '../core/coordinator.js';
 import { WebmailWakeupTransport, type WebmailTransportMode } from './transport';
@@ -40,12 +39,37 @@ function teardownRuntime(): void {
 function wireSessionHooks(): void {
 	if (teardownWired) return;
 	teardownWired = true;
-	registerAuthSessionTeardown(() => {
-		teardownRuntime();
-	});
+	// Lazy dynamic import avoids pulling `$lib/stores/auth` (and `$lib/jmap/client`)
+	// into component unit tests that partially mock `$lib/jmap/client`.
+	void import('$lib/stores/auth')
+		.then((mod) => {
+			if (typeof mod.registerAuthSessionTeardown === 'function') {
+				mod.registerAuthSessionTeardown(() => {
+					teardownRuntime();
+				});
+			}
+		})
+		.catch(() => {});
 	registerPreWipeHook(async () => {
-		await activeCoordinator?.abortAllInFlightAndFence('offline.wipe');
+		if (!activeCoordinator) return;
+		return activeCoordinator.beginWipeFence('offline.wipe');
 	});
+}
+
+/**
+ * Safely subscribes to the member JMAP WebSocket open/close state without
+ * breaking partial Vitest mocks of `$lib/jmap/websocket`.
+ */
+export function subscribeMemberWsConnected(handler: (connected: boolean) => void): () => void {
+	try {
+		const sub = (wsModule as Record<string, unknown>)['subscribeConnectionState'];
+		if (typeof sub === 'function') {
+			return (sub as (fn: (connected: boolean) => void) => () => void)(handler);
+		}
+	} catch {
+		// partial Vitest mock of $lib/jmap/websocket omits subscribeConnectionState
+	}
+	return () => {};
 }
 
 /**

@@ -111,10 +111,10 @@ class MirrorBridgeState {
 		}
 	}
 
-	async setWakeupConnected(connected: boolean): Promise<void> {
+	async setWakeupConnected(connected: boolean, spaceId?: number): Promise<void> {
 		if (!this.available || !this.bridge?.setWakeupConnected) return;
 		try {
-			await this.bridge.setWakeupConnected(connected);
+			await this.bridge.setWakeupConnected(connected, spaceId);
 		} catch {
 			/* best-effort bridge hint */
 		}
