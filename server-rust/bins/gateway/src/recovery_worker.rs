@@ -32,6 +32,15 @@ pub trait ObjectStore: Send + Sync {
         &'a self,
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+    /// Bounded-timeout removal used by Mark-and-Sweep Tx 2B (#550) so HTTP/TCP
+    /// abort fires strictly before PG's `idle_in_transaction_session_timeout`.
+    fn remove_with_timeout<'a>(
+        &'a self,
+        key: &'a str,
+        _timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        self.remove(key)
+    }
     /// `PutObjectRetention` (WORM, #301): mode `governance|compliance`, RFC 3339 `until`.
     fn retain_object<'a>(
         &'a self,
@@ -1114,40 +1123,51 @@ impl ObjectStore for S3Store {
         &'a self,
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
-        Box::pin(async move {
-            if let Some(client) = &self.unsigned {
-                let _ = self.bucket().await?;
-                let response = client
-                    .delete(self.object_url(key)?)
-                    .send()
-                    .await
-                    .map_err(|error| error.to_string())?;
-                return if response.status().is_success() {
-                    Ok(())
-                } else {
-                    Err(format!("S3 delete returned HTTP {}", response.status()))
-                };
-            }
-
-            let response = self
-                .bucket()
-                .await?
-                .delete_object(key)
-                .await
-                .map_err(|e| e.to_string())?;
-            if (200..300).contains(&response.status_code()) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "S3 delete returned HTTP {}",
-                    response.status_code()
-                ))
-            }
-        })
+        Box::pin(async move { self.remove_inner(key, None).await })
+    }
+    fn remove_with_timeout<'a>(
+        &'a self,
+        key: &'a str,
+        timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move { self.remove_inner(key, Some(timeout)).await })
     }
 }
 
 impl S3Store {
+    async fn remove_inner(
+        &self,
+        key: &str,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(), String> {
+        if let Some(client) = &self.unsigned {
+            let _ = self.bucket().await?;
+            let mut req = client.delete(self.object_url(key)?);
+            if let Some(t) = timeout {
+                req = req.timeout(t);
+            }
+            let response = req.send().await.map_err(|error| error.to_string())?;
+            return if response.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("S3 delete returned HTTP {}", response.status()))
+            };
+        }
+
+        let mut bucket = self.bucket().await?;
+        if let Some(t) = timeout {
+            bucket.set_request_timeout(Some(t));
+        }
+        let response = bucket.delete_object(key).await.map_err(|e| e.to_string())?;
+        if (200..300).contains(&response.status_code()) {
+            Ok(())
+        } else {
+            Err(format!(
+                "S3 delete returned HTTP {}",
+                response.status_code()
+            ))
+        }
+    }
     /// Office's CopyN boundary: read at most the manifest length and ignore
     /// trailing object bytes, as frozen Go does when it closes that chunk.
     pub(crate) async fn read_prefix(&self, key: &str, length: usize) -> Result<Vec<u8>, String> {

@@ -40,6 +40,7 @@ impl GoProxies {
             "# HELP setjoin_gateway_jmap_continuity_signer_missing 1 when Continuity/* stays with Go because the signing key did not load.\n# TYPE setjoin_gateway_jmap_continuity_signer_missing gauge\nsetjoin_gateway_jmap_continuity_signer_missing {}\n",
             CONTINUITY_SIGNER_MISSING.load(Ordering::Relaxed)
         ));
+        body.push_str(&crate::blob_gc::METRICS.render_prometheus());
         Response::builder()
             .header("content-type", "text/plain; version=0.0.4; charset=utf-8")
             .body(

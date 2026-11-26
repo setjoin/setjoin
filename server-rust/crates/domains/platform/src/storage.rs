@@ -226,9 +226,8 @@ pub async fn reimport_blob(
         ),
         &auth,
         super::deadline(),
-        "INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) \
-         SELECT $4,$5,$6,$7,0 WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' \
-         ON CONFLICT(sha256) DO NOTHING",
+        "SELECT blob_gc_register_and_reactivate($4,$5,$6,$7) \
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[
             (&sha, Type::TEXT),
             (&object_ref, Type::TEXT),

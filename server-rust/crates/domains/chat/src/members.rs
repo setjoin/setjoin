@@ -351,7 +351,8 @@ pub async fn unfurl_write(
         &[(&hash,Type::TEXT),(&preview.title,Type::TEXT),(&preview.description,Type::TEXT),(&preview.image,Type::TEXT),(&status,Type::TEXT)],operation).await
 }
 
-/// Frozen Go's one INSERT after the image PUT. This is shared content-addressed
+/// Frozen Go's one INSERT paired with the per-sha256 GC advisory lock + reactivation
+/// protocol (#550) so Tx 2B cannot race on a purging blob. This is shared content-addressed
 /// blob metadata; the trusted hash/size/type come from the fetched bytes, never
 /// a user-owned identity. Cache reducers exclusively maintain references.
 #[allow(clippy::too_many_arguments)]
@@ -365,6 +366,6 @@ pub async fn unfurl_blob(
     operation: [u8; 16],
 ) -> setjoin_pg::CommandOutcome<serde_json::Value, StatementFailure> {
     member_command(exec,actor,"chat_unfurl_blob_insert",
-        "WITH inserted AS (INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) SELECT $4,$5,$6,$7,0 WHERE $1::bigint IS NOT NULL AND $2::bigint IS NOT NULL AND $3::text IS NOT NULL ON CONFLICT(sha256) DO NOTHING) SELECT 'null'::text",
+        "SELECT 'null'::text FROM (SELECT blob_gc_register_and_reactivate($4,$5,$6,$7) WHERE $1::bigint IS NOT NULL AND $2::bigint IS NOT NULL AND $3::text IS NOT NULL) effect",
         &[(&hash,Type::TEXT),(&reference,Type::TEXT),(&size,Type::INT8),(&content_type,Type::TEXT)],operation).await
 }

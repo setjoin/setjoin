@@ -2771,7 +2771,10 @@ fn blob_cleanup_worker() -> Result<Option<setjoin_gateway::blob_cleanup::BlobCle
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
-    let db = drive_worker_database(NAME)?;
+    let db = drive_worker_database(NAME)?.with_audit_keys(
+        std::env::var("DB_ENCRYPTION_KEY").unwrap_or_default(),
+        std::env::var("AUDIT_HMAC_KEY").unwrap_or_default(),
+    );
     let store = setjoin_gateway::recovery_worker::S3Store::from_env()
         .map_err(|e| format!("blob-cleanup needs the object store: {e}"))?;
     Ok(Some(BlobCleanup::new(db, Arc::new(store))))

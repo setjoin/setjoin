@@ -117,11 +117,10 @@ impl<K: KeySource> JmapCommands<K> {
                 return r;
             }
         }
-        let promoted = store.promote(&temp, &hash).await;
-        let _ = store.remove(&temp).await;
-        if promoted.is_err() {
+        if store.promote(&temp, &hash).await.is_err() {
             return fail(500, "serverFail", "upload failed");
         }
+        let _ = store.remove(&temp).await;
         let body = reply::go_compact(
             &serde_json::json!({"accountId":account,"blobId":hash,"size":size,"type":ct})
                 .to_string(),

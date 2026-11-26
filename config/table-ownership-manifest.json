@@ -674,6 +674,30 @@
       "rls_posture": "not_applicable",
       "read_contracts": []
     },
+    "blob_gc_config": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_shadow_discrepancies": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_shadow_runs": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
+    "blob_gc_state": {
+      "owner": "blobs",
+      "security_class": "system_only",
+      "rls_posture": "enforced",
+      "read_contracts": []
+    },
     "blob_user_charges": {
       "owner": "blobs",
       "security_class": "user_scoped",

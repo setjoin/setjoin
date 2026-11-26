@@ -169,6 +169,20 @@ impl Runtime {
             let Some(sha) = detail["sha256"].as_str().filter(|s| !s.is_empty()) else {
                 continue;
             };
+            // Serialize with Mark-and-Sweep GC (#550) before probing S3 so an in-flight
+            // Tx 2B finishes first (and head_object sees 404) or a purging row flips to
+            // active before Tx 2B starts.
+            if crate::blob_gc::is_bare_sha256(sha)
+                && exec
+                    .protocol_statement(
+                        "SELECT public.blob_gc_reactivate($1)",
+                        &[(&sha, setjoin_pg::Type::TEXT)],
+                    )
+                    .await
+                    .is_err()
+            {
+                continue;
+            }
             let Ok(bucket) = self.store.bucket().await else {
                 continue;
             };

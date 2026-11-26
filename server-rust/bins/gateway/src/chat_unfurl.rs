@@ -294,11 +294,22 @@ impl Unfurl {
         let bytes = read_response(response, 5 << 20).await?;
         use sha2::{Digest, Sha256};
         let hash = format!("{:x}", Sha256::digest(&bytes));
+        let operation = crate::jmap::random().ok_or(())?;
+        // Serialize on the per-sha256 GC advisory lock & reactivate BEFORE writing
+        // canonical S3 key (#550) so an in-flight Tx 2B finishes first or aborts on
+        // gc_state='active'. Register the blobs row ONLY AFTER store.put succeeds so
+        // a failed S3 PUT never leaves a dangling 'active' blobs row with missing bytes.
+        self.exec
+            .protocol_statement(
+                "SELECT public.blob_gc_reactivate($1)",
+                &[(&hash, setjoin_pg::Type::TEXT)],
+            )
+            .await
+            .map_err(|_| ())?;
         self.store
             .put(&hash, &bytes, &content_type)
             .await
             .map_err(|_| ())?;
-        let operation = crate::jmap::random().ok_or(())?;
         match members::unfurl_blob(
             &self.exec,
             actor,

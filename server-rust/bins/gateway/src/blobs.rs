@@ -313,16 +313,29 @@ impl<K: KeySource> BlobCommands<K> {
                 return response;
             }
         }
-        let promoted = self.store.promote(&temp_key, &hash).await;
-        let _ = self.store.remove(&temp_key).await;
-        if promoted.is_err() {
+        if self.store.promote(&temp_key, &hash).await.is_err() {
             return reply(500, "upload failed\n");
         }
+        let _ = self.store.remove(&temp_key).await;
         if let Some(worm) = &worm {
             // Non-fatal: the blob is stored; the cleanup tick retries the lock.
             if let Err(e) = crate::blob_retention::apply(&*self.store, worm, &hash).await {
                 eprintln!("retention policy apply failed key={hash}: {e}");
                 crate::blob_retention::note_retry(&hash);
+            } else {
+                // Record WORM lock horizon in companion blob_gc_state (#550) via the
+                // worker-only SECURITY INVOKER reducer (setjoin_app can never set worm_locked_until).
+                let until = crate::blob_retention::retain_until(chrono::Utc::now(), worm.days);
+                let _ = self
+                    .worker_exec
+                    .protocol_statement(
+                        "SELECT public.blob_gc_record_worm_lock($1, $2::text::timestamptz, 'worm_put_apply')",
+                        &[
+                            (&hash, setjoin_pg::Type::TEXT),
+                            (&until, setjoin_pg::Type::TEXT),
+                        ],
+                    )
+                    .await;
             }
         }
         reply(201, "")

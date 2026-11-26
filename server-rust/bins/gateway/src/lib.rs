@@ -36,6 +36,7 @@ pub mod setup_control;
 
 pub mod assist;
 pub mod blob_cleanup;
+pub mod blob_gc;
 pub mod chat_channels;
 pub mod dmarc_report;
 pub mod drive;
