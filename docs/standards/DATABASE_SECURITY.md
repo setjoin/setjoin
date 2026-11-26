@@ -191,8 +191,25 @@ nothing at the DB layer denies it. These guards convert that to **fail-closed-at
     design): message_trace and other trace/journal tables, system_config, domains,
     feature_toggles, signing_keys, threat/audit tables.
 
-Both guards ship with a `-selftest.sh` that injects a violation and asserts the guard
-fires (a guard that never fires is theater); both run **selftest-first** in
+- **`scripts/check-table-ownership-manifest.sh`** (`config/table-ownership-manifest.json`,
+  Issue #539) — **positive** static guard over all logical base/parent tables in
+  `mailserver/sql/dbschema/V*.sql` and all Rust domain crates (`server-rust/crates/domains/*`):
+  1. Classifies every logical table with an owning domain crate (or `foundation`),
+     security class (`mailbox_scoped`, `user_scoped`, `org_global`, `system_only`),
+     RLS posture (`enforced` requires both `ENABLE`+`FORCE ROW LEVEL SECURITY` in
+     replayed `V*.sql`; `pending_wave1_cutover` is ratcheted strictly to the frozen
+     legacy baseline tracked by `#546` so no new table may omit `FORCE RLS`), and
+     required `rls_scope_column` for scoped tables.
+  2. Rejects uncontracted cross-domain SQL reads/writes in `server-rust/crates/domains/*`
+     and ratchets `legacy_write_migration_pending` contracts monotonically.
+  3. Enforces R1–R3 ownership predicates in predicate context (`WHERE`/`JOIN ... ON`/
+     `HAVING`/`USING`, never projection-only) for `SELECT`, and in `WHERE` for
+     `UPDATE`/`DELETE`, respecting explicit `r1_r3_allowlist` entries.
+  Ships with `scripts/check-table-ownership-manifest-selftest.sh` (auto-discovered by
+  `scripts/run-guards.sh`) proving all failure modes fire.
+
+All three guards ship with a `-selftest.sh` that injects a violation and asserts the guard
+fires (a guard that never fires is theater); all run **selftest-first** in
 `scripts/test.sh`.
 
 ### State vs transition invariants (when a rule is a `CHECK`)
@@ -323,6 +340,7 @@ grep -rn 'req\.MailboxID\|req\.UserID\|req\.UserId' --include="*.go" mailserver/
 # Per-user isolation: the positive CI guards (load-bearing) PLUS native RLS on the
 # messages/message_tags hot tables (W6/V004 — latent until the prod DSN switch):
 bash scripts/check-account-scope.sh        # reducer layer (negative A–G + positive H)
+bash scripts/check-table-ownership-manifest.sh  # schema ownership, FORCE RLS ratchet, Rust cross-domain & R1-R3 guard
 bash scripts/check-gateway-ownership.sh    # raw gateway query surface (positive)
 # Native RLS is now ENABLE+FORCE on messages + message_tags only (V004); confirm:
 #   psql -d <db> -tAc "SELECT relname, relforcerowsecurity FROM pg_class
