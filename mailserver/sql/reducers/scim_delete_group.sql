@@ -13,6 +13,7 @@ CREATE OR REPLACE FUNCTION scim_delete_group(
 DECLARE
   v_mailbox_id BIGINT;
 BEGIN
+  PERFORM admin_authority_fence();
   PERFORM 1 FROM identity_sources
    WHERE id=p_source_id
      AND kind='scim'
@@ -37,6 +38,7 @@ BEGIN
   IF v_mailbox_id IS NULL THEN
     RETURN FALSE;
   END IF;
+  PERFORM 1 FROM mailboxes WHERE id = v_mailbox_id FOR UPDATE;
   DELETE FROM distribution_groups
    WHERE id=p_group_id AND scim_source_id=p_source_id;    -- members cascade via FK
   DELETE FROM mailboxes WHERE id = v_mailbox_id;           -- drop orphaned address + routing

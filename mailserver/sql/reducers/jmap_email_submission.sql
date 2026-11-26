@@ -39,9 +39,16 @@ DECLARE
   v_webhook_ordinal BIGINT;
   v_webhook_from TEXT;
 BEGIN
+  -- Canonical lock order: users -> mailboxes -> messages.
+  IF p_user_id IS NOT NULL THEN
+    PERFORM 1 FROM users WHERE id = p_user_id FOR KEY SHARE;
+  END IF;
+
   -- Authoritative baseline for the JMAP oldState (captured before any per-submission
   -- path advances jmap_email_state). newState is read — not re-bumped — at the end.
-  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id;
+  -- FOR UPDATE (not FOR KEY SHARE) because send() locks mailboxes FOR UPDATE;
+  -- acquiring FOR KEY SHARE here and upgrading inside send() would deadlock (40P01).
+  SELECT jmap_email_state INTO v_old_state FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
 
   FOR v_creation_id, v_sub IN SELECT * FROM jsonb_each(p_submissions)
   LOOP

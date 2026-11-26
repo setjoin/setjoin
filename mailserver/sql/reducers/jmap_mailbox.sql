@@ -175,7 +175,8 @@ DECLARE
   v_changed     BOOLEAN := FALSE;
   v_new_state   BIGINT;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id) THEN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'Account not found'
       USING ERRCODE = 'BZ006', HINT = '{"type":"accountNotFound"}';
   END IF;
@@ -283,12 +284,13 @@ DECLARE
   v_changed     BOOLEAN := FALSE;
   v_new_state   BIGINT;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id) THEN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'Account not found'
       USING ERRCODE = 'BZ006', HINT = '{"type":"accountNotFound"}';
   END IF;
 
-  FOREACH v_id IN ARRAY COALESCE(p_ids, ARRAY[]::BIGINT[])
+  FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
   LOOP
     BEGIN
       SELECT tag_type INTO v_tag_type
@@ -368,7 +370,9 @@ DECLARE
   v_new_state   BIGINT;
   v_new_parent  BIGINT;
 BEGIN
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       -- Prevent rename/reparent/recolor of system tags (Inbox/Sent/… carry product

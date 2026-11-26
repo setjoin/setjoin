@@ -169,6 +169,12 @@ async fn transfer_in_tx(
     };
     moved.sources = input.sources.clone();
 
+    tx.execute(
+        "SELECT 1 FROM mailboxes WHERE id = $1 FOR KEY SHARE",
+        &[(&mailbox, Type::INT8)],
+    )
+    .await?;
+
     if mov {
         tx.execute(
             "DELETE FROM message_tags mt \

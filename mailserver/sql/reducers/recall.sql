@@ -39,6 +39,24 @@ BEGIN
         RETURN jsonb_build_object('type', 'disabled', 'description', 'Recall is disabled');
     END IF;
 
+    -- Canonical lock order: users(p_recaller_user_id) -> mailboxes (sorted) -> messages (sorted).
+    IF p_recaller_user_id IS NOT NULL THEN
+        PERFORM 1 FROM users WHERE id = p_recaller_user_id FOR KEY SHARE;
+    END IF;
+
+    PERFORM 1 FROM mailboxes
+    WHERE id IN (
+        SELECT p_recaller_mailbox_id
+        UNION
+        SELECT m.mailbox_id
+        FROM messages m
+        JOIN mailboxes mb ON mb.id = m.mailbox_id
+        JOIN domains d ON d.id = mb.domain_id
+        WHERE m.message_id = p_message_id
+          AND d.is_local = TRUE
+    )
+    ORDER BY id FOR KEY SHARE;
+
     -- Get original message metadata from the sender's Sent folder
     SELECT m.id, m.subject, m.from_addr, m.from_name, m.sent_at, m.body_text, m.body_html
     INTO v_orig_msg
@@ -71,7 +89,8 @@ BEGIN
           AND d.is_local = TRUE
           AND m.is_read = FALSE
           AND m.mailbox_id != p_recaller_mailbox_id  -- not the sender's own Sent copy
-        FOR UPDATE
+        ORDER BY m.mailbox_id, m.id
+        FOR UPDATE OF m
     LOOP
         BEGIN
             -- Move the original to Trash through the single location seam.
@@ -154,7 +173,8 @@ BEGIN
           AND d.is_local = TRUE
           AND m.is_read = TRUE
           AND m.mailbox_id != p_recaller_mailbox_id
-        FOR UPDATE
+        ORDER BY m.mailbox_id, m.id
+        FOR UPDATE OF m
     LOOP
         v_cannot := v_cannot + 1;
     END LOOP;

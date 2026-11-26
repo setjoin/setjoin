@@ -24,6 +24,8 @@ BEGIN
         RETURN jsonb_build_object('status', 'ok', 'note', 'no message to wake');
     END IF;
 
+    PERFORM 1 FROM mailboxes WHERE id = v_mailbox_id FOR KEY SHARE;
+
     -- Resolve the mailbox's Snoozed tag (snooze exclusive group), scoped to owner.
     SELECT id INTO v_snooze_tag
     FROM tags

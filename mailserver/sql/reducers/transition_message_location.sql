@@ -37,6 +37,8 @@ DECLARE
     v_loc_count INT;
     v_new_tag_id BIGINT;
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     -- Guard against corrupt multi-location state: a message must carry 0 or 1
     -- location tags. >1 means the invariant was already broken upstream.
     SELECT count(*) INTO v_loc_count
@@ -90,6 +92,8 @@ CREATE OR REPLACE FUNCTION delete_draft_message(
     p_notify      BOOLEAN DEFAULT TRUE
 ) RETURNS VOID AS $$
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     -- Remove location-group tags first (counter triggers fire on DELETE),
     -- scoped to the owning mailbox.
     DELETE FROM message_tags mt

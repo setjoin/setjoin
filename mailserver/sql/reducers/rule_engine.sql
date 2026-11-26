@@ -67,6 +67,8 @@ BEGIN
     RETURN;
   END IF;
 
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   CASE v_type
 
     WHEN 'move_to' THEN

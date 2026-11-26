@@ -425,10 +425,8 @@ pub async fn unsubscribe(
         &envelope(&auth, operation, &id.to_string()),
         &auth,
         deadline(),
-        "WITH gone AS (DELETE FROM calendars c USING calendar_subscriptions s \
-          WHERE c.id = s.calendar_id AND s.id = $4 AND s.user_id = $2 \
-            AND $1::bigint >= 0 AND $3::text <> '' RETURNING c.id) \
-         SELECT count(*)::bigint FROM gone",
+        "SELECT CASE WHEN $1::bigint >= 0 AND $3::text <> '' \
+           THEN rust_calendar_unsubscribe($1, $2, $4) ELSE 0::bigint END",
         &[(&id, Type::INT8)],
         |rows| match rows {
             [row] => Ok(row.try_get::<_, i64>(0).map_err(|_| invalid())? > 0),

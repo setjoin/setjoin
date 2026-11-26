@@ -14,6 +14,11 @@ CREATE OR REPLACE FUNCTION rust_contacts_import_write(
 DECLARE
  v_rows bigint;
 BEGIN
+ PERFORM 1 FROM mailboxes WHERE id = p_owner FOR KEY SHARE;
+ PERFORM 1 FROM addressbooks WHERE id = p_book AND mailbox_id = p_owner FOR SHARE;
+ IF NOT FOUND THEN
+  RETURN 0;
+ END IF;
  IF p_upsert THEN
   INSERT INTO contacts (addressbook_id, vcard_uid, display_name, first_name, last_name,
     company, job_title, emails, phones, urls, instant_msgs, addresses, notes, birthday, anniversary)

@@ -19,6 +19,7 @@ DECLARE
     v_blob jsonb;
     v_blob_count integer:=0;
     v_total_size bigint;
+    v_prelock_mailbox_id bigint;
 BEGIN
     IF NOT mail_recovery_feature_enabled() OR NOT mail_recovery_has_global_permission(p_actor_user_id) THEN
         RAISE EXCEPTION 'global system.recovery permission and enabled intake are required'
@@ -28,6 +29,11 @@ BEGIN
        length(btrim(COALESCE(p_reason,''))) NOT BETWEEN 8 AND 1024 OR p_reason~'[\r\n]' THEN
         RAISE EXCEPTION 'invalid recovery ingestion request'
             USING ERRCODE='BZ251',HINT='{"type":"invalid_arguments"}';
+    END IF;
+    SELECT mailbox_id INTO v_prelock_mailbox_id FROM mail_recovery_quarantine_artifacts
+     WHERE id=p_quarantine_id;
+    IF v_prelock_mailbox_id IS NOT NULL THEN
+        PERFORM 1 FROM mailboxes WHERE id=v_prelock_mailbox_id FOR UPDATE;
     END IF;
     SELECT * INTO STRICT v_artifact FROM mail_recovery_quarantine_artifacts
      WHERE id=p_quarantine_id FOR UPDATE;

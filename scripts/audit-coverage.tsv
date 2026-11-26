@@ -864,6 +864,7 @@ prune_changes_journal.sql	prune_changes_journal	EXEMPT	-	GC/retention mechanics 
 prune_dmarc_reports.sql	prune_dmarc_reports	EXEMPT	-	GC/retention mechanics on already-journaled data
 prune_greylist_entries.sql	prune_greylist_entries	EXEMPT	-	GC/retention mechanics on already-journaled data
 prune_health_history.sql	prune_health_history	EXEMPT	-	GC/retention mechanics on already-journaled data
+prune_rust_operation_receipts.sql	prune_rust_operation_receipts	EXEMPT	-	GC/retention mechanics on Rust-owned opaque commit receipts
 prune_session_runtime.sql	prune_session_runtime	EXEMPT	-	GC/retention mechanics on already-journaled data
 prune_spam.sql	prune_spam	EXEMPT	-	GC/retention mechanics on already-journaled data
 prune_vacation_replies.sql	prune_vacation_replies	EXEMPT	-	GC/retention mechanics on already-journaled data
@@ -939,6 +940,7 @@ rust_ca_policy_reach.sql	rust_ca_policy_scope_reach	READ_ONLY	-	pure read path (
 rust_ca_policy_reach.sql	rust_ca_priority_floor	READ_ONLY	-	pure read path (guard re-derives no DML)
 rust_ca_policy_reach.sql	rust_ca_priority_ok	READ_ONLY	-	pure read path (guard re-derives no DML)
 rust_calendar_subscribe.sql	rust_calendar_subscribe	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
+rust_calendar_unsubscribe.sql	rust_calendar_unsubscribe	EXEMPT	-	calendar user-content flow; outside the frozen WP3 authority classes
 rust_compliance_audit_policy_set.sql	rust_compliance_audit_policy_set	MUST	core	lifecycle/authority transition (WP3 core class)
 rust_compliance_case_close.sql	rust_compliance_case_close	MUST	core	lifecycle/authority transition (WP3 core class)
 rust_compliance_chat_command.sql	rust_compliance_chat_command	MUST	core	lifecycle/authority transition (WP3 core class)

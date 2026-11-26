@@ -21,7 +21,7 @@ CREATE OR REPLACE FUNCTION booking_page_upsert(
 DECLARE
     v_id BIGINT := (p_page->>'id')::BIGINT;
 BEGIN
-    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id;
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Mailbox not found' USING ERRCODE = 'BZ001';
     END IF;
@@ -80,6 +80,7 @@ CREATE OR REPLACE FUNCTION booking_page_delete(
     p_page_id    BIGINT
 ) RETURNS JSONB AS $$
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
     DELETE FROM booking_pages
      WHERE id = p_page_id AND mailbox_id = p_mailbox_id;   -- R3
     IF NOT FOUND THEN
@@ -272,8 +273,17 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- Canonical lock order: mailboxes FOR KEY SHARE before booking_page advisory lock.
+    PERFORM 1 FROM mailboxes WHERE id = v_page.mailbox_id FOR KEY SHARE;
+
     -- Serialize per-page so slot re-check + insert are atomic vs. rivals.
     PERFORM pg_advisory_xact_lock(hashtext('booking_page:' || v_page.id::TEXT));
+
+    SELECT bp.* INTO v_page FROM booking_pages bp
+     WHERE bp.id = v_page.id AND bp.enabled;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Booking page not found' USING ERRCODE = 'BZ134';
+    END IF;
 
     -- The requested start must be one of the CURRENT open slots — same seam
     -- the public GET used (windows ∩ free/busy ∩ caps ∩ notice/horizon).
@@ -322,6 +332,7 @@ DECLARE
     v_req      RECORD;
     v_page     RECORD;
     v_owner    RECORD;
+    v_cal_id   BIGINT;
     v_created  JSONB;
     v_event_id BIGINT;
     v_payload  JSONB;
@@ -329,6 +340,29 @@ DECLARE
 BEGIN
     SELECT br.* INTO v_req FROM booking_requests br
      WHERE br.verify_token_hash = p_verify_token_hash
+       AND br.status = 'pending' AND br.verify_expires_at > now();
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Invalid or expired token' USING ERRCODE = 'BZ137';
+    END IF;
+    SELECT bp.* INTO v_page FROM booking_pages bp WHERE bp.id = v_req.page_id;
+    IF NOT FOUND OR NOT v_page.enabled THEN
+        RAISE EXCEPTION 'Booking page not found' USING ERRCODE = 'BZ134';
+    END IF;
+
+    -- Canonical lock order: mailboxes -> booking_page advisory -> calendars -> booking_requests.
+    PERFORM 1 FROM mailboxes WHERE id = v_page.mailbox_id FOR KEY SHARE;
+    PERFORM pg_advisory_xact_lock(hashtext('booking_page:' || v_page.id::TEXT));
+
+    SELECT c.id INTO v_cal_id FROM calendars c
+     WHERE c.mailbox_id = v_page.mailbox_id AND c.is_default = TRUE
+     ORDER BY c.id LIMIT 1;
+    IF v_cal_id IS NOT NULL THEN
+        PERFORM 1 FROM calendars WHERE id = v_cal_id AND mailbox_id = v_page.mailbox_id FOR NO KEY UPDATE;
+    END IF;
+
+    SELECT br.* INTO v_req FROM booking_requests br
+     WHERE br.id = v_req.id
+       AND br.verify_token_hash = p_verify_token_hash
        AND br.status = 'pending' AND br.verify_expires_at > now()
      FOR UPDATE;
     IF NOT FOUND THEN
@@ -343,8 +377,6 @@ BEGIN
       INTO v_owner
       FROM mailboxes m LEFT JOIN users u ON u.id = m.user_id
      WHERE m.id = v_page.mailbox_id;
-
-    PERFORM pg_advisory_xact_lock(hashtext('booking_page:' || v_page.id::TEXT));
 
     -- Re-check REAL free/busy at confirm time (owner may have gained a
     -- conflicting event since the request was created). Own pending row is
@@ -415,23 +447,49 @@ CREATE OR REPLACE FUNCTION booking_cancel(
     p_cancel_token_hash TEXT
 ) RETURNS JSONB AS $$
 DECLARE
-    v_req RECORD;
+    v_req    RECORD;
+    v_cal_id BIGINT;
 BEGIN
-    UPDATE booking_requests
-       SET status = 'cancelled',
-           cancel_token_hash = 'used:' || cancel_token_hash
-     WHERE cancel_token_hash = p_cancel_token_hash AND status = 'confirmed'
-    RETURNING * INTO v_req;
+    SELECT * INTO v_req FROM booking_requests
+     WHERE cancel_token_hash = p_cancel_token_hash AND status = 'confirmed';
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Invalid or expired token' USING ERRCODE = 'BZ137';
     END IF;
+
+    -- Canonical lock order: mailboxes -> calendars -> calendar_events -> booking_requests.
+    PERFORM 1 FROM mailboxes WHERE id = v_req.mailbox_id FOR KEY SHARE;
+
     IF v_req.event_id IS NOT NULL THEN
-        UPDATE calendar_events SET status = 'cancelled' WHERE id = v_req.event_id;
-        PERFORM notify_calendar_state(
-            v_req.mailbox_id,
-            v_req.event_id,
-            (SELECT ce.calendar_id FROM calendar_events ce WHERE ce.id = v_req.event_id),
-            'event_updated');
+        SELECT ce.calendar_id INTO v_cal_id
+          FROM calendar_events ce
+          JOIN calendars c ON c.id = ce.calendar_id
+         WHERE ce.id = v_req.event_id AND c.mailbox_id = v_req.mailbox_id;
+        IF v_cal_id IS NOT NULL THEN
+            PERFORM 1 FROM calendars WHERE id = v_cal_id AND mailbox_id = v_req.mailbox_id FOR NO KEY UPDATE;
+            IF FOUND THEN
+                PERFORM 1 FROM calendar_events WHERE id = v_req.event_id AND calendar_id = v_cal_id FOR NO KEY UPDATE;
+            END IF;
+        END IF;
+    END IF;
+
+    SELECT * INTO v_req FROM booking_requests
+     WHERE id = v_req.id AND cancel_token_hash = p_cancel_token_hash AND status = 'confirmed'
+     FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Invalid or expired token' USING ERRCODE = 'BZ137';
+    END IF;
+
+    UPDATE booking_requests
+       SET status = 'cancelled',
+           cancel_token_hash = 'used:' || cancel_token_hash
+     WHERE id = v_req.id;
+
+    IF v_req.event_id IS NOT NULL AND v_cal_id IS NOT NULL THEN
+        UPDATE calendar_events SET status = 'cancelled'
+         WHERE id = v_req.event_id AND calendar_id = v_cal_id;
+        IF FOUND THEN
+            PERFORM notify_calendar_state(v_req.mailbox_id, v_req.event_id, v_cal_id, 'event_updated');
+        END IF;
     END IF;
     RETURN jsonb_build_object('cancelled', TRUE);
 END;

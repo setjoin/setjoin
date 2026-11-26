@@ -41,9 +41,12 @@ BEGIN
       USING ERRCODE = 'BZ113', HINT = '{"type":"invalidArguments"}';
   END IF;
 
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   -- R3 ownership: the target calendar MUST belong to the caller. Checked up front,
   -- before any row is written — a foreign calendar id is rejected, never inserted.
-  IF NOT EXISTS (SELECT 1 FROM calendars WHERE id = p_calendar_id AND mailbox_id = p_mailbox_id) THEN
+  PERFORM 1 FROM calendars WHERE id = p_calendar_id AND mailbox_id = p_mailbox_id FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'Calendar not found or not owned'
       USING ERRCODE = 'BZ113',
             HINT = jsonb_build_object('type','notFound','calendar_id',p_calendar_id)::TEXT;

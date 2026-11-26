@@ -25,6 +25,8 @@ BEGIN
       'description', 'status must be accepted, tentative, or declined');
   END IF;
 
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   SELECT c.id INTO v_calendar_id
   FROM calendars c
   JOIN calendar_events ce ON ce.calendar_id = c.id
@@ -187,6 +189,7 @@ DECLARE
   v_account_id  BIGINT;
 BEGIN
   IF p_mailbox_id IS NOT NULL THEN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
     -- p_mailbox_id (when a JMAP caller ever supplies it) is a mailbox id, so scope by
     -- mb.id, consistent with the c.mailbox_id = p_mailbox_id filter used just below.
     PERFORM 1 FROM calendar_events ce
@@ -204,8 +207,14 @@ BEGIN
   WHERE ce.uid = p_uid
     AND ce.is_meeting = TRUE
     AND (p_mailbox_id IS NULL OR c.mailbox_id = p_mailbox_id)
-  LIMIT 1
-  FOR SHARE OF c;
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('type', 'notFound', 'description', 'No matching event for UID');
+  END IF;
+
+  PERFORM 1 FROM mailboxes WHERE id = v_account_id FOR KEY SHARE;
+  PERFORM 1 FROM calendars WHERE id = v_calendar_id AND mailbox_id = v_account_id FOR SHARE;
 
   IF FOUND THEN
     PERFORM 1 FROM calendar_events
@@ -295,14 +304,20 @@ CREATE OR REPLACE FUNCTION calendar_process_itip_cancel(
   p_signer_domain   TEXT DEFAULT NULL
 ) RETURNS JSONB AS $$
 DECLARE
-  v_event_id   BIGINT;
-  v_account_id BIGINT;
-  v_rec        RECORD;
-  v_count      INT := 0;
+  v_event_id     BIGINT;
+  v_calendar_id  BIGINT;
+  v_account_id   BIGINT;
+  v_mailbox_ids  BIGINT[];
+  v_calendar_ids BIGINT[];
+  v_event_ids    BIGINT[];
+  v_rec          RECORD;
+  v_count        INT := 0;
 BEGIN
   IF p_mailbox_id IS NOT NULL THEN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     -- JMAP caller: p_mailbox_id is a mailbox id; cancel ONLY the caller's own copy.
-    SELECT ce.id, c.mailbox_id INTO v_event_id, v_account_id
+    SELECT ce.id, ce.calendar_id, c.mailbox_id INTO v_event_id, v_calendar_id, v_account_id
     FROM calendar_events ce
     JOIN calendars c ON c.id = ce.calendar_id
     WHERE ce.uid = p_uid AND c.mailbox_id = p_mailbox_id
@@ -312,9 +327,17 @@ BEGIN
       RAISE EXCEPTION 'Event not found' USING ERRCODE = 'BZ001';
     END IF;
 
+    PERFORM 1 FROM calendars WHERE id = v_calendar_id AND mailbox_id = p_mailbox_id FOR SHARE;
+    IF FOUND THEN
+      PERFORM 1 FROM calendar_events WHERE id = v_event_id AND calendar_id = v_calendar_id FOR NO KEY UPDATE;
+    END IF;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Event not found' USING ERRCODE = 'BZ001';
+    END IF;
+
     UPDATE calendar_events SET
       status = 'cancelled', jmap_state = jmap_state + 1, updated_at = now(), etag = generate_etag()
-    WHERE id = v_event_id;
+    WHERE id = v_event_id AND calendar_id = v_calendar_id;
 
     PERFORM app_notify('calendar:' || v_account_id,
       json_build_object('event', 'itip_cancel', 'event_id', v_event_id)::text);
@@ -355,6 +378,27 @@ BEGIN
             HINT = jsonb_build_object('type', 'invalidArguments', 'uid', p_uid)::TEXT;
   END IF;
 
+  SELECT array_agg(DISTINCT c.mailbox_id ORDER BY c.mailbox_id),
+         array_agg(DISTINCT c.id ORDER BY c.id),
+         array_agg(ce.id ORDER BY ce.id)
+    INTO v_mailbox_ids, v_calendar_ids, v_event_ids
+  FROM calendar_events ce
+  JOIN calendars c ON c.id = ce.calendar_id
+  JOIN mailboxes mb ON mb.id = c.mailbox_id
+  JOIN domains d ON d.id = mb.domain_id
+  WHERE ce.uid = p_uid
+    AND lower(ce.organizer_email) = lower(p_organizer_email)
+    AND lower(d.name) = lower(p_signer_domain)
+    AND ce.status <> 'cancelled';
+
+  IF v_event_ids IS NULL THEN
+    RETURN jsonb_build_object('type', 'notFound', 'description', 'No matching event for UID');
+  END IF;
+
+  PERFORM 1 FROM mailboxes WHERE id = ANY(v_mailbox_ids) ORDER BY id FOR KEY SHARE;
+  PERFORM 1 FROM calendars WHERE id = ANY(v_calendar_ids) ORDER BY id FOR SHARE;
+  PERFORM 1 FROM calendar_events WHERE id = ANY(v_event_ids) ORDER BY id FOR NO KEY UPDATE;
+
   FOR v_rec IN
     UPDATE calendar_events ce SET
       status = 'cancelled', jmap_state = ce.jmap_state + 1, updated_at = now(), etag = generate_etag()
@@ -362,6 +406,7 @@ BEGIN
     JOIN mailboxes mb ON mb.id = c.mailbox_id
     JOIN domains d ON d.id = mb.domain_id
     WHERE c.id = ce.calendar_id
+      AND ce.id = ANY(v_event_ids)
       AND ce.uid = p_uid
       AND lower(ce.organizer_email) = lower(p_organizer_email)
       AND lower(d.name) = lower(p_signer_domain)
@@ -397,6 +442,8 @@ DECLARE
   v_event       RECORD;
   v_payload     JSONB;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   -- notify_calendar_state writes the calendar, so acquire its write lock first.
   SELECT c.id INTO v_calendar_id
   FROM calendars c

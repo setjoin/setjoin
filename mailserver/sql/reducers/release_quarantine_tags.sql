@@ -30,6 +30,8 @@ DECLARE
     v_received_at TIMESTAMPTZ;
     v_quar_tag_id BIGINT;
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     v_quar_tag_id := get_tag_id('Quarantined', p_mailbox_id);
 
     -- Source the message's real received_at (the composite-FK partition key), scoped
