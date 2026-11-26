@@ -23,6 +23,15 @@ async fn connect(dsn: &str) -> tokio_postgres::Client {
     client
 }
 
+fn extract_dbname(dsn: &str) -> &str {
+    let base = match dsn.split_once('?') {
+        Some((b, _)) => b,
+        None => dsn,
+    };
+    let slash = base.rfind('/').expect("dsn has /dbname");
+    &base[slash + 1..]
+}
+
 fn replace_dbname(dsn: &str, new_db: &str) -> String {
     let (base, query) = match dsn.split_once('?') {
         Some((b, q)) => (b, Some(q)),
@@ -47,11 +56,19 @@ async fn live_db_rls_preflight_repair_carveouts_and_owner_safe_pass() {
         return;
     };
 
-    let disposable_db = "mailserver_e2e_545";
+    let template_db = extract_dbname(&test_dsn);
+    assert!(
+        !template_db.is_empty()
+            && template_db
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+        "unexpected template db name: {template_db}"
+    );
+    let disposable_db = format!("mailserver_e2e_545_{}", std::process::id());
     let admin_dsn = replace_dbname(&test_dsn, "postgres");
     let admin = connect(&admin_dsn).await;
 
-    // Clean any leftover disposable DB, clone mailserver_test template schema cleanly.
+    // Clean any leftover disposable DB, clone TEST_DB_DSN template schema cleanly.
     let _ = admin
         .batch_execute(&format!(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{disposable_db}' AND pid <> pg_backend_pid();"
@@ -63,12 +80,12 @@ async fn live_db_rls_preflight_repair_carveouts_and_owner_safe_pass() {
         .expect("drop old disposable db");
     admin
         .batch_execute(&format!(
-            "CREATE DATABASE {disposable_db} TEMPLATE mailserver_test;"
+            "CREATE DATABASE {disposable_db} TEMPLATE {template_db};"
         ))
         .await
-        .expect("create disposable db from mailserver_test");
+        .expect("create disposable db from TEST_DB_DSN template");
 
-    let e2e_dsn = replace_dbname(&test_dsn, disposable_db);
+    let e2e_dsn = replace_dbname(&test_dsn, &disposable_db);
 
     // Save original setjoin_owner rolcanlogin so we always restore it cleanly.
     let orig_owner_login: bool = admin
@@ -87,7 +104,7 @@ async fn live_db_rls_preflight_repair_carveouts_and_owner_safe_pass() {
         //    that a worker-only SECURITY DEFINER function stays revoked from setjoin_app.
         super_client
             .batch_execute(
-                "ALTER FUNCTION public.drive_member_role(bigint,bigint) OWNER TO mail; \
+                "ALTER FUNCTION public.drive_member_role(bigint,bigint) OWNER TO CURRENT_USER; \
                  ALTER FUNCTION public.drive_member_role(bigint,bigint) RESET search_path; \
                  GRANT EXECUTE ON FUNCTION public.drive_member_role(bigint,bigint) TO PUBLIC;",
             )
@@ -156,7 +173,7 @@ async fn live_db_rls_preflight_repair_carveouts_and_owner_safe_pass() {
                     JOIN pg_namespace n ON n.oid = c.relnamespace
                     JOIN pg_roles o ON o.oid = c.relowner
                     WHERE n.nspname = 'public'
-                      AND o.rolname = 'mail'
+                      AND o.rolname = current_user
                       AND c.relkind IN ('r','p','v','m')
                       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype = 'e')
                   LOOP
@@ -174,7 +191,7 @@ async fn live_db_rls_preflight_repair_carveouts_and_owner_safe_pass() {
                     JOIN pg_namespace n ON n.oid = c.relnamespace
                     JOIN pg_roles o ON o.oid = c.relowner
                     WHERE n.nspname = 'public'
-                      AND o.rolname = 'mail'
+                      AND o.rolname = current_user
                       AND c.relkind = 'S'
                       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = c.oid AND d.deptype IN ('e', 'a', 'i'))
                   LOOP
@@ -186,7 +203,7 @@ async fn live_db_rls_preflight_repair_carveouts_and_owner_safe_pass() {
                     JOIN pg_namespace n ON n.oid = p.pronamespace
                     JOIN pg_roles o ON o.oid = p.proowner
                     WHERE n.nspname = 'public'
-                      AND o.rolname = 'mail'
+                      AND o.rolname = current_user
                       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
                   LOOP
                     EXECUTE format('ALTER FUNCTION %s OWNER TO setjoin_owner', r.sig);
