@@ -176,3 +176,4 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
 - `crates/workqueue` (#548/#549) — durable WorkQueue, `worker_schedules` leases, DLQ (`operator`), privileged `worker` feature (family-isolated). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS`, WORM arming, drain-then-retire.
+- `crates/search` (`setjoin-search`, #556) — foundation two-tier `SearchEngine`/`SearchIndexer` seam, optional `pg_bigm` Tier-1 baseline, pure-MIT `tantivy` index (`<= 50 MB` writer cap, default OFF), and PG re-authorization helpers; [contract](crates/search/DOX.md).
