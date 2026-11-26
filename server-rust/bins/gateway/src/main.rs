@@ -106,9 +106,7 @@ fn main() -> ExitCode {
     }
     // Publish the resolved startup layer before any runtime thread can read env.
     settings.install_startup_environment();
-    let db_backed = std::env::var("DB_DSN")
-        .ok()
-        .is_some_and(|s| !s.is_empty());
+    let db_backed = std::env::var("DB_DSN").ok().is_some_and(|s| !s.is_empty());
     if db_backed && socket_activated {
         if !explicit_worm_env {
             eprintln!(
@@ -154,9 +152,7 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run(
-    configuration: Arc<setjoin_gateway::configuration::Runtime>,
-) -> Result<(), String> {
+async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Result<(), String> {
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
         .map_err(|e| format!("SIGHUP registration: {e}"))?;
     let mut settings = configuration.startup_settings();
@@ -261,11 +257,8 @@ async fn run(
         .map(|dsn| {
             Ok::<_, String>(Arc::new(
                 setjoin_gateway::platform_storage::Runtime::from_env()?.with_database(
-                    WorkerDatabase::from_dsns(
-                        &dsn,
-                        std::env::var("DB_WORKER_DSN").ok().as_deref(),
-                    )
-                    .map_err(|e| e.to_string())?,
+                    WorkerDatabase::from_dsns(&dsn, std::env::var("DB_WORKER_DSN").ok().as_deref())
+                        .map_err(|e| e.to_string())?,
                 ),
             ))
         })
@@ -385,13 +378,12 @@ async fn run(
             }),
     };
     if let Some((var, auth)) = rust_auth {
-        gateway = gateway.with_rust_auth_upstream(
-            auth.parse().map_err(|e| format!("{var}: {e}"))?,
-        )?;
+        gateway =
+            gateway.with_rust_auth_upstream(auth.parse().map_err(|e| format!("{var}: {e}"))?)?;
     }
     if let Ok(path) = std::env::var("GATEWAY_ROUTE_INVENTORY") {
-        let json = std::fs::read_to_string(path)
-            .map_err(|e| format!("GATEWAY_ROUTE_INVENTORY: {e}"))?;
+        let json =
+            std::fs::read_to_string(path).map_err(|e| format!("GATEWAY_ROUTE_INVENTORY: {e}"))?;
         let candidate = setjoin_gateway::inventory::Inventory::parse(&json)?;
         let qualified =
             setjoin_gateway::inventory::Inventory::parse(setjoin_gateway::inventory::BUNDLED)?;
@@ -1199,12 +1191,20 @@ async fn routes(
             Box::pin(async { Ok(br#"{"keys":[]}"#.to_vec()) })
         })),
     };
+    let floor = if env("CRYPTO_ALGORITHM_PROFILE").as_deref() == Some("smx") {
+        16
+    } else {
+        32
+    };
+    let drive_native_secret = env("DRIVE_NATIVE_TOKEN_SECRET");
+    if let Some(drive_secret) = drive_native_secret.as_deref() {
+        if drive_secret.len() < floor {
+            return Err(format!(
+                "DRIVE_NATIVE_TOKEN_SECRET must be at least {floor} characters"
+            ));
+        }
+    }
     if let Some(secret) = env("JWT_SECRET") {
-        let floor = if env("CRYPTO_ALGORITHM_PROFILE").as_deref() == Some("smx") {
-            16
-        } else {
-            32
-        };
         if secret.len() < floor {
             return Err(format!("JWT_SECRET must be at least {floor} characters"));
         }
@@ -1222,16 +1222,46 @@ async fn routes(
         if env("CRYPTO_ALGORITHM_PROFILE").as_deref() == Some("smx") && sm2_pem.is_none() {
             return Err("SM2_PRIVATE_KEY_FILE is required for smx".into());
         }
-        keys = keys.with_legacy_keys(setjoin_authz::legacy_jwt::LegacyKeys::from_pem(
+        let mut legacy = setjoin_authz::legacy_jwt::LegacyKeys::from_pem(
             secret.as_bytes(),
             &["authserver-hmac-1", "mailserver-drive-native-1"],
             sm2_pem.as_deref(),
-        )?);
+        )?;
+        if let Some(drive_secret) = drive_native_secret.as_deref() {
+            legacy = legacy.with_hmac_kid("mailserver-drive-native-1", drive_secret.as_bytes());
+        }
+        keys = keys.with_legacy_keys(legacy);
     } else {
-        // #356a: without JWT_SECRET every HS256/SM2 credential is refused
-        // natively (push, SSE, presence and every other family); nothing is
-        // handed to Go. Installs share the authserver's config.env secret.
-        eprintln!("setjoin-gateway: JWT_SECRET is unset; HS256/SM2 tokens will be refused (401). Set the authserver's JWT_SECRET in config.env.");
+        let drive_secret = drive_native_secret.unwrap_or_default();
+        let sm2_pub_pem = if matches!(
+            env("CRYPTO_ALGORITHM_PROFILE").as_deref(),
+            Some("smx" | "hybrid")
+        ) {
+            env("SM2_PUBLIC_KEY_FILE")
+                .map(std::fs::read_to_string)
+                .transpose()
+                .map_err(|_| "SM2_PUBLIC_KEY_FILE: unreadable key")?
+        } else {
+            None
+        };
+        if !drive_secret.is_empty() || sm2_pub_pem.is_some() {
+            let kids: &[&str] = if drive_secret.is_empty() {
+                &[]
+            } else {
+                &["mailserver-drive-native-1"]
+            };
+            keys =
+                keys.with_legacy_keys(setjoin_authz::legacy_jwt::LegacyKeys::from_sm2_public_pem(
+                    drive_secret.as_bytes(),
+                    kids,
+                    sm2_pub_pem.as_deref(),
+                )?);
+        } else {
+            // #356a: without JWT_SECRET every HS256/SM2 credential is refused
+            // natively (push, SSE, presence and every other family); nothing is
+            // handed to Go. Installs share the authserver's config.env secret.
+            eprintln!("setjoin-gateway: JWT_SECRET is unset; HS256/SM2 tokens will be refused (401). Set the authserver's JWT_SECRET in config.env.");
+        }
     }
     let keys = Arc::new(keys);
     let issuer = env("JWT_ISSUER").unwrap_or_else(|| "mailserver".into());
@@ -1268,19 +1298,15 @@ async fn routes(
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
+    let (attachment_secret, attachment_previous_secret) =
+        setjoin_gateway::f16::attachment_secrets_from_env();
     let runtime = Arc::new(
         setjoin_gateway::runtime_access::RuntimeAccess::new(
             exec.clone(),
             keys.clone(),
             issuer.clone(),
         )
-        .with_attachment_secrets(
-            env("JWT_MAIL_ATTACHMENT_SECRET")
-                .or_else(|| env("JWT_SECRET"))
-                .unwrap_or_default()
-                .into_bytes(),
-            env("JWT_MAIL_ATTACHMENT_PREVIOUS_SECRET").map(String::into_bytes),
-        )
+        .with_attachment_secrets(attachment_secret, attachment_previous_secret)
         .with_workers(
             compliance.worker.clone(),
             WorkerDatabase::from_dsns(&dsn, env("DB_WORKER_DSN").as_deref())
@@ -1289,35 +1315,36 @@ async fn routes(
         .with_sessions(denylist.clone())
         .with_direct(env("DB_DIRECT_DSN").ok_or("DB_DIRECT_DSN required for runtime gates")?)
         .with_device_secret(
-            env("JWT_SECRET").unwrap_or_default().into_bytes(),
+            setjoin_gateway::telemetry::device_hmac_key_from_env(),
             setjoin_config_secret::CryptoProfile::parse(
                 &env("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default(),
             ),
         ),
     );
     let denylist = runtime.session_cache();
-    let kerberos: Option<Arc<dyn setjoin_authz::kerberos::KerberosValidator>> =
-        if settings.boolean("kerberos.enabled") {
-            let configured_keytab = settings.string("kerberos.keytab");
-            let keytab = if !configured_keytab.is_empty() {
-                std::path::PathBuf::from(configured_keytab)
-            } else {
-                let config_dir = env("CONFIG_DIR").unwrap_or_else(|| "/etc/mail".into());
-                std::path::PathBuf::from(config_dir).join("mail.keytab")
-            };
-            let realm = settings.string("kerberos.realm");
-            match setjoin_authz::kerberos::GssapiVerifier::new(
-                setjoin_authz::kerberos::KerberosConfig { keytab, realm },
-            ) {
-                Ok(verifier) => Some(Arc::new(verifier)),
-                Err(err) => {
-                    eprintln!("setjoin-gateway: kerberos enabled but unavailable (fail closed): {err}");
-                    None
-                }
-            }
+    let kerberos: Option<Arc<dyn setjoin_authz::kerberos::KerberosValidator>> = if settings
+        .boolean("kerberos.enabled")
+    {
+        let configured_keytab = settings.string("kerberos.keytab");
+        let keytab = if !configured_keytab.is_empty() {
+            std::path::PathBuf::from(configured_keytab)
         } else {
-            None
+            let config_dir = env("CONFIG_DIR").unwrap_or_else(|| "/etc/mail".into());
+            std::path::PathBuf::from(config_dir).join("mail.keytab")
         };
+        let realm = settings.string("kerberos.realm");
+        match setjoin_authz::kerberos::GssapiVerifier::new(
+            setjoin_authz::kerberos::KerberosConfig { keytab, realm },
+        ) {
+            Ok(verifier) => Some(Arc::new(verifier)),
+            Err(err) => {
+                eprintln!("setjoin-gateway: kerberos enabled but unavailable (fail closed): {err}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let dav_basic = setjoin_gateway::dav_auth::DavBasicAuth {
         chain: chain.clone(),
         password_cache: Arc::new(setjoin_authz::basic::PasswordCache::new()),
@@ -1383,7 +1410,7 @@ async fn routes(
         ),
         keys: keys.clone(),
         issuer: issuer.clone(),
-        secret: env("JWT_SECRET").unwrap_or_default().into_bytes(),
+        secret: setjoin_gateway::approvals::link_secret_from_env(),
     };
     let chat_store = Arc::new(setjoin_gateway::recovery_worker::S3Store::from_env()?);
     let channels = setjoin_gateway::chat_channels::ChannelRoute {
@@ -1804,7 +1831,7 @@ async fn routes(
         exec.clone(),
         keys.clone(),
         issuer.clone(),
-        env("JWT_SECRET").as_deref(),
+        setjoin_gateway::drive_native::drive_native_secret_from_env().as_deref(),
     )
     .with_basic_auth(dav_basic)
     .with_chain(chain);
@@ -2034,10 +2061,16 @@ fn ldap_runtime() -> Result<Option<Arc<setjoin_directory_sync::ldap::runtime::Ld
     )))
 }
 
-/// Go's `sharedwebhook.NewSecretCodec([]byte(cfg.JWTSecret), cfg.CryptoProfile)`.
+/// Scoped `WEBHOOK_SECRET_KEY`, falling back to `JWT_SECRET` in co-located /
+/// legacy deployments (Go's `sharedwebhook.NewSecretCodec`).
 fn webhook_codec() -> setjoin_platform::webhook_secret::SecretCodec {
+    let secret = std::env::var("WEBHOOK_SECRET_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("JWT_SECRET").ok().filter(|s| !s.is_empty()))
+        .unwrap_or_default();
     setjoin_platform::webhook_secret::SecretCodec::new(
-        std::env::var("JWT_SECRET").unwrap_or_default().as_bytes(),
+        secret.as_bytes(),
         setjoin_config_secret::CryptoProfile::parse(
             &std::env::var("CRYPTO_ALGORITHM_PROFILE").unwrap_or_default(),
         ),
@@ -2331,7 +2364,7 @@ fn approval_worker() -> Result<Option<(setjoin_approvals::notify::ApprovalNotify
         .filter(|s| !s.is_empty())
         .ok_or("DB_DIRECT_DSN is required for approval-notify")?;
     let _ = WorkerDatabase::new(&direct).map_err(|_| "invalid direct DSN")?;
-    let secret = std::env::var("JWT_SECRET").unwrap_or_default().into_bytes();
+    let secret = setjoin_gateway::approvals::link_secret_from_env();
     let hostname = std::env::var("HOSTNAME")
         .ok()
         .filter(|s| !s.is_empty())

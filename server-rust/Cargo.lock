@@ -6158,7 +6158,6 @@ dependencies = [
  "hmac 0.12.1",
  "http-body-util",
  "hyper",
- "hyper-util",
  "icu_casemap",
  "ipnet",
  "libc",
@@ -6166,6 +6165,7 @@ dependencies = [
  "maxminddb",
  "p256",
  "pbkdf2 0.12.2",
+ "reqwest",
  "ring",
  "serde_json",
  "setjoin-config-secret",
@@ -6757,6 +6757,7 @@ dependencies = [
  "setjoin-pg",
  "tokio",
  "tokio-postgres",
+ "tokio-util",
 ]
 
 [[package]]

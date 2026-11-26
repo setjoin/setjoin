@@ -444,3 +444,15 @@ carries `correlation_id` (`CA-<8hex>`, minted by `Engine::evaluate` on enforcing
 `block`/`step_up`), `step_up_methods` (`actions.methods` / `actions.step_up_methods`
 or `require_strength` cheapest missing factors, default `["totp","webauthn"]`),
 `report_only`, and `would_decision` for `ca_signin_log_append` (#351).
+
+## `AuthAuthority` seam & public-only SM2 (#543)
+
+`auth_authority::AuthAuthority` (zero domain dependencies) abstracts in-process
+vs remote (`RemoteAuthAuthority`) auth HTTP dispatch, ES256 key lookup, legacy
+verifier access, JWKS JSON, SCIM session disable, token introspection/revocation,
+Drive native-token minting, and reload; `AuthKeySource(Arc<dyn AuthAuthority>)`
+adapts it to `token::KeySource`. `jwks::Jwks::new` and `RemoteAuthAuthority::new`
+accept `https://` for any host and refuse plaintext `http://` outside loopback.
+`legacy_jwt::LegacyKeys` supports per-kid HMAC keys (`with_hmac_kid`, never
+verifying HS256 with an empty secret) and `from_sm2_public_pem` for public-only
+SM2 verification without `JWT_SECRET` or an SM2 private key.

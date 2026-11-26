@@ -45,8 +45,17 @@ impl Runtime {
     /// Go stores the newly validated pointer, then refreshes the proxy cache.
     /// Boot handlers retain their original snapshot; no environment is mutated.
     pub async fn reload(&self, exec: Option<&ScopedExecutor>) -> Result<(), String> {
+        self.reload_for(setjoin_boot::Subsystems::ALL, exec).await
+    }
+
+    /// Subsystem-gated configuration reload.
+    pub async fn reload_for(
+        &self,
+        subsystems: setjoin_boot::Subsystems,
+        exec: Option<&ScopedExecutor>,
+    ) -> Result<(), String> {
         let next = Settings::load_ordered(&self.environment)?;
-        next.validate()?;
+        next.validate_for(subsystems)?;
         *self.current.write().expect("config snapshot") = next;
         self.refresh_proxies(exec).await;
         Ok(())

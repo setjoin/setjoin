@@ -14,12 +14,7 @@ use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use bytes::Bytes;
-use http_body_util::{BodyExt, Empty, Limited};
-use hyper::{Request, StatusCode, Uri};
-use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::client::legacy::Client;
-use hyper_util::rt::TokioExecutor;
+use hyper::{StatusCode, Uri};
 use serde_json::Value;
 
 use super::token::{KeySource, VerifyingKey};
@@ -52,38 +47,70 @@ pub struct Jwks {
     refresh: tokio::sync::Mutex<()>,
 }
 
+/// Returns true when `uri`'s host is loopback (`localhost`, `127.0.0.0/8`, `::1`).
+pub(crate) fn is_loopback_uri(uri: &Uri) -> bool {
+    let Some(host) = uri.host() else {
+        return false;
+    };
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    bare.parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
+}
+
 impl Jwks {
-    /// A client for exactly one `http://` JWKS URL. No network I/O here.
+    /// A client for exactly one `https://` or loopback `http://` JWKS URL. No
+    /// network I/O here. Redirects are disabled so only the configured URL is
+    /// ever fetched; plaintext `http://` is refused for non-loopback hosts.
     pub fn new(url: Uri) -> Result<Self, String> {
-        if url.scheme_str() != Some("http") || url.authority().is_none() {
+        let scheme = url.scheme_str();
+        if !matches!(scheme, Some("http" | "https")) || url.authority().is_none() {
             return Err(format!(
-                "JWKS URL must be http://host[:port]/path, got {url}"
+                "JWKS URL must be https:// or loopback http://host[:port]/path, got {url}"
             ));
         }
-        let client: Client<HttpConnector, Empty<Bytes>> =
-            Client::builder(TokioExecutor::new()).build(HttpConnector::new());
+        if scheme == Some("http") && !is_loopback_uri(&url) {
+            return Err(format!(
+                "JWKS URL refuses plaintext http:// for non-loopback host: {url}"
+            ));
+        }
+        let url_str = url.to_string();
+        let client = reqwest::Client::builder()
+            .timeout(FETCH_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| format!("jwks client init failed: {e}"))?;
         Ok(Self::with_fetch(Box::new(move || {
-            let (client, url) = (client.clone(), url.clone());
+            let (client, url_str) = (client.clone(), url_str.clone());
             Box::pin(async move {
-                let req = Request::get(url)
-                    .header("accept", "application/json")
-                    .body(Empty::new())
-                    .map_err(|e| e.to_string())?;
-                let resp = tokio::time::timeout(FETCH_TIMEOUT, client.request(req))
-                    .await
-                    .map_err(|_| "jwks fetch timed out".to_string())?
-                    .map_err(|e| e.to_string())?;
+                let mut resp = tokio::time::timeout(
+                    FETCH_TIMEOUT,
+                    client
+                        .get(&url_str)
+                        .header("accept", "application/json")
+                        .send(),
+                )
+                .await
+                .map_err(|_| "jwks fetch timed out".to_string())?
+                .map_err(|e| e.to_string())?;
                 if resp.status() != StatusCode::OK {
                     return Err(format!("jwks fetch: status {}", resp.status()));
                 }
-                let body = tokio::time::timeout(
-                    FETCH_TIMEOUT,
-                    Limited::new(resp.into_body(), MAX_DOCUMENT).collect(),
-                )
+                let mut out = Vec::new();
+                tokio::time::timeout(FETCH_TIMEOUT, async {
+                    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+                        if out.len().saturating_add(chunk.len()) > MAX_DOCUMENT {
+                            return Err("jwks document exceeds size limit".to_string());
+                        }
+                        out.extend_from_slice(&chunk);
+                    }
+                    Ok::<_, String>(())
+                })
                 .await
-                .map_err(|_| "jwks read timed out".to_string())?
-                .map_err(|e| e.to_string())?;
-                Ok(body.to_bytes().to_vec())
+                .map_err(|_| "jwks read timed out".to_string())??;
+                Ok(out)
             })
         })))
     }
@@ -372,5 +399,48 @@ mod tests {
         assert_eq!(keys.keys().collect::<Vec<_>>(), vec!["ok"]);
         assert_eq!(keys["ok"], k);
         assert!(parse(&doc(&invalid)).is_err(), "no usable key left");
+    }
+
+    #[test]
+    fn jwks_new_accepts_http_and_https_and_rejects_other_schemes() {
+        assert!(Jwks::new(
+            "http://127.0.0.1:8443/.well-known/jwks.json"
+                .parse()
+                .unwrap()
+        )
+        .is_ok());
+        assert!(Jwks::new("http://[::1]:8443/.well-known/jwks.json".parse().unwrap()).is_ok());
+        assert!(Jwks::new(
+            "http://localhost:8443/.well-known/jwks.json"
+                .parse()
+                .unwrap()
+        )
+        .is_ok());
+        assert!(Jwks::new(
+            "https://auth.internal.example:8443/.well-known/jwks.json"
+                .parse()
+                .unwrap()
+        )
+        .is_ok());
+        // Non-loopback plaintext http:// MUST be refused.
+        assert!(Jwks::new(
+            "http://auth.internal.example:8443/.well-known/jwks.json"
+                .parse()
+                .unwrap()
+        )
+        .is_err());
+        assert!(Jwks::new(
+            "http://10.0.0.5:8443/.well-known/jwks.json"
+                .parse()
+                .unwrap()
+        )
+        .is_err());
+        assert!(Jwks::new("ftp://auth.example/jwks.json".parse().unwrap()).is_err());
+        assert!(Jwks::new("/.well-known/jwks.json".parse().unwrap()).is_err());
+
+        let k = public_key(&signing_key(1));
+        let mut private_null = jwk("priv-null", &k);
+        private_null["d"] = Value::Null;
+        assert!(parse(&doc(&[private_null])).is_err());
     }
 }

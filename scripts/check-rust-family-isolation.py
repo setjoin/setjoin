@@ -31,6 +31,17 @@ WORKER_POOL_FEATURE_ALLOWLIST = {
     "setjoind",
     "setjoin-pg",
 }
+IN_PROCESS_AUTH_ALLOWLIST = {
+    "setjoin-auth",
+    "setjoind",
+}
+IN_PROCESS_BANNED_PATTERNS = [
+    (
+        "ClientProof::in_process",
+        re.compile(r"\bClientProof\s*::\s*in_process\b"),
+    ),
+    ("in_process", re.compile(r"\bin_process\b")),
+]
 
 # Hard-banned symbols in all `crates/domains/*` Rust files (src/ and tests/).
 HARD_BANNED_PATTERNS = [
@@ -90,6 +101,30 @@ def strip_rust_comments(text: str) -> str:
     """Strip /* ... */ and // ... comments while preserving line structure."""
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
     return re.sub(r"//[^\n]*", "", text)
+
+
+def scan_in_process_sources(root: pathlib.Path, errors: list[str]) -> None:
+    targets = [root / "crates/domains", root / "bins/gateway"]
+    for base in targets:
+        if not base.is_dir():
+            continue
+        for rs_path in sorted(base.rglob("*.rs")):
+            rel = rs_path.relative_to(root).as_posix()
+            if rel == "crates/domains/identity/src/issuance.rs":
+                continue
+            parts = rs_path.relative_to(base).parts
+            if base.name == "domains":
+                if len(parts) < 2 or parts[1] not in ("src", "tests"):
+                    continue
+            elif not parts or parts[0] not in ("src", "tests"):
+                continue
+            code = strip_rust_comments(
+                rs_path.read_text(encoding="utf-8", errors="ignore")
+            )
+            for label, pattern in IN_PROCESS_BANNED_PATTERNS:
+                if pattern.search(code):
+                    errors.append(f"forbidden in-process auth symbol {label} in {rel}")
+                    break
 
 
 def scan_domain_sources(root: pathlib.Path, errors: list[str]) -> None:
@@ -182,6 +217,11 @@ try:
             for dep in package["dependencies"]
             if dep["name"] == "setjoin-pg"
         }
+        identity_keys = {
+            dep.get("rename") or dep["name"]
+            for dep in package["dependencies"]
+            if dep["name"] == "setjoin-identity"
+        }
         for dependency in package["dependencies"]:
             path = dependency.get("path")
             if path and pathlib.Path(path).resolve() not in workspace_paths:
@@ -206,7 +246,33 @@ try:
                     errors.append(
                         f'forbidden setjoin-pg feature "worker-pool" in {pkg_name}'
                     )
-        # Also reject local feature forwarding (including renamed `setjoin-pg` deps).
+            if dep_name == "setjoin-identity":
+                declared_features = set(dependency.get("features") or [])
+                if (
+                    "in-process-authority" in declared_features
+                    and pkg_name not in IN_PROCESS_AUTH_ALLOWLIST
+                ):
+                    errors.append(
+                        'forbidden setjoin-identity feature "in-process-authority" '
+                        f"in {pkg_name}"
+                    )
+        # Never allow setjoin-identity to enable in-process-authority by default.
+        if pkg_name == "setjoin-identity":
+            features_map = package.get("features") or {}
+            seen_feats: set[str] = set()
+            pending_feats = list(features_map.get("default") or [])
+            while pending_feats:
+                feat = pending_feats.pop()
+                if feat == "in-process-authority":
+                    errors.append(
+                        'forbidden default feature "in-process-authority" '
+                        "in setjoin-identity"
+                    )
+                    break
+                if feat not in seen_feats and feat in features_map:
+                    seen_feats.add(feat)
+                    pending_feats.extend(features_map[feat])
+        # Also reject local feature forwarding (including renamed deps).
         for feat_name, feat_deps in (package.get("features") or {}).items():
             for dep_spec in feat_deps:
                 for pg_key in pg_keys:
@@ -224,6 +290,20 @@ try:
                     ):
                         errors.append(
                             'forbidden setjoin-pg feature "worker-pool" '
+                            f"forwarded by {pkg_name} ({feat_name})"
+                        )
+                for id_key in identity_keys:
+                    if (
+                        dep_spec
+                        in (
+                            f"{id_key}/in-process-authority",
+                            f"{id_key}?/in-process-authority",
+                        )
+                        and pkg_name not in IN_PROCESS_AUTH_ALLOWLIST
+                    ):
+                        errors.append(
+                            "forbidden setjoin-identity feature "
+                            '"in-process-authority" '
                             f"forwarded by {pkg_name} ({feat_name})"
                         )
 
@@ -250,6 +330,7 @@ try:
                     pending.append(target)
 
     scan_domain_sources(root, errors)
+    scan_in_process_sources(root, errors)
 
     if errors:
         print(

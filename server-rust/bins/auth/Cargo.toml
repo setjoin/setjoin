@@ -15,7 +15,7 @@ cookie = { version = "=0.18.3", default-features = false }
 sha2 = "=0.10.9"
 setjoin-contracts = { path = "../../crates/contracts" }
 setjoin-schema = { path = "../../crates/schema" }
-setjoin-identity = { path = "../../crates/domains/identity" }
+setjoin-identity = { path = "../../crates/domains/identity", features = ["in-process-authority"] }
 setjoin-authz = { path = "../../crates/authz" }
 setjoin-pg = { path = "../../crates/pg", features = ["mint", "worker-pool"] }
 setjoin-config-secret = { path = "../../crates/config-secret" }

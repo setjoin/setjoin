@@ -49,6 +49,7 @@ mod capability;
 pub mod cert_monitor;
 pub mod command;
 pub mod executor;
+pub mod listen_hub;
 pub mod operator;
 pub mod outcome;
 pub mod pipeline;
@@ -60,13 +61,13 @@ pub mod workers;
 pub use auth::MailboxAuthContext;
 #[cfg(feature = "mint")]
 pub use capability::mint;
-#[cfg(feature = "worker-pool")]
-pub use capability::{WorkerPool, WorkerTx};
 pub use capability::{
     AdminReadTx, AdminSensitiveRead, AdminWriteTx, AppPool, AuditEvent, AuditEventError, Audited,
     MailboxTx, ReadOnly, ReadWrite, Standard, Unaudited, UserTx, VerifiedAdmin, VerifiedMailbox,
     VerifiedUser,
 };
+#[cfg(feature = "worker-pool")]
+pub use capability::{WorkerPool, WorkerTx};
 pub use command::{
     lookup_command, lookup_operation, operation_hex, run_command, run_locked_tx,
     run_receipted_command, run_receipted_command_capped, run_receipted_effect, OperationLookup,
@@ -74,6 +75,10 @@ pub use command::{
 };
 pub use executor::{
     ConfigError, Param, ProvenStatement, ScopedExecutor, ScopedTx, Timeouts, DEADLINE_ENV,
+};
+pub use listen_hub::{
+    ListenEvent, ListenHub, ListenHubError, ListenNotification, ListenSubscription,
+    DEFAULT_SUBSCRIBER_CAPACITY,
 };
 pub use outcome::{
     commit_failure_observation, CommandOutcome, FailureCode, Rejection, StatementFailure,
