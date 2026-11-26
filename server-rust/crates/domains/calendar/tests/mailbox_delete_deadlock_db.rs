@@ -70,7 +70,10 @@ fn assert_ok_or_race<T>(
             assert_ne!(code, "23503", "FK VIOLATION (23503) in {ctx}: {err}");
             assert_ne!(code, "55P03", "LOCK TIMEOUT (55P03) in {ctx}: {err}");
             assert_ne!(code, "BZ300", "FEATURE DISABLED (BZ300) in {ctx}: {err}");
-            assert_ne!(code, "BZ224", "SOURCE/FEATURE DISABLED (BZ224) in {ctx}: {err}");
+            assert_ne!(
+                code, "BZ224",
+                "SOURCE/FEATURE DISABLED (BZ224) in {ctx}: {err}"
+            );
             assert!(
                 !code.starts_with("42"),
                 "SQL/SCHEMA ERROR ({code}) in {ctx}: {err}"
@@ -84,9 +87,16 @@ fn assert_ok_or_race<T>(
     }
 }
 
-async fn set_feature_toggle_saving_prior(client: &Client, key: &str, enabled: bool) -> Option<bool> {
+async fn set_feature_toggle_saving_prior(
+    client: &Client,
+    key: &str,
+    enabled: bool,
+) -> Option<bool> {
     let prior: Option<bool> = client
-        .query_opt("SELECT enabled FROM feature_toggles WHERE key = $1", &[&key])
+        .query_opt(
+            "SELECT enabled FROM feature_toggles WHERE key = $1",
+            &[&key],
+        )
         .await
         .expect("read prior feature toggle")
         .map(|row| row.get(0));
@@ -436,7 +446,9 @@ async fn rsvp_and_calendar_update_vs_admin_mailbox_delete() {
     let (domain_id, admin_id) = seed_domain_and_admin(&setup, &tag).await;
 
     for iter in 0..8 {
-        let acc = seed_deletable_mailbox_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
+        let acc =
+            seed_deletable_mailbox_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}"))
+                .await;
         let barrier = Arc::new(Barrier::new(2));
         let b1 = barrier.clone();
         let b2 = barrier.clone();
@@ -482,7 +494,9 @@ async fn rsvp_and_calendar_update_vs_admin_mailbox_delete() {
 /// 2. users -> mailboxes order: calendar share + subscribe vs rust_admin_user_delete.
 #[tokio::test]
 async fn users_to_mailboxes_calendar_share_and_subscribe_vs_admin_user_delete() {
-    let Some(dsn) = skip_or_dsn("users_to_mailboxes_calendar_share_and_subscribe_vs_admin_user_delete") else {
+    let Some(dsn) =
+        skip_or_dsn("users_to_mailboxes_calendar_share_and_subscribe_vs_admin_user_delete")
+    else {
         return;
     };
     let mut setup = connect(&dsn).await;
@@ -490,8 +504,10 @@ async fn users_to_mailboxes_calendar_share_and_subscribe_vs_admin_user_delete() 
     let (domain_id, admin_id) = seed_domain_and_admin(&setup, &tag).await;
 
     for iter in 0..8 {
-        let owner = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_o_{iter}")).await;
-        let target = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_t_{iter}")).await;
+        let owner =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_o_{iter}")).await;
+        let target =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_t_{iter}")).await;
         let barrier = Arc::new(Barrier::new(2));
         let b1 = barrier.clone();
         let b2 = barrier.clone();
@@ -558,7 +574,8 @@ async fn mailbox_purge_execute_vs_mailbox_lifecycle_transition() {
     let mut total_reconnect_wins = 0usize;
 
     for iter in 0..8 {
-        let acc = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
+        let acc =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
         let mb = acc.mailbox_id;
         // Seed retained lifecycle row (generation=2) + eligible approved purge request (lifecycle_generation=1).
         setup
@@ -691,7 +708,10 @@ async fn mailbox_purge_execute_vs_mailbox_lifecycle_transition() {
             .await
             .expect("cleanup mailbox_lifecycle_operations");
         setup
-            .execute("DELETE FROM mailbox_lifecycle WHERE mailbox_id = $1", &[&mb])
+            .execute(
+                "DELETE FROM mailbox_lifecycle WHERE mailbox_id = $1",
+                &[&mb],
+            )
             .await
             .expect("cleanup mailbox_lifecycle");
     }
@@ -729,7 +749,8 @@ async fn scim_delete_group_vs_identity_source_apply() {
             .await
             .expect("insert identity_source")
             .get(0);
-        let acc = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
+        let acc =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
         let grp_email = format!("grp-{tag}-{iter}@d{domain_id}.test");
         let grp_mb: i64 = setup
             .query_one(
@@ -784,9 +805,8 @@ async fn scim_delete_group_vs_identity_source_apply() {
             "{{\"email\":\"{}\",\"displayName\":\"Updated {iter}\",\"department\":\"Dept {iter}\"}}",
             acc.email
         );
-        let attr_payload = format!(
-            "{{\"displayName\":\"Attr {iter}\",\"jobTitle\":\"Engineer {iter}\"}}"
-        );
+        let attr_payload =
+            format!("{{\"displayName\":\"Attr {iter}\",\"jobTitle\":\"Engineer {iter}\"}}");
         setup
             .execute(
                 "INSERT INTO identity_source_inbox \
@@ -819,7 +839,10 @@ async fn scim_delete_group_vs_identity_source_apply() {
             let c = connect(&d1).await;
             b1.wait().await;
             let r = c
-                .execute("SELECT scim_delete_group($1, 1, $2)", &[&source_id, &grp_id])
+                .execute(
+                    "SELECT scim_delete_group($1, 1, $2)",
+                    &[&source_id, &grp_id],
+                )
                 .await;
             assert!(
                 assert_ok_or_race(r, &[], "scim_delete_group"),
@@ -904,7 +927,8 @@ async fn booking_cancel_vs_calendar_event_destroy() {
     let (domain_id, admin_id) = seed_domain_and_admin(&setup, &tag).await;
 
     for iter in 0..8 {
-        let acc = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
+        let acc =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
         let slug = format!("slug-{tag}-{iter}");
         let page_id: i64 = setup
             .query_one(
@@ -968,8 +992,10 @@ async fn task_list_delete_vs_jmap_task_set_update() {
     let (domain_id, admin_id) = seed_domain_and_admin(&setup, &tag).await;
 
     for iter in 0..8 {
-        let owner = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_o_{iter}")).await;
-        let member = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_m_{iter}")).await;
+        let owner =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_o_{iter}")).await;
+        let member =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_m_{iter}")).await;
         let list_id: i64 = setup
             .query_one(
                 "SELECT (task_list_create($1, 'List 481')->>'id')::bigint",
@@ -1039,8 +1065,10 @@ async fn task_list_add_member_vs_admin_user_delete() {
     let (domain_id, admin_id) = seed_domain_and_admin(&setup, &tag).await;
 
     for iter in 0..8 {
-        let owner = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_o_{iter}")).await;
-        let invitee = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_i_{iter}")).await;
+        let owner =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_o_{iter}")).await;
+        let invitee =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_i_{iter}")).await;
         let list_id: i64 = setup
             .query_one(
                 "SELECT (task_list_create($1, 'Roster 481')->>'id')::bigint",
@@ -1099,7 +1127,9 @@ async fn jmap_mailbox_and_email_update_vs_admin_mailbox_delete() {
     let (domain_id, admin_id) = seed_domain_and_admin(&setup, &tag).await;
 
     for iter in 0..8 {
-        let acc = seed_deletable_mailbox_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}")).await;
+        let acc =
+            seed_deletable_mailbox_account(&setup, domain_id, admin_id, &format!("{tag}_{iter}"))
+                .await;
         let barrier = Arc::new(Barrier::new(3));
         let b1 = barrier.clone();
         let b2 = barrier.clone();
@@ -1161,7 +1191,8 @@ async fn calendar_book_resource_vs_room_mailbox_delete() {
     let (domain_id, admin_id) = seed_domain_and_admin(&setup, &tag).await;
 
     for iter in 0..8 {
-        let booker = seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_b_{iter}")).await;
+        let booker =
+            seed_populated_account(&setup, domain_id, admin_id, &format!("{tag}_b_{iter}")).await;
         let room_email = format!("room-{tag}-{iter}@d{domain_id}.test");
         let room_mb: i64 = setup
             .query_one(
@@ -1222,7 +1253,8 @@ async fn calendar_book_resource_vs_room_mailbox_delete() {
 /// operations record real successes.
 #[tokio::test]
 async fn twenty_account_concurrent_hammer_zero_deadlocks_zero_23503() {
-    let Some(dsn) = skip_or_dsn("twenty_account_concurrent_hammer_zero_deadlocks_zero_23503") else {
+    let Some(dsn) = skip_or_dsn("twenty_account_concurrent_hammer_zero_deadlocks_zero_23503")
+    else {
         return;
     };
     let mut setup = connect(&dsn).await;
@@ -1381,7 +1413,8 @@ async fn twenty_account_concurrent_hammer_zero_deadlocks_zero_23503() {
 /// `check_quota()` `FOR UPDATE` lock-upgrade `40P01` deadlock), and both must succeed.
 #[tokio::test]
 async fn concurrent_deliver_and_email_create_same_mailbox_zero_deadlocks() {
-    let Some(dsn) = skip_or_dsn("concurrent_deliver_and_email_create_same_mailbox_zero_deadlocks") else {
+    let Some(dsn) = skip_or_dsn("concurrent_deliver_and_email_create_same_mailbox_zero_deadlocks")
+    else {
         return;
     };
     let mut setup = connect(&dsn).await;
@@ -1521,7 +1554,10 @@ async fn concurrent_deliver_and_email_create_same_mailbox_zero_deadlocks() {
             match r {
                 Ok(row) => {
                     let not_created: String = row.get(0);
-                    assert_eq!(not_created, "{}", "mixed create[{iter}] notCreated={not_created}");
+                    assert_eq!(
+                        not_created, "{}",
+                        "mixed create[{iter}] notCreated={not_created}"
+                    );
                 }
                 Err(e) => {
                     assert_ok_or_race::<()>(Err(e), &[], &format!("mixed create[{iter}]"));
@@ -1581,7 +1617,10 @@ async fn concurrent_send_vs_jmap_mailbox_set_update_sent_tag_zero_deadlocks() {
             match r {
                 Ok(row) => {
                     let sent_id: Option<i64> = row.get(0);
-                    assert!(sent_id.is_some(), "send[{iter}] must return a Sent message id");
+                    assert!(
+                        sent_id.is_some(),
+                        "send[{iter}] must return a Sent message id"
+                    );
                 }
                 Err(e) => {
                     assert_ok_or_race::<()>(Err(e), &[], &format!("send[{iter}]"));
