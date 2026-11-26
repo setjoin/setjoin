@@ -43,6 +43,7 @@ DECLARE
   v_new_uid     TEXT;
   v_attendees   JSONB;
   v_invite_payload JSONB;
+  v_rrule_err   TEXT;
 BEGIN
   IF p_scope NOT IN ('this', 'following', 'series') THEN
     RETURN jsonb_build_object('type', 'invalidArguments',
@@ -277,6 +278,13 @@ BEGIN
       v_new_id := p_master_id;
       v_event_name := 'event_destroyed';
     ELSE
+      IF p_patch ? 'recurrenceRule' THEN
+        v_rrule_err := validate_rrule(p_patch->>'recurrenceRule');
+        IF v_rrule_err IS NOT NULL THEN
+          RETURN jsonb_build_object('type', 'invalidArguments', 'description', v_rrule_err);
+        END IF;
+      END IF;
+
       UPDATE calendar_events ce SET
         title       = COALESCE(p_patch->>'title', ce.title),
         description = COALESCE(p_patch->>'description', ce.description),

@@ -1161,6 +1161,7 @@ upgrade_recovery_set_read.sql	upgrade_recovery_set_read	READ_ONLY	-	pure read pa
 upgrade_recovery_set_record.sql	upgrade_recovery_set_record	MUST	core	lifecycle/authority transition (WP3 core class)
 upgrade_restore_proof_record.sql	upgrade_restore_proof_record	MUST	core	lifecycle/authority transition (WP3 core class)
 auth_policy.sql	validate_password	READ_ONLY	-	pure read path (guard re-derives no DML)
+calendar_freebusy.sql	validate_rrule	READ_ONLY	-	pure read path (guard re-derives no DML)
 chat_access_audit.sql	verify_chat_audit_chain	READ_ONLY	-	pure read path (guard re-derives no DML)
 drive_access_audit.sql	verify_drive_audit_chain	READ_ONLY	-	pure read path (guard re-derives no DML)
 vip_senders.sql	vip_sender_set	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition

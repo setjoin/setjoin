@@ -306,15 +306,16 @@ User-owned lists (`task_lists`/`task_list_members`, V112) with explicit membersh
 
 | Function | File | Purpose | Key Parameters | Notifies/State Bumps |
 |----------|------|---------|----------------|----------------------|
-| `expand_recurrence` | calendar_freebusy.sql | Expand recurring event occurrences within a date range (DAILY/WEEKLY/MONTHLY/YEARLY, BYDAY, BYMONTHDAY, etc.) | p_start_at, p_end_at, p_rrule, p_range_start, p_range_end, p_rdate, p_exdate | N/A (immutable, returns SETOF rows) |
+| `validate_rrule` | calendar_freebusy.sql | Validate RFC 5545 RRULE at input boundaries; returns NULL if empty/valid or an error string for missing/unsupported FREQ (`HOURLY`/`MINUTELY`/`SECONDLY`) or unsupported parts (`BYHOUR`/`BYMINUTE`/`BYSECOND`/`BYEASTER`) | p_rrule | N/A (immutable validator) |
+| `expand_recurrence` | calendar_freebusy.sql | Expand recurring event occurrences within a date range (DAILY/WEEKLY/MONTHLY/YEARLY, inclusive DATE/DATE-TIME UNTIL, BYDAY, BYMONTHDAY, BYYEARDAY, BYMONTH, BYWEEKNO, WKST) | p_start_at, p_end_at, p_rrule, p_range_start, p_range_end, p_rdate, p_exdate | N/A (immutable, returns SETOF rows) |
 | `expand_recurrence_bysetpos` | calendar_freebusy.sql | Wrapper that applies BYSETPOS filtering (e.g., "last weekday") to recurrence expansion | p_start_at, p_end_at, p_rrule, p_range_start, p_range_end, p_rdate, p_exdate | N/A (immutable, returns SETOF rows) |
 | `day_of_week_num` | calendar_freebusy.sql | Convert BYDAY code (MO, TU, -1SU, 2TU) to DOW number (0-6) | p_byday, p_wkst | N/A (immutable helper) |
 | `positional_week` | calendar_freebusy.sql | Extract positional week number from BYDAY code (-1=last, 1=first, 2=second) | p_byday | N/A (immutable helper) |
 | `nth_day_of_week_in_month` | calendar_freebusy.sql | Find the Nth occurrence of a day-of-week within a month | p_ref, p_pos, p_dow | N/A (immutable helper) |
 | `day_in_byday` | calendar_freebusy.sql | Check if a date falls on a day in a BYDAY list | p_ts, p_byday, p_wkst | N/A (immutable helper) |
-| `nth_month_day` | calendar_freebusy.sql | Compute the Nth day of a month (handles negative for from-end) | p_ref, p_day_num | N/A (immutable helper) |
-| `is_excluded` | calendar_freebusy.sql | Check if a date is in the EXDATE exclusion list (day-level comparison) | p_ts, p_exdate | N/A (immutable helper) |
-| `is_byweekno_match` | calendar_freebusy.sql | Check if a date's ISO week number is in a BYWEEKNO list | p_ts, p_byweekno | N/A (immutable helper) |
+| `nth_month_day` | calendar_freebusy.sql | Compute the Nth day of a month in UTC (handles negative for from-end; NULL if out of range) | p_ref, p_day_num | N/A (immutable helper) |
+| `is_excluded` | calendar_freebusy.sql | Check if an exact instant is in the EXDATE exclusion list | p_ts, p_exdate | N/A (immutable helper) |
+| `is_byweekno_match` | calendar_freebusy.sql | Check if a date's ISO week number is in a BYWEEKNO list (supports negative values) | p_ts, p_byweekno | N/A (immutable helper) |
 | `calendar_free_busy` | calendar_freebusy.sql | Return busy intervals per user in a time range (expands recurring events). ADR-003 exception: param 1 stays `p_account_id` (a mailbox id) because frozen migration V061 pins that name. | p_account_id, p_user_ids, p_start, p_end | N/A (read-only) |
 | `calendar_free_busy_multi` | calendar_freebusy_multi.sql | Batch free/busy across multiple calendars (user + room/equipment) for the scheduling assistant; returns `[{entity_id,email,type,intervals}]`. Same ADR-003 exception: param 1 stays `p_account_id` (a mailbox id; frozen V061 pins the name). Access gate is a mailbox-existence check (`mailboxes WHERE id = p_account_id`), BZ001 on not-found. | p_account_id, p_cal_ids, p_start, p_end | N/A (read-only) |
 | `calendar_check_conflict` | calendar_freebusy.sql | Return event IDs that overlap a proposed time range (excludes cancelled + specific event) | p_mailbox_id, p_calendar_id, p_start, p_end, p_exclude_event_id | N/A (read-only) |
