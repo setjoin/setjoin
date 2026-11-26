@@ -52,6 +52,8 @@ BEGIN
     END IF;
   END LOOP;
 
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   IF p_id IS NULL THEN
     INSERT INTO quick_steps (mailbox_id, name, icon, actions, position)
     VALUES (p_mailbox_id, p_name, COALESCE(NULLIF(p_icon, ''), 'Zap'), p_actions,
@@ -83,6 +85,8 @@ DECLARE
   v_action  JSONB;
   v_type    TEXT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   SELECT actions INTO v_actions FROM quick_steps
   WHERE id = p_id AND mailbox_id = p_mailbox_id;       -- R1: filter by mailbox
   IF v_actions IS NULL THEN

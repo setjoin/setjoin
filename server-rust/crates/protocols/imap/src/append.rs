@@ -213,7 +213,13 @@ impl Session {
                 &auth,
                 Instant::now() + APPEND_DEADLINE,
                 async |tx: &mut ScopedTx| -> Result<i64, Abort> {
-                    // Quota first: the check locks the mailbox row.
+                    // Canonical lock order: mailboxes FOR UPDATE before check_quota()/tags/messages/quota updates.
+                    tx.execute(
+                        "SELECT 1 FROM mailboxes WHERE id = $1 FOR UPDATE",
+                        &[(&dest.mailbox, Type::INT8)],
+                    )
+                    .await?;
+                    // Quota first: check available space.
                     let within = tx
                         .query(
                             "SELECT check_quota($1, $2)",

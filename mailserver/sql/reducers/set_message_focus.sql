@@ -18,6 +18,13 @@ DECLARE
     v_sender   TEXT;
     v_user_id  BIGINT;
 BEGIN
+    -- Canonical lock order: users -> mailboxes -> message_tags / focus_sender_overrides.
+    SELECT user_id INTO v_user_id FROM account_scope(p_mailbox_id);
+    IF v_user_id IS NOT NULL THEN
+        PERFORM 1 FROM users WHERE id = v_user_id FOR KEY SHARE;
+    END IF;
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     v_other_id := get_tag_id('Other', p_mailbox_id);
     IF v_other_id IS NULL THEN
         RAISE EXCEPTION 'mailbox % has no Other tag', p_mailbox_id

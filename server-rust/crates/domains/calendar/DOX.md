@@ -18,9 +18,11 @@ batch free/busy query and the webcal subscription list/delete/create; slice 2
   statement on the worker credential, like Go's pool: the reducers self-scope by
   slug and token hash (`feature.booking_pages` OFF, an unknown slug and a disabled
   page all answer the same bare 404).
-- Subscribe is two inserts in one transaction, so it is the one new reducer,
-  `rust_calendar_subscribe` (`mailserver/sql/reducers/`), mirroring Go. Follow-up:
-  fold it into a canonical calendar reducer. Unsubscribe is Go's single `DELETE`.
+- Subscribe is two inserts in one transaction (`rust_calendar_subscribe`), and
+  unsubscribe locks mailbox → calendar in canonical order before deleting the
+  subscription calendar (`rust_calendar_unsubscribe`, both in
+  `mailserver/sql/reducers/`), mirroring Go. Follow-up: fold them into canonical
+  calendar reducers.
 - Free/busy calls `calendar_free_busy_multi` on the request credential without a
   tenant GUC (as Go) with the caller's primary mailbox. Go mounts it only while
   `feature.caldav` is on and behind the calendar entitlement; when `feature.caldav`

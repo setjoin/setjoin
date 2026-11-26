@@ -4,10 +4,18 @@ CREATE OR REPLACE FUNCTION mailbox_purge_execute(p_actor bigint,p_purge_request_
 RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 DECLARE v_p mailbox_purge_requests%ROWTYPE; v_l mailbox_lifecycle%ROWTYPE; v_blockers jsonb;
   v_addresses jsonb; v_messages bigint; v_blobs bigint; v_result jsonb; v_before text; v_tomb_digest text;
-  v_existing mailbox_lifecycle_operations%ROWTYPE; v_found boolean;
+  v_existing mailbox_lifecycle_operations%ROWTYPE; v_found boolean; v_mailbox_id bigint;
 BEGIN
+  PERFORM admin_authority_fence();
+  SELECT mailbox_id INTO v_mailbox_id FROM mailbox_purge_requests WHERE id=p_purge_request_id;
+  IF v_mailbox_id IS NOT NULL THEN
+    PERFORM 1 FROM mailboxes WHERE id=v_mailbox_id FOR UPDATE;
+  END IF;
   SELECT * INTO v_p FROM mailbox_purge_requests WHERE id=p_purge_request_id FOR UPDATE;
   v_found:=FOUND;
+  IF v_found AND v_p.mailbox_id IS DISTINCT FROM v_mailbox_id THEN
+    RAISE EXCEPTION 'purge is not independently approved and eligible' USING ERRCODE='BZ311';
+  END IF;
   -- #424 (owner-approved security fix 2026-11-05): execution needs the same reach as cancel -- the
   -- requester, an admin holding users.delete over the requester, or the superadmin role -- so a
   -- users.delete admin scoped to another domain cannot execute (or replay) a foreign purge; a foreign

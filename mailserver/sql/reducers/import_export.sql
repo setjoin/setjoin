@@ -126,6 +126,8 @@ DECLARE
   v_imap_uid    BIGINT;
   v_message_id  BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR UPDATE;
+
   -- 1. Resolve tag (default to Inbox). A supplied tag id MUST belong to the target
   -- mailbox: this runs on the BYPASSRLS worker pool, so an unowned tag id would
   -- otherwise write messages.folder_id pointing at another mailbox's tag (a

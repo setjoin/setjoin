@@ -11,6 +11,16 @@ DECLARE
  v_calendar bigint;
  v_sub bigint;
 BEGIN
+ PERFORM 1 FROM users WHERE id = p_user FOR KEY SHARE;
+ IF NOT FOUND THEN
+  RAISE EXCEPTION 'Account not found'
+   USING ERRCODE = 'BZ006', HINT = '{"type":"accountNotFound"}';
+ END IF;
+ PERFORM 1 FROM mailboxes WHERE id = p_mailbox FOR KEY SHARE;
+ IF NOT FOUND THEN
+  RAISE EXCEPTION 'Account not found'
+   USING ERRCODE = 'BZ006', HINT = '{"type":"accountNotFound"}';
+ END IF;
  INSERT INTO calendars (mailbox_id, name, color)
   VALUES (p_mailbox, p_name, '#6366f1') RETURNING id INTO v_calendar;
  INSERT INTO calendar_subscriptions (user_id, calendar_id, url, last_fetch_at, last_status)

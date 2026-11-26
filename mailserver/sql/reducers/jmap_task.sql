@@ -266,10 +266,41 @@ DECLARE
   v_email         TEXT;
   v_assignee_id   BIGINT;
   v_owner_user_id BIGINT;
+  v_user_ids      BIGINT[];
+  v_mailbox_ids   BIGINT[];
 BEGIN
   v_old_state := entity_state(p_mailbox_id, 'Task');
 
   SELECT user_id INTO v_owner_user_id FROM mailboxes WHERE id = p_mailbox_id;
+
+  -- Canonical lock order: users (sorted) -> mailboxes (sorted, incl. assignees' primary mailboxes) -> tasks.
+  SELECT array_agg(DISTINCT u_id ORDER BY u_id) INTO v_user_ids
+  FROM (
+    SELECT v_owner_user_id AS u_id WHERE v_owner_user_id IS NOT NULL
+    UNION
+    SELECT ri.user_id AS u_id
+      FROM jsonb_each(p_creates) e(k, obj)
+      CROSS JOIN LATERAL resolve_identity(NULLIF(btrim(e.obj->>'assigneeEmail'), '')) ri
+     WHERE NULLIF(btrim(e.obj->>'assigneeEmail'), '') IS NOT NULL
+       AND ri.user_id IS NOT NULL
+  ) u;
+
+  IF v_user_ids IS NOT NULL THEN
+    PERFORM 1 FROM users WHERE id = ANY(v_user_ids) ORDER BY id FOR KEY SHARE;
+  END IF;
+
+  SELECT array_agg(DISTINCT mb_id ORDER BY mb_id) INTO v_mailbox_ids
+  FROM (
+    SELECT p_mailbox_id AS mb_id
+    UNION
+    SELECT mb.id AS mb_id
+      FROM mailboxes mb
+     WHERE v_user_ids IS NOT NULL
+       AND mb.user_id = ANY(v_user_ids)
+       AND mb.is_primary
+  ) m;
+
+  PERFORM 1 FROM mailboxes WHERE id = ANY(v_mailbox_ids) ORDER BY id FOR KEY SHARE;
 
   FOR v_client_key, v_obj IN SELECT * FROM jsonb_each(p_creates)
   LOOP
@@ -387,12 +418,69 @@ DECLARE
   v_delta        INTERVAL;
   v_rr_count     INT;
   v_new_rrule    TEXT;
-  v_new_id       BIGINT;
+  v_new_id        BIGINT;
   v_owner_user_id BIGINT;
+  v_update_ids    BIGINT[];
+  v_user_ids      BIGINT[];
+  v_mailbox_ids   BIGINT[];
+  v_list_ids      BIGINT[];
 BEGIN
   SELECT user_id INTO v_owner_user_id FROM mailboxes WHERE id = p_mailbox_id;
 
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  SELECT array_agg(DISTINCT k::BIGINT ORDER BY k::BIGINT) INTO v_update_ids
+  FROM jsonb_object_keys(COALESCE(p_updates, '{}'::JSONB)) AS k
+  WHERE k ~ '^[0-9]+$';
+
+  -- Canonical lock order: users (sorted) -> mailboxes (sorted) -> task_lists (sorted, 0-row tolerant under FORCE RLS) -> tasks.
+  SELECT array_agg(DISTINCT u_id ORDER BY u_id) INTO v_user_ids
+  FROM (
+    SELECT v_owner_user_id AS u_id WHERE v_owner_user_id IS NOT NULL
+    UNION
+    SELECT ri.user_id AS u_id
+      FROM jsonb_each(COALESCE(p_updates, '{}'::JSONB)) e(k, patch)
+      CROSS JOIN LATERAL resolve_identity(NULLIF(btrim(e.patch->>'assigneeEmail'), '')) ri
+     WHERE (e.patch ? 'assigneeEmail')
+       AND NULLIF(btrim(e.patch->>'assigneeEmail'), '') IS NOT NULL
+       AND ri.user_id IS NOT NULL
+    UNION
+    SELECT t.assignee_user_id AS u_id
+      FROM tasks t
+     WHERE v_update_ids IS NOT NULL
+       AND t.id = ANY(v_update_ids)
+       AND t.mailbox_id = p_mailbox_id
+       AND t.assignee_user_id IS NOT NULL
+  ) u;
+
+  IF v_user_ids IS NOT NULL THEN
+    PERFORM 1 FROM users WHERE id = ANY(v_user_ids) ORDER BY id FOR KEY SHARE;
+  END IF;
+
+  SELECT array_agg(DISTINCT mb_id ORDER BY mb_id) INTO v_mailbox_ids
+  FROM (
+    SELECT p_mailbox_id AS mb_id
+    UNION
+    SELECT mb.id AS mb_id
+      FROM mailboxes mb
+     WHERE v_user_ids IS NOT NULL
+       AND mb.user_id = ANY(v_user_ids)
+       AND mb.is_primary
+  ) m;
+
+  PERFORM 1 FROM mailboxes WHERE id = ANY(v_mailbox_ids) ORDER BY id FOR KEY SHARE;
+
+  IF v_update_ids IS NOT NULL THEN
+    SELECT array_agg(DISTINCT list_id ORDER BY list_id) INTO v_list_ids
+      FROM tasks
+     WHERE id = ANY(v_update_ids)
+       AND mailbox_id = p_mailbox_id
+       AND list_id IS NOT NULL;
+    IF v_list_ids IS NOT NULL THEN
+      -- Tolerate 0 rows under FORCE RLS (non-owner member editing a shared-list task via personal surface).
+      PERFORM 1 FROM task_lists WHERE id = ANY(v_list_ids) ORDER BY id FOR NO KEY UPDATE;
+    END IF;
+  END IF;
+
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       -- Assignment authz (mirrors set_create): a PRESENT 'assigneeEmail' is resolved
@@ -601,11 +689,24 @@ CREATE OR REPLACE FUNCTION jmap_task_set_destroy(
 DECLARE
   v_id           BIGINT;
   v_list_id      BIGINT;
+  v_list_ids     BIGINT[];
   v_destroyed    JSONB := '[]'::JSONB;
   v_notDestroyed JSONB := '{}'::JSONB;
   v_new_state    BIGINT;
 BEGIN
-  FOREACH v_id IN ARRAY p_ids
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
+  SELECT array_agg(DISTINCT list_id ORDER BY list_id) INTO v_list_ids
+    FROM tasks
+   WHERE id = ANY(COALESCE(p_ids, ARRAY[]::BIGINT[]))
+     AND mailbox_id = p_mailbox_id
+     AND list_id IS NOT NULL;
+  IF v_list_ids IS NOT NULL THEN
+    -- Tolerate 0 rows under FORCE RLS (non-owner member destroying a shared-list task via personal surface).
+    PERFORM 1 FROM task_lists WHERE id = ANY(v_list_ids) ORDER BY id FOR NO KEY UPDATE;
+  END IF;
+
+  FOR v_id IN SELECT x FROM unnest(COALESCE(p_ids, ARRAY[]::BIGINT[])) AS x ORDER BY x
   LOOP
     BEGIN
       DELETE FROM tasks

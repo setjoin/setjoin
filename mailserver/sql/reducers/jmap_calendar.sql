@@ -71,6 +71,24 @@ DECLARE
   v_delegator_name TEXT;
   v_rrule_err      TEXT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM calendars
+  WHERE mailbox_id = p_mailbox_id
+    AND (
+      id IN (
+        SELECT CASE WHEN (e.obj->>'calendarId') ~ '^[0-9]{1,18}$'
+          THEN (e.obj->>'calendarId')::BIGINT END
+        FROM jsonb_each(COALESCE(p_creates, '{}'::JSONB)) e(k, obj)
+      )
+      OR (
+        is_default = TRUE
+        AND EXISTS (
+          SELECT 1 FROM jsonb_each(COALESCE(p_creates, '{}'::JSONB)) e(k, obj)
+          WHERE NULLIF(e.obj->>'calendarId', '') IS NULL
+        )
+      )
+    )
+  ORDER BY id FOR NO KEY UPDATE;
   v_old_state := entity_state(p_mailbox_id, 'CalendarEvent');
 
   FOR v_key, v_obj IN SELECT * FROM jsonb_each(p_creates)
@@ -85,8 +103,9 @@ BEGIN
         CONTINUE;
       END IF;
 
-      -- Verify calendar belongs to this account
-      IF NOT EXISTS (SELECT 1 FROM calendars WHERE id = v_calendar_id AND mailbox_id = p_mailbox_id) THEN
+      -- Verify calendar belongs to this account and lock before inserting event
+      PERFORM 1 FROM calendars WHERE id = v_calendar_id AND mailbox_id = p_mailbox_id FOR NO KEY UPDATE;
+      IF NOT FOUND THEN
         v_notCreated := v_notCreated || jsonb_build_object(v_key,
           jsonb_build_object('type', 'invalidArguments', 'description', 'Calendar not found'));
         CONTINUE;
@@ -226,6 +245,15 @@ DECLARE
   v_new_state    BIGINT;
   v_cal_id       BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM calendars
+  WHERE mailbox_id = p_mailbox_id
+    AND id IN (
+      SELECT DISTINCT ce.calendar_id
+      FROM calendar_events ce
+      WHERE ce.id = ANY(COALESCE(p_ids, ARRAY[]::BIGINT[]))
+    )
+  ORDER BY id FOR NO KEY UPDATE;
   v_old_state := entity_state(p_mailbox_id, 'CalendarEvent');
 
   FOREACH v_id IN ARRAY p_ids
@@ -237,6 +265,24 @@ BEGIN
       WHERE ce.id = v_id AND c.mailbox_id = p_mailbox_id;
 
       IF v_cal_id IS NULL THEN
+        v_notDestroyed := v_notDestroyed || jsonb_build_object(v_id::TEXT,
+          jsonb_build_object('type', 'notFound'));
+        CONTINUE;
+      END IF;
+
+      PERFORM 1 FROM calendars WHERE id = v_cal_id AND mailbox_id = p_mailbox_id FOR NO KEY UPDATE;
+      IF NOT FOUND THEN
+        v_notDestroyed := v_notDestroyed || jsonb_build_object(v_id::TEXT,
+          jsonb_build_object('type', 'notFound'));
+        CONTINUE;
+      END IF;
+
+      PERFORM 1 FROM calendar_events
+      WHERE calendar_id = v_cal_id
+        AND (id = v_id OR uid = (SELECT uid FROM calendar_events WHERE id = v_id AND calendar_id = v_cal_id))
+      ORDER BY id FOR UPDATE;
+
+      IF NOT EXISTS (SELECT 1 FROM calendar_events WHERE id = v_id AND calendar_id = v_cal_id) THEN
         v_notDestroyed := v_notDestroyed || jsonb_build_object(v_id::TEXT,
           jsonb_build_object('type', 'notFound'));
         CONTINUE;
@@ -308,7 +354,9 @@ DECLARE
   v_notUpdated  JSONB := '{}'::JSONB;
   v_new_state   BIGINT;
 BEGIN
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       UPDATE calendars SET
@@ -557,9 +605,21 @@ DECLARE
   v_event_cal_id BIGINT;
   v_rrule_err   TEXT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM calendars
+  WHERE mailbox_id = p_mailbox_id
+    AND id IN (
+      SELECT DISTINCT ce.calendar_id
+      FROM calendar_events ce
+      WHERE ce.id IN (
+        SELECT CASE WHEN k ~ '^[0-9]{1,18}$' THEN k::BIGINT END
+        FROM jsonb_object_keys(COALESCE(p_updates, '{}'::JSONB)) AS k
+      )
+    )
+  ORDER BY id FOR NO KEY UPDATE;
   v_old_state := entity_state(p_mailbox_id, 'CalendarEvent');
 
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       IF v_patch ? 'recurrenceRule' THEN
@@ -571,58 +631,59 @@ BEGIN
         END IF;
       END IF;
 
-      UPDATE calendar_events ce SET
-        title = COALESCE(v_patch->>'title', ce.title),
-        description = COALESCE(v_patch->>'description', ce.description),
-        location = COALESCE(v_patch->>'location', ce.location),
-        color = COALESCE(v_patch->>'color', ce.color),
-        start_at = COALESCE((v_patch->>'start')::TIMESTAMPTZ, ce.start_at),
-        end_at = COALESCE((v_patch->>'end')::TIMESTAMPTZ, ce.end_at),
-        all_day = COALESCE((v_patch->>'isAllDay')::BOOL, ce.all_day),
-        timezone = COALESCE(v_patch->>'timeZone', ce.timezone),
-        status = COALESCE(v_patch->>'status', ce.status),
-        -- freeBusyStatus patch-present guard: only touch transp when the key is
-        -- present (an unrelated update keeps the existing value). 'tentative' is
-        -- driven by status, not transp, so it maps to OPAQUE here.
-        transp = CASE WHEN v_patch ? 'freeBusyStatus'
-          THEN (CASE WHEN v_patch->>'freeBusyStatus' = 'free' THEN 'TRANSPARENT' ELSE 'OPAQUE' END)
-          ELSE ce.transp END,
-        -- privacy patch-present guard: only touch classification when the key is present.
-        classification = CASE WHEN v_patch ? 'privacy'
-          THEN (CASE v_patch->>'privacy' WHEN 'private' THEN 'PRIVATE' WHEN 'secret' THEN 'CONFIDENTIAL' ELSE 'PUBLIC' END)
-          ELSE ce.classification END,
-        -- valarm patch-present guard: the client recomputes the absolute trigger on every
-        -- edit (a start-time change must move the reminder), so an event edit always resends
-        -- valarm; an unrelated patch (no 'valarm' key) keeps the existing reminder.
-        valarm = CASE WHEN v_patch ? 'valarm' THEN v_patch->'valarm' ELSE ce.valarm END,
-        -- Meet B1 Task 16 calendar hook: the ONLY client-reachable write to
-        -- is_meeting/meeting_url is a {"isMeeting":false} patch, clearing
-        -- both — design #15's "unchecking the toggle clears the event's
-        -- is_meeting/meeting_url only; the meeting row survives (no delete
-        -- route exists)". The client never sends isMeeting:true — that flag
-        -- is set exclusively by meeting_create.sql's own stamp, never by
-        -- this generic patch route, so a client can't spoof is_meeting=true
-        -- for an event with no backing meeting.
-        is_meeting = CASE WHEN v_patch ? 'isMeeting' AND NOT (v_patch->>'isMeeting')::bool
-          THEN false ELSE ce.is_meeting END,
-        meeting_url = CASE WHEN v_patch ? 'isMeeting' AND NOT (v_patch->>'isMeeting')::bool
-          THEN NULL ELSE ce.meeting_url END,
-        updated_at = now(),
-        jmap_state = ce.jmap_state + 1,
-        etag = generate_etag()
-      FROM calendars c
-      WHERE ce.id = v_id AND ce.calendar_id = c.id AND c.mailbox_id = p_mailbox_id;
+      SELECT ce.calendar_id INTO v_event_cal_id
+      FROM calendar_events ce
+      JOIN calendars c ON c.id = ce.calendar_id
+      WHERE ce.id = v_id AND c.mailbox_id = p_mailbox_id;
 
-      IF FOUND THEN
-        -- The main UPDATE above already enforced ownership (c.mailbox_id = p_mailbox_id).
-        -- Resolve the event's calendar id, then bump calendars.jmap_state + push on
-        -- 'calendar:{mailbox_id}' through the calendar seam (scoped to p_mailbox_id,
-        -- the owner mailbox). The seam's mailbox_id filter keeps the previous
-        -- ownership scope; a foreign calendar id bumps nothing.
-        SELECT DISTINCT calendar_id INTO v_event_cal_id
-        FROM calendar_events WHERE id = v_id;
+      IF v_event_cal_id IS NOT NULL THEN
+        PERFORM 1 FROM calendars WHERE id = v_event_cal_id AND mailbox_id = p_mailbox_id FOR NO KEY UPDATE;
+        IF FOUND THEN
+          UPDATE calendar_events ce SET
+            title = COALESCE(v_patch->>'title', ce.title),
+            description = COALESCE(v_patch->>'description', ce.description),
+            location = COALESCE(v_patch->>'location', ce.location),
+            color = COALESCE(v_patch->>'color', ce.color),
+            start_at = COALESCE((v_patch->>'start')::TIMESTAMPTZ, ce.start_at),
+            end_at = COALESCE((v_patch->>'end')::TIMESTAMPTZ, ce.end_at),
+            all_day = COALESCE((v_patch->>'isAllDay')::BOOL, ce.all_day),
+            timezone = COALESCE(v_patch->>'timeZone', ce.timezone),
+            status = COALESCE(v_patch->>'status', ce.status),
+            -- freeBusyStatus patch-present guard: only touch transp when the key is
+            -- present (an unrelated update keeps the existing value). 'tentative' is
+            -- driven by status, not transp, so it maps to OPAQUE here.
+            transp = CASE WHEN v_patch ? 'freeBusyStatus'
+              THEN (CASE WHEN v_patch->>'freeBusyStatus' = 'free' THEN 'TRANSPARENT' ELSE 'OPAQUE' END)
+              ELSE ce.transp END,
+            -- privacy patch-present guard: only touch classification when the key is present.
+            classification = CASE WHEN v_patch ? 'privacy'
+              THEN (CASE v_patch->>'privacy' WHEN 'private' THEN 'PRIVATE' WHEN 'secret' THEN 'CONFIDENTIAL' ELSE 'PUBLIC' END)
+              ELSE ce.classification END,
+            -- valarm patch-present guard: the client recomputes the absolute trigger on every
+            -- edit (a start-time change must move the reminder), so an event edit always resends
+            -- valarm; an unrelated patch (no 'valarm' key) keeps the existing reminder.
+            valarm = CASE WHEN v_patch ? 'valarm' THEN v_patch->'valarm' ELSE ce.valarm END,
+            -- Meet B1 Task 16 calendar hook: the ONLY client-reachable write to
+            -- is_meeting/meeting_url is a {"isMeeting":false} patch, clearing
+            -- both — design #15's "unchecking the toggle clears the event's
+            -- is_meeting/meeting_url only; the meeting row survives (no delete
+            -- route exists)". The client never sends isMeeting:true — that flag
+            -- is set exclusively by meeting_create.sql's own stamp, never by
+            -- this generic patch route, so a client can't spoof is_meeting=true
+            -- for an event with no backing meeting.
+            is_meeting = CASE WHEN v_patch ? 'isMeeting' AND NOT (v_patch->>'isMeeting')::bool
+              THEN false ELSE ce.is_meeting END,
+            meeting_url = CASE WHEN v_patch ? 'isMeeting' AND NOT (v_patch->>'isMeeting')::bool
+              THEN NULL ELSE ce.meeting_url END,
+            updated_at = now(),
+            jmap_state = ce.jmap_state + 1,
+            etag = generate_etag()
+          WHERE ce.id = v_id AND ce.calendar_id = v_event_cal_id;
 
-        PERFORM notify_calendar_state(p_mailbox_id, v_id, v_event_cal_id, 'event_updated');
+          IF FOUND THEN
+            PERFORM notify_calendar_state(p_mailbox_id, v_id, v_event_cal_id, 'event_updated');
+          END IF;
+        END IF;
       END IF;
 
       v_updated := v_updated || to_jsonb(v_id);

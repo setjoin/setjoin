@@ -27,9 +27,13 @@ BEGIN
     END IF;
     RAISE EXCEPTION 'mailbox lifecycle idempotency conflict' USING ERRCODE='BZ303';
   END IF;
-  SELECT * INTO v_l FROM mailbox_lifecycle WHERE mailbox_id=p_mailbox_id FOR UPDATE;
+  PERFORM admin_authority_fence();
+  IF p_action='reconnect' AND p_target_user_id IS NOT NULL THEN
+    PERFORM 1 FROM users WHERE id=p_target_user_id FOR KEY SHARE;
+  END IF;
   SELECT * INTO v_m FROM mailboxes WHERE id=p_mailbox_id FOR UPDATE;
-  IF NOT FOUND OR v_l.mailbox_id IS NULL OR v_m.type<>'personal' OR v_l.binding_state='shared' THEN
+  SELECT * INTO v_l FROM mailbox_lifecycle WHERE mailbox_id=p_mailbox_id FOR UPDATE;
+  IF NOT FOUND OR v_m.id IS NULL OR v_l.mailbox_id IS NULL OR v_m.type<>'personal' OR v_l.binding_state='shared' THEN
     RAISE EXCEPTION 'personal mailbox not found' USING ERRCODE='BZ302';
   END IF;
   IF v_l.generation<>p_expected_generation THEN RAISE EXCEPTION 'mailbox lifecycle generation is stale' USING ERRCODE='BZ304'; END IF;

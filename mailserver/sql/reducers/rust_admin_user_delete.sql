@@ -8,16 +8,20 @@ CREATE OR REPLACE FUNCTION rust_admin_user_delete(
 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY INVOKER AS $$
 DECLARE v_domain bigint; v_queued boolean;
 BEGIN
+ PERFORM admin_authority_fence();
  IF p_domain_scope>0 THEN
-  SELECT domain_id INTO v_domain FROM users WHERE id=p_id AND domain_id=p_domain_scope;
+  SELECT domain_id INTO v_domain FROM users WHERE id=p_id AND domain_id=p_domain_scope FOR UPDATE;
   IF NOT FOUND THEN
    RETURN jsonb_build_object('status',404,'detail','user not found');
   END IF;
+ ELSE
+  PERFORM 1 FROM users WHERE id=p_id FOR UPDATE;
  END IF;
  IF NOT admin_can_manage(p_actor,p_id) THEN
   RETURN jsonb_build_object('status',404,'detail','user not found');
  END IF;
  PERFORM admin_protection_check(p_actor,p_id,'delete',NULL);
+ PERFORM 1 FROM mailboxes WHERE user_id=p_id ORDER BY id FOR UPDATE;
  v_queued:=webhook_user_deleted_publish(p_actor,p_id);
  DELETE FROM admin_role_assignments WHERE user_id=p_id;
  DELETE FROM aliases WHERE mailbox_id IN (SELECT id FROM mailboxes WHERE user_id=p_id);

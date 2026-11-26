@@ -5,9 +5,15 @@ CREATE OR REPLACE FUNCTION migration_thread_reconcile_batch(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 DECLARE v_job public.migration_thread_reconcile_jobs%ROWTYPE;
         v_row record; v_thread text; v_processed integer:=0; v_changed integer:=0;
+        v_prelock_mailbox_id bigint;
 BEGIN
   IF p_limit<1 OR p_limit>1000 THEN
     RAISE EXCEPTION 'Thread reconcile limit must be 1..1000' USING ERRCODE='BZ271';
+  END IF;
+  SELECT target_mailbox_id INTO v_prelock_mailbox_id FROM public.migration_thread_reconcile_jobs
+   WHERE job_id=p_job_id;
+  IF v_prelock_mailbox_id IS NOT NULL THEN
+    PERFORM 1 FROM public.mailboxes WHERE id=v_prelock_mailbox_id FOR KEY SHARE;
   END IF;
   SELECT * INTO v_job FROM public.migration_thread_reconcile_jobs
    WHERE job_id=p_job_id FOR UPDATE;
