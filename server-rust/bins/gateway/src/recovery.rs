@@ -32,7 +32,9 @@ pub struct RecoveryCommands<K: KeySource> {
 pub struct RecoveryRoute<K: KeySource + 'static>(pub Arc<RecoveryCommands<K>>);
 
 impl<K: KeySource + 'static> Intercept for RecoveryRoute<K> {
-    fn requires_session(&self, _req: &Request<Body>) -> bool { true }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        true
+    }
     fn matches(&self, req: &Request<Body>) -> bool {
         (matches!(*req.method(), Method::GET | Method::HEAD)
             && req.uri().path() == "/api/recovery/incidents")
@@ -273,37 +275,96 @@ impl<K: KeySource> RecoveryCommands<K> {
         } else {
             "application/octet-stream"
         };
-        // Serialize with Mark-and-Sweep GC (#550) BEFORE writing the canonical 64-hex S3 key:
-        // blocks until any in-flight Tx 2B completes its S3 DELETE, or flips a purging row
-        // back to active so Tx 2B aborts with 0 S3 deletes.
-        if self
-            .worker_exec
-            .protocol_statement(
-                "SELECT public.blob_gc_reactivate($1)",
-                &[(&meta.digest, setjoin_pg::Type::TEXT)],
-            )
+        // Stage assembled bytes FIRST under tmp/blob-upload/*, then atomically
+        // reactivate + enqueue delayed blob.promote_verify inside
+        // blob_gc_reactivate_v2() if previously 'purging' (#551). Keep staging_key
+        // through mail_recovery_upload_item_verify() as well so even a late purging
+        // transition is fenced atomically.
+        let staging_key = format!(
+            "{}{}",
+            crate::blob_retention::BLOB_STAGING_PREFIX,
+            crate::jmap::reply::hex(&operation)
+        );
+        if store
+            .put_file(&staging_key, &temporary.0, meta.size as u64, content_type)
             .await
             .is_err()
         {
             return failed();
         }
+        let staging_opt = Some(staging_key.as_str());
+        let Ok(react_rows) = self
+            .worker_exec
+            .protocol_query(
+                "SELECT public.blob_gc_reactivate_v2($1, $2)::text",
+                &[
+                    (&meta.digest, setjoin_pg::Type::TEXT),
+                    (&staging_opt, setjoin_pg::Type::TEXT),
+                ],
+            )
+            .await
+        else {
+            // Leave staging_key intact on an ambiguous DB error so a committed
+            // blob.promote_verify keeps its bytes; 24h sweep reaps if uncommitted.
+            return failed();
+        };
+        let was_purging = react_rows
+            .first()
+            .and_then(|r| r.try_get::<_, String>(0).ok())
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .and_then(|v| v.get("was_purging").and_then(serde_json::Value::as_bool))
+            .unwrap_or(false);
         if store
             .put_file(&meta.digest, &temporary.0, meta.size as u64, content_type)
             .await
             .is_err()
         {
+            if !was_purging {
+                let _ = store
+                    .delete_blob_checked(&staging_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
+            }
             return failed();
         }
-        match setjoin_blobs::verify_item(
+        let verify_outcome = setjoin_blobs::verify_item(
             &self.worker_exec,
             actor,
             &session,
             &item,
             &meta.digest,
+            Some(&staging_key),
             operation,
         )
-        .await
-        {
+        .await;
+        if !was_purging {
+            let still_fenced = self
+                .worker_exec
+                .protocol_query(
+                    "SELECT EXISTS ( \
+                        SELECT 1 FROM public.work_items \
+                         WHERE kind = $1 \
+                           AND status IN ('pending', 'leased') \
+                           AND payload->>'staging_key' = $2 \
+                    )",
+                    &[
+                        (
+                            &crate::blob_retention::WORK_KIND_PROMOTE_VERIFY,
+                            setjoin_pg::Type::TEXT,
+                        ),
+                        (&staging_key, setjoin_pg::Type::TEXT),
+                    ],
+                )
+                .await
+                .ok()
+                .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+                .unwrap_or(true);
+            if !still_fenced {
+                let _ = store
+                    .delete_blob_checked(&staging_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
+            }
+        }
+        match verify_outcome {
             setjoin_pg::CommandOutcome::Committed(raw) => {
                 for chunk in chunks {
                     if store.remove(&chunk.key).await.is_err() {

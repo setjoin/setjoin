@@ -61,7 +61,7 @@ shared S3 transport posture with Go's `STORAGE_ACCESS_KEY`/`STORAGE_SECRET_KEY`
 source credentials; target creation uses the `STORAGE_*` configuration. Provider
 labels and case-sensitive target validation match Go.
 
-Backfill streams the `ref_count > 0` catalog in sha order on a separate worker
+Backfill streams the `public.blob_live_catalog()` catalog in sha order on a separate worker
 connection from its progress writes. Verified existing targets are skipped only
 after a size+SHA-256 read-back. Source bytes stream through a private 0600 staging
 file, keeping memory bounded; target writes are durable/atomic through the

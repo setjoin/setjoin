@@ -310,7 +310,20 @@ pub async fn scan_keys(
 pub async fn scan_drift(
     db: &setjoin_pg::workers::WorkerConnection,
 ) -> Result<Vec<(String, i64, i64)>, String> {
-    let mut rows=db.rows("SELECT b.sha256, b.ref_count::bigint, COUNT(ma.id) FROM blobs b LEFT JOIN message_attachments ma ON ma.blob_sha256=b.sha256 GROUP BY b.sha256,b.ref_count HAVING b.ref_count!=COUNT(ma.id)",&[]).await?;
+    let mut rows = db
+        .rows(
+            "SELECT b.sha256, \
+                    CASE WHEN lc.sha256 IS NOT NULL THEN 1::bigint ELSE 0::bigint END, \
+                    CASE WHEN COALESCE(s.gc_state, 'active') = 'active' THEN 1::bigint ELSE 0::bigint END \
+               FROM public.blobs b \
+               LEFT JOIN public.blob_live_catalog() lc ON lc.sha256 = b.sha256 \
+               LEFT JOIN public.blob_gc_state s ON s.blob_sha256 = b.sha256 \
+              WHERE (lc.sha256 IS NOT NULL AND COALESCE(s.gc_state, 'active') <> 'active') \
+                 OR (lc.sha256 IS NULL AND COALESCE(s.gc_state, 'active') = 'active' \
+                     AND COALESCE(s.last_touched_at, b.created_at) < now() - interval '48 hours')",
+            &[],
+        )
+        .await?;
     let mut drift = vec![];
     while let Ok(Some(row)) = rows.next().await {
         if let (Ok(key), Ok(expected), Ok(actual)) =
@@ -379,7 +392,7 @@ pub async fn migration_rows(
     db: &setjoin_pg::workers::WorkerConnection,
 ) -> Result<setjoin_pg::workers::WorkerRows, String> {
     db.rows(
-        "SELECT sha256,size_bytes FROM blobs WHERE ref_count>0 ORDER BY sha256",
+        "SELECT sha256,size_bytes,minio_ref FROM public.blob_live_catalog() ORDER BY sha256",
         &[],
     )
     .await

@@ -62,11 +62,14 @@ blob_gc_live_sources,blob_gc.sql
 blob_gc_lock_key,blob_gc.sql
 blob_gc_mark,blob_gc.sql
 blob_gc_reactivate,blob_gc.sql
+blob_gc_reactivate_v2,blob_gc.sql
 blob_gc_record_worm_lock,blob_gc.sql
 blob_gc_register_and_reactivate,blob_gc.sql
-blob_gc_shadow_reconcile,blob_gc.sql
 blob_has_live_reference,blob_gc.sql
 blob_is_held_or_retained,blob_gc.sql
+blob_live_catalog,blob_gc.sql
+blob_promote_recover_complete,blob_gc.sql
+blob_promote_recover_enqueue,blob_gc.sql
 blob_upload_account,blob_upload_account.sql
 booking_cancel,booking_pages.sql
 booking_confirm,booking_pages.sql

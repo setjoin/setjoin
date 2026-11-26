@@ -374,9 +374,9 @@ SELECT is(
 -- quota account for the BLOB's bytes (a declared-0 oversized blob can no
 -- longer sail past the cap to the submission assembler). ──
 CREATE TEMP TABLE _sz AS SELECT mk_account('szacct') AS mb_id;
-INSERT INTO blobs (sha256, minio_ref, size_bytes, ref_count)
-  VALUES (repeat('a', 64), 's3://er5s12-blob-a', 1000, 1),
-         (repeat('b', 64), 's3://er5s12-blob-b', 26300000, 1)
+INSERT INTO blobs (sha256, minio_ref, size_bytes)
+  VALUES (repeat('a', 64), 's3://er5s12-blob-a', 1000),
+         (repeat('b', 64), 's3://er5s12-blob-b', 26300000)
   ON CONFLICT (sha256) DO NOTHING;
 
 -- 37: an honest declaration (size == blob size) creates, and the persisted

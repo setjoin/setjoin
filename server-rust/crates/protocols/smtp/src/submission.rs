@@ -39,13 +39,8 @@ pub trait AuthWebhooks: Send + Sync {
 }
 /// Post-commit `mail.sent` event; only reducer-derived subjects reach it.
 pub trait SubmissionEvents: Send + Sync {
-    fn sent<'a>(
-        &'a self,
-        user: i64,
-        mailbox: i64,
-        from: &'a str,
-        to: &'a str,
-    ) -> BoxFuture<'a, ()>;
+    fn sent<'a>(&'a self, user: i64, mailbox: i64, from: &'a str, to: &'a str)
+        -> BoxFuture<'a, ()>;
 }
 /// Process-wide feature flags (`feature_toggles` with registry defaults).
 pub trait Flags: Send + Sync {
@@ -269,13 +264,17 @@ impl Submission {
                     }
                     c.reply(220, "Ready to start TLS").await?;
                     let Ok(config) = self.starttls_config() else {
-                        c.reply(454, "TLS not available due to server error").await?;
+                        c.reply(454, "TLS not available due to server error")
+                            .await?;
                         return Ok(());
                     };
                     // Go replaces its textproto reader, discarding pipelined bytes.
                     let stream = std::mem::replace(
                         &mut c.io,
-                        BufReader::new(Box::new(tokio::io::join(tokio::io::empty(), tokio::io::sink()))),
+                        BufReader::new(Box::new(tokio::io::join(
+                            tokio::io::empty(),
+                            tokio::io::sink(),
+                        ))),
                     )
                     .into_inner();
                     let accepted = tokio::time::timeout(
@@ -444,9 +443,7 @@ impl Submission {
                 ThreatAction::Reject => {
                     self.log_event(c, None, "login_failed", "threat", email, &ip, true)
                         .await;
-                    return c
-                        .reply(421, "Authentication temporarily unavailable")
-                        .await;
+                    return c.reply(421, "Authentication temporarily unavailable").await;
                 }
                 ThreatAction::Tarpitted => {
                     if !delay.is_zero() {
@@ -454,9 +451,7 @@ impl Submission {
                     }
                     self.log_event(c, None, "login_failed", "threat", email, &ip, true)
                         .await;
-                    return c
-                        .reply(421, "Authentication temporarily unavailable")
-                        .await;
+                    return c.reply(421, "Authentication temporarily unavailable").await;
                 }
                 ThreatAction::RateLimited => {
                     self.log_event(c, None, "login_failed", "rate_limit", email, &ip, true)
@@ -810,7 +805,11 @@ impl Submission {
                 .query(
                     &self.db,
                     "UPDATE users SET password_hash = $1 WHERE email = $2 AND password_hash = $3",
-                    &[(&new, Type::TEXT), (&email, Type::TEXT), (&verified, Type::TEXT)],
+                    &[
+                        (&new, Type::TEXT),
+                        (&email, Type::TEXT),
+                        (&verified, Type::TEXT),
+                    ],
                 )
                 .await;
         }
@@ -898,11 +897,8 @@ impl Submission {
         let unlimited = Arc::new(tokio::sync::Semaphore::new(
             tokio::sync::Semaphore::MAX_PERMITS,
         ));
-        let body = match tokio::time::timeout(
-            COMMAND_TIMEOUT,
-            framing::data(&mut c.io, unlimited),
-        )
-        .await
+        let body = match tokio::time::timeout(COMMAND_TIMEOUT, framing::data(&mut c.io, unlimited))
+            .await
         {
             Ok(Err(framing::DataError::BareLf)) => {
                 c.reply(500, "5.5.2 Bare LF not allowed").await?;
@@ -977,7 +973,9 @@ impl Submission {
         let to_addrs = mime::parse_address_list(&mime::extract_header(&msg, "To"));
         let cc_addrs = mime::parse_address_list(&mime::extract_header(&msg, "Cc"));
         let bcc_addrs = mime::parse_address_list(&mime::extract_header(&msg, "Bcc"));
-        let has_attachments = msg.windows(31).any(|w| w == b"Content-Disposition: attachment");
+        let has_attachments = msg
+            .windows(31)
+            .any(|w| w == b"Content-Disposition: attachment");
         let raw_ref = format!("blobs/{}", hex(&Sha256::digest(&msg)));
 
         let mailbox = match c
@@ -992,7 +990,8 @@ impl Submission {
         {
             Some(id) => id,
             None => {
-                c.reply(451, "4.3.0 Mailbox temporarily unavailable").await?;
+                c.reply(451, "4.3.0 Mailbox temporarily unavailable")
+                    .await?;
                 return Ok(false);
             }
         };
@@ -1035,6 +1034,20 @@ impl Submission {
             c.reply(554, "5.3.0 Internal error").await?;
             return Ok(false);
         }
+        // Lock-safe raw_ref publish protocol (#551): serialize with prefixed orphan
+        // cleanup on the raw_ref advisory lock before committing queue/message rows.
+        if conn
+            .query(
+                "SELECT pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key($1))",
+                &[(&raw_ref, Type::TEXT)],
+            )
+            .await
+            .is_err()
+        {
+            let _ = conn.batch("ROLLBACK").await;
+            c.reply(554, "5.3.0 Internal error").await?;
+            return Ok(false);
+        }
         for (key, guc) in [
             ("feature.rules_engine", "app.skip_rules"),
             ("feature.dlp", "app.skip_dlp"),
@@ -1043,10 +1056,7 @@ impl Submission {
         ] {
             if !self.feature(key) {
                 let _ = conn
-                    .query(
-                        "SELECT set_config($1,'true',true)",
-                        &[(&guc, Type::TEXT)],
-                    )
+                    .query("SELECT set_config($1,'true',true)", &[(&guc, Type::TEXT)])
                     .await;
             }
         }
@@ -1063,10 +1073,7 @@ impl Submission {
             .await;
         if !self.feature("feature.mailbox_audit_log") {
             let _ = conn
-                .query(
-                    "SELECT set_config('app.skip_audit','true',true)",
-                    &[],
-                )
+                .query("SELECT set_config('app.skip_audit','true',true)", &[])
                 .await;
         }
         let rcpts: Vec<String> = c.to.iter().map(|r| mime::go_lossy(r)).collect();
@@ -1113,6 +1120,19 @@ impl Submission {
         if conn.batch("COMMIT").await.is_err() {
             c.reply(554, "5.3.0 Internal error").await?;
             return Ok(false);
+        }
+        // Post-commit fence (#551): if an orphan cleaner raced between initial PUT and
+        // acquiring the commit advisory lock, re-PUT from memory now that the live row is committed.
+        // Never treat a failed HEAD as "object exists" and never acknowledge 250 OK if re-PUT fails.
+        if let Some(blobs) = &self.blobs {
+            let needs_reput = match blobs.exists(&raw_ref).await {
+                Ok(true) => false,
+                Ok(false) | Err(_) => true,
+            };
+            if needs_reput && blobs.put(&raw_ref, &msg).await.is_err() {
+                c.reply(451, "4.3.0 Temporary storage failure").await?;
+                return Ok(false);
+            }
         }
         let row = &rows[0];
         let sent: Option<i64> = row.get(0);

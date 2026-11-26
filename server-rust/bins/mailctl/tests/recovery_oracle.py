@@ -116,13 +116,14 @@ def seed(dsn, s3):
     sql(
         dsn,
         f"""CREATE TABLE users(id bigint primary key); CREATE TABLE mailboxes(id bigint primary key,user_id bigint references users(id));
-    CREATE TABLE blobs(sha256 text primary key,size_bytes bigint,ref_count int);
+    CREATE TABLE blobs(sha256 text primary key,size_bytes bigint);
+    CREATE OR REPLACE FUNCTION public.blob_live_catalog() RETURNS TABLE(sha256 text, minio_ref text, size_bytes bigint) LANGUAGE sql AS $$SELECT sha256, 'blobs/'||sha256, size_bytes FROM public.blobs$$;
     CREATE TABLE system_config(key text primary key,value jsonb,encrypted boolean);
     CREATE TABLE feature_toggles(key text primary key,enabled boolean);
     CREATE TABLE upgrade_control_state(singleton boolean,installation_id uuid,timeline_id uuid);
     CREATE TABLE schema_migrations(version int);
     INSERT INTO users VALUES(7); INSERT INTO mailboxes VALUES(17,7);
-    INSERT INTO blobs VALUES('{HASH}',24,1);
+    INSERT INTO blobs VALUES('{HASH}',24);
     INSERT INTO upgrade_control_state VALUES(true,'{INSTALL}','{TIMELINE}');INSERT INTO schema_migrations VALUES(275);
     INSERT INTO feature_toggles VALUES('feature.fixture',true),('feature.second',false);
     INSERT INTO system_config VALUES('fixture.secret','\"synthetic ciphertext\"',true),('fixture.escaped','[\"<node>\",\"&\"]',false);""",

@@ -1,9 +1,9 @@
 //! Validate minted credentials with a fixed KDF result recorded from frozen Go,
 //! then normalize only generated identity/time/signature and policy digest.
-use super::{BoxError, Fx, scrub::scrub};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use super::{scrub::scrub, BoxError, Fx};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use hmac::{Hmac, Mac};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::Sha256;
 
 pub fn normalize(

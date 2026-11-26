@@ -99,11 +99,6 @@
       "reason": "Internal S3 object reference column on the canonical blobs catalog table."
     },
     {
-      "table": "blob_cleanup_queue",
-      "column": "blob_sha256",
-      "reason": "Legacy reclamation queue referencing blobs(sha256); not a live retention root."
-    },
-    {
       "table": "blob_user_charges",
       "column": "blob_sha256",
       "reason": "Per-user quota charge accounting referencing blobs(sha256) ON DELETE CASCADE; not a live root."

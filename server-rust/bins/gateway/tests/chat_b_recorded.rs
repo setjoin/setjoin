@@ -476,7 +476,7 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
  if case=="app_denied"{owner.execute("INSERT INTO user_app_entitlements(user_id,app,enabled) VALUES($1,'chat',false)",&[&account.user]).await?;}
  if case=="disabled"{owner.execute("UPDATE feature_toggles SET enabled=false WHERE key='feature.chat'",&[]).await?;}
  if route=="image"{
-  owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$2,$3,'image/svg+xml',0)",&[&image_hash,&format!("mailblobs/{image_hash}"),&(image.len() as i64)]).await?;
+  owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$2,$3,'image/svg+xml')",&[&image_hash,&format!("mailblobs/{image_hash}"),&(image.len() as i64)]).await?;
   if case!="no_cache"{owner.execute("SELECT chat_link_preview_claim($1,'https://chat3-oracle.test/image')",&[&image_hash]).await?;
   owner.execute("SELECT chat_link_preview_cache_write($1,'title','description',$1,'ok')",&[&image_hash]).await?;}
  }
@@ -654,12 +654,6 @@ async fn run_inner(route: &str, case: &str, mutant: bool) -> Result<(), BoxError
         owner
             .execute(
                 "DELETE FROM chat_link_previews WHERE url_hash=$1",
-                &[&image_hash],
-            )
-            .await?;
-        owner
-            .execute(
-                "DELETE FROM blob_cleanup_queue WHERE blob_sha256=$1",
                 &[&image_hash],
             )
             .await?;
@@ -1337,9 +1331,8 @@ async fn part_b_rollbacks_and_deferred_routes_preserve_requests() -> Result<(), 
                 "{metrics}"
             );
             assert!(
-                metrics
-                    .lines()
-                    .any(|line| line == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 0"),
+                metrics.lines().any(|line| line
+                    == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F12\"} 0"),
                 "{metrics}"
             );
             assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 0);

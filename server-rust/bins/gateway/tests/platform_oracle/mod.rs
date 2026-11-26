@@ -5,9 +5,9 @@
 //! (governed role group + assignment), takes `SERIAL` for its whole run (the global
 //! `backup_runs` and admin audit window are shared state) and removes only what it made.
 //! A case table maps `(action, label)` to a request; `route` names the inventory key.
-pub mod updates;
 pub mod airgap;
 pub mod deploy;
+pub mod updates;
 use crate::common::{self, BoxError};
 use hyper::{Request, Response};
 use serde_json::{json, Value};
@@ -22,6 +22,7 @@ use std::sync::Arc;
 pub mod alerts;
 pub mod apps;
 pub mod auth_admin;
+mod b;
 pub mod branding;
 pub mod dns;
 pub mod domains;
@@ -29,7 +30,6 @@ pub mod federation;
 pub mod monitor;
 pub mod setup;
 pub mod terms;
-mod b;
 
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -134,7 +134,17 @@ fn mask(v: &mut Value, users: &[(i64, &str)]) {
                 if let Some(n) = x.as_i64() {
                     if matches!(
                         k.as_str(),
-                        "user_id" | "actor_id" | "actor" | "granted_by" | "updated_by" | "opened_by" | "approved_by" | "closed_by" | "affected_user_id" | "uploading_user_id" | "fork_consented_by"
+                        "user_id"
+                            | "actor_id"
+                            | "actor"
+                            | "granted_by"
+                            | "updated_by"
+                            | "opened_by"
+                            | "approved_by"
+                            | "closed_by"
+                            | "affected_user_id"
+                            | "uploading_user_id"
+                            | "fork_consented_by"
                     ) {
                         if let Some((_, name)) = users.iter().find(|(i, _)| *i == n) {
                             *x = json!(name);
@@ -149,8 +159,12 @@ fn mask(v: &mut Value, users: &[(i64, &str)]) {
         Value::String(s) => {
             if timestamp_like(s) && !s.starts_with("2026-10-0") {
                 *s = "<timestamp>".into();
-            } else if is_uuid(s) && !matches!(s.as_str(),
-                "aaaaaaaa-0000-4000-8000-000000000001" | "bbbbbbbb-0000-4000-8000-000000000002") {
+            } else if is_uuid(s)
+                && !matches!(
+                    s.as_str(),
+                    "aaaaaaaa-0000-4000-8000-000000000001" | "bbbbbbbb-0000-4000-8000-000000000002"
+                )
+            {
                 // Authored recovery-set/proof fixture inputs remain observable;
                 // only generated UUIDs are run-specific normalization targets.
                 *s = "<uuid>".into();
@@ -755,6 +769,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                     }
                 }
             }
+            normalize_storage_v289_effects(action, &mut expected["observation"]["effects"]);
             let compared = golden::compare(&expected["observation"], &observation);
             if mutant {
                 let error = compared.err().ok_or("planted status mutant survived")?;
@@ -769,7 +784,8 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                 return Ok(());
             }
             compared?;
-            let expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+            let mut expected: Value = serde_json::from_slice(&std::fs::read(row_file)?)?;
+            normalize_storage_v289_effects(action, &mut expected["effects"]);
             golden::compare(&expected["effects"], &observation["effects"])?;
             eprintln!("GOLDEN-REPLAY: {route_name} :: {label}");
         }
@@ -831,10 +847,21 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
 /// re-derived from this repository's migrations; the wire body is still compared byte for byte.
 fn schema_version_expected(recorded: &str) -> String {
     let migrations = setjoin_schema::MIGRATIONS;
-    let (last, name) = migrations.last().map(|m| (m.0, m.1)).expect("embedded migrations");
+    let (last, name) = migrations
+        .last()
+        .map(|m| (m.0, m.1))
+        .expect("embedded migrations");
     let pending = recorded.contains("\"up_to_date\":false");
-    let current = if pending { migrations[migrations.len() - 2].0 } else { last };
-    let listed = if pending { serde_json::to_string(name).unwrap() } else { String::new() };
+    let current = if pending {
+        migrations[migrations.len() - 2].0
+    } else {
+        last
+    };
+    let listed = if pending {
+        serde_json::to_string(name).unwrap()
+    } else {
+        String::new()
+    };
     let tail = &recorded[recorded.trim_end().len()..];
     format!("{{\"current\":{current},\"expected\":{last},\"pending\":[{listed}],\"up_to_date\":{}}}{tail}", !pending)
 }
@@ -851,6 +878,49 @@ fn record(path: &std::path::Path, value: &Value) -> Result<(), BoxError> {
         Ok(())
     } else {
         golden::record(path, value).map_err(Into::into)
+    }
+}
+
+/// Wave 2.4 (#551) retired `blobs.ref_count` in V289. Normalize immutable
+/// frozen-Go storage effects in memory without mutating golden JSON files.
+pub(super) fn normalize_storage_v289_effects(action: &str, effects: &mut Value) {
+    let Some(items) = effects.as_array_mut() else {
+        return;
+    };
+    if action == "storage-reconcile" {
+        for item in items {
+            for phase in ["before", "after"] {
+                if let Some(rows) = item.get_mut(phase).and_then(Value::as_array_mut) {
+                    for row in rows {
+                        if let Some(blobs) = row.get_mut("blobs").and_then(Value::as_array_mut) {
+                            for b in blobs {
+                                if let Some(obj) = b.as_object_mut() {
+                                    obj.remove("count");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if action == "storage-dr-start" {
+        for item in items {
+            for phase in ["before", "after"] {
+                if let Some(rows) = item.get_mut(phase).and_then(Value::as_array_mut) {
+                    for row in rows {
+                        if let Some(details) = row.get_mut("details").and_then(Value::as_array_mut)
+                        {
+                            details.retain(|d| d["issue"] != "refcount_drift");
+                        }
+                        if let Some(obj) = row.as_object_mut() {
+                            if obj.contains_key("drift") {
+                                obj.insert("drift".into(), json!(0));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

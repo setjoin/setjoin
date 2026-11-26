@@ -295,21 +295,59 @@ impl Unfurl {
         use sha2::{Digest, Sha256};
         let hash = format!("{:x}", Sha256::digest(&bytes));
         let operation = crate::jmap::random().ok_or(())?;
-        // Serialize on the per-sha256 GC advisory lock & reactivate BEFORE writing
-        // canonical S3 key (#550) so an in-flight Tx 2B finishes first or aborts on
-        // gc_state='active'. Register the blobs row ONLY AFTER store.put succeeds so
-        // a failed S3 PUT never leaves a dangling 'active' blobs row with missing bytes.
-        self.exec
-            .protocol_statement(
-                "SELECT public.blob_gc_reactivate($1)",
-                &[(&hash, setjoin_pg::Type::TEXT)],
+        let staging_key = format!(
+            "{}{}",
+            crate::blob_retention::BLOB_STAGING_PREFIX,
+            crate::jmap::reply::hex(&operation)
+        );
+        // Stage bytes FIRST under tmp/blob-upload/*, then atomically reactivate +
+        // enqueue delayed blob.promote_verify inside blob_gc_reactivate_v2() if
+        // previously 'purging' (#551). Never clear purging_at without an atomic fence.
+        self.store
+            .put(&staging_key, &bytes, &content_type)
+            .await
+            .map_err(|_| ())?;
+        let staging_opt = Some(staging_key.as_str());
+        let react_rows = match self
+            .exec
+            .protocol_query(
+                "SELECT public.blob_gc_reactivate_v2($1, $2)::text",
+                &[
+                    (&hash, setjoin_pg::Type::TEXT),
+                    (&staging_opt, setjoin_pg::Type::TEXT),
+                ],
             )
             .await
-            .map_err(|_| ())?;
-        self.store
-            .put(&hash, &bytes, &content_type)
-            .await
-            .map_err(|_| ())?;
+        {
+            Ok(rows) => rows,
+            Err(_) => {
+                // Do not delete staging_key on an ambiguous DB error (e.g. timeout
+                // after commit): a committed blob.promote_verify may rely on it,
+                // and the 24h abandoned-staging sweep cleans it if uncommitted.
+                return Err(());
+            }
+        };
+        let was_purging = react_rows
+            .first()
+            .and_then(|r| r.try_get::<_, String>(0).ok())
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .and_then(|v| v.get("was_purging").and_then(serde_json::Value::as_bool))
+            .unwrap_or(false);
+        if self.store.put(&hash, &bytes, &content_type).await.is_err() {
+            if !was_purging {
+                let _ = self
+                    .store
+                    .delete_blob_checked(&staging_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                    .await;
+            }
+            return Err(());
+        }
+        if !was_purging {
+            let _ = self
+                .store
+                .delete_blob_checked(&staging_key, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                .await;
+        }
         match members::unfurl_blob(
             &self.exec,
             actor,

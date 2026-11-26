@@ -50,7 +50,6 @@ CANDIDATE_TYPE_RE = re.compile(
 # Tables under blobs_internal that legitimately hold an FK to public.blobs(sha256)
 # without being a live retention root (bookkeeping / GC state / legacy queue).
 BLOBS_INTERNAL_FK_ALLOWED: Set[Tuple[str, str]] = {
-    ("blob_cleanup_queue", "blob_sha256"),
     ("blob_user_charges", "blob_sha256"),
     ("blob_gc_state", "blob_sha256"),
 }
@@ -583,11 +582,89 @@ def extract_live_roots_from_sql(
     return roots
 
 
-def _find_latest_migration_with_live_ref(schema_dir: Path) -> Optional[Path]:
-    """Return the latest V*.sql migration defining blob_has_live_reference()."""
+def extract_live_catalog_roots_from_sql(
+    gc_sql_path: Path,
+    tables: Dict[str, Dict[str, str]],
+) -> Set[Tuple[str, str]]:
+    """Parse comment-stripped blob_live_catalog() UNION arms for (table, column) roots."""
+    body = extract_function_body(
+        gc_sql_path.read_text(encoding="utf-8"),
+        "blob_live_catalog",
+    )
+    cte_m = re.search(r"\bWITH\s+live_shas\s*(?:\([^)]*\))?\s+AS\s*\(", body, re.I)
+    if not cte_m:
+        raise RuntimeError("blob_live_catalog() missing WITH live_shas AS (...) CTE")
+    cte_body, _ = _extract_balanced_parens(body, cte_m.end() - 1)
+
+    arms = re.split(r"\bUNION(?:\s+ALL)?\b", cte_body, flags=re.I)
+    from_re = re.compile(
+        r'\bFROM\s+(?:public\.)?("?[a-zA-Z_][a-zA-Z0-9_]*"?)'
+        r'(?:\s+(?:AS\s+)?("?[a-zA-Z_][a-zA-Z0-9_]*"?))?',
+        re.I,
+    )
+    roots: Set[Tuple[str, str]] = set()
+    for arm in arms:
+        fm = from_re.search(arm)
+        if not fm:
+            continue
+        tname = fm.group(1).strip('"').lower()
+        if tname.startswith("pg_"):
+            continue
+        alias_raw = fm.group(2).strip('"').lower() if fm.group(2) else None
+        alias = alias_raw if alias_raw and alias_raw not in _SQL_KEYWORDS else None
+        qualifiers = [tname]
+        if alias:
+            qualifiers.append(alias)
+        qual_pat = "|".join(re.escape(q) for q in qualifiers)
+
+        # Match JSONB array traversal paired with SELECT elem->>'sha256' or elem->>'objectRef'
+        jsonb_pat = re.compile(
+            rf"\bjsonb_array_elements\s*\(\s*(?:(?:{qual_pat})\.)?"
+            r"([a-zA-Z_][a-zA-Z0-9_]*)\s*\)"
+            r"(?:\s+(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*))?",
+            re.I,
+        )
+        matched_jsonb = False
+        for jm in jsonb_pat.finditer(arm):
+            col = jm.group(1).lower()
+            elem_alias = jm.group(2)
+            if not elem_alias or elem_alias.lower() in _SQL_KEYWORDS:
+                continue
+            sel_elem_pat = re.compile(
+                rf"\bSELECT\b.*?\b{re.escape(elem_alias)}\s*->>\s*'(?:sha256|objectRef)'",
+                re.I | re.S,
+            )
+            if sel_elem_pat.search(arm[: fm.start()]):
+                roots.add((tname, col))
+                matched_jsonb = True
+        if matched_jsonb:
+            continue
+
+        # Match SELECT <alias>.<col> FROM ...
+        select_clause = arm[: fm.start()]
+        qual_col_pat = re.compile(
+            rf"\b(?:{qual_pat})\.([a-zA-Z_][a-zA-Z0-9_]*)\b",
+            re.I,
+        )
+        found_qual = False
+        for cm in qual_col_pat.finditer(select_clause):
+            roots.add((tname, cm.group(1).lower()))
+            found_qual = True
+        if not found_qual and alias is None:
+            known_cols = set(tables.get(tname, {}).keys())
+            bare_sel = re.search(r"\bSELECT\s+([a-zA-Z_][a-zA-Z0-9_]*)\b", select_clause, re.I)
+            if bare_sel:
+                col = bare_sel.group(1).lower()
+                if col in known_cols or not known_cols:
+                    roots.add((tname, col))
+    return roots
+
+
+def _find_latest_migration_with_function(schema_dir: Path, func_name: str) -> Optional[Path]:
+    """Return the latest V*.sql migration defining `func_name()`."""
     header_re = re.compile(
         r"\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+"
-        r'(?:public\.)?"?blob_has_live_reference"?\s*\(',
+        rf'(?:public\.)?"?{re.escape(func_name)}"?\s*\(',
         re.I,
     )
     latest: Optional[Path] = None
@@ -598,6 +675,11 @@ def _find_latest_migration_with_live_ref(schema_dir: Path) -> Optional[Path]:
         if header_re.search(stripped):
             latest = mig
     return latest
+
+
+def _find_latest_migration_with_live_ref(schema_dir: Path) -> Optional[Path]:
+    """Return the latest V*.sql migration defining blob_has_live_reference()."""
+    return _find_latest_migration_with_function(schema_dir, "blob_has_live_reference")
 
 
 def validate(
@@ -706,6 +788,46 @@ def validate(
         for tname, cname in sorted(parsed_roots - live_roots):
             errors.append(
                 f"SQL_CATALOG_DRIFT: blob_has_live_reference() in {label} scans "
+                f"{tname}.{cname} which is not listed in manifest live_roots"
+            )
+
+    # 5. SQL_CATALOG_DRIFT for blob_live_catalog() (bidirectional against manifest
+    # live_roots in both reducers/blob_gc.sql and latest migration defining it)
+    catalog_targets: List[Tuple[str, Path]] = []
+    gc_text_stripped = strip_sql_comments(
+        gc_sql_path.read_text(encoding="utf-8"), strip_inside_dollar=True
+    )
+    if re.search(
+        r'\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?"?blob_live_catalog"?\s*\(',
+        gc_text_stripped,
+        re.I,
+    ):
+        catalog_targets.append((gc_sql_path.name, gc_sql_path))
+    mig_cat = _find_latest_migration_with_function(schema_dir, "blob_live_catalog")
+    if mig_cat is not None and mig_cat.resolve() != gc_sql_path.resolve():
+        catalog_targets.append((mig_cat.name, mig_cat))
+    elif catalog_targets and mig_cat is None and "blob_gc_state" in tables:
+        errors.append(
+            "SQL_CATALOG_DRIFT: no dbschema V*.sql migration defines "
+            "blob_live_catalog() alongside blob_gc.sql"
+        )
+
+    for label, target_path in catalog_targets:
+        try:
+            cat_roots = extract_live_catalog_roots_from_sql(target_path, tables)
+        except Exception as exc:
+            errors.append(
+                f"SQL_CATALOG_DRIFT: failed to parse blob_live_catalog() in {target_path}: {exc}"
+            )
+            continue
+        for tname, cname in sorted(live_roots - cat_roots):
+            errors.append(
+                f"SQL_CATALOG_DRIFT: manifest live_root {tname}.{cname} is missing "
+                f"from blob_live_catalog() in {label}"
+            )
+        for tname, cname in sorted(cat_roots - live_roots):
+            errors.append(
+                f"SQL_CATALOG_DRIFT: blob_live_catalog() in {label} scans "
                 f"{tname}.{cname} which is not listed in manifest live_roots"
             )
 

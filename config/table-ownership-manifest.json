@@ -668,12 +668,6 @@
       "rls_posture": "not_applicable",
       "read_contracts": []
     },
-    "blob_cleanup_queue": {
-      "owner": "blobs",
-      "security_class": "system_only",
-      "rls_posture": "not_applicable",
-      "read_contracts": []
-    },
     "blob_gc_config": {
       "owner": "blobs",
       "security_class": "system_only",
@@ -696,7 +690,13 @@
       "owner": "blobs",
       "security_class": "system_only",
       "rls_posture": "enforced",
-      "read_contracts": []
+      "read_contracts": [
+        {
+          "consumer": "platform",
+          "mode": "read_only",
+          "reason": "Storage DR scan compares blob_gc_state against blob_live_catalog() to report GC state drift (#551)."
+        }
+      ]
     },
     "blob_user_charges": {
       "owner": "blobs",

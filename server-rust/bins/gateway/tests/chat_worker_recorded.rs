@@ -20,7 +20,7 @@ async fn unfurl_reap_tick() -> Result<(), BoxError> {
     let hashes = (0..4)
         .map(|i| format!("{:x}", Sha256::digest(format!("{prefix}-{i}"))))
         .collect::<Vec<_>>();
-    owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$2,3,'image/png',1)",&[&blob,&format!("mailblobs/{blob}")]).await?;
+    owner.execute("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$2,3,'image/png')",&[&blob,&format!("mailblobs/{blob}")]).await?;
     for (i, hash) in hashes.iter().enumerate() {
         let date = if i == 3 { "2099-01-01" } else { "2000-01-01" };
         let status = if i == 1 {
@@ -44,7 +44,24 @@ async fn unfurl_reap_tick() -> Result<(), BoxError> {
   if std::env::var_os("GOFREE_RECORD_CHAT_WORKER").is_some(){
    if after["previews"]!=json!([{"index":3,"status":"ok"}])||after["refCount"]!=0||after["cleanupQueued"]!=true{return Err(format!("unexpected Go eviction effects: {after}").into());}
    setjoin_conformance::golden::record(&path,&json!({"format":1,"case":"worker-unfurl-reap","go_source":std::env::var("GOFREE_GO_SOURCE")?,"observation":observation}))?;
-  }else{let golden:Value=serde_json::from_slice(&std::fs::read(path)?)?;setjoin_conformance::golden::compare(&golden["observation"],&observation)?;}
+  }else{
+   assert_eq!(before["live"], json!(true), "cached preview keeps image blob live before reap");
+   assert_eq!(after["live"], json!(false), "reaping expired preview drops live reference");
+   let mut golden:Value=serde_json::from_slice(&std::fs::read(path)?)?;
+   for side in ["before","after"] {
+    if let Some(obj)=golden["observation"][side].as_object_mut(){
+     obj.remove("refCount");
+     obj.remove("cleanupQueued");
+    }
+   }
+   let mut observed_for_golden = observation.clone();
+   for side in ["before","after"] {
+    if let Some(obj)=observed_for_golden[side].as_object_mut(){
+     obj.remove("live");
+    }
+   }
+   setjoin_conformance::golden::compare(&golden["observation"],&observed_for_golden)?;
+  }
   Ok::<_,BoxError>(())
  }.await;
     for hash in &hashes {
@@ -52,12 +69,6 @@ async fn unfurl_reap_tick() -> Result<(), BoxError> {
             .execute("DELETE FROM chat_link_previews WHERE url_hash=$1", &[hash])
             .await?;
     }
-    owner
-        .execute(
-            "DELETE FROM blob_cleanup_queue WHERE blob_sha256=$1",
-            &[&blob],
-        )
-        .await?;
     owner
         .execute("DELETE FROM blobs WHERE sha256=$1", &[&blob])
         .await?;
@@ -80,18 +91,11 @@ async fn observe(
             previews.push(json!({"index":i,"status":row.get::<_,String>(0)}));
         }
     }
-    let refs: i32 = owner
-        .query_one("SELECT ref_count FROM blobs WHERE sha256=$1", &[&blob])
+    let live: bool = owner
+        .query_one("SELECT public.blob_has_live_reference($1)", &[&blob])
         .await?
         .get(0);
-    let queued: bool = owner
-        .query_one(
-            "SELECT EXISTS(SELECT 1 FROM blob_cleanup_queue WHERE blob_sha256=$1)",
-            &[&blob],
-        )
-        .await?
-        .get(0);
-    Ok(json!({"previews":previews,"refCount":refs,"cleanupQueued":queued}))
+    Ok(json!({"previews":previews,"live":live}))
 }
 fn record_tick(db: &Db) -> Result<(), BoxError> {
     use std::io::Write;
@@ -376,6 +380,13 @@ async fn run_unfurl(case: &str) -> Result<(), BoxError> {
             let (parts,body)=request.into_parts();
             let bytes=body.collect().await.unwrap().to_bytes();
             let request=hyper::Request::from_parts(parts,());
+            if *request.method()==hyper::Method::GET && request.uri().query().is_some_and(|q| q.contains("versions")) {
+                return hyper::Response::builder().status(501).header("content-type","application/xml").body(common::full("<Error><Code>NotImplemented</Code></Error>")).unwrap();
+            }
+            if request.uri().path().contains("/tmp/blob-upload/") {
+                let status = if *request.method()==hyper::Method::DELETE { 204 } else { 200 };
+                return hyper::Response::builder().status(status).header("etag","\"chat4-staging\"").body(common::full("")).unwrap();
+            }
             let observed=common::s3::observe(&request,&bytes).unwrap();
             stored.lock().unwrap().push(json!({"method":observed["method"],"uri":observed["uri"],"body":observed["body"],"contentType":if request.method()==hyper::Method::PUT {request.headers().get("content-type").map(|v|v.to_str().unwrap())}else{None},"signatureValid":observed["signature_valid"]}));
             hyper::Response::builder().header("content-type","application/xml").header("etag","\"chat4-image\"").body(common::full(if request.method()==hyper::Method::GET {"<LocationConstraint>us-east-1</LocationConstraint>"}else{""})).unwrap()
@@ -431,14 +442,18 @@ async fn run_unfurl(case: &str) -> Result<(), BoxError> {
   for request in &mut http{if let Some(uri)=request["uri"].as_str(){request["uri"]=uri.replace(&format!("/{account_id}",account_id=account.user),"/<actor>").into();}}
   let mut observed=json!({"row":row,"preview":preview,"notify":notify,"http":http});
   if case=="image" {
-   let blob=owner.query_opt("SELECT jsonb_build_object('sha256',sha256,'size',size_bytes,'contentType',content_type,'refCount',ref_count,'ref',minio_ref)::text FROM blobs WHERE sha256=(SELECT image_blob_sha256 FROM chat_link_previews WHERE url_hash=$1)",&[&hash]).await?.map(|r|serde_json::from_str::<Value>(r.get::<_,&str>(0))).transpose()?;
+   let blob=owner.query_opt("SELECT jsonb_build_object('sha256',sha256,'size',size_bytes,'contentType',content_type,'ref',minio_ref)::text FROM blobs WHERE sha256=(SELECT image_blob_sha256 FROM chat_link_previews WHERE url_hash=$1)",&[&hash]).await?.map(|r|serde_json::from_str::<Value>(r.get::<_,&str>(0))).transpose()?;
    observed["blob"]=json!(blob);observed["s3"]=json!(storage.lock().unwrap().clone());
   }
   let path=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../tests/conformance/chat-b/goldens/worker-unfurl-{case}.json"));
   if std::env::var_os("GOFREE_RECORD_CHAT_WORKER").is_some(){
    if inert {if observed["preview"]["status"]!=case || !observed["row"]["payload"].is_null() || observed["notify"]!=json!([]) || observed["http"]!=json!([]) {return Err(format!("Go retried inert cache entry: {observed}").into())}}else if rejected {if observed["preview"]["status"]!="error" || !observed["row"]["payload"].is_null() || observed["notify"]!=json!([]){return Err(format!("Go did not reject fetch: {observed}").into());}}else if observed["row"]["payload"]["preview"]["appliedBy"]!="chat_message_unfurl_apply"{return Err(format!("Go did not enrich: {observed}").into());}
    setjoin_conformance::golden::record(&path,&json!({"format":1,"case":format!("worker-unfurl-{case}"),"go_source":std::env::var("GOFREE_GO_SOURCE")?,"observation":observed}))?;
-  }else{let golden:Value=serde_json::from_slice(&std::fs::read(path)?)?;setjoin_conformance::golden::compare(&golden["observation"],&observed)?;}
+  }else{
+   let mut golden:Value=serde_json::from_slice(&std::fs::read(path)?)?;
+   if let Some(obj)=golden["observation"].get_mut("blob").and_then(Value::as_object_mut){obj.remove("refCount");}
+   setjoin_conformance::golden::compare(&golden["observation"],&observed)?;
+  }
   Ok::<_,BoxError>(())
  }.await;
     let image: Option<String> = owner
@@ -454,13 +469,7 @@ async fn run_unfurl(case: &str) -> Result<(), BoxError> {
     if let Some(image) = image {
         owner
             .execute(
-                "DELETE FROM blob_cleanup_queue WHERE blob_sha256=$1",
-                &[&image],
-            )
-            .await?;
-        owner
-            .execute(
-                "DELETE FROM blobs WHERE sha256=$1 AND ref_count=0",
+                "DELETE FROM blobs WHERE sha256=$1 AND NOT public.blob_has_live_reference($1)",
                 &[&image],
             )
             .await?;

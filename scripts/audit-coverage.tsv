@@ -63,11 +63,14 @@ blob_gc.sql	blob_gc_live_sources	READ_ONLY	-	pure read path (guard re-derives no
 blob_gc.sql	blob_gc_lock_key	READ_ONLY	-	pure read path (guard re-derives no DML)
 blob_gc.sql	blob_gc_mark	EXEMPT	-	background blob GC Phase 1 mark sweep; not an authority decision
 blob_gc.sql	blob_gc_reactivate	EXEMPT	-	high-frequency blob upload reactivation helper; not an authority decision
-blob_gc.sql	blob_gc_record_worm_lock	MUST	core	records S3 Object Lock 403 detection and reverts blob to active with core audit warning
+blob_gc.sql	blob_gc_reactivate_v2	EXEMPT	-	high-frequency blob upload reactivation + purging fence helper; not an authority decision
+blob_gc.sql	blob_gc_record_worm_lock	MUST	core	records S3 Object Lock 403 detection (core) and ordinary WORM arming (core) in blob_gc_state
 blob_gc.sql	blob_gc_register_and_reactivate	EXEMPT	-	content-addressed blob catalog admission and GC reactivation; not an authority decision
-blob_gc.sql	blob_gc_shadow_reconcile	MUST	core	shadow reconciliation alerts via core audit when Mark-and-Sweep and ref_count=0 diverge
 blob_gc.sql	blob_has_live_reference	READ_ONLY	-	pure read path (guard re-derives no DML)
 blob_gc.sql	blob_is_held_or_retained	READ_ONLY	-	pure read path (guard re-derives no DML)
+blob_gc.sql	blob_live_catalog	READ_ONLY	-	pure set-based live blob catalog read path (guard re-derives no DML)
+blob_gc.sql	blob_promote_recover_complete	EXEMPT	-	narrow pending blob staging promote cancel seam; not an authority decision
+blob_gc.sql	blob_promote_recover_enqueue	EXEMPT	-	narrow blob staging promote recovery enqueue seam; not an authority decision
 blob_upload_account.sql	blob_upload_account	EXEMPT	-	user-content mutation outside the frozen WP3 MUST classes; ownership-scoped, not an authority transition
 booking_pages.sql	booking_cancel	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes
 booking_pages.sql	booking_confirm	EXEMPT	-	booking user-content flow; outside the frozen WP3 authority classes

@@ -90,8 +90,7 @@ impl RuntimeOptions {
                 && workers::listed("GO_WORKERS_OFF", crate::notify_drain::NAME)),
             enable_work_queue: false,
             use_schedule_leases: schedule_leases,
-            require_worker_bypassrls: schedule_leases
-                || workers::listed("RUST_WORKERS_ON", crate::blob_cleanup::NAME),
+            require_worker_bypassrls: schedule_leases || workers::blob_cleanup_enabled(),
         }
     }
 }
@@ -448,8 +447,8 @@ pub async fn run_with_options(
     } else {
         None
     };
-    let blob_cleanup = if subsystems.workers {
-        workers::blob_cleanup_worker()?
+    let blob_cleanup_store = if subsystems.workers {
+        workers::blob_cleanup_store()?
     } else {
         None
     };
@@ -473,10 +472,11 @@ pub async fn run_with_options(
     } else {
         Duration::ZERO
     };
-    let s3_configured = std::env::var("S3_ENDPOINT")
-        .or_else(|_| std::env::var("MINIO_ENDPOINT"))
-        .ok()
-        .is_some_and(|s| !s.is_empty());
+    let promote_store = blob_cleanup_store.clone().or_else(|| {
+        crate::recovery_worker::S3Store::from_env()
+            .ok()
+            .map(Arc::new)
+    });
     let worm_enabled = matches!(
         crate::blob_retention::config(),
         crate::blob_retention::Config::On(_)
@@ -485,8 +485,7 @@ pub async fn run_with_options(
         && (options.require_worker_bypassrls
             || options.use_schedule_leases
             || work_queue.is_some()
-            || blob_cleanup.is_some()
-            || (s3_configured && worm_enabled)
+            || promote_store.is_some()
             || push_drain.is_some()
             || admin_jobs
                 .as_ref()
@@ -528,68 +527,40 @@ pub async fn run_with_options(
     };
     if let Some(sup) = supervisor.as_mut() {
         let mut wq_consumer_spawned = false;
-        if options.use_schedule_leases {
-            let configured = std::env::var("RUST_WORKERS_ON").unwrap_or_default();
-            let requested: Vec<&str> = configured
-                .split(',')
-                .map(str::trim)
-                .filter_map(|name| name.strip_prefix("cron:"))
-                .filter(|name| !(work_queue.is_some() && *name == "dispatch-scheduled-actions"))
-                .collect();
-            if !requested.is_empty() {
-                let mut tasks = Vec::new();
-                for name in requested {
-                    let Some((spec_str, timeout_secs)) = crate::workers::go_task_spec(name) else {
-                        return Err(format!("cron:{name} has no Rust implementation yet"));
-                    };
-                    let Some(sql) = crate::cron_catalog::statement(name) else {
-                        return Err(format!("cron:{name} has no Rust implementation yet"));
-                    };
-                    let cred = match crate::cron_catalog::credential(name)
-                        .unwrap_or(crate::cron_catalog::Credential::Worker)
-                    {
-                        crate::cron_catalog::Credential::Worker => {
-                            setjoin_workqueue::ScheduleCredential::Worker
-                        }
-                        crate::cron_catalog::Credential::Owner => {
-                            setjoin_workqueue::ScheduleCredential::Owner
-                        }
-                    };
-                    tasks.push(crate::supervisor::schedule::ScheduledTask {
-                        spec: setjoin_workqueue::ScheduleSpec {
-                            task_name: name.to_owned(),
-                            schedule_spec: spec_str,
-                            timeout_secs: timeout_secs.clamp(1, 600) as i32,
-                            schedule_tz: "UTC".to_owned(),
-                            credential: cred,
-                        },
-                        handler: crate::supervisor::schedule::ScheduleHandler::Sql {
-                            sql,
-                            credential: cred,
-                        },
-                    });
-                }
-                let runner = crate::supervisor::schedule::ScheduleRunner::new(
-                    tasks,
-                    crate::supervisor::schedule::ScheduleRunnerConfig::default(),
-                );
-                runner.register_all(&sup.ctx().schedule_store).await?;
-                sup.spawn("schedule-runner", move |ctx| runner.run(ctx));
-            }
+        let configured_workers = std::env::var("RUST_WORKERS_ON").unwrap_or_default();
+        let scheduled_tasks = build_supervised_schedule_tasks(
+            options.use_schedule_leases,
+            &configured_workers,
+            work_queue.is_some(),
+            blob_cleanup_store.clone(),
+        )?;
+        if !scheduled_tasks.is_empty() {
+            let runner = crate::supervisor::schedule::ScheduleRunner::new(
+                scheduled_tasks,
+                crate::supervisor::schedule::ScheduleRunnerConfig::default(),
+            );
+            runner.register_all(&sup.ctx().schedule_store).await?;
+            sup.spawn("schedule-runner", move |ctx| runner.run(ctx));
         }
-        // Durable WORM arming & S3 reap retry consumers when S3 storage is configured
-        // and any of blob-cleanup, work-queue, or WORM retention is active.
-        if (blob_cleanup.is_some() || work_queue.is_some() || worm_enabled) && s3_configured {
-            if let Ok(store) = crate::recovery_worker::S3Store::from_env() {
-                let store = Arc::new(store);
+        // Durable staging promote recovery/verification (`BlobPromoteConsumer`) boots
+        // whenever S3 storage is constructible (including default 127.0.0.1:9000) so
+        // committed `blob.promote_recover` and `blob.promote_verify` intents never
+        // stall unprocessed (#551). WORM arming and residual `blob.s3_reap_retry`
+        // drain boot alongside when blob-cleanup, work-queue, or WORM is enabled (#549/#551).
+        if let Some(store) = promote_store {
+            let promote_consumer = crate::supervisor::worm::BlobPromoteConsumer::new(store.clone());
+            sup.spawn("blob-promote-consumer", move |ctx| {
+                promote_consumer.run(ctx)
+            });
+            if blob_cleanup_store.is_some() || work_queue.is_some() || worm_enabled {
                 let worm_consumer = crate::supervisor::worm::WormArmConsumer::new(store.clone());
                 sup.spawn("worm-arm-consumer", move |ctx| worm_consumer.run(ctx));
                 let reap_consumer = crate::supervisor::worm::BlobReapRetryConsumer::new(store);
                 sup.spawn("blob-reap-retry-consumer", move |ctx| {
                     reap_consumer.run(ctx)
                 });
-                wq_consumer_spawned = true;
             }
+            wq_consumer_spawned = true;
         }
         // Wire durable WorkQueue + legacy SKIP LOCKED drain consumer for
         // bulk_role_jobs, eap_apply_jobs, and guest_notification_intents,
@@ -1203,13 +1174,6 @@ pub async fn run_with_options(
             ("exchange-deletion", Ok(()))
         });
     }
-    if let Some(worker) = blob_cleanup {
-        let stop = root_stop.clone();
-        bg_tasks.spawn(async move {
-            worker.run_until(stop.cancelled_owned()).await;
-            ("blob-cleanup", Ok(()))
-        });
-    }
     if let Some(worker) = mail_work {
         let stop = root_stop.clone();
         bg_tasks.spawn(async move {
@@ -1659,4 +1623,78 @@ pub async fn run_with_options(
 
     eprintln!("setjoin-gateway: shutting down");
     tls_failure.map_or(Ok(()), Err)
+}
+
+/// Builds the distributed `worker_schedules` task list for `WorkerSupervisor`
+/// (#549/#551). Decoupled from `!cron_specs.is_empty()` so supervised
+/// `blob-cleanup` (Mark-and-Sweep GC) is registered even when `cron:*` is empty.
+pub fn build_supervised_schedule_tasks<S: crate::recovery_worker::ObjectStore + 'static>(
+    use_schedule_leases: bool,
+    configured_workers: &str,
+    work_queue_active: bool,
+    blob_cleanup_store: Option<Arc<S>>,
+) -> Result<Vec<crate::supervisor::schedule::ScheduledTask>, String> {
+    let mut scheduled_tasks = Vec::new();
+    if use_schedule_leases {
+        let requested: Vec<&str> = configured_workers
+            .split(',')
+            .map(str::trim)
+            .filter_map(|name| name.strip_prefix("cron:"))
+            .filter(|name| !(work_queue_active && *name == "dispatch-scheduled-actions"))
+            .collect();
+        for name in requested {
+            let Some((spec_str, timeout_secs)) = crate::workers::go_task_spec(name) else {
+                return Err(format!("cron:{name} has no Rust implementation yet"));
+            };
+            let Some(sql) = crate::cron_catalog::statement(name) else {
+                return Err(format!("cron:{name} has no Rust implementation yet"));
+            };
+            let cred = match crate::cron_catalog::credential(name)
+                .unwrap_or(crate::cron_catalog::Credential::Worker)
+            {
+                crate::cron_catalog::Credential::Worker => {
+                    setjoin_workqueue::ScheduleCredential::Worker
+                }
+                crate::cron_catalog::Credential::Owner => {
+                    setjoin_workqueue::ScheduleCredential::Owner
+                }
+            };
+            scheduled_tasks.push(crate::supervisor::schedule::ScheduledTask {
+                spec: setjoin_workqueue::ScheduleSpec {
+                    task_name: name.to_owned(),
+                    schedule_spec: spec_str,
+                    timeout_secs: timeout_secs.clamp(1, 600) as i32,
+                    schedule_tz: "UTC".to_owned(),
+                    credential: cred,
+                },
+                handler: crate::supervisor::schedule::ScheduleHandler::Sql {
+                    sql,
+                    credential: cred,
+                },
+            });
+        }
+    }
+    if let Some(gc_store) = blob_cleanup_store {
+        let handler: crate::supervisor::schedule::ScheduleCallback =
+            Arc::new(move |task_ctx, _row, cancel| {
+                let store = gc_store.clone();
+                Box::pin(async move {
+                    crate::blob_cleanup::run_supervised_tick(&task_ctx.pool, store, cancel).await
+                })
+            });
+        scheduled_tasks.push(crate::supervisor::schedule::ScheduledTask {
+            spec: setjoin_workqueue::ScheduleSpec {
+                task_name: crate::blob_cleanup::NAME.to_owned(),
+                schedule_spec: "@every 300s".to_owned(),
+                timeout_secs: crate::blob_cleanup::SCHEDULE_TIMEOUT_SECS,
+                schedule_tz: "UTC".to_owned(),
+                credential: setjoin_workqueue::ScheduleCredential::Worker,
+            },
+            handler: crate::supervisor::schedule::ScheduleHandler::Callback {
+                handler,
+                safe_to_release: false,
+            },
+        });
+    }
+    Ok(scheduled_tasks)
 }

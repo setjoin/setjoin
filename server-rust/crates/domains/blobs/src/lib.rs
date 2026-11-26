@@ -69,15 +69,38 @@ pub async fn abort_upload(
         payload_digest: Digest(Sha256::digest(format!("recovery.abort:{session}")).into()),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_abort"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
+    setjoin_pg::run_receipted_command(
+        exec,
+        setjoin_pg::ReceiptCommand {
+            family: "F16",
+            command: "mail_recovery_upload_abort",
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
         sql::ABORT_UPLOAD.sql,
-        &[(&session,Type::TEXT)], |rows| {
-            let invalid = ||StatementFailure{hint: None,sqlstate:None,message:"invalid recovery abort result".into()};
-            let raw: String = rows.first().ok_or_else(invalid)?.try_get(0).map_err(|_|invalid())?;
-            let value: serde_json::Value = serde_json::from_str(&raw).map_err(|_|invalid())?;
-            value["objectKeys"].as_array().ok_or_else(invalid)?.iter()
-                .map(|key|key.as_str().map(str::to_owned).ok_or_else(invalid)).collect()
-        }).await
+        &[(&session, Type::TEXT)],
+        |rows| {
+            let invalid = || StatementFailure {
+                hint: None,
+                sqlstate: None,
+                message: "invalid recovery abort result".into(),
+            };
+            let raw: String = rows
+                .first()
+                .ok_or_else(invalid)?
+                .try_get(0)
+                .map_err(|_| invalid())?;
+            let value: serde_json::Value = serde_json::from_str(&raw).map_err(|_| invalid())?;
+            value["objectKeys"]
+                .as_array()
+                .ok_or_else(invalid)?
+                .iter()
+                .map(|key| key.as_str().map(str::to_owned).ok_or_else(invalid))
+                .collect()
+        },
+    )
+    .await
 }
 
 /// Go's consent reducer owns the locked artifact, current affected-user or
@@ -97,11 +120,28 @@ pub async fn fork_consent(
         payload_digest: Digest(Sha256::digest(format!("recovery.fork:{artifact}:{device}")).into()),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_fork_consent"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
+    setjoin_pg::run_receipted_command(
+        exec,
+        setjoin_pg::ReceiptCommand {
+            family: "F16",
+            command: "mail_recovery_fork_consent",
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
         sql::FORK_CONSENT.sql,
-        &[(&artifact,Type::TEXT),(&device,Type::TEXT)],|rows| {
-            rows.first().and_then(|row|row.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid fork consent result".into()})
-        }).await
+        &[(&artifact, Type::TEXT), (&device, Type::TEXT)],
+        |rows| {
+            rows.first()
+                .and_then(|row| row.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid fork consent result".into(),
+                })
+        },
+    )
+    .await
 }
 
 pub struct UploadItem {
@@ -119,8 +159,16 @@ pub async fn upload_item(
     item: &str,
 ) -> Result<Option<UploadItem>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read(sql::UPLOAD_ITEM.sql,
-        &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT)]).await?;
+    let rows = exec
+        .read(
+            sql::UPLOAD_ITEM.sql,
+            &[
+                (&session, Type::TEXT),
+                (&user, Type::INT8),
+                (&item, Type::TEXT),
+            ],
+        )
+        .await?;
     Ok(rows.first().map(|row| UploadItem {
         incident: row.get(0),
         next_offset: row.get(1),
@@ -143,8 +191,17 @@ pub async fn chunk_at(
     start: i64,
 ) -> Result<Option<ExistingChunk>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read(sql::CHUNK_AT.sql,
-        &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT),(&start,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            sql::CHUNK_AT.sql,
+            &[
+                (&session, Type::TEXT),
+                (&user, Type::INT8),
+                (&item, Type::TEXT),
+                (&start, Type::INT8),
+            ],
+        )
+        .await?;
     Ok(rows.first().map(|row| ExistingChunk {
         size: row.get(0),
         digest: row.get(1),
@@ -182,11 +239,35 @@ pub async fn record_chunk(
         ),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_chunk_record"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
+    setjoin_pg::run_receipted_command(
+        exec,
+        setjoin_pg::ReceiptCommand {
+            family: "F16",
+            command: "mail_recovery_upload_chunk_record",
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
         sql::RECORD_CHUNK.sql,
-        &[(&chunk.session,Type::TEXT),(&chunk.item,Type::TEXT),(&chunk.start,Type::INT8),(&chunk.size,Type::INT4),(&chunk.digest,Type::TEXT),(&chunk.key,Type::TEXT)],|rows| {
-            rows.first().and_then(|row|row.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid chunk record result".into()})
-        }).await
+        &[
+            (&chunk.session, Type::TEXT),
+            (&chunk.item, Type::TEXT),
+            (&chunk.start, Type::INT8),
+            (&chunk.size, Type::INT4),
+            (&chunk.digest, Type::TEXT),
+            (&chunk.key, Type::TEXT),
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|row| row.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid chunk record result".into(),
+                })
+        },
+    )
+    .await
 }
 
 /// Inclusive byte offsets and declared full size of a recovery upload chunk.
@@ -287,8 +368,16 @@ pub async fn item_for_commit(
     item: &str,
 ) -> Result<Option<ItemCommit>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read(sql::ITEM_FOR_COMMIT.sql,
-        &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT)]).await?;
+    let rows = exec
+        .read(
+            sql::ITEM_FOR_COMMIT.sql,
+            &[
+                (&session, Type::TEXT),
+                (&user, Type::INT8),
+                (&item, Type::TEXT),
+            ],
+        )
+        .await?;
     Ok(rows.first().map(|row| ItemCommit {
         digest: row.get(0),
         size: row.get(1),
@@ -312,8 +401,16 @@ pub async fn item_chunks(
     item: &str,
 ) -> Result<Vec<QuarantineChunk>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read(sql::ITEM_CHUNKS.sql,
-        &[(&session,Type::TEXT),(&user,Type::INT8),(&item,Type::TEXT)]).await?;
+    let rows = exec
+        .read(
+            sql::ITEM_CHUNKS.sql,
+            &[
+                (&session, Type::TEXT),
+                (&user, Type::INT8),
+                (&item, Type::TEXT),
+            ],
+        )
+        .await?;
     Ok(rows
         .iter()
         .map(|row| QuarantineChunk {
@@ -331,6 +428,7 @@ pub async fn verify_item(
     session: &str,
     item: &str,
     object_ref: &str,
+    staging_key: Option<&str>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
     let auth = actor.database_scope();
@@ -343,10 +441,38 @@ pub async fn verify_item(
         ),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_item_verify"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),sql::VERIFY_ITEM.sql,&[(&session,Type::TEXT),(&item,Type::TEXT),(&object_ref,Type::TEXT)],|rows|rows.first().and_then(|row|row.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid item verification result".into()})).await
+    setjoin_pg::run_receipted_command(
+        exec,
+        setjoin_pg::ReceiptCommand {
+            family: "F16",
+            command: "mail_recovery_upload_item_verify",
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        sql::VERIFY_ITEM.sql,
+        &[
+            (&session, Type::TEXT),
+            (&item, Type::TEXT),
+            (&object_ref, Type::TEXT),
+            (&staging_key, Type::TEXT),
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|row| row.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid item verification result".into(),
+                })
+        },
+    )
+    .await
 }
 
-/// The frozen PUT transaction: admission, caller charge and reclamation arming.
+/// The frozen PUT transaction: admission, caller charge, GC reactivation, and
+/// durable staging promote recovery (#243/#550/#551).
+#[allow(clippy::too_many_arguments)]
 pub async fn account_upload(
     exec: &setjoin_pg::ScopedExecutor,
     actor: &setjoin_authz::AuthContext,
@@ -354,6 +480,7 @@ pub async fn account_upload(
     reference: &str,
     size: i64,
     content_type: &str,
+    staging_key: Option<&str>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
     let auth = actor.database_scope();
@@ -375,10 +502,60 @@ pub async fn account_upload(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"blob_upload_account"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
+    setjoin_pg::run_receipted_command(
+        exec,
+        setjoin_pg::ReceiptCommand {
+            family: "F16",
+            command: "blob_upload_account",
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
         sql::ACCOUNT_UPLOAD.sql,
-        &[(&hash,Type::TEXT),(&reference,Type::TEXT),(&size,Type::INT8),(&content_type,Type::TEXT),(&grace,Type::INT4),(&quota,Type::INT8)],
-        |rows| rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid blob accounting result".into()})).await
+        &[
+            (&hash, Type::TEXT),
+            (&reference, Type::TEXT),
+            (&size, Type::INT8),
+            (&content_type, Type::TEXT),
+            (&grace, Type::INT4),
+            (&quota, Type::INT8),
+            (&staging_key, Type::TEXT),
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid blob accounting result".into(),
+                })
+        },
+    )
+    .await
+}
+
+/// Cancels a pending `blob.promote_recover` item iff still unleased and matching
+/// `(hash, staging_key)`. Returns `true` when safe for caller to delete staging.
+pub async fn complete_promote_recover(
+    exec: &setjoin_pg::ScopedExecutor,
+    work_item_id: i64,
+    hash: &str,
+    staging_key: &str,
+) -> Result<bool, StatementFailure> {
+    let rows = exec
+        .protocol_query(
+            sql::COMPLETE_PROMOTE_RECOVER.sql,
+            &[
+                (&work_item_id, Type::INT8),
+                (&hash, Type::TEXT),
+                (&staging_key, Type::TEXT),
+            ],
+        )
+        .await?;
+    Ok(rows
+        .first()
+        .and_then(|r| r.try_get::<_, bool>(0).ok())
+        .unwrap_or(false))
 }
 
 /// Attachment-transfer metadata only after the actor-owned or freshly admitted delegate attachment join.
@@ -391,7 +568,16 @@ pub async fn attachment_metadata(
     delegated: i64,
 ) -> Result<Option<(i64, String)>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read(sql::ATTACHMENT_METADATA.sql,&[(&hash,Type::TEXT),(&user,Type::INT8),(&delegated,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            sql::ATTACHMENT_METADATA.sql,
+            &[
+                (&hash, Type::TEXT),
+                (&user, Type::INT8),
+                (&delegated, Type::INT8),
+            ],
+        )
+        .await?;
     Ok(rows.first().map(|r| (r.get(0), r.get(1))))
 }
 
@@ -431,9 +617,39 @@ pub async fn begin_upload(
     // Timestamp is parsed at the protocol boundary and sent as canonical text, so
     // the family need not link the driver's chrono adapter.
     let consented = offer.consented;
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_upload_begin"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),
- sql::BEGIN_UPLOAD.sql,
- &[(&offer.session,Type::TEXT),(&offer.incident,Type::TEXT),(&offer.mailbox,Type::INT8),(&offer.device,Type::TEXT),(&offer.artifact,Type::TEXT),(&offer.eligibility,Type::TEXT),(&offer.receipt,Type::TEXT),(&offer.inventory,Type::TEXT),(&consented,Type::TEXT),(&offer.idempotency,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid recovery begin result".into()})).await
+    setjoin_pg::run_receipted_command(
+        exec,
+        setjoin_pg::ReceiptCommand {
+            family: "F16",
+            command: "mail_recovery_upload_begin",
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        sql::BEGIN_UPLOAD.sql,
+        &[
+            (&offer.session, Type::TEXT),
+            (&offer.incident, Type::TEXT),
+            (&offer.mailbox, Type::INT8),
+            (&offer.device, Type::TEXT),
+            (&offer.artifact, Type::TEXT),
+            (&offer.eligibility, Type::TEXT),
+            (&offer.receipt, Type::TEXT),
+            (&offer.inventory, Type::TEXT),
+            (&consented, Type::TEXT),
+            (&offer.idempotency, Type::TEXT),
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid recovery begin result".into(),
+                })
+        },
+    )
+    .await
 }
 
 pub struct FinalizeItem {
@@ -448,7 +664,12 @@ pub async fn finalize_item(
     session: &str,
 ) -> Result<Option<FinalizeItem>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read(sql::FINALIZE_ITEM.sql,&[(&session,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            sql::FINALIZE_ITEM.sql,
+            &[(&session, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().map(|r| FinalizeItem {
         reference: r.get(0),
         size: r.get(1),
@@ -462,7 +683,12 @@ pub async fn replay_finalize(
     session: &str,
 ) -> Result<Option<String>, StatementFailure> {
     let user = actor.user_id();
-    let rows=exec.read(sql::REPLAY_FINALIZE.sql,&[(&session,Type::TEXT),(&user,Type::INT8)]).await?;
+    let rows = exec
+        .read(
+            sql::REPLAY_FINALIZE.sql,
+            &[(&session, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await?;
     Ok(rows.first().map(|r| r.get(0)))
 }
 pub struct Quarantine<'a> {
@@ -492,5 +718,32 @@ pub async fn quarantine(
         ),
         command: (),
     };
-    setjoin_pg::run_receipted_command(exec, setjoin_pg::ReceiptCommand{family:"F16",command:"mail_recovery_artifact_quarantine"},&envelope,&auth,std::time::Instant::now()+std::time::Duration::from_secs(30),sql::QUARANTINE.sql,&[(&offer.session,Type::TEXT),(&offer.artifact,Type::TEXT),(&offer.parsed,Type::TEXT),(&offer.malware,Type::TEXT),(&offer.rejection,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(||StatementFailure{hint: None,sqlstate:None,message:"invalid recovery quarantine result".into()})).await
+    setjoin_pg::run_receipted_command(
+        exec,
+        setjoin_pg::ReceiptCommand {
+            family: "F16",
+            command: "mail_recovery_artifact_quarantine",
+        },
+        &envelope,
+        &auth,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        sql::QUARANTINE.sql,
+        &[
+            (&offer.session, Type::TEXT),
+            (&offer.artifact, Type::TEXT),
+            (&offer.parsed, Type::TEXT),
+            (&offer.malware, Type::TEXT),
+            (&offer.rejection, Type::TEXT),
+        ],
+        |rows| {
+            rows.first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or_else(|| StatementFailure {
+                    hint: None,
+                    sqlstate: None,
+                    message: "invalid recovery quarantine result".into(),
+                })
+        },
+    )
+    .await
 }

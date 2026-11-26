@@ -290,33 +290,36 @@ have shared effects (row deletes, S3 deletes and puts): never leave both copies 
   Record: `GOFREE_RECORD_DRAIN=all GOFREE_GO_SOURCE=<sha>`; S3 requests compare as
   a multiset (Go interleaves list pages with deletes; the sets are identical).
 
-## Blob cleanup worker (#411)
+## Blob cleanup worker (#411, Wave 2.4 #551)
 
-`RUST_WORKERS_ON=blob-cleanup` (`src/blob_cleanup.rs`) takes Go's
-`blob.Handler.StartCleanup` (5 min, first tick after one interval). It refuses to
-start unless `GO_WORKERS_OFF` lists `blob-cleanup`, runs on `DB_WORKER_DSN`
-(fallback `DB_DSN`) and needs the object store (`S3_*`). Shared effects (row and
-S3 deletes): never run both copies. Per tick, in Go's order, each statement
-autocommit:
+`RUST_WORKERS_ON=blob-cleanup` (alias `blob-gc`, `src/blob_cleanup.rs` + `src/blob_gc.rs`)
+runs as a distributed `WorkerSupervisor` periodic schedule (`@every 300s`,
+`timeout_secs = 300`, `safe_to_release = false`, decoupled from `cron_specs`) on
+`DB_WORKER_DSN` (`setjoin_worker`, `BYPASSRLS`, fallback `DB_DSN`) with `S3_*`.
+Legacy `blobs.ref_count` and `blob_cleanup_queue` were retired in `V289`. Per
+tick (bounded by a wall-clock tick budget and cooperative cancellation between
+items, never aborting mid-Tx 2B):
 
-- **cleanup queue:** `blob_cleanup_queue` rows past `scheduled_at + delay_minutes`
-  whose blob has `ref_count = 0`; each does `DELETE FROM blobs WHERE sha256=$1 AND
-  ref_count=0` (the queue row cascades) and, only if a row went, an object delete
-  keyed by the bare sha. A failed delete lands in a process-local ledger (1024 max,
-  arbitrary eviction).
-- **orphaned_message_blobs:** every `raw_ref`; inline text (contains CR/LF) is only
-  dequeued; otherwise, if no `messages.raw_ref` matches, the exact key is deleted
-  (a refused delete leaves the row queued, no same-tick retry), then the row goes.
-- **reap retries:** ledger entries re-checked against `blobs` (re-uploaded: dropped),
-  else the delete is retried, so a refusing store sees a delete again each tick.
-- `BLOB_RECLAIM_GRACE_MINUTES` is Go's PUT-time arming of `delay_minutes`; the tick
-  only reads the column. Go's WORM retention-retry ledger (armed by Go's own PUT)
-  is `blob_retention`'s ledger: Rust's PUT arms it and the last step of the tick drains it.
-- Tests: `tests/blob_cleanup_recorded.rs` (frozen Go's real cleanup steps through
-  overlay `tests/conformance/drain/blob_cleanup_tick_test.go.txt`, shared fake S3,
-  goldens `goldens/blob-*.json`; `ticks` > 1 replays the retry ledger),
-  `tests/blob_cleanup_startup.rs`. Seed ages need margin: a cold Go build can take
-  minutes between seeding and the tick.
+- **Phase 1 Mark & Phase 2 Two-Tx Sweep:** marks unreferenced unheld blobs past
+  the `>= 24h` grace floor `reclaim_eligible`, claims `purging` past cooldown
+  (Tx 2A), and deletes under per-`sha256` advisory lock + `FOR UPDATE OF s, b`
+  followed by a fresh second-statement `READ COMMITTED` snapshot re-check of
+  `blob_has_live_reference` and `blob_is_held_or_retained`, using version-aware
+  `S3Store::delete_blob_checked` (Tx 2B).
+- **orphaned_message_blobs:** inline text is dequeued; legacy bare 64-hex rows
+  present in `public.blobs` are dequeued for Mark-and-Sweep ownership; prefixed
+  keys (`inbound/*`, `blobs/*`, `dmarc/*`) acquire `pg_advisory_xact_lock`,
+  re-check all 5 `raw_ref` tables, delete via `delete_blob_checked`, and dequeue.
+- **abandoned `tmp/blob-upload/*` sweep:** removes staging objects older than 24h
+  not referenced by any pending/leased `blob.promote_recover` or `blob.promote_verify`
+  work item.
+- **WorkQueue consumers (`src/supervisor/worm.rs`):** `WormArmConsumer` drains
+  `blob.worm_arm` and atomically records `worm_locked_until` in `blob_gc_state`;
+  `BlobPromoteConsumer` drains `blob.promote_recover` and `blob.promote_verify`;
+  `BlobReapRetryConsumer` safely drains residual pre-cutover `blob.s3_reap_retry`.
+- Tests: `tests/blob_mark_and_sweep_gc.rs` (concurrency races, 6 Wave 2.4 stress
+  & regression suites, `WorkerSupervisor` schedule claim), `tests/blob_cleanup_recorded.rs`,
+  `tests/blob_cleanup_startup.rs`.
 
 ## Compliance (#289)
 

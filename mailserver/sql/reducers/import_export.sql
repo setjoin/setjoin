@@ -158,6 +158,12 @@ BEGIN
       USING ERRCODE = 'BZ001', HINT = jsonb_build_object('type', 'over_quota', 'mailbox_id', p_mailbox_id)::TEXT;
   END IF;
 
+  -- 3b. Serialize with Mark-and-Sweep GC / orphan cleanup (#551) in the same
+  -- transaction that inserts the message row (holding the lock through COMMIT).
+  IF p_raw_ref IS NOT NULL AND p_raw_ref <> '' AND p_raw_ref !~ E'[\r\n]' THEN
+    PERFORM pg_catalog.pg_advisory_xact_lock(public.blob_gc_lock_key(p_raw_ref));
+  END IF;
+
   -- 4. Insert message — statement-level authorization lives in this SELECT's
   -- WHERE (round 3/4): the actor claims ride INTO the reducer so authority is
   -- re-resolved LIVE at INSERT time, not at the route seam. p_actor_id IS NULL
@@ -198,6 +204,17 @@ BEGIN
   -- 5.+6. Tag + notify connected clients — ONLY when a row was actually
   -- inserted; the revocation no-op path must leave no side effects.
   IF v_message_id IS NOT NULL THEN
+    -- Register bare 64-hex raw body in public.blobs atomically under the held
+    -- per-sha256 advisory lock (never on the revoked-authority no-op path).
+    IF p_raw_ref IS NOT NULL AND p_raw_ref ~ '^[0-9a-f]{64}$' THEN
+      PERFORM public.blob_gc_register_and_reactivate(
+        p_raw_ref,
+        p_raw_ref,
+        GREATEST(COALESCE(p_size_bytes, 0), 0),
+        'message/rfc822'
+      );
+    END IF;
+
     -- Add tag (trigger handles counters)
     PERFORM tag_message(v_message_id, COALESCE(p_date, now())::TIMESTAMPTZ, v_tag_name, p_mailbox_id, 'import', TRUE);
 

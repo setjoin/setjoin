@@ -204,7 +204,7 @@ async fn snapshot(opts: &Opts, dump: &Path, list: &Path) -> Result<Snapshot, Fai
         .get(0);
     let blobs = tx
         .query(
-            "SELECT sha256,size_bytes FROM blobs WHERE ref_count>0 ORDER BY sha256",
+            "SELECT sha256,size_bytes FROM public.blob_live_catalog() ORDER BY sha256",
             &[],
         )
         .await
@@ -251,7 +251,7 @@ async fn snapshot(opts: &Opts, dump: &Path, list: &Path) -> Result<Snapshot, Fai
     for query in [
         "SELECT 'user:'||id::text FROM users ORDER BY id LIMIT 4",
         "SELECT 'mailbox:'||id::text FROM mailboxes ORDER BY id LIMIT 4",
-        "SELECT 'blob:'||sha256 FROM blobs WHERE ref_count>0 ORDER BY sha256 LIMIT 4",
+        "SELECT 'blob:'||sha256 FROM public.blob_live_catalog() ORDER BY sha256 LIMIT 4",
     ] {
         for row in tx
             .query(query, &[])

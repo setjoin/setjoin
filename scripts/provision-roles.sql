@@ -303,15 +303,14 @@ BEGIN
         ('public.worker_schedule_heartbeat(text,bigint,text,integer)'),
         ('public.worker_schedule_complete(text,bigint,text,text,integer,text,timestamptz)'),
         ('public.worker_schedule_release(text,bigint,text)'),
-        -- #550 (V288): Mark-and-Sweep S3 Blob GC worker-only SECURITY INVOKER reducers
-        -- (blob_gc_reactivate is deliberately omitted so setjoin_app retains EXECUTE).
+        -- #550/#551 (V288/V289): Mark-and-Sweep S3 Blob GC worker-only SECURITY INVOKER reducers
+        -- (blob_gc_reactivate* and blob_promote_recover_* are omitted so setjoin_app retains EXECUTE).
         ('public.blob_has_live_reference(text)'),
         ('public.blob_gc_live_sources(text)'),
         ('public.blob_is_held_or_retained(text,integer)'),
         ('public.blob_gc_mark(integer,integer,integer)'),
         ('public.blob_gc_claim_purging(text,integer,integer,integer)'),
-        ('public.blob_gc_record_worm_lock(text,timestamptz,text)'),
-        ('public.blob_gc_shadow_reconcile(integer,integer,integer)')
+        ('public.blob_gc_record_worm_lock(text,timestamptz,text)')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP
@@ -443,22 +442,35 @@ BEGIN
       EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE public.%I TO setjoin_worker', s);
     END IF;
   END LOOP;
-  -- Re-assert narrow SECURITY DEFINER ownership + ACLs on blob_gc_reactivate(text)
+  -- Re-assert narrow SECURITY DEFINER ownership + ACLs on Mark-and-Sweep GC seams
   -- so provisioning is order-independent regardless of migration/reprovision order.
-  IF to_regprocedure('public.blob_gc_reactivate(text)') IS NOT NULL THEN
-    DECLARE
-      v_had_create boolean := false;
-    BEGIN
-      SELECT has_schema_privilege('setjoin_worker', 'public', 'CREATE') INTO v_had_create;
-      IF NOT v_had_create THEN
-        GRANT CREATE ON SCHEMA public TO setjoin_worker;
+  DECLARE
+    v_had_create boolean := false;
+    v_sig        text;
+  BEGIN
+    SELECT has_schema_privilege('setjoin_worker', 'public', 'CREATE') INTO v_had_create;
+    IF NOT v_had_create THEN
+      GRANT CREATE ON SCHEMA public TO setjoin_worker;
+    END IF;
+    FOREACH v_sig IN ARRAY ARRAY[
+      'public.blob_gc_reactivate(text)',
+      'public.blob_gc_reactivate_v2(text,text)',
+      'public.blob_promote_recover_enqueue(text,text,double precision)',
+      'public.blob_promote_recover_complete(bigint,text,text)'
+    ] LOOP
+      IF to_regprocedure(v_sig) IS NOT NULL THEN
+        EXECUTE format('ALTER FUNCTION %s OWNER TO setjoin_worker', v_sig);
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', v_sig);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO setjoin_app, setjoin_worker, setjoin_owner', v_sig);
       END IF;
-      ALTER FUNCTION public.blob_gc_reactivate(text) OWNER TO setjoin_worker;
-      IF NOT v_had_create THEN
-        REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
-      END IF;
-      REVOKE ALL ON FUNCTION public.blob_gc_reactivate(text) FROM PUBLIC;
-      GRANT EXECUTE ON FUNCTION public.blob_gc_reactivate(text) TO setjoin_app, setjoin_worker, setjoin_owner;
-    END;
-  END IF;
+    END LOOP;
+    IF to_regprocedure('public.blob_live_catalog()') IS NOT NULL THEN
+      ALTER FUNCTION public.blob_live_catalog() OWNER TO setjoin_worker;
+      REVOKE ALL ON FUNCTION public.blob_live_catalog() FROM PUBLIC, setjoin_app;
+      GRANT EXECUTE ON FUNCTION public.blob_live_catalog() TO setjoin_worker, setjoin_owner;
+    END IF;
+    IF NOT v_had_create THEN
+      REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+    END IF;
+  END;
 END $$;

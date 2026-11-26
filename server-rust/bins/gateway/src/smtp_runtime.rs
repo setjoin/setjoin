@@ -57,6 +57,9 @@ impl RawBlobs for MessageBlobs {
     fn put<'a>(&'a self, key: &'a str, data: &'a [u8]) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move { self.0.put(key, data, "message/rfc822").await })
     }
+    fn exists<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<bool, String>> {
+        Box::pin(async move { self.0.stat_size(key).await.map(|s| s.is_some()) })
+    }
 }
 
 fn number<T: std::str::FromStr>(

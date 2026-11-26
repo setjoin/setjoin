@@ -40,17 +40,29 @@ impl Intercept for Probe {
         Box::pin(async move {
             let mut response = future.await;
             if wrong_schema {
-                assert_eq!(response.status(), hyper::StatusCode::OK, "schema mutant requires the real successful response");
-                let headers=response.headers().clone();
+                assert_eq!(
+                    response.status(),
+                    hyper::StatusCode::OK,
+                    "schema mutant requires the real successful response"
+                );
+                let headers = response.headers().clone();
                 use http_body_util::BodyExt;
-                let bytes=response.into_body().collect().await.expect("schema mutant body").to_bytes();
-                let mut body:Value=serde_json::from_slice(&bytes).expect("context JSON");
-                body["schemaVersion"]=json!(body["schemaVersion"].as_i64().expect("actual schema")+1);
-                let body=body.to_string();
-                let length=body.len().to_string();
-                response=Response::new(common::full(body));
-                *response.headers_mut()=headers;
-                response.headers_mut().insert("content-length",length.parse().unwrap());
+                let bytes = response
+                    .into_body()
+                    .collect()
+                    .await
+                    .expect("schema mutant body")
+                    .to_bytes();
+                let mut body: Value = serde_json::from_slice(&bytes).expect("context JSON");
+                body["schemaVersion"] =
+                    json!(body["schemaVersion"].as_i64().expect("actual schema") + 1);
+                let body = body.to_string();
+                let length = body.len().to_string();
+                response = Response::new(common::full(body));
+                *response.headers_mut() = headers;
+                response
+                    .headers_mut()
+                    .insert("content-length", length.parse().unwrap());
             }
             if changed {
                 *response.status_mut() = hyper::StatusCode::IM_A_TEAPOT;
@@ -337,14 +349,24 @@ fn accept_recording(value: &mut Value) {
 // Schema metadata advances while the frozen recording remains immutable. The
 // actual wire value is independently checked against the DB before this view.
 fn context_observation(observation: &mut Value) -> Result<(), BoxError> {
-    let Some(response) = observation.get_mut("response") else { return Ok(()); };
-    let Some(body) = response.get("body").and_then(Value::as_str) else { return Ok(()); };
+    let Some(response) = observation.get_mut("response") else {
+        return Ok(());
+    };
+    let Some(body) = response.get("body").and_then(Value::as_str) else {
+        return Ok(());
+    };
     let marker = "\"schemaVersion\": <schema-version>";
-    if body.contains(marker) { return Ok(()); }
+    if body.contains(marker) {
+        return Ok(());
+    }
     let pattern = regex::Regex::new(r#""schemaVersion"\s*:\s*[0-9]+"#)?;
     let count = pattern.find_iter(body).count();
-    if count == 0 && response["status"] != json!(200) { return Ok(()); }
-    if count != 1 { return Err("recovery context must expose exactly one numeric schema version".into()); }
+    if count == 0 && response["status"] != json!(200) {
+        return Ok(());
+    }
+    if count != 1 {
+        return Err("recovery context must expose exactly one numeric schema version".into());
+    }
     let body = pattern.replace(body, marker).into_owned();
     if response["headers"].get("content-length").is_some() {
         response["headers"]["content-length"] = json!([body.len().to_string()]);
@@ -356,11 +378,17 @@ fn context_record(path: &std::path::Path, value: &Value) -> Result<(), BoxError>
     if std::env::var_os("GOFREE_VERIFY_GO").is_some() {
         let mut expected: Value = serde_json::from_slice(&std::fs::read(path)?)?;
         let mut actual = value.clone();
-        if let Some(observation) = expected.get_mut("observation") { context_observation(observation)?; }
-        if let Some(observation) = actual.get_mut("observation") { context_observation(observation)?; }
+        if let Some(observation) = expected.get_mut("observation") {
+            context_observation(observation)?;
+        }
+        if let Some(observation) = actual.get_mut("observation") {
+            context_observation(observation)?;
+        }
         golden::compare(&expected, &actual)?;
         Ok(())
-    } else { record(path, value) }
+    } else {
+        record(path, value)
+    }
 }
 fn accept_record(path: &std::path::Path, value: &Value) -> Result<(), BoxError> {
     if std::env::var_os("GOFREE_VERIFY_GO").is_some() {
@@ -556,7 +584,9 @@ fn specs(action: &str, label: &str, user: i64, other: i64) -> Option<Case> {
         ),
         _ => return None,
     };
-    if action == "airgap-feed" && label == "invalid-query" { c.query="?since=not-a-time&limit=invalid".into(); }
+    if action == "airgap-feed" && label == "invalid-query" {
+        c.query = "?since=not-a-time&limit=invalid".into();
+    }
     if action == "airgap-feed" && matches!(label, "invalid" | "head") {
         c.method = "HEAD";
         c.status = 405;
@@ -583,7 +613,10 @@ fn specs(action: &str, label: &str, user: i64, other: i64) -> Option<Case> {
         c.cleanup.push("DELETE FROM deployment_steps WHERE step_name IN('ssh_check','install_packages','configure_replication','configure_pgpool','configure_seaweedfs','start_services','verify')".into());
         c.body=json!({"nodes":(1..=3).map(|i|json!({"host":format!("{{{{ssh-node-{i}}}}}"),"role":if i==1{"primary"}else{"standby"},"ssh_user":"root","ssh_key":if label=="bad-key" {"gofree-plat2b-missing-key"}else{"{{ssh-inline-key}}"},"password":"gofree-plat2b-node-password"})).collect::<Vec<_>>()}).to_string();
         if label == "duplicate-nodes" {
-            c.body = format!("{},\"nodes\":[{{\"role\":\"standby\"}},null,{{}}]}}", c.body.trim_end_matches('}'));
+            c.body = format!(
+                "{},\"nodes\":[{{\"role\":\"standby\"}},null,{{}}]}}",
+                c.body.trim_end_matches('}')
+            );
         }
         if label == "invalid" {
             c.body = "{\"nodes\":[]}".into();
@@ -663,7 +696,12 @@ fn specs(action: &str, label: &str, user: i64, other: i64) -> Option<Case> {
             _ => {}
         }
     }
-    if label == "scoped" && matches!(action, "deploy-start" | "deploy-cancel" | "deploy-status" | "airgap-upload") {
+    if label == "scoped"
+        && matches!(
+            action,
+            "deploy-start" | "deploy-cancel" | "deploy-status" | "airgap-upload"
+        )
+    {
         // #542: an organization-wide system.upgrade grant is required.
         c.status = 403;
     }
@@ -1550,10 +1588,17 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
     // deployment) through a second, organization-wide admin: the other fixture user.
     let probe_role = format!("plat2-probe-{}", b.user);
     let probe_user = if label == "scoped" && action.starts_with("deploy-") {
-        owner.execute("INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,$2,NULL)", &[&probe_role, &vec![case.perm]]).await?;
+        owner
+            .execute(
+                "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES($1,$2,NULL)",
+                &[&probe_role, &vec![case.perm]],
+            )
+            .await?;
         owner.execute("INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by,eligible) SELECT $1,id,$1,false FROM admin_role_groups WHERE name=$2", &[&b.user, &probe_role]).await?;
         b.user
-    } else { a.user };
+    } else {
+        a.user
+    };
     let audit_start: i64 = owner
         .query_one("SELECT COALESCE(max(id),0) FROM admin_audit_log", &[])
         .await?
@@ -1589,7 +1634,7 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
     } else {
         None
     };
-    let suppressed = if matches!(fault,Some("no-notify"|"statement-failure")) {
+    let suppressed = if matches!(fault, Some("no-notify" | "statement-failure")) {
         let function = match action {
             "recovery-open" => "mail_recovery_incident_open",
             "recovery-approve" => "mail_recovery_incident_approve",
@@ -1604,17 +1649,26 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
             )
             .await?
             .get(0);
-        if fault==Some("statement-failure") {
+        if fault == Some("statement-failure") {
             // Fail only after the success path queued its writes/audit/notify.
-            let at=original.rfind("RETURN jsonb_build_object").ok_or("missing reducer success return")?;
+            let at = original
+                .rfind("RETURN jsonb_build_object")
+                .ok_or("missing reducer success return")?;
             let injected=format!("{}RAISE EXCEPTION 'gofree-plat2b late statement failure' USING ERRCODE='XX000';\n{}",&original[..at],&original[at..]);
             owner.batch_execute(&injected).await?;
         } else {
-            if !original.contains("PERFORM app_notify(") {return Err("notification seam missing".into());}
+            if !original.contains("PERFORM app_notify(") {
+                return Err("notification seam missing".into());
+            }
             owner.batch_execute("CREATE FUNCTION public.gofree_plat2b_no_notify(text,text) RETURNS void LANGUAGE sql AS 'SELECT NULL::void'").await?;
-            owner.batch_execute(&original.replace("PERFORM app_notify(","PERFORM public.gofree_plat2b_no_notify(")).await?;
+            owner
+                .batch_execute(&original.replace(
+                    "PERFORM app_notify(",
+                    "PERFORM public.gofree_plat2b_no_notify(",
+                ))
+                .await?;
         }
-        Some((function,original))
+        Some((function, original))
     } else {
         None
     };
@@ -1968,12 +2022,26 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         Ok::<_, BoxError>(())
     }
     .await;
-    if let Some(task) = commit_wire { task.abort(); }
-    if let Some((function,original)) = suppressed {
+    if let Some(task) = commit_wire {
+        task.abort();
+    }
+    if let Some((function, original)) = suppressed {
         owner.batch_execute(&original).await?;
-        let restored:String=owner.query_one("SELECT pg_get_functiondef(oid) FROM pg_proc WHERE proname=$1",&[&function]).await?.get(0);
-        if restored!=original {return Err("reducer definition did not restore exactly".into());}
-        if fault==Some("no-notify") {owner.batch_execute("DROP FUNCTION public.gofree_plat2b_no_notify(text,text)").await?;}
+        let restored: String = owner
+            .query_one(
+                "SELECT pg_get_functiondef(oid) FROM pg_proc WHERE proname=$1",
+                &[&function],
+            )
+            .await?
+            .get(0);
+        if restored != original {
+            return Err("reducer definition did not restore exactly".into());
+        }
+        if fault == Some("no-notify") {
+            owner
+                .batch_execute("DROP FUNCTION public.gofree_plat2b_no_notify(text,text)")
+                .await?;
+        }
     }
     if let Some(old) = recovery_flag {
         if let Some(enabled) = old {
@@ -2000,8 +2068,18 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         .execute("DELETE FROM admin_role_groups WHERE name=$1", &[&role])
         .await?;
     if probe_user == b.user {
-        owner.execute("DELETE FROM admin_role_assignments WHERE user_id=$1", &[&b.user]).await?;
-        owner.execute("DELETE FROM admin_role_groups WHERE name=$1", &[&probe_role]).await?;
+        owner
+            .execute(
+                "DELETE FROM admin_role_assignments WHERE user_id=$1",
+                &[&b.user],
+            )
+            .await?;
+        owner
+            .execute(
+                "DELETE FROM admin_role_groups WHERE name=$1",
+                &[&probe_role],
+            )
+            .await?;
     }
     for account in [&a, &b] {
         common::remove_blob_account(&owner, account).await?;

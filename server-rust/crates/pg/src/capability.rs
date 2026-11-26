@@ -3227,6 +3227,7 @@ impl AdminWorkerPool {
 #[derive(Clone)]
 pub struct WorkerPool {
     pool: SetjoinPool,
+    dsn: Arc<str>,
     audit_keys: Option<Arc<AuditKeys>>,
 }
 
@@ -3256,6 +3257,7 @@ impl WorkerPool {
         )?;
         Ok(Self {
             pool,
+            dsn: Arc::from(dsn),
             audit_keys: None,
         })
     }
@@ -3266,6 +3268,16 @@ impl WorkerPool {
             audit_hmac: audit_hmac_key,
         }));
         self
+    }
+
+    /// Derive a dedicated session-capable [`crate::workers::WorkerDatabase`]
+    /// inheriting this boot-verified `WorkerPool`'s DSN and audit keys (#551).
+    pub fn worker_database(&self) -> Result<crate::workers::WorkerDatabase, String> {
+        let mut db = crate::workers::WorkerDatabase::new(&self.dsn).map_err(|e| e.to_string())?;
+        if let Some(keys) = &self.audit_keys {
+            db = db.with_audit_keys(keys.encryption.clone(), keys.audit_hmac.clone());
+        }
+        Ok(db)
     }
 
     /// Derive a narrow, capability-gated [`AdminWorkerPool`] sharing this

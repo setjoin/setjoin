@@ -1,10 +1,10 @@
 use super::{
-    JmapCommands,
     http::{envelope, problem},
     reply,
     token::KeySource,
+    JmapCommands,
 };
-use crate::{Body, RequestContext, recovery_worker::ObjectStore};
+use crate::{recovery_worker::ObjectStore, Body, RequestContext};
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
 use setjoin_pg::MailboxAuthContext;
@@ -44,7 +44,11 @@ impl<K: KeySource> JmapCommands<K> {
         let Ok(operation) = super::random_bytes() else {
             return fail(500, "serverFail", "upload failed");
         };
-        let temp = format!("tmp/upload/{}", &reply::hex(&operation)[..16]);
+        let temp = format!(
+            "{}{}",
+            crate::blob_retention::BLOB_STAGING_PREFIX,
+            &reply::hex(&operation)[..16]
+        );
         let path =
             std::env::temp_dir().join(format!("setjoin-jmap-upload-{}", reply::hex(&operation)));
         let mut options = tokio::fs::OpenOptions::new();
@@ -86,41 +90,65 @@ impl<K: KeySource> JmapCommands<K> {
             return fail(500, "serverFail", "upload failed");
         }
         let envelope = envelope(auth, operation, digest);
-        match setjoin_jmap::http_blob::account_upload(
-            &self.exec,
-            auth,
-            &envelope,
-            &hash,
-            &store.blob_reference(&hash),
-            size,
-            &ct,
-            services.grace,
-            services.quota,
-        )
-        .await
-        {
-            setjoin_pg::CommandOutcome::Committed(_) => {}
-            setjoin_pg::CommandOutcome::RolledBack(e) => {
-                let _ = store.remove(&temp).await;
-                return if e.log_summary().contains("BZ001") {
-                    fail(413, "overQuota", "storage quota exceeded")
-                } else {
-                    fail(500, "serverFail", "upload failed")
-                };
-            }
-            setjoin_pg::CommandOutcome::Unknown { operation } => {
-                let mut r = fail(503, "serverUnavailable", "upload outcome unknown");
-                r.headers_mut().insert(
-                    "x-operation-id",
-                    setjoin_pg::operation_hex(operation).parse().unwrap(),
-                );
-                return r;
-            }
-        }
+        let (promote_work_item_id, verify_work_item_id) =
+            match setjoin_jmap::http_blob::account_upload(
+                &self.exec,
+                auth,
+                &envelope,
+                &hash,
+                &store.blob_reference(&hash),
+                size,
+                &ct,
+                services.grace,
+                services.quota,
+                Some(&temp),
+            )
+            .await
+            {
+                setjoin_pg::CommandOutcome::Committed(raw) => {
+                    let parsed = serde_json::from_str::<serde_json::Value>(&raw).ok();
+                    let promote_id = parsed
+                        .as_ref()
+                        .and_then(|v| v.get("promoteWorkItemId"))
+                        .and_then(serde_json::Value::as_i64);
+                    let verify_id = parsed
+                        .as_ref()
+                        .and_then(|v| v.get("verifyWorkItemId"))
+                        .and_then(serde_json::Value::as_i64);
+                    (promote_id, verify_id)
+                }
+                setjoin_pg::CommandOutcome::RolledBack(e) => {
+                    let _ = store
+                        .delete_blob_checked(&temp, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                        .await;
+                    return if e.log_summary().contains("BZ001") {
+                        fail(413, "overQuota", "storage quota exceeded")
+                    } else {
+                        fail(500, "serverFail", "upload failed")
+                    };
+                }
+                setjoin_pg::CommandOutcome::Unknown { operation } => {
+                    let mut r = fail(503, "serverUnavailable", "upload outcome unknown");
+                    if let Ok(val) = setjoin_pg::operation_hex(operation).parse() {
+                        r.headers_mut().insert("x-operation-id", val);
+                    }
+                    return r;
+                }
+            };
         if store.promote(&temp, &hash).await.is_err() {
             return fail(500, "serverFail", "upload failed");
         }
-        let _ = store.remove(&temp).await;
+        let cancelled_recover = match promote_work_item_id {
+            Some(wid) => setjoin_blobs::complete_promote_recover(&self.exec, wid, &hash, &temp)
+                .await
+                .unwrap_or(false),
+            None => true,
+        };
+        if verify_work_item_id.is_none() && cancelled_recover {
+            let _ = store
+                .delete_blob_checked(&temp, crate::blob_gc::DEFAULT_S3_HTTP_TIMEOUT)
+                .await;
+        }
         let body = reply::go_compact(
             &serde_json::json!({"accountId":account,"blobId":hash,"size":size,"type":ct})
                 .to_string(),

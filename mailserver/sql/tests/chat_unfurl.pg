@@ -20,13 +20,12 @@ SELECT (:'msg_json'::jsonb ->> 'messageId')::bigint AS msg_id \gset
 SELECT chat_message_send(931, :ch_id, 'also see https://example.com/a') AS msg2_json \gset
 SELECT (:'msg2_json'::jsonb ->> 'messageId')::bigint AS msg2_id \gset
 
--- A blob row standing in for a fetched og:image (the Go layer PUTs the bytes
--- + INSERTs this row at ref_count=0 BEFORE calling cache_write, mirroring
--- blob/handler.go's Put — see chat_unfurl.sql's comment).
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-  VALUES ('deadbeef00000000000000000000000000000000000000000000000000aa',
-          'testbucket/deadbeef00000000000000000000000000000000000000000000000000aa',
-          12345, 'image/png', 0);
+-- A blob row standing in for a fetched og:image (the gateway PUTs the bytes
+-- + registers this row BEFORE calling cache_write — see chat_unfurl.sql's comment).
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+  VALUES ('deadbeef000000000000000000000000000000000000000000000000000000aa',
+          'testbucket/deadbeef000000000000000000000000000000000000000000000000000000aa',
+          12345, 'image/png');
 
 -- ── claim: first caller wins, a second concurrent claim for the SAME url
 -- loses (this is the whole-fetch-once protocol) ────────────────────────────
@@ -42,12 +41,12 @@ SELECT is(chat_link_preview_lookup('urlhash-nonexistent'), NULL, 'lookup on an u
 SELECT is((chat_link_preview_lookup('urlhash-a') ->> 'status'), 'pending',
   'lookup on a claimed-but-not-yet-written url_hash reports pending');
 
--- ── cache_write: records the fetched result + increments the image blob's
--- ref_count exactly once (the ONLY increment path — no INSERT trigger) ─────
+-- ── cache_write: records the fetched result and makes the image blob live
+-- under Mark-and-Sweep GC (chat_link_previews.image_blob_sha256 live root) ─
 SELECT chat_link_preview_cache_write('urlhash-a', 'Example title', 'Example description',
-  'deadbeef00000000000000000000000000000000000000000000000000aa', 'ok');
-SELECT is((SELECT ref_count FROM blobs WHERE sha256 = 'deadbeef00000000000000000000000000000000000000000000000000aa'),
-  1, 'cache_write increments the image blob ref_count from 0 to 1');
+  'deadbeef000000000000000000000000000000000000000000000000000000aa', 'ok');
+SELECT is(public.blob_has_live_reference('deadbeef000000000000000000000000000000000000000000000000000000aa'),
+  true, 'cache_write makes the image blob live via chat_link_previews');
 SELECT is((chat_link_preview_lookup('urlhash-a') ->> 'title'), 'Example title', 'lookup reflects the written title');
 SELECT is((chat_link_preview_lookup('urlhash-a') ->> 'status'), 'ok', 'lookup reflects status=ok after cache_write');
 
@@ -57,7 +56,7 @@ SELECT chat_message_unfurl_apply(:msg_id, 'urlhash-a');
 SELECT is((SELECT payload -> 'preview' ->> 'title' FROM chat_messages WHERE id = :msg_id),
   'Example title', 'apply merges the cached title into the target message payload');
 SELECT is((SELECT (payload -> 'preview' ->> 'imageSha256') FROM chat_messages WHERE id = :msg_id),
-  'deadbeef00000000000000000000000000000000000000000000000000aa',
+  'deadbeef000000000000000000000000000000000000000000000000000000aa',
   'apply merges the cached image sha into the target message payload');
 -- Provenance epoch marker (med-chat-unfurl-href-001 r2): every reducer-written
 -- preview carries 'appliedBy' — the renderer's fail-closed gate for legacy/
@@ -86,16 +85,16 @@ SELECT is((SELECT payload FROM chat_messages WHERE id = :del_msg_id), NULL,
 
 -- ── image-serving ownership gate: only a sha256 actually cached as a
 -- chat_link_previews image is servable ─────────────────────────────────────
-SELECT is(chat_link_preview_image_owner('deadbeef00000000000000000000000000000000000000000000000000aa'), true,
+SELECT is(chat_link_preview_image_owner('deadbeef000000000000000000000000000000000000000000000000000000aa'), true,
   'the cached image sha is a legitimate unfurl image');
 SELECT is(chat_link_preview_image_owner('0000000000000000000000000000000000000000000000000000000000ff'), false,
   'an arbitrary/unrelated sha256 is never treated as a legitimate unfurl image (anti-oracle)');
 
 -- ── TTL eviction proof: deleting the cache row (what the worker's TTL sweep
--- does) decrements the image blob's ref_count back via the V122 trigger ────
+-- does) drops the live root so Mark-and-Sweep GC can reclaim the image blob ─
 DELETE FROM chat_link_previews WHERE url_hash = 'urlhash-a';
-SELECT is((SELECT ref_count FROM blobs WHERE sha256 = 'deadbeef00000000000000000000000000000000000000000000000000aa'),
-  0, 'evicting the cache row decrements the image blob ref_count back to 0 (V122 trigger)');
+SELECT is(public.blob_has_live_reference('deadbeef000000000000000000000000000000000000000000000000000000aa'),
+  false, 'evicting the cache row drops the image blob live reference');
 
 -- ── Chat A4a Task 8: unfurl is a silent no-op in a gxp channel — a FRESH
 --    cache row (status='ok', never touched by the earlier TTL-eviction test

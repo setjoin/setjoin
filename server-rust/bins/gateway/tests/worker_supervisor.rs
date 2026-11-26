@@ -768,8 +768,8 @@ async fn durable_worm_arming_restart_404_403_invalid_and_dlq_replay() -> Result<
         ]);
         admin
             .execute(
-                "INSERT INTO public.blobs (sha256, minio_ref, size_bytes, ref_count) \
-                 VALUES ('549worm_404_live', 'mailblobs/549worm_404_live', 12, 1)",
+                "INSERT INTO public.blobs (sha256, minio_ref, size_bytes) \
+                 VALUES ('549worm_404_live', 'mailblobs/549worm_404_live', 12)",
                 &[],
             )
             .await?;

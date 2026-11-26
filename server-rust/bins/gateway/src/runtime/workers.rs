@@ -231,6 +231,7 @@ pub(super) fn session_worker() -> Result<Option<(Arc<SessionDenylist>, String)>,
                     | "drive-maintenance"
                     | "drive-preview"
                     | "blob-cleanup"
+                    | "blob-gc"
                     | "exchange-assessment-deletion"
                     | "ldap-sync"
                     | "ad-sync"
@@ -796,21 +797,22 @@ pub(super) fn drive_preview_worker() -> Result<Option<crate::drive_workers::Driv
     )))
 }
 
-/// `RUST_WORKERS_ON=blob-cleanup` takes Go's 5-minute `blob.Handler.StartCleanup`
-/// (#411): both copies would delete the same rows and objects, so Go must be off
-/// first. Needs the object store, as Go does.
-pub(super) fn blob_cleanup_worker() -> Result<Option<crate::blob_cleanup::BlobCleanup>, String> {
-    use crate::blob_cleanup::{BlobCleanup, NAME};
-    if !listed("RUST_WORKERS_ON", NAME) {
+/// Returns true when `blob-cleanup` (or its Wave 2.4 alias `blob-gc`) is enabled
+/// in `RUST_WORKERS_ON` (#411/#551).
+pub(super) fn blob_cleanup_enabled() -> bool {
+    listed("RUST_WORKERS_ON", crate::blob_cleanup::NAME)
+        || listed("RUST_WORKERS_ON", crate::blob_cleanup::ALIAS)
+}
+
+/// Resolves the shared S3 store for supervised `blob-cleanup` (Mark-and-Sweep GC)
+/// when `blob-cleanup` or `blob-gc` is listed in `RUST_WORKERS_ON` (#551).
+pub(super) fn blob_cleanup_store() -> Result<Option<Arc<crate::recovery_worker::S3Store>>, String> {
+    if !blob_cleanup_enabled() {
         return Ok(None);
     }
-    let db = drive_worker_database(NAME)?.with_audit_keys(
-        std::env::var("DB_ENCRYPTION_KEY").unwrap_or_default(),
-        std::env::var("AUDIT_HMAC_KEY").unwrap_or_default(),
-    );
     let store = crate::recovery_worker::S3Store::from_env()
         .map_err(|e| format!("blob-cleanup needs the object store: {e}"))?;
-    Ok(Some(BlobCleanup::new(db, Arc::new(store))))
+    Ok(Some(Arc::new(store)))
 }
 
 /// `RUST_WORKERS_ON=calendar-subscription-sync` takes Go's webcal refresh loop (and

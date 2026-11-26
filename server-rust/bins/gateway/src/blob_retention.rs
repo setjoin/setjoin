@@ -14,8 +14,21 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_DAYS: i64 = 2557;
 /// Durable WorkQueue kind for S3 Object Lock retention arming.
 pub const WORK_KIND_WORM_ARM: &str = "blob.worm_arm";
-/// Durable WorkQueue kind for post-row-delete S3 object reap retries.
+/// Durable WorkQueue kind for post-row-delete S3 object reap retries (legacy drain-only).
 pub const WORK_KIND_REAP_RETRY: &str = "blob.s3_reap_retry";
+/// Durable WorkQueue kind for staging -> canonical promote crash recovery (#551).
+pub const WORK_KIND_PROMOTE_RECOVER: &str = "blob.promote_recover";
+/// Durable WorkQueue kind for delayed post-purging canonical verification (#551).
+pub const WORK_KIND_PROMOTE_VERIFY: &str = "blob.promote_verify";
+/// Dedicated S3 staging prefix for blob uploads (disjoint from Drive/Office/Meet `tmp/upload/*`).
+pub const BLOB_STAGING_PREFIX: &str = "tmp/blob-upload/";
+
+/// Durable JSON payload stored on `work_items` for `blob.promote_recover` and `blob.promote_verify`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlobPromotePayload {
+    pub sha256: String,
+    pub staging_key: String,
+}
 /// Per-kind concurrency cap for `blob.worm_arm`.
 pub const WORM_MAX_CONCURRENCY: i32 = 8;
 /// Max retry attempts before moving a failing `blob.worm_arm` job to DLQ.

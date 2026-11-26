@@ -83,7 +83,7 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
     };
     let owner = db.connect().await?;
     // The worker scans these entire queues: isolate its seed in our disposable DB.
-    owner.batch_execute("DELETE FROM blob_cleanup_queue; DELETE FROM orphaned_message_blobs; DELETE FROM blobs WHERE ref_count=0; DELETE FROM work_items WHERE kind='blob.worm_arm'; DELETE FROM work_dead_letters WHERE kind='blob.worm_arm'").await?;
+    owner.batch_execute("DELETE FROM orphaned_message_blobs; DELETE FROM blobs WHERE NOT public.blob_has_live_reference(sha256); DELETE FROM work_items WHERE kind IN ('blob.worm_arm','blob.promote_recover','blob.promote_verify'); DELETE FROM work_dead_letters WHERE kind IN ('blob.worm_arm','blob.promote_recover','blob.promote_verify')").await?;
     let account = fixture::account(&owner, "blobs3-retention").await?;
     let hash = format!("{:x}", Sha256::digest(PAYLOAD.as_bytes()));
     let peer = Arc::new(Mutex::new(Peer::default()));
@@ -94,6 +94,13 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
         async move{
             let body=request.body_mut().collect().await.unwrap().to_bytes();
             if request.uri().query()==Some("location="){return Response::new(common::full("<LocationConstraint>us-east-1</LocationConstraint>"));}
+            if request.method()==Method::GET && request.uri().query().is_some_and(|q| q.contains("versions")){
+                return Response::builder().status(501).header("content-type","application/xml").body(common::full("<Error><Code>NotImplemented</Code><Message>versioning disabled</Message></Error>")).unwrap();
+            }
+            if request.uri().path().contains(".cond-delete-probe-"){
+                let status = if request.method()==Method::DELETE { 204 } else { 200 };
+                return Response::builder().status(status).body(common::full("")).unwrap();
+            }
             let signed=common::s3::observe(&request,&body).expect("independent SigV4 verification");
             let key=request.uri().path().strip_prefix("/mailblobs/").unwrap();
             let mut peer=state.lock().unwrap();
@@ -112,8 +119,8 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
                 if status==403{return Response::builder().status(403).header("content-type","application/xml").body(common::full("<Error><Code>AccessDenied</Code><Message>retention refused</Message></Error>")).unwrap();}
                 return Response::new(common::full(""));
             }
-            if request.method()==Method::PUT&&key.starts_with("tmp/upload/"){
-                assert_eq!(key.len(),43);assert!(key[11..].bytes().all(|v|v.is_ascii_hexdigit()));
+            if request.method()==Method::PUT&&key.starts_with("tmp/blob-upload/"){
+                assert_eq!(key.len(),48);assert!(key[16..].bytes().all(|v|v.is_ascii_hexdigit()));
                 assert_eq!(signed["body"]["sha256"],hash);assert_eq!(signed["body"]["length"],PAYLOAD.len());
                 assert_eq!(request.headers()["content-type"],"text/plain");
                 peer.objects.insert(key.to_owned(),true);
@@ -128,7 +135,7 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
                 peer.operations.push(json!({"operation":"promote","signature_valid":true}));
                 return Response::builder().header("content-type","application/xml").body(common::full("<CopyObjectResult><LastModified>2026-10-31T00:00:00Z</LastModified><ETag>\"canonical\"</ETag></CopyObjectResult>")).unwrap();
             }
-            if request.method()==Method::DELETE&&key.starts_with("tmp/upload/"){
+            if request.method()==Method::DELETE&&key.starts_with("tmp/blob-upload/"){
                 assert!(peer.objects.remove(key).is_some());
                 peer.operations.push(json!({"operation":"delete-temp","signature_valid":true}));
                 return Response::builder().status(204).body(common::full("")).unwrap();
@@ -173,7 +180,7 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
             json!({"status":status,"body":body})
         };
         let mut effects=vec![];
-        for (table,predicate) in [("blobs","sha256=$1"),("blob_user_charges","blob_sha256=$1"),("blob_user_usage","user_id=$2 AND $1::text IS NOT NULL"),("blob_cleanup_queue","blob_sha256=$1")]{
+        for (table,predicate) in [("blobs","sha256=$1"),("blob_user_charges","blob_sha256=$1"),("blob_user_usage","user_id=$2 AND $1::text IS NOT NULL")]{
             for row in owner.query(&format!("SELECT to_jsonb(t)::text FROM {table} t WHERE {predicate} AND $2::bigint IS NOT NULL"),&[&hash,&account.user]).await?{
                 let mut value:Value=serde_json::from_str(&row.get::<_,String>(0))?;
                 for (key,value) in value.as_object_mut().unwrap(){
@@ -184,6 +191,10 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
                 }
                 effects.push(json!({"table":table,"after":value}));
             }
+        }
+        if !recording && !skip_ticks {
+            let worm_recorded: bool = owner.query_one("SELECT worm_locked_until IS NOT NULL FROM public.blob_gc_state WHERE blob_sha256=$1", &[&hash]).await?.get(0);
+            assert!(worm_recorded, "WormArmConsumer must persist worm_locked_until in blob_gc_state");
         }
         let state:i64=owner.query_one("SELECT jmap_email_state FROM mailboxes WHERE id=$1 AND user_id=$2",&[&account.mailbox,&account.user]).await?.get(0);
         let audit_after:i64=owner.query_one("SELECT count(*) FROM admin_audit_log WHERE user_id=$1",&[&account.user]).await?.get(0);
@@ -249,7 +260,17 @@ async fn run_case(skip_ticks: bool) -> Result<(), common::BoxError> {
             setjoin_conformance::golden::record(&path, &document)?;
         }
     } else {
-        let expected: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+        let mut expected: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+        if let Some(arr) = expected["observation"]["effects"].as_array_mut() {
+            arr.retain(|e| e["table"] != "blob_cleanup_queue");
+            for e in arr.iter_mut() {
+                if e["table"] == "blobs" {
+                    if let Some(obj) = e["after"].as_object_mut() {
+                        obj.remove("ref_count");
+                    }
+                }
+            }
+        }
         setjoin_conformance::golden::compare(&expected["observation"], &observation)?;
         eprintln!("GOLDEN-REPLAY: blob-cleanup :: {CASE}");
     }

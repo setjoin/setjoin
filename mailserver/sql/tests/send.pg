@@ -334,8 +334,8 @@ VALUES (9101001, (SELECT id FROM mailboxes WHERE email = 'alice@local.test'), 1,
     'thread-attach-1', 'raw/attach-draft-1', now())
 ON CONFLICT (id, received_at) DO NOTHING;
 
-INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type, ref_count)
-VALUES ('sendattachsha1', 'b/sendattachsha1', 100, 'application/octet-stream', 0)
+INSERT INTO blobs (sha256, minio_ref, size_bytes, content_type)
+VALUES ('sendattachsha1', 'b/sendattachsha1', 100, 'application/octet-stream')
 ON CONFLICT (sha256) DO NOTHING;
 
 INSERT INTO message_attachments (message_id, received_at, blob_sha256, content_type, filename, disposition, size_bytes)

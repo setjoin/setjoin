@@ -19,6 +19,8 @@ pub struct BlobManifest {
     pub hashes: Vec<String>,
     pub count: i64,
     pub total_size: i64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub primary_keys: BTreeMap<String, String>,
 }
 
 /// Go's `backup.BackupManifest`; field order is the canonical-JSON order the signature covers.
@@ -225,6 +227,26 @@ pub fn valid_hash(h: &str) -> bool {
     h.len() == 64 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// Resolves and validates the canonical primary object key for `hash`:
+/// only bare `<hash>` or `blobs/<hash>` are permitted (preventing path traversal).
+/// Legacy manifests without `primary_keys` default to `blobs/<hash>`.
+pub fn primary_key_for_hash(hash: &str, recorded: Option<&str>) -> Result<String, String> {
+    if !valid_hash(hash) {
+        return Err(format!(
+            "blob {hash:?}: not a canonical sha-256 hash \u{2014} rejected"
+        ));
+    }
+    let prefixed = format!("blobs/{hash}");
+    match recorded.map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(prefixed),
+        Some(k) if k == hash => Ok(hash.to_owned()),
+        Some(k) if k == prefixed => Ok(prefixed),
+        Some(other) => Err(format!(
+            "blob {hash}: invalid primary key layout {other:?} \u{2014} rejected"
+        )),
+    }
+}
+
 /// Manifest blobs absent (or corrupt) in `primary`, each verified on fetch and after write.
 pub async fn restore_from_manifest(
     primary: &Store,
@@ -239,7 +261,7 @@ pub async fn restore_from_manifest(
         );
     }
     let mut errors = Vec::new();
-    let mut missing = Vec::new();
+    let mut missing: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
     for h in &m.hashes {
         if !valid_hash(h) {
@@ -252,15 +274,24 @@ pub async fn restore_from_manifest(
             errors.push(format!("blob {h}: duplicate manifest entry"));
             continue;
         }
-        let present = match primary.head(&format!("blobs/{h}")).await {
-            Ok(size) => verify_digest(primary, h, size).await.is_ok(),
+        let primary_key = match primary_key_for_hash(h, m.primary_keys.get(h).map(String::as_str)) {
+            Ok(key) => key,
+            Err(err) => {
+                errors.push(err);
+                continue;
+            }
+        };
+        let present = match primary.head(&primary_key).await {
+            Ok(size) => verify_digest_at(primary, &primary_key, h, size)
+                .await
+                .is_ok(),
             Err(_) => false,
         };
         if !present {
-            missing.push(h.clone());
+            missing.push((h.clone(), primary_key));
         }
     }
-    let (restored, more) = restore_missing_blobs(primary, backup, &missing).await;
+    let (restored, more) = restore_missing_blobs_with_keys(primary, backup, &missing).await;
     errors.extend(more);
     (restored, errors)
 }
@@ -270,32 +301,50 @@ pub async fn restore_missing_blobs(
     backup: &Store,
     hashes: &[String],
 ) -> (i64, Vec<String>) {
+    let items: Vec<(String, String)> = hashes
+        .iter()
+        .map(|h| (h.clone(), format!("blobs/{h}")))
+        .collect();
+    restore_missing_blobs_with_keys(primary, backup, &items).await
+}
+
+/// Restores each `(hash, primary_key)` from backup's `blobs/<hash>` into `primary_key`
+/// (bare `<hash>` or `blobs/<hash>`), verifying SHA-256 + size before and after copy (#551).
+pub async fn restore_missing_blobs_with_keys(
+    primary: &Store,
+    backup: &Store,
+    items: &[(String, String)],
+) -> (i64, Vec<String>) {
     let mut restored = 0;
     let mut errors = Vec::new();
-    for hash in hashes {
-        if !valid_hash(hash) {
-            errors.push(format!(
-                "blob {hash:?}: not a canonical sha-256 hash \u{2014} rejected"
-            ));
-            continue;
-        }
-        let key = format!("blobs/{hash}");
-        let size = match backup.head(&key).await {
+    for (hash, requested_key) in items {
+        let primary_key = match primary_key_for_hash(hash, Some(requested_key.as_str())) {
+            Ok(key) => key,
+            Err(err) => {
+                errors.push(err);
+                continue;
+            }
+        };
+        let backup_key = format!("blobs/{hash}");
+        let size = match backup.head(&backup_key).await {
             Ok(size) => size,
             Err(e) => {
                 errors.push(format!("blob {hash}: backup head: {e}"));
                 continue;
             }
         };
-        if let Err(e) = verify_digest(backup, hash, size).await {
+        if let Err(e) = verify_digest_at(backup, &backup_key, hash, size).await {
             errors.push(format!("blob {hash}: backup verification: {e}"));
             continue;
         }
-        if let Err(e) = primary.copy_from(backup, &key, size).await {
+        if let Err(e) = primary
+            .copy_from_key(backup, &backup_key, &primary_key, size)
+            .await
+        {
             errors.push(format!("blob {hash}: primary put/read close: {e}"));
             continue;
         }
-        if let Err(e) = verify_digest(primary, hash, size).await {
+        if let Err(e) = verify_digest_at(primary, &primary_key, hash, size).await {
             errors.push(format!("blob {hash}: post-write verification: {e}"));
             continue;
         }
@@ -304,8 +353,8 @@ pub async fn restore_missing_blobs(
     (restored, errors)
 }
 
-async fn verify_digest(store: &Store, hash: &str, size: u64) -> Result<(), String> {
-    let (got, n) = store.body_digest(&format!("blobs/{hash}")).await?;
+async fn verify_digest_at(store: &Store, key: &str, hash: &str, size: u64) -> Result<(), String> {
+    let (got, n) = store.body_digest(key).await?;
     if n != size {
         return Err(format!("size mismatch (expected {size}, got {n})"));
     }
@@ -313,4 +362,108 @@ async fn verify_digest(store: &Store, hash: &str, size: u64) -> Result<(), Strin
         return Err(format!("sha-256 mismatch (got {got})"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn restore_round_trip_preserves_bare_and_prefixed_key_layouts() {
+        let tmp = std::env::temp_dir().join(format!(
+            "setjoin-restore-layout-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let primary_dir = tmp.join("primary");
+        let backup_dir = tmp.join("backup");
+        std::fs::create_dir_all(&primary_dir).expect("create primary dir");
+        std::fs::create_dir_all(&backup_dir).expect("create backup dir");
+
+        let primary = Store::driver(
+            "posix",
+            "",
+            "",
+            primary_dir.to_str().expect("primary utf8"),
+            "",
+            "",
+        )
+        .expect("primary posix store");
+        let backup = Store::driver(
+            "posix",
+            "",
+            "",
+            backup_dir.to_str().expect("backup utf8"),
+            "",
+            "",
+        )
+        .expect("backup posix store");
+
+        let bare_bytes = b"bare mailbox_io raw message bytes".to_vec();
+        let bare_hash = digest(&bare_bytes);
+        let prefixed_bytes = b"legacy prefixed blob bytes".to_vec();
+        let prefixed_hash = digest(&prefixed_bytes);
+
+        // Backup store always stores objects under `blobs/<sha>`.
+        backup
+            .put(&format!("blobs/{bare_hash}"), bare_bytes.clone())
+            .await
+            .expect("seed bare blob in backup");
+        backup
+            .put(&format!("blobs/{prefixed_hash}"), prefixed_bytes.clone())
+            .await
+            .expect("seed prefixed blob in backup");
+
+        let mut primary_keys = BTreeMap::new();
+        primary_keys.insert(bare_hash.clone(), bare_hash.clone());
+        let manifest = Index {
+            schema_version: 0,
+            blob_manifest: BlobManifest {
+                timestamp: "20261127T000000Z".into(),
+                kind: "incr".into(),
+                hashes: vec![bare_hash.clone(), prefixed_hash.clone()],
+                count: 2,
+                total_size: (bare_bytes.len() + prefixed_bytes.len()) as i64,
+                primary_keys,
+            },
+            blob_count: 2,
+            blob_total_size_bytes: (bare_bytes.len() + prefixed_bytes.len()) as i64,
+            ..Default::default()
+        };
+
+        let (restored, errors) = restore_from_manifest(&primary, &backup, &manifest).await;
+        assert!(errors.is_empty(), "unexpected restore errors: {errors:?}");
+        assert_eq!(restored, 2);
+
+        // Bare blob must land at `<sha>` (NOT `blobs/<sha>`).
+        assert_eq!(
+            primary.get(&bare_hash, 1024).await.expect("read bare key"),
+            bare_bytes
+        );
+        assert!(
+            primary.head(&format!("blobs/{bare_hash}")).await.is_err(),
+            "bare blob must not be written under blobs/ prefix"
+        );
+
+        // Prefixed blob must land at `blobs/<sha>` (NOT bare `<sha>`).
+        assert_eq!(
+            primary
+                .get(&format!("blobs/{prefixed_hash}"), 1024)
+                .await
+                .expect("read prefixed key"),
+            prefixed_bytes
+        );
+        assert!(
+            primary.head(&prefixed_hash).await.is_err(),
+            "prefixed blob must not be written under bare key"
+        );
+
+        // Re-running restore_from_manifest is idempotent (0 missing).
+        let (restored_again, errors_again) =
+            restore_from_manifest(&primary, &backup, &manifest).await;
+        assert!(errors_again.is_empty());
+        assert_eq!(restored_again, 0);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

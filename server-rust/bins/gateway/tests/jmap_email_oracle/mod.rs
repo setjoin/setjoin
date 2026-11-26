@@ -642,14 +642,6 @@ async fn rows(c: &Client, fx: &Fx, a: &Account) -> Result<Rows, BoxError> {
                 Type::INT8,
             )],
         ),
-        (
-            "blob_cleanup_queue",
-            "SELECT blob_sha256,to_jsonb(b)::text FROM blob_cleanup_queue b WHERE blob_sha256=ANY($1::text[])",
-            vec![(
-                &hashes as &(dyn tokio_postgres::types::ToSql + Sync),
-                Type::TEXT_ARRAY,
-            )],
-        ),
     ] {
         let mut values = BTreeMap::new();
         for row in c.query_typed(sql, &params).await? {
@@ -1499,7 +1491,7 @@ async fn execute(
             json!([])
         } else {
             let rows: Value = serde_json::from_slice(&std::fs::read(&row_path)?)?;
-            rows["effects"].clone()
+            strip_retired_blob_effects(rows["effects"].clone())
         };
         golden::compare(&expected, &observed).map_err(|e| e.to_string())?;
         golden::compare(&expected_rows, &row_effects).map_err(|e| e.to_string())?;
@@ -1548,11 +1540,17 @@ async fn execute(
                 .join("../../tests/conformance/jmap/divergences.json"),
         )?)?;
         // An owner-approved security fix pins the golden and compares the reviewed expectation.
-        let expected_observation = if common::is_pinned(&path) {
+        let mut expected_observation = if common::is_pinned(&path) {
             common::golden_doc(&path, "observation", &observed)["observation"].clone()
         } else {
             document["observation"].clone()
         };
+        if let Some(foreign_rows) = expected_observation
+            .get_mut("foreign_effects")
+            .and_then(|fe| fe.get_mut("rows"))
+        {
+            *foreign_rows = strip_retired_blob_effects(foreign_rows.take());
+        }
         golden::compare_reviewed(
             route,
             spec.case,
@@ -1577,6 +1575,7 @@ async fn execute(
             } else {
                 row_document["effects"].clone()
             };
+            let expected_effects = strip_retired_blob_effects(expected_effects);
             golden::compare_reviewed(
                 route,
                 &row_case,
@@ -1588,6 +1587,34 @@ async fn execute(
         println!("GOLDEN-REPLAY: {route} :: {}", spec.case);
     }
     Ok(())
+}
+
+/// Wave 2.4 (#551) retired `blobs.ref_count` and `blob_cleanup_queue` in V289.
+/// Normalize immutable frozen-Go row-effects goldens in memory without mutating
+/// the golden JSON files on disk.
+fn strip_retired_blob_effects(mut effects: Value) -> Value {
+    if let Some(arr) = effects.as_array_mut() {
+        arr.retain_mut(|entry| {
+            let table = entry["table"].as_str().unwrap_or("");
+            if table == "blob_cleanup_queue" {
+                return false;
+            }
+            if table == "blobs" {
+                for field in ["after", "before", "columns"] {
+                    if let Some(obj) = entry.get_mut(field).and_then(Value::as_object_mut) {
+                        obj.remove("ref_count");
+                    }
+                }
+                if entry["change"] == "update"
+                    && entry["columns"].as_object().is_some_and(|c| c.is_empty())
+                {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+    effects
 }
 
 fn zip_listing(bytes: &[u8]) -> Result<String, BoxError> {

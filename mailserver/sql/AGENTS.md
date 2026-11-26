@@ -1,6 +1,6 @@
 # mailserver/sql — DOX child AGENTS.md
 
-Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Reducers commit authorization/data/state/audit/notify atomically. Preserve authenticated identity currency and same-statement ownership. Reducer bodies use CREATE OR REPLACE, p_/v_, registered BZ errors and no NOT NULL function parameters; schema/seed changes alone require forward migrations. Do not hand-edit the collapsed baseline. Loader is deterministic fixed-point, failing loudly. Preserve trigger-owned blob refcounts and domain-specific RLS. Query work requires docs/standards/DATABASE_SECURITY.md; RLS helpers require ARCH-018-force-rls-scope-helper-recipe.md. Read the owning reducers/README.md entry and relevant local contract, then affected pgTAP/consumer proofs. No children.
+Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Reducers commit authorization/data/state/audit/notify atomically. Preserve authenticated identity currency and same-statement ownership. Reducer bodies use CREATE OR REPLACE, p_/v_, registered BZ errors and no NOT NULL function parameters; schema/seed changes alone require forward migrations. Do not hand-edit the collapsed baseline. Loader is deterministic fixed-point, failing loudly. Preserve Mark-and-Sweep blob GC live-root manifest (`config/blob-reference-manifest.json`, V288/V289) and domain-specific RLS. Query work requires docs/standards/DATABASE_SECURITY.md; RLS helpers require ARCH-018-force-rls-scope-helper-recipe.md. Read the owning reducers/README.md entry and relevant local contract, then affected pgTAP/consumer proofs. No children.
 
 ## DOX sections
 
@@ -133,5 +133,5 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [SMTP security](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
 - [SMTP iMIP](DOX.md#rust-smtp-imip-transactions-526) (#526).
 - WorkQueue/schedules (V286–V287, #548–#549).
-- [Blob GC](DOX.md#blob-gc-v288-550) (V288, #550).
+- [Blob GC](DOX.md#blob-gc-v288-v289-550-551) (V288–V289, #550–#551).
 - Table manifest: `config/table-ownership-manifest.json` (#539).

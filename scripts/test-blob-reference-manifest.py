@@ -92,6 +92,30 @@ BEGIN
     );
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION public.blob_live_catalog()
+RETURNS TABLE (sha256 text, minio_ref text, size_bytes bigint)
+LANGUAGE sql STABLE SECURITY DEFINER AS $$
+    WITH live_shas(sha256) AS (
+        SELECT ma.blob_sha256 FROM public.message_attachments ma
+        UNION
+        SELECT m.raw_ref FROM public.messages m
+         WHERE length(m.raw_ref) = 64 AND m.raw_ref ~ '^[0-9a-f]{64}$'
+        UNION
+        SELECT elem->>'sha256'
+          FROM public.mail_recovery_quarantine_artifacts mrqa
+          CROSS JOIN LATERAL jsonb_array_elements(mrqa.blob_inventory) elem
+         WHERE mrqa.status NOT IN ('rejected', 'tampered')
+           AND elem->>'sha256' IS NOT NULL
+        UNION
+        SELECT elem->>'objectRef'
+          FROM public.mail_recovery_quarantine_artifacts mrqa
+          CROSS JOIN LATERAL jsonb_array_elements(mrqa.blob_inventory) elem
+         WHERE mrqa.status NOT IN ('rejected', 'tampered')
+           AND elem->>'objectRef' IS NOT NULL
+    )
+    SELECT b.sha256, b.minio_ref, 0::bigint FROM live_shas l JOIN public.blobs b ON b.sha256 = l.sha256;
+$$;
 """
     gc_sql.write_text(gc_body, encoding="utf-8")
     v1_path = schema_dir / "V001__baseline.sql"
@@ -324,7 +348,63 @@ $$;
         )
         v4_rename.unlink()
 
-    print("test-blob-reference-manifest: PASS (pristine repo + all 5 mutants verified)")
+        # Mutant 7: Re-adding dropped blob_cleanup_queue in blobs_internal fails STALE_MANIFEST_ENTRY
+        # and blob_cleanup_queue is no longer in BLOBS_INTERNAL_FK_ALLOWED (#551).
+        assert ("blob_cleanup_queue", "blob_sha256") not in guard.BLOBS_INTERNAL_FK_ALLOWED, (
+            "blob_cleanup_queue must be removed from BLOBS_INTERNAL_FK_ALLOWED after V289"
+        )
+        m_stale_q = json.loads(m_path.read_text(encoding="utf-8"))
+        m_stale_q["blobs_internal"].append(
+            {"table": "blob_cleanup_queue", "column": "blob_sha256", "reason": "stale"}
+        )
+        m_stale_q_path = work / "manifest_stale_cleanup_queue.json"
+        m_stale_q_path.write_text(json.dumps(m_stale_q), encoding="utf-8")
+        errs, _ = guard.validate(m_stale_q_path, s_dir, g_path)
+        _assert_fails_with(
+            errs,
+            "STALE_MANIFEST_ENTRY",
+            "blob_cleanup_queue.blob_sha256",
+            "mutant-dropped-blob-cleanup-queue",
+        )
+
+        # Mutant 8: blob_live_catalog() missing or extra root fails SQL_CATALOG_DRIFT (#551)
+        gc_cat_missing = work / "gc_cat_missing.sql"
+        gc_cat_missing.write_text(
+            g_path.read_text(encoding="utf-8").replace(
+                "        SELECT m.raw_ref FROM public.messages m\n"
+                "         WHERE length(m.raw_ref) = 64 AND m.raw_ref ~ '^[0-9a-f]{64}$'\n"
+                "        UNION\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+        errs, _ = guard.validate(m_path, s_dir, gc_cat_missing)
+        _assert_fails_with(
+            errs,
+            "SQL_CATALOG_DRIFT",
+            "blob_live_catalog()",
+            "mutant-live-catalog-missing",
+        )
+
+        gc_cat_extra = work / "gc_cat_extra.sql"
+        gc_cat_extra.write_text(
+            g_path.read_text(encoding="utf-8").replace(
+                "        SELECT ma.blob_sha256 FROM public.message_attachments ma\n",
+                "        SELECT ma.blob_sha256 FROM public.message_attachments ma\n"
+                "        UNION\n"
+                "        SELECT px.extra_sha256 FROM public.planted_extra_cat px\n",
+            ),
+            encoding="utf-8",
+        )
+        errs, _ = guard.validate(m_path, s_dir, gc_cat_extra)
+        _assert_fails_with(
+            errs,
+            "SQL_CATALOG_DRIFT",
+            "planted_extra_cat.extra_sha256",
+            "mutant-live-catalog-extra",
+        )
+
+    print("test-blob-reference-manifest: PASS (pristine repo + all 8 mutants verified)")
     return 0
 
 

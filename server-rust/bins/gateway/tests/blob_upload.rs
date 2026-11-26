@@ -3,12 +3,12 @@ mod common;
 use common::BoxError;
 use http_body_util::BodyExt;
 use hyper::{Request, Response};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use setjoin_conformance::{fixture, harness::Db};
 use setjoin_gateway::{
-    Config, Gateway, RouteTable, TrustedProxies,
     blobs::{BlobCommands, BlobRoute},
     recovery_worker::S3Store,
+    Config, Gateway, RouteTable, TrustedProxies,
 };
 use setjoin_pg::ScopedExecutor;
 use sha2::{Digest, Sha256};
@@ -43,13 +43,13 @@ async fn run_case(case: &str, mutant: bool) -> Result<(), BoxError> {
    let body=r.body_mut().collect().await.unwrap().to_bytes();
    if r.uri().query()==Some("location="){return Response::new(common::full("<LocationConstraint>us-east-1</LocationConstraint>"))}
    let path=r.uri().path();let key=path.strip_prefix("/mailblobs/").unwrap_or("");
-   if r.method()==hyper::Method::PUT && key.starts_with("tmp/upload/") {
-    assert_eq!(key.len(),43);assert!(key[11..].bytes().all(|b|b.is_ascii_hexdigit()));
+   if r.method()==hyper::Method::PUT && key.starts_with("tmp/blob-upload/") {
+    assert_eq!(key.len(),48);assert!(key[16..].bytes().all(|b|b.is_ascii_hexdigit()));
     let stored=common::s3::observe(&r,&body).unwrap();assert_eq!(stored["body"]["length"],expected.len());assert_eq!(stored["body"]["sha256"],digest);
     observed.lock().unwrap().push(json!({"operation":"upload-temp","type":r.headers()["content-type"].to_str().unwrap(),"length":expected.len()}));
     Response::builder().header("etag","\"temp-etag\"").body(common::full("")).unwrap()
    } else if r.method()==hyper::Method::PUT && key==digest && r.headers().contains_key("x-amz-copy-source") {
-    let source=r.headers()["x-amz-copy-source"].to_str().unwrap();assert!(source.contains("mailblobs/tmp/upload/"));
+    let source=r.headers()["x-amz-copy-source"].to_str().unwrap();assert!(source.contains("mailblobs/tmp/blob-upload/"));
     observed.lock().unwrap().push(json!({"operation":"promote"}));
     Response::builder().header("content-type","application/xml").body(common::full("<CopyObjectResult><LastModified>2026-10-31T00:00:00Z</LastModified><ETag>\"canonical-etag\"</ETag></CopyObjectResult>")).unwrap()
    } else if r.method()==hyper::Method::PUT && key==digest && r.uri().query().is_some_and(|q|q.starts_with("retention")) {
@@ -61,7 +61,7 @@ async fn run_case(case: &str, mutant: bool) -> Result<(), BoxError> {
     let days=until.map(|u|(u.with_timezone(&chrono::Utc)-chrono::Utc::now()+chrono::Duration::minutes(5)).num_days());
     observed.lock().unwrap().push(json!({"operation":"retention","mode":tag("Mode"),"retain_days":days,"bypass_governance":r.headers().contains_key("x-amz-bypass-governance-retention")}));
     if fail_retention {Response::builder().status(500).header("content-type","application/xml").body(common::full("<Error><Code>InternalError</Code><Message>retention refused</Message></Error>")).unwrap()} else {Response::new(common::full(""))}
-   } else if r.method()==hyper::Method::DELETE && key.starts_with("tmp/upload/") {
+   } else if r.method()==hyper::Method::DELETE && key.starts_with("tmp/blob-upload/") {
     observed.lock().unwrap().push(json!({"operation":"delete-temp"}));Response::builder().status(204).body(common::full("")).unwrap()
    } else {Response::new(common::full(""))}
   }
@@ -81,9 +81,19 @@ async fn run_case(case: &str, mutant: bool) -> Result<(), BoxError> {
  let status=response.status().as_u16();let mut headers=serde_json::Map::new();for name in response.headers().keys(){headers.insert(name.to_string(),json!(response.headers().get_all(name).iter().map(|v|if name=="date"{"<timestamp>".to_owned()}else{v.to_str().unwrap().to_owned()}).collect::<Vec<_>>()));}let body=String::from_utf8(common::body_bytes(response).await.to_vec())?;responses.push(json!({"status":status,"headers":headers,"body":body}));
  }
  task.abort();
- let mut effects=Vec::new();for (table,predicate) in [("blobs","sha256=$1"),("blob_user_charges","blob_sha256=$1"),("blob_user_usage","user_id=$2 AND $1::text IS NOT NULL"),("blob_cleanup_queue","blob_sha256=$1")]{
+ let mut effects=Vec::new();for (table,predicate) in [("blobs","sha256=$1"),("blob_user_charges","blob_sha256=$1"),("blob_user_usage","user_id=$2 AND $1::text IS NOT NULL")]{
   for row in owner.query(&format!("SELECT to_jsonb(t)::text FROM {table} t WHERE {predicate} AND $2::bigint IS NOT NULL"),&[&hash,&account.user]).await? {let mut row:Value=serde_json::from_str(&row.get::<_,String>(0))?;for (k,v) in row.as_object_mut().unwrap(){if k=="user_id"{assert_eq!(v.as_i64(),Some(account.user));*v=json!("<actor>");}else if k=="sha256"||k=="blob_sha256"{assert_eq!(v.as_str(),Some(hash.as_str()));*v=json!("<hash>");}else if k=="minio_ref"{assert_eq!(v.as_str(),Some(format!("mailblobs/{hash}").as_str()));*v=json!("mailblobs/<hash>");}else if k.ends_with("_at"){assert!(v.is_string());*v=json!("<timestamp>");}}
   effects.push(json!({"table":table,"after":row}));}
+ }
+ // Direct Wave 2.4 (#551) Mark-and-Sweep assertions replacing retired ref_count / blob_cleanup_queue.
+ if !recording && case != "invalid" {
+  let gc_row = owner.query_one("SELECT gc_state, worm_locked_until IS NOT NULL FROM public.blob_gc_state WHERE blob_sha256=$1", &[&hash]).await?;
+  assert_eq!(gc_row.get::<_, String>(0), "active");
+  if matches!(case, "worm" | "worm-compliance") {
+   assert!(gc_row.get::<_, bool>(1), "inline WORM put must record worm_locked_until in blob_gc_state");
+  }
+  let pending_promote: i64 = owner.query_one("SELECT count(*) FROM public.work_items WHERE kind='blob.promote_recover' AND status IN ('pending','leased') AND payload->>'sha256'=$1", &[&hash]).await?.get(0);
+  assert_eq!(pending_promote, 0, "clean promote must cancel blob.promote_recover intent");
  }
  let mut observation=json!({"response":responses[0],"effects":effects,"objects":operations.lock().unwrap().clone()});
  if !matches!(case,"success"|"worm"|"worm-failure") {observation["responses"]=json!(responses);}
@@ -92,12 +102,24 @@ async fn run_case(case: &str, mutant: bool) -> Result<(), BoxError> {
  let audit_after=owner.query("SELECT to_jsonb(a)::text FROM admin_audit_log a WHERE user_id=ANY($1) ORDER BY id",&[&vec![account.user,foreign.user]]).await?.iter().map(|r|r.get::<_,String>(0)).collect::<Vec<_>>();
  if audit_before!=audit_after {return Err("PUT unexpectedly wrote audit".into());}
  let notifications=notify.drain(&owner).await?;
- if path.exists(){let old:Value=serde_json::from_slice(&std::fs::read(&path)?)?;setjoin_conformance::golden::compare(&old["observation"],&observation)?;}
+ let strip_retired = |effects_val: &mut Value| {
+  if let Some(arr) = effects_val.as_array_mut() {
+   arr.retain(|e| e["table"] != "blob_cleanup_queue");
+   for e in arr.iter_mut() {
+    if e["table"] == "blobs" {
+     if let Some(obj) = e["after"].as_object_mut() {
+      obj.remove("ref_count");
+     }
+    }
+   }
+  }
+ };
+ if path.exists(){let mut old:Value=serde_json::from_slice(&std::fs::read(&path)?)?;strip_retired(&mut old["observation"]["effects"]);setjoin_conformance::golden::compare(&old["observation"],&observation)?;}
  else if recording{setjoin_conformance::golden::record(&path,&json!({"format":1,"route":"PUT /blobs/{sha256}","case":case,"go_source":std::env::var("GOFREE_GO_SOURCE")?,"observation":observation,"effects":effects}))?;}
  observation["request"]=json!({"method":"PUT","path":"/blobs/{sha256}","case":case});observation["audit"]=json!([]);observation["notify"]=json!(notifications);
  let qualified=path.with_file_name(format!("blob-upload-{case}-qualified.json"));let row_path=path.with_file_name(format!("blob-upload-{case}-row-effects.json"));
  if recording{let source=std::env::var("GOFREE_GO_SOURCE")?;setjoin_conformance::golden::record(&qualified,&json!({"format":1,"route":"PUT /blobs/{sha256}","case":case,"go_source":source,"observation":observation}))?;setjoin_conformance::golden::record(&row_path,&json!({"format":1,"route":"PUT /blobs/{sha256}","case":format!("{case}-row-effects"),"go_source":source,"effects":effects}))?;}
- else{let expected:Value=serde_json::from_slice(&std::fs::read(qualified)?)?;let rows:Value=serde_json::from_slice(&std::fs::read(row_path)?)?;setjoin_conformance::golden::compare(&rows["effects"],&json!(effects))?;setjoin_conformance::golden::compare(&expected["observation"],&observation)?;eprintln!("GOLDEN-REPLAY: PUT /blobs/{{sha256}} :: {case}");}
+ else{let mut expected:Value=serde_json::from_slice(&std::fs::read(qualified)?)?;let mut rows:Value=serde_json::from_slice(&std::fs::read(row_path)?)?;strip_retired(&mut expected["observation"]["effects"]);strip_retired(&mut rows["effects"]);setjoin_conformance::golden::compare(&rows["effects"],&json!(effects))?;setjoin_conformance::golden::compare(&expected["observation"],&observation)?;eprintln!("GOLDEN-REPLAY: PUT /blobs/{{sha256}} :: {case}");}
  Ok::<_,BoxError>(())
  }.await;
     std::env::remove_var("WORM_MODE");

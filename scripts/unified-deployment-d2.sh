@@ -164,8 +164,8 @@ BEGIN
       '{}'::jsonb
     );
     SELECT received_at INTO v_received_at FROM messages WHERE id=v_message_id;
-    INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count)
-      VALUES (v_fixture_hash,'blobs/' || v_fixture_hash,24,'text/plain',0)
+    INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type)
+      VALUES (v_fixture_hash,'blobs/' || v_fixture_hash,24,'text/plain')
       ON CONFLICT (sha256) DO NOTHING;
     INSERT INTO message_attachments(
       message_id,received_at,blob_sha256,filename,content_type,disposition,size_bytes

@@ -937,7 +937,7 @@ pub async fn fixture(c: &Client, spec: &Spec) -> Result<Fx, BoxError> {
 
 pub async fn seed(c: &Client, fx: &mut Fx, seed: Seed) -> Result<(), BoxError> {
     c.query_typed(
-        "DELETE FROM blobs WHERE sha256=$1 AND ref_count=0",
+        "DELETE FROM blobs WHERE sha256=$1 AND NOT public.blob_has_live_reference($1)",
         &[(&UPLOAD_BLOB, Type::TEXT)],
     )
     .await?;
@@ -1002,8 +1002,19 @@ pub async fn seed(c: &Client, fx: &mut Fx, seed: Seed) -> Result<(), BoxError> {
         }
 
         Seed::Focus => {
-            for id in [Some(fx.a.inbox_only), Some(fx.a.two_labels), fx.f.as_ref().map(|f| f.inbox_only)].into_iter().flatten() {
-                c.query_typed("UPDATE messages SET from_addr='Sender@Oracle.Example' WHERE id=$1",&[(&id,Type::INT8)]).await?;
+            for id in [
+                Some(fx.a.inbox_only),
+                Some(fx.a.two_labels),
+                fx.f.as_ref().map(|f| f.inbox_only),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                c.query_typed(
+                    "UPDATE messages SET from_addr='Sender@Oracle.Example' WHERE id=$1",
+                    &[(&id, Type::INT8)],
+                )
+                .await?;
             }
             Ok(())
         }
@@ -1018,18 +1029,36 @@ pub async fn seed(c: &Client, fx: &mut Fx, seed: Seed) -> Result<(), BoxError> {
         }
         Seed::Zip | Seed::ZipLarge => {
             let missing = MISSING_BLOB.to_owned();
-            for (account, hash, size) in [(Some(&fx.a), OWN_BLOB, 22i64), (Some(&fx.a), missing.as_str(), 5), (fx.f.as_ref(), FOREIGN_BLOB, 25)] {
+            for (account, hash, size) in [
+                (Some(&fx.a), OWN_BLOB, 22i64),
+                (Some(&fx.a), missing.as_str(), 5),
+                (fx.f.as_ref(), FOREIGN_BLOB, 25),
+            ] {
                 if let Some(a) = account {
-                    c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$2,$3,'text/plain',0) ON CONFLICT DO NOTHING",&[(&hash,Type::TEXT),(&format!("mailblobs/{hash}"),Type::TEXT),(&size,Type::INT8)]).await?;
+                    c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$2,$3,'text/plain') ON CONFLICT DO NOTHING",&[(&hash,Type::TEXT),(&format!("mailblobs/{hash}"),Type::TEXT),(&size,Type::INT8)]).await?;
                     let _ = a;
                 }
             }
-            c.query_typed("UPDATE messages SET subject='Re: Q3 report / plan' WHERE id=$1",&[(&fx.a.inbox_only,Type::INT8)]).await?;
+            c.query_typed(
+                "UPDATE messages SET subject='Re: Q3 report / plan' WHERE id=$1",
+                &[(&fx.a.inbox_only, Type::INT8)],
+            )
+            .await?;
             for (message, hash, name, disposition) in [
                 (fx.a.inbox_only, OWN_BLOB, Some("report.pdf"), "attachment"),
                 (fx.a.inbox_only, OWN_BLOB, Some("report.pdf"), "attachment"),
-                (fx.a.inbox_only, OWN_BLOB, Some("../evil name.txt"), "attachment"),
-                (fx.a.inbox_only, missing.as_str(), Some("gone.bin"), "attachment"),
+                (
+                    fx.a.inbox_only,
+                    OWN_BLOB,
+                    Some("../evil name.txt"),
+                    "attachment",
+                ),
+                (
+                    fx.a.inbox_only,
+                    missing.as_str(),
+                    Some("gone.bin"),
+                    "attachment",
+                ),
                 (fx.a.inbox_only, OWN_BLOB, Some("logo.png"), "inline"),
                 (fx.a.inbox_only, OWN_BLOB, None, "attachment"),
                 (fx.a.inbox_only, OWN_BLOB, Some(".."), "attachment"),
@@ -1037,7 +1066,7 @@ pub async fn seed(c: &Client, fx: &mut Fx, seed: Seed) -> Result<(), BoxError> {
                 c.query_typed("INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,size_bytes,disposition) SELECT id,received_at,$2,$3,'text/plain',22,$4 FROM messages WHERE id=$1",&[(&message,Type::INT8),(&hash,Type::TEXT),(&name,Type::TEXT),(&disposition,Type::TEXT)]).await?;
             }
             if seed == Seed::ZipLarge {
-                c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$2,$3,'application/octet-stream',0) ON CONFLICT DO NOTHING",&[(&LARGE_BLOB,Type::TEXT),(&format!("mailblobs/{LARGE_BLOB}"),Type::TEXT),(&(LARGE_SIZE as i64),Type::INT8)]).await?;
+                c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$2,$3,'application/octet-stream') ON CONFLICT DO NOTHING",&[(&LARGE_BLOB,Type::TEXT),(&format!("mailblobs/{LARGE_BLOB}"),Type::TEXT),(&(LARGE_SIZE as i64),Type::INT8)]).await?;
                 for name in ["big.bin", "big.bin"] {
                     c.query_typed("INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,size_bytes) SELECT id,received_at,$2,$3,'application/octet-stream',70000 FROM messages WHERE id=$1",&[(&fx.a.inbox_only,Type::INT8),(&LARGE_BLOB,Type::TEXT),(&name,Type::TEXT)]).await?;
                 }
@@ -1048,18 +1077,33 @@ pub async fn seed(c: &Client, fx: &mut Fx, seed: Seed) -> Result<(), BoxError> {
             Ok(())
         }
         Seed::RawDownloadLarge => {
-            c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$2,$3,'application/octet-stream',0)",&[(&LARGE_BLOB,Type::TEXT),(&format!("mailblobs/{LARGE_BLOB}"),Type::TEXT),(&(LARGE_SIZE as i64),Type::INT8)]).await?;
+            c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$2,$3,'application/octet-stream')",&[(&LARGE_BLOB,Type::TEXT),(&format!("mailblobs/{LARGE_BLOB}"),Type::TEXT),(&(LARGE_SIZE as i64),Type::INT8)]).await?;
             c.query_typed("INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,size_bytes) SELECT id,received_at,$2,'big.bin','application/octet-stream',70000 FROM messages WHERE id=$1",&[(&fx.a.two_labels,Type::INT8),(&LARGE_BLOB,Type::TEXT)]).await?;
-            c.query_typed("UPDATE messages SET raw_ref=$2,subject=NULL WHERE id=$1",&[(&fx.a.two_labels,Type::INT8),(&LARGE_BLOB,Type::TEXT)]).await?;
+            c.query_typed(
+                "UPDATE messages SET raw_ref=$2,subject=NULL WHERE id=$1",
+                &[(&fx.a.two_labels, Type::INT8), (&LARGE_BLOB, Type::TEXT)],
+            )
+            .await?;
             Ok(())
         }
         Seed::Unsub(header) | Seed::UnsubFull(header) => {
             if matches!(seed, Seed::UnsubFull(_)) {
-                c.query_typed("UPDATE audit_policy SET level='full' WHERE id=1 AND level<>'full'",&[]).await?;
+                c.query_typed(
+                    "UPDATE audit_policy SET level='full' WHERE id=1 AND level<>'full'",
+                    &[],
+                )
+                .await?;
                 fx.extra.insert("audit-raised", 1);
             }
-            let header = if header.is_empty() { None } else { Some(header) };
-            for id in [Some(fx.a.inbox_only), fx.f.as_ref().map(|f| f.inbox_only)].into_iter().flatten() {
+            let header = if header.is_empty() {
+                None
+            } else {
+                Some(header)
+            };
+            for id in [Some(fx.a.inbox_only), fx.f.as_ref().map(|f| f.inbox_only)]
+                .into_iter()
+                .flatten()
+            {
                 c.query_typed("UPDATE messages SET list_unsubscribe=$2,from_addr='news@news.example' WHERE id=$1",&[(&id,Type::INT8),(&header,Type::TEXT)]).await?;
             }
             Ok(())
@@ -1236,7 +1280,8 @@ pub async fn seed(c: &Client, fx: &mut Fx, seed: Seed) -> Result<(), BoxError> {
 pub async fn remove(c: &Client, fx: &Fx) -> Result<(), BoxError> {
     clear_orphans(c).await?;
     if fx.extra.contains_key("audit-raised") {
-        c.query_typed("UPDATE audit_policy SET level='lean' WHERE id=1",&[]).await?;
+        c.query_typed("UPDATE audit_policy SET level='lean' WHERE id=1", &[])
+            .await?;
     }
     c.query_typed(
         "DELETE FROM offline_policies WHERE scope_type='user' AND scope_id=$1",
@@ -1267,7 +1312,7 @@ pub async fn remove(c: &Client, fx: &Fx) -> Result<(), BoxError> {
         fixture::remove(c, f).await?;
     }
     c.query_typed(
-        "DELETE FROM blobs WHERE sha256=ANY($1::text[]) AND ref_count=0",
+        "DELETE FROM blobs WHERE sha256=ANY($1::text[]) AND NOT public.blob_has_live_reference(sha256)",
         &[(&vec![OWN_BLOB, FOREIGN_BLOB, UPLOAD_BLOB, LARGE_BLOB, MISSING_BLOB], Type::TEXT_ARRAY)],
     )
     .await?;
@@ -1287,7 +1332,15 @@ pub const MISSING_BLOB: &str = "dddddddddddddddddddddddddddddddddddddddddddddddd
 pub const LARGE_SIZE: usize = 70000;
 /// Deterministic bytes of the large blob.
 pub fn large_bytes() -> Vec<u8> {
-    (0..LARGE_SIZE).map(|i| if i % 61 == 60 { b'\n' } else { b'a' + (i * 7 % 26) as u8 }).collect()
+    (0..LARGE_SIZE)
+        .map(|i| {
+            if i % 61 == 60 {
+                b'\n'
+            } else {
+                b'a' + (i * 7 % 26) as u8
+            }
+        })
+        .collect()
 }
 pub const FOREIGN_BLOB: &str = "9440531d9ce2037edb8a0f680af235cff4a963e6d1a9d6c1e01fbdcfdfd9f9fc";
 
@@ -1313,7 +1366,7 @@ async fn seed_blobs(c: &Client, fx: &Fx) -> Result<(), BoxError> {
         ),
     ] {
         if let Some(a) = account {
-            c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type,ref_count) VALUES($1,$2,$3,'text/plain',0)", &[(&hash, Type::TEXT), (&format!("mailblobs/{hash}"), Type::TEXT), (&(bytes.len() as i64), Type::INT8)]).await?;
+            c.query_typed("INSERT INTO blobs(sha256,minio_ref,size_bytes,content_type) VALUES($1,$2,$3,'text/plain')", &[(&hash, Type::TEXT), (&format!("mailblobs/{hash}"), Type::TEXT), (&(bytes.len() as i64), Type::INT8)]).await?;
             c.query_typed("INSERT INTO message_attachments(message_id,received_at,blob_sha256,filename,content_type,size_bytes) SELECT id,received_at,$3,'proof.txt','text/plain',$4 FROM messages WHERE id=$1 AND mailbox_id=$2", &[(&a.two_labels,Type::INT8), (&a.mailbox,Type::INT8), (&hash,Type::TEXT), (&(bytes.len() as i64),Type::INT8)]).await?;
         }
     }

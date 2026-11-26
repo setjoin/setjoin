@@ -1,20 +1,53 @@
--- pgTAP: Wave 2.3 (#550) — Mark-and-Sweep S3 Blob GC companion schema,
--- 14 live roots, 24h grace floor, legal-hold/retention/WORM gate (including
--- infinite expires_at IS NULL), shadow reconciliation discrepancies,
--- FORCE RLS deny-all posture, BZ003 BYPASSRLS enforcement, and setjoin_app
--- uploader reactivation via blob_gc_reactivate() / blob_upload_account().
+-- pgTAP: Wave 2.3 (#550) + Wave 2.4 (#551) — Mark-and-Sweep S3 Blob GC
+-- live cutover: 14 live roots, 24h grace floor, legal-hold/retention/WORM gate
+-- (including infinite expires_at IS NULL), retired blobs.ref_count &
+-- blob_cleanup_queue, owner-callable blob_live_catalog(), blob_gc_reactivate_v2,
+-- blob_promote_recover_enqueue/complete, FORCE RLS deny-all posture, BZ003
+-- BYPASSRLS enforcement, and setjoin_app uploader reactivation.
 BEGIN;
-SELECT plan(66);
+SELECT plan(79);
 
--- ── 1. Migration bookkeeping, zero churn on blobs/feature_toggles, FORCE RLS ─
+-- ── 1. Migration bookkeeping, V289 retirement, zero feature_toggles, FORCE RLS
 SELECT is(
   (SELECT count(*)::int FROM public.schema_migrations WHERE version = 288),
   1, 'schema_migrations records version 288');
 
 SELECT is(
+  (SELECT count(*)::int FROM public.schema_migrations WHERE version = 289),
+  1, 'schema_migrations records version 289');
+
+SELECT is(
+  (SELECT mode FROM public.blob_gc_config WHERE id = 1),
+  'live', 'V289 flipped blob_gc_config.mode to live');
+
+SELECT is(
+  (SELECT count(*)::int FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'blobs' AND column_name = 'ref_count'),
+  0, 'V289 dropped public.blobs.ref_count column');
+
+SELECT is(
+  to_regclass('public.blob_cleanup_queue'),
+  NULL, 'V289 dropped public.blob_cleanup_queue table');
+
+SELECT is(
+  (SELECT count(*)::int FROM pg_trigger t
+     JOIN pg_class c ON c.oid = t.tgrelid
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND t.tgname IN (
+        'attachment_blob_refcount',
+        'attachment_blob_refcount_inc',
+        'blob_refcount_cleanup',
+        'trg_hr_expense_receipts_inc',
+        'trg_hr_expense_receipts_dec',
+        'chat_link_preview_blob_refcount'
+      )),
+  0, 'V289 dropped all 6 legacy blobs.ref_count / blob_cleanup_queue triggers');
+
+SELECT is(
   (SELECT count(*)::int FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'blobs' AND column_name = 'gc_state'),
-  0, 'public.blobs columns are unchanged (no gc_state column)');
+  0, 'public.blobs has no gc_state column');
 
 SELECT is(
   (SELECT count(*)::int FROM public.feature_toggles WHERE key LIKE '%blob_gc%'),
@@ -73,13 +106,14 @@ SELECT repeat('01', 32) AS s_att,
        repeat('1a', 32) AS s_hold_mrt_future,
        repeat('1b', 32) AS s_hold_mrt_expired,
        repeat('1c', 32) AS s_hold_lifecycle,
-       repeat('1d', 32) AS s_drifted_rc,
-       repeat('1e', 32) AS s_reactivate_app
+       repeat('1d', 32) AS s_reactivate_v2,
+       repeat('1e', 32) AS s_reactivate_app,
+       repeat('1f', 32) AS s_promote_intent
   \gset
 
 -- Seed all test blobs 48 hours old (except s_young_2359 at 23h59m and s_old_2401 at 24h01m)
-INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, ref_count, created_at)
-SELECT sha, 'mailblobs/' || sha, 100, 'application/octet-stream', 0, now() - interval '48 hours'
+INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, created_at)
+SELECT sha, 'mailblobs/' || sha, 100, 'application/octet-stream', now() - interval '48 hours'
   FROM unnest(ARRAY[
     :'s_att', :'s_hr', :'s_chat', :'s_uav', :'s_cav',
     :'s_rec_item_ver', :'s_rec_item_upl', :'s_rec_qa_raw', :'s_rec_qa_inv', :'s_rec_qa_rej',
@@ -87,14 +121,13 @@ SELECT sha, 'mailblobs/' || sha, 100, 'application/octet-stream', 0, now() - int
     :'s_hold_retain_until', :'s_hold_worm_until', :'s_hold_worm_age',
     :'s_hold_msg_held', :'s_hold_litigation', :'s_hold_mrt_hold',
     :'s_hold_mrt_inf', :'s_hold_mrt_future', :'s_hold_mrt_expired',
-    :'s_hold_lifecycle', :'s_reactivate_app'
+    :'s_hold_lifecycle', :'s_reactivate_v2', :'s_reactivate_app', :'s_promote_intent'
   ]) AS sha;
 
-INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, ref_count, created_at)
+INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, created_at)
 VALUES
-  (:'s_young_2359', 'mailblobs/' || :'s_young_2359', 100, 'text/plain', 0, now() - interval '23 hours 59 minutes'),
-  (:'s_old_2401',   'mailblobs/' || :'s_old_2401',   100, 'text/plain', 0, now() - interval '24 hours 1 minute'),
-  (:'s_drifted_rc', 'mailblobs/' || :'s_drifted_rc', 100, 'text/plain', 3, now() - interval '48 hours');
+  (:'s_young_2359', 'mailblobs/' || :'s_young_2359', 100, 'text/plain', now() - interval '23 hours 59 minutes'),
+  (:'s_old_2401',   'mailblobs/' || :'s_old_2401',   100, 'text/plain', now() - interval '24 hours 1 minute');
 
 -- Wire all 14 live roots
 -- (1) messages.raw_ref + (2) message_attachments.blob_sha256
@@ -116,10 +149,10 @@ VALUES (:appr_hr_id, 0, :'s_hr', 'receipt.pdf');
 INSERT INTO public.chat_link_previews (url_hash, url, status, image_blob_sha256)
 VALUES (repeat('aa', 32), 'https://example.test/preview', 'ok', :'s_chat');
 
--- (5) users.avatar_sha256 (NOTE: NO ref_count trigger -> blobs.ref_count stays 0!)
+-- (5) users.avatar_sha256
 UPDATE public.users SET avatar_sha256 = :'s_uav' WHERE id = :uid_main;
 
--- (6) contacts.avatar_sha256 (NOTE: NO ref_count trigger -> blobs.ref_count stays 0!)
+-- (6) contacts.avatar_sha256
 INSERT INTO public.addressbooks (mailbox_id, name) VALUES (:mb_main, 'gc-ab')
 RETURNING id AS ab_id \gset
 INSERT INTO public.contacts (addressbook_id, vcard_uid, display_name, avatar_sha256)
@@ -280,7 +313,6 @@ SELECT throws_ok(
   'BZ040', NULL, 'negative p_worm_days fails closed (BZ040)');
 
 -- ── 5. Grace floor (23h59m vs 24h01m) & Phase 1 Mark ─────────────────────────
--- Passing p_grace_minutes = 1 MUST be clamped to the 1440-minute (24h) floor.
 SELECT is(
   (public.blob_gc_mark(1, 0, 500)->>'effective_grace_minutes')::int,
   1440, 'blob_gc_mark clamps grace window to >= 1440 minutes (24h floor)');
@@ -310,7 +342,7 @@ SELECT is(
     ) AND gc_state <> 'active'),
   0, 'all 14 live roots remain active after blob_gc_mark');
 
--- ── 6. Tx 2A claim_purging + cooldown + reactivation + 403 worm lock ─────────
+-- ── 6. Tx 2A claim_purging + cooldown + WORM armed vs detected audit split ───
 SELECT is(
   public.blob_gc_claim_purging(:'s_old_2401', 1440, 1440, 0),
   'cooldown', 'claim_purging respects cooldown when freshly marked reclaim_eligible');
@@ -324,8 +356,17 @@ SELECT is(
   'purging', 'claim_purging transitions eligible blob past cooldown to purging');
 
 SELECT is(
-  public.blob_gc_record_worm_lock(:'s_old_2401', now() + interval '7 days', 'test_403'),
-  true, 'blob_gc_record_worm_lock reverts purging blob to active with worm_locked_until');
+  public.blob_gc_record_worm_lock(:'s_old_2401', now() + interval '7 days', 'worm_put_apply'),
+  true, 'blob_gc_record_worm_lock records inline worm_put_apply arming');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.admin_audit_log
+    WHERE action = 'blob_gc_worm_lock_armed' AND after_state->>'sha256' = :'s_old_2401'),
+  1, 'worm_put_apply writes blob_gc_worm_lock_armed audit action (distinct from 403 detection)');
+
+SELECT is(
+  public.blob_gc_record_worm_lock(:'s_old_2401', now() + interval '14 days', 'test_403'),
+  true, 'blob_gc_record_worm_lock reverts blob on 403 Object Lock detection');
 
 SELECT is(
   (SELECT gc_state FROM public.blob_gc_state WHERE blob_sha256 = :'s_old_2401'),
@@ -334,58 +375,83 @@ SELECT is(
 SELECT is(
   (SELECT count(*)::int FROM public.admin_audit_log
     WHERE action = 'blob_gc_worm_lock_detected' AND after_state->>'sha256' = :'s_old_2401'),
-  1, 'blob_gc_record_worm_lock writes core audit warning');
+  1, '403 detection writes blob_gc_worm_lock_detected audit warning');
 
--- ── 7. Shadow reconciliation discrepancies (zero deletes) ────────────────────
-SELECT (public.blob_gc_shadow_reconcile(1440, 0, 500)->>'run_id')::bigint AS shadow_run_id \gset
+-- ── 7. Wave 2.4 cutover: blob_live_catalog (as setjoin_owner), reactivate_v2,
+--       promote_recover, noncanonical sha256 skip ────────────────────────────
+SELECT is(
+  to_regprocedure('public.blob_gc_shadow_reconcile(integer,integer,integer)'),
+  NULL, 'V289 retired blob_gc_shadow_reconcile');
+
+-- Verify set-based blob_live_catalog() works as non-superuser setjoin_owner!
+SET LOCAL ROLE setjoin_owner;
+SELECT is(
+  (SELECT count(*)::int FROM public.blob_live_catalog()
+    WHERE sha256 IN (
+      :'s_att', :'s_hr', :'s_chat', :'s_uav', :'s_cav',
+      :'s_rec_item_ver', :'s_rec_qa_raw', :'s_rec_qa_inv',
+      :'s_msg_raw', :'s_outq', :'s_outq_hot', :'s_journal', :'s_held_inb', :'s_edisc'
+    )),
+  14, 'blob_live_catalog() callable by setjoin_owner returns all 14 live roots');
 
 SELECT is(
-  (SELECT count(*)::int FROM public.blob_gc_shadow_discrepancies
-    WHERE run_id = :shadow_run_id
-      AND blob_sha256 = :'s_uav'
-      AND discrepancy_kind = 'only_in_refcount_zero'
-      AND 'users.avatar_sha256' = ANY(live_sources)),
-  1, 'shadow reconcile flags users.avatar_sha256 (ref_count=0) as only_in_refcount_zero with live_sources');
+  (SELECT count(*)::int FROM public.blob_live_catalog()
+    WHERE sha256 IN (:'s_old_2401', :'s_rec_item_upl', :'s_rec_qa_rej')),
+  0, 'blob_live_catalog() excludes unreferenced, unverified, and rejected blobs');
+RESET ROLE;
+
+-- Verify blob_gc_reactivate_v2 on purging row schedules delayed blob.promote_verify
+INSERT INTO public.blob_gc_state (blob_sha256, gc_state, reclaim_eligible_at, purging_at, last_touched_at)
+VALUES (:'s_reactivate_v2', 'purging', now() - interval '25 hours', now() - interval '30 seconds', now() - interval '48 hours')
+ON CONFLICT (blob_sha256) DO UPDATE
+   SET gc_state = 'purging',
+       reclaim_eligible_at = EXCLUDED.reclaim_eligible_at,
+       purging_at = EXCLUDED.purging_at;
+
+SELECT public.blob_gc_reactivate_v2(:'s_reactivate_v2', 'tmp/blob-upload/00112233445566778899aabbccddeeff') AS v2_res \gset
+SELECT is(
+  ((:'v2_res'::jsonb)->>'was_purging')::boolean
+    AND EXISTS (
+      SELECT 1 FROM public.work_items
+       WHERE id = ((:'v2_res'::jsonb)->>'verify_work_item_id')::bigint
+         AND kind = 'blob.promote_verify'
+         AND status = 'pending'
+         AND run_at > now() + interval '30 seconds'
+    ),
+  true, 'blob_gc_reactivate_v2 on purging schedules delayed blob.promote_verify (60s)');
+
+-- Verify blob_promote_recover_enqueue validates staging prefix and protects sha256
+SELECT throws_ok(
+  $f$SELECT public.blob_promote_recover_enqueue(repeat('1f', 32), 'tmp/upload/0011223344556677', 30.0)$f$,
+  'BZ040', NULL, 'blob_promote_recover_enqueue rejects non-tmp/blob-upload/* staging keys (BZ040)');
+
+SELECT public.blob_promote_recover_enqueue(:'s_promote_intent', 'tmp/blob-upload/00112233445566778899aabbccddeeff', 30.0) AS prom_wid \gset
+SELECT is(
+  public.blob_is_held_or_retained(:'s_promote_intent', 0),
+  true, 'pending blob.promote_recover protects sha256 in blob_is_held_or_retained');
 
 SELECT is(
-  (SELECT count(*)::int FROM public.blob_gc_shadow_discrepancies
-    WHERE run_id = :shadow_run_id
-      AND blob_sha256 = :'s_drifted_rc'
-      AND discrepancy_kind = 'only_in_mark_and_sweep'),
-  1, 'shadow reconcile flags drifted ref_count=3 unreferenced blob as only_in_mark_and_sweep');
-
+  public.blob_promote_recover_complete(:prom_wid, :'s_promote_intent', 'tmp/blob-upload/00112233445566778899aabbccddeeff'),
+  true, 'blob_promote_recover_complete cancels pending work item');
 SELECT is(
-  (SELECT count(*)::int FROM public.blobs WHERE sha256 IN (:'s_uav', :'s_drifted_rc', :'s_old_2401')),
-  3, 'shadow reconcile deletes ZERO rows from public.blobs');
+  public.blob_is_held_or_retained(:'s_promote_intent', 0),
+  false, 'completed promote_recover intent releases GC hold');
 
--- ── 7b. Noncanonical sha256 skipped cleanly + shadow backlog zero false alerts ─
-\set s_backlog_1 '''1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd01'''
-\set s_backlog_2 '''1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcd02'''
-INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, ref_count, created_at) VALUES
-  ('legacy/noncanonical-key-550', 'legacy/noncanonical-key-550', 10, 'application/octet-stream', 0, now() - interval '72 hours'),
-  (:'s_backlog_1', 'mailblobs/' || :'s_backlog_1', 10, 'application/octet-stream', 0, now() - interval '72 hours'),
-  (:'s_backlog_2', 'mailblobs/' || :'s_backlog_2', 10, 'application/octet-stream', 0, now() - interval '72 hours')
+-- Noncanonical sha256 skipped cleanly by blob_gc_mark
+INSERT INTO public.blobs (sha256, minio_ref, size_bytes, content_type, created_at)
+VALUES ('legacy/noncanonical-key-550', 'legacy/noncanonical-key-550', 10, 'application/octet-stream', now() - interval '72 hours')
 ON CONFLICT (sha256) DO NOTHING;
 
--- Run shadow reconcile with batch_size=1 so s_backlog_2 stays unmarked in backlog.
-SELECT (public.blob_gc_shadow_reconcile(1440, 0, 1)->>'run_id')::bigint AS backlog_run_id \gset
-
+SELECT public.blob_gc_mark(1440, 0, 500);
 SELECT is(
   (SELECT count(*)::int FROM public.blob_gc_state WHERE blob_sha256 = 'legacy/noncanonical-key-550'),
   0, 'noncanonical blobs.sha256 is skipped cleanly by blob_gc_mark (never wedges Tx 2A)');
 
-SELECT is(
-  (SELECT count(*)::int FROM public.blob_gc_shadow_discrepancies
-    WHERE run_id = :backlog_run_id
-      AND blob_sha256 IN (:'s_backlog_1', :'s_backlog_2')
-      AND discrepancy_kind = 'only_in_refcount_zero'),
-  0, 'batch-limited unmarked ref_count=0 backlog produces ZERO false only_in_refcount_zero alerts');
-
--- ── 8. FORCE RLS deny-all, BZ003 refusal, and setjoin_app uploader reactivation ─
+-- ── 8. FORCE RLS deny-all, BZ003 refusal, and setjoin_app uploader reactivation
 SELECT is(
   to_regprocedure('public.blob_gc_reactivate(text,timestamptz)'),
   NULL, '2-arg blob_gc_reactivate(text,timestamptz) does not exist (setjoin_app cannot set worm_locked_until)');
--- Prepare s_reactivate_app in 'purging' state before switching to setjoin_app.
+
 INSERT INTO public.blob_gc_state (blob_sha256, gc_state, reclaim_eligible_at, purging_at, last_touched_at)
 VALUES (:'s_reactivate_app', 'purging', now() - interval '25 hours', now() - interval '1 minute', now() - interval '48 hours')
 ON CONFLICT (blob_sha256) DO UPDATE
@@ -394,7 +460,7 @@ ON CONFLICT (blob_sha256) DO UPDATE
        purging_at = EXCLUDED.purging_at,
        last_touched_at = EXCLUDED.last_touched_at;
 
--- Also verify BZ003 guard fires if a NOBYPASSRLS role were ever granted EXECUTE:
+-- Verify BZ003 guard fires if a NOBYPASSRLS role were ever granted EXECUTE:
 SAVEPOINT sp_bz003;
 GRANT EXECUTE ON FUNCTION public.blob_gc_mark(integer, integer, integer) TO setjoin_app;
 SET LOCAL ROLE setjoin_app;
@@ -404,7 +470,7 @@ SELECT throws_ok(
 RESET ROLE;
 ROLLBACK TO SAVEPOINT sp_bz003;
 
--- Now test real production setjoin_app ACLs (without extra grants):
+-- Test real production setjoin_app ACLs (without extra grants):
 SET LOCAL ROLE setjoin_app;
 
 SELECT throws_ok(
@@ -432,13 +498,13 @@ SELECT throws_ok(
   $f$SELECT public.blob_gc_mark(1440, 0, 10)$f$,
   '42501', NULL, 'setjoin_app cannot execute worker-only blob_gc_mark (42501)');
 SELECT throws_ok(
-  $f$SELECT public.blob_gc_shadow_reconcile(1440, 0, 10)$f$,
-  '42501', NULL, 'setjoin_app cannot execute worker-only blob_gc_shadow_reconcile (42501)');
+  $f$SELECT * FROM public.blob_live_catalog()$f$,
+  '42501', NULL, 'setjoin_app cannot execute owner/worker-only blob_live_catalog (42501)');
 SELECT throws_ok(
   $f$SELECT public.blob_gc_record_worm_lock(repeat('aa', 32), 'infinity'::timestamptz, 'forged')$f$,
   '42501', NULL, 'setjoin_app cannot execute worker-only blob_gc_record_worm_lock (42501)');
 
--- Narrow SECURITY DEFINER blob_gc_reactivate + blob_upload_account MUST SUCCEED as setjoin_app!
+-- Narrow SECURITY DEFINER blob_gc_reactivate + blob_upload_account + promote_recover MUST SUCCEED as setjoin_app!
 SELECT is(
   public.blob_gc_reactivate(:'s_reactivate_app'),
   true, 'setjoin_app can reactivate a purging blob via blob_gc_reactivate()');
@@ -446,6 +512,14 @@ SELECT is(
 SELECT is(
   (public.blob_upload_account(:uid_main, :'s_rec_qa_rej', 'mailblobs/' || :'s_rec_qa_rej', 100, 'text/plain', 1440, 0))->>'result',
   'dedup', 'setjoin_app blob_upload_account() succeeds and reactivates reclaim_eligible blob');
+
+SELECT public.blob_promote_recover_enqueue(:'s_promote_intent', 'tmp/blob-upload/aabbccddeeff00112233445566778899', 30.0) AS app_prom_wid \gset
+SELECT is(
+  public.blob_promote_recover_complete(:app_prom_wid, :'s_promote_intent', 'tmp/blob-upload/aabbccddeeff00112233445566778899'),
+  true, 'setjoin_app can enqueue and complete blob_promote_recover via narrow SECURITY DEFINER helpers');
+SELECT is(
+  public.blob_promote_recover_enqueue(repeat('ef', 32), 'tmp/blob-upload/aabbccddeeff00112233445566778899', 30.0),
+  NULL::bigint, 'blob_promote_recover_enqueue returns NULL when sha256 is absent from public.blobs');
 
 RESET ROLE;
 
