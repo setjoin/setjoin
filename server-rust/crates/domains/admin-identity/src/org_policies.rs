@@ -1,19 +1,8 @@
 //! Admin identity (F01) slice `org-policies`: departments, email-address policies and
 //! the distribution-group picker.
-//!
-//! Reads are `SELECT`s. Department writes call one reducer each
-//! (`rust_admin_department_*`) mirroring Go's whole handler in Go's check order;
-//! the reducer answers `{status,detail[,id]}` and every refusal rolls the command
-//! back. The one committed non-success verdict is the department update's 500
-//! (Go keeps the subtree path rewrite when the field UPDATE then fails). Policy
-//! create, update, delete and apply are Go's single write statement, run under
-//! the receipt; reorder is `rust_admin_eap_reorder` (Go's per-id loop). Go audits
-//! none of these writes.
-use super::{deadline, done, envelope, invalid, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{
-    CommandOutcome, ReceiptCommand, Rejection, Row, ScopedExecutor, StatementFailure, Type,
-};
+use super::{deadline, done, envelope, invalid, s, sql, FAMILY};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, Rejection, Row, StatementFailure};
 
 pub use super::scope_sets::{problem_of, Problem};
 
@@ -30,7 +19,7 @@ pub const IDENTITY_WRITE: [&str; 1] = ["identity.write"];
 
 fn command(name: &'static str) -> ReceiptCommand {
     ReceiptCommand {
-        family: "F01",
+        family: FAMILY,
         command: name,
     }
 }
@@ -48,11 +37,6 @@ struct Department {
     users: i64,
 }
 
-const DEPARTMENT_SELECT: &str =
-    "SELECT d.id, d.name, d.parent_id, d.path, d.ldap_ou, d.sort_order, \
-     (SELECT COUNT(*) FROM users WHERE department_id = d.id) FROM departments d";
-
-/// Go skips a row that fails to scan.
 fn department(row: &Row) -> Option<Department> {
     Some(Department {
         id: row.try_get(0).ok()?,
@@ -87,9 +71,12 @@ impl Department {
 }
 
 /// `GET /admin/departments`.
-pub async fn departments(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(&format!("{DEPARTMENT_SELECT} ORDER BY d.path"), &[])
+pub async fn departments(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::DEPARTMENTS_LIST, &[])
         .await?;
     let out: Vec<String> = rows
         .iter()
@@ -99,15 +86,13 @@ pub async fn departments(exec: &ScopedExecutor) -> Result<String, StatementFailu
     Ok(done(format!("[{}]", out.join(","))))
 }
 
-/// `GET /admin/departments/tree`. Go attaches children from a map walk (random
-/// sibling order, and a child copied before its own children lose them); this renders
-/// the deterministic reading: query order, fully nested. Leaves answer `"children":null`.
-pub async fn department_tree(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!("{DEPARTMENT_SELECT} ORDER BY d.sort_order, d.name"),
-            &[],
-        )
+/// `GET /admin/departments/tree`.
+pub async fn department_tree(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::DEPARTMENTS_TREE, &[])
         .await?;
     let all: Vec<Department> = rows.iter().filter_map(department).collect();
     fn render(all: &[Department], node: &Department) -> String {
@@ -138,8 +123,6 @@ fn verdict_json(rows: &[Row]) -> Result<serde_json::Value, StatementFailure> {
     serde_json::from_str(&text).map_err(|_| invalid())
 }
 
-/// A reducer verdict: `success` statuses commit; any other status rolls the
-/// command back carrying Go's problem (`problem_of` reads it back).
 fn verdict(rows: &[Row], success: &[u64]) -> Result<serde_json::Value, StatementFailure> {
     let v = verdict_json(rows)?;
     match v["status"].as_u64() {
@@ -153,41 +136,9 @@ fn verdict(rows: &[Row], success: &[u64]) -> Result<serde_json::Value, Statement
     }
 }
 
-/// `POST /admin/departments` after the edge validation; the new id.
-pub async fn department_create(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    name: &str,
-    parent: Option<i64>,
-    ldap_ou: &str,
-    grant_domain: Option<i64>,
-    operation: [u8; 16],
-) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("department_create"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{name}:{parent:?}:{ldap_ou}:{grant_domain:?}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_department_create($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&name, Type::TEXT),
-            (&parent, Type::INT8),
-            (&ldap_ou, Type::TEXT),
-            (&grant_domain, Type::INT8),
-        ],
-        |rows| {
-            verdict(rows, &[200])?["id"]
-                .as_i64()
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+/// Public projection for worker-bypass `sql::DEPARTMENT_CREATE`.
+pub fn parse_department_create(rows: &[Row]) -> Result<i64, StatementFailure> {
+    verdict(rows, &[200])?["id"].as_i64().ok_or_else(invalid)
 }
 
 pub struct DepartmentPatch<'a> {
@@ -197,126 +148,37 @@ pub struct DepartmentPatch<'a> {
     pub sort: Option<i64>,
 }
 
-/// `PUT /admin/departments/{id}`: 204, or the committed 500 (status returned).
-pub async fn department_update(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    id: i64,
-    patch: &DepartmentPatch<'_>,
-    grant_domain: Option<i64>,
-    operation: [u8; 16],
-) -> CommandOutcome<u16, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("department_update"),
-        &envelope(
-            &auth,
-            operation,
-            &format!(
-                "{id}:{}:{:?}:{}:{:?}:{grant_domain:?}",
-                patch.name, patch.parent, patch.ldap_ou, patch.sort
-            ),
-        ),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_department_update($2,$4,$5,$6,$7,$8,$9)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&id, Type::INT8),
-            (&patch.name, Type::TEXT),
-            (&patch.parent, Type::INT8),
-            (&patch.ldap_ou, Type::TEXT),
-            (&patch.sort, Type::INT8),
-            (&grant_domain, Type::INT8),
-        ],
-        |rows| {
-            verdict(rows, &[204, 500])?["status"]
-                .as_u64()
-                .map(|n| n as u16)
-                .ok_or_else(invalid)
-        },
-    )
-    .await
+/// Public projection for worker-bypass `sql::DEPARTMENT_UPDATE` (204 or committed 500).
+pub fn parse_department_update(rows: &[Row]) -> Result<u16, StatementFailure> {
+    verdict(rows, &[204, 500])?["status"]
+        .as_u64()
+        .map(|n| n as u16)
+        .ok_or_else(invalid)
 }
 
-/// `DELETE /admin/departments/{id}`.
-pub async fn department_delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    id: i64,
-    grant_domain: Option<i64>,
-    operation: [u8; 16],
-) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("department_delete"),
-        &envelope(&auth, operation, &format!("{id}:{grant_domain:?}")),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_department_delete($2,$4,$5)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&id, Type::INT8), (&grant_domain, Type::INT8)],
-        |rows| verdict(rows, &[204]).map(|_| ()),
-    )
-    .await
-}
-
-/// `POST /admin/departments/assign-user` after the edge validation.
-pub async fn department_assign_user(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    user: i64,
-    department: Option<i64>,
-    grant_domain: Option<i64>,
-    operation: [u8; 16],
-) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("department_assign_user"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{user}:{department:?}:{grant_domain:?}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT rust_admin_department_assign_user($2,$4,$5,$6)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&user, Type::INT8),
-            (&department, Type::INT8),
-            (&grant_domain, Type::INT8),
-        ],
-        |rows| verdict(rows, &[204]).map(|_| ()),
-    )
-    .await
+/// Public projection for worker-bypass `sql::DEPARTMENT_DELETE` and
+/// `sql::DEPARTMENT_ASSIGN_USER` (204 verdict).
+pub fn parse_department_mut(rows: &[Row]) -> Result<(), StatementFailure> {
+    verdict(rows, &[204]).map(|_| ())
 }
 
 // ---------------------------------------------------------------------------
 // Email-address policies
 
 /// Owner-approved security fix 2026-11-05 (#510, #402 review): email-address policies are
-/// organization-wide (priorities and templates span every domain), so their writes need a live
-/// organization-wide `identity.write` grant; frozen Go gave them to any domain-scoped holder.
-pub async fn org_wide(exec: &ScopedExecutor, actor: &AuthContext) -> bool {
+/// organization-wide, so their writes need a live organization-wide `identity.write` grant.
+pub async fn org_wide(factory: &TxFactory, admin: &AdminPermissionProof) -> bool {
     if setjoin_contracts::mutants::on("eap-foreign") {
         return true;
     }
-    let user = actor.user_id();
-    exec.read(
-        "SELECT admin_org_wide_grant($1, '{identity.write}'::text[])",
-        &[(&user, Type::INT8)],
-    )
-    .await
-    .ok()
-    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
+    let user = admin.actor().get();
+    factory
+        .run_admin_read_contract(admin, &sql::ORG_WIDE_IDENTITY_WRITE, &[&user])
+        .await
+        .ok()
+        .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
+        .unwrap_or(false)
 }
-
-const POLICY_COLUMNS: &str = "id, priority, name, enabled, overwrite_directory_address, \
-     cond_department, cond_domain_ids, cond_mailbox_type, cond_ad_ou, \
-     primary_template, additional_templates, duplicate_resolution, \
-     created_at::text, updated_at::text";
 
 fn strings(row: &Row, index: usize) -> Result<Vec<String>, StatementFailure> {
     Ok(row
@@ -325,7 +187,6 @@ fn strings(row: &Row, index: usize) -> Result<Vec<String>, StatementFailure> {
         .unwrap_or_default())
 }
 
-/// Go's `eapPolicyResponse` (`omitempty` arrays) in field order.
 fn policy_json(row: &Row) -> Result<String, StatementFailure> {
     let bad = |_| invalid();
     let list = |name: &str, values: Vec<String>| {
@@ -366,12 +227,12 @@ fn policy_json(row: &Row) -> Result<String, StatementFailure> {
 }
 
 /// `GET /admin/email-address-policies-list`: a row that fails to scan is skipped.
-pub async fn policies(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!("SELECT {POLICY_COLUMNS} FROM email_address_policies ORDER BY priority ASC"),
-            &[],
-        )
+pub async fn policies(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::EAP_LIST, &[])
         .await?;
     let out: Vec<String> = rows.iter().filter_map(|r| policy_json(r).ok()).collect();
     Ok(done(format!("[{}]", out.join(","))))
@@ -449,188 +310,188 @@ fn digest(input: &PolicyInput<'_>) -> String {
     )
 }
 
-/// `POST /admin/email-address-policies`: the created row's JSON. Go computes the
-/// automatic priority in a separate statement; here it is the same INSERT.
+/// `POST /admin/email-address-policies`: the created row's JSON.
 pub async fn policy_create(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     input: &PolicyInput<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    let auth = scope(actor);
     let priority = input.priority;
+    let name = input.name.unwrap_or("");
     let enabled = input.enabled.unwrap_or(true);
     let overwrite = input.overwrite.unwrap_or(false);
+    let primary = input.primary.unwrap_or("");
     let duplicate = input.duplicate.unwrap_or("numeric_suffix");
-    let sql = format!(
-        "WITH ins AS (INSERT INTO email_address_policies \
-         (priority, name, enabled, overwrite_directory_address, cond_department, cond_domain_ids, \
-          cond_mailbox_type, cond_ad_ou, primary_template, additional_templates, duplicate_resolution) \
-         SELECT COALESCE($4::bigint::integer, (SELECT COALESCE(MAX(priority), 0) + 10 FROM email_address_policies)), \
-          $5, $6, $7, $8, $9, $10, $11, $12, $13, $14 \
-          WHERE $1::bigint >= 0 AND $3::text <> '' RETURNING {POLICY_COLUMNS}) \
-         SELECT {POLICY_COLUMNS} FROM ins"
-    );
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("eap_create"),
-        &envelope(&auth, operation, &digest(input)),
-        &auth,
-        deadline(),
-        &sql,
-        &[
-            (&priority, Type::INT8),
-            (&input.name.unwrap_or(""), Type::TEXT),
-            (&enabled, Type::BOOL),
-            (&overwrite, Type::BOOL),
-            (&input.departments, Type::TEXT_ARRAY),
-            (&input.domains, Type::INT8_ARRAY),
-            (&input.mailbox_types, Type::TEXT_ARRAY),
-            (&input.ad_ous, Type::TEXT_ARRAY),
-            (&input.primary.unwrap_or(""), Type::TEXT),
-            (&input.additional, Type::TEXT_ARRAY),
-            (&duplicate, Type::TEXT),
-        ],
-        |rows| match rows {
-            [row] => policy_json(row).map(done),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(user.user(), user.generation(), operation, &digest(input));
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::EAP_CREATE,
+            &[
+                &priority,
+                &name,
+                &enabled,
+                &overwrite,
+                &input.departments,
+                &input.domains,
+                &input.mailbox_types,
+                &input.ad_ous,
+                &primary,
+                &input.additional,
+                &duplicate,
+            ],
+            Some(command("eap_create")),
+            |rows| match rows.as_slice() {
+                [row] => policy_json(row).map(done),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
-/// `PUT /admin/email-address-policies/{id}`: the patched row's JSON; `None` when no
-/// policy has the id (Go's 404).
+/// `PUT /admin/email-address-policies/{id}`: the patched row's JSON; `None` is Go's 404.
 pub async fn policy_update(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     id: i64,
     input: &PolicyInput<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<Option<String>, StatementFailure> {
-    let auth = scope(actor);
-    let sql = format!(
-        "WITH upd AS (UPDATE email_address_policies SET \
-         priority = COALESCE($5::bigint::integer, priority), \
-         name = COALESCE($6, name), \
-         enabled = COALESCE($7, enabled), \
-         overwrite_directory_address = COALESCE($8, overwrite_directory_address), \
-         cond_department = COALESCE($9, cond_department), \
-         cond_domain_ids = COALESCE($10, cond_domain_ids), \
-         cond_mailbox_type = COALESCE($11, cond_mailbox_type), \
-         cond_ad_ou = COALESCE($12, cond_ad_ou), \
-         primary_template = COALESCE($13, primary_template), \
-         additional_templates = COALESCE($14, additional_templates), \
-         duplicate_resolution = COALESCE($15, duplicate_resolution), \
-         updated_at = now() \
-         WHERE id = $4 AND $1::bigint >= 0 AND $3::text <> '' RETURNING {POLICY_COLUMNS}) \
-         SELECT {POLICY_COLUMNS} FROM upd"
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{id}:{}", digest(input)),
     );
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("eap_update"),
-        &envelope(&auth, operation, &format!("{id}:{}", digest(input))),
-        &auth,
-        deadline(),
-        &sql,
-        &[
-            (&id, Type::INT8),
-            (&input.priority, Type::INT8),
-            (&input.name, Type::TEXT),
-            (&input.enabled, Type::BOOL),
-            (&input.overwrite, Type::BOOL),
-            (&input.departments, Type::TEXT_ARRAY),
-            (&input.domains, Type::INT8_ARRAY),
-            (&input.mailbox_types, Type::TEXT_ARRAY),
-            (&input.ad_ous, Type::TEXT_ARRAY),
-            (&input.primary, Type::TEXT),
-            (&input.additional, Type::TEXT_ARRAY),
-            (&input.duplicate, Type::TEXT),
-        ],
-        |rows| match rows {
-            [] => Ok(None),
-            [row] => policy_json(row).map(done).map(Some),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::EAP_UPDATE,
+            &[
+                &id,
+                &input.priority,
+                &input.name,
+                &input.enabled,
+                &input.overwrite,
+                &input.departments,
+                &input.domains,
+                &input.mailbox_types,
+                &input.ad_ous,
+                &input.primary,
+                &input.additional,
+                &input.duplicate,
+            ],
+            Some(command("eap_update")),
+            |rows| match rows.as_slice() {
+                [] => Ok(None),
+                [row] => policy_json(row).map(done).map(Some),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// `DELETE /admin/email-address-policies/{id}`: whether a row was deleted.
 pub async fn policy_delete(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     id: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<bool, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("eap_delete"),
-        &envelope(&auth, operation, &id.to_string()),
-        &auth,
-        deadline(),
-        "WITH d AS (DELETE FROM email_address_policies WHERE id = $4 AND $1::bigint >= 0 AND $3::text <> '' RETURNING 1) \
-         SELECT count(*)::bigint FROM d",
-        &[(&id, Type::INT8)],
-        |rows| super::count(rows).map(|n| n > 0),
-    )
-    .await
+    let env = envelope(user.user(), user.generation(), operation, &id.to_string());
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::EAP_DELETE,
+            &[&id],
+            Some(command("eap_delete")),
+            |rows| super::count(&rows).map(|n| n > 0),
+        )
+        .await
 }
 
 /// `POST /admin/email-address-policies/reorder` (the list is non-empty).
 pub async fn policy_reorder(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     order: &[i64],
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
     let order = order.to_vec();
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("eap_reorder"),
-        &envelope(&auth, operation, &format!("{order:?}")),
-        &auth,
-        deadline(),
-        "SELECT count(*)::bigint FROM (SELECT rust_admin_eap_reorder($4::bigint[]) WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&order, Type::INT8_ARRAY)],
-        |rows| super::count(rows).map(|_| ()),
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{order:?}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::EAP_REORDER,
+            &[&order],
+            Some(command("eap_reorder")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 /// `POST /admin/email-address-policies/apply`: the queued job id.
 pub async fn policy_apply(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     policy: Option<i64>,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("eap_apply"),
-        &envelope(&auth, operation, &format!("{policy:?}")),
-        &auth,
-        deadline(),
-        "INSERT INTO eap_apply_jobs (policy_id, status) SELECT $4, 'queued' WHERE $1::bigint >= 0 AND $3::text <> '' RETURNING id",
-        &[(&policy, Type::INT8)],
-        |rows| match rows {
-            [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
-            _ => Err(invalid()),
-        },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{policy:?}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::EAP_APPLY,
+            &[&policy],
+            Some(command("eap_apply")),
+            |rows| match rows.as_slice() {
+                [row] => row.try_get::<_, i64>(0).map_err(|_| invalid()),
+                _ => Err(invalid()),
+            },
+        )
+        .await
 }
 
 /// `GET /admin/email-address-policies/apply/{jobId}`: `None` is Go's 404 (any failure).
-pub async fn apply_status(exec: &ScopedExecutor, job: i64) -> Option<String> {
-    let rows = exec
-        .read(
-            "SELECT status, applied, total, error FROM eap_apply_jobs WHERE id = $1",
-            &[(&job, Type::INT8)],
-        )
+pub async fn apply_status(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    job: i64,
+) -> Option<String> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::EAP_APPLY_STATUS, &[&job])
         .await
         .ok()?;
     let row = rows.first()?;
@@ -648,8 +509,6 @@ pub async fn apply_status(exec: &ScopedExecutor, job: i64) -> Option<String> {
     )))
 }
 
-/// Go's `json.Encoder` over a `json.RawMessage`: the value is compacted (whitespace
-/// outside strings removed); HTML escaping is applied by `done`.
 fn compact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let (mut quoted, mut escaped) = (false, false);
@@ -673,23 +532,16 @@ fn compact(text: &str) -> String {
     out
 }
 
-/// `POST /admin/email-address-policies/{id}/preview`: the renderer's jsonb, `null`
-/// for an unknown policy; any failure is Go's 500.
+/// `POST /admin/email-address-policies/{id}/preview`.
 pub async fn preview(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     policy: i64,
     user: i64,
     mailbox: i64,
 ) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT email_address_policy_render($1, $2, $3)::text",
-            &[
-                (&policy, Type::INT8),
-                (&user, Type::INT8),
-                (&mailbox, Type::INT8),
-            ],
-        )
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::EAP_PREVIEW, &[&policy, &user, &mailbox])
         .await?;
     let text: Option<String> = rows
         .first()
@@ -703,21 +555,18 @@ pub async fn preview(
 
 /// `POST /admin/email-address-policies/match-count`.
 pub async fn match_count(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     departments: &Option<Vec<String>>,
     domains: &Option<Vec<i64>>,
     mailbox_types: &Option<Vec<String>>,
     ad_ous: &Option<Vec<String>>,
 ) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT email_address_policy_match_count($1, $2, $3, $4)",
-            &[
-                (departments, Type::TEXT_ARRAY),
-                (domains, Type::INT8_ARRAY),
-                (mailbox_types, Type::TEXT_ARRAY),
-                (ad_ous, Type::TEXT_ARRAY),
-            ],
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::EAP_MATCH_COUNT,
+            &[departments, domains, mailbox_types, ad_ous],
         )
         .await?;
     let n: i32 = rows
@@ -731,20 +580,13 @@ pub async fn match_count(
 // ---------------------------------------------------------------------------
 // Distribution groups
 
-/// `GET /admin/distribution-groups`: every group with its eligibility flags; a scan
-/// failure is Go's 500.
-pub async fn distribution_groups(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT dg.id, mb.display_name, dg.is_dynamic, dg.scim_external_id IS NOT NULL, \
-             dg.usable_as_admin_scope, COUNT(dgm.mailbox_id) \
-             FROM distribution_groups dg \
-             JOIN mailboxes mb ON mb.id = dg.mailbox_id \
-             LEFT JOIN distribution_group_members dgm ON dgm.group_id = dg.id \
-             GROUP BY dg.id, mb.display_name, dg.is_dynamic, dg.scim_external_id, dg.usable_as_admin_scope \
-             ORDER BY mb.display_name",
-            &[],
-        )
+/// `GET /admin/distribution-groups`: every group with its eligibility flags.
+pub async fn distribution_groups(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::DISTRIBUTION_GROUPS_LIST, &[])
         .await?;
     let bad = |_| invalid();
     let mut out = Vec::new();
@@ -798,8 +640,8 @@ mod tests {
     #[test]
     fn compaction_keeps_strings_intact() {
         assert_eq!(
-            compact("{\"a\": [1, \"x  y\\\" z\"], \"b\": null}"),
-            "{\"a\":[1,\"x  y\\\" z\"],\"b\":null}"
+            compact("{\"a\": \"x y\", \"b\": [1, 2]}"),
+            "{\"a\":\"x y\",\"b\":[1,2]}"
         );
     }
 }

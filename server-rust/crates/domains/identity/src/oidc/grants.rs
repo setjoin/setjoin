@@ -61,10 +61,10 @@ fn db_error(prefix: &str, error: &StatementFailure) -> OAuthError {
     OAuthError::new("server_error", format!("{prefix}: {detail}"))
 }
 pub(super) async fn write<T, D>(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     user: i64,
     command: &'static str,
-    sql: &'static str,
+    sql: &'static setjoin_pg::SqlContract,
     params: &[Param<'_>],
     decode: D,
     prefix: &str,
@@ -81,7 +81,7 @@ where
             family: "F21",
             command,
         })
-        .run_user_command(actor, operation, sql, params, decode)
+        .run_user_command_contract(actor, operation, sql, params, decode)
         .await
     {
         CommandOutcome::Committed(v) => Ok(v),
@@ -139,10 +139,13 @@ impl TokenReply {
         crate::issuance::object(&f) + "\n"
     }
 }
-async fn consume(exec: &ScopedExecutor, code: &str, client_id: &str) -> Result<Authorization, OAuthError> {
+async fn consume(exec: &AuthDb, code: &str, client_id: &str) -> Result<Authorization, OAuthError> {
     let hash = Sha256::digest(code.as_bytes()).to_vec();
     // Credential lookup, like password/address lookup: no request-owned uid.
-    let rows=exec.read("SELECT user_id,client_id FROM oidc_auth_requests WHERE code_hash=$1 AND expires_at>now() AND done=true",&[(&hash,Type::BYTEA)]).await.map_err(|_|invalid_code())?;
+    let rows = exec
+        .read_contract(&crate::sql::OIDC_GRANTS_L145, &[(&hash, Type::BYTEA)])
+        .await
+        .map_err(|_| invalid_code())?;
     let user = rows
         .first()
         .and_then(|r| r.try_get::<_, Option<i64>>(0).ok().flatten())
@@ -150,14 +153,25 @@ async fn consume(exec: &ScopedExecutor, code: &str, client_id: &str) -> Result<A
         .ok_or_else(invalid_code)?;
     // The reducer consumes only a code issued to the presenting client, so
     // client A can never burn client B's code (#523).
-    let owner: String = rows.first().and_then(|r| r.try_get(1).ok()).ok_or_else(invalid_code)?;
-    let client_id = if crate::mutants::on("oidc-consume-any-client") { owner.as_str() } else { client_id };
+    let owner: String = rows
+        .first()
+        .and_then(|r| r.try_get(1).ok())
+        .ok_or_else(invalid_code)?;
+    let client_id = if crate::mutants::on("oidc-consume-any-client") {
+        owner.as_str()
+    } else {
+        client_id
+    };
     write(
         exec,
         user,
         "oidc-consume",
-        "SELECT * FROM rust_identity_oidc_consume($1,$2,$3)",
-        &[(&user, Type::INT8), (&hash, Type::BYTEA), (&client_id, Type::TEXT)],
+        &crate::sql::OIDC_GRANTS_L159,
+        &[
+            (&user, Type::INT8),
+            (&hash, Type::BYTEA),
+            (&client_id, Type::TEXT),
+        ],
         |rows| {
             rows.first().map(Authorization::decode).unwrap_or_else(|| {
                 Err(StatementFailure {
@@ -175,12 +189,9 @@ async fn consume(exec: &ScopedExecutor, code: &str, client_id: &str) -> Result<A
         ..invalid_code()
     })
 }
-pub(super) async fn secret(exec: &ScopedExecutor, id: &str, presented: &str) -> bool {
+pub(super) async fn secret(exec: &AuthDb, id: &str, presented: &str) -> bool {
     let Ok(rows) = exec
-        .read(
-            "SELECT secret FROM oidc_clients WHERE id=$1 AND enabled=true",
-            &[(&id, Type::TEXT)],
-        )
+        .read_contract(&crate::sql::ISSUANCE_L147, &[(&id, Type::TEXT)])
         .await
     else {
         return false;
@@ -194,7 +205,7 @@ pub(super) async fn secret(exec: &ScopedExecutor, id: &str, presented: &str) -> 
         .unwrap_or(false)
 }
 pub async fn code_exchange(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     key: &SigningKey,
     issuer: &str,
     fields: &BTreeMap<String, String>,
@@ -232,7 +243,14 @@ pub async fn code_exchange(
         }
         client_early = Some(client);
     }
-    let request = consume(exec, get("code"), client_early.as_ref().map_or(get("client_id"), |c| c.id.as_str())).await?;
+    let request = consume(
+        exec,
+        get("code"),
+        client_early
+            .as_ref()
+            .map_or(get("client_id"), |c| c.id.as_str()),
+    )
+    .await?;
     if request.challenge.is_empty() {
         if !get("code_verifier").is_empty() {
             return Err(OAuthError::new(
@@ -257,7 +275,9 @@ pub async fn code_exchange(
             .map_err(|_| OAuthError::new("invalid_client", ""))?,
     };
     // OAuth 2.1: PKCE for every client, confidential ones included (#523).
-    if request.challenge.is_empty() && (client.public || !crate::mutants::on("oidc-confidential-no-pkce")) {
+    if request.challenge.is_empty()
+        && (client.public || !crate::mutants::on("oidc-confidential-no-pkce"))
+    {
         return Err(OAuthError::new("invalid_request", "PKCE required"));
     }
     if !client.public && !early && !secret(exec, &client.id, get("client_secret")).await {
@@ -284,7 +304,7 @@ pub async fn code_exchange(
     mint_fresh(exec, key, issuer, &request, &client, get("code")).await
 }
 async fn mint_fresh(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     key: &SigningKey,
     issuer: &str,
     request: &Authorization,
@@ -298,8 +318,23 @@ async fn mint_fresh(
     let subject = user.to_string();
     let id = random_hex(16)?;
     let expiry = SystemTime::now() + Duration::from_secs(300);
-    write(exec,user,"oidc-access","INSERT INTO oidc_tokens(id,client_id,user_id,subject,scopes,expires_at) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",
-        &[(&id,Type::TEXT),(&request.client,Type::TEXT),(&user,Type::INT8),(&subject,Type::TEXT),(&request.scopes,Type::TEXT_ARRAY),(&expiry,Type::TIMESTAMPTZ)],|_|Ok(()),"create access token").await?;
+    write(
+        exec,
+        user,
+        "oidc-access",
+        &crate::sql::OIDC_GRANTS_L301,
+        &[
+            (&id, Type::TEXT),
+            (&request.client, Type::TEXT),
+            (&user, Type::INT8),
+            (&subject, Type::TEXT),
+            (&request.scopes, Type::TEXT_ARRAY),
+            (&expiry, Type::TIMESTAMPTZ),
+        ],
+        |_| Ok(()),
+        "create access token",
+    )
+    .await?;
     let mut refresh = String::new();
     if request.scopes.iter().any(|s| s == "offline_access")
         && client.grants.iter().any(|g| g == "refresh_token")
@@ -311,8 +346,22 @@ async fn mint_fresh(
         // Independent autocommit in frozen Go. A failed attachment leaves the
         // access row committed; do not combine these fresh-grant statements.
         // The grant's first row names the refresh family and its hard lifetime (#523).
-        write(exec,user,"oidc-refresh-attach","UPDATE oidc_tokens SET refresh_token_hash=$3,refresh_expires_at=$4,refresh_family=$1,refresh_family_expires_at=$5 WHERE id=$1 AND user_id=$2",
-            &[(&id,Type::TEXT),(&user,Type::INT8),(&hash,Type::TEXT),(&expires,Type::TIMESTAMPTZ),(&family_expires,Type::TIMESTAMPTZ)],|_|Ok(()),"set refresh hash").await?;
+        write(
+            exec,
+            user,
+            "oidc-refresh-attach",
+            &crate::sql::OIDC_GRANTS_L314,
+            &[
+                (&id, Type::TEXT),
+                (&user, Type::INT8),
+                (&hash, Type::TEXT),
+                (&expires, Type::TIMESTAMPTZ),
+                (&family_expires, Type::TIMESTAMPTZ),
+            ],
+            |_| Ok(()),
+            "set refresh hash",
+        )
+        .await?;
     }
     let validity = expiry
         .duration_since(SystemTime::now())
@@ -323,8 +372,9 @@ async fn mint_fresh(
     )
     .await
 }
+#[allow(clippy::too_many_arguments)]
 async fn finish(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     key: &SigningKey,
     issuer: &str,
     request: &Authorization,
@@ -362,9 +412,9 @@ async fn finish(
     if email || profile {
         let actor = ActorId::new(user).expect("proved positive subject");
         let rows = exec
-            .read_user_scoped(
+            .read_user_scoped_contract(
                 actor,
-                "SELECT email,COALESCE(NULLIF(display_name,''),email) FROM users WHERE id=$1",
+                &crate::sql::OIDC_CONSUMERS_L96,
                 &[(&user, Type::INT8)],
             )
             .await
@@ -376,11 +426,17 @@ async fn finish(
             )
         })?;
         if email {
-            claims["email"] = json!(row.try_get::<_, String>(0).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: no rows in result set"))?);
+            claims["email"] = json!(row.try_get::<_, String>(0).map_err(|_| OAuthError::new(
+                "server_error",
+                "read OIDC subject claims: no rows in result set"
+            ))?);
             claims["email_verified"] = json!(true);
         }
         if profile {
-            claims["name"] = json!(row.try_get::<_, String>(1).map_err(|_| OAuthError::new("server_error", "read OIDC subject claims: no rows in result set"))?);
+            claims["name"] = json!(row.try_get::<_, String>(1).map_err(|_| OAuthError::new(
+                "server_error",
+                "read OIDC subject claims: no rows in result set"
+            ))?);
         }
     }
     let id_token = key
@@ -396,7 +452,7 @@ async fn finish(
 }
 
 pub async fn refresh_exchange(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     key: &SigningKey,
     issuer: &str,
     fields: &BTreeMap<String, String>,
@@ -427,11 +483,14 @@ pub async fn refresh_exchange(
     // #525: the credential-keyed read goes through the worker-owned reducer that
     // derives the user from the hash (oidc_tokens is FORCE-RLS on the user GUC).
     let anchor_sql = if crate::mutants::on("oidc-direct-refresh-anchor") {
-        "SELECT id,client_id,user_id,scopes,revoked_at IS NOT NULL,refresh_expires_at>now() AND COALESCE(refresh_family_expires_at,created_at+interval '90 days')>now() FROM oidc_tokens WHERE refresh_token_hash=$1 LIMIT 1"
+        &crate::sql::OIDC_GRANTS_L430
     } else {
-        "SELECT id,client_id,user_id,scopes,spent,live FROM rust_identity_oidc_refresh_anchor($1)"
+        &crate::sql::OIDC_GRANTS_L432
     };
-    let rows=exec.read(anchor_sql,&[(&old_hash,Type::TEXT)]).await.map_err(|_|OAuthError::new("invalid_grant",""))?;
+    let rows = exec
+        .read_contract(anchor_sql, &[(&old_hash, Type::TEXT)])
+        .await
+        .map_err(|_| OAuthError::new("invalid_grant", ""))?;
     let r = rows
         .first()
         .ok_or_else(|| OAuthError::new("invalid_grant", ""))?;
@@ -455,8 +514,12 @@ pub async fn refresh_exchange(
                 exec,
                 user,
                 "oidc-refresh-reuse",
-                "SELECT revoked FROM rust_identity_oidc_reuse($1,$2,$3)",
-                &[(&user, Type::INT8), (&client.id, Type::TEXT), (&old_hash, Type::TEXT)],
+                &crate::sql::OIDC_GRANTS_L458,
+                &[
+                    (&user, Type::INT8),
+                    (&client.id, Type::TEXT),
+                    (&old_hash, Type::TEXT),
+                ],
                 |_| Ok(()),
                 "refresh reuse revocation",
             )
@@ -492,7 +555,9 @@ pub async fn refresh_exchange(
     };
     // #523: every refresh redemption spends the presented token, narrowed scope
     // included; its access row joins the family. (Go minted without rotating.)
-    if crate::mutants::on("oidc-narrow-no-rotate") && !request.scopes.iter().any(|s| s == "offline_access") {
+    if crate::mutants::on("oidc-narrow-no-rotate")
+        && !request.scopes.iter().any(|s| s == "offline_access")
+    {
         return mint_fresh(exec, key, issuer, &request, &client, "").await;
     }
     let id = random_hex(16)?;
@@ -502,7 +567,7 @@ pub async fn refresh_exchange(
         exec,
         user,
         "oidc-rotate",
-        "SELECT expires_at FROM rust_identity_oidc_rotate($1,$2,$3,$4,$5,$6)",
+        &crate::sql::OIDC_GRANTS_L505,
         &[
             (&user, Type::INT8),
             (&client.id, Type::TEXT),

@@ -306,12 +306,23 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(&worker))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_principal = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let go_path = path.strip_prefix("/api").unwrap_or(&path).to_owned();
             let go_path = crate::guests_input::go_utf8(&crate::inventory::unescape(&go_path));
-            let authority = setjoin_admin_identity::authority(&exec, actor)
-                .await
-                .unwrap_or_else(|_| setjoin_admin_identity::Authority::lookup_failed());
             // Go's audited route guard: `RequirePermAudited` (users.read, audit.read),
             // `RequireAnyPermAudited` (the Auth console set) or
             // `RequireAnyPermissionSetAudited` (the job access sets).
@@ -336,6 +347,23 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                 }
                 _ => &["users.read"],
             };
+            let Some(authority) = admin_principal else {
+                let detail = match what {
+                    Action::Job | Action::JobResults | Action::JobCancel => {
+                        "audit.export|system.upgrade&identity.write".to_owned()
+                    }
+                    _ => required.join("|"),
+                };
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             let passed = match what {
                 Action::Job | Action::JobResults | Action::JobCancel => {
                     authority.allows_any(&["audit.export"])
@@ -352,28 +380,59 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     _ => required.join("|"),
                 };
                 let _ = setjoin_admin_identity::console_denied(
-                    &exec, actor, &go_path, &detail, operation,
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             }
+            if !authority.allows_any(required) {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            }
+            let scope = authority.enforced_domain_scope().unwrap_or(0);
             if authority.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    scope
                 );
                 let _ = setjoin_admin_identity::console_denied(
-                    &exec, actor, &go_path, &detail, operation,
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
                 )
                 .await;
                 return bare(403, "Forbidden", &c, &id);
             }
+            let Ok(admin_proof) = authority.require_any_permission(required) else {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             // The handlers' own source-wide gates (`requireUnscopedIdentityAdmin`: every
             // permission, then scope; `requireAnyUnscopedIdentityAdmin`: scope, then one).
             let handler_gate: Option<&str> = match what {
                 Action::GroupMappings | Action::Inventory => {
-                    if authority.domain_scope() != 0 {
+                    if scope != 0 {
                         Some(UNSCOPED)
                     } else if !authority.global_any(&setjoin_admin_identity::AUTH_CONSOLE) {
                         Some(LIVE)
@@ -382,7 +441,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     }
                 }
                 Action::Job | Action::JobResults | Action::JobCancel => {
-                    if authority.domain_scope() != 0 {
+                    if scope != 0 {
                         Some(UNSCOPED)
                     } else if !authority.global_any(&[
                         "audit.export",
@@ -406,7 +465,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     };
                     if !authority.global_any(&[one]) {
                         Some(LIVE)
-                    } else if authority.domain_scope() != 0 {
+                    } else if scope != 0 {
                         Some(UNSCOPED)
                     } else {
                         None
@@ -419,7 +478,6 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
             }
             // Go's `RequireReason(identity.write)` in front of the source, decision and
             // diagnostic writes.
-            let ip = c.identity.client_ip.to_string();
             if matches!(
                 what,
                 Action::Lifecycle(_)
@@ -439,15 +497,14 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                             | transitions::Op::RollbackPreview
                             | transitions::Op::Retry
                     ))
-            ) && wr::reason_required(&exec).await
+            ) && wr::reason_required(&factory, &admin_proof).await
                 && r.headers()
                     .get("x-audit-reason")
                     .is_none_or(|v| v.as_bytes().is_empty())
             {
-                wr::missing_reason(&exec, actor, &ip, operation).await;
+                wr::missing_reason(&factory, &user_principal, &ip, operation).await;
                 return bare(400, "reason_required", &c, &id);
             }
-            let scope = authority.domain_scope();
             let user = actor.user_id();
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -457,7 +514,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
             let query = r.uri().query().unwrap_or("").to_owned();
             if let Action::Transition(kind) = what {
                 let call = transitions::Call {
+                    factory: &factory,
                     worker: &worker,
+                    admin: &admin_proof,
                     auth: &auth,
                     actor,
                     scope,
@@ -474,17 +533,17 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
             // Responses that are not an ETagged list or detail document.
             match what {
                 Action::GroupMappings => {
-                    let body = ops::group_mappings(&exec).await;
+                    let body = ops::group_mappings(&factory, &admin_proof).await;
                     return json_reply(body, &c, &id);
                 }
                 Action::Inventory => {
-                    return match ops::inventory(&worker).await {
+                    return match ops::inventory(&factory, &admin_proof).await {
                         Ok(body) => json_reply(body, &c, &id),
                         Err(e) => refuse(e),
                     };
                 }
                 Action::InventoryExport => {
-                    let raw = match ops::inventory_export(&worker).await {
+                    let raw = match ops::inventory_export(&factory, &admin_proof).await {
                         Ok(raw) => raw,
                         Err(e) => return refuse(e),
                     };
@@ -519,7 +578,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         }
                         _ => false,
                     };
-                    let raw = match ops::job(&worker, user, &job).await {
+                    let raw = match ops::job(&factory, &admin_proof, user, &job).await {
                         Ok(raw) => raw,
                         Err(mut e) => {
                             if what == Action::JobResults {
@@ -597,7 +656,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                             }
                         }
                     }
-                    return match ops::job_results(&worker, user, &job, after, limit).await {
+                    return match ops::job_results(&factory, &admin_proof, user, &job, after, limit)
+                        .await
+                    {
                         Ok(raw) if raw.is_empty() || raw == "null" => {
                             bare(404, "identity job not found", &c, &id)
                         }
@@ -610,7 +671,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     if !db::valid_source_key(&key) {
                         return bare(400, "invalid identity source key", &c, &id);
                     }
-                    let row = match ops::load_source(&worker, &key).await {
+                    let row = match ops::load_source(&factory, &admin_proof, &key).await {
                         Ok(Some(row)) => row,
                         Ok(None) => return bare(404, "identity source not found", &c, &id),
                         Err(_) => return bare(500, "identity source lookup failed", &c, &id),
@@ -670,7 +731,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     if !authority.global_any(&["identity.write"]) {
                         return bare(403, LIVE, &c, &id);
                     }
-                    if authority.domain_scope() != 0 {
+                    if scope != 0 {
                         return bare(403, UNSCOPED, &c, &id);
                     }
                     let key = segment(&path, 6);
@@ -678,8 +739,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         return bare(400, "invalid identity source key", &c, &id);
                     }
                     let outcome = wr::lifecycle(
-                        &worker,
-                        actor,
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
                         &key,
                         name,
                         expected,
@@ -778,14 +840,17 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         return bare(400, &detail, &c, &id);
                     }
                     let rendered = wr::render_group_mappings(&list);
-                    return match wr::group_mappings_put(
-                        &exec,
-                        actor,
-                        &provider_type,
-                        &provider_id,
-                        &rendered,
-                        authority.permissions(),
+                    let permissions: Vec<String> =
+                        authority.permissions().iter().cloned().collect();
+                    return match crate::mailboxes::worker_write_contract_family(
+                        &worker,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "idv2.group_mappings.put",
+                        &setjoin_admin_identity::sql::IDV2_GROUP_MAPPINGS_PUT,
+                        &[&user, &provider_type, &provider_id, &rendered, &permissions],
                         operation,
+                        wr::parse_mapping_verdict,
                     )
                     .await
                     {
@@ -823,7 +888,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     if let Some(refused) = unscoped_all_identity(&authority) {
                         return bare(403, refused, &c, &id);
                     }
-                    let row = match ops::load_source(&worker, &document.key).await {
+                    let row = match ops::load_source(&factory, &admin_proof, &document.key).await {
                         Ok(row) => row,
                         Err(_) => return bare(500, "identity source plan failed", &c, &id),
                     };
@@ -911,7 +976,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     let mut expected: Option<i64> = None;
                     let mut kept: std::collections::BTreeMap<String, String> = Default::default();
                     let mut status = 201;
-                    match ops::load_source(&worker, &document.key).await {
+                    match ops::load_source(&factory, &admin_proof, &document.key).await {
                         Ok(Some(row)) => {
                             match expected_generation(&r, &row.generation.to_string()) {
                                 Ok(n) => expected = Some(n),
@@ -968,7 +1033,8 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         reason: &reason,
                     };
                     return finish_generation(
-                        src::apply(&worker, actor, &input, operation).await,
+                        src::apply(&factory, &user_principal, &admin_proof, &input, operation)
+                            .await,
                         status,
                         "identity source apply failed",
                         "identity source apply returned invalid result",
@@ -995,7 +1061,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     if !db::valid_source_key(&key) || !src::bounded(&name, 64) {
                         return bare(400, "invalid identity source secret path", &c, &id);
                     }
-                    let row = match ops::load_source(&worker, &key).await {
+                    let row = match ops::load_source(&factory, &admin_proof, &key).await {
                         Ok(Some(row)) => row,
                         Ok(None) => return bare(404, "identity source not found", &c, &id),
                         Err(_) => return bare(500, "identity source lookup failed", &c, &id),
@@ -1082,8 +1148,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     };
                     return finish_generation(
                         src::set_secret(
-                            &worker,
-                            actor,
+                            &factory,
+                            &user_principal,
+                            &admin_proof,
                             &key,
                             &name,
                             &envelope,
@@ -1138,7 +1205,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         return bare(status, detail, &c, &id);
                     }
                     let key = segment(&path, 6);
-                    let row = match ops::load_source(&worker, &key).await {
+                    let row = match ops::load_source(&factory, &admin_proof, &key).await {
                         Ok(Some(row)) => row,
                         Ok(None) => return bare(404, "identity source not found", &c, &id),
                         Err(_) => return bare(500, "identity source lookup failed", &c, &id),
@@ -1230,8 +1297,9 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         );
                     }
                     let outcome = wr::lifecycle(
-                        &worker,
-                        actor,
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
                         &key,
                         "validate",
                         expected,
@@ -1293,7 +1361,16 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         held.push("upgrade_backfill".into());
                         held.push("cohort_preview".into());
                     }
-                    return match wr::job_cancel(&worker, actor, &job, &held, operation).await {
+                    return match wr::job_cancel(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        &job,
+                        &held,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(v) => match v.status {
                             404 => bare(404, "identity job not found", &c, &id),
                             403 => bare(403, "identity job permission is no longer held", &c, &id),
@@ -1390,21 +1467,32 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     }
                     let refusal_detail = if !authority.global_any(&["identity.write"]) {
                         LIVE
-                    } else if authority.domain_scope() != 0 {
+                    } else if scope != 0 {
                         UNSCOPED
                     } else {
                         ""
                     };
-                    let input = wr::DecideInput {
-                        conflict: &conflict,
-                        generation,
-                        decision: &decision,
-                        person,
-                        reason: &reason,
-                        idempotency: &idempotency,
-                        unscoped_refusal: refusal_detail,
-                    };
-                    return match wr::conflict_decide(&worker, actor, &input, operation).await {
+                    return match crate::mailboxes::worker_write_contract_family(
+                        &worker,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "idv2.conflict.decide",
+                        &setjoin_admin_identity::sql::IDV2_CONFLICT_DECIDE,
+                        &[
+                            &user,
+                            &conflict,
+                            &generation,
+                            &decision,
+                            &person,
+                            &reason,
+                            &idempotency,
+                            &refusal_detail,
+                        ],
+                        operation,
+                        wr::parse_verdict,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(v) => match v.status {
                             404 => bare(404, "identity conflict not found", &c, &id),
                             403 => bare(403, &v.body.unwrap_or_default(), &c, &id),
@@ -1440,10 +1528,16 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                         Err(e) => return refuse(e),
                     };
                     let page = match what {
-                        Action::Sources => db::sources(&worker, user, scope, &opts, now).await,
-                        Action::People => db::people(&worker, user, &opts, now).await,
-                        Action::Conflicts => db::conflicts(&worker, user, scope, &opts, now).await,
-                        _ => db::events(&worker, user, scope, &opts, now).await,
+                        Action::Sources => {
+                            db::sources(&factory, &admin_proof, user, scope, &opts, now).await
+                        }
+                        Action::People => {
+                            db::people(&factory, &admin_proof, user, &opts, now).await
+                        }
+                        Action::Conflicts => {
+                            db::conflicts(&factory, &admin_proof, user, scope, &opts, now).await
+                        }
+                        _ => db::events(&factory, &admin_proof, user, scope, &opts, now).await,
                     };
                     match page {
                         Ok(body) => body,
@@ -1456,7 +1550,7 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                     else {
                         return bare(400, "invalid person id", &c, &id);
                     };
-                    match db::person(&worker, user, person).await {
+                    match db::person(&factory, &admin_proof, user, person).await {
                         Ok(Some(raw)) if raw != "null" && !raw.is_empty() => raw,
                         Ok(_) => return bare(404, "identity person not found", &c, &id),
                         Err(e) => return refuse(e),
@@ -1476,14 +1570,14 @@ impl<K: KeySource + 'static> Intercept for AdminIdentityV2Route<K> {
                 | Action::Secret(_)
                 | Action::MappingsPut
                 | Action::DryRun
-                | Action::Transition(_) => unreachable!("answered above"),
+                | Action::Transition(_) => return bare(404, "not found", &c, &id),
                 Action::Conflict => {
                     let Some(conflict) = db::parse_uuid(&segment(&path, 6))
                         .filter(|u| u != "00000000-0000-0000-0000-000000000000")
                     else {
                         return bare(400, "invalid conflict id", &c, &id);
                     };
-                    match db::conflict(&worker, user, &conflict).await {
+                    match db::conflict(&factory, &admin_proof, user, &conflict).await {
                         Ok(Some(raw)) => raw,
                         Ok(None) => return bare(404, "identity conflict not found", &c, &id),
                         Err(e) => return refuse(e),
@@ -1551,10 +1645,12 @@ pub(crate) fn refusal(e: db::Refusal, path: &str, c: &RequestContext, id: &str) 
 }
 
 /// Go's `requireUnscopedIdentityAdmin()` for `identity.write`: the refusal detail, if any.
-fn unscoped_all_identity(authority: &setjoin_admin_identity::Authority) -> Option<&'static str> {
+fn unscoped_all_identity(
+    authority: &setjoin_authz::principals::AdminPrincipal,
+) -> Option<&'static str> {
     if !authority.global_any(&["identity.write"]) {
         Some(LIVE)
-    } else if authority.domain_scope() != 0 {
+    } else if authority.enforced_domain_scope().unwrap_or(0) != 0 {
         Some(UNSCOPED)
     } else {
         None

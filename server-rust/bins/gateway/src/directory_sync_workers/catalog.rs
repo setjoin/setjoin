@@ -9,12 +9,12 @@
 //! normalized pipeline (`ldap::normalized::sync_with`): reducers own matching,
 //! lifecycle and cursor advancement, and the database lease picks the one
 //! discovery process across gateways.
-use crate::ad::runtime::AdWorker;
-use crate::ad::{AdClient, ClientConfig};
-use crate::ldap::engine::{admit_filter, Res, Worker};
-use crate::ldap::runtime::load_env_codec;
-use crate::ldap::{new_uuid, LdapClient};
+use super::ad_runtime::AdWorker;
+use super::ldap_engine::{Res, Worker};
+use super::ldap_runtime::load_env_codec;
 use setjoin_config_secret::ConfigSecretCodec;
+use setjoin_directory_sync::ad::{AdClient, ClientConfig};
+use setjoin_directory_sync::ldap::{admit_filter, new_uuid, LdapClient};
 use setjoin_pg::workers::WorkerDatabase;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -144,7 +144,7 @@ impl Built {
         };
         let released = tokio::time::timeout(
             STOP_DEADLINE,
-            crate::ldap::normalized::release_abandoned(db, instance),
+            super::ldap_normalized::release_abandoned(db, instance),
         )
         .await;
         match released {
@@ -548,7 +548,7 @@ pub struct ProbeFailure {
 /// at most five entries per page). `db` only satisfies the worker type; the dry
 /// run never opens it.
 pub async fn probe(db: &WorkerDatabase, cfg: &SourceConfig) -> Result<(), ProbeFailure> {
-    use crate::ldap::client::ClientError;
+    use setjoin_directory_sync::ldap::client::ClientError;
     let other = |_: String| ProbeFailure {
         credential_rejected: false,
     };
@@ -565,7 +565,8 @@ pub async fn probe(db: &WorkerDatabase, cfg: &SourceConfig) -> Result<(), ProbeF
             .await
             .map(|_| ())
             .map_err(|e| ProbeFailure {
-                credential_rejected: e.class == crate::ldap::client::ConnClass::BindAuth,
+                credential_rejected: e.class
+                    == setjoin_directory_sync::ldap::client::ConnClass::BindAuth,
             }),
         Built::Ad(worker) => {
             let (mut ldap, endpoint) = worker
@@ -646,7 +647,12 @@ mod tests {
     async fn hung_workers_are_aborted_at_the_shared_deadline() {
         let gone = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let started = tokio::time::Instant::now();
-        stop_all((0..8).map(|_| stalled_counted(None, gone.clone())).collect()).await;
+        stop_all(
+            (0..8)
+                .map(|_| stalled_counted(None, gone.clone()))
+                .collect(),
+        )
+        .await;
         let took = started.elapsed();
         assert!(
             took < STOP_DEADLINE + STOP_GRACE + Duration::from_secs(2),
@@ -654,6 +660,10 @@ mod tests {
         );
         // Aborting must actually destroy the workers, not just stop waiting for them.
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(gone.load(std::sync::atomic::Ordering::SeqCst), 8, "hung workers were left running");
+        assert_eq!(
+            gone.load(std::sync::atomic::Ordering::SeqCst),
+            8,
+            "hung workers were left running"
+        );
     }
 }

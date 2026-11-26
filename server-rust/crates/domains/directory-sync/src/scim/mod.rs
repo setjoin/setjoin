@@ -1,18 +1,15 @@
-//! SCIM 2.0 provisioning (F02, #375): bearer-token authentication, user and
-//! group resources, filter/pagination and the PATCH engine. Authority is the
-//! verified token's source and generation only (R1-R4): every statement carries
-//! them from the token row, never from the request. Writes call the existing
-//! source-fenced reducers; nothing here reimplements their logic.
+//! SCIM 2.0 provisioning (F02, #375): pure wire codecs, row decoders, filter/PATCH
+//! engines, and payload builders. Database execution of the cataloged `crate::sql::SCIM_*`
+//! contracts runs on `WorkerPool` in `bins/gateway/src/scim.rs`.
+#![allow(clippy::result_unit_err)]
 pub mod filter;
 pub mod patch;
 mod status;
 pub mod wire;
 
-use setjoin_pg::{Param, ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{Row, StatementFailure};
 pub use status::reducer_status;
 use wire::{Email, Enterprise, Group, Member, Meta, Name, Phone, User};
-
-const SECONDS: &str = "'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'";
 
 fn failure(message: &str) -> StatementFailure {
     StatementFailure {
@@ -21,9 +18,6 @@ fn failure(message: &str) -> StatementFailure {
         message: message.into(),
     }
 }
-fn nano(column: &str) -> String {
-    format!("to_char({column} AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', {column} AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char({column} AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z'")
-}
 
 /// The source binding a verified token carries.
 #[derive(Clone, Copy, Debug)]
@@ -31,6 +25,7 @@ pub struct Fence {
     pub source_id: i64,
     pub generation: i64,
 }
+
 #[derive(Clone, Debug)]
 pub struct Token {
     pub id: i64,
@@ -38,7 +33,7 @@ pub struct Token {
     pub fence: Fence,
 }
 
-fn candidate(row: &setjoin_pg::Row) -> Result<(Token, String), StatementFailure> {
+pub fn candidate(row: &Row) -> Result<(Token, String), StatementFailure> {
     let bad = |_| failure("scim token row");
     Ok((
         Token {
@@ -51,41 +46,6 @@ fn candidate(row: &setjoin_pg::Row) -> Result<(Token, String), StatementFailure>
         },
         row.try_get(2).map_err(bad)?,
     ))
-}
-const TOKEN_COLUMNS: &str = "token_id, name, token_hash, deletion_policy, attribute_mapping::text, source_id, source_generation";
-
-/// Indexed single-candidate lookup by the lowercase hex SHA-256 of the token.
-pub async fn token_by_hash(
-    exec: &ScopedExecutor,
-    lookup_hash: &str,
-) -> Result<Option<(Token, String)>, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!("SELECT {TOKEN_COLUMNS} FROM scim_token_lookup($1)"),
-            &[(&lookup_hash, Type::TEXT)],
-        )
-        .await?;
-    rows.first().map(candidate).transpose()
-}
-/// Legacy (pre-V238, no lookup hash) tokens; rows that fail to scan are skipped.
-pub async fn legacy_tokens(
-    exec: &ScopedExecutor,
-) -> Result<Vec<(Token, String)>, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!("SELECT {TOKEN_COLUMNS} FROM scim_list_active_tokens()"),
-            &[],
-        )
-        .await?;
-    Ok(rows.iter().filter_map(|r| candidate(r).ok()).collect())
-}
-pub async fn record_usage(exec: &ScopedExecutor, token: i64) {
-    let _ = exec
-        .read(
-            "SELECT scim_record_token_usage($1)",
-            &[(&token, Type::INT8)],
-        )
-        .await;
 }
 
 // ---- users ------------------------------------------------------------------------
@@ -107,18 +67,7 @@ pub struct UserRow {
     pub updated_micros: i64,
 }
 
-fn user_columns() -> String {
-    format!(
-        "u.id, l.external_subject, u.username, u.email, u.display_name, u.first_name, u.last_name, \
-         u.job_title, u.phone, u.enabled, to_char(u.created_at AT TIME ZONE 'UTC',{SECONDS}), \
-         to_char(u.updated_at AT TIME ZONE 'UTC',{SECONDS}), {}, \
-         (extract(epoch FROM u.updated_at) * 1000000)::bigint",
-        nano("u.updated_at")
-    )
-}
-const LINKED: &str = "FROM user_identity_links l JOIN users u ON u.id=l.user_id";
-
-fn user_row(row: &setjoin_pg::Row) -> Option<UserRow> {
+pub fn user_row(row: &Row) -> Option<UserRow> {
     Some(UserRow {
         id: row.try_get(0).ok()?,
         external_id: row.try_get(1).ok()?,
@@ -154,6 +103,7 @@ pub fn user_resource(row: &UserRow) -> User {
         &row.updated,
     )
 }
+
 #[allow(clippy::too_many_arguments)]
 pub fn resource_from(
     id: i64,
@@ -212,19 +162,83 @@ pub fn resource_from(
     user
 }
 
+pub fn decode_patch_row(row: &Row, user: i64, now: &str) -> Option<(User, String)> {
+    let external: String = row.try_get(0).ok()?;
+    let text = |i| row.try_get::<_, Option<String>>(i).ok();
+    let (username, email, display) = (text(1)?, text(2)?, text(3)?);
+    let (first, last, title, phone, department) =
+        (text(4)?, text(5)?, text(6)?, text(7)?, text(8)?);
+    let enabled: Option<bool> = row.try_get(9).ok()?;
+    let mut resource = resource_from(
+        user,
+        Some(&external),
+        username.as_deref(),
+        email.as_deref(),
+        display.as_deref(),
+        first.as_deref(),
+        last.as_deref(),
+        title.as_deref(),
+        phone.as_deref(),
+        enabled,
+        now,
+        now,
+    );
+    if let Some(department) = department {
+        resource.enterprise = Some(Enterprise {
+            department,
+            manager: None,
+        });
+    }
+    Some((resource, external))
+}
+
 pub enum Page {
     Filter(filter::Node, i64, i64),
     Sync(String, i64),
     All(i64, i64),
 }
+
 pub enum ListError {
     Http(patch::HttpError),
     /// Go's `500 Query failed`.
     Query,
 }
+
 pub struct Listed {
     pub rows: Vec<UserRow>,
     pub total: i64,
+}
+
+/// Resolved static-SQL parameters for a SCIM `filter` query.
+pub struct FilterParams {
+    pub attribute: String,
+    pub operator: String,
+    pub value: String,
+}
+
+/// Validate a parsed SCIM filter node and compute static-SQL bind arguments
+/// for `sql::SCIM_USERS_FILTER_COUNT` / `sql::SCIM_USERS_FILTER_LIST`.
+pub fn resolve_filter(node: &filter::Node) -> Result<FilterParams, ListError> {
+    let (_, kind) = filter::column(&node.attribute).ok_or_else(|| {
+        ListError::Http(patch::http(
+            400,
+            "Unsupported filter attribute",
+            "invalidFilter",
+        ))
+    })?;
+    let value = match node.operator.as_str() {
+        "eq" => node.value.clone(),
+        "co" | "sw" if kind != filter::Kind::Text => return Err(ListError::Query),
+        "co" => format!("%{}%", node.value),
+        "sw" => format!("{}%", node.value),
+        "pr" => String::new(),
+        _ => String::new(),
+    };
+    Ok(FilterParams {
+        attribute: node.attribute.clone(),
+        operator: node.operator.clone(),
+        value,
+    })
 }
 
 /// Go `time.Parse(time.RFC3339Nano, text)`, normalized for PostgreSQL with the
@@ -305,7 +319,8 @@ pub fn sync_token(source: i64, updated: &str) -> String {
         .as_bytes(),
     )
 }
-fn decode_sync_token(token: &str, source: i64) -> Result<String, ()> {
+
+pub fn decode_sync_token(token: &str, source: i64) -> Result<String, ()> {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     let data = URL_SAFE_NO_PAD.decode(token).map_err(|_| ())?;
     let value: serde_json::Value = serde_json::from_slice(&data).map_err(|_| ())?;
@@ -331,201 +346,6 @@ fn decode_sync_token(token: &str, source: i64) -> Result<String, ()> {
         return Err(());
     }
     rfc3339nano(&updated)
-}
-
-pub async fn list_users(
-    worker: &ScopedExecutor,
-    source: i64,
-    page: Page,
-) -> Result<Listed, ListError> {
-    let columns = user_columns();
-    let base = "l.state='active' AND 'provision'=ANY(l.purposes) AND NOT is_guest_account(u.id)";
-    let query = |e: StatementFailure| {
-        let _ = e;
-        ListError::Query
-    };
-    match page {
-        Page::Filter(node, start, count) => {
-            let (clause, value) = match filter::to_sql(&node) {
-                Err(()) => {
-                    return Err(ListError::Http(patch::http(
-                        400,
-                        "Unsupported filter attribute",
-                        "invalidFilter",
-                    )))
-                }
-                Ok(filter::Where::Rejected) => return Err(ListError::Query),
-                Ok(filter::Where::Clause(sql, value)) => (sql, value),
-            };
-            let source_arg = if value.is_some() { 2 } else { 1 };
-            let mut params: Vec<Param<'_>> = vec![];
-            if let Some(v) = &value {
-                params.push((v, Type::TEXT));
-            }
-            params.push((&source, Type::INT8));
-            let total = worker
-                .read(
-                    &format!("SELECT COUNT(*) {LINKED} WHERE l.source_id=${source_arg} AND {base} AND {clause}"),
-                    &params,
-                )
-                .await
-                .map_err(query)?;
-            let total: i64 = total
-                .first()
-                .ok_or(ListError::Query)?
-                .try_get(0)
-                .map_err(|_| ListError::Query)?;
-            let offset = start - 1;
-            params.push((&count, Type::INT8));
-            params.push((&offset, Type::INT8));
-            let rows = worker
-                .read_iterated(
-                    &format!(
-                        "SELECT {columns} {LINKED} WHERE l.source_id=${source_arg} AND {base} AND {clause} \
-                         ORDER BY u.id LIMIT ${} OFFSET ${}",
-                        source_arg + 1,
-                        source_arg + 2
-                    ),
-                    &params,
-                )
-                .await
-                .map_err(query)?;
-            Ok(Listed {
-                rows: rows.iter().filter_map(user_row).collect(),
-                total,
-            })
-        }
-        Page::Sync(token, count) => {
-            let cursor = decode_sync_token(&token, source).map_err(|_| ListError::Query)?;
-            let rows = worker
-                .read_iterated(
-                    &format!(
-                        "SELECT {columns} {LINKED} WHERE l.source_id=$1 AND {base} \
-                         AND u.updated_at > $2::text::timestamptz ORDER BY u.updated_at LIMIT $3"
-                    ),
-                    &[
-                        (&source, Type::INT8),
-                        (&cursor, Type::TEXT),
-                        (&count, Type::INT8),
-                    ],
-                )
-                .await
-                .map_err(query)?;
-            Ok(Listed {
-                rows: rows.iter().filter_map(user_row).collect(),
-                total: 0,
-            })
-        }
-        Page::All(start, count) => {
-            let total = worker
-                .read(
-                    &format!("SELECT COUNT(*) {LINKED} WHERE l.source_id=$1 AND {base}"),
-                    &[(&source, Type::INT8)],
-                )
-                .await
-                .map_err(query)?;
-            let total: i64 = total
-                .first()
-                .ok_or(ListError::Query)?
-                .try_get(0)
-                .map_err(|_| ListError::Query)?;
-            let offset = start - 1;
-            let rows = worker
-                .read_iterated(
-                    &format!(
-                        "SELECT {columns} {LINKED} WHERE l.source_id=$1 AND {base} \
-                         ORDER BY u.id LIMIT $2 OFFSET $3"
-                    ),
-                    &[
-                        (&source, Type::INT8),
-                        (&count, Type::INT8),
-                        (&offset, Type::INT8),
-                    ],
-                )
-                .await
-                .map_err(query)?;
-            Ok(Listed {
-                rows: rows.iter().filter_map(user_row).collect(),
-                total,
-            })
-        }
-    }
-}
-
-/// One linked user, or `None` (Go answers 404 for every error here).
-pub async fn get_user(worker: &ScopedExecutor, source: i64, id: i64) -> Option<UserRow> {
-    let columns = user_columns();
-    let rows = worker
-        .read(
-            &format!(
-                "SELECT {columns} {LINKED} WHERE l.source_id=$1 AND u.id=$2 \
-                 AND l.state='active' AND 'provision'=ANY(l.purposes) AND NOT is_guest_account(u.id)"
-            ),
-            &[(&source, Type::INT8), (&id, Type::INT8)],
-        )
-        .await
-        .ok()?;
-    rows.first().and_then(user_row)
-}
-
-/// Subject of a linked user, for PUT.
-pub async fn source_subject(worker: &ScopedExecutor, source: i64, user: i64) -> Option<String> {
-    let rows = worker
-        .read(
-            "SELECT l.external_subject FROM user_identity_links l WHERE l.source_id = $1 AND l.user_id = $2 \
-             AND l.state = 'active' AND 'provision' = ANY(l.purposes)",
-            &[(&source, Type::INT8), (&user, Type::INT8)],
-        )
-        .await
-        .ok()?;
-    rows.first()?.try_get(0).ok()
-}
-
-/// The current resource for PATCH and DELETE (department path included).
-pub async fn user_for_patch(
-    worker: &ScopedExecutor,
-    source: i64,
-    user: i64,
-    now: &str,
-) -> Option<(User, String)> {
-    let rows = worker
-        .read(
-            "SELECT l.external_subject,u.username,u.email,u.display_name,u.first_name,u.last_name,\
-             u.job_title,u.phone,d.path,u.enabled FROM user_identity_links l JOIN users u ON u.id=l.user_id \
-             LEFT JOIN departments d ON d.id=u.department_id WHERE l.source_id=$1 AND u.id=$2 \
-             AND l.state='active' AND 'provision'=ANY(l.purposes) AND NOT is_guest_account(u.id)",
-            &[(&source, Type::INT8), (&user, Type::INT8)],
-        )
-        .await
-        .ok()?;
-    let row = rows.first()?;
-    let external: String = row.try_get(0).ok()?;
-    let text = |i| row.try_get::<_, Option<String>>(i).ok();
-    let (username, email, display) = (text(1)?, text(2)?, text(3)?);
-    let (first, last, title, phone, department) =
-        (text(4)?, text(5)?, text(6)?, text(7)?, text(8)?);
-    let enabled: Option<bool> = row.try_get(9).ok()?;
-    let mut resource = resource_from(
-        user,
-        Some(&external),
-        username.as_deref(),
-        email.as_deref(),
-        display.as_deref(),
-        first.as_deref(),
-        last.as_deref(),
-        title.as_deref(),
-        phone.as_deref(),
-        enabled,
-        now,
-        now,
-    );
-    if let Some(department) = department {
-        resource.enterprise = Some(Enterprise {
-            department,
-            manager: None,
-        });
-    }
-    Some((resource, external))
 }
 
 // ---- user writes ------------------------------------------------------------------
@@ -596,19 +416,15 @@ pub enum ApplyError {
     Status(u16),
 }
 
-/// `identity_source_scim_apply` as `applySourceUser` (`touched == None`) or
-/// `applySourceUserPatch`. `request` is a fresh random UUID.
-#[allow(clippy::too_many_arguments)]
-pub async fn apply_user(
-    worker: &ScopedExecutor,
+/// Build JSON payload for `identity_source_scim_apply`.
+pub fn build_apply_user_payload(
     fence: Fence,
-    request: &str,
     external_id: &str,
     fields: &UserFields,
     title: &str,
     expected: i64,
     touched: Option<&patch::Touched>,
-) -> Result<i64, ApplyError> {
+) -> Result<String, ApplyError> {
     use serde_json::{json, Map, Value};
     if fence.source_id <= 0 || fence.generation <= 0 {
         return Err(ApplyError::Status(500));
@@ -665,25 +481,13 @@ pub async fn apply_user(
             Value::Object(map)
         }
     };
-    let payload = payload.to_string();
-    let rows = worker
-        .read(
-            "SELECT identity_source_scim_apply($1,$2,$3::text::uuid,$4,$5::text::jsonb)::text",
-            &[
-                (&fence.source_id, Type::INT8),
-                (&fence.generation, Type::INT8),
-                (&request, Type::TEXT),
-                (&external_id, Type::TEXT),
-                (&payload, Type::TEXT),
-            ],
-        )
-        .await
-        .map_err(|e| ApplyError::Status(reducer_status(&e)))?;
-    let raw: String = rows
-        .first()
-        .and_then(|r| r.try_get(0).ok())
-        .ok_or(ApplyError::Status(500))?;
-    let result: Value = serde_json::from_str(&raw).map_err(|_| ApplyError::Status(500))?;
+    Ok(payload.to_string())
+}
+
+/// Decode the JSON response from `identity_source_scim_apply`.
+pub fn parse_apply_user_result(raw: &str) -> Result<i64, ApplyError> {
+    use serde_json::Value;
+    let result: Value = serde_json::from_str(raw).map_err(|_| ApplyError::Status(500))?;
     let text = |k: &str| result.get(k).and_then(Value::as_str).unwrap_or("");
     if text("state") != "applied" || text("userId").is_empty() {
         return Err(ApplyError::Status(500));
@@ -701,6 +505,7 @@ pub fn go_parse_int(text: &str) -> Option<i64> {
         .ok()
         .or_else(|| text.strip_prefix('+')?.parse().ok())
 }
+
 /// `strconv.Atoi` on a 64-bit platform.
 pub fn atoi(text: &str) -> Option<i64> {
     go_parse_int(text)
@@ -713,6 +518,25 @@ pub struct GroupRow {
     pub external_id: Option<String>,
     pub display_name: Option<String>,
     pub created: String,
+}
+
+pub fn group_row(row: &Row) -> Option<GroupRow> {
+    Some(GroupRow {
+        id: row.try_get(0).ok()?,
+        external_id: row.try_get(1).ok()?,
+        display_name: row.try_get(2).ok()?,
+        created: row.try_get(3).ok()?,
+    })
+}
+
+pub fn group_member_row(row: &Row) -> Option<Member> {
+    let id: i64 = row.try_get(2).ok()?;
+    Some(Member {
+        value: row.try_get(0).ok()?,
+        display: row.try_get(1).ok()?,
+        reference: format!("/scim/v2/Users/{id}"),
+        kind: "User".into(),
+    })
 }
 
 pub fn group_resource(row: &GroupRow, id_text: &str, members: Vec<Member>) -> Group {
@@ -730,366 +554,15 @@ pub fn group_resource(row: &GroupRow, id_text: &str, members: Vec<Member>) -> Gr
     }
 }
 
-pub async fn group_total(exec: &ScopedExecutor, source: i64) -> Result<i64, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT COUNT(*) FROM distribution_groups WHERE scim_source_id=$1",
-            &[(&source, Type::INT8)],
-        )
-        .await?;
-    rows.first()
-        .and_then(|r| r.try_get(0).ok())
-        .ok_or_else(|| failure("count"))
-}
-pub async fn list_groups(
-    exec: &ScopedExecutor,
-    source: i64,
-    start: i64,
-    count: i64,
-) -> Result<Vec<GroupRow>, StatementFailure> {
-    let offset = start - 1;
-    let rows = exec
-        .read_iterated(
-            &format!(
-                "SELECT dg.id, dg.scim_external_id, mb.display_name, to_char(dg.created_at AT TIME ZONE 'UTC',{SECONDS}) \
-                 FROM distribution_groups dg JOIN mailboxes mb ON mb.id = dg.mailbox_id \
-                 WHERE dg.scim_source_id=$1 ORDER BY dg.id LIMIT $2 OFFSET $3"
-            ),
-            &[(&source, Type::INT8), (&count, Type::INT8), (&offset, Type::INT8)],
-        )
-        .await?;
-    Ok(rows.iter().filter_map(group_row).collect())
-}
-fn group_row(row: &setjoin_pg::Row) -> Option<GroupRow> {
-    Some(GroupRow {
-        id: row.try_get(0).ok()?,
-        external_id: row.try_get(1).ok()?,
-        display_name: row.try_get(2).ok()?,
-        created: row.try_get(3).ok()?,
-    })
-}
-pub async fn get_group(
-    exec: &ScopedExecutor,
-    source: i64,
-    id: i64,
-) -> Result<Option<GroupRow>, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!(
-                "SELECT dg.id, dg.scim_external_id, mb.display_name, to_char(dg.created_at AT TIME ZONE 'UTC',{SECONDS}) \
-                 FROM distribution_groups dg JOIN mailboxes mb ON mb.id = dg.mailbox_id \
-                 WHERE dg.id=$1 AND dg.scim_source_id=$2"
-            ),
-            &[(&id, Type::INT8), (&source, Type::INT8)],
-        )
-        .await?;
-    Ok(rows.first().and_then(group_row))
-}
-/// A failed member query yields no members, as Go's.
-pub async fn group_members(worker: &ScopedExecutor, source: i64, group: i64) -> Vec<Member> {
-    let Ok(rows) = worker
-        .read_iterated(
-            "SELECT l.external_subject, COALESCE(u.display_name, ''), u.id FROM distribution_group_members dgm \
-             JOIN mailboxes mb ON mb.id = dgm.mailbox_id JOIN users u ON u.id = mb.user_id \
-             JOIN user_identity_links l ON l.user_id=u.id JOIN distribution_groups dg ON dg.id=dgm.group_id \
-             WHERE dgm.group_id=$1 AND dg.scim_source_id=$2 AND l.source_id=$2 AND l.state='active' \
-             AND 'provision'=ANY(l.purposes) AND NOT is_guest_account(u.id) ORDER BY u.display_name",
-            &[(&group, Type::INT8), (&source, Type::INT8)],
-        )
-        .await
-    else {
-        return vec![];
-    };
-    rows.iter()
-        .filter_map(|r| {
-            let id: i64 = r.try_get(2).ok()?;
-            Some(Member {
-                value: r.try_get(0).ok()?,
-                display: r.try_get(1).ok()?,
-                reference: format!("/scim/v2/Users/{id}"),
-                kind: "User".into(),
-            })
-        })
-        .collect()
-}
-
-/// Group id of an extID, scoped to the source (PATCH pre-check; error = 404 there).
-pub async fn group_external_id(exec: &ScopedExecutor, source: i64, id: i64) -> Option<String> {
-    let rows = exec
-        .read(
-            "SELECT COALESCE(scim_external_id, '') FROM distribution_groups WHERE id=$1 AND scim_source_id=$2",
-            &[(&id, Type::INT8), (&source, Type::INT8)],
-        )
-        .await
-        .ok()?;
-    rows.first()?.try_get(0).ok()
-}
-
-/// `scim_upsert_group` then `scim_apply_group_members(.., TRUE)` in Go's one
-/// transaction: a single statement, so both commit or neither does.
-pub async fn create_group(
-    exec: &ScopedExecutor,
-    fence: Fence,
-    external_id: &str,
-    display_name: &str,
-    members: &[String],
-) -> Result<i64, u16> {
-    let members = members.to_vec();
-    let rows = exec
-        .read(
-            "SELECT g.id FROM (SELECT scim_upsert_group($1,$2,$3,$4) AS id) g, \
-             LATERAL (SELECT scim_apply_group_members($1,$2,$3,$5,TRUE) AS applied OFFSET 0) m",
-            &[
-                (&fence.source_id, Type::INT8),
-                (&fence.generation, Type::INT8),
-                (&external_id, Type::TEXT),
-                (&display_name, Type::TEXT),
-                (&members, Type::TEXT_ARRAY),
-            ],
-        )
-        .await
-        .map_err(|e| reducer_status(&e))?;
-    rows.first().and_then(|r| r.try_get(0).ok()).ok_or(500)
-}
-
 pub enum GroupFailure {
     Http(patch::HttpError),
     Status(u16),
 }
 
-pub async fn run_group_step(
-    exec: &ScopedExecutor,
-    fence: Fence,
-    group: i64,
-    external_id: &str,
-    step: patch::GroupStep,
-) -> Result<(), GroupFailure> {
-    use patch::GroupStep::*;
-    let status = |e: StatementFailure| GroupFailure::Status(reducer_status(&e));
-    match step {
-        Rename(name) => {
-            let rows = exec
-                .read(
-                    "SELECT scim_upsert_group($1,$2,$3,$4)",
-                    &[
-                        (&fence.source_id, Type::INT8),
-                        (&fence.generation, Type::INT8),
-                        (&external_id, Type::TEXT),
-                        (&name, Type::TEXT),
-                    ],
-                )
-                .await
-                .map_err(status)?;
-            let updated: i64 = rows
-                .first()
-                .and_then(|r| r.try_get(0).ok())
-                .ok_or(GroupFailure::Status(500))?;
-            if updated != group {
-                return Err(GroupFailure::Http(patch::http(
-                    404,
-                    "Group is not managed by this SCIM source",
-                    "noTarget",
-                )));
-            }
-            Ok(())
-        }
-        Replace(ids) => apply_members(exec, fence, external_id, &ids, true)
-            .await
-            .map_err(GroupFailure::Status),
-        Add(ids) => apply_members(exec, fence, external_id, &ids, false)
-            .await
-            .map_err(GroupFailure::Status),
-        Remove(ids) => {
-            exec.read(
-                "SELECT scim_remove_group_members($1,$2,$3,$4)",
-                &[
-                    (&fence.source_id, Type::INT8),
-                    (&fence.generation, Type::INT8),
-                    (&external_id, Type::TEXT),
-                    (&ids, Type::TEXT_ARRAY),
-                ],
-            )
-            .await
-            .map_err(status)?;
-            Ok(())
-        }
-    }
-}
-pub async fn apply_members(
-    exec: &ScopedExecutor,
-    fence: Fence,
-    external_id: &str,
-    ids: &[String],
-    replace: bool,
-) -> Result<(), u16> {
-    let ids = ids.to_vec();
-    exec.read(
-        "SELECT scim_apply_group_members($1,$2,$3,$4,$5)",
-        &[
-            (&fence.source_id, Type::INT8),
-            (&fence.generation, Type::INT8),
-            (&external_id, Type::TEXT),
-            (&ids, Type::TEXT_ARRAY),
-            (&replace, Type::BOOL),
-        ],
-    )
-    .await
-    .map(|_| ())
-    .map_err(|e| reducer_status(&e))
-}
-
-pub async fn delete_group(exec: &ScopedExecutor, fence: Fence, group: i64) -> Result<bool, u16> {
-    let rows = exec
-        .read(
-            "SELECT scim_delete_group($1,$2,$3)",
-            &[
-                (&fence.source_id, Type::INT8),
-                (&fence.generation, Type::INT8),
-                (&group, Type::INT8),
-            ],
-        )
-        .await
-        .map_err(|e| reducer_status(&e))?;
-    rows.first().and_then(|r| r.try_get(0).ok()).ok_or(500)
-}
-
 // ---- welcome email ----------------------------------------------------------------
 
-/// Go `notify.SendWelcomeEmail(ctx, workerPool, id, "", logger)`: idempotent,
-/// best effort, never fails the request. Delivery is the `deliver` reducer.
-pub async fn send_welcome(worker: &ScopedExecutor, user: i64) {
-    let sentinel = format!("system:welcome:{user}");
-    let Ok(rows) = worker
-        .read(
-            "SELECT EXISTS (SELECT 1 FROM messages m JOIN mailboxes mb ON mb.id = m.mailbox_id \
-             WHERE mb.user_id = $1 AND m.raw_ref = $2)",
-            &[(&user, Type::INT8), (&sentinel, Type::TEXT)],
-        )
-        .await
-    else {
-        return;
-    };
-    if rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()) != Some(false) {
-        return;
-    }
-    let Ok(rows) = worker
-        .read("SELECT get_system_config('welcome_email')::text", &[])
-        .await
-    else {
-        return;
-    };
-    let Some(Some(raw)) = rows
-        .first()
-        .map(|r| r.try_get::<_, Option<String>>(0).ok().flatten())
-    else {
-        return;
-    };
-    let Ok(config) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return;
-    };
-    let Some(template) = welcome_template(&config) else {
-        return;
-    };
-    // identity.ResolvePrimaryMailbox, then the recipient's personalization fields.
-    let Ok(rows) = worker
-        .read(
-            "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
-            &[(&user, Type::INT8)],
-        )
-        .await
-    else {
-        return;
-    };
-    let Some(mailbox) = rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) else {
-        return;
-    };
-    let Ok(rows) = worker
-        .read(
-            "SELECT u.display_name, u.username, COALESCE(mb.email, u.email) FROM mailboxes mb \
-             JOIN users u ON u.id = mb.user_id WHERE mb.id = $1",
-            &[(&mailbox, Type::INT8)],
-        )
-        .await
-    else {
-        return;
-    };
-    let Some(row) = rows.first() else { return };
-    let (Ok(mut display), Ok(username), Ok(email)) = (
-        row.try_get::<_, String>(0),
-        row.try_get::<_, String>(1),
-        row.try_get::<_, String>(2),
-    ) else {
-        return;
-    };
-    let (local, domain) = match email.rfind('@') {
-        Some(at) => (&email[..at], &email[at + 1..]),
-        None => ("", email.as_str()),
-    };
-    if display.is_empty() {
-        display = if local.is_empty() {
-            email.clone()
-        } else {
-            local.to_owned()
-        };
-    }
-    let values = [
-        ("DisplayName", display),
-        ("Email", email.clone()),
-        ("Username", username),
-        ("OrgName", domain.to_owned()),
-        ("WebmailURL", format!("https://{domain}")),
-    ];
-    let substitute = |text: &str| {
-        let mut out = text.to_owned();
-        for (key, value) in &values {
-            out = out.replace(&format!("{{{{{key}}}}}"), value);
-        }
-        out
-    };
-    let (subject, body_text, body_html) = (
-        substitute(&template.0),
-        substitute(&template.1),
-        substitute(&template.2),
-    );
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let message_id = format!("welcome-{user}-{nanos}@setjoin");
-    let from = format!("noreply@{domain}");
-    let to = format!(
-        "[{{\"email\":{},\"name\":\"\"}}]",
-        serde_json::to_string(&email).unwrap_or_default()
-    );
-    let size = (body_text.len() + body_html.len()) as i64;
-    let _ = worker
-        .read(
-            "SELECT deliver($1,$2,$3,$4,$5,$6::text::jsonb,$7::text::jsonb,$8::text::jsonb,$9,$10,$11,$12,$13,$14,FALSE,now(),$15,$16,$17,0.0::real,$18::text::jsonb)",
-            &[
-                (&sentinel, Type::TEXT),
-                (&message_id, Type::TEXT),
-                (&from, Type::TEXT),
-                (&"SetJoin Team", Type::TEXT),
-                (&email, Type::TEXT),
-                (&to, Type::TEXT),
-                (&"[]", Type::TEXT),
-                (&"[]", Type::TEXT),
-                (&subject, Type::TEXT),
-                (&"", Type::TEXT),
-                (&"", Type::TEXT),
-                (&body_text, Type::TEXT),
-                (&body_html, Type::TEXT),
-                (&size, Type::INT8),
-                (&"none", Type::TEXT),
-                (&"none", Type::TEXT),
-                (&"none", Type::TEXT),
-                (&"{}", Type::TEXT),
-            ],
-        )
-        .await;
-}
-
 /// Go `resolveWelcomeTemplate(cfg, "")`: disabled or no usable locale sends nothing.
-fn welcome_template(config: &serde_json::Value) -> Option<(String, String, String)> {
+pub fn welcome_template(config: &serde_json::Value) -> Option<(String, String, String)> {
     let map = config.as_object()?;
     let field = |m: &serde_json::Map<String, serde_json::Value>, name: &str| {
         m.iter()
@@ -1180,10 +653,10 @@ mod tests {
         assert!(filter::parse("userName").is_err());
         assert!(filter::parse("userName gt x").is_err());
         assert!(filter::parse("userName eq \"\"").is_err());
-        assert!(filter::to_sql(&filter::parse("password_hash pr").unwrap()).is_err());
+        assert!(resolve_filter(&filter::parse("password_hash pr").unwrap()).is_err());
         assert!(matches!(
-            filter::to_sql(&filter::parse("active co t").unwrap()),
-            Ok(filter::Where::Rejected)
+            resolve_filter(&filter::parse("active co t").unwrap()),
+            Err(ListError::Query)
         ));
     }
 }

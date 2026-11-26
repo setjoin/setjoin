@@ -176,12 +176,15 @@ assert_mutant_fails "5a. FORCE RLS write violation (setjoin_app)" "42501" "RLS_V
   "$BIN" --mutant-json "$TMP/m5a_rls_write.json"
 
 # Mutant 5b: Cross-tenant read leak failing FORCE RLS deny probe (RLS_VIOLATION)
+# Note: V288 enforced FORCE RLS on `users`, so this mutant queries an RLS-exempt
+# org table (`domains`) to simulate an unguarded read leaking a row under the
+# foreign-tenant deny probe.
 cat >"$TMP/m5b_rls_read_leak.json" <<'JSON'
 [
   {
     "id": "mutant.rls_read_leak",
     "domain": "selftest",
-    "sql": "SELECT id FROM users WHERE id = $1",
+    "sql": "SELECT id FROM domains WHERE id > 0 AND $1 > 0 LIMIT 1",
     "params": ["int8"],
     "columns": [{"name": "id", "ty": "int8"}],
     "scope": "UserScoped",

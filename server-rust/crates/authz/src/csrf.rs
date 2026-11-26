@@ -48,11 +48,15 @@ fn sanitized_host(v: &str) -> Option<&str> {
 
 /// The same parsed scheme/host tuple as frozen Go's net/url.
 fn origin_matches(raw: &str, expected_host: &str, scheme: &str) -> bool {
-    let Ok(parsed)=crate::go_url::go_url_parse(raw) else{return false;};
-    if parsed.host.is_empty() || !parsed.scheme.eq_ignore_ascii_case(scheme){return false;}
-    let (host,port)=split_host_port(&parsed.host,&parsed.scheme);
-    let (want_host,want_port)=split_host_port(expected_host,scheme);
-    host.eq_ignore_ascii_case(want_host) && port==want_port
+    let Ok(parsed) = crate::go_url::go_url_parse(raw) else {
+        return false;
+    };
+    if parsed.host.is_empty() || !parsed.scheme.eq_ignore_ascii_case(scheme) {
+        return false;
+    }
+    let (host, port) = split_host_port(&parsed.host, &parsed.scheme);
+    let (want_host, want_port) = split_host_port(expected_host, scheme);
+    host.eq_ignore_ascii_case(want_host) && port == want_port
 }
 
 fn split_host_port<'a>(hostport: &'a str, scheme: &str) -> (&'a str, &'a str) {

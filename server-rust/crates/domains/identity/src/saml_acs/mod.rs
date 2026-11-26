@@ -49,7 +49,10 @@ pub fn process(xml_bytes: &[u8], keys: &[PinnedKey], expect: &Expect<'_>) -> Res
         let status = root
             .children()
             .find(|c| xml::is_el(*c, xml::SAMLP, "Status"))
-            .and_then(|s| s.children().find(|c| xml::is_el(*c, xml::SAMLP, "StatusCode")))
+            .and_then(|s| {
+                s.children()
+                    .find(|c| xml::is_el(*c, xml::SAMLP, "StatusCode"))
+            })
             .and_then(|c| c.attribute("Value"));
         if status != Some("urn:oasis:names:tc:SAML:2.0:status:Success")
             && !crate::mutants::on("saml-status")

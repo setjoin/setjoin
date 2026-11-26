@@ -542,8 +542,10 @@ pub async fn run(action: &str, kind: &str, fault: Option<&str>) -> Result<(), Bo
         let recording = go.is_some();
         let exec = loaded_host_exec(db.app.as_deref().unwrap_or(&db.dsn))?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = loaded_host_exec(&db.dsn)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: AdminAccessReviewsRoute { exec, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
+            inner: AdminAccessReviewsRoute { exec, worker: Some(worker), keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;

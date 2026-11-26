@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 pub struct AdminOrgPoliciesRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -263,9 +264,16 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
-            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let Some(what) = action(r.method(), r.uri().path()) else {
+                return bare(404, "not found", &c, "");
+            };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -277,22 +285,45 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_principal = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let wanted = required(what);
-            let authority = match setjoin_admin_identity::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(wanted) => authority,
-                _ => {
-                    let _ = setjoin_admin_identity::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &wanted.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let Some(admin_principal) = admin_principal else {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &wanted.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let Ok(admin_proof) = admin_principal.require_any_permission(wanted) else {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &wanted.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
             };
             // Owner-approved security fix 2026-11-05 (#510): email-address policy writes are
             // organization-wide; a domain-scoped identity.write holder is refused.
@@ -303,11 +334,11 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     | Action::PolicyDelete
                     | Action::PolicyReorder
                     | Action::PolicyApply
-            ) && !db::org_wide(&exec, actor).await
+            ) && !db::org_wide(&factory, &admin_proof).await
             {
                 let _ = setjoin_admin_identity::console_denied(
-                    &exec,
-                    actor,
+                    &factory,
+                    &user_principal,
                     &go_path,
                     "identity.write (organization-wide grant required)",
                     operation,
@@ -316,7 +347,8 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                 return bare(403, "Forbidden", &c, &id);
             }
             // Go's `DomainScopeFromContext`: the actor's own domain scope, nil when global.
-            let grant_domain = Some(authority.domain_scope()).filter(|d| *d > 0);
+            let grant_domain = admin_principal.enforced_domain_scope().filter(|d| *d > 0);
+            let actor_id = actor.user_id();
             let head = r.method() == Method::HEAD;
             let reply = |body: String| {
                 // net/http buffers 2 KiB of a handler's output; a larger single
@@ -365,15 +397,15 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
             // Department handlers: `id, _ := strconv.ParseInt`, then `id <= 0`.
             let dept_id = || crate::admin_identity_input::atoi(&segment(&path, 4));
             match what {
-                Action::DeptList => match db::departments(&exec).await {
+                Action::DeptList => match db::departments(&factory, &admin_proof).await {
                     Ok(body) => reply(body),
                     Err(_) => database(),
                 },
-                Action::DeptTree => match db::department_tree(&exec).await {
+                Action::DeptTree => match db::department_tree(&factory, &admin_proof).await {
                     Ok(body) => reply(body),
                     Err(_) => database(),
                 },
-                Action::Groups => match db::distribution_groups(&exec).await {
+                Action::Groups => match db::distribution_groups(&factory, &admin_proof).await {
                     Ok(body) => reply(body),
                     Err(_) => database(),
                 },
@@ -394,14 +426,15 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     if ldap_ou.is_empty() {
                         ldap_ou = name.clone();
                     }
-                    match db::department_create(
-                        &exec,
-                        actor,
-                        &name,
-                        body.parent_id,
-                        &ldap_ou,
-                        grant_domain,
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "department.create",
+                        &setjoin_admin_identity::sql::DEPARTMENT_CREATE,
+                        &[&actor_id, &name, &body.parent_id, &ldap_ou, &grant_domain],
                         operation,
+                        db::parse_department_create,
                     )
                     .await
                     {
@@ -424,13 +457,23 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                         ldap_ou: &body.ldap_ou,
                         sort: body.sort_order,
                     };
-                    match db::department_update(
-                        &exec,
-                        actor,
-                        department,
-                        &patch,
-                        grant_domain,
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "department.update",
+                        &setjoin_admin_identity::sql::DEPARTMENT_UPDATE,
+                        &[
+                            &actor_id,
+                            &department,
+                            &patch.name,
+                            &patch.parent,
+                            &patch.ldap_ou,
+                            &patch.sort,
+                            &grant_domain,
+                        ],
                         operation,
+                        db::parse_department_update,
                     )
                     .await
                     {
@@ -445,8 +488,17 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     if department <= 0 {
                         return full(400, "invalid id");
                     }
-                    match db::department_delete(&exec, actor, department, grant_domain, operation)
-                        .await
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "department.delete",
+                        &setjoin_admin_identity::sql::DEPARTMENT_DELETE,
+                        &[&actor_id, &department, &grant_domain],
+                        operation,
+                        db::parse_department_mut,
+                    )
+                    .await
                     {
                         CommandOutcome::Committed(()) => status_only(204),
                         CommandOutcome::RolledBack(e) => failed(&e),
@@ -460,13 +512,16 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     if body.user_id <= 0 {
                         return full(400, "userId required");
                     }
-                    match db::department_assign_user(
-                        &exec,
-                        actor,
-                        body.user_id,
-                        body.department_id.filter(|d| *d > 0),
-                        grant_domain,
+                    let dept = body.department_id.filter(|d| *d > 0);
+                    match crate::mailboxes::worker_write_contract_family(
+                        worker_exec,
+                        &admin_proof,
+                        setjoin_admin_identity::FAMILY,
+                        "department.assign_user",
+                        &setjoin_admin_identity::sql::DEPARTMENT_ASSIGN_USER,
+                        &[&actor_id, &body.user_id, &dept, &grant_domain],
                         operation,
+                        db::parse_department_mut,
                     )
                     .await
                     {
@@ -475,7 +530,7 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                         CommandOutcome::Unknown { operation } => unknown(operation),
                     }
                 }
-                Action::PolicyList => match db::policies(&exec).await {
+                Action::PolicyList => match db::policies(&factory, &admin_proof).await {
                     Ok(body) => reply(body),
                     Err(_) => plain(500, "database error"),
                 },
@@ -502,7 +557,15 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                         additional: texts(&body.additional),
                         duplicate: body.duplicate.as_deref(),
                     };
-                    match db::policy_create(&exec, actor, &input, operation).await {
+                    match db::policy_create(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        &input,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(row) => with_status(201, row),
                         CommandOutcome::RolledBack(e) => {
                             if db::sqlstate(&e).as_deref() == Some("23505") {
@@ -542,7 +605,16 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                         additional: texts(&body.additional),
                         duplicate: body.duplicate.as_deref(),
                     };
-                    match db::policy_update(&exec, actor, policy, &input, operation).await {
+                    match db::policy_update(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        policy,
+                        &input,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(Some(row)) => with_status(200, row),
                         CommandOutcome::Committed(None) => plain(404, "policy not found"),
                         CommandOutcome::RolledBack(e) => match db::sqlstate(&e).as_deref() {
@@ -556,7 +628,15 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     let Ok(policy) = segment(&path, 4).parse::<i64>() else {
                         return plain(400, "invalid policy ID");
                     };
-                    match db::policy_delete(&exec, actor, policy, operation).await {
+                    match db::policy_delete(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        policy,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(true) => status_only(204),
                         CommandOutcome::Committed(false) => plain(404, "policy not found"),
                         CommandOutcome::RolledBack(_) => plain(500, "delete failed"),
@@ -572,7 +652,15 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     }
                     let order: Vec<i64> =
                         body.order.iter().map(|v| v.unwrap_or_default()).collect();
-                    match db::policy_reorder(&exec, actor, &order, operation).await {
+                    match db::policy_reorder(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        &order,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(()) => status_only(204),
                         CommandOutcome::RolledBack(_) => plain(500, "reorder update failed"),
                         CommandOutcome::Unknown { operation } => unknown(operation),
@@ -582,7 +670,9 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     let Ok(body) = json_body::<Preview>(&mut r, 1 << 20).await else {
                         return plain(400, "invalid JSON");
                     };
-                    match db::preview(&exec, body.policy, body.user, body.mailbox).await {
+                    match db::preview(&factory, &admin_proof, body.policy, body.user, body.mailbox)
+                        .await
+                    {
                         Ok(text) => reply(text),
                         Err(_) => plain(500, "preview failed"),
                     }
@@ -592,7 +682,8 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                         return plain(400, "invalid JSON");
                     };
                     match db::match_count(
-                        &exec,
+                        &factory,
+                        &admin_proof,
                         &texts(&body.departments),
                         &numbers(&body.domains),
                         &texts(&body.mailbox_types),
@@ -608,7 +699,15 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     let Ok(body) = json_body::<Apply>(&mut r, 1 << 20).await else {
                         return plain(400, "invalid JSON");
                     };
-                    match db::policy_apply(&exec, actor, body.policy, operation).await {
+                    match db::policy_apply(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        body.policy,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(job) => {
                             with_status(202, format!("{{\"jobId\":{job}}}\n"))
                         }
@@ -620,7 +719,7 @@ impl<K: KeySource + 'static> Intercept for AdminOrgPoliciesRoute<K> {
                     let Ok(job) = segment(&path, 5).parse::<i64>() else {
                         return plain(400, "invalid job ID");
                     };
-                    match db::apply_status(&exec, job).await {
+                    match db::apply_status(&factory, &admin_proof, job).await {
                         Some(text) => reply(text),
                         None => plain(404, "job not found"),
                     }

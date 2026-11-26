@@ -1,17 +1,94 @@
-//! LDAP sync runtime (#380): wire client, filter admission, engines and worker.
+//! LDAP sync runtime (#380): wire client, filter admission, and shared helpers.
+//! Background worker engines live in `bins/gateway/src/directory_sync_workers/`.
 pub mod admin;
 pub mod client;
-pub mod engine;
 pub mod filter;
-pub mod normalized;
-pub mod runtime;
 pub use client::*;
-pub use engine::{PreviewRow, SyncResult, Worker};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub(crate) fn log_warn(message: &str) {
-    eprintln!("setjoin-gateway: ldap-sync: {message}");
+/// Go `ldaputil.SyncResult`, with Go's JSON field order and tags.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SyncResult {
+    pub checked: i64,
+    pub created: i64,
+    pub updated: i64,
+    pub disabled: i64,
+    pub skipped: i64,
+    pub errors: i64,
+    pub duration: String,
+}
+impl SyncResult {
+    pub fn json(&self) -> String {
+        format!(
+            "{{\"checked\":{},\"created\":{},\"updated\":{},\"disabled\":{},\"skipped\":{},\"errors\":{},\"duration\":{}}}\n",
+            self.checked,
+            self.created,
+            self.updated,
+            self.disabled,
+            self.skipped,
+            self.errors,
+            serde_json::to_string(&self.duration).unwrap_or_else(|_| "\"\"".into())
+        )
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreviewRow {
+    pub email: String,
+    pub display_name: String,
+    pub action: &'static str,
+    pub reason: String,
+}
+
+/// Go `isSecretConfigKey` for the LDAP prefix (`_enc` suffix and the named keys).
+pub fn is_secret_key(key: &str) -> bool {
+    key.ends_with("_enc") || key == "assist.api_key"
+}
+
+/// `strconv.ParseBool`.
+pub fn parse_bool(raw: &str) -> Option<bool> {
+    match raw {
+        "1" | "t" | "T" | "TRUE" | "true" | "True" => Some(true),
+        "0" | "f" | "F" | "FALSE" | "false" | "False" => Some(false),
+        _ => None,
+    }
+}
+
+/// `strconv.Atoi` with the error ignored: a syntax error is 0, a range error saturates.
+pub fn atoi_lenient(raw: &str) -> i64 {
+    let digits = raw.strip_prefix(['+', '-']).unwrap_or(raw);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return 0;
+    }
+    match raw.parse::<i64>() {
+        Ok(n) => n,
+        Err(_) if raw.starts_with('-') => i64::MIN,
+        Err(_) => i64::MAX,
+    }
+}
+
+/// `ldap.CompileFilter` admission used by Go's `SetFilter`.
+pub fn admit_filter(filter: &str) -> Result<(), String> {
+    if filter.is_empty() || filter::compile(filter).is_some() {
+        Ok(())
+    } else {
+        Err("invalid LDAP user filter".into())
+    }
+}
+
+/// Go `buildSyncFilter`.
+pub fn build_sync_filter(base: &str, cursor: &str) -> String {
+    let base = if base.is_empty() {
+        "(objectClass=person)"
+    } else {
+        base
+    };
+    if cursor.is_empty() {
+        base.to_owned()
+    } else {
+        format!("(&{base}(modifyTimestamp>={cursor}))")
+    }
 }
 
 /// Go `identity.CanonicalizeAddress`: ASCII fold, trim, and the single

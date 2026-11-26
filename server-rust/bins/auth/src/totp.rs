@@ -55,7 +55,7 @@ impl AuthServer {
             .and_then(|b| ingress::fields(&b.to_bytes(), &["step_up_token", "confirm"]).ok());
         let Some(fields) = fields else {
             totp::audit(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 &ip,
                 "totp_removal_refused",
@@ -66,7 +66,7 @@ impl AuthServer {
         };
         if fields.get("confirm").map(String::as_str) != Some("REMOVE") {
             totp::audit(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 &ip,
                 "totp_removal_refused",
@@ -79,7 +79,7 @@ impl AuthServer {
         let result = if token.is_empty() {
             setjoin_pg::CommandOutcome::Committed("invalid".to_owned())
         } else {
-            totp::remove(&self.exec, &session, token, &ip).await
+            totp::remove(&self.auth_db, &session, token, &ip).await
         };
         match result {
             setjoin_pg::CommandOutcome::Committed(s) if s == "removed" => {
@@ -95,7 +95,7 @@ impl AuthServer {
                         "step-up token invalid, expired, or replayed",
                     )
                 };
-                totp::audit(&self.exec, &session, &ip, "totp_removal_refused", notes).await;
+                totp::audit(&self.auth_db, &session, &ip, "totp_removal_refused", notes).await;
                 Self::failure(status, detail, &path)
             }
             setjoin_pg::CommandOutcome::Unknown { operation } => {
@@ -164,7 +164,7 @@ impl AuthServer {
             .and_then(|b| ingress::fields(&b.to_bytes(), &["password", "code"]).ok());
         let Some(fields) = fields else {
             totp::audit(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 &ip,
                 "totp_removal_step_up_refused",
@@ -177,7 +177,7 @@ impl AuthServer {
         let code = fields.get("code").map_or("", String::as_str);
         if password.is_empty() || code.is_empty() {
             totp::audit(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 &ip,
                 "totp_removal_step_up_refused",
@@ -186,10 +186,10 @@ impl AuthServer {
             .await;
             return Self::failure(400, "password and code are required", &path);
         }
-        match totp::begin(&self.exec, &session, password, code).await {
+        match totp::begin(&self.auth_db, &session, password, code).await {
             Ok(token) => {
                 totp::audit(
-                    &self.exec,
+                    &self.auth_db,
                     &session,
                     &ip,
                     "totp_removal_step_up_authorized",
@@ -201,7 +201,7 @@ impl AuthServer {
             Err(totp::Failure::Reply(status, detail, notes)) => {
                 if let Some(notes) = notes {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "totp_removal_step_up_refused",
@@ -277,12 +277,12 @@ impl AuthServer {
                 }
             }
         }
-        let result = totp::setup(&self.exec, &session, &token).await;
+        let result = totp::setup(&self.auth_db, &session, &token).await;
         let mut response = match result {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("created" | "resume") => {
                     if v["status"] == "created" {
-                        totp::audit(&self.exec, &session, &ip, "totp_setup_initiated", "").await;
+                        totp::audit(&self.auth_db, &session, &ip, "totp_setup_initiated", "").await;
                     }
                     Self::json(
                         200,
@@ -291,7 +291,7 @@ impl AuthServer {
                 }
                 Some("reauth") => {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -405,13 +405,13 @@ impl AuthServer {
         } else {
             &header
         };
-        match totp::confirm(&self.exec, &session, token, id, code, &ip).await {
+        match totp::confirm(&self.auth_db, &session, token, id, code, &ip).await {
             setjoin_pg::CommandOutcome::Committed(v) => match v["status"].as_str() {
                 Some("confirmed") => Response::builder().status(204).body(body("")).unwrap(),
                 Some("invalid_code") => Self::failure(401, "invalid code", &path),
                 Some("reauth_gate") => {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -423,7 +423,7 @@ impl AuthServer {
                 Some("reauth_binding" | "revoked") => Self::totp_reauth(&path),
                 Some("proving_factor") => {
                     totp::audit(
-                        &self.exec,
+                        &self.auth_db,
                         &session,
                         &ip,
                         "mfa_reauth_refused",
@@ -563,10 +563,10 @@ impl AuthServer {
                 &path,
             );
         }
-        match totp::bootstrap_setup(&self.exec,&session,token).await {
+        match totp::bootstrap_setup(&self.auth_db,&session,token).await {
             setjoin_pg::CommandOutcome::Committed(v)=>match v["status"].as_str(){
                 Some("created"|"resume")=>Self::json(200,json!({"enrollment_id":v["enrollment_id"],"provisioning_uri":totp::provisioning_uri(v["secret"].as_str().unwrap_or(""),session.text("email"),&self.config.issuer)})),
-                Some("reauth")=>{totp::audit(&self.exec,&session,&ip,"mfa_reauth_refused","bootstrap enrollment setup without a valid possession proof").await;Self::totp_reauth(&path)},
+                Some("reauth")=>{totp::audit(&self.auth_db,&session,&ip,"mfa_reauth_refused","bootstrap enrollment setup without a valid possession proof").await;Self::totp_reauth(&path)},
                 Some("revoked")=>Self::totp_reauth(&path),
                 Some("identity_changed")=>Self::totp_identity_changed(&v,&path,"authentication identity changed before MFA enrollment"),
                 Some("credential_changed")=>Self::failure(401,"Credentials changed during sign-in. Please authenticate again.",&path),
@@ -723,10 +723,10 @@ impl AuthServer {
         agent: &str,
     ) -> Result<MfaTokens, Response<Body>> {
         let scope = user
-            .scope(&self.exec)
+            .scope(&self.auth_db)
             .await
             .map_err(|_| Self::failure(500, "authorization scope resolution failed", path))?;
-        let guest = match user.admission(&self.exec).await {
+        let guest = match user.admission(&self.auth_db).await {
             Ok((true, false)) => false,
             Ok((true, true)) if guest_mint == GuestMint::Allow => true,
             // Intentional Rust divergence from Go (Go's P17, auth.go:1576-1589,
@@ -818,7 +818,7 @@ impl AuthServer {
         secure: bool,
     ) -> Response<Body> {
         user.record(
-            &self.exec,
+            &self.auth_db,
             &tokens.access,
             &tokens.jti,
             self.config.access_seconds,
@@ -898,11 +898,11 @@ impl AuthServer {
         let code = input.get("code").and_then(Value::as_str).unwrap_or("");
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
         // here, so no factor is spent and no token is signed or stored.
-        let risk = match pending.risk(&self.exec).await {
+        let risk = match pending.risk(&self.auth_db).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", &path),
         };
-        match totp::cycle(&self.exec, &pending, code).await {
+        match totp::cycle(&self.auth_db, &pending, code).await {
             setjoin_pg::CommandOutcome::Committed(s) => match s.as_str() {
                 "accepted" => {}
                 "locked" => {
@@ -932,7 +932,7 @@ impl AuthServer {
             }
             _ => return Self::failure(500, "internal error", &path),
         }
-        let user = match totp::CompletionUser::load(&self.exec, &pending).await {
+        let user = match totp::CompletionUser::load(&self.auth_db, &pending).await {
             Ok(Some(u)) => u,
             Ok(None) => return Self::failure(401, "user not found", &path),
             Err(_) => return Self::failure(500, "internal error", &path),
@@ -964,7 +964,7 @@ impl AuthServer {
             Err(r) => return r,
         };
         match totp::mint(
-            &self.exec,
+            &self.auth_db,
             &pending,
             &tokens.refresh,
             self.config.refresh_seconds,
@@ -1109,7 +1109,7 @@ impl AuthServer {
                 .get("identity_fence")
                 .is_some_and(|v| !v.is_null());
         let early = if signed {
-            match totp::CompletionUser::load(&self.exec, &pending).await {
+            match totp::CompletionUser::load(&self.auth_db, &pending).await {
                 Ok(Some(u)) => Some(u),
                 Ok(None) => return Self::failure(401, "user not found", &path),
                 Err(_) => return Self::failure(500, "internal error", &path),
@@ -1119,7 +1119,7 @@ impl AuthServer {
         };
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
         // here, so no factor is spent and no token is signed or stored.
-        let risk = match pending.risk(&self.exec).await {
+        let risk = match pending.risk(&self.auth_db).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", &path),
         };
@@ -1138,7 +1138,7 @@ impl AuthServer {
         let ip_ref = ip.as_str();
         let agent_ref = agent.as_str();
         let result = totp::bootstrap_confirm(
-            &self.exec,
+            &self.auth_db,
             &pending,
             token,
             id,
@@ -1147,7 +1147,7 @@ impl AuthServer {
             |family| async move {
                 let user = match early {
                     Some(u) => u,
-                    None => match totp::CompletionUser::load(&self.exec, pending_ref).await {
+                    None => match totp::CompletionUser::load(&self.auth_db, pending_ref).await {
                         Ok(Some(u)) => u,
                         Err(_) => {
                             *failure.lock().unwrap() =
@@ -1208,7 +1208,7 @@ impl AuthServer {
                 async move {
                     if let Some((user, tokens)) = prepared {
                         user.record(
-                            &self.exec,
+                            &self.auth_db,
                             &tokens.access,
                             &tokens.jti,
                             self.config.access_seconds,
@@ -1289,7 +1289,7 @@ impl AuthServer {
             Err(()) => return Self::failure(500, "token issue failed", path),
         };
         if let Some(policy) = policy {
-            match login::bootstrap_mfa_grant(&self.exec, proof, &token, &jti).await {
+            match login::bootstrap_mfa_grant(&self.auth_db, proof, &token, &jti).await {
                 setjoin_pg::CommandOutcome::Committed(true) => {}
                 setjoin_pg::CommandOutcome::Unknown { operation } => {
                     let mut r = Self::failure(
@@ -1392,11 +1392,11 @@ impl AuthServer {
         };
         // #454 (Q4): read the risk claim before the factor is consumed; a failed read refuses
         // here, so no factor is spent and no token is signed or stored.
-        let risk = match pending.risk(&self.exec).await {
+        let risk = match pending.risk(&self.auth_db).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", &path),
         };
-        match setjoin_identity::push::consume_backup(&self.exec, &pending, code).await {
+        match setjoin_identity::push::consume_backup(&self.auth_db, &pending, code).await {
             setjoin_pg::CommandOutcome::Committed(true) => {}
             setjoin_pg::CommandOutcome::Committed(false) => {
                 return Self::failure(401, "invalid or used backup code", &path)
@@ -1454,7 +1454,7 @@ impl AuthServer {
         dt_enabled: bool,
         stamp_user: bool,
     ) -> Response<Body> {
-        let user = match totp::CompletionUser::load(&self.exec, &pending).await {
+        let user = match totp::CompletionUser::load(&self.auth_db, &pending).await {
             Ok(Some(u)) => u,
             Err(_) => return Self::failure(500, "internal error", &path),
             _ => return Self::failure(missing.0, missing.1, &path),
@@ -1470,7 +1470,7 @@ impl AuthServer {
             Err(r) => return r,
         };
         match totp::mint(
-            &self.exec,
+            &self.auth_db,
             &pending,
             &tokens.refresh,
             self.config.refresh_seconds,

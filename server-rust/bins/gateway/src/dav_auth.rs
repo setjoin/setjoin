@@ -181,9 +181,7 @@ impl DavBasicAuth {
         if !has_scheme(r.headers(), b"Negotiate ") {
             return Err(crate::deny::unauthorized(r.headers(), c));
         }
-        if !self.chain.as_ref().is_some_and(|ch| ch.kerberos_allowed())
-            || self.kerberos.is_none()
-        {
+        if !self.chain.as_ref().is_some_and(|ch| ch.kerberos_allowed()) || self.kerberos.is_none() {
             return Err(crate::deny::unauthorized(r.headers(), c));
         }
         let Some(threat) = self.threat.as_ref() else {

@@ -509,3 +509,10 @@ and root `CancellationToken` cancellation tears down cleanly without `Drop::abor
   insert (`lookup_{mailbox,user}_command`). `MailboxTx<ReadWrite>::prelock_mailbox_hierarchy`
   enforces `#481` `users FOR KEY SHARE -> mailboxes FOR UPDATE`. All `ReadOnly` handles
   expose `query_iterated_contract` preserving frozen-Go `Rows.Err` parity.
+- **Wave 1.8 Phase `546d` dual-pool `AuthDb` (`auth_db.rs`):** contract-gated facade for
+  `setjoin-identity` routing `SqlScope::UserScoped` statements onto `AppPool` (`setjoin_app`,
+  `NOBYPASSRLS`) with `SET LOCAL app.current_user_id`, `SqlScope::AuthPreScope` reads inside
+  `BEGIN READ ONLY` on the private worker read seam (`setjoin_worker`, `BYPASSRLS`), and
+  `SqlScope::WorkerBypass` statements onto private `WorkerPool` (`setjoin_worker`), with
+  constructors gated behind `#[cfg(feature = "mint")]` so domain crates cannot mint credentials
+  or obtain `WorkerTx`.

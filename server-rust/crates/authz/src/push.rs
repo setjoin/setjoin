@@ -223,8 +223,10 @@ impl PushIdentity {
     /// account ID or HTTP-only admission gate enters this authorization.
     pub async fn command_authorization(&self, exec: &ScopedExecutor) -> Option<crate::Authorized> {
         let user = self.user_id();
+        let actor = setjoin_contracts::ids::ActorId::new(user).ok()?;
         let rows = exec
-            .read(
+            .read_user_scoped(
+                actor,
                 "SELECT m.id,m.jmap_email_state::int8,m.jmap_mailbox_state::int8,\
                  m.jmap_thread_state::int8,m.jmap_tag_state::int8,\
                  floor(extract(epoch FROM u.updated_at))::int8,\

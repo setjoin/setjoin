@@ -32,7 +32,10 @@ impl Default for ReplayCache {
 }
 impl ReplayCache {
     pub fn with_capacity(capacity: usize) -> Self {
-        Self { seen: Mutex::default(), capacity }
+        Self {
+            seen: Mutex::default(),
+            capacity,
+        }
     }
     /// Claim `jti` once. Owner-approved security fix 2026-11-05 (#499): a live entry
     /// is never evicted to make room; a full cache refuses the new proof instead

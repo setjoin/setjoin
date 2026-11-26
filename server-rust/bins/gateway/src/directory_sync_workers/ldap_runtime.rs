@@ -4,43 +4,19 @@
 //! The configured worker is derived from `system_config` on demand, so a write
 //! that Go still handles is seen by the next request or tick; `reload` is Go's
 //! `ReloadConfig` and fails the same way (the worker is then absent).
-use super::engine::{admit_filter, Res, Worker};
-use super::{log_warn, new_uuid, LdapClient};
+use super::ldap_engine::{Res, Worker};
+use super::log_warn_ldap as log_warn;
 use serde_json::Value;
 use setjoin_config_secret::{is_config_secret_envelope, ConfigSecretCodec};
+use setjoin_directory_sync::ldap::{
+    admit_filter, atoi_lenient, is_secret_key, new_uuid, parse_bool, LdapClient,
+};
 use setjoin_pg::workers::WorkerDatabase;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
 pub const SOURCE_KEY: &str = "legacy:ldap";
-
-/// Go `isSecretConfigKey` for the LDAP prefix (`_enc` suffix and the named keys).
-pub fn is_secret_key(key: &str) -> bool {
-    key.ends_with("_enc") || key == "assist.api_key"
-}
-
-/// `strconv.ParseBool`.
-pub fn parse_bool(raw: &str) -> Option<bool> {
-    match raw {
-        "1" | "t" | "T" | "TRUE" | "true" | "True" => Some(true),
-        "0" | "f" | "F" | "FALSE" | "false" | "False" => Some(false),
-        _ => None,
-    }
-}
-
-/// `strconv.Atoi` with the error ignored: a syntax error is 0, a range error saturates.
-pub(crate) fn atoi_lenient(raw: &str) -> i64 {
-    let digits = raw.strip_prefix(['+', '-']).unwrap_or(raw);
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return 0;
-    }
-    match raw.parse::<i64>() {
-        Ok(n) => n,
-        Err(_) if raw.starts_with('-') => i64::MIN,
-        Err(_) => i64::MAX,
-    }
-}
 
 /// The identity-connector secret codec keyed from the process environment and
 /// `identity.deployment_id` (Go builds it at startup; Rust on first use).

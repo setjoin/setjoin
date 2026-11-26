@@ -237,7 +237,7 @@ async fn cut_authority_proxy(
         }
     }
     let task = tokio::spawn(async move {
-        const MARKER: &[u8] = b"public.admin_role_assignments";
+        const MARKER: &[u8] = b"AS eff_scope";
         loop {
             let Ok((client, _)) = listener.accept().await else {
                 break;
@@ -338,6 +338,7 @@ async fn authority_lookup_failure_fails_closed_without_forwarding() -> Result<()
             common::patient_exec(&proxied_dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
         let route = AdminIdentityRoute {
             exec,
+            worker: None,
             keys: Arc::new(common::recovery_keys()),
             issuer: "mailserver".into(),
         };

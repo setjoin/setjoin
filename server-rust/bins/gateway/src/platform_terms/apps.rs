@@ -160,16 +160,16 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
         Err(reply) => reply,
     };
     if what == Action::AppList {
-        return match apps::list(e.exec, e.actor).await {
+        return match apps::list(e.factory, e.admin).await {
             Ok(body) => e.reply(body, 200),
             Err(f) => crate::office::reducer_problem(&f, &e.raw_path, true, e.c, e.id.to_owned()),
         };
     }
     // The required-reason middleware runs before the handler.
-    if reason.is_empty() && apps::reason_required(e.exec).await {
-        let _ = apps::reason_missing(
-            e.exec,
-            e.actor,
+    if reason.is_empty() && apps::reason_required(e.factory, e.admin).await {
+        apps::reason_missing(
+            e.factory,
+            e.user,
             &e.c.identity.client_ip.to_string(),
             e.operation,
         )
@@ -202,8 +202,8 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
         };
         return finish(
             apps::request(
-                e.exec,
-                e.actor,
+                e.factory,
+                e.admin,
                 fields.kind.as_deref().unwrap_or(""),
                 fields.provider.as_deref().unwrap_or(""),
                 fields.generation.unwrap_or(0),
@@ -224,8 +224,8 @@ pub(super) async fn run(what: Action, mut r: Request<Body>, e: &Env<'_>) -> Resp
     };
     finish(
         apps::recover(
-            e.exec,
-            e.actor,
+            e.factory,
+            e.admin,
             &operation_uuid,
             generation,
             &reason,

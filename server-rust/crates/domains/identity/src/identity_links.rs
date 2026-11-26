@@ -1,7 +1,7 @@
 //! Shared OIDC/SAML link management. Only a verified session supplies the owner.
 use crate::session::Session;
 use serde_json::{json, Value};
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{AuthDb, StatementFailure, Type};
 
 pub fn fresh(session: &Session) -> bool {
     let now = std::time::SystemTime::now()
@@ -17,7 +17,7 @@ pub fn fresh(session: &Session) -> bool {
 }
 
 pub async fn unlink(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     link: i64,
     reason: &str,
@@ -42,10 +42,10 @@ pub async fn unlink(
             family: "F21",
             command: "identity-unlink",
         })
-        .run_user_command(
+        .run_user_command_contract(
             actor,
             operation,
-            "SELECT rust_identity_unlink($1,$2,$3)::text",
+            &crate::sql::IDENTITY_LINKS_L48,
             &[
                 (&session.user(), Type::INT8),
                 (&link, Type::INT8),
@@ -64,9 +64,18 @@ pub async fn unlink(
         .await
 }
 
-pub async fn list(exec: &ScopedExecutor, session: &Session) -> Result<Value, StatementFailure> {
+pub async fn list(exec: &AuthDb, session: &Session) -> Result<Value, StatementFailure> {
+    let Ok(actor) = setjoin_contracts::ids::ActorId::new(session.user()) else {
+        return Ok(json!([]));
+    };
     // Frozen Go ignores a late Rows.Err; a Scan/type failure is still fatal.
-    let rows=exec.read_iterated("SELECT l.id::text,s.kind,s.display_name,l.state,to_char(l.last_seen_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US') FROM user_identity_links l JOIN identity_sources s ON s.id=l.source_id WHERE l.user_id=$1 AND 'authenticate'=ANY(l.purposes) ORDER BY s.kind,s.display_name,l.id LIMIT 8",&[(&session.user(),Type::INT8)]).await?;
+    let rows = exec
+        .read_user_scoped_iterated_contract(
+            actor,
+            &crate::sql::IDENTITY_LINKS_L69,
+            &[(&session.user(), Type::INT8)],
+        )
+        .await?;
     let mut items = Vec::new();
     for row in rows {
         let decode = || -> Result<Value, StatementFailure> {

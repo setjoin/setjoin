@@ -17,24 +17,35 @@
 --   allows them), which a LIKE pattern would interpret as wildcards and leak
 --   across OU boundaries — starts_with does a literal prefix match.
 CREATE OR REPLACE FUNCTION admin_can_reach(p_actor bigint, p_target bigint)
-RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT EXISTS (
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp AS $$
+BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    IF p_actor IS NULL
+       OR p_actor IS DISTINCT FROM NULLIF(current_setting('app.current_user_id', true), '')::bigint THEN
+      RETURN FALSE;
+    END IF;
+  END IF;
+  RETURN EXISTS (
     SELECT 1
-    FROM admin_role_assignments ra
-    JOIN admin_role_groups rg ON rg.id = ra.role_group_id
-    LEFT JOIN departments sd ON ra.scope_type = 'ou' AND sd.id = ra.scope_id
+    FROM public.admin_role_assignments ra
+    JOIN public.admin_role_groups rg ON rg.id = ra.role_group_id
+    LEFT JOIN public.departments sd ON ra.scope_type = 'ou' AND sd.id = ra.scope_id
     WHERE ra.user_id = p_actor
       AND (ra.expires_at IS NULL OR ra.expires_at > now())
-      AND admin_assignment_active(ra.eligible, ra.activated_until)
+      AND public.admin_assignment_active(ra.eligible, ra.activated_until)
       AND ( COALESCE(ra.domain_override, rg.domain_scope) IS NULL
-            OR EXISTS (SELECT 1 FROM users tu WHERE tu.id = p_target
-                        AND COALESCE(guest_account_host_domain(tu.id), tu.domain_id)
+            OR EXISTS (SELECT 1 FROM public.users tu WHERE tu.id = p_target
+                        AND COALESCE(public.guest_account_host_domain(tu.id), tu.domain_id)
                             = COALESCE(ra.domain_override, rg.domain_scope)) )
       AND ( ra.scope_type IS NULL
             OR ( ra.scope_type = 'ou'
-                 AND EXISTS (SELECT 1 FROM users tu JOIN departments td ON td.id = tu.department_id
+                 AND EXISTS (SELECT 1 FROM public.users tu JOIN public.departments td ON td.id = tu.department_id
                               WHERE tu.id = p_target
                                 AND (td.path = sd.path OR starts_with(td.path, sd.path || '/'))) )
-            OR ( ra.scope_type = 'set' AND admin_set_reaches(ra.scope_id, p_target) ) )
+            OR ( ra.scope_type = 'set' AND public.admin_set_reaches(ra.scope_id, p_target) ) )
   );
+END;
 $$;
+
+SELECT public.apply_worker_ownership('public.admin_can_reach(bigint,bigint)'::regprocedure);

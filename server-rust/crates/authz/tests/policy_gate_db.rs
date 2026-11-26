@@ -1195,7 +1195,15 @@ async fn surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifec
     };
     let owner = db.connect().await.unwrap();
     let app_dsn = db.app.as_deref().unwrap_or(&db.dsn);
+    let worker_dsn = std::env::var("DB_WORKER_DSN").unwrap_or_else(|_| db.dsn.clone());
     let app_exec = ScopedExecutor::from_dsn(app_dsn, 4).unwrap();
+    let app_pool = AppPool::from_dsn(app_dsn, 4).unwrap();
+    let admin_pool = setjoin_pg::AdminWorkerPool::from_dsn(&worker_dsn, 2).unwrap();
+    let factory = TxFactory::with_admin_pool(
+        app_pool.clone(),
+        admin_pool,
+        Arc::new(GroupResolver::new(app_pool)),
+    );
 
     let member = fixture::account(&owner, "mx542-member").await.unwrap();
     let guest = fixture::account(&owner, "mx542-guest").await.unwrap();
@@ -1381,6 +1389,7 @@ async fn surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifec
     // DriveNativeToken rejects device-bound JWTs
     let ok_hdrs = headers(&[("host", "mail.test"), ("origin", "https://mail.test")]);
     let gate = PolicyGate::new(app_exec.clone(), Arc::new(StaticKeys::new()), ISSUER)
+        .with_tx_factory(factory.clone())
         .with_guest_allowlist(Arc::new(MockAllowlist))
         .with_attachment_secrets(vec![ATT_SECRET.to_vec()]);
     assert_eq!(
@@ -1447,6 +1456,7 @@ async fn surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifec
         .unwrap();
     let _ = chain.reload(&app_exec).await;
     let neg_gate = PolicyGate::new(app_exec.clone(), Arc::new(StaticKeys::new()), ISSUER)
+        .with_tx_factory(factory.clone())
         .with_auth_chain(chain.clone())
         .with_kerberos(Arc::new(MockKerberos(member_email.clone())))
         .with_threat(threat.clone());
@@ -1661,6 +1671,7 @@ async fn surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifec
         revoked_user: 0,
     });
     let cae_gate = PolicyGate::new(app_exec.clone(), Arc::new(StaticKeys::new()), ISSUER)
+        .with_tx_factory(factory.clone())
         .with_denylist(warm_denylist.clone());
     assert!(cae_gate
         .admit(&base_req(

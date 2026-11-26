@@ -127,8 +127,12 @@ pub(crate) async fn caller(exec: &ScopedExecutor, s: &Session) -> Caller {
           FROM mailboxes m JOIN users u ON u.id = m.user_id \
          WHERE m.user_id = $1 AND m.is_primary = TRUE LIMIT 1) st ON TRUE";
     let iat = s.issued_at as f64;
+    let Ok(actor) = setjoin_contracts::ids::ActorId::new(s.user_id) else {
+        return Caller::Unavailable;
+    };
     let Ok(rows) = exec
-        .read(
+        .read_user_scoped(
+            actor,
             SQL,
             &[
                 (&s.user_id, Type::INT8),

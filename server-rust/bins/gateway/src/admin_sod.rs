@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 pub struct AdminSodRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -151,9 +152,16 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
-            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let Some(what) = action(r.method(), r.uri().path()) else {
+                return bare(404, "not found", &c, "");
+            };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -165,38 +173,78 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             // Policy routes need live `roles.manage` (Go's `requireRolesManage`);
             // the self-service routes are open to any authenticated user.
+            let mut admin_proof: Option<setjoin_authz::principals::AdminPermissionProof> = None;
             if matches!(what, Action::Policy | Action::PutPolicy) {
                 let required: &[&str] = &db::ROLES_MANAGE;
-                let authority = match setjoin_admin_identity::authority(&exec, actor).await {
-                    Ok(authority) if authority.allows_any(required) => authority,
-                    _ => {
-                        let _ = setjoin_admin_identity::console_denied(
-                            &exec,
-                            actor,
-                            &go_path,
-                            &required.join("|"),
-                            operation,
-                        )
-                        .await;
-                        return bare(403, "Forbidden", &c, &id);
-                    }
+                let admin_principal = if actor.signed_admin() {
+                    factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+                } else {
+                    None
                 };
-                if authority.refused_for_scope(required) {
-                    let detail = format!(
-                        "{} (domain-scoped principal; org-wide-only surface, domain={})",
-                        required.join("|"),
-                        authority.domain_scope()
-                    );
+                let Some(admin_principal) = admin_principal else {
                     let _ = setjoin_admin_identity::console_denied(
-                        &exec, actor, &go_path, &detail, operation,
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                };
+                if !admin_principal.allows_any(required) {
+                    let _ = setjoin_admin_identity::console_denied(
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        &required.join("|"),
+                        operation,
                     )
                     .await;
                     return bare(403, "Forbidden", &c, &id);
                 }
+                if admin_principal.refused_for_scope(required) {
+                    let detail = format!(
+                        "{} (domain-scoped principal; org-wide-only surface, domain={})",
+                        required.join("|"),
+                        admin_principal.enforced_domain_scope().unwrap_or(0)
+                    );
+                    let _ = setjoin_admin_identity::console_denied(
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        &detail,
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                }
+                let Ok(proof) = admin_principal.require_any_permission(required) else {
+                    let _ = setjoin_admin_identity::console_denied(
+                        &factory,
+                        &user_principal,
+                        &go_path,
+                        &required.join("|"),
+                        operation,
+                    )
+                    .await;
+                    return bare(403, "Forbidden", &c, &id);
+                };
+                admin_proof = Some(proof);
             }
             let reply =
                 |body: String| crate::jmap::reply::response(body, c.identity.proto, id.clone());
@@ -221,7 +269,7 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
                 return full(400, "invalid role id");
             };
             match what {
-                Action::MyRoles => match db::my_roles(&exec, actor.user_id()).await {
+                Action::MyRoles => match db::my_roles(&factory, &user_principal).await {
                     Ok(body) => reply(body),
                     Err(_) => database(),
                 },
@@ -238,8 +286,8 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
                     };
                     let justification = body.justification.filter(|j| !j.is_empty());
                     match db::activate(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user_principal,
                         role,
                         minutes,
                         justification.as_deref(),
@@ -276,23 +324,31 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
                         CommandOutcome::Unknown { operation } => unknown(operation),
                     }
                 }
-                Action::Deactivate => match db::deactivate(&exec, actor, role, operation).await {
-                    CommandOutcome::Committed(()) => reply("{}\n".into()),
-                    CommandOutcome::RolledBack(_) => database(),
-                    CommandOutcome::Unknown { operation } => unknown(operation),
-                },
+                Action::Deactivate => {
+                    match db::deactivate(&factory, &user_principal, role, operation).await {
+                        CommandOutcome::Committed(()) => reply("{}\n".into()),
+                        CommandOutcome::RolledBack(_) => database(),
+                        CommandOutcome::Unknown { operation } => unknown(operation),
+                    }
+                }
                 Action::Policy => {
+                    let Some(proof) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
                     // Owner-approved security fix 2026-11-05 (#393): role ownership.
-                    if !db::role_in_scope(&exec, actor, role).await {
+                    if !db::role_in_scope(&factory, proof, role).await {
                         return full(404, "role not found");
                     }
-                    match db::policy(&exec, role).await {
+                    match db::policy(&factory, proof, role).await {
                         Ok(body) => reply(body),
                         Err(_) => database(),
                     }
                 }
                 Action::PutPolicy => {
-                    if !db::role_in_scope(&exec, actor, role).await {
+                    let Some(proof) = admin_proof.as_ref() else {
+                        return bare(403, "Forbidden", &c, &id);
+                    };
+                    if !db::role_in_scope(&factory, proof, role).await {
                         return full(404, "role not found");
                     }
                     let Ok(body) = json_body::<PolicyBody>(&mut r).await else {
@@ -305,8 +361,9 @@ impl<K: KeySource + 'static> Intercept for AdminSodRoute<K> {
                         return database();
                     };
                     match db::put_policy(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user_principal,
+                        proof,
                         role,
                         minutes,
                         body.require_justification,

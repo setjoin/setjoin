@@ -282,7 +282,32 @@ BEGIN
         ('public.rust_system_config_upsert_batch(text[],text[],text)'),
         ('public.rust_system_config_upsert(text,text,boolean)'),
         ('public.rust_system_config_delete(text)'),
-        ('public.rust_outbound_queue_enqueue(text,text,text,text)')
+        ('public.rust_outbound_queue_enqueue(text,text,text,text)'),
+        -- #546d: worker/admin-only reducers retiring Wave 1.8d cross-domain writes & dynamic-SQL sites.
+        ('public.rust_system_config_upsert_batch_encrypted(text[],text[],boolean[],text)'),
+        ('public.rust_mailbox_admin_set_quota(bigint,bigint,bigint,integer)'),
+        ('public.rust_mailbox_alias_add(bigint,bigint,bigint,text,boolean)'),
+        ('public.rust_mailbox_alias_remove(bigint,bigint,bigint)'),
+        ('public.rust_mailbox_ensure_primary(bigint)'),
+        ('public.rust_admin_bulk_role_job_retry(bigint,bigint,text)'),
+        ('public.rust_ca_policy_soft_delete(bigint,bigint)'),
+        ('public.rust_ca_policy_restore(bigint,bigint)'),
+        ('public.rust_ca_policy_restore_from_audit(bigint,bigint)'),
+        ('public.rust_ca_policy_promote(bigint,bigint)'),
+        ('public.rust_ca_policy_import(bigint,jsonb,text)'),
+        ('public.rust_ca_template_instantiate(bigint,text)'),
+        ('public.rust_ca_named_location_set(bigint,bigint,text,text,text[],text[],boolean,boolean,text)'),
+        ('public.rust_ca_named_location_restore(bigint,bigint,text)'),
+        ('public.rust_ca_auth_strength_set(bigint,bigint,text,text,jsonb,text,boolean,text)'),
+        ('public.rust_ca_revoke_user_sessions(bigint,bigint)'),
+        ('public.rust_ca_resolve_user_groups(bigint[])'),
+        ('public.rust_compliance_content_purge(bigint,bigint[],text,text)'),
+        ('public.rust_compliance_content_search_kql(text,text[])'),
+        -- #546d: V249 identity-address admission trigger functions hardened to
+        -- worker-owned SECURITY DEFINER in V288 (never directly callable by setjoin_app).
+        ('public.identity_address_admission_users()'),
+        ('public.identity_address_admission_aliases()'),
+        ('public.identity_address_admission_mailboxes()')
       ) AS exact_worker(signature)
      WHERE to_regprocedure(signature) IS NOT NULL
   LOOP

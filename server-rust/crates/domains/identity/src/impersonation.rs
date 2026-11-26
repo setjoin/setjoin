@@ -1,7 +1,7 @@
 //! Direct authserver impersonation: live governed grant, then strict tier descent.
 use crate::issuance::SessionProof;
 use serde_json::{json, Value};
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{AuthDb, Type};
 pub struct Denied {
     pub status: u16,
     pub detail: &'static str,
@@ -32,7 +32,7 @@ impl Target {
     }
 }
 async fn audit(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     actor: &SessionProof,
     ip: &str,
     event: &str,
@@ -51,10 +51,20 @@ async fn audit(
     if let Some(email) = email {
         metadata["target_email"] = json!(email);
     }
-    let _=exec.protocol_statement("INSERT INTO audit_log(user_id,source_ip,event_type,metadata) VALUES($1,$2::text::inet,$3,$4::text::jsonb)",&[(&actor.user(),Type::INT8),(&ip,Type::TEXT),(&event,Type::TEXT),(&metadata.to_string(),Type::TEXT)]).await;
+    let _ = exec
+        .protocol_statement_contract(
+            &crate::sql::IMPERSONATION_AUDIT_LOG_INSERT,
+            &[
+                (&actor.user(), Type::INT8),
+                (&ip, Type::TEXT),
+                (&event, Type::TEXT),
+                (&metadata.to_string(), Type::TEXT),
+            ],
+        )
+        .await;
 }
 pub async fn authorize(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     actor: &SessionProof,
     raw_target: &str,
     ip: &str,
@@ -70,7 +80,13 @@ pub async fn authorize(
     // The grant and its domain scope come from the same live assignments: a global
     // grant (no domain on any granting assignment) is unrestricted, otherwise the
     // target must live in one of the granting assignments' domains.
-    let grant=exec.read("SELECT count(*), COALESCE(bool_or(COALESCE(ra.domain_override,rg.domain_scope) IS NULL),false), COALESCE(array_agg(DISTINCT COALESCE(ra.domain_override,rg.domain_scope)) FILTER (WHERE COALESCE(ra.domain_override,rg.domain_scope) IS NOT NULL),'{}'::bigint[]) FROM admin_role_assignments ra JOIN admin_role_groups rg ON rg.id=ra.role_group_id WHERE ra.user_id=$1 AND 'users.impersonate'=ANY(rg.permissions) AND (ra.expires_at IS NULL OR ra.expires_at>now()) AND admin_assignment_active(ra.eligible,ra.activated_until)",&[(&actor.user(),Type::INT8)]).await.map_err(|_|gate("Forbidden"))?;
+    let grant = exec
+        .read_contract(
+            &crate::sql::IMPERSONATION_L73,
+            &[(&actor.user(), Type::INT8)],
+        )
+        .await
+        .map_err(|_| gate("Forbidden"))?;
     let grant_error = || gate("Forbidden");
     let grant = grant.first().ok_or_else(grant_error)?;
     if grant.try_get::<_, i64>(0).map_err(|_| grant_error())? == 0 {
@@ -95,7 +111,13 @@ pub async fn authorize(
     if target == actor.user() {
         return Err(denied(400, "cannot impersonate yourself"));
     }
-    let rows=exec.read("SELECT enabled,EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND (ra.expires_at IS NULL OR ra.expires_at>now())),EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND ra.role_group_id=1 AND (ra.expires_at IS NULL OR ra.expires_at>now())) FROM users WHERE id=$1",&[(&actor.user(),Type::INT8)]).await.map_err(|_|denied(403,"admin access required"))?;
+    let rows = exec
+        .read_contract(
+            &crate::sql::IMPERSONATION_L98,
+            &[(&actor.user(), Type::INT8)],
+        )
+        .await
+        .map_err(|_| denied(403, "admin access required"))?;
     let actor_error = || denied(403, "admin access required");
     let row = rows.first().ok_or_else(actor_error)?;
     if !row.try_get::<_, bool>(0).map_err(|_| actor_error())?
@@ -103,10 +125,17 @@ pub async fn authorize(
     {
         return Err(actor_error());
     }
-    let actor_rank = if row.try_get::<_, bool>(2).map_err(|_| actor_error())? { 4 } else { 3 };
+    let actor_rank = if row.try_get::<_, bool>(2).map_err(|_| actor_error())? {
+        4
+    } else {
+        3
+    };
     // Owner-approved security fix 2026-11-05 (#495): a domain-scoped grant only
     // reaches targets in its own domains (frozen Go did not constrain the target).
-    let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND (ra.expires_at IS NULL OR ra.expires_at>now())),EXISTS(SELECT 1 FROM admin_role_assignments ra WHERE ra.user_id=users.id AND ra.role_group_id=1 AND (ra.expires_at IS NULL OR ra.expires_at>now())),domain_id FROM users WHERE id=$1",&[(&target,Type::INT8)]).await.map_err(|_|denied(404,"user not found"))?;
+    let rows = exec
+        .read_contract(&crate::sql::IMPERSONATION_L109, &[(&target, Type::INT8)])
+        .await
+        .map_err(|_| denied(404, "user not found"))?;
     let row = rows.first().ok_or_else(|| denied(404, "user not found"))?;
     let target_error = || denied(500, "account type resolution failed");
     let target_domain: Option<i64> = row.try_get(3).map_err(|_| target_error())?;
@@ -153,7 +182,7 @@ pub async fn authorize(
         ));
     }
     let guest = exec
-        .read("SELECT is_guest_account($1)", &[(&target, Type::INT8)])
+        .read_contract(&crate::sql::IS_GUEST_ACCOUNT, &[(&target, Type::INT8)])
         .await
         .map_err(|_| target_error())?
         .first()
@@ -165,7 +194,7 @@ pub async fn authorize(
         guest,
     })
 }
-pub async fn record(exec: &ScopedExecutor, actor: &SessionProof, target: &Target, ip: &str) {
+pub async fn record(exec: &AuthDb, actor: &SessionProof, target: &Target, ip: &str) {
     audit(
         exec,
         actor,

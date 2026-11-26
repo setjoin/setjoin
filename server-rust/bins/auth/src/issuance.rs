@@ -79,7 +79,7 @@ impl AuthServer {
                 .and_then(|s| s.split_once(':').map(|(a, b)| (a.to_owned(), b.to_owned())));
             let (id, secret) = basic
                 .unwrap_or_else(|| (get("client_id").to_owned(), get("client_secret").to_owned()));
-            ClientProof::authenticate(&self.exec, &id, &secret)
+            ClientProof::authenticate(&self.auth_db, &id, &secret)
                 .await
                 .ok_or_else(|| Self::failure(401, "unauthorized", &path))?
         };
@@ -95,7 +95,7 @@ impl AuthServer {
         };
         Self::wire_json(
             200,
-            issuance::introspect(&self.exec, &caller, &token, &self.config.issuer).await,
+            issuance::introspect(&self.auth_db, &caller, &token, &self.config.issuer).await,
         )
     }
     pub(super) async fn revoke(&self, req: Request<Body>) -> Response<Body> {
@@ -104,7 +104,7 @@ impl AuthServer {
             Ok(v) => v,
             Err(r) => return r,
         };
-        match issuance::revoke(&self.exec, &caller, &token).await {
+        match issuance::revoke(&self.auth_db, &caller, &token).await {
             setjoin_pg::CommandOutcome::Committed(()) => Response::new(body("")),
             setjoin_pg::CommandOutcome::Unknown { operation } => {
                 let mut r = Self::failure(
@@ -170,7 +170,7 @@ impl AuthServer {
             Ok(p) => p,
             Err(r) => return r,
         };
-        match proof.pending(&self.exec).await {
+        match proof.pending(&self.auth_db).await {
             Ok(raw) => {
                 let len = raw.len();
                 let mut r = Response::builder()
@@ -241,7 +241,7 @@ impl AuthServer {
         if tou <= 0 || version <= 0 {
             return Self::failure(400, "tou_id and version required", &path);
         }
-        match proof.accept(&self.exec, tou, version, &ip).await {
+        match proof.accept(&self.auth_db, tou, version, &ip).await {
             setjoin_pg::CommandOutcome::Committed(()) => {
                 Response::builder().status(204).body(body("")).unwrap()
             }
@@ -309,7 +309,7 @@ impl AuthServer {
         if user == 0 && external.is_empty() {
             return Self::failure(400, "user_id or external_id is required", &path);
         }
-        match issuance::disable(&self.exec, &caller, user, external).await {
+        match issuance::disable(&self.auth_db, &caller, user, external).await {
             setjoin_pg::CommandOutcome::Committed(true) => {
                 Self::wire_json(200, "{\"revoked\":true}\n".into())
             }
@@ -369,20 +369,19 @@ impl AuthServer {
             return r;
         }
         let ip = self.client_ip(&req).to_string();
-        let target = match setjoin_identity::impersonation::authorize(
-            &self.exec, &proof, &target, &ip,
-        )
-        .await
-        {
-            Ok(t) => t,
-            Err(e) => {
-                return Self::failure(
-                    e.status,
-                    e.detail,
-                    if e.instance { req.uri().path() } else { "" },
-                )
-            }
-        };
+        let target =
+            match setjoin_identity::impersonation::authorize(&self.auth_db, &proof, &target, &ip)
+                .await
+            {
+                Ok(t) => t,
+                Err(e) => {
+                    return Self::failure(
+                        e.status,
+                        e.detail,
+                        if e.instance { req.uri().path() } else { "" },
+                    )
+                }
+            };
         let jti = match setjoin_identity::login::random_jti() {
             Ok(s) => s,
             Err(_) => return Self::failure(500, "token issue failed", req.uri().path()),
@@ -395,7 +394,7 @@ impl AuthServer {
             Ok(t) => t,
             Err(_) => return Self::failure(500, "token issue failed", req.uri().path()),
         };
-        setjoin_identity::impersonation::record(&self.exec, &proof, &target, &ip).await;
+        setjoin_identity::impersonation::record(&self.auth_db, &proof, &target, &ip).await;
         let meta = req.extensions().get::<ConnectionMeta>();
         let trusted = meta.is_some_and(|m| {
             self.config
@@ -555,7 +554,7 @@ impl AuthServer {
         };
         match proof
             .register(
-                &self.exec,
+                &self.auth_db,
                 get("device_name"),
                 get("platform"),
                 get("os_version"),
@@ -701,7 +700,7 @@ impl AuthServer {
             return Self::failure(500, "internal error", &path);
         }
         match proof
-            .register_webpush(&self.exec, subscription, get("device_name"))
+            .register_webpush(&self.auth_db, subscription, get("device_name"))
             .await
         {
             setjoin_pg::CommandOutcome::Committed(()) => Response::builder()

@@ -7,7 +7,6 @@
 //! an unknown key version fails closed on every read, legacy rows included.
 use hmac::{Hmac, Mac};
 use setjoin_config_secret::{open_column, seal_column, CryptoProfile};
-use setjoin_pg::{workers::WorkerConnection, Type};
 use sha2::Sha256;
 
 /// `SecretKeyIDV1`.
@@ -28,7 +27,7 @@ impl std::fmt::Debug for SecretCodec {
     }
 }
 
-const NOT_CONFIGURED: &str = "webhook: secret codec not configured";
+pub const NOT_CONFIGURED: &str = "webhook: secret codec not configured";
 
 impl SecretCodec {
     pub fn new(master: &[u8], profile: CryptoProfile) -> Self {
@@ -92,90 +91,6 @@ pub fn sign(body: &[u8], secret: &str, now: i64) -> Result<String, String> {
         "v1,t={now},sig={}",
         hex(&mac.finalize().into_bytes())
     ))
-}
-
-/// `wh.LoadSubscriptionSecret`: the signing secret of one subscription, opened through
-/// the codec. A legacy plaintext row is returned as stored and lazily re-sealed in one
-/// atomic UPDATE draining both plaintext cells (pinned to the values just read, so a
-/// concurrent rotation turns it into a no-op); a failed re-seal never blocks delivery.
-pub async fn load_subscription_secret(
-    conn: &WorkerConnection,
-    codec: Option<&SecretCodec>,
-    subscription: i64,
-) -> Result<String, String> {
-    let codec = codec.ok_or_else(|| NOT_CONFIGURED.to_string())?;
-    let rows = conn
-        .query(
-            "SELECT secret, prev_secret, secret_enc, secret_key_id, prev_secret_enc, prev_secret_key_id \
-             FROM webhook_subscriptions WHERE id = $1",
-            &[(&subscription, Type::INT8)],
-        )
-        .await
-        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
-    let Some(row) = rows.first() else {
-        return Err(format!("webhook: subscription {subscription} not found"));
-    };
-    let legacy: Option<String> = row
-        .try_get(0)
-        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
-    let prev_legacy: Option<String> = row
-        .try_get(1)
-        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
-    let envelope: Option<Vec<u8>> = row
-        .try_get(2)
-        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
-    let key_id: Option<String> = row
-        .try_get(3)
-        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
-    let prev_envelope: Option<Vec<u8>> = row
-        .try_get(4)
-        .map_err(|e| format!("webhook: load signing secret: {e}"))?;
-    if let Some(envelope) = envelope {
-        let Some(key_id) = key_id else {
-            return Err("webhook: signing secret envelope missing key id".into());
-        };
-        return codec.open(&envelope, &key_id);
-    }
-    let Some(secret) = legacy else {
-        return Err(format!(
-            "webhook: subscription {subscription} holds no usable signing secret"
-        ));
-    };
-    let sealed = codec.seal(&secret);
-    let mut sealed_prev: Option<Vec<u8>> = None;
-    let mut seal_ok = sealed.is_ok();
-    if seal_ok && prev_envelope.is_none() {
-        if let Some(prev) = &prev_legacy {
-            match codec.seal(prev) {
-                Ok(bytes) => sealed_prev = Some(bytes),
-                Err(_) => seal_ok = false,
-            }
-        }
-    }
-    if let (true, Ok(sealed)) = (seal_ok, sealed) {
-        let prev_key: Option<&str> = sealed_prev.as_ref().map(|_| codec.active_key_id());
-        let _ = conn
-            .execute(
-                "UPDATE webhook_subscriptions \
-                    SET secret_enc = $2, secret_key_id = $3, secret = NULL, \
-                        prev_secret_enc = COALESCE(prev_secret_enc, $5), \
-                        prev_secret_key_id = COALESCE(prev_secret_key_id, $7), \
-                        prev_secret = NULL \
-                  WHERE id = $1 AND secret = $4 AND secret_enc IS NULL \
-                    AND prev_secret IS NOT DISTINCT FROM $6",
-                &[
-                    (&subscription, Type::INT8),
-                    (&sealed, Type::BYTEA),
-                    (&codec.active_key_id(), Type::TEXT),
-                    (&secret, Type::TEXT),
-                    (&sealed_prev, Type::BYTEA),
-                    (&prev_legacy, Type::TEXT),
-                    (&prev_key, Type::TEXT),
-                ],
-            )
-            .await;
-    }
-    Ok(secret)
 }
 
 #[cfg(test)]

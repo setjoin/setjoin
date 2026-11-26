@@ -6,10 +6,4 @@
 //! legacy `ad/sync.go` upsert path is unreachable through the handler and is not
 //! ported; the cursor is the source row's committed `{"usn":"<n>"}`.
 pub mod client;
-pub mod runtime;
 pub use client::{AdClient, AdUser, ClientConfig, NameServerResolver, SrvResolver, SystemResolver};
-pub use runtime::{AdRuntime, AdWorker};
-
-pub(crate) fn log_warn(message: &str) {
-    eprintln!("setjoin-gateway: ad-sync: {message}");
-}

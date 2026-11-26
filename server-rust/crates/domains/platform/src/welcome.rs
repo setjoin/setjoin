@@ -1,20 +1,17 @@
 //! Platform slice `system-features`, group `welcome-email`: the org-wide welcome message
-//! (`/admin/system/welcome-email*`), Go's `WelcomeEmailHandler`. The config lives in
-//! `system_config` under `welcome_email`; the test send delivers into the caller's own inbox
-//! through `deliver()` (no mailer), mirrored by `rust_platform_welcome_test_send`.
-use super::{command, deadline, done, envelope, invalid, s, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+//! (`/admin/system/welcome-email*`), Go's `WelcomeEmailHandler`.
+use super::{command, deadline, done, envelope, invalid, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 use std::collections::BTreeMap;
 
-/// Go's `notify.WelcomeLocale`.
 #[derive(Clone, Default)]
 pub struct Locale {
     pub subject: String,
     pub body_text: String,
     pub body_html: String,
 }
-/// Go's `notify.WelcomeEmailConfig` as decoded; `locales` is `None` for a nil map.
+
 #[derive(Default)]
 pub struct Config {
     pub enabled: bool,
@@ -22,8 +19,6 @@ pub struct Config {
     pub locales: Option<BTreeMap<String, Locale>>,
 }
 
-/// Go's `validateWelcomeConfig` (the first unknown locale in sorted order stands in for
-/// Go's random map iteration).
 pub fn validate(config: &Config) -> Result<(), String> {
     const KNOWN: [&str; 3] = ["en", "zh", "de"];
     if !KNOWN.contains(&config.default_locale.as_str()) {
@@ -44,7 +39,6 @@ pub fn validate(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
-/// `json.Marshal(cfg)`: struct field order, sorted map keys.
 pub fn marshal(config: &Config) -> String {
     let locales = match &config.locales {
         None => "null".to_owned(),
@@ -69,17 +63,17 @@ pub fn marshal(config: &Config) -> String {
     ))
 }
 
-/// What `GET` answers.
 pub enum Read {
-    /// The stored jsonb text, written verbatim.
     Stored(String),
-    /// Not seeded: Go's empty disabled shell, written by `WriteJSON`.
     Shell(String),
 }
 
-pub async fn get(exec: &ScopedExecutor) -> Result<Read, StatementFailure> {
-    let rows = exec
-        .read("SELECT get_system_config('welcome_email')::text", &[])
+pub async fn get(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<Read, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::WELCOME_GET, &[])
         .await?;
     let stored: Option<String> = rows
         .first()
@@ -94,63 +88,65 @@ pub async fn get(exec: &ScopedExecutor) -> Result<Read, StatementFailure> {
     })
 }
 
-/// `PUT` of an already validated and marshalled config, recording the actor as
-/// `updated_by`.
 pub async fn put(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     value: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("welcome_email_set"),
-        &envelope(&auth, operation, value),
-        &auth,
-        deadline(),
-        "SELECT key FROM public.set_system_config('welcome_email', $4::text::jsonb, false, $2::bigint) \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
-        &[(&value, Type::TEXT)],
-        |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
-    )
-    .await
+    let actor_id = user.user().get();
+    let env = envelope(user.user(), user.generation(), operation, value);
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::WELCOME_PUT,
+            &[&value, &actor_id],
+            Some(command("welcome_email_set")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
-/// `POST .../test`: deliver the supplied content to the caller's own primary mailbox.
 pub async fn test_send(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     subject: &str,
     body_text: &str,
     body_html: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("welcome_email_test_send"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{subject}:{body_text}:{body_html}"),
-        ),
-        &auth,
-        deadline(),
-        "SELECT public.rust_platform_welcome_test_send($2::bigint, $4::text, $5::text, $6::text) \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
-        &[
-            (&subject, Type::TEXT),
-            (&body_text, Type::TEXT),
-            (&body_html, Type::TEXT),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let actor_id = user.user().get();
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{subject}:{body_text}:{body_html}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::WELCOME_TEST_SEND,
+            &[&actor_id, &subject, &body_text, &body_html],
+            Some(command("welcome_email_test_send")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }

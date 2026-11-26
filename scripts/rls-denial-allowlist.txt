@@ -287,3 +287,25 @@ tasks	COVERED	wave18b_force_rls.pg	tenant A: sees only own tasks	V287: two-tenan
 user_sender_list	COVERED	wave18b_force_rls.pg	tenant A: sees only own user_sender_list	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
 user_spam_model	COVERED	wave18b_force_rls.pg	tenant A: sees only own user_spam_model	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
 vote_responses	COVERED	wave18b_force_rls.pg	tenant A: sees only own vote_responses	V287: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant DELETE 0 rows.
+
+# ── V288 Wave 1.8C root/auth FORCE RLS (20 tables, #546d) ───────────────────
+app_passwords	COVERED	wave18c_force_rls.pg	tenant A: sees only own app_passwords	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+mailboxes	COVERED	wave18c_force_rls.pg	tenant A: sees only own mailboxes (NULL user_id mailbox hidden)	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + NULL user_id hidden + recursion-free delegate check + non-widening proof.
+mfa_reauth_step_ups	COVERED	wave18c_force_rls.pg	tenant A: sees only own mfa_reauth_step_ups	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+oauth_tokens	COVERED	wave18c_force_rls.pg	tenant A: sees only own oauth_tokens	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+oidc_auth_requests	COVERED	wave18c_force_rls.pg	tenant A: sees only own oidc_auth_requests (NULL pre-login hidden)	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + NULL user_id fail-closed + INSERT 42501.
+oidc_tokens	COVERED	wave18c_force_rls.pg	tenant A: sees only own oidc_tokens	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+passkey_credentials	COVERED	wave18c_force_rls.pg	tenant A: sees only own passkey_credentials	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+password_history	COVERED	wave18c_force_rls.pg	tenant A: sees only own password_history	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+push_devices	COVERED	wave18c_force_rls.pg	tenant A: sees only own push_devices	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+push_mfa_challenges	COVERED	wave18c_force_rls.pg	tenant A: sees only own push_mfa_challenges	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+recipient_smime_certs	COVERED	wave18c_force_rls.pg	tenant A: sees only own recipient_smime_certs	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+sessions	COVERED	wave18c_force_rls.pg	tenant A: sees only own sessions	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+totp_pending_enrollments	COVERED	wave18c_force_rls.pg	tenant A: sees only own totp_pending_enrollments	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+totp_removal_step_ups	COVERED	wave18c_force_rls.pg	tenant A: sees only own totp_removal_step_ups	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+user_app_entitlements	COVERED	wave18c_force_rls.pg	tenant A: sees only own user_app_entitlements	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + read-only INSERT 42501.
+user_smime_certs	COVERED	wave18c_force_rls.pg	tenant A: sees only own user_smime_certs	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+users	COVERED	wave18c_force_rls.pg	tenant A: sees only own users	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + direct INSERT 42501 + cross-tenant UPDATE 0 rows.
+webauthn_ceremonies	COVERED	wave18c_force_rls.pg	tenant A: sees only own webauthn_ceremonies	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.
+webhook_subscriptions	COVERED	wave18c_force_rls.pg	tenant A: sees only own webhook_subscriptions (NULL org webhook hidden)	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + NULL org webhook hidden + INSERT 42501.
+ws_subscriptions	COVERED	wave18c_force_rls.pg	tenant A: sees only own ws_subscriptions	V288: two-tenant divergent-ID proof under SET LOCAL ROLE setjoin_app + cross-tenant INSERT 42501.

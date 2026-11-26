@@ -1180,4 +1180,33 @@ rust_outbound_queue_enqueue.sql	rust_outbound_queue_enqueue	EXEMPT	-	transport m
 rust_system_config_ops.sql	rust_system_config_delete	EXEMPT	-	migration source config delete called from permission-gated admin handler (audited by AdminWriteTx/caller)
 rust_system_config_ops.sql	rust_system_config_upsert	EXEMPT	-	migration source config upsert called from permission-gated admin handler (audited by AdminWriteTx/caller)
 rust_system_config_ops.sql	rust_system_config_upsert_batch	EXEMPT	-	anti-phish system_config batch upsert called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_system_config_ops.sql	rust_system_config_upsert_batch_encrypted	EXEMPT	-	encrypted directory-sync system_config batch upsert called from permission-gated admin handler (audited by AdminWriteTx/caller)
 rust_user_external_sender_warning_set.sql	rust_user_external_sender_warning_set	EXEMPT	-	self-service user preference toggle; not an authority transition
+rust_admin_bulk_role_job_retry.sql	rust_admin_bulk_role_job_retry	MUST	core	bulk role job retry queue reset writes core audit_write in same tx
+rust_ca_admin_ops.sql	rust_ca_auth_strength_set	EXEMPT	-	CA auth-strength admin CRUD called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_named_location_restore	EXEMPT	-	CA named-location restore called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_named_location_set	EXEMPT	-	CA named-location admin CRUD called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_policy_import	EXEMPT	-	CA policy JSON import called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_policy_promote	EXEMPT	-	CA policy report-only promotion called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_policy_restore	EXEMPT	-	CA policy soft-delete restore called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_policy_restore_from_audit	EXEMPT	-	CA policy audit snapshot restore called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_policy_soft_delete	EXEMPT	-	CA policy soft-delete called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_resolve_user_groups	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_ca_admin_ops.sql	rust_ca_revoke_user_sessions	EXEMPT	-	CA session revocation wrapper called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_ca_admin_ops.sql	rust_ca_template_instantiate	EXEMPT	-	CA policy template instantiation called from permission-gated admin handler (audited by AdminWriteTx/caller)
+rust_compliance_admin_ops.sql	rust_compliance_content_purge	EXEMPT	-	compliance content purge called from permission-gated AdminWriteTx handler (audited by caller)
+rust_compliance_admin_ops.sql	rust_compliance_content_search_kql	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_compliance_audit_log_insert.sql	rust_compliance_audit_log_insert	EXEMPT	-	audit_log sink write (impersonation event); audit sink itself
+rust_identity_client_version.sql	rust_identity_client_version_latest	READ_ONLY	-	pure read path (guard re-derives no DML)
+rust_mailbox_admin_ops.sql	rust_mailbox_admin_set_quota	EXEMPT	-	admin mailbox quota mutation called from permission-gated AdminWriteTx handler (audited by caller)
+rust_mailbox_admin_ops.sql	rust_mailbox_alias_add	EXEMPT	-	admin alias addition called from permission-gated AdminWriteTx handler (audited by caller)
+rust_mailbox_admin_ops.sql	rust_mailbox_alias_remove	EXEMPT	-	admin alias removal called from permission-gated AdminWriteTx handler (audited by caller)
+rust_mailbox_admin_ops.sql	rust_mailbox_ensure_primary	EXEMPT	-	JIT RP primary mailbox provisioning helper; not an admin authority transition
+rust_migration_self_service.sql	rust_migration_history_delete	EXEMPT	-	self-service migration history delete; ownership-scoped user content
+rust_migration_self_service.sql	rust_migration_job_insert	EXEMPT	-	self-service migration job enqueue; ownership-scoped user content
+rust_user_profile_ops.sql	rust_user_profile_update	EXEMPT	-	self-service user profile field update; not an authority transition
+rust_user_profile_ops.sql	rust_user_view_prefs_merge	EXEMPT	-	self-service user UI view_prefs merge; not an authority transition
+rust_user_profile_ops.sql	rust_user_view_prefs_set	EXEMPT	-	self-service user UI view_prefs set; not an authority transition
+rust_webhook_self_ops.sql	rust_webhook_self_create	EXEMPT	-	self-service user webhook subscription create; ownership-scoped
+rust_webhook_self_ops.sql	rust_webhook_self_delete	EXEMPT	-	self-service user webhook subscription delete; ownership-scoped
+system_has_users.sql	system_has_users	READ_ONLY	-	pure read path (guard re-derives no DML)

@@ -46,6 +46,12 @@ const ALL_CONTRACTS: &[&[SqlContract]] = &[
     setjoin_mail_security::SQL_CONTRACTS,
     setjoin_mailboxes::SQL_CONTRACTS,
     setjoin_meet::SQL_CONTRACTS,
+    setjoin_conditional_access::SQL_CONTRACTS,
+    setjoin_compliance::SQL_CONTRACTS,
+    setjoin_directory_sync::SQL_CONTRACTS,
+    setjoin_platform::SQL_CONTRACTS,
+    setjoin_admin_identity::SQL_CONTRACTS,
+    setjoin_identity::SQL_CONTRACTS,
 ];
 
 const FIRST_CUSTOM_OID: u32 = 16384;
@@ -525,7 +531,18 @@ impl RlsFixture {
             .map_err(|e| format!("seed foreign user failed: {:?}", e.as_db_error()))?
             .get(0);
 
-        // Ensure victim_mailbox_id diverges from victim_user_id (if equal, create a spare first).
+        // Seed foreign_mailbox before victim_mailbox so victim_mailbox_id naturally
+        // diverges from victim_user_id even on a fresh database where sequences align.
+        let foreign_mailbox_id: i64 = worker
+            .query_one(
+                "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
+                 VALUES ($1, $2, $3, 'Foreign', TRUE) RETURNING id",
+                &[&domain_id, &foreign_user_id, &foreign_email],
+            )
+            .await
+            .map_err(|e| format!("seed foreign mailbox failed: {:?}", e.as_db_error()))?
+            .get(0);
+
         let mut victim_mailbox_id: i64 = worker
             .query_one(
                 "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
@@ -536,18 +553,13 @@ impl RlsFixture {
             .map_err(|e| format!("seed victim mailbox failed: {:?}", e.as_db_error()))?
             .get(0);
         if victim_mailbox_id == victim_user_id {
+            // Insert a secondary non-primary mailbox so trg_mailbox_primary_enforce
+            // (BZ014) is always satisfied while victim_mailbox_id != victim_user_id.
             let alt_email = format!("victim-alt-{tag}@{domain_name}");
-            worker
-                .execute(
-                    "UPDATE mailboxes SET is_primary = FALSE WHERE id = $1",
-                    &[&victim_mailbox_id],
-                )
-                .await
-                .map_err(|e| format!("adjust victim mailbox failed: {:?}", e.as_db_error()))?;
             victim_mailbox_id = worker
                 .query_one(
                     "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
-                     VALUES ($1, $2, $3, 'Victim Alt', TRUE) RETURNING id",
+                     VALUES ($1, $2, $3, 'Victim Alt', FALSE) RETURNING id",
                     &[&domain_id, &victim_user_id, &alt_email],
                 )
                 .await
@@ -559,16 +571,6 @@ impl RlsFixture {
                 })?
                 .get(0);
         }
-
-        let foreign_mailbox_id: i64 = worker
-            .query_one(
-                "INSERT INTO mailboxes (domain_id, user_id, email, display_name, is_primary) \
-                 VALUES ($1, $2, $3, 'Foreign', TRUE) RETURNING id",
-                &[&domain_id, &foreign_user_id, &foreign_email],
-            )
-            .await
-            .map_err(|e| format!("seed foreign mailbox failed: {:?}", e.as_db_error()))?
-            .get(0);
 
         // Seed rows into FORCE RLS tables probed by migrated domain contracts.
         let victim_calendar_id: i64 = worker
@@ -960,7 +962,10 @@ async fn verify_one_contract(
     worker: &Client,
     fixture: &RlsFixture,
 ) -> Result<(), String> {
-    let client = if contract.scope.is_worker_bypass() || contract.scope.is_admin() {
+    let client = if contract.scope.is_worker_bypass()
+        || contract.scope.is_admin()
+        || matches!(contract.scope, SqlScope::AuthPreScope)
+    {
         worker
     } else {
         app
@@ -1032,11 +1037,17 @@ async fn verify_inside_tx(
     // Check result column count, built-in OID < 16384, exact type, and optional name.
     let actual_cols = stmt.columns();
     if actual_cols.len() != contract.columns.len() {
+        let actual_desc = actual_cols
+            .iter()
+            .map(|c| format!("{}:{}({})", c.name(), c.type_().name(), c.type_().oid()))
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(format!(
-            "COLUMN_COUNT_MISMATCH [{}]: declared {} columns, PostgreSQL returned {}",
+            "COLUMN_COUNT_MISMATCH [{}]: declared {} columns, PostgreSQL returned {} [{}]",
             contract.id,
             contract.columns.len(),
-            actual_cols.len()
+            actual_cols.len(),
+            actual_desc
         ));
     }
     for (idx, (expected, actual)) in contract.columns.iter().zip(actual_cols.iter()).enumerate() {

@@ -45,6 +45,7 @@
 #![forbid(unsafe_code)]
 
 pub mod auth;
+pub mod auth_db;
 mod capability;
 pub mod cert_monitor;
 pub mod command;
@@ -59,6 +60,7 @@ pub mod ticket_keys;
 pub mod workers;
 
 pub use auth::MailboxAuthContext;
+pub use auth_db::{AuthDb, ProvenContract};
 #[cfg(feature = "mint")]
 pub use capability::{mint, AdminWorkerPool, PreAuthReadTx};
 pub use capability::{

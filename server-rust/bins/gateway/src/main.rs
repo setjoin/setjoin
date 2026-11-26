@@ -1140,8 +1140,8 @@ async fn routes(
     chain: Option<Arc<setjoin_authz::auth_chain::Chain>>,
     threat: Option<Arc<setjoin_threat::Gate>>,
     lifecycle: Option<Arc<setjoin_gateway::guest_worker::GuestLifecycle>>,
-    ldap: Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>,
-    ad: Option<Arc<setjoin_directory_sync::ad::AdRuntime>>,
+    ldap: Option<Arc<setjoin_gateway::directory_sync_workers::LdapRuntime>>,
+    ad: Option<Arc<setjoin_gateway::directory_sync_workers::AdRuntime>>,
     subscription_sync: Option<Arc<setjoin_gateway::subscription_sync::SubscriptionSync>>,
     migration_runner: Option<setjoin_gateway::migration::Runner>,
     webhook: Option<setjoin_gateway::webhook::Dispatcher>,
@@ -1540,26 +1540,31 @@ async fn routes(
     };
     let admin_identity = setjoin_gateway::admin_identity::AdminIdentityRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_access_reviews = setjoin_gateway::admin_access_reviews::AdminAccessReviewsRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_scope_sets = setjoin_gateway::admin_scope_sets::AdminScopeSetsRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_org_policies = setjoin_gateway::admin_org_policies::AdminOrgPoliciesRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
     let admin_sod = setjoin_gateway::admin_sod::AdminSodRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
@@ -1569,6 +1574,7 @@ async fn routes(
         .map(|dispatcher| setjoin_gateway::health_alerts::HealthAlerts::new(dispatcher).observer());
     let mut platform =
         setjoin_gateway::platform::PlatformRoute::new(exec.clone(), keys.clone(), issuer.clone())
+            .with_worker(compliance.worker.clone())
             .with_configuration(configuration.clone())
             .with_overrides(setjoin_platform::features::Overrides::from_env(&|name| {
                 std::env::var(name).ok()
@@ -1598,6 +1604,7 @@ async fn routes(
         keys.clone(),
         issuer.clone(),
     )
+    .with_worker(compliance.worker.clone())
     .with_recovery(
         compliance.worker.clone(),
         family.as_ref().is_some_and(|f| f.continuity.is_some()),
@@ -1630,6 +1637,7 @@ async fn routes(
     };
     let platform_webhooks = setjoin_gateway::platform_webhooks::PlatformWebhooksRoute {
         exec: exec.clone(),
+        worker: Some(compliance.worker.clone()),
         keys: keys.clone(),
         issuer: issuer.clone(),
         codec: webhook_codec(),
@@ -1814,6 +1822,14 @@ async fn routes(
     };
     let dirsync = setjoin_gateway::directory_sync::DirectorySyncRoute {
         exec: exec.clone(),
+        worker: Some(
+            ScopedExecutor::from_dsn(&env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone()), pool)
+                .map_err(|e| format!("DB_WORKER_DSN: {}", e.0))?
+                .with_audit_keys(
+                    env("DB_ENCRYPTION_KEY").unwrap_or_default(),
+                    env("AUDIT_HMAC_KEY").unwrap_or_default(),
+                ),
+        ),
         keys: keys.clone(),
         issuer: issuer.clone(),
         ldap,
@@ -2055,8 +2071,8 @@ fn listed(var: &str, name: &str) -> bool {
 /// The LDAP runtime (#380): routes and the optional `ldap-sync` worker share
 /// it. `RUST_WORKERS_ON=ldap-sync` requires `GO_WORKERS_OFF=ldap-sync` first, so
 /// two copies never sync one directory.
-fn ldap_runtime() -> Result<Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>, String>
-{
+fn ldap_runtime(
+) -> Result<Option<Arc<setjoin_gateway::directory_sync_workers::LdapRuntime>>, String> {
     let Some(request) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
         if listed("RUST_WORKERS_ON", "ldap-sync") {
             return Err("DB_DSN is required for ldap-sync".into());
@@ -2067,7 +2083,7 @@ fn ldap_runtime() -> Result<Option<Arc<setjoin_directory_sync::ldap::runtime::Ld
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())
         .map_err(|e| format!("DB_WORKER_DSN: {e}"))?;
     Ok(Some(Arc::new(
-        setjoin_directory_sync::ldap::runtime::LdapRuntime::from_env(db),
+        setjoin_gateway::directory_sync_workers::LdapRuntime::from_env(db),
     )))
 }
 
@@ -2091,11 +2107,11 @@ fn webhook_codec() -> setjoin_platform::webhook_secret::SecretCodec {
 /// `ad-sync` worker share it. The resolved boot YAML/env pins Go's enable
 /// value. Disabled handlers still exist and answer their native auth/config
 /// outcomes; only shared-effect workers require the enable value to be true.
-fn ad_runtime() -> Result<Option<Arc<setjoin_directory_sync::ad::AdRuntime>>, String> {
+fn ad_runtime() -> Result<Option<Arc<setjoin_gateway::directory_sync_workers::AdRuntime>>, String> {
     let wanted = ["ad-sync", "ad-toggle-observer"]
         .iter()
         .any(|name| listed("RUST_WORKERS_ON", name));
-    if !setjoin_directory_sync::ad::runtime::enabled_from_env() {
+    if !setjoin_gateway::directory_sync_workers::ad_runtime::enabled_from_env() {
         if wanted {
             return Err("ad-sync and ad-toggle-observer need AD_SYNC_ENABLED=true in the resolved startup configuration".into());
         }
@@ -2110,7 +2126,7 @@ fn ad_runtime() -> Result<Option<Arc<setjoin_directory_sync::ad::AdRuntime>>, St
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())
         .map_err(|e| format!("DB_WORKER_DSN: {e}"))?;
     Ok(Some(Arc::new(
-        setjoin_directory_sync::ad::AdRuntime::from_env(db),
+        setjoin_gateway::directory_sync_workers::AdRuntime::from_env(db),
     )))
 }
 
@@ -2120,7 +2136,7 @@ struct IdentityWorkers {
     direct: Option<String>,
     trigger: Arc<tokio::sync::Notify>,
     /// The catalog source manager when `identity-source-runtime` is Rust's.
-    runtime: Option<Arc<setjoin_directory_sync::catalog::IdentitySourceRuntime>>,
+    runtime: Option<Arc<setjoin_gateway::directory_sync_workers::IdentitySourceRuntime>>,
 }
 
 /// Go's `DecodeIdentitySourceRuntime`, owned by the identity-admin family.
@@ -2129,7 +2145,7 @@ fn decode_source(
     key: &str,
     kind: &str,
     envelope: &[u8],
-) -> Result<setjoin_directory_sync::catalog::SourceConfig, String> {
+) -> Result<setjoin_gateway::directory_sync_workers::SourceConfig, String> {
     setjoin_admin_identity::idv2_source::decode_runtime(codec, key, kind, envelope)
         .map(setjoin_gateway::directory_sync::source_config)
 }
@@ -2138,7 +2154,7 @@ fn decode_source(
 /// Go's copy off (`GO_WORKERS_OFF`), on the worker credential (`DB_WORKER_DSN`,
 /// falling back to `DB_DSN`).
 fn identity_source_runtime(
-) -> Result<Option<Arc<setjoin_directory_sync::catalog::IdentitySourceRuntime>>, String> {
+) -> Result<Option<Arc<setjoin_gateway::directory_sync_workers::IdentitySourceRuntime>>, String> {
     if !listed("RUST_WORKERS_ON", "identity-source-runtime") {
         return Ok(None);
     }
@@ -2150,7 +2166,7 @@ fn identity_source_runtime(
     let db = WorkerDatabase::from_dsns(&request, worker.as_deref())
         .map_err(|e| format!("DB_WORKER_DSN: {e}"))?;
     Ok(Some(Arc::new(
-        setjoin_directory_sync::catalog::IdentitySourceRuntime::from_env(db, decode_source),
+        setjoin_gateway::directory_sync_workers::IdentitySourceRuntime::from_env(db, decode_source),
     )))
 }
 

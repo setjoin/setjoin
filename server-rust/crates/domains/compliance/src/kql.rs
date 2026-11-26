@@ -3,8 +3,8 @@
 include!("go_print.rs");
 #[derive(Debug)]
 pub struct Predicate {
-    pub(crate) sql: String,
-    pub(crate) values: Vec<String>,
+    pub sql: String,
+    pub values: Vec<String>,
 }
 struct Expr {
     or: bool,

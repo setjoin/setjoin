@@ -67,9 +67,11 @@ pub(crate) async fn resolve_account(
     let actor = ActorId::new(user_id).map_err(|_| mismatch())?;
 
     // Go `identity.ValidateAccountID`: re-read primary mailbox on every call.
+    // V288 FORCE-RLS: mailboxes requires app.current_user_id scope under setjoin_app.
     let rows = tokio::time::timeout(
         PRECHECK_TIMEOUT,
-        exec.read(
+        exec.read_user_scoped(
+            actor,
             "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
             &[(&user_id, Type::INT8)],
         ),

@@ -7,9 +7,10 @@
 //! HTML-escaped, `time.Time` as RFC 3339 with trimmed fractions, `json.RawMessage`
 //! compacted. List cursors are Go's opaque base64url JSON, bound to the actor, the
 //! domain scope and the filters, and expire after 15 minutes.
-use super::{invalid, nano, s};
+use super::{invalid, s, sql};
 use base64::Engine as _;
-use setjoin_pg::{ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::StatementFailure;
 use sha2::{Digest as _, Sha256};
 
 pub const LIST_DEFAULT: usize = 100;
@@ -574,7 +575,8 @@ fn page(items: Vec<String>, more: Option<String>) -> String {
 
 /// `GET /admin/identity/v2/sources`.
 pub async fn sources(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     domain_scope: i64,
     opts: &Opts,
@@ -583,32 +585,19 @@ pub async fn sources(
     if opts.had_cursor && opts.cursor.text.is_empty() {
         return Err(refuse(400, "invalid identity list cursor"));
     }
-    let sql = format!(
-        "SELECT source_key,display_name,kind,state,generation,mapping_version,capabilities::text,{},{},last_error_code,\
-         committed_cursor IS NOT NULL,\
-         (SELECT count(*) FROM identity_source_inbox i WHERE i.source_id=s.id AND i.state IN ('pending','quarantined')) \
-         FROM identity_sources s \
-         WHERE ($2::bigint = 0 OR EXISTS (SELECT 1 FROM user_identity_links scoped_link WHERE scoped_link.source_id=s.id AND admin_can_reach($1,scoped_link.user_id))) \
-         AND ($3::text = '' OR s.source_key ILIKE '%' || $3 || '%' OR s.display_name ILIKE '%' || $3 || '%') \
-         AND ($4::text = '' OR s.source_key=$4) \
-         AND ($5::text = '' OR s.state=$5) \
-         AND ($6::text = '' OR s.source_key>$6) \
-         ORDER BY s.source_key LIMIT $7",
-        nano("last_success_at"),
-        nano("last_failure_at")
-    );
     let limit = opts.limit as i64 + 1;
-    let rows = exec
-        .read(
-            &sql,
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::IDV2_SOURCES_LIST,
             &[
-                (&actor, Type::INT8),
-                (&domain_scope, Type::INT8),
-                (&opts.filter, Type::TEXT),
-                (&opts.source, Type::TEXT),
-                (&opts.state, Type::TEXT),
-                (&opts.cursor.text, Type::TEXT),
-                (&limit, Type::INT8),
+                &actor,
+                &domain_scope,
+                &opts.filter,
+                &opts.source,
+                &opts.state,
+                &opts.cursor.text,
+                &limit,
             ],
         )
         .await
@@ -651,36 +640,28 @@ pub async fn sources(
 }
 
 /// `GET /admin/identity/v2/people`.
-pub async fn people(exec: &ScopedExecutor, actor: i64, opts: &Opts, now: i64) -> Page {
+pub async fn people(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    actor: i64,
+    opts: &Opts,
+    now: i64,
+) -> Page {
     if opts.had_cursor && opts.cursor.number <= 0 {
         return Err(refuse(400, "invalid identity list cursor"));
     }
-    let sql = "SELECT u.id,u.email,u.display_name,u.enabled,a.authority_kind,s.source_key,\
-         (count(l.id) FILTER (WHERE l.state='active')::integer)::bigint,\
-         (count(l.id) FILTER (WHERE l.state='detached')::integer)::bigint \
-         FROM users u \
-         JOIN user_lifecycle_authorities a ON a.user_id=u.id \
-         LEFT JOIN user_identity_links al ON al.id=a.link_id \
-         LEFT JOIN identity_sources s ON s.id=al.source_id \
-         LEFT JOIN user_identity_links l ON l.user_id=u.id \
-         WHERE NOT is_guest_account(u.id) AND admin_can_reach($1,u.id) \
-         AND ($2::text = '' OR u.email ILIKE '%' || $2 || '%' OR COALESCE(u.display_name,'') ILIKE '%' || $2 || '%') \
-         AND ($3::text = '' OR s.source_key=$3) \
-         AND ($4::text = '' OR ($4='enabled' AND u.enabled) OR ($4='disabled' AND NOT u.enabled)) \
-         AND ($5::bigint = 0 OR u.id>$5) \
-         GROUP BY u.id,u.email,u.display_name,u.enabled,a.authority_kind,s.source_key \
-         ORDER BY u.id LIMIT $6";
     let limit = opts.limit as i64 + 1;
-    let rows = exec
-        .read(
-            sql,
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::IDV2_PEOPLE_LIST,
             &[
-                (&actor, Type::INT8),
-                (&opts.filter, Type::TEXT),
-                (&opts.source, Type::TEXT),
-                (&opts.state, Type::TEXT),
-                (&opts.cursor.number, Type::INT8),
-                (&limit, Type::INT8),
+                &actor,
+                &opts.filter,
+                &opts.source,
+                &opts.state,
+                &opts.cursor.number,
+                &limit,
             ],
         )
         .await
@@ -719,7 +700,8 @@ pub async fn people(exec: &ScopedExecutor, actor: i64, opts: &Opts, now: i64) ->
 
 /// `GET /admin/identity/v2/conflicts`.
 pub async fn conflicts(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     domain_scope: i64,
     opts: &Opts,
@@ -736,33 +718,20 @@ pub async fn conflicts(
         cursor_time = Some(time);
         cursor_id = Some(id);
     }
-    let sql = format!(
-        "SELECT c.id::text,s.source_key,c.evidence_class,c.status,c.generation,{},{},c.redacted_explanation,{} \
-         FROM identity_match_candidates c JOIN identity_sources s ON s.id=c.source_id \
-         WHERE c.status IN ('pending','deferred') \
-         AND (($2::bigint = 0 AND c.candidate_user_id IS NULL) OR (c.candidate_user_id IS NOT NULL AND admin_can_reach($1,c.candidate_user_id))) \
-         AND ($3::text = '' OR c.redacted_explanation ILIKE '%' || $3 || '%' OR c.evidence_class ILIKE '%' || $3 || '%') \
-         AND ($4::text = '' OR s.source_key=$4) \
-         AND ($5::text = '' OR c.status=$5) \
-         AND ($6::text IS NULL OR (c.created_at,c.id)<($6::text::timestamptz,$7::text::uuid)) \
-         ORDER BY c.created_at DESC,c.id DESC LIMIT $8",
-        nano("c.created_at"),
-        nano("c.expires_at"),
-        "to_char(c.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')"
-    );
     let limit = opts.limit as i64 + 1;
-    let rows = exec
-        .read(
-            &sql,
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::IDV2_CONFLICTS_LIST,
             &[
-                (&actor, Type::INT8),
-                (&domain_scope, Type::INT8),
-                (&opts.filter, Type::TEXT),
-                (&opts.source, Type::TEXT),
-                (&opts.state, Type::TEXT),
-                (&cursor_time, Type::TEXT),
-                (&cursor_id, Type::TEXT),
-                (&limit, Type::INT8),
+                &actor,
+                &domain_scope,
+                &opts.filter,
+                &opts.source,
+                &opts.state,
+                &cursor_time,
+                &cursor_id,
+                &limit,
             ],
         )
         .await
@@ -784,7 +753,6 @@ pub async fn conflicts(
                 s(&row.try_get::<_, String>(1).map_err(|_| invalid())?),
                 s(&row.try_get::<_, String>(3).map_err(|_| invalid())?),
             );
-            // The cursor time is Go's `UTC().Format(RFC3339Nano)`: trimmed fraction.
             Ok((
                 id,
                 item,
@@ -829,7 +797,8 @@ fn trim_fraction(text: &str) -> String {
 
 /// `GET /admin/identity/v2/events`.
 pub async fn events(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     domain_scope: i64,
     opts: &Opts,
@@ -846,29 +815,19 @@ pub async fn events(
         cursor_time = Some(time);
         cursor_id = opts.cursor.number;
     }
-    let sql = format!(
-        "SELECT e.id::text,{},e.user_id::text,s.source_key,e.link_id::text,e.transition_id::text,e.action,e.reason,\
-         e.correlation_id::text,e.metadata::text,to_char(e.occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
-         FROM identity_link_events e LEFT JOIN identity_sources s ON s.id=e.source_id \
-         WHERE (($2::bigint = 0 AND e.user_id IS NULL) OR (e.user_id IS NOT NULL AND admin_can_reach($1,e.user_id))) \
-         AND ($3::text = '' OR e.action ILIKE '%' || $3 || '%' OR COALESCE(s.source_key,'') ILIKE '%' || $3 || '%') \
-         AND ($4::text = '' OR s.source_key=$4) \
-         AND ($5::text IS NULL OR (e.occurred_at,e.id)<($5::text::timestamptz,$6::bigint)) \
-         ORDER BY e.occurred_at DESC,e.id DESC LIMIT $7",
-        nano("e.occurred_at")
-    );
     let limit = opts.limit as i64 + 1;
-    let rows = exec
-        .read(
-            &sql,
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::IDV2_EVENTS_LIST,
             &[
-                (&actor, Type::INT8),
-                (&domain_scope, Type::INT8),
-                (&opts.filter, Type::TEXT),
-                (&opts.source, Type::TEXT),
-                (&cursor_time, Type::TEXT),
-                (&cursor_id, Type::INT8),
-                (&limit, Type::INT8),
+                &actor,
+                &domain_scope,
+                &opts.filter,
+                &opts.source,
+                &cursor_time,
+                &cursor_id,
+                &limit,
             ],
         )
         .await
@@ -917,7 +876,13 @@ pub async fn events(
 }
 
 /// `GET /admin/identity/v2/transitions`.
-pub async fn transitions(exec: &ScopedExecutor, actor: i64, opts: &Opts, now: i64) -> Page {
+pub async fn transitions(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    actor: i64,
+    opts: &Opts,
+    now: i64,
+) -> Page {
     let (mut cursor_time, mut cursor_id): (Option<String>, Option<String>) = (None, None);
     if !opts.cursor.time.is_empty() || !opts.cursor.id.is_empty() {
         let (Some(time), Some(id)) = (
@@ -929,35 +894,19 @@ pub async fn transitions(exec: &ScopedExecutor, actor: i64, opts: &Opts, now: i6
         cursor_time = Some(time);
         cursor_id = Some(id);
     }
-    let sql = format!(
-        "SELECT t.id::text,t.user_id::text,t.kind,t.state,s.source_key,t.protected,t.reason,t.failure_code,{},{},\
-         (count(e.effect_kind) FILTER (WHERE e.state<>'completed')::integer)::bigint,\
-         to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') \
-         FROM identity_transitions t \
-         JOIN identity_sources s ON s.id=t.source_id \
-         LEFT JOIN identity_transition_effects e ON e.transition_id=t.id \
-         WHERE admin_can_reach($1,t.user_id) \
-         AND ($2::text = '' OR t.kind ILIKE '%' || $2 || '%' OR t.state ILIKE '%' || $2 || '%' OR s.source_key ILIKE '%' || $2 || '%') \
-         AND ($3::text = '' OR s.source_key=$3) \
-         AND ($4::text = '' OR t.state=$4) \
-         AND ($5::text IS NULL OR (t.created_at,t.id)<($5::text::timestamptz,$6::text::uuid)) \
-         GROUP BY t.id,s.source_key \
-         ORDER BY t.created_at DESC,t.id DESC LIMIT $7",
-        nano("t.created_at"),
-        nano("t.updated_at"),
-    );
     let limit = opts.limit as i64 + 1;
-    let rows = exec
-        .read(
-            &sql,
+    let rows = factory
+        .run_admin_read_contract(
+            admin,
+            &sql::IDV2_TRANSITIONS_LIST,
             &[
-                (&actor, Type::INT8),
-                (&opts.filter, Type::TEXT),
-                (&opts.source, Type::TEXT),
-                (&opts.state, Type::TEXT),
-                (&cursor_time, Type::TEXT),
-                (&cursor_id, Type::TEXT),
-                (&limit, Type::INT8),
+                &actor,
+                &opts.filter,
+                &opts.source,
+                &opts.state,
+                &cursor_time,
+                &cursor_id,
+                &limit,
             ],
         )
         .await
@@ -1007,12 +956,14 @@ pub async fn transitions(exec: &ScopedExecutor, actor: i64, opts: &Opts, now: i6
 
 /// `GET /admin/identity/v2/people/{id}`: `identity_person_read`'s JSON verbatim;
 /// `None` is Go's 404 (NULL result).
-pub async fn person(exec: &ScopedExecutor, actor: i64, id: i64) -> Result<Option<String>, Refusal> {
-    let rows = exec
-        .read(
-            "SELECT identity_person_read($1,$2)::text",
-            &[(&actor, Type::INT8), (&id, Type::INT8)],
-        )
+pub async fn person(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    actor: i64,
+    id: i64,
+) -> Result<Option<String>, Refusal> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::IDV2_PERSON_READ, &[&actor, &id])
         .await
         .map_err(|_| failed("identity person read failed"))?;
     let row = rows
@@ -1022,17 +973,15 @@ pub async fn person(exec: &ScopedExecutor, actor: i64, id: i64) -> Result<Option
         .map_err(|_| failed("identity person read failed"))
 }
 
-/// `GET /admin/identity/v2/conflicts/{id}`: redacted evidence and decision history,
-/// the jsonb text verbatim; `None` is Go's 404 (no row, or the candidate's user is
-/// outside the caller's reach).
+/// `GET /admin/identity/v2/conflicts/{id}`: redacted evidence and decision history.
 pub async fn conflict(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     actor: i64,
     id: &str,
 ) -> Result<Option<String>, Refusal> {
-    const SQL: &str = r#"SELECT jsonb_build_object( 'id', c.id, 'source', jsonb_build_object( 'sourceKey', s.source_key, 'displayName', s.display_name, 'kind', s.kind, 'state', s.state, 'generation', s.generation::text ), 'subjectFingerprint', substr(encode(digest(c.external_subject,'sha256'),'hex'),1,16), 'evidenceClass', c.evidence_class, 'evidenceDigest', encode(c.evidence_digest,'hex'), 'explanation', c.redacted_explanation, 'state', c.status, 'generation', c.generation::text, 'createdAt', c.created_at, 'expiresAt', c.expires_at, 'decidedAt', c.decided_at, 'candidatePerson', CASE WHEN u.id IS NULL THEN NULL ELSE jsonb_build_object( 'userId', u.id::text, 'email', u.email, 'displayName', u.display_name, 'enabled', u.enabled, 'protected', protection.is_protected ) END, 'allowedDecisions', CASE WHEN c.status NOT IN ('pending','deferred') OR c.expires_at<=statement_timestamp() OR c.generation<>s.generation THEN '[]'::jsonb WHEN c.candidate_user_id IS NULL AND s.state='active' AND source_payload.available THEN '["create","reject","defer"]'::jsonb WHEN c.candidate_user_id IS NULL OR c.evidence_class='soft' OR protection.is_protected OR s.state<>'active' THEN '["reject","defer"]'::jsonb ELSE '["link","reject","defer"]'::jsonb END, 'decisionHistory', COALESCE(( SELECT jsonb_agg(history.row ORDER BY history.occurred_at DESC) FROM ( SELECT d.occurred_at, jsonb_build_object( 'id', d.id::text, 'decision', d.decision, 'reason', d.reason, 'personId', CASE WHEN d.person_id IS NULL THEN NULL ELSE d.person_id::text END, 'linkId', CASE WHEN d.link_id IS NULL THEN NULL ELSE d.link_id::text END, 'decidedBy', d.decided_by::text, 'occurredAt', d.occurred_at ) AS row FROM identity_match_decisions d WHERE d.candidate_id=c.id ORDER BY d.occurred_at DESC,d.id DESC LIMIT 50 ) history ),'[]'::jsonb) )::text FROM identity_match_candidates c JOIN identity_sources s ON s.id=c.source_id LEFT JOIN users u ON u.id=c.candidate_user_id LEFT JOIN LATERAL ( SELECT u.id IS NOT NULL AND ( EXISTS ( SELECT 1 FROM admin_role_assignments ara JOIN admin_role_groups arg ON arg.id=ara.role_group_id WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>statement_timestamp()) AND admin_assignment_active( ara.eligible,ara.activated_until ) AND EXISTS ( SELECT 1 FROM admin_permissions ap WHERE ap.permission_key=ANY(arg.permissions) AND ap.is_sensitive ) ) OR EXISTS ( SELECT 1 FROM system_config cfg, LATERAL jsonb_array_elements_text(cfg.value) x(raw) WHERE cfg.key='ca_break_glass_user_ids' AND x.raw::bigint=u.id ) ) AS is_protected ) protection ON true LEFT JOIN LATERAL ( SELECT false AS available ) source_payload ON true WHERE c.id=$2::text::uuid AND identity_admin_scope_allows( $1,c.candidate_user_id,'users.read' )"#;
-    let rows = exec
-        .read(SQL, &[(&actor, Type::INT8), (&id, Type::TEXT)])
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::IDV2_CONFLICT_READ, &[&actor, &id])
         .await
         .map_err(|_| failed("identity conflict read failed"))?;
     match rows.first() {

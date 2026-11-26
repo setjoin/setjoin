@@ -4,8 +4,8 @@ use crate::{Body, RequestContext};
 use hyper::{Method, Request, Response};
 use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde_json::json;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor};
+use setjoin_authz::principals::{TxFactory, UserPrincipal};
+use setjoin_pg::CommandOutcome;
 use std::fmt;
 
 // Schema-directed serde visitors implement Go's merge semantics: scalar null
@@ -139,8 +139,8 @@ async fn upload_form(r: &mut Request<Body>) -> Result<(Option<Vec<u8>>, Option<V
 }
 
 pub(crate) async fn handle(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    principal: &UserPrincipal,
     mut r: Request<Body>,
     c: &RequestContext,
     id: String,
@@ -204,7 +204,7 @@ pub(crate) async fn handle(
         let Some(job) = job else {
             return crate::mailboxes::bare(400, "invalid job_id", c, &id);
         };
-        if !setjoin_identity::self_service::migration_job_owned(exec, actor, job).await {
+        if !setjoin_identity::self_service::migration_job_owned(factory, principal, job).await {
             return crate::mailboxes::bare(404, "migration job not found", c, &id);
         }
         let Ok((ics, vcf)) = upload_form(&mut r).await else {
@@ -234,7 +234,8 @@ pub(crate) async fn handle(
     if r.method() == Method::POST
         && crate::inventory::path_score("/auth/me/migration/pause", r.uri().path()).is_some()
     {
-        let Some(job) = setjoin_identity::self_service::migration_pause_job(exec, actor).await
+        let Some(job) =
+            setjoin_identity::self_service::migration_pause_job(factory, principal).await
         else {
             return crate::mailboxes::bare(404, "no active migration job", c, &id);
         };
@@ -252,7 +253,8 @@ pub(crate) async fn handle(
     if r.method() == Method::POST
         && crate::inventory::path_score("/auth/me/migration/cancel", r.uri().path()).is_some()
     {
-        let Some(job) = setjoin_identity::self_service::migration_cancel_job(exec, actor).await
+        let Some(job) =
+            setjoin_identity::self_service::migration_cancel_job(factory, principal).await
         else {
             return crate::mailboxes::bare(404, "no active migration job", c, &id);
         };
@@ -270,7 +272,8 @@ pub(crate) async fn handle(
     if r.method() == Method::POST
         && crate::inventory::path_score("/auth/me/migration/resume", r.uri().path()).is_some()
     {
-        let Some(job) = setjoin_identity::self_service::migration_paused_job(exec, actor).await
+        let Some(job) =
+            setjoin_identity::self_service::migration_paused_job(factory, principal).await
         else {
             return crate::mailboxes::bare(404, "no paused migration job", c, &id);
         };
@@ -341,10 +344,7 @@ pub(crate) async fn handle(
                     "self-service EWS migration requires your own username and password",
                 );
             }
-            let global = match crate::policy_composition::tx_factory_from_executors(exec, None) {
-                Some(factory) => setjoin_mailboxes::migration::has_global(&factory, "ews").await,
-                None => false,
-            };
+            let global = setjoin_mailboxes::migration::has_global(factory, "ews").await;
             let value = json!({"use_global_auth":global,"source_type":"ews","self_service":true,"ews":{
                 "serverURL":ews.url,"username":ews.username,"password":ews.password,"insecureSkipVerify":ews.insecure,
                 "includeMail":ews.mail,"includeCalendar":ews.calendar,"includeContacts":ews.contacts}});
@@ -354,16 +354,14 @@ pub(crate) async fn handle(
                 return fail(500, "internal error");
             };
             config = Some(sealed);
-            let Some(owned) = setjoin_identity::self_service::migration_mailbox(exec, actor).await
+            let Some(owned) =
+                setjoin_identity::self_service::migration_mailbox(factory, principal).await
             else {
                 return fail(400, "no mailbox found for user");
             };
             mailbox = owned;
         } else if source == "m365" {
-            let has_m365 = match crate::policy_composition::tx_factory_from_executors(exec, None) {
-                Some(factory) => setjoin_mailboxes::migration::has_global(&factory, "m365").await,
-                None => false,
-            };
+            let has_m365 = setjoin_mailboxes::migration::has_global(factory, "m365").await;
             if !has_m365 {
                 return fail(
                     400,
@@ -377,7 +375,8 @@ pub(crate) async fn handle(
                 "targets[] is required for M365 migration (at least one source email)",
             );
         } else {
-            let Some(owned) = setjoin_identity::self_service::migration_mailbox(exec, actor).await
+            let Some(owned) =
+                setjoin_identity::self_service::migration_mailbox(factory, principal).await
             else {
                 return fail(400, "no mailbox found for user");
             };
@@ -392,13 +391,7 @@ pub(crate) async fn handle(
                 if let Some(why) = start_refusal(&input.imap.tls) {
                     return fail(400, why);
                 }
-                let global = match crate::policy_composition::tx_factory_from_executors(exec, None)
-                {
-                    Some(factory) => {
-                        setjoin_mailboxes::migration::has_global(&factory, "imap").await
-                    }
-                    None => false,
-                };
+                let global = setjoin_mailboxes::migration::has_global(factory, "imap").await;
                 let value = json!({"use_global_auth":global,"source_type":"imap","self_service":true,"imap":{
                     "host":input.imap.host,"port":input.imap.port,"tls_mode":input.imap.tls,
                     "credentials":{"username":input.imap.credentials.username,"password":input.imap.credentials.password}}});
@@ -411,8 +404,8 @@ pub(crate) async fn handle(
             }
         }
         return match setjoin_identity::self_service::migration_job_insert(
-            exec,
-            actor,
+            factory,
+            principal,
             source,
             config.as_deref(),
             mailbox,
@@ -450,7 +443,7 @@ pub(crate) async fn handle(
     }
     if r.method() == Method::DELETE {
         return match setjoin_identity::self_service::migration_history_delete(
-            exec, actor, operation,
+            factory, principal, operation,
         )
         .await
         {
@@ -465,7 +458,7 @@ pub(crate) async fn handle(
             _ => crate::mailboxes::bare(500, "delete failed", c, &id),
         };
     }
-    let value = setjoin_identity::self_service::migration_status(exec, actor)
+    let value = setjoin_identity::self_service::migration_status(factory, principal)
         .await
         .unwrap_or_else(|| "{\"status\":\"none\"}\n".into());
     crate::jmap::reply::response(value, c.identity.proto, id)

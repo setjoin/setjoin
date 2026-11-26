@@ -212,11 +212,11 @@ impl AuthServer {
             );
             return self.rp_clear(reply, &req, true);
         }
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
-        let response = match assertion.resolve(&self.exec, worker).await {
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
+        let response = match assertion.resolve(&self.auth_db, worker).await {
             Ok(setjoin_identity::rp::Lookup::Missing(miss)) => {
                 if provider.jit() || self.config.jit_enabled {
-                    match miss.create(&self.exec, worker).await {
+                    match miss.create(&self.auth_db, worker).await {
                         Ok(resolution) => {
                             self.rp_complete(
                                 &req,
@@ -330,7 +330,7 @@ impl AuthServer {
         assertion: &setjoin_identity::rp::Assertion,
         provider: &dyn setjoin_identity::rp::Federated,
         resolution: &setjoin_identity::rp::Resolution,
-        worker: &setjoin_pg::ScopedExecutor,
+        worker: &setjoin_pg::AuthDb,
         ca_enabled: bool,
         dt_enabled: bool,
         auth_method: &str,
@@ -338,7 +338,7 @@ impl AuthServer {
         let path = req.uri().path();
         let user = match assertion
             .settle(
-                &self.exec,
+                &self.auth_db,
                 worker,
                 provider,
                 resolution,
@@ -369,11 +369,11 @@ impl AuthServer {
         };
         // #454: the verified user is known only after settlement; read the risk once here,
         // before any token is signed or stored, and pass it into both mint paths.
-        let risk = match user.risk(&self.exec).await {
+        let risk = match user.risk(&self.auth_db).await {
             Ok(risk) => risk,
             Err(_) => return Self::failure(500, "token issue failed", path),
         };
-        let is_guest = match resolution.guest_scope(&self.exec).await {
+        let is_guest = match resolution.guest_scope(&self.auth_db).await {
             Ok(g) => g,
             Err(_) => return Self::failure(503, "conditional access context unavailable", path),
         };
@@ -471,7 +471,7 @@ impl AuthServer {
                         async move {
                             if let Some(tokens) = tokens {
                                 user.record(
-                                    &self.exec,
+                                    &self.auth_db,
                                     &tokens.access,
                                     &tokens.jti,
                                     self.config.access_seconds,
@@ -507,7 +507,7 @@ impl AuthServer {
             };
             let result = resolution
                 .mint(
-                    &self.exec,
+                    &self.auth_db,
                     &tokens.refresh,
                     self.config.refresh_seconds,
                     &tokens.family,
@@ -557,7 +557,7 @@ impl AuthServer {
             .expect("committed mint prepared credentials");
         if !resolution.normalized() {
             user.record(
-                &self.exec,
+                &self.auth_db,
                 &tokens.access,
                 &tokens.jti,
                 self.config.access_seconds,
@@ -607,7 +607,7 @@ impl AuthServer {
                 )))
                 .unwrap();
         }
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -625,7 +625,7 @@ impl AuthServer {
         let Some(flow) = setjoin_identity::rp::LinkFlow::begin(&session, &raw, &provider) else {
             return Self::failure(403, "fresh AAL2 step-up is required before linking", "");
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         match flow.persist(worker).await {
             setjoin_pg::CommandOutcome::Committed(_) => {}
             setjoin_pg::CommandOutcome::Unknown { operation } => {
@@ -716,7 +716,7 @@ impl AuthServer {
         provider: &setjoin_identity::rp::Provider,
         raw_flow: &str,
     ) -> Response<Body> {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -741,7 +741,7 @@ impl AuthServer {
         }) else {
             return Self::failure(403, "linking session changed", "");
         };
-        let flow = match flow.authorize(&session, &raw, &self.exec).await {
+        let flow = match flow.authorize(&session, &raw, &self.auth_db).await {
             Ok(f) => f,
             Err(detail) => {
                 return Self::failure(
@@ -758,7 +758,7 @@ impl AuthServer {
         self.rp_link_outcome(
             req,
             flow.finish(
-                self.recovery_worker.as_ref().unwrap_or(&self.exec),
+                self.recovery_worker.as_ref().unwrap_or(&self.auth_db),
                 assertion,
                 provider,
                 self.config.sso_allow_super_admin_mapping,
@@ -872,7 +872,7 @@ impl AuthServer {
         name: &str,
         raw_flow: &str,
     ) -> Response<Body> {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -883,7 +883,7 @@ impl AuthServer {
         else {
             return Self::failure(400, "invalid identity link flow", "");
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         let Some(token) = flow.hold(worker, assertion).await else {
             return Self::failure(
                 503,
@@ -960,7 +960,7 @@ impl AuthServer {
         raw_flow: &str,
         token: &str,
     ) -> Response<Body> {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -985,7 +985,7 @@ impl AuthServer {
         }) else {
             return Self::failure(403, "linking session changed", "");
         };
-        let flow = match flow.authorize(&session, &raw, &self.exec).await {
+        let flow = match flow.authorize(&session, &raw, &self.auth_db).await {
             Ok(f) => f,
             Err(detail) => {
                 return Self::failure(
@@ -999,7 +999,7 @@ impl AuthServer {
                 )
             }
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         let Some(assertion) = flow.take_held(worker, token).await else {
             return Self::failure(401, "link completion expired or already used", "");
         };

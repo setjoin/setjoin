@@ -100,6 +100,7 @@ async fn cleanup(owner: &Client) -> Result<(), BoxError> {
 struct World {
     owner: Client,
     exec: ScopedExecutor,
+    worker: ScopedExecutor,
     a: fixture::Account,
     b: fixture::Account,
     scoped: fixture::Account,
@@ -118,9 +119,11 @@ async fn world(case: &str) -> Result<Option<World>, BoxError> {
     let global = fixture::account(&owner, "secfix8-global").await?;
     let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
         .with_audit_keys("22".repeat(32), String::new());
+    let worker = common::patient_exec(&db.dsn, 4)?.with_audit_keys("22".repeat(32), String::new());
     Ok(Some(World {
         owner,
         exec,
+        worker,
         a,
         b,
         scoped,
@@ -128,6 +131,36 @@ async fn world(case: &str) -> Result<Option<World>, BoxError> {
     }))
 }
 impl World {
+    fn factory(&self) -> Result<setjoin_authz::principals::TxFactory, BoxError> {
+        setjoin_gateway::policy_composition::tx_factory_from_executors(
+            &self.exec,
+            Some(&self.worker),
+        )
+        .ok_or_else(|| BoxError::from("tx_factory unavailable"))
+    }
+    async fn user(
+        &self,
+        auth: &setjoin_authz::Authorized,
+    ) -> Result<setjoin_authz::principals::UserPrincipal, BoxError> {
+        self.factory()?
+            .mint_user_from_authorized(auth, "127.0.0.1")
+            .await
+            .map_err(|e| BoxError::from(e.to_string()))
+    }
+    async fn admin(
+        &self,
+        auth: &setjoin_authz::Authorized,
+        perms: &[&str],
+    ) -> Result<setjoin_authz::principals::AdminPermissionProof, BoxError> {
+        let principal = self
+            .factory()?
+            .mint_admin_from_authorized(auth, "127.0.0.1")
+            .await
+            .map_err(|e| BoxError::from(e.to_string()))?;
+        principal
+            .require_any_permission(perms)
+            .map_err(|e| BoxError::from(e.to_string()))
+    }
     async fn finish(self) -> Result<(), BoxError> {
         cleanup(&self.owner).await?;
         for account in [&self.a, &self.b, &self.scoped, &self.global] {
@@ -159,18 +192,16 @@ async fn session_revoke_reach_uses_the_route_permission() -> Result<(), BoxError
         .await?;
         grant(&w.owner, w.scoped.user, &["users.read"], Some(w.b.domain)).await?;
         grant(&w.owner, w.global.user, &["access.policy_write"], None).await?;
+        let factory = w.factory()?;
         let reach = |who: &fixture::Account, target: i64| {
-            let exec = w.exec.clone();
+            let (w, factory) = (&w, &factory);
             let who = who.user;
             async move {
-                let auth = actor(&exec, who).await?;
-                setjoin_conditional_access::console::can_reach(
-                    &exec,
-                    auth.context().user_id(),
-                    target,
-                )
-                .await
-                .map_err(|e| BoxError::from(e.message))
+                let auth = actor(&w.exec, who).await?;
+                let proof = w.admin(&auth, &["access.policy_write"]).await?;
+                setjoin_conditional_access::console::can_reach(factory, &proof, target)
+                    .await
+                    .map_err(|e| BoxError::from(e.message))
             }
         };
         assert!(
@@ -213,21 +244,17 @@ async fn field_policy_reach_uses_the_route_permission() -> Result<(), BoxError> 
         }
         let scoped = actor(&w.exec, w.scoped.user).await?;
         let reading = actor(&w.exec, reader).await?;
-        let read = |auth: &setjoin_authz::Authorized, user: i64| {
-            let (exec, ctx) = (w.exec.clone(), auth.context().clone());
-            async move { setjoin_directory_sync::field_policy(&exec, &ctx, user).await.map_err(|e| e.message) }
-        };
-        let reach = |auth: &setjoin_authz::Authorized, user: i64, perms: &'static [&'static str]| {
-            let (exec, ctx) = (w.exec.clone(), auth.context().clone());
-            async move { setjoin_directory_sync::reach_perm(&exec, &ctx, user, perms).await.map_err(|e| e.message) }
-        };
+        let factory = w.factory()?;
+        let scoped_user = w.user(&scoped).await?;
+        let scoped_admin = w.admin(&scoped, &["identity.write"]).await?;
+        let reading_admin = w.admin(&reading, &["users.read"]).await?;
         // Read: an unrelated mam.read grant over B does not open B's policies.
-        assert!(!reach(&reading, w.b.user, &setjoin_directory_sync::AUTH_CONSOLE).await?, "unrelated grant reaches B for the read");
-        assert_eq!(read(&reading, w.b.user).await?.trim(), "{}", "field policy of another domain read through an unrelated grant");
-        assert!(read(&reading, w.a.user).await?.contains("local_only"), "own-domain policy hidden");
+        assert!(!setjoin_directory_sync::reach_perm(&factory, &reading_admin, w.b.user, &setjoin_directory_sync::AUTH_CONSOLE).await.map_err(|e| e.message)?, "unrelated grant reaches B for the read");
+        assert_eq!(setjoin_directory_sync::field_policy(&factory, &reading_admin, w.b.user).await.map_err(|e| e.message)?.trim(), "{}", "field policy of another domain read through an unrelated grant");
+        assert!(setjoin_directory_sync::field_policy(&factory, &reading_admin, w.a.user).await.map_err(|e| e.message)?.contains("local_only"), "own-domain policy hidden");
         // Write: users.read over B is not identity.write over B.
-        assert!(reach(&scoped, w.a.user, &setjoin_directory_sync::IDENTITY_WRITE).await?, "own-domain write refused");
-        assert!(!reach(&scoped, w.b.user, &setjoin_directory_sync::IDENTITY_WRITE).await?, "users.read extended the identity.write reach to B");
+        assert!(setjoin_directory_sync::reach_perm(&factory, &scoped_admin, w.a.user, &setjoin_directory_sync::IDENTITY_WRITE).await.map_err(|e| e.message)?, "own-domain write refused");
+        assert!(!setjoin_directory_sync::reach_perm(&factory, &scoped_admin, w.b.user, &setjoin_directory_sync::IDENTITY_WRITE).await.map_err(|e| e.message)?, "users.read extended the identity.write reach to B");
         let rows = |user: i64| {
             let owner = &w.owner;
             async move {
@@ -235,8 +262,8 @@ async fn field_policy_reach_uses_the_route_permission() -> Result<(), BoxError> 
             }
         };
         let write = |user: i64| {
-            let (exec, ctx) = (w.exec.clone(), scoped.context().clone());
-            async move { setjoin_directory_sync::set_field_policy(&exec, &ctx, user, "title", "ad_managed", op()).await }
+            let (factory, user_p, admin_p) = (&factory, &scoped_user, &scoped_admin);
+            async move { setjoin_directory_sync::set_field_policy(factory, user_p, admin_p, user, "title", "ad_managed", op()).await }
         };
         // `ad_managed` clears the row; the statement itself repeats the permission-aware reach.
         let foreign = write(w.b.user).await;

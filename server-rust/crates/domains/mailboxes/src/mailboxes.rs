@@ -4,9 +4,9 @@
 //! update are one statement under the receipt; delete and the folder writes
 //! call reducers that reproduce Go's multi-statement handler
 //! (`rust_admin_mailbox_delete`, `rust_admin_folder_*`).
-use super::{command, deadline, done, envelope, invalid, s, sql};
+use super::{done, invalid, s, sql};
 use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
-use setjoin_pg::{CommandOutcome, Row, StatementFailure};
+use setjoin_pg::{Row, StatementFailure};
 
 /// One mailbox as Go's `adminMailboxResponse`; `None` when Go's `Scan` fails.
 fn mailbox_json(row: &Row) -> Option<String> {
@@ -173,47 +173,15 @@ pub struct Patch<'a> {
     pub spam_purge_days: Option<i32>,
 }
 
-/// `PUT /admin/mailboxes/{id}`: `Committed(false)` is Go's 404.
-pub async fn update(
-    factory: &TxFactory,
-    actor: &UserPrincipal,
-    id: i64,
-    domain_scope: i64,
-    patch: &Patch<'_>,
-    operation: [u8; 16],
-) -> CommandOutcome<bool, StatementFailure> {
-    let env = envelope(
-        actor.user(),
-        actor.generation(),
-        operation,
-        &format!("{id}:{domain_scope}"),
-    );
-    factory
-        .run_user_write_contract_pipelined(
-            actor,
-            &env,
-            deadline(),
-            &sql::MAILBOX_UPDATE,
-            &[
-                &id,
-                &domain_scope,
-                &patch.display_name,
-                &patch.quota_bytes,
-                &patch.enabled,
-                &patch.litigation_hold,
-                &patch.deleted_purge_days,
-                &patch.spam_purge_days,
-            ],
-            Some(command("mailbox.update")),
-            |rows| match rows.as_slice() {
-                [row] => row
-                    .try_get::<_, i64>(0)
-                    .map(|n| n > 0)
-                    .map_err(|_| invalid()),
-                _ => Err(invalid()),
-            },
-        )
-        .await
+/// Parse the `MAILBOX_UPDATE` row count into Go's found boolean.
+pub fn parse_updated(rows: &[Row]) -> Result<bool, StatementFailure> {
+    match rows {
+        [row] => row
+            .try_get::<_, i64>(0)
+            .map(|n| n > 0)
+            .map_err(|_| invalid()),
+        _ => Err(invalid()),
+    }
 }
 
 /// Go's `mailbox_lifecycle_enabled()` gate.

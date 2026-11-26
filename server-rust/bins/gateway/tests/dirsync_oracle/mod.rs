@@ -282,7 +282,9 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
     };
     let saved_config = owner
         .query(
-            &format!("SELECT key,value::text,encrypted,description FROM system_config WHERE {scope_sql}"),
+            &format!(
+                "SELECT key,value::text,encrypted,description FROM system_config WHERE {scope_sql}"
+            ),
             &[],
         )
         .await?;
@@ -389,7 +391,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                 .query_one("SELECT string_agg(quote_ident(column_name),',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name<>'domain_id'", &[])
                 .await?
                 .get(0);
-            owner.batch_execute(&format!("CREATE SCHEMA {schema};CREATE VIEW {schema}.users AS SELECT {columns},{} AS domain_id FROM public.users;GRANT USAGE ON SCHEMA {schema} TO setjoin_app;GRANT SELECT ON {schema}.users TO setjoin_app;", b.domain)).await?;
+            owner.batch_execute(&format!("CREATE SCHEMA {schema};CREATE VIEW {schema}.users AS SELECT {columns},{} AS domain_id FROM public.users;CREATE FUNCTION {schema}.admin_can_reach(bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';CREATE FUNCTION {schema}.admin_can_reach_perm(bigint,bigint,text[]) RETURNS boolean LANGUAGE sql AS 'SELECT true';GRANT USAGE ON SCHEMA {schema} TO setjoin_app, setjoin_worker;GRANT SELECT ON {schema}.users TO setjoin_app, setjoin_worker;GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA {schema} TO setjoin_app, setjoin_worker;", b.domain)).await?;
             private = true;
         }
         _ => {}
@@ -423,8 +425,27 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker_dsn = if private {
+            format!(
+                "{}{}options=-csearch_path%3D{schema}%2Cpublic",
+                &db.dsn,
+                if db.dsn.contains('?') { "&" } else { "?" }
+            )
+        } else {
+            db.dsn.clone()
+        };
+        let worker_exec = ScopedExecutor::from_dsn(&worker_dsn, 4)
+            .map_err(|e| e.0)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: DirectorySyncRoute { exec, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into(), ldap: None, ad: None },
+            inner: DirectorySyncRoute {
+                exec,
+                worker: Some(worker_exec),
+                keys: Arc::new(common::recovery_keys()),
+                issuer: "mailserver".into(),
+                ldap: None,
+                ad: None,
+            },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;

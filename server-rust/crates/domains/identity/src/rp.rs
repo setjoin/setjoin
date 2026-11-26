@@ -8,6 +8,7 @@ pub use link::LinkFlow;
 mod listener;
 pub use listener::Listener;
 mod account;
+use crate::sso_cache::Cache;
 pub use account::{Assertion, Federated, Lookup, Resolution};
 use base64::{
     engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD},
@@ -19,16 +20,8 @@ use openidconnect::{
     PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
 };
 use serde::Deserialize;
-use crate::sso_cache::Cache;
-use setjoin_pg::ScopedExecutor;
-use std::{
-    collections::BTreeMap,
-    future::Future,
-    io,
-    pin::Pin,
-    sync::Arc,
-    time::Duration,
-};
+use setjoin_pg::AuthDb;
+use std::{collections::BTreeMap, future::Future, io, pin::Pin, sync::Arc, time::Duration};
 
 pub type HttpFuture<'a> =
     Pin<Box<dyn Future<Output = Result<openidconnect::HttpResponse, io::Error>> + Send + 'a>>;
@@ -170,19 +163,18 @@ struct Discovery {
 /// ID-token algorithms the provider may sign with: the discovery list (RS256
 /// when absent, OIDC Discovery 3), asymmetric only. A public-key verifier must
 /// never be steered to HMAC or `none` (security fix #530).
-pub fn id_token_algs(advertised: Option<&[String]>) -> Vec<openidconnect::core::CoreJwsSigningAlgorithm> {
+pub fn id_token_algs(
+    advertised: Option<&[String]>,
+) -> Vec<openidconnect::core::CoreJwsSigningAlgorithm> {
     use openidconnect::core::CoreJwsSigningAlgorithm as A;
     let default = ["RS256".to_owned()];
     advertised
         .unwrap_or(&default)
         .iter()
-        .filter_map(|name| serde_json::from_value::<A>(serde_json::Value::String(name.clone())).ok())
-        .filter(|alg| {
-            !matches!(
-                alg,
-                A::HmacSha256 | A::HmacSha384 | A::HmacSha512 | A::None
-            )
+        .filter_map(|name| {
+            serde_json::from_value::<A>(serde_json::Value::String(name.clone())).ok()
         })
+        .filter(|alg| !matches!(alg, A::HmacSha256 | A::HmacSha384 | A::HmacSha512 | A::None))
         .collect()
 }
 type Client = CoreClient<
@@ -294,13 +286,13 @@ pub struct Authorization {
     pub provider: String,
 }
 pub struct Registry {
-    exec: ScopedExecutor,
+    exec: AuthDb,
     master: Vec<u8>,
     transport: Transport,
     providers: Cache<Provider>,
 }
 impl Registry {
-    pub async fn load(exec: ScopedExecutor, master: &[u8], http: Arc<dyn Http>) -> Arc<Self> {
+    pub async fn load(exec: AuthDb, master: &[u8], http: Arc<dyn Http>) -> Arc<Self> {
         let registry = Arc::new(Self {
             exec,
             master: master.to_vec(),
@@ -323,10 +315,11 @@ impl Registry {
     async fn load_providers(
         &self,
     ) -> Result<(BTreeMap<String, Arc<Provider>>, Vec<String>), String> {
-        let rows = self.exec.read(
-            "SELECT key,value::text,encrypted FROM system_config WHERE key LIKE 'oidc_provider_%_config' ORDER BY key",
-            &[],
-        ).await.map_err(|error| error.message)?;
+        let rows = self
+            .exec
+            .read_contract(&crate::sql::RP_L327, &[])
+            .await
+            .map_err(|error| error.message)?;
         let mut providers = BTreeMap::new();
         let mut errors = Vec::new();
         for row in rows {
@@ -392,11 +385,15 @@ impl Registry {
                 if !crate::mutants::on("rp-http-endpoints")
                     && [&discovery.token_endpoint, &discovery.jwks_uri]
                         .iter()
-                        .any(|u| !url::Url::parse(u).is_ok_and(|u| u.scheme() == "https" && u.host_str().is_some()))
+                        .any(|u| {
+                            !url::Url::parse(u)
+                                .is_ok_and(|u| u.scheme() == "https" && u.host_str().is_some())
+                        })
                 {
                     return Err("OIDC discovery endpoints require https".into());
                 }
-                let algs = id_token_algs(discovery.id_token_signing_alg_values_supported.as_deref());
+                let algs =
+                    id_token_algs(discovery.id_token_signing_alg_values_supported.as_deref());
                 if algs.is_empty() {
                     return Err("OIDC provider advertises no asymmetric ID token algorithm".into());
                 }

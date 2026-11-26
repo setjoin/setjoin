@@ -6,13 +6,13 @@
 //! `feature.ad_sync`, which `main.go` always pins to the environment value
 //! `AD_SYNC_ENABLED` (the database toggle is never consulted), so the runtime
 //! carries that boolean from the process environment.
-use super::client::{AdClient, AdUser, SrvResolver, SystemResolver};
-use super::log_warn;
-use crate::ldap::engine::{Res, SyncResult};
-use crate::ldap::new_uuid;
-use crate::ldap::normalized::{sync_with, Connector, Object};
-use crate::ldap::runtime::{atoi_lenient, load_env_codec, read_prefixed};
+use super::ldap_engine::Res;
+use super::ldap_normalized::{sync_with, Connector, Object};
+use super::ldap_runtime::{load_env_codec, read_prefixed};
+use super::log_warn_ad as log_warn;
 use setjoin_config_secret::ConfigSecretCodec;
+use setjoin_directory_sync::ad::client::{AdClient, AdUser, SrvResolver, SystemResolver};
+use setjoin_directory_sync::ldap::{atoi_lenient, new_uuid, SyncResult};
 use setjoin_pg::workers::WorkerDatabase;
 use std::sync::Arc;
 use std::time::Duration;
@@ -294,8 +294,10 @@ impl Connector for AdConnector<'_> {
             .iter()
             .map(|u| Object {
                 subject: u.object_guid.clone(),
-                relation_key: crate::ldap::client::normalize_dn(&u.dn),
-                manager_relation_key: crate::ldap::client::normalize_dn(&u.manager_dn),
+                relation_key: setjoin_directory_sync::ldap::client::normalize_dn(&u.dn),
+                manager_relation_key: setjoin_directory_sync::ldap::client::normalize_dn(
+                    &u.manager_dn,
+                ),
                 manager_subject: u.manager_subject.clone(),
                 email: u.email.clone(),
                 display_name: u.display_name.clone(),

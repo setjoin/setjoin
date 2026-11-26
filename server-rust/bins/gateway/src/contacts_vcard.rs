@@ -199,9 +199,17 @@ pub fn parse(data: &str) -> Result<VCard, String> {
             }
         }
         if up.starts_with("CATEGORIES:") {
-            vc.categories=unescape(rest("CATEGORIES:")).split(',').map(str::trim).filter(|v|!v.is_empty()).map(str::to_owned).collect();
-        }else if up.starts_with("PHOTO") && line.contains("/blobs/") {
-            let parts=line.split("/blobs/").collect::<Vec<_>>();if parts.len()==2{vc.photo_uri=parts[1].trim().into();}
+            vc.categories = unescape(rest("CATEGORIES:"))
+                .split(',')
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+                .collect();
+        } else if up.starts_with("PHOTO") && line.contains("/blobs/") {
+            let parts = line.split("/blobs/").collect::<Vec<_>>();
+            if parts.len() == 2 {
+                vc.photo_uri = parts[1].trim().into();
+            }
         }
         // The importer intentionally does not store these three CardDAV fields.
     }

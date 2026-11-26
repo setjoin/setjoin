@@ -82,7 +82,9 @@ impl<S: ObjectStore> BlobCleanup<S> {
                         );
                         return;
                     }
-                    Err(e) => eprintln!("blob cleanup: worker privilege check failed, retrying: {e}"),
+                    Err(e) => {
+                        eprintln!("blob cleanup: worker privilege check failed, retrying: {e}")
+                    }
                 }
             }
             tokio::select! {biased; _ = &mut stop => return, _ = ticks.tick() => {}}

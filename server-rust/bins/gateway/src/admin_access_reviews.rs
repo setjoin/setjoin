@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 pub struct AdminAccessReviewsRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -145,9 +146,16 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         Box::pin(async move {
-            let what = action(r.method(), r.uri().path()).expect("matched route");
+            let Some(what) = action(r.method(), r.uri().path()) else {
+                return bare(404, "not found", &c, "");
+            };
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -159,24 +167,47 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let worker_exec = worker.as_ref().unwrap_or(&exec);
+            let Some(factory) =
+                crate::policy_composition::tx_factory_from_executors(&exec, Some(worker_exec))
+            else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let admin_principal = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
+            };
             let path = r.uri().path().to_owned();
             let go_path = segment_path(&path);
             let required: &[&str] = &db::ROLES_MANAGE;
-            let authority = match setjoin_admin_identity::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_admin_identity::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let Some(admin_principal) = admin_principal else {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
             };
-            let domain_scope = authority.domain_scope();
+            let Ok(admin_proof) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_admin_identity::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let domain_scope = admin_principal.enforced_domain_scope().unwrap_or(0);
             let head = r.method() == Method::HEAD;
             let reply = |body: String| {
                 // net/http buffers 2 KiB of a handler's output; a larger single
@@ -217,7 +248,7 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
                 None => database(),
             };
             match what {
-                Action::List => match db::list(&exec, domain_scope).await {
+                Action::List => match db::list(&factory, &admin_proof, domain_scope).await {
                     Ok(body) => reply(body),
                     Err(_) => database(),
                 },
@@ -225,7 +256,15 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
                     let Some(campaign) = number(4) else {
                         return full(400, "invalid id");
                     };
-                    match db::get(&exec, actor.user_id(), domain_scope, campaign).await {
+                    match db::get(
+                        &factory,
+                        &admin_proof,
+                        actor.user_id(),
+                        domain_scope,
+                        campaign,
+                    )
+                    .await
+                    {
                         Ok(Some(body)) => reply(body),
                         Ok(None) => full(404, "no such campaign"),
                         Err(_) => database(),
@@ -236,7 +275,7 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
                     let Some(name) = body.ok().map(|b| b.name).filter(|n| !n.is_empty()) else {
                         return full(400, "name required");
                     };
-                    match db::start(&exec, actor, &name, domain_scope, operation).await {
+                    match db::start(&factory, &admin_proof, &name, domain_scope, operation).await {
                         CommandOutcome::Committed(campaign) => {
                             let mut response = reply(format!("{{\"id\":{campaign}}}\n"));
                             *response.status_mut() = hyper::StatusCode::CREATED;
@@ -258,8 +297,8 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
                         return full(400, "decision must be keep or revoke");
                     };
                     match db::decide(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin_proof,
                         campaign,
                         item,
                         &body.decision,
@@ -287,8 +326,8 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
                     };
                     let items: Vec<i64> = body.item_ids.iter().map(|i| i.unwrap_or(0)).collect();
                     match db::decide_bulk(
-                        &exec,
-                        actor,
+                        &factory,
+                        &admin_proof,
                         campaign,
                         &items,
                         &body.decision,
@@ -307,8 +346,16 @@ impl<K: KeySource + 'static> Intercept for AdminAccessReviewsRoute<K> {
                     let Some(campaign) = number(4) else {
                         return full(400, "invalid id");
                     };
-                    let ip = c.identity.client_ip.to_string();
-                    match db::close(&exec, actor, campaign, &ip, domain_scope, operation).await {
+                    match db::close(
+                        &factory,
+                        &admin_proof,
+                        campaign,
+                        &ip,
+                        domain_scope,
+                        operation,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(()) => status_only(204),
                         CommandOutcome::RolledBack(e) => failed(&e),
                         CommandOutcome::Unknown { operation } => unknown(operation),

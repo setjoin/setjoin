@@ -39,7 +39,9 @@ pub trait Intercept: Send + Sync + 'static {
     /// Close upgraded/streaming sessions when front-door acceptance stops.
     fn shutdown(&self) {}
     /// Whether Go wraps this matched shape in RequireAuth.
-    fn requires_session(&self, _req: &Request<Body>) -> bool { false }
+    fn requires_session(&self, _req: &Request<Body>) -> bool {
+        false
+    }
     /// Whether Go leaves this matched path outside `buildRootDispatch`'s guest
     /// belt (e.g. bare unconfigured `/rtc`, which falls straight through to SPA).
     fn skips_outer_guest_belt(&self, _req: &Request<Body>) -> bool {
@@ -60,7 +62,7 @@ pub trait Intercept: Send + Sync + 'static {
 #[derive(Clone, Default)]
 pub struct RouteTable {
     routes: Vec<Arc<dyn Intercept>>,
-    pub(crate) runtime:Option<Arc<dyn crate::runtime_access::RuntimeGate>>,
+    pub(crate) runtime: Option<Arc<dyn crate::runtime_access::RuntimeGate>>,
 
     pub(crate) admission: Option<Arc<dyn crate::admission::Admission>>,
     pub(crate) catchall: bool,
@@ -77,15 +79,25 @@ impl RouteTable {
         Self::default()
     }
 
-    pub fn with_runtime(mut self,runtime:impl crate::runtime_access::RuntimeGate)->Self{
-        self.runtime=Some(Arc::new(runtime));self
+    pub fn with_runtime(mut self, runtime: impl crate::runtime_access::RuntimeGate) -> Self {
+        self.runtime = Some(Arc::new(runtime));
+        self
     }
 
     /// Install the deployment-owned verifier for final native HTTP denials.
-    pub fn with_admission<K: setjoin_authz::token::KeySource + 'static>(mut self,
-        guest: setjoin_pg::ScopedExecutor, keys: Arc<K>, issuer: String,
-        denylist:Option<Arc<crate::workers::SessionDenylist>>) -> Self {
-        self.admission = Some(Arc::new(crate::admission::SessionAdmission { guest, keys, issuer, denylist }));
+    pub fn with_admission<K: setjoin_authz::token::KeySource + 'static>(
+        mut self,
+        guest: setjoin_pg::ScopedExecutor,
+        keys: Arc<K>,
+        issuer: String,
+        denylist: Option<Arc<crate::workers::SessionDenylist>>,
+    ) -> Self {
+        self.admission = Some(Arc::new(crate::admission::SessionAdmission {
+            guest,
+            keys,
+            issuer,
+            denylist,
+        }));
         self
     }
 

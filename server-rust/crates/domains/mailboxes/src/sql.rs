@@ -195,7 +195,7 @@ pub const MAILBOX_UPDATE: SqlContract = SqlContract {
         Type::INT4,
     ],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
-    scope: SqlScope::UserScoped,
+    scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,
 };

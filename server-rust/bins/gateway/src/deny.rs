@@ -57,11 +57,7 @@ pub(crate) fn unauthorized(headers: &HeaderMap, c: &RequestContext) -> Response<
 }
 
 /// Native HTTP answer for every `Refusal` class (total — zero Go forwarding).
-pub(crate) fn native(
-    refusal: Refusal,
-    headers: &HeaderMap,
-    c: &RequestContext,
-) -> Response<Body> {
+pub(crate) fn native(refusal: Refusal, headers: &HeaderMap, c: &RequestContext) -> Response<Body> {
     match refusal {
         Refusal::NoCredential | Refusal::InvalidToken => unauthorized(headers, c),
         // Approved divergences (tests/conformance/authz-deny/divergences.json): Go's REST chain

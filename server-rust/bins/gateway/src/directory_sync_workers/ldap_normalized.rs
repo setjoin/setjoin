@@ -2,10 +2,13 @@
 //! `identitysource.Store` inbox (`mailserver/internal/directorysync/engine.go`,
 //! `identitysource/pipeline.go`). Reducers own matching, lifecycle and cursor
 //! advancement; this module only stages bounded entries and drains them.
-use super::client::{normalize_dn, LdapUser};
-use super::engine::{build_sync_filter, Res, SyncResult, Worker};
-use super::{canonical_address, go_duration, log_warn, new_uuid};
+use super::ldap_engine::{Res, Worker};
+use super::log_warn_ldap as log_warn;
 use serde_json::{json, Value};
+use setjoin_directory_sync::ldap::client::{normalize_dn, LdapUser};
+use setjoin_directory_sync::ldap::{
+    build_sync_filter, canonical_address, go_duration, new_uuid, SyncResult,
+};
 use setjoin_pg::workers::WorkerConnection;
 use setjoin_pg::workers::WorkerDatabase;
 use setjoin_pg::Type;

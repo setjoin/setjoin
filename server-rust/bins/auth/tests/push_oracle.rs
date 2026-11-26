@@ -3519,23 +3519,24 @@ async fn fault_probe(
     };
     let actor = proof(a.user);
     let foreign = proof(b.user);
+    let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
     assert_eq!(
-        totp::lookup_operation(&exec, &actor, op, operation)
+        totp::lookup_operation(&auth_db, &actor, op, operation)
             .await
             .map_err(|e| e.message)?,
         kind == "commit-after"
     );
-    assert!(!totp::lookup_operation(&exec, &foreign, op, operation)
+    assert!(!totp::lookup_operation(&auth_db, &foreign, op, operation)
         .await
         .map_err(|e| e.message)?);
     c.execute("UPDATE users SET enabled=false WHERE id=$1", &[&a.user])
         .await?;
-    let disabled = totp::lookup_operation(&exec, &actor, op, operation).await;
+    let disabled = totp::lookup_operation(&auth_db, &actor, op, operation).await;
     c.execute("UPDATE users SET enabled=true WHERE id=$1", &[&a.user])
         .await?;
     assert!(disabled.is_err());
     c.execute("INSERT INTO session_revocations(user_id,scope,jti,reason,expires_at) VALUES($1,'jti','idmfa3-fresh-lookup','fixture',now()+interval '1 hour')",&[&a.user]).await?;
-    let revoked = totp::lookup_operation(&exec, &actor, op, operation).await;
+    let revoked = totp::lookup_operation(&auth_db, &actor, op, operation).await;
     c.execute(
         "DELETE FROM session_revocations WHERE user_id=$1 AND jti='idmfa3-fresh-lookup'",
         &[&a.user],

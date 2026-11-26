@@ -114,9 +114,9 @@ pub const WELLKNOWN_LOCAL_DOMAIN: SqlContract = SqlContract {
 pub const WEBSITE_NEEDS_SETUP: SqlContract = SqlContract {
     id: "static.website_needs_setup",
     domain: "static",
-    sql: "SELECT COUNT(*) FROM users",
+    sql: "SELECT public.system_has_users()",
     params: &[],
-    columns: &[ColumnSpec::unnamed(Type::INT8)],
+    columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
     audit: SqlAuditPosture::Standard,

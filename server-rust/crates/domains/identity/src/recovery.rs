@@ -1,6 +1,6 @@
 //! Public account recovery resolves credentials server-side; identity fields never supply authority.
 use setjoin_contracts::ids::{ActorId, OperationId};
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{AuthDb, CommandOutcome, StatementFailure, Type};
 pub struct Principal {
     user: i64,
     email: String,
@@ -9,9 +9,12 @@ pub struct Principal {
 impl Principal {
     /// A query error or a missing row is Ok(None). An unreadable column is a decode
     /// failure, reported as Err so the caller can answer with the same non-enumerating reply.
-    pub async fn resolve(exec: &ScopedExecutor, email: &str) -> Result<Option<Self>, StatementFailure> {
+    pub async fn resolve(exec: &AuthDb, email: &str) -> Result<Option<Self>, StatementFailure> {
         // Preserve CredentialStore's full enabled snapshot, including its ancillary reads.
-        let Ok(rows) = exec.read("SELECT u.id,u.email,COALESCE(u.totp_enabled,FALSE),COALESCE(u.push_mfa_enabled,FALSE),EXISTS(SELECT 1 FROM passkey_credentials pc WHERE pc.user_id=u.id AND pc.revoked_at IS NULL),COALESCE(array_length(u.totp_backup_codes_enc,1),0)>0 FROM users u WHERE lower(u.email)=lower($1) AND u.enabled=TRUE",&[(&email,Type::TEXT)]).await else {
+        let Ok(rows) = exec
+            .read_contract(&crate::sql::RECOVERY_L14, &[(&email, Type::TEXT)])
+            .await
+        else {
             return Ok(None);
         };
         let Some(row) = rows.first() else {
@@ -42,8 +45,8 @@ impl Principal {
     }
     pub async fn budget_refused(
         &self,
-        worker: Option<&ScopedExecutor>,
-        request: &ScopedExecutor,
+        worker: Option<&AuthDb>,
+        request: &AuthDb,
         ip: &str,
     ) -> bool {
         let Some(worker) = worker else {
@@ -59,10 +62,10 @@ impl Principal {
                 command: "mfa-recovery-budget",
             });
         let outcome = worker
-            .run_user_command(
+            .run_user_command_contract(
                 actor,
                 OperationId(*uuid::Uuid::new_v4().as_bytes()),
-                "SELECT rust_identity_recovery_budget($1)::text",
+                &crate::sql::RECOVERY_L65,
                 &[(&self.user, Type::INT8)],
                 |rows| {
                     rows.first()
@@ -81,13 +84,27 @@ impl Principal {
         };
         if value["refused"] == true && value["first"] == true {
             let notes="forgot-password recovery budget exhausted: 30 attempts within the 15-minute window";
-            let _=request.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"INSERT INTO admin_audit_log(user_id,ip,action,target_type,target_id,notes) VALUES($1,$2::text::inet,'recovery_budget_exhausted','user',$1,$3)",&[(&self.user,Type::INT8),(&ip,Type::TEXT),(&notes,Type::TEXT)],|_|Ok(())).await;
+            let action = "recovery_budget_exhausted";
+            let _ = request
+                .run_user_command_contract(
+                    actor,
+                    OperationId(*uuid::Uuid::new_v4().as_bytes()),
+                    &crate::sql::ADMIN_AUDIT_WRITE_USER,
+                    &[
+                        (&self.user, Type::INT8),
+                        (&ip, Type::TEXT),
+                        (&action, Type::TEXT),
+                        (&notes, Type::TEXT),
+                    ],
+                    |_| Ok(()),
+                )
+                .await;
         }
         value["refused"] != false
     }
     pub async fn challenge(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
     ) -> CommandOutcome<super::push::Generated, StatementFailure> {
         super::push::generate_for(exec, self.user, "forgot-password").await
     }
@@ -112,7 +129,7 @@ impl ResetProof {
 impl Principal {
     pub async fn verify_totp(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         code: &str,
     ) -> CommandOutcome<Verification, StatementFailure> {
         match super::totp::cycle_for(exec, self.user, code).await {
@@ -136,11 +153,11 @@ impl Principal {
 impl Principal {
     pub async fn verify_push(
         &self,
-        worker: Option<&ScopedExecutor>,
+        worker: Option<&AuthDb>,
         nonce: &str,
         answer: &str,
     ) -> CommandOutcome<Verification, StatementFailure> {
-        use setjoin_pg::ProvenStatement;
+        use setjoin_pg::ProvenContract;
         use subtle::ConstantTimeEq;
         let Some(worker) = worker else {
             return CommandOutcome::Committed(Verification::Invalid);
@@ -159,10 +176,10 @@ impl Principal {
                 command: "mfa-recovery-push",
             });
         let result = worker
-            .run_user_proof_command(
+            .run_user_proof_command_contract(
                 actor,
                 OperationId(*uuid::Uuid::new_v4().as_bytes()),
-                "SELECT rust_identity_recovery_push_read($1,$2)::text",
+                &crate::sql::RECOVERY_L165,
                 &[(&self.user, Type::INT8), (&nonce, Type::BYTEA)],
                 |rows| {
                     let value: serde_json::Value = rows
@@ -175,7 +192,7 @@ impl Principal {
                             message: "push JSON row".into(),
                         })?;
                     if value["status"] != "ready" {
-                        return Ok(ProvenStatement::new("SELECT $1::text").bind(
+                        return Ok(ProvenContract::new(&crate::sql::ECHO_TEXT).bind(
                             value["status"].as_str().unwrap_or("invalid").to_owned(),
                             Type::TEXT,
                         ));
@@ -187,19 +204,17 @@ impl Principal {
                             .as_bytes()
                             .ct_eq(answer.as_bytes()),
                     );
-                    Ok(
-                        ProvenStatement::new("SELECT rust_identity_recovery_push_finish($1,$2,$3)")
-                            .bind(self.user, Type::INT8)
-                            .bind(
-                                value["id"].as_i64().ok_or_else(|| StatementFailure {
-                                    sqlstate: None,
-                                    hint: None,
-                                    message: "push challenge id".into(),
-                                })?,
-                                Type::INT8,
-                            )
-                            .bind(valid, Type::BOOL),
-                    )
+                    Ok(ProvenContract::new(&crate::sql::RECOVERY_L191)
+                        .bind(self.user, Type::INT8)
+                        .bind(
+                            value["id"].as_i64().ok_or_else(|| StatementFailure {
+                                sqlstate: None,
+                                hint: None,
+                                message: "push challenge id".into(),
+                            })?,
+                            Type::INT8,
+                        )
+                        .bind(valid, Type::BOOL))
                 },
                 |rows| {
                     rows.first()

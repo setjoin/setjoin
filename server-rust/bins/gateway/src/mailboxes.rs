@@ -557,7 +557,34 @@ pub(crate) fn unknown_outcome(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn worker_write_contract<T, P>(
     worker: &ScopedExecutor,
+    proof: &setjoin_authz::principals::AdminPermissionProof,
+    command_name: &'static str,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+    operation: [u8; 16],
+    project: P,
+) -> CommandOutcome<T, StatementFailure>
+where
+    P: FnOnce(&[setjoin_pg::Row]) -> Result<T, StatementFailure>,
+{
+    worker_write_contract_family(
+        worker,
+        proof,
+        setjoin_mailboxes::FAMILY,
+        command_name,
+        contract,
+        values,
+        operation,
+        project,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn worker_write_contract_family<T, P>(
+    worker: &ScopedExecutor,
     _proof: &setjoin_authz::principals::AdminPermissionProof,
+    family: &'static str,
     command_name: &'static str,
     contract: &'static setjoin_pg::SqlContract,
     values: &[&(dyn setjoin_pg::ToSql + Sync)],
@@ -584,7 +611,7 @@ where
              VALUES ($1::text::uuid, $2, $3)",
             &[
                 (&op_hex, setjoin_pg::Type::TEXT),
-                (&setjoin_mailboxes::FAMILY, setjoin_pg::Type::TEXT),
+                (&family, setjoin_pg::Type::TEXT),
                 (&command_name, setjoin_pg::Type::TEXT),
             ],
         )
@@ -873,7 +900,26 @@ impl<K: KeySource + 'static> Intercept for MailboxesRoute<K> {
                         deleted_purge_days: deleted,
                         spam_purge_days: spam,
                     };
-                    match db::update(&factory, &user, mailbox, scope, &patch, operation).await {
+                    match worker_write_contract(
+                        &worker,
+                        &proof,
+                        "mailbox.update",
+                        &setjoin_mailboxes::sql::MAILBOX_UPDATE,
+                        &[
+                            &mailbox,
+                            &scope,
+                            &patch.display_name,
+                            &patch.quota_bytes,
+                            &patch.enabled,
+                            &patch.litigation_hold,
+                            &patch.deleted_purge_days,
+                            &patch.spam_purge_days,
+                        ],
+                        operation,
+                        db::parse_updated,
+                    )
+                    .await
+                    {
                         CommandOutcome::Committed(true) => status_only(204),
                         CommandOutcome::Committed(false) => full(404, "mailbox not found"),
                         CommandOutcome::RolledBack(_) => database(),

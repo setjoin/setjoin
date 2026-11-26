@@ -1,44 +1,13 @@
 {
   "schema_version": 1,
-  "legacy_rls_pending_ceiling": 20,
-  "legacy_rls_pending_tables": [
-    "app_passwords",
-    "mailboxes",
-    "mfa_reauth_step_ups",
-    "oauth_tokens",
-    "oidc_auth_requests",
-    "oidc_tokens",
-    "passkey_credentials",
-    "password_history",
-    "push_devices",
-    "push_mfa_challenges",
-    "recipient_smime_certs",
-    "sessions",
-    "totp_pending_enrollments",
-    "totp_removal_step_ups",
-    "user_app_entitlements",
-    "user_smime_certs",
-    "users",
-    "webauthn_ceremonies",
-    "webhook_subscriptions",
-    "ws_subscriptions"
-  ],
-  "legacy_write_migration_ceiling": 14,
+  "legacy_rls_pending_ceiling": 0,
+  "legacy_rls_pending_tables": [],
+  "legacy_write_migration_ceiling": 0,
   "r1_r3_allowlist": [
     {
-      "file": "server-rust/crates/domains/admin-identity/src/idv2_ops.rs",
+      "file": "server-rust/crates/domains/admin-identity/src/sql.rs",
       "table": "users",
-      "reason": "Admin identity-v2 operational summary aggregating users by sync_source across org."
-    },
-    {
-      "file": "server-rust/crates/domains/admin-identity/src/org_policies.rs",
-      "table": "users",
-      "reason": "Admin department listing counting member users per department across org."
-    },
-    {
-      "file": "server-rust/crates/domains/approvals/src/sql.rs",
-      "table": "drive_access_request_details",
-      "reason": "Approval detail projection fragment joined inside approval_requests scoped query."
+      "reason": "Admin identity-v2 operational summary and department member counts across org (AdminReadTx on WorkerPool)."
     },
     {
       "file": "server-rust/crates/domains/approvals/src/sql.rs",
@@ -46,39 +15,29 @@
       "reason": "Internal approver notification lookup by already-authorized approval request id."
     },
     {
+      "file": "server-rust/crates/domains/approvals/src/sql.rs",
+      "table": "drive_access_request_details",
+      "reason": "Approval detail projection fragment joined inside approval_requests scoped query."
+    },
+    {
       "file": "server-rust/crates/domains/calendar/src/sql.rs",
       "table": "vt_timezone",
       "reason": "CalDAV VTIMEZONE fragment composed with caller-scoped calendar_id predicate."
     },
     {
-      "file": "server-rust/crates/domains/compliance/src/chat.rs",
+      "file": "server-rust/crates/domains/compliance/src/sql.rs",
       "table": "chat_channels",
-      "reason": "Compliance admin chat oversight query listing held, GxP, and retention-configured channels across org."
+      "reason": "Compliance admin chat oversight listing held, GxP, and retention-configured channels across org (AdminSensitiveRead on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/compliance/src/chat_export.rs",
-      "table": "chat_channels",
-      "reason": "Compliance admin eDiscovery chat export lookup of target channel metadata by channel id."
-    },
-    {
-      "file": "server-rust/crates/domains/compliance/src/chat_export.rs",
-      "table": "drive_file_versions",
-      "reason": "Compliance admin eDiscovery chat attachment export across held channels."
-    },
-    {
-      "file": "server-rust/crates/domains/compliance/src/chat_export.rs",
-      "table": "scheduled_actions",
-      "reason": "Compliance admin chat export job status lookup across org."
-    },
-    {
-      "file": "server-rust/crates/domains/compliance/src/export.rs",
+      "file": "server-rust/crates/domains/compliance/src/sql.rs",
       "table": "messages",
-      "reason": "Compliance admin eDiscovery message export by selected search-result message IDs."
+      "reason": "Compliance admin eDiscovery message export by selected search-result message IDs (AdminSensitiveRead on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/conditional-access/src/console.rs",
+      "file": "server-rust/crates/domains/conditional-access/src/sql.rs",
       "table": "users",
-      "reason": "Admin Conditional Access what-if console lookup of target user by email."
+      "reason": "Admin Conditional Access what-if console lookup of target user by email (AdminReadTx on WorkerPool)."
     },
     {
       "file": "server-rust/crates/domains/devices/src/sql.rs",
@@ -91,9 +50,9 @@
       "reason": "Admin offline command target user_id resolution passed into admin_can_reach_perm."
     },
     {
-      "file": "server-rust/crates/domains/directory-sync/src/ldap/engine.rs",
-      "table": "users",
-      "reason": "Directory LDAP sync lookup matching org users by email."
+      "file": "server-rust/crates/domains/drive/src/sql.rs",
+      "table": "drive_audit_alarms",
+      "reason": "Admin Drive audit alarm listing gated by SQL drive_has_admin_perm($1, 'drive.manage')."
     },
     {
       "file": "server-rust/crates/domains/drive/src/sql.rs",
@@ -101,64 +60,29 @@
       "reason": "Drive space admin/classification lookup gated by space ACL / admin permission check."
     },
     {
-      "file": "server-rust/crates/domains/drive/src/sql.rs",
-      "table": "drive_audit_alarms",
-      "reason": "Admin Drive audit alarm listing gated by SQL drive_has_admin_perm($1, 'drive.manage')."
-    },
-    {
       "file": "server-rust/crates/domains/guests/src/sql.rs",
       "table": "users",
       "reason": "Guest admin sponsor transfer search filtered by SQL guest_admin_can_transfer_to($1, $2, u.id)."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/issuance.rs",
+      "file": "server-rust/crates/domains/identity/src/sql.rs",
       "table": "oauth_tokens",
-      "reason": "Bearer/refresh token introspection lookup by cryptographic token_hash."
+      "reason": "Pre-auth bearer/refresh token introspection lookup by cryptographic token_hash on AuthDb WorkerPool."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/issuance.rs",
-      "table": "users",
-      "reason": "SCIM/federated identity lookup by scim_external_id."
-    },
-    {
-      "file": "server-rust/crates/domains/identity/src/login.rs",
-      "table": "users",
-      "reason": "Pre-auth password login lookup on users by email."
-    },
-    {
-      "file": "server-rust/crates/domains/identity/src/oidc/consumers.rs",
-      "table": "oidc_tokens",
-      "reason": "OIDC token lookup by token/refresh hash and literal WHERE false no-op update."
-    },
-    {
-      "file": "server-rust/crates/domains/identity/src/oidc/grants.rs",
+      "file": "server-rust/crates/domains/identity/src/sql.rs",
       "table": "oidc_auth_requests",
-      "reason": "OIDC authorization code redemption lookup by single-use code_hash."
+      "reason": "Pre-auth OIDC authorization request/code redemption lookup by opaque flow id or single-use code_hash on AuthDb WorkerPool."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/oidc/grants.rs",
+      "file": "server-rust/crates/domains/identity/src/sql.rs",
       "table": "oidc_tokens",
-      "reason": "OIDC refresh grant lookup by cryptographic refresh token hash."
+      "reason": "Pre-auth OIDC refresh/introspect token lookup by cryptographic hash/id and literal WHERE false no-op update on AuthDb WorkerPool."
     },
     {
-      "file": "server-rust/crates/domains/identity/src/oidc/requests.rs",
-      "table": "oidc_auth_requests",
-      "reason": "OIDC authorization request lookup by opaque flow id."
-    },
-    {
-      "file": "server-rust/crates/domains/identity/src/password.rs",
+      "file": "server-rust/crates/domains/identity/src/sql.rs",
       "table": "users",
-      "reason": "Pre-auth password login/reset credential lookup on users by email."
-    },
-    {
-      "file": "server-rust/crates/domains/identity/src/rp/account.rs",
-      "table": "users",
-      "reason": "Pre-auth SAML/OIDC relying-party login lookup by external subject/issuer."
-    },
-    {
-      "file": "server-rust/crates/domains/identity/src/webauthn.rs",
-      "table": "users",
-      "reason": "Pre-auth WebAuthn login lookup on users by email."
+      "reason": "Pre-auth password/WebAuthn/SAML/OIDC/SCIM credential & external-subject lookup on users via AuthDb WorkerPool."
     },
     {
       "file": "server-rust/crates/domains/jmap/src/sql.rs",
@@ -191,29 +115,14 @@
       "reason": "Meeting room/lobby/recording lookup by meeting id after participant/host authorization."
     },
     {
-      "file": "server-rust/crates/domains/platform/src/monitor.rs",
+      "file": "server-rust/crates/domains/platform/src/sql.rs",
       "table": "messages",
-      "reason": "Admin platform health monitor 24h message volume/size aggregates."
+      "reason": "Admin platform health monitor 24h message volume/size aggregates (AdminReadTx on WorkerPool)."
     },
     {
-      "file": "server-rust/crates/domains/platform/src/monitor.rs",
+      "file": "server-rust/crates/domains/platform/src/sql.rs",
       "table": "quarantined_messages",
-      "reason": "Admin platform health monitor quarantine backlog/virus counts."
-    },
-    {
-      "file": "server-rust/crates/domains/platform/src/storage.rs",
-      "table": "message_attachments",
-      "reason": "Admin storage DR scan checking blob ref_count against message_attachments."
-    },
-    {
-      "file": "server-rust/crates/domains/platform/src/webhook_secret.rs",
-      "table": "webhook_subscriptions",
-      "reason": "Admin/system webhook secret key rotation lookup and update by subscription id."
-    },
-    {
-      "file": "server-rust/crates/domains/platform/src/webhooks.rs",
-      "table": "webhook_subscriptions",
-      "reason": "Admin webhook subscriptions listing across org."
+      "reason": "Admin platform health monitor quarantine backlog/virus counts (AdminReadTx on WorkerPool)."
     },
     {
       "file": "server-rust/crates/domains/rules/src/sql.rs",
@@ -282,11 +191,6 @@
           "consumer": "drive",
           "mode": "read_only",
           "reason": "Admin audit trail read for domain activity view."
-        },
-        {
-          "consumer": "identity",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Legacy direct admin audit inserts during push/recovery/TOTP flows; migrate to compliance audit reducer."
         }
       ]
     },
@@ -471,8 +375,8 @@
       "read_contracts": [
         {
           "consumer": "admin-identity",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Admin user-lifecycle alias creation/updates directly on aliases; migrate to mailboxes reducer."
+          "mode": "read_only",
+          "reason": "Admin user-lifecycle reads aliases; mutations use rust_mailbox_alias_* reducers."
         },
         {
           "consumer": "identity",
@@ -489,8 +393,7 @@
     "app_passwords": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": [
         {
@@ -544,8 +447,8 @@
       "read_contracts": [
         {
           "consumer": "identity",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Direct impersonation audit insert on audit_log; migrate to compliance audit reducer."
+          "mode": "read_only",
+          "reason": "Identity self-service reads own audit_log; writes use rust_compliance_audit_log_insert reducer."
         }
       ]
     },
@@ -672,8 +575,8 @@
         },
         {
           "consumer": "platform",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Storage DR repair/reimport updates blobs metadata directly; migrate to blobs adapter."
+          "mode": "read_only",
+          "reason": "Platform storage inspection reads blobs metadata; registration uses rust_blob_register_metadata reducer."
         }
       ]
     },
@@ -698,8 +601,8 @@
       "read_contracts": [
         {
           "consumer": "platform",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Platform background job runner updates bulk_role_jobs progress/status; migrate to admin-identity reducer."
+          "mode": "read_only",
+          "reason": "Platform background job runner reads bulk_role_jobs; retry uses rust_admin_bulk_role_job_retry reducer."
         }
       ]
     },
@@ -1045,8 +948,8 @@
       "read_contracts": [
         {
           "consumer": "directory-sync",
-          "mode": "legacy_write_migration_pending",
-          "reason": "LDAP sync engine upserts org departments directly; migrate to admin-identity reducer."
+          "mode": "read_only",
+          "reason": "Directory sync reads departments; writes use owning reducers."
         },
         {
           "consumer": "drive",
@@ -1122,13 +1025,7 @@
       "owner": "devices",
       "security_class": "system_only",
       "rls_posture": "enforced",
-      "read_contracts": [
-        {
-          "consumer": "static",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Public telemetry ingest endpoint inserts device_telemetry; migrate to devices reducer."
-        }
-      ]
+      "read_contracts": []
     },
     "devices": {
       "owner": "devices",
@@ -2588,14 +2485,13 @@
     "mailboxes": {
       "owner": "mailboxes",
       "security_class": "mailbox_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "id",
       "read_contracts": [
         {
           "consumer": "admin-identity",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Admin user-lifecycle updates mailbox quota/status directly; migrate to mailboxes reducer."
+          "mode": "read_only",
+          "reason": "Admin user-lifecycle reads mailboxes; mutations use rust_mailbox_admin_* reducers."
         },
         {
           "consumer": "approvals",
@@ -2634,8 +2530,8 @@
         },
         {
           "consumer": "identity",
-          "mode": "legacy_write_migration_pending",
-          "reason": "JIT SAML/OIDC RP account provisioning inserts/updates primary mailbox directly in identity/rp/account.rs; migrate to mailboxes reducer."
+          "mode": "read_only",
+          "reason": "Identity auth/self-service reads mailboxes; JIT provisioning uses rust_mailbox_ensure_primary reducer."
         },
         {
           "consumer": "jmap",
@@ -2898,8 +2794,7 @@
     "mfa_reauth_step_ups": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -2918,8 +2813,8 @@
       "read_contracts": [
         {
           "consumer": "identity",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Self-service migration route updates migration_jobs; migrate to mailboxes reducer."
+          "mode": "read_only",
+          "reason": "Self-service migration status reads migration_jobs; writes use rust_migration_* reducers."
         }
       ]
     },
@@ -2972,8 +2867,7 @@
     "oauth_tokens": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": [
         {
@@ -3061,8 +2955,7 @@
     "oidc_auth_requests": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3081,8 +2974,7 @@
     "oidc_tokens": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3119,24 +3011,21 @@
     "passkey_credentials": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
     "password_history": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
     "push_devices": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3149,8 +3038,7 @@
     "push_mfa_challenges": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3196,8 +3084,7 @@
     "recipient_smime_certs": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "owner_user_id",
       "read_contracts": []
     },
@@ -3380,8 +3267,7 @@
     "sessions": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": [
         {
@@ -3509,8 +3395,8 @@
         },
         {
           "consumer": "directory-sync",
-          "mode": "legacy_write_migration_pending",
-          "reason": "LDAP sync admin/engine persists sync settings in system_config; migrate to platform config reducer."
+          "mode": "read_only",
+          "reason": "Directory sync reads system_config; writes use rust_system_config_upsert_batch_encrypted reducer."
         },
         {
           "consumer": "identity",
@@ -3620,16 +3506,14 @@
     "totp_pending_enrollments": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
     "totp_removal_step_ups": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3726,8 +3610,7 @@
     "user_app_entitlements": {
       "owner": "admin-identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": [
         {
@@ -3841,8 +3724,7 @@
     "user_smime_certs": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -3856,8 +3738,7 @@
     "users": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "id",
       "read_contracts": [
         {
@@ -3897,8 +3778,8 @@
         },
         {
           "consumer": "directory-sync",
-          "mode": "legacy_write_migration_pending",
-          "reason": "LDAP sync engine updates synced user attributes directly; migrate to identity reducer."
+          "mode": "read_only",
+          "reason": "Directory sync reads users; mutations use owning identity reducers."
         },
         {
           "consumer": "drive",
@@ -3937,8 +3818,8 @@
         },
         {
           "consumer": "user-settings",
-          "mode": "legacy_write_migration_pending",
-          "reason": "User profile/settings handlers update display/locale fields on users; migrate to identity reducer."
+          "mode": "read_only",
+          "reason": "User settings reads users; mutations use rust_user_profile_* / rust_user_view_prefs_* reducers."
         }
       ]
     },
@@ -3980,8 +3861,7 @@
     "webauthn_ceremonies": {
       "owner": "identity",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     },
@@ -4007,22 +3887,20 @@
     "webhook_subscriptions": {
       "owner": "platform",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": [
         {
           "consumer": "identity",
-          "mode": "legacy_write_migration_pending",
-          "reason": "Self-service webhook subscription management in identity/self_service.rs; migrate to platform reducer."
+          "mode": "read_only",
+          "reason": "Self-service reads own webhook_subscriptions; mutations use rust_webhook_self_* reducers."
         }
       ]
     },
     "ws_subscriptions": {
       "owner": "foundation",
       "security_class": "user_scoped",
-      "rls_posture": "pending_wave1_cutover",
-      "rls_tracking_issue": "#546",
+      "rls_posture": "enforced",
       "rls_scope_column": "user_id",
       "read_contracts": []
     }

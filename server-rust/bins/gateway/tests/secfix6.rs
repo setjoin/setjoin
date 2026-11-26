@@ -343,16 +343,38 @@ async fn update_devices_are_confined_to_the_callers_reach() -> Result<(), BoxErr
             .get(0);
         owner.execute("INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1)", &[&scoped.user, &role]).await?;
         let exec = common::patient_exec(&db.dsn, 4)?;
+        let factory = setjoin_gateway::policy_composition::tx_factory_from_executors(&exec, Some(&exec))
+            .ok_or("tx factory")?;
+        let token = common::recovery_token_with(scoped.user, json!({"admin": true}));
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse()?);
+        let auth = setjoin_authz::admit(
+            &exec,
+            &common::recovery_keys(),
+            "mailserver",
+            &headers,
+            "GET",
+            "/admin/updates/summary",
+            setjoin_authz::Scope::Member,
+        )
+        .await
+        .map_err(|e| format!("admit: {e:?}"))?;
+        let admin = factory
+            .mint_admin_from_authorized(&auth, "127.0.0.1")
+            .await
+            .map_err(|e| format!("mint admin: {e:?}"))?
+            .require_any_permission(&setjoin_platform::SYSTEM_CONSOLE)
+            .map_err(|e| format!("perm: {e:?}"))?;
         let total = |text: &str| -> Result<i64, BoxError> {
             let value: Value = serde_json::from_str(text.trim())?;
             Ok(value["total_devices"].as_i64().ok_or("total_devices")?)
         };
         let all: i64 = owner.query_one("SELECT count(*) FROM devices", &[]).await?.get(0);
-        let scoped_summary = total(&setjoin_platform::updates::summary(&exec, scoped.user).await)?;
+        let scoped_summary = total(&setjoin_platform::updates::summary(&factory, &admin, scoped.user).await)?;
         assert_eq!(scoped_summary, 1, "a domain-scoped admin counted other tenants' devices");
-        let global_summary = total(&setjoin_platform::updates::summary(&exec, 0).await)?;
+        let global_summary = total(&setjoin_platform::updates::summary(&factory, &admin, 0).await)?;
         assert_eq!(global_summary, all);
-        let listed = setjoin_platform::updates::devices(&exec, scoped.user, 50, 0).await.map_err(|e| e.message)?;
+        let listed = setjoin_platform::updates::devices(&factory, &admin, scoped.user, 50, 0).await.map_err(|e| e.message)?;
         assert!(listed.contains("secfix6-s"), "{listed}");
         assert!(!listed.contains("secfix6-a") && !listed.contains("secfix6-b"), "{listed}");
         Ok::<_, BoxError>(())

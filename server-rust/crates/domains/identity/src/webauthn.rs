@@ -2,11 +2,20 @@
 use crate::session::Session;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use setjoin_contracts::ids::{ActorId, OperationId};
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{AuthDb, CommandOutcome, StatementFailure, Type};
 
-pub async fn list(exec: &ScopedExecutor, session: &Session) -> Result<String, StatementFailure> {
+pub async fn list(exec: &AuthDb, session: &Session) -> Result<String, StatementFailure> {
+    let Ok(actor) = ActorId::new(session.user()) else {
+        return Ok("{\"credentials\":[]}\n".into());
+    };
     // The frozen list drops late row-iteration errors; this is display only.
-    let rows=exec.read_iterated("SELECT id,COALESCE(device_name,''),to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US'),uv_capable FROM passkey_credentials WHERE user_id=$1 AND revoked_at IS NULL ORDER BY created_at DESC",&[(&session.user(),Type::INT8)]).await?;
+    let rows = exec
+        .read_user_scoped_iterated_contract(
+            actor,
+            &crate::sql::WEBAUTHN_L9,
+            &[(&session.user(), Type::INT8)],
+        )
+        .await?;
     let mut credentials = Vec::new();
     for row in rows {
         let (Ok(id), Ok(name), Ok(created), Ok(uv)) = (
@@ -29,7 +38,7 @@ pub async fn list(exec: &ScopedExecutor, session: &Session) -> Result<String, St
 }
 
 pub async fn name(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     id: &[u8],
     name: &str,
@@ -37,9 +46,23 @@ pub async fn name(
     let Ok(actor) = setjoin_contracts::ids::ActorId::new(session.user()) else {
         return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
     };
-    exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-name"}).run_user_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "UPDATE passkey_credentials SET device_name=$1 WHERE id=$2 AND user_id=$3 AND revoked_at IS NULL",
-        &[(&name,Type::TEXT),(&id,Type::BYTEA),(&session.user(),Type::INT8)],|_|Ok(())).await
+    exec.clone()
+        .with_user_receipt(setjoin_pg::ReceiptCommand {
+            family: "F21",
+            command: "webauthn-name",
+        })
+        .run_user_command_contract(
+            actor,
+            setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
+            &crate::sql::WEBAUTHN_L41,
+            &[
+                (&name, Type::TEXT),
+                (&id, Type::BYTEA),
+                (&session.user(), Type::INT8),
+            ],
+            |_| Ok(()),
+        )
+        .await
 }
 
 /// Go-stored raw COSE verification. Core0.6 remains unmodified. The facts-check
@@ -264,12 +287,7 @@ impl RelyingParty {
             decoy,
         })
     }
-    async fn load_user(
-        &self,
-        exec: &ScopedExecutor,
-        id: i64,
-        initialize: bool,
-    ) -> Result<User, String> {
+    async fn load_user(&self, exec: &AuthDb, id: i64, initialize: bool) -> Result<User, String> {
         self.load_user_opt(exec, id, initialize)
             .await?
             .ok_or_else(|| "no rows in result set".to_owned())
@@ -277,7 +295,7 @@ impl RelyingParty {
     /// Ok(None) only when the enabled user row is absent; every other failure is Err.
     async fn load_user_opt(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         id: i64,
         initialize: bool,
     ) -> Result<Option<User>, String> {
@@ -285,7 +303,10 @@ impl RelyingParty {
         use setjoin_contracts::ids::{ActorId, OperationId};
         use setjoin_pg::CommandOutcome;
         let actor = ActorId::new(id).map_err(|_| "no rows in result set".to_owned())?;
-        let rows=exec.read_user_scoped(actor,"SELECT email,display_name,webauthn_user_handle FROM users WHERE id=$1 AND enabled=TRUE",&[(&id,Type::INT8)]).await.map_err(|e|e.message)?;
+        let rows = exec
+            .read_user_scoped_contract(actor, &crate::sql::WEBAUTHN_L288, &[(&id, Type::INT8)])
+            .await
+            .map_err(|e| e.message)?;
         let Some(r) = rows.first() else {
             return Ok(None);
         };
@@ -298,15 +319,31 @@ impl RelyingParty {
             SystemRandom::new()
                 .fill(&mut candidate)
                 .map_err(|_| "webauthn: generate user handle")?;
-            match exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"UPDATE users SET webauthn_user_handle=COALESCE(webauthn_user_handle,$1) WHERE id=$2 RETURNING webauthn_user_handle",&[(&candidate.as_slice(),Type::BYTEA),(&id,Type::INT8)],|rows|rows.first().and_then(|r|r.try_get::<_,Vec<u8>>(0).ok()).ok_or_else(bad_result)).await {
-                CommandOutcome::Committed(h)=>handle=h,
-                _=>return Err("webauthn: persist user handle".into()),
+            match exec
+                .run_user_command_contract(
+                    actor,
+                    OperationId(*uuid::Uuid::new_v4().as_bytes()),
+                    &crate::sql::WEBAUTHN_L301,
+                    &[(&candidate.as_slice(), Type::BYTEA), (&id, Type::INT8)],
+                    |rows| {
+                        rows.first()
+                            .and_then(|r| r.try_get::<_, Vec<u8>>(0).ok())
+                            .ok_or_else(bad_result)
+                    },
+                )
+                .await
+            {
+                CommandOutcome::Committed(h) => handle = h,
+                _ => return Err("webauthn: persist user handle".into()),
             }
         }
         if handle.is_empty() {
             handle = id.to_string().into_bytes();
         }
-        let rows=exec.read_user_scoped(actor,"SELECT id,public_key,attestation_type,sign_count FROM passkey_credentials WHERE user_id=$1 AND revoked_at IS NULL",&[(&id,Type::INT8)]).await.map_err(|e|e.message)?;
+        let rows = exec
+            .read_user_scoped_contract(actor, &crate::sql::WEBAUTHN_L309, &[(&id, Type::INT8)])
+            .await
+            .map_err(|e| e.message)?;
         let credentials = rows
             .iter()
             .map(|r| {
@@ -332,15 +369,12 @@ impl RelyingParty {
     }
     pub async fn begin_login(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         email: &str,
     ) -> Result<LoginBegin, &'static str> {
         let email = setjoin_authz::address::canonical(email);
         let rows = exec
-            .read(
-                "SELECT id FROM users WHERE email=$1 AND enabled=TRUE",
-                &[(&email.as_str(), Type::TEXT)],
-            )
+            .read_contract(&crate::sql::WEBAUTHN_L341, &[(&email.as_str(), Type::TEXT)])
             .await;
         // Every failure (query error, absent, disabled or vanished user, undecodable row,
         // handle persist failure, no credentials) takes the decoy path: a distinct response
@@ -443,7 +477,7 @@ impl RelyingParty {
     }
     pub async fn finish_login(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         transport: &LoginTransport,
         raw: &[u8],
     ) -> Result<LoginProof, LoginFailure> {
@@ -531,12 +565,50 @@ impl RelyingParty {
         let actor = setjoin_contracts::ids::ActorId::new(user.id)
             .map_err(|_| refuse("no rows in result set"))?;
         let op = setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes());
-        match exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-counter"}).run_user_command(actor,op,"SELECT rust_identity_webauthn_login_claim($1,$2,$3,$4,$5)",&[(&user.id,Type::INT8),(&credential.id,Type::BYTEA),(&credential.key,Type::BYTEA),(&count,Type::INT4),(&Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes()).to_vec(),Type::BYTEA)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).ok_or_else(|| StatementFailure{sqlstate:None,hint:None,message:"database error".into()})).await{
-            setjoin_pg::CommandOutcome::Committed(status) if status=="accepted"=>Ok(LoginProof{user:user.id}),
-            setjoin_pg::CommandOutcome::Committed(detail)=>Err(refuse(&detail)),
-            setjoin_pg::CommandOutcome::Unknown{operation}=>Err(LoginFailure::Unknown(operation)),
-            setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(failure))=>Err(refuse(&statement_error(&failure))),
-            _=>Err(refuse("database error")),
+        match exec
+            .clone()
+            .with_user_receipt(setjoin_pg::ReceiptCommand {
+                family: "F21",
+                command: "webauthn-counter",
+            })
+            .run_user_command_contract(
+                actor,
+                op,
+                &crate::sql::WEBAUTHN_L534,
+                &[
+                    (&user.id, Type::INT8),
+                    (&credential.id, Type::BYTEA),
+                    (&credential.key, Type::BYTEA),
+                    (&count, Type::INT4),
+                    (
+                        &Sha256::digest(session["challenge"].as_str().unwrap_or("").as_bytes())
+                            .to_vec(),
+                        Type::BYTEA,
+                    ),
+                ],
+                |rows| {
+                    rows.first()
+                        .and_then(|r| r.try_get::<_, String>(0).ok())
+                        .ok_or_else(|| StatementFailure {
+                            sqlstate: None,
+                            hint: None,
+                            message: "database error".into(),
+                        })
+                },
+            )
+            .await
+        {
+            setjoin_pg::CommandOutcome::Committed(status) if status == "accepted" => {
+                Ok(LoginProof { user: user.id })
+            }
+            setjoin_pg::CommandOutcome::Committed(detail) => Err(refuse(&detail)),
+            setjoin_pg::CommandOutcome::Unknown { operation } => {
+                Err(LoginFailure::Unknown(operation))
+            }
+            setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Statement(failure)) => {
+                Err(refuse(&statement_error(&failure)))
+            }
+            _ => Err(refuse("database error")),
         }
     }
     fn verify_client(
@@ -692,15 +764,20 @@ fn signature_error(key: &[u8]) -> String {
 impl LoginProof {
     /// Frozen Go passes an empty session binding for the passkey first factor.
     /// Only this sealed, successfully claimed assertion can invoke this seam.
-    pub async fn push_challenge(&self, exec:&ScopedExecutor)->setjoin_pg::CommandOutcome<crate::push::Generated,StatementFailure>{
-        crate::push::generate_for(exec,self.user,"").await
+    pub async fn push_challenge(
+        &self,
+        exec: &AuthDb,
+    ) -> setjoin_pg::CommandOutcome<crate::push::Generated, StatementFailure> {
+        crate::push::generate_for(exec, self.user, "").await
     }
 
     pub async fn completion(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
     ) -> Result<Option<crate::totp::CompletionUser>, StatementFailure> {
-        let rows=exec.read("SELECT email,EXISTS(SELECT 1 FROM admin_role_assignments ara WHERE ara.user_id=u.id AND (ara.expires_at IS NULL OR ara.expires_at>now())) FROM users u WHERE u.id=$1 AND u.enabled",&[(&self.user,Type::INT8)]).await?;
+        let rows = exec
+            .read_contract(&crate::sql::RP_ACCOUNT_L277, &[(&self.user, Type::INT8)])
+            .await?;
         let Some(r) = rows.first() else {
             return Ok(None);
         };
@@ -717,22 +794,12 @@ impl LoginProof {
     }
     /// #454: a query error, a missing row (the user was disabled or deleted after
     /// `completion`) or an unreadable factor column fails closed, never "no MFA enrolled".
-    pub async fn factors(&self, exec: &ScopedExecutor) -> Result<(bool, bool), StatementFailure> {
-        let bad = || StatementFailure {
-            sqlstate: None,
-            hint: None,
-            message: "MFA factor row".into(),
-        };
-        let rows = exec.read("SELECT COALESCE(totp_enabled,FALSE),COALESCE(push_mfa_enabled,FALSE) FROM users WHERE id=$1 AND enabled",&[(&self.user,Type::INT8)]).await?;
-        let r = rows.first().ok_or_else(bad)?;
-        Ok((
-            r.try_get::<_, bool>(0).map_err(|_| bad())?,
-            r.try_get::<_, bool>(1).map_err(|_| bad())?,
-        ))
+    pub async fn factors(&self, exec: &AuthDb) -> Result<(bool, bool), StatementFailure> {
+        factors_for_user(exec, self.user).await
     }
     pub async fn mint(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         refresh: &str,
         expiry: i64,
         family: &str,
@@ -750,10 +817,10 @@ impl LoginProof {
                 family: "F21",
                 command: "webauthn-mint",
             })
-            .run_user_command(
+            .run_user_command_contract(
                 actor,
                 op,
-                "SELECT rust_identity_mfa_mint($1,'{}'::jsonb,$2,$3,$4::text::uuid)::text",
+                &crate::sql::WEBAUTHN_L746,
                 &[
                     (&self.user, Type::INT8),
                     (&Sha256::digest(refresh.as_bytes()).to_vec(), Type::BYTEA),
@@ -783,7 +850,7 @@ pub struct RegistrationBegin {
 impl RelyingParty {
     pub async fn begin_registration(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         session: &Session,
         token: &str,
     ) -> setjoin_pg::CommandOutcome<RegistrationBegin, StatementFailure> {
@@ -805,7 +872,7 @@ impl RelyingParty {
         let Ok(actor) = setjoin_contracts::ids::ActorId::new(session.user()) else {
             return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
         };
-        exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-register-begin"}).run_user_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT rust_identity_webauthn_begin($1,$2::text::jsonb,$3,$4,$5)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT),(&token_hash,Type::TEXT),(&challenge_hash,Type::TEXT),(&candidate.as_slice(),Type::BYTEA)],|rows|{
+        exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-register-begin"}).run_user_command_contract(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),&crate::sql::WEBAUTHN_L798,&[(&session.user(),Type::INT8),(&claims,Type::TEXT),(&token_hash,Type::TEXT),(&challenge_hash,Type::TEXT),(&candidate.as_slice(),Type::BYTEA)],|rows|{
             let outcome:serde_json::Value=reducer_json(rows)?;
             if outcome["status"]!="created"{return Ok(RegistrationBegin{outcome,options:None,session:None});}
             let handle=hex_bytes(outcome["handle"].as_str().unwrap_or("")).ok_or_else(bad_result)?;
@@ -842,7 +909,7 @@ fn credential_parameters() -> String {
     )
 }
 fn hex_bytes(raw: &str) -> Option<Vec<u8>> {
-    if raw.len() % 2 != 0 {
+    if !raw.len().is_multiple_of(2) {
         return None;
     }
     (0..raw.len())
@@ -1015,14 +1082,14 @@ impl RelyingParty {
     }
     pub async fn finish_registration(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         session: &Session,
         cookie: &str,
         raw: &[u8],
         token: &str,
         ip: &str,
     ) -> setjoin_pg::CommandOutcome<serde_json::Value, StatementFailure> {
-        use setjoin_pg::ProvenStatement;
+        use setjoin_pg::ProvenContract;
         use sha2::{Digest, Sha256};
         let transport = self
             .cookies
@@ -1042,20 +1109,51 @@ impl RelyingParty {
         let Ok(actor) = setjoin_contracts::ids::ActorId::new(session.user()) else {
             return setjoin_pg::CommandOutcome::RolledBack(setjoin_pg::Rejection::Unavailable);
         };
-        exec.clone().with_user_receipt(setjoin_pg::ReceiptCommand{family:"F21",command:"webauthn-register-finish"}).run_user_proof_command(actor,setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),"SELECT rust_identity_webauthn_registration_read($1,$2::text::jsonb)::text",&[(&session.user(),Type::INT8),(&claims,Type::TEXT)],|rows|{
-            let result:serde_json::Value=reducer_json(rows)?;
-            if result["status"]!="ready"{return Ok(ProvenStatement::new("SELECT $1::text").bind(result.to_string(),Type::TEXT));}
-            let handle=hex_bytes(result["handle"].as_str().unwrap_or("")).ok_or_else(bad_result)?;
-            let credential=self.verify_registration(&handle,&transport,raw).map_err(|detail|StatementFailure{sqlstate:None,hint:Some("webauthn-verification".into()),message:detail})?;
-            Ok(ProvenStatement::new("SELECT rust_identity_webauthn_finish($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8,$9,$10)::text")
-                .bind(session.user(),Type::INT8).bind(claims.clone(),Type::TEXT).bind(token_hash,Type::TEXT).bind(challenge_hash,Type::TEXT)
-                .bind(credential.id,Type::BYTEA).bind(credential.key,Type::BYTEA).bind(credential.attestation,Type::TEXT).bind(credential.count,Type::INT4).bind(credential.uv,Type::BOOL).bind(ip.to_owned(),Type::TEXT))
-        },|rows|reducer_json(rows)).await
+        exec.clone()
+            .with_user_receipt(setjoin_pg::ReceiptCommand {
+                family: "F21",
+                command: "webauthn-register-finish",
+            })
+            .run_user_proof_command_contract(
+                actor,
+                setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
+                &crate::sql::WEBAUTHN_L1035,
+                &[(&session.user(), Type::INT8), (&claims, Type::TEXT)],
+                |rows| {
+                    let result: serde_json::Value = reducer_json(rows)?;
+                    if result["status"] != "ready" {
+                        return Ok(ProvenContract::new(&crate::sql::ECHO_TEXT)
+                            .bind(result.to_string(), Type::TEXT));
+                    }
+                    let handle = hex_bytes(result["handle"].as_str().unwrap_or(""))
+                        .ok_or_else(bad_result)?;
+                    let credential =
+                        self.verify_registration(&handle, &transport, raw)
+                            .map_err(|detail| StatementFailure {
+                                sqlstate: None,
+                                hint: Some("webauthn-verification".into()),
+                                message: detail,
+                            })?;
+                    Ok(ProvenContract::new(&crate::sql::WEBAUTHN_L1040)
+                        .bind(session.user(), Type::INT8)
+                        .bind(claims.clone(), Type::TEXT)
+                        .bind(token_hash, Type::TEXT)
+                        .bind(challenge_hash, Type::TEXT)
+                        .bind(credential.id, Type::BYTEA)
+                        .bind(credential.key, Type::BYTEA)
+                        .bind(credential.attestation, Type::TEXT)
+                        .bind(credential.count, Type::INT4)
+                        .bind(credential.uv, Type::BOOL)
+                        .bind(ip.to_owned(), Type::TEXT))
+                },
+                reducer_json,
+            )
+            .await
     }
 }
 
 pub async fn revoke(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     id: &[u8],
     token: &str,
@@ -1073,10 +1171,10 @@ pub async fn revoke(
             family: "F21",
             command: "webauthn-revoke",
         })
-        .run_user_command(
+        .run_user_command_contract(
             actor,
             setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
-            "SELECT rust_identity_webauthn_revoke($1,$2::text::jsonb,$3,$4,$5,$6)::text",
+            &crate::sql::WEBAUTHN_L1069,
             &[
                 (&session.user(), Type::INT8),
                 (&claims, Type::TEXT),
@@ -1085,7 +1183,7 @@ pub async fn revoke(
                 (&id, Type::BYTEA),
                 (&ip, Type::TEXT),
             ],
-            |rows| reducer_json(rows),
+            reducer_json,
         )
         .await
 }
@@ -1114,7 +1212,7 @@ impl Operation {
 }
 /// Receipt recovery revalidates a fresh authenticated user and durable revocation.
 pub async fn lookup_operation(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &Session,
     operation: OperationId,
     kind: Operation,
@@ -1130,10 +1228,24 @@ pub async fn lookup_operation(
     let actor = ActorId::new(session.user()).map_err(|_| invalid())?;
     let op = setjoin_pg::operation_hex(operation);
     let claims = serde_json::Value::Object(session.claims().clone()).to_string();
-    let result=exec.run_user_command(actor,operation,
-        "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F21' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.enabled AND identity_transition_admission_allowed(u.id) AND (COALESCE($4::text::jsonb->>'credential_fence','')='' OR rtrim(translate(encode(digest(u.password_hash,'sha256'),'base64'),'+/','-_'),'=')=$4::text::jsonb->>'credential_fence')) AND NOT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND (expires_at IS NULL OR expires_at>now()) AND ((scope='jti' AND jti=COALESCE($4::text::jsonb->>'jti','')) OR (scope='family' AND family_id=COALESCE($4::text::jsonb->>'fam','')) OR (scope='all' AND to_timestamp(COALESCE(($4::text::jsonb->>'iat')::double precision,0))<=not_before)))",
-        &[(&session.user(),Type::INT8),(&op,Type::TEXT),(&kind.command(),Type::TEXT),(&claims,Type::TEXT)],
-        |rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await;
+    let result = exec
+        .run_user_command_contract(
+            actor,
+            operation,
+            &crate::sql::USER_OPERATION_LOOKUP,
+            &[
+                (&session.user(), Type::INT8),
+                (&op, Type::TEXT),
+                (&kind.command(), Type::TEXT),
+                (&claims, Type::TEXT),
+            ],
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await;
     match result {
         CommandOutcome::Committed(found) => Ok(found),
         _ => Err(invalid()),
@@ -1363,47 +1475,114 @@ pub fn decode_credential_id(text: &str) -> Option<Vec<u8>> {
 }
 
 impl RelyingParty {
-    pub(crate) fn management_challenge(&self)->Result<String,&'static str>{random_challenge()}
+    pub(crate) fn management_challenge(&self) -> Result<String, &'static str> {
+        random_challenge()
+    }
     pub(crate) fn management_options(
         &self,
         snapshot: &serde_json::Value,
         challenge: &str,
     ) -> Result<String, StatementFailure> {
         let keys = snapshot["keys"].as_array().ok_or_else(bad_result)?;
-        let ids = keys.iter().map(|key| {
-            let raw = key["id"].as_str().ok_or_else(bad_result)?;
-            let bytes = data_encoding::HEXLOWER.decode(raw.as_bytes()).map_err(|_| bad_result())?;
-            Ok(format!("{{\"type\":\"public-key\",\"id\":{}}}", serde_json::json!(URL_SAFE_NO_PAD.encode(bytes))))
-        }).collect::<Result<Vec<_>, StatementFailure>>()?.join(",");
-        let allowed = if ids.is_empty() { String::new() } else { format!(",\"allowCredentials\":[{ids}]") };
+        let ids = keys
+            .iter()
+            .map(|key| {
+                let raw = key["id"].as_str().ok_or_else(bad_result)?;
+                let bytes = data_encoding::HEXLOWER
+                    .decode(raw.as_bytes())
+                    .map_err(|_| bad_result())?;
+                Ok(format!(
+                    "{{\"type\":\"public-key\",\"id\":{}}}",
+                    serde_json::json!(URL_SAFE_NO_PAD.encode(bytes))
+                ))
+            })
+            .collect::<Result<Vec<_>, StatementFailure>>()?
+            .join(",");
+        let allowed = if ids.is_empty() {
+            String::new()
+        } else {
+            format!(",\"allowCredentials\":[{ids}]")
+        };
         Ok(format!("{{\"publicKey\":{{\"challenge\":{},\"timeout\":300000,\"rpId\":{}{allowed},\"userVerification\":\"required\"}}}}",
             serde_json::json!(challenge), serde_json::json!(self.rp_id)))
     }
 }
 
-pub(crate) enum ManagementResult { Malformed, Rejected, Accepted(Vec<u8>) }
+pub(crate) enum ManagementResult {
+    Malformed,
+    Rejected,
+    Accepted(Vec<u8>),
+}
 impl RelyingParty {
-    pub(crate) fn management_verify(&self,snapshot:&serde_json::Value,hash:&str,raw:&[u8])->ManagementResult{
-        use sha2::{Digest,Sha256};use subtle::ConstantTimeEq;
-        if snapshot["force_invalid"]==true{return ManagementResult::Rejected;}
-        let Ok(request)=serde_json::from_slice::<serde_json::Value>(raw)else{return ManagementResult::Malformed;};
-        let Ok(parsed)=parse_assertion(&request)else{return ManagementResult::Malformed;};
-        let Ok(client)=serde_json::from_slice::<serde_json::Value>(&parsed.client)else{return ManagementResult::Malformed;};
-        if ["type","challenge","origin"].iter().any(|key|client.get(*key).is_some_and(|v|!v.is_null()&&!v.is_string())){return ManagementResult::Malformed;}
-        let challenge=client["challenge"].as_str().unwrap_or("");
-        let presented=format!("{:x}",Sha256::digest(challenge.as_bytes()));
-        if !bool::from(presented.as_bytes().ct_eq(hash.as_bytes())){return ManagementResult::Rejected;}
-        let Some(keys)=snapshot["keys"].as_array()else{return ManagementResult::Rejected;};
-        let decode=|text:&str|data_encoding::HEXLOWER.decode(text.as_bytes()).ok();
-        let Some(handle)=snapshot["handle"].as_str().and_then(decode)else{return ManagementResult::Rejected;};
-        if !parsed.handle.is_empty()&&parsed.handle!=handle{return ManagementResult::Rejected;}
-        let Some(key)=keys.iter().find(|key|key["id"].as_str().and_then(decode).is_some_and(|id|id==parsed.id))else{return ManagementResult::Rejected;};
-        let session=serde_json::json!({"challenge":challenge,"userVerification":"required"});
-        if self.verify_client(&parsed.client,&session,"webauthn.get").is_err()||self.verify_auth_data(&parsed.auth,&session,true).is_err(){return ManagementResult::Rejected;}
-        if parsed.auth[32]&(8|16)!=0{return ManagementResult::Rejected;}
-        let Some(public)=key["key"].as_str().and_then(decode)else{return ManagementResult::Rejected;};
-        let mut message=parsed.auth.clone();message.extend_from_slice(&Sha256::digest(&parsed.client));
-        if !verify_stored_signature(&public,&message,&parsed.signature){return ManagementResult::Rejected;}
+    pub(crate) fn management_verify(
+        &self,
+        snapshot: &serde_json::Value,
+        hash: &str,
+        raw: &[u8],
+    ) -> ManagementResult {
+        use sha2::{Digest, Sha256};
+        use subtle::ConstantTimeEq;
+        if snapshot["force_invalid"] == true {
+            return ManagementResult::Rejected;
+        }
+        let Ok(request) = serde_json::from_slice::<serde_json::Value>(raw) else {
+            return ManagementResult::Malformed;
+        };
+        let Ok(parsed) = parse_assertion(&request) else {
+            return ManagementResult::Malformed;
+        };
+        let Ok(client) = serde_json::from_slice::<serde_json::Value>(&parsed.client) else {
+            return ManagementResult::Malformed;
+        };
+        if ["type", "challenge", "origin"].iter().any(|key| {
+            client
+                .get(*key)
+                .is_some_and(|v| !v.is_null() && !v.is_string())
+        }) {
+            return ManagementResult::Malformed;
+        }
+        let challenge = client["challenge"].as_str().unwrap_or("");
+        let presented = format!("{:x}", Sha256::digest(challenge.as_bytes()));
+        if !bool::from(presented.as_bytes().ct_eq(hash.as_bytes())) {
+            return ManagementResult::Rejected;
+        }
+        let Some(keys) = snapshot["keys"].as_array() else {
+            return ManagementResult::Rejected;
+        };
+        let decode = |text: &str| data_encoding::HEXLOWER.decode(text.as_bytes()).ok();
+        let Some(handle) = snapshot["handle"].as_str().and_then(decode) else {
+            return ManagementResult::Rejected;
+        };
+        if !parsed.handle.is_empty() && parsed.handle != handle {
+            return ManagementResult::Rejected;
+        }
+        let Some(key) = keys.iter().find(|key| {
+            key["id"]
+                .as_str()
+                .and_then(decode)
+                .is_some_and(|id| id == parsed.id)
+        }) else {
+            return ManagementResult::Rejected;
+        };
+        let session = serde_json::json!({"challenge":challenge,"userVerification":"required"});
+        if self
+            .verify_client(&parsed.client, &session, "webauthn.get")
+            .is_err()
+            || self.verify_auth_data(&parsed.auth, &session, true).is_err()
+        {
+            return ManagementResult::Rejected;
+        }
+        if parsed.auth[32] & (8 | 16) != 0 {
+            return ManagementResult::Rejected;
+        }
+        let Some(public) = key["key"].as_str().and_then(decode) else {
+            return ManagementResult::Rejected;
+        };
+        let mut message = parsed.auth.clone();
+        message.extend_from_slice(&Sha256::digest(&parsed.client));
+        if !verify_stored_signature(&public, &message, &parsed.signature) {
+            return ManagementResult::Rejected;
+        }
         ManagementResult::Accepted(parsed.id)
     }
 }
@@ -1415,7 +1594,8 @@ mod fail_closed_management_options {
 
     #[test]
     fn rejects_malformed_snapshot() {
-        let rp = RelyingParty::new(&[0; 32], "example.com", "Example", "https://example.com").unwrap();
+        let rp =
+            RelyingParty::new(&[0; 32], "example.com", "Example", "https://example.com").unwrap();
         for snapshot in [
             json!({}),
             json!({"keys": {}}),
@@ -1426,7 +1606,9 @@ mod fail_closed_management_options {
             let error = rp.management_options(&snapshot, "challenge").unwrap_err();
             assert_eq!(error.message, "invalid WebAuthn reducer result");
         }
-        let empty = rp.management_options(&json!({"keys": []}), "challenge").unwrap();
+        let empty = rp
+            .management_options(&json!({"keys": []}), "challenge")
+            .unwrap();
         let options: serde_json::Value = serde_json::from_str(&empty).unwrap();
         assert!(options["publicKey"].get("allowCredentials").is_none());
     }
@@ -1447,63 +1629,84 @@ mod secfix3_safetynet {
     const CA: &[u8] = include_bytes!("../tests/fixtures/safetynet/ca.der");
 
     fn statement(chain: &[&[u8]], age_ms: i64, auth: &[u8], client: &[u8]) -> C {
-        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
         let header = serde_json::json!({"alg":"RS256","x5c":chain.iter().map(|c| STANDARD.encode(c)).collect::<Vec<_>>()});
         let mut message = auth.to_vec();
         message.extend_from_slice(&Sha256::digest(client));
         let claims = serde_json::json!({"nonce":STANDARD.encode(Sha256::digest(&message)),"ctsProfileMatch":true,"timestampMs":now_ms-age_ms});
         let url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        let signed = format!("{}.{}", url.encode(header.to_string()), url.encode(claims.to_string()));
+        let signed = format!(
+            "{}.{}",
+            url.encode(header.to_string()),
+            url.encode(claims.to_string())
+        );
         let pair = ring::signature::RsaKeyPair::from_pkcs8(KEY).unwrap();
         let mut sig = vec![0; pair.public().modulus_len()];
-        pair.sign(&ring::signature::RSA_PKCS1_SHA256, &ring::rand::SystemRandom::new(), signed.as_bytes(), &mut sig).unwrap();
+        pair.sign(
+            &ring::signature::RSA_PKCS1_SHA256,
+            &ring::rand::SystemRandom::new(),
+            signed.as_bytes(),
+            &mut sig,
+        )
+        .unwrap();
         let token = format!("{signed}.{}", url.encode(sig));
-        C::Map([(C::Text("ver".into()), C::Text("12".into())), (C::Text("response".into()), C::Bytes(token.into_bytes()))].into_iter().collect())
+        C::Map(
+            [
+                (C::Text("ver".into()), C::Text("12".into())),
+                (C::Text("response".into()), C::Bytes(token.into_bytes())),
+            ]
+            .into_iter()
+            .collect(),
+        )
     }
     const AUTH: &[u8] = b"authenticator-data-fixture";
     const CLIENT: &[u8] = b"client-data-fixture";
 
     #[test]
     fn a_fresh_chained_response_is_refused() {
-        assert!(safetynet_policy(Some(&statement(&[CHAINED, CA], 1000, AUTH, CLIENT)), AUTH, CLIENT).is_err());
+        assert!(safetynet_policy(
+            Some(&statement(&[CHAINED, CA], 1000, AUTH, CLIENT)),
+            AUTH,
+            CLIENT
+        )
+        .is_err());
     }
     #[test]
     fn a_self_signed_leaf_is_refused() {
-        assert!(safetynet_policy(Some(&statement(&[SELF_SIGNED], 1000, AUTH, CLIENT)), AUTH, CLIENT).is_err());
+        assert!(safetynet_policy(
+            Some(&statement(&[SELF_SIGNED], 1000, AUTH, CLIENT)),
+            AUTH,
+            CLIENT
+        )
+        .is_err());
     }
     #[test]
     fn a_stale_response_is_refused() {
-        assert!(safetynet_policy(Some(&statement(&[CHAINED, CA], 120_000, AUTH, CLIENT)), AUTH, CLIENT).is_err());
+        assert!(safetynet_policy(
+            Some(&statement(&[CHAINED, CA], 120_000, AUTH, CLIENT)),
+            AUTH,
+            CLIENT
+        )
+        .is_err());
     }
 }
 
-#[cfg(test)]
-mod fail_closed_454 {
-    //! #454: a failed or empty MFA factor read is an error, never "no MFA enrolled".
-    use super::LoginProof;
-    fn runtime() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
-    }
-    #[test]
-    fn factor_query_error_is_an_error() {
-        runtime().block_on(async {
-            let exec = setjoin_pg::ScopedExecutor::from_dsn("postgres://nobody@127.0.0.1:1/none", 1).unwrap();
-            assert!(LoginProof { user: 7 }.factors(&exec).await.is_err());
-        });
-    }
-    #[test]
-    fn absent_user_row_is_an_error() {
-        let Some(dsn) = std::env::var("TEST_DB_DSN").ok().filter(|v| !v.is_empty()) else {
-            assert!(
-                std::env::var("REQUIRE_DB").unwrap_or_default().is_empty(),
-                "TEST_DB_DSN (REQUIRE_DB lane)"
-            );
-            eprintln!("IDENTITY-DB-SKIP (reason=no-dsn) test=absent_user_row_is_an_error");
-            return;
-        };
-        runtime().block_on(async {
-            let exec = setjoin_pg::ScopedExecutor::from_dsn(&dsn, 1).unwrap();
-            assert!(LoginProof { user: i64::MAX }.factors(&exec).await.is_err());
-        });
-    }
+/// Read-only MFA factor lookup for an enabled user id (shared with #454 fail-closed tests).
+pub async fn factors_for_user(exec: &AuthDb, user: i64) -> Result<(bool, bool), StatementFailure> {
+    let bad = || StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "MFA factor row".into(),
+    };
+    let rows = exec
+        .read_contract(&crate::sql::WEBAUTHN_L1482, &[(&user, Type::INT8)])
+        .await?;
+    let r = rows.first().ok_or_else(bad)?;
+    Ok((
+        r.try_get::<_, bool>(0).map_err(|_| bad())?,
+        r.try_get::<_, bool>(1).map_err(|_| bad())?,
+    ))
 }

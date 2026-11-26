@@ -258,6 +258,7 @@ RESET ROLE;
 INSERT INTO identity_address_quarantine (address, owners, reason)
 VALUES ('bob@idresadm.test', ARRAY[140002]::BIGINT[], 'cross_person_overlap');
 SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '140001', true);
 SELECT is(
     (SELECT identity_address_quarantined('bob@idresadm.test')),
     TRUE,
@@ -273,6 +274,7 @@ SELECT is(
 RESET ROLE;
 DELETE FROM identity_address_quarantine WHERE address = 'bob@idresadm.test';
 SET LOCAL ROLE setjoin_app;
+SELECT set_config('app.current_user_id', '140001', true);
 SELECT is(
     (SELECT user_id FROM resolve_identity('bob@idresadm.test')),
     140002::BIGINT,

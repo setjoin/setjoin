@@ -203,13 +203,15 @@ pub(super) fn build(stage: usize, nodes: &[Node], config: &Config) -> Result<Vec
     let mut jobs = vec![];
     // Defence in depth behind the request-time validation: no unvalidated host reaches a command.
     if nodes.iter().any(|n| !super::valid_host(&n.host)) {
-        return Err("refusing to build remote commands: a node host is not a plain hostname or IP literal".into());
+        return Err(
+            "refusing to build remote commands: a node host is not a plain hostname or IP literal"
+                .into(),
+        );
     }
     let primary = nodes
         .iter()
         .enumerate()
-        .filter(|(_, n)| n.role == "primary")
-        .last()
+        .rfind(|(_, n)| n.role == "primary")
         .map(|(i, _)| i);
     let standbys = nodes
         .iter()
@@ -259,9 +261,15 @@ pub(super) fn build(stage: usize, nodes: &[Node], config: &Config) -> Result<Vec
         3 => {
             let pin = super::ssh::pinned(&config.host_key).ok_or("pgpool failover provisioning: no pinned deployment host key — refusing to write /etc/pgpool2/known_hosts from unverified input")?;
             let pin = match pin {
-                russh::keys::PublicKeyOrCertificate::PublicKey { key, .. } => ssh_key::PublicKey::new(key.key_data().clone(), "").to_openssh(),
-                russh::keys::PublicKeyOrCertificate::Certificate(mut certificate) => { certificate.set_comment(""); certificate.to_openssh() }
-            }.map_err(|e| e.to_string())?;
+                russh::keys::PublicKeyOrCertificate::PublicKey { key, .. } => {
+                    ssh_key::PublicKey::new(key.key_data().clone(), "").to_openssh()
+                }
+                russh::keys::PublicKeyOrCertificate::Certificate(mut certificate) => {
+                    certificate.set_comment("");
+                    certificate.to_openssh()
+                }
+            }
+            .map_err(|e| e.to_string())?;
             let mut known = String::new();
             let mut hosts = std::collections::BTreeSet::new();
             for n in nodes {

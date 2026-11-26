@@ -540,5 +540,13 @@ pub mod store;
 
 mod runtime;
 
-fn s(text: &str) -> String { serde_json::to_string(text).expect("string") }
-fn invalid() -> setjoin_pg::StatementFailure { setjoin_pg::StatementFailure { sqlstate:None,hint:None,message:"invalid conditional access result".into() } }
+fn s(text: &str) -> String {
+    serde_json::to_string(text).expect("string")
+}
+fn invalid() -> setjoin_pg::StatementFailure {
+    setjoin_pg::StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: "invalid conditional access result".into(),
+    }
+}

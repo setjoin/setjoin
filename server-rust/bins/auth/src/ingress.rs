@@ -193,16 +193,25 @@ pub fn typed_fields(
     raw: &[u8],
     known: &[(&str, Field)],
 ) -> Result<serde_json::Map<String, Value>, serde_json::Error> {
-    typed_fields_impl(raw,known,false)
+    typed_fields_impl(raw, known, false)
 }
-pub fn closed_fields(raw:&[u8],known:&[(&str,Field)])->Result<serde_json::Map<String,Value>,serde_json::Error>{typed_fields_impl(raw,known,true)}
-fn typed_fields_impl(raw:&[u8],known:&[(&str,Field)],closed:bool)->Result<serde_json::Map<String,Value>,serde_json::Error>{
+pub fn closed_fields(
+    raw: &[u8],
+    known: &[(&str, Field)],
+) -> Result<serde_json::Map<String, Value>, serde_json::Error> {
+    typed_fields_impl(raw, known, true)
+}
+fn typed_fields_impl(
+    raw: &[u8],
+    known: &[(&str, Field)],
+    closed: bool,
+) -> Result<serde_json::Map<String, Value>, serde_json::Error> {
     use serde::de::DeserializeSeed;
-    struct Seed<'a>(&'a [(&'a str, Field)],bool);
+    struct Seed<'a>(&'a [(&'a str, Field)], bool);
     impl<'de> DeserializeSeed<'de> for Seed<'_> {
         type Value = serde_json::Map<String, Value>;
         fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<Self::Value, D::Error> {
-            struct V<'a>(&'a [(&'a str, Field)],bool);
+            struct V<'a>(&'a [(&'a str, Field)], bool);
             impl<'de> Visitor<'de> for V<'_> {
                 type Value = serde_json::Map<String, Value>;
                 fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -216,13 +225,17 @@ fn typed_fields_impl(raw:&[u8],known:&[(&str,Field)],closed:bool)->Result<serde_
                     while let Some(k) = m.next_key::<String>()? {
                         let folded = fold_name(&k);
                         let Some((name, kind)) = self.0.iter().find(|(n, _)| *n == folded) else {
-                            if self.1{return Err(de::Error::custom("unknown field"));}
+                            if self.1 {
+                                return Err(de::Error::custom("unknown field"));
+                            }
                             m.next_value::<de::IgnoredAny>()?;
                             continue;
                         };
                         let v = m.next_value::<Value>()?;
                         if v.is_null() {
-                            if matches!(kind,Field::Object){out.insert((*name).to_owned(),Value::Null);}
+                            if matches!(kind, Field::Object) {
+                                out.insert((*name).to_owned(), Value::Null);
+                            }
                             continue;
                         }
                         let ok = match kind {
@@ -234,9 +247,13 @@ fn typed_fields_impl(raw:&[u8],known:&[(&str,Field)],closed:bool)->Result<serde_
                         if !ok {
                             return Err(de::Error::custom("field type"));
                         }
-                        if matches!(kind,Field::Object){
-                            if let (Some(previous),Some(next))=(out.get_mut(*name).and_then(Value::as_object_mut),v.as_object()){
-                                previous.extend(next.iter().map(|(k,v)|(k.clone(),v.clone())));continue;
+                        if matches!(kind, Field::Object) {
+                            if let (Some(previous), Some(next)) = (
+                                out.get_mut(*name).and_then(Value::as_object_mut),
+                                v.as_object(),
+                            ) {
+                                previous.extend(next.iter().map(|(k, v)| (k.clone(), v.clone())));
+                                continue;
                             }
                         }
                         out.insert((*name).to_owned(), v);
@@ -244,11 +261,11 @@ fn typed_fields_impl(raw:&[u8],known:&[(&str,Field)],closed:bool)->Result<serde_
                     Ok(out)
                 }
             }
-            d.deserialize_any(V(self.0,self.1))
+            d.deserialize_any(V(self.0, self.1))
         }
     }
     let raw = go_decode_bytes(raw);
-    Seed(known,closed).deserialize(&mut serde_json::Deserializer::from_slice(&raw))
+    Seed(known, closed).deserialize(&mut serde_json::Deserializer::from_slice(&raw))
 }
 
 /// httputil.DecodeJSON's one-value boundary, unlike plain Decoder.Decode.

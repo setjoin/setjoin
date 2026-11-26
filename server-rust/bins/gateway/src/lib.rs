@@ -27,6 +27,7 @@ pub mod chat_workers;
 pub mod cron_catalog;
 pub mod dav_auth;
 mod deny;
+pub mod directory_sync_workers;
 mod guest_allowlist;
 pub mod notify_drain;
 pub mod oidc_namespace;

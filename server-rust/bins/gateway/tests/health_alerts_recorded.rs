@@ -116,7 +116,49 @@ async fn health_alerts_on_ok_to_error_transitions() -> Result<(), BoxError> {
                             assert!(metrics.lines().any(|line| line == "setjoin_gateway_proxied_to_go_total 0"));
                         }
                         "admin" => {
-                            setjoin_platform::health::evaluate(&exec, &[], "now", Some(&observer)).await;
+                            let role: i64 = owner
+                                .query_one(
+                                    "INSERT INTO admin_role_groups(name,permissions) VALUES('wh457-health-admin',ARRAY['domains.read']) \
+                                     ON CONFLICT (name) DO UPDATE SET permissions=EXCLUDED.permissions RETURNING id",
+                                    &[],
+                                )
+                                .await?
+                                .get(0);
+                            owner
+                                .execute(
+                                    "INSERT INTO admin_role_assignments(user_id,role_group_id,granted_by) VALUES($1,$2,$1) ON CONFLICT DO NOTHING",
+                                    &[&account.user, &role],
+                                )
+                                .await?;
+                            let factory = setjoin_gateway::policy_composition::tx_factory_from_executors(&exec, Some(&exec))
+                                .ok_or("tx factory")?;
+                            let token = common::recovery_token_with(account.user, json!({"admin": true}));
+                            let mut headers = hyper::HeaderMap::new();
+                            headers.insert("authorization", format!("Bearer {token}").parse()?);
+                            let auth = setjoin_authz::admit(
+                                &exec,
+                                &common::recovery_keys(),
+                                "mailserver",
+                                &headers,
+                                "GET",
+                                "/admin/health",
+                                setjoin_authz::Scope::Member,
+                            )
+                            .await
+                            .map_err(|e| format!("admit: {e:?}"))?;
+                            let admin = factory
+                                .mint_admin_from_authorized(&auth, "127.0.0.1")
+                                .await
+                                .map_err(|e| format!("mint admin: {e:?}"))?
+                                .require_any_permission(&setjoin_platform::MAIL_CONSOLE)
+                                .map_err(|e| format!("perm: {e:?}"))?;
+                            setjoin_platform::health::evaluate(&factory, &admin, &[], "now", Some(&observer)).await;
+                            let _ = owner
+                                .execute("DELETE FROM admin_role_assignments WHERE role_group_id=$1", &[&role])
+                                .await;
+                            let _ = owner
+                                .execute("DELETE FROM admin_role_groups WHERE id=$1", &[&role])
+                                .await;
                         }
                         sql => {
                             owner.batch_execute(sql.strip_prefix("sql:").ok_or("step")?).await?;

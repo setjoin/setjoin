@@ -1,13 +1,15 @@
-//! Conditional access (F03) slice `remaining`: console reads and the small writes (principal
+//! Conditional access (F03) slice `remaining`: console reads and small writes (principal
 //! resolution, break-glass, sign-in log, why-lookup, session revocation and its log, templates,
-//! coverage, doctor, impact, export, import, diff). Reads repeat Go's queries; every write
-//! calls the reducer Go calls inside one receipted command.
-use super::cmd::{one_i64, one_text, read_text, run};
+//! coverage, doctor, impact, import). Reads run via `AdminReadTx`; writes run via `AdminWriteTx`
+//! (`ReducerWritesCoreAudit`).
+use super::cmd::{
+    one_i64, one_text, one_void, read_text, run_audited, run_checked_audited, PolicyLock,
+};
 use super::policies::compact;
-use super::{done, invalid, nano, s};
+use super::{done, invalid, s, sql};
 use serde_json::Value;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 fn bad<E>(_: E) -> StatementFailure {
     invalid()
@@ -26,31 +28,28 @@ fn render_users(rows: &[setjoin_pg::Row]) -> Result<String, StatementFailure> {
     Ok(format!("[{}]", out.join(",")))
 }
 
-const USERS: &str =
-    "SELECT id, COALESCE(email,''), COALESCE(display_name,'') FROM users WHERE id = ANY($1)";
-
 /// `GET .../resolve-principals`: users and groups by id, in the database's row order.
 pub async fn principals(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     users: &[i64],
     groups: &[i64],
 ) -> Result<String, StatementFailure> {
     let users_json = if users.is_empty() {
         "[]".to_string()
     } else {
-        let rows = exec
-            .read(USERS, &[(&users.to_vec(), Type::INT8_ARRAY)])
+        let ids = users.to_vec();
+        let rows = factory
+            .run_admin_read_contract(admin, &sql::USERS_BY_IDS, &[&ids])
             .await?;
         render_users(&rows)?
     };
     let groups_json = if groups.is_empty() {
         "[]".to_string()
     } else {
-        let rows = exec
-            .read(
-                "SELECT id, COALESCE(name,'') FROM user_groups WHERE id = ANY($1)",
-                &[(&groups.to_vec(), Type::INT8_ARRAY)],
-            )
+        let ids = groups.to_vec();
+        let rows = factory
+            .run_admin_read_contract(admin, &sql::GROUPS_BY_IDS, &[&ids])
             .await?;
         let mut out = Vec::new();
         for r in &rows {
@@ -69,13 +68,13 @@ pub async fn principals(
 
 /// `GET .../break-glass`: an absent key, an unreadable value or an empty set is `{"admins":[]}`
 /// (Go swallows the read error too); only the user lookup can fail the request.
-pub async fn break_glass(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
+pub async fn break_glass(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
     let empty = || done("{\"admins\":[]}".to_string());
-    let Ok(rows) = exec
-        .read(
-            "SELECT value::text FROM system_config WHERE key = 'ca_break_glass_user_ids'",
-            &[],
-        )
+    let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::BREAK_GLASS_GET, &[])
         .await
     else {
         return Ok(empty());
@@ -89,47 +88,32 @@ pub async fn break_glass(exec: &ScopedExecutor) -> Result<String, StatementFailu
         }
         _ => return Ok(empty()),
     };
-    let rows = exec.read(USERS, &[(&ids, Type::INT8_ARRAY)]).await?;
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::USERS_BY_IDS, &[&ids])
+        .await?;
     Ok(done(format!("{{\"admins\":{}}}", render_users(&rows)?)))
 }
 
 /// `PUT .../break-glass`: `ca_break_glass_set(actor, ip, ids)`.
 pub async fn set_break_glass(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     ip: &str,
     ids: &Vec<i64>,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    run(
-        exec,
-        actor,
+    run_audited(
+        factory,
+        admin,
         "ca_break_glass_set",
         operation,
         &format!("{ip}:{ids:?}"),
-        "SELECT count(*)::bigint FROM (SELECT ca_break_glass_set($2,$4::text::inet,$5) \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&ip, Type::TEXT), (ids, Type::INT8_ARRAY)],
-        super::cmd::counted,
+        &sql::BREAK_GLASS_SET,
+        &[&ip, ids],
+        one_void,
     )
     .await
 }
-
-/// Go's `caSignInLogSelect` projected into the JSON of `scanCASignInLogRow` (map keys sorted).
-fn signin_select() -> String {
-    format!(
-        "SELECT id, {}, user_id, {}, protocol, client_type, device_fp, country, matched_policy_id, \
-         decision, would_decision, report_only, correlation_id, evaluated::text FROM ca_signin_log",
-        nano("occurred_at"),
-        SOURCE_IP
-    )
-}
-
-/// How Go's `*string` scan renders `source_ip`: NULL is the empty string (not null), a host
-/// address has no mask (`inet_out`), a network keeps it.
-const SOURCE_IP: &str = "CASE WHEN source_ip IS NULL THEN '' \
-    WHEN masklen(source_ip) = (CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END) THEN host(source_ip) \
-    ELSE source_ip::text END";
 
 fn signin_row(r: &setjoin_pg::Row) -> Result<String, StatementFailure> {
     let text = |index: usize| -> Result<String, StatementFailure> {
@@ -161,36 +145,26 @@ fn signin_row(r: &setjoin_pg::Row) -> Result<String, StatementFailure> {
     ))
 }
 
-/// Rows that fail to scan are skipped by Go; none can here.
 fn signin_rows(rows: &[setjoin_pg::Row]) -> Result<Vec<String>, StatementFailure> {
     rows.iter().map(signin_row).collect()
 }
 
 /// `GET .../signin-log?correlation_id=|user_id=&limit=`: `{"rows":[...]}`.
 pub async fn signin_log(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     correlation: Option<&str>,
     user: Option<i64>,
     limit: i64,
 ) -> Result<String, StatementFailure> {
     let rows = if let Some(corr) = correlation {
-        exec.read(
-            &format!(
-                "{} WHERE correlation_id = $1 ORDER BY occurred_at DESC LIMIT $2",
-                signin_select()
-            ),
-            &[(&corr, Type::TEXT), (&limit, Type::INT8)],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(admin, &sql::SIGNIN_LOG_BY_CORRELATION, &[&corr, &limit])
+            .await?
     } else {
-        exec.read(
-            &format!(
-                "{} WHERE user_id = $1 ORDER BY occurred_at DESC LIMIT $2",
-                signin_select()
-            ),
-            &[(&user, Type::INT8), (&limit, Type::INT8)],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(admin, &sql::SIGNIN_LOG_BY_USER, &[&user, &limit])
+            .await?
     };
     Ok(done(format!(
         "{{\"rows\":[{}]}}",
@@ -206,7 +180,8 @@ pub enum Why {
 /// `GET .../why-lookup`: resolves the user (numeric id first, then lower-cased email) and reads
 /// the window's rows.
 pub async fn why(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     user: &str,
     correlation: &str,
     since_seconds: i64,
@@ -214,11 +189,8 @@ pub async fn why(
     let mut user_id = 0i64;
     if !user.is_empty() {
         if let Ok(id) = user.parse::<i64>() {
-            let found = exec
-                .read(
-                    "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)",
-                    &[(&id, Type::INT8)],
-                )
+            let found = factory
+                .run_admin_read_contract(admin, &sql::USER_EXISTS, &[&id])
                 .await
                 .ok()
                 .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
@@ -229,11 +201,8 @@ pub async fn why(
             user_id = id;
         } else {
             let lowered = go_lower(user);
-            let rows = exec
-                .read(
-                    "SELECT id FROM users WHERE email = $1",
-                    &[(&lowered, Type::TEXT)],
-                )
+            let rows = factory
+                .run_admin_read_contract(admin, &sql::USER_ID_BY_EMAIL, &[&lowered])
                 .await?;
             match rows.first() {
                 None => return Ok(Why::NotFound),
@@ -241,26 +210,26 @@ pub async fn why(
             }
         }
     }
-    let select = signin_select();
-    let cutoff = format!("now() - make_interval(secs => {since_seconds})");
     let rows = if !correlation.is_empty() && user_id == 0 {
-        exec.read(
-            &format!("{select} WHERE correlation_id = $1 AND occurred_at >= {cutoff} ORDER BY occurred_at DESC"),
-            &[(&correlation, Type::TEXT)],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(
+                admin,
+                &sql::WHY_BY_CORRELATION,
+                &[&correlation, &since_seconds],
+            )
+            .await?
     } else if !correlation.is_empty() {
-        exec.read(
-            &format!("{select} WHERE user_id = $1 AND correlation_id = $2 AND occurred_at >= {cutoff} ORDER BY occurred_at DESC"),
-            &[(&user_id, Type::INT8), (&correlation, Type::TEXT)],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(
+                admin,
+                &sql::WHY_BY_USER_AND_CORRELATION,
+                &[&user_id, &correlation, &since_seconds],
+            )
+            .await?
     } else {
-        exec.read(
-            &format!("{select} WHERE user_id = $1 AND occurred_at >= {cutoff} ORDER BY occurred_at DESC LIMIT 200"),
-            &[(&user_id, Type::INT8)],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(admin, &sql::WHY_BY_USER, &[&user_id, &since_seconds])
+            .await?
     };
     Ok(Why::Found(done(format!(
         "{{\"found\":true,\"rows\":[{}],\"user_id\":{user_id}}}",
@@ -273,72 +242,55 @@ pub fn go_lower(text: &str) -> String {
     text.to_lowercase()
 }
 
-/// Rule B reach check of `POST .../sessions/{userId}/revoke`. The route needs
-/// `access.policy_write`, so only grants carrying it reach the target: frozen Go used the
-/// any-grant `admin_can_reach`, letting a domain-wide grant of an unrelated permission extend
-/// the reach of a CA writer (owner-approved security fix #529, 2026-11-06).
+/// Rule B reach check of `POST .../sessions/{userId}/revoke`.
 pub async fn can_reach(
-    exec: &ScopedExecutor,
-    actor: i64,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     target: i64,
 ) -> Result<bool, StatementFailure> {
-    let rows = exec
-        .read(
-            if setjoin_contracts::mutants::on("ca-revoke-any-grant") {
-                "SELECT admin_can_reach($1, $2)"
-            } else {
-                "SELECT admin_can_reach_perm($1, $2, '{access.policy_write}'::text[])"
-            },
-            &[(&actor, Type::INT8), (&target, Type::INT8)],
-        )
+    let actor = admin.actor().get();
+    let contract = if setjoin_contracts::mutants::on("ca-revoke-any-grant") {
+        &sql::CAN_REACH_ANY
+    } else {
+        &sql::CAN_REACH_PERM
+    };
+    let rows = factory
+        .run_admin_read_contract(admin, contract, &[&actor, &target])
         .await?;
     rows.first()
         .and_then(|r| r.try_get::<_, bool>(0).ok())
         .ok_or_else(invalid)
 }
 
-/// `revoke_user_sessions(target, 'all', 'admin_revoke_all', actor, NULL, NULL)`: the revocation id.
+/// `rust_ca_revoke_user_sessions(actor, target)`: the revocation id.
 pub async fn revoke_sessions(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     target: i64,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    run(
-        exec,
-        actor,
+    run_audited(
+        factory,
+        admin,
         "revoke_user_sessions",
         operation,
         &target.to_string(),
-        "SELECT revoke_user_sessions($4, 'all', 'admin_revoke_all', $2, NULL, NULL) \
-         WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&target, Type::INT8)],
+        &sql::REVOKE_USER_SESSIONS,
+        &[&target],
         one_i64,
     )
     .await
 }
 
-/// `GET .../sessions/log` on the worker credential: the latest 200 revocations.
+/// `GET .../sessions/log`: the latest 200 revocations reachable by the caller.
 pub async fn sessions_log(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
 ) -> Result<String, StatementFailure> {
-    // Owner-approved security fix 2026-11-05 (#467, #510): the worker credential bypasses row
-    // security, so the caller's reach is applied here: org-wide grant, or the revoked user is in
-    // reach through an access.policy_* grant.
-    let admin = actor.user_id();
-    let rows = worker
-        .read(
-            &format!(
-                "SELECT id, user_id, scope, reason, created_by, created_at::text \
-                 FROM session_revocations \
-                 WHERE {open} OR admin_org_wide_grant($1, {perms}) OR admin_can_reach_perm($1, user_id, {perms}) \
-                 ORDER BY created_at DESC LIMIT 200",
-                open = crate::policies::open(),
-                perms = crate::policies::READ_PERMS
-            ),
-            &[(&admin, Type::INT8)],
-        )
+    let actor = admin.actor().get();
+    let open_flag = crate::policies::open();
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::SESSIONS_LOG, &[&actor, &open_flag])
         .await?;
     let mut out = Vec::new();
     for r in &rows {
@@ -358,13 +310,12 @@ pub async fn sessions_log(
 }
 
 /// `GET .../templates-list`.
-pub async fn templates(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT id, slug, name, description, scope_type, scope_target, conditions::text, actions::text, \
-             suggested_priority, created_at::text FROM ca_templates ORDER BY suggested_priority ASC",
-            &[],
-        )
+pub async fn templates(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::TEMPLATES_LIST, &[])
         .await?;
     let mut out = Vec::new();
     for r in &rows {
@@ -385,85 +336,88 @@ pub async fn templates(exec: &ScopedExecutor) -> Result<String, StatementFailure
     Ok(done(format!("[{}]", out.join(","))))
 }
 
-/// `ca_template_instantiate(slug, actor)`: the new policy's id.
+/// `rust_ca_template_instantiate(actor, slug)`: the new policy's id.
 pub async fn instantiate(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     slug: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<i64, StatementFailure> {
-    run(
-        exec,
-        actor,
+    let actor_id = admin.actor().get();
+    let open_flag = crate::policies::open();
+    run_checked_audited(
+        factory,
+        admin,
         "ca_template_instantiate",
         operation,
         slug,
-        "SELECT ca_template_instantiate($4,$2) WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&slug, Type::TEXT)],
+        PolicyLock::FenceOnly,
+        &sql::ORG_WIDE_WRITE_CHECK,
+        &[&actor_id, &open_flag],
+        &sql::TEMPLATE_INSTANTIATE,
+        &[&slug],
         one_i64,
     )
     .await
 }
 
 /// The read-back of the instantiated policy, jsonb text verbatim (`to_jsonb(c) - 'enabled'`).
-pub async fn instantiated(exec: &ScopedExecutor, id: i64) -> Result<String, StatementFailure> {
-    read_text(
-        exec,
-        "SELECT (to_jsonb(c) - 'enabled')::text FROM conditional_access_policies c WHERE id = $1",
-        &[(&id, Type::INT8)],
-    )
-    .await
+pub async fn instantiated(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    id: i64,
+) -> Result<String, StatementFailure> {
+    read_text(factory, admin, &sql::POLICY_INSTANTIATED_GET, &[&id]).await
 }
 
 /// `ca_coverage_report()` as jsonb text.
-pub async fn coverage(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    read_text(exec, "SELECT ca_coverage_report()::text", &[]).await
+pub async fn coverage(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    read_text(factory, admin, &sql::COVERAGE_REPORT, &[]).await
 }
 
 /// `ca_policy_impact(id, window, list)` as jsonb text.
 pub async fn impact(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     policy: i64,
     window: &str,
     list: Option<&str>,
 ) -> Result<String, StatementFailure> {
-    // Owner-approved security fix 2026-11-05 (#467): only a policy in the caller's reach.
-    let user = actor.user_id();
+    let user = admin.actor().get();
+    let open_flag = crate::policies::open();
     read_text(
-        exec,
-        &format!(
-            "SELECT ca_policy_impact($1, $2, $3::text)::text \
-             WHERE {open} OR COALESCE(rust_ca_policy_row_reach($4, $1, {perms}), true)",
-            open = crate::policies::open(),
-            perms = crate::policies::READ_PERMS
-        ),
-        &[
-            (&policy, Type::INT8),
-            (&window, Type::TEXT),
-            (&list, Type::TEXT),
-            (&user, Type::INT8),
-        ],
+        factory,
+        admin,
+        &sql::POLICY_IMPACT,
+        &[&policy, &window, &list, &user, &open_flag],
     )
     .await
 }
 
-/// `POST .../import?mode=`: `ca_policy_import(doc, actor, mode)` summary, jsonb text verbatim.
+/// `POST .../import?mode=`: `rust_ca_policy_import(actor, doc, mode)` summary, jsonb text verbatim.
 pub async fn import(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     document: &str,
     mode: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<String, StatementFailure> {
-    run(
-        exec,
-        actor,
+    let actor_id = admin.actor().get();
+    let open_flag = crate::policies::open();
+    run_checked_audited(
+        factory,
+        admin,
         "ca_policy_import",
         operation,
         &format!("{mode}:{document}"),
-        "SELECT ca_policy_import($4::text::jsonb,$2,$5)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[(&document, Type::TEXT), (&mode, Type::TEXT)],
+        PolicyLock::FenceOnly,
+        &sql::ORG_WIDE_WRITE_CHECK,
+        &[&actor_id, &open_flag],
+        &sql::POLICY_IMPORT,
+        &[&document, &mode],
         one_text,
     )
     .await
@@ -477,34 +431,26 @@ fn one_bool(rows: &[setjoin_pg::Row]) -> Result<bool, StatementFailure> {
 
 /// `GET .../doctor`: four health checks, the stale report-only scan and time-to-first-policy,
 /// rendered with `SetIndent("", "  ")`.
-pub async fn doctor(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
+pub async fn doctor(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
     let feature = one_bool(
-        &exec
-            .read(
-                "SELECT COALESCE((SELECT enabled FROM feature_toggles WHERE key = 'feature.conditional_access'), false)",
-                &[],
-            )
+        &factory
+            .run_admin_read_contract(admin, &sql::DOCTOR_FEATURE_ON, &[])
             .await?,
     )?;
     let break_glass = one_bool(
-        &exec
-            .read(
-                "SELECT EXISTS (SELECT 1 FROM system_config WHERE key = 'ca_break_glass_user_ids' \
-                 AND jsonb_array_length(value) > 0)",
-                &[],
-            )
+        &factory
+            .run_admin_read_contract(admin, &sql::DOCTOR_BREAK_GLASS, &[])
             .await?,
     )?;
     let report_only = one_bool(
-        &exec
-            .read(
-                "SELECT EXISTS (SELECT 1 FROM conditional_access_policies \
-                 WHERE state = 'report_only' AND deleted_at IS NULL)",
-                &[],
-            )
+        &factory
+            .run_admin_read_contract(admin, &sql::DOCTOR_REPORT_ONLY, &[])
             .await?,
     )?;
-    let coverage = coverage(exec).await?;
+    let coverage = coverage(factory, admin).await?;
     let no_gaps = match serde_json::from_str::<Value>(&coverage) {
         Ok(Value::Object(map)) => match map.get("gaps") {
             Some(Value::Array(gaps)) => gaps.is_empty(),
@@ -513,15 +459,10 @@ pub async fn doctor(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
         },
         _ => return Err(invalid()),
     };
-    let stale = exec
-        .read(
-            "SELECT id, name, state, EXTRACT(DAY FROM now() - created_at)::bigint AS days_since \
-             FROM conditional_access_policies WHERE state = 'report_only' AND deleted_at IS NULL \
-             AND created_at < now() - INTERVAL '30 days' ORDER BY created_at",
-            &[],
-        )
+    let stale = factory
+        .run_admin_read_contract(admin, &sql::DOCTOR_STALE_REPORT_ONLY, &[])
         .await?;
-    let ttfp = time_to_first_policy(exec).await?;
+    let ttfp = time_to_first_policy(factory, admin).await?;
     let checks: [(&str, bool, &str); 4] = [
         (
             "feature_on",
@@ -553,7 +494,10 @@ pub async fn doctor(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
         .iter()
         .map(|(name, passed, action)| {
             if *passed {
-                format!("    {{\n      \"name\": {},\n      \"passed\": true\n    }}", s(name))
+                format!(
+                    "    {{\n      \"name\": {},\n      \"passed\": true\n    }}",
+                    s(name)
+                )
             } else {
                 format!(
                     "    {{\n      \"name\": {},\n      \"passed\": false,\n      \"next_action\": {}\n    }}",
@@ -588,24 +532,17 @@ pub async fn doctor(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
     out.push_str("\n  },\n  \"time_to_first_policy_sec\": ");
     out.push_str(&ttfp.map_or("null".to_string(), |v| v.to_string()));
     out.push_str("\n}\n");
-    Ok(go_escape_indented(&out))
-}
-
-fn go_escape_indented(text: &str) -> String {
-    super::go_escape(text)
+    Ok(super::go_escape(&out))
 }
 
 /// First `ca_policy_create` to first `ca_policy_promote`, whole seconds, only when the promote
 /// is strictly later.
-async fn time_to_first_policy(exec: &ScopedExecutor) -> Result<Option<i64>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT CASE WHEN c IS NOT NULL AND p IS NOT NULL AND p > c \
-             THEN floor(extract(epoch FROM (p - c)))::bigint END \
-             FROM (SELECT (SELECT MIN(occurred_at) FROM admin_audit_log WHERE action = 'ca_policy_create') AS c, \
-             (SELECT MIN(occurred_at) FROM admin_audit_log WHERE action = 'ca_policy_promote') AS p) t",
-            &[],
-        )
+async fn time_to_first_policy(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<Option<i64>, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::DOCTOR_TIME_TO_FIRST_POLICY, &[])
         .await?;
     rows.first()
         .map(|r| r.try_get::<_, Option<i64>>(0).map_err(bad))

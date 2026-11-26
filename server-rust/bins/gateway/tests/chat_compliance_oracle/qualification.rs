@@ -76,7 +76,7 @@ pub async fn commit_check(
     };
     let result = setjoin_pg::lookup_command(
         &exec,
-        &setjoin_compliance::scope(verified.context()),
+        &verified.context().database_scope(),
         setjoin_contracts::ids::OperationId(bytes),
         setjoin_pg::ReceiptCommand {
             family: "F04",

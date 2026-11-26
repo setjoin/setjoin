@@ -30,7 +30,7 @@ impl Operation {
     }
 }
 pub async fn lookup_operation(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     session: &crate::session::Session,
     operation: OperationId,
     kind: Operation,
@@ -46,16 +46,31 @@ pub async fn lookup_operation(
     let actor = ActorId::new(session.user()).map_err(|_| invalid())?;
     let op = setjoin_pg::operation_hex(operation);
     let claims = serde_json::Value::Object(session.claims().clone()).to_string();
-    let result=exec.run_user_command(actor,operation,
-  "SELECT EXISTS(SELECT 1 FROM rust_operation_receipts WHERE operation_id=substr(encode(digest($2::text || ':' || $1::text,'sha256'),'hex'),1,32)::uuid AND family='F21' AND command=$3) WHERE EXISTS(SELECT 1 FROM users u WHERE u.id=$1 AND u.enabled AND identity_transition_admission_allowed(u.id) AND (COALESCE($4::text::jsonb->>'credential_fence','')='' OR rtrim(translate(encode(digest(u.password_hash,'sha256'),'base64'),'+/','-_'),'=')=$4::text::jsonb->>'credential_fence')) AND NOT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND (expires_at IS NULL OR expires_at>now()) AND ((scope='jti' AND jti=COALESCE($4::text::jsonb->>'jti','')) OR (scope='family' AND family_id=COALESCE($4::text::jsonb->>'fam','')) OR (scope='all' AND to_timestamp(COALESCE(($4::text::jsonb->>'iat')::double precision,0))<=not_before)))",
-  &[(&session.user(),Type::INT8),(&op,Type::TEXT),(&kind.command(),Type::TEXT),(&claims,Type::TEXT)],|r|r.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await;
+    let result = exec
+        .run_user_command_contract(
+            actor,
+            operation,
+            &crate::sql::USER_OPERATION_LOOKUP,
+            &[
+                (&session.user(), Type::INT8),
+                (&op, Type::TEXT),
+                (&kind.command(), Type::TEXT),
+                (&claims, Type::TEXT),
+            ],
+            |r| {
+                r.first()
+                    .and_then(|r| r.try_get(0).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await;
     match result {
         CommandOutcome::Committed(found) => Ok(found),
         _ => Err(invalid()),
     }
 }
 pub async fn lookup_authorization(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     id: &str,
     operation: OperationId,
 ) -> Result<bool, StatementFailure> {

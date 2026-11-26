@@ -393,12 +393,21 @@ impl SessionDenylist {
 
     /// SMTP submission shares the one registry type with IMAP (#501); each runtime
     /// owns its own denylist and attaches its own registry.
-    pub fn attach_protocol(&self,registry:Arc<setjoin_imap::ProtocolSessionRegistry>){self.attach_imap(registry)}
+    pub fn attach_protocol(&self, registry: Arc<setjoin_imap::ProtocolSessionRegistry>) {
+        self.attach_imap(registry)
+    }
 
-    pub fn attach_imap(&self,registry:Arc<setjoin_imap::ProtocolSessionRegistry>){
-        let rows=self.state.lock().expect("denylist lock").protocol_rows.values().filter_map(imap_row).collect::<Vec<_>>();
+    pub fn attach_imap(&self, registry: Arc<setjoin_imap::ProtocolSessionRegistry>) {
+        let rows = self
+            .state
+            .lock()
+            .expect("denylist lock")
+            .protocol_rows
+            .values()
+            .filter_map(imap_row)
+            .collect::<Vec<_>>();
         registry.reconcile(&rows);
-        *self.imap_registry.lock().expect("IMAP registry lock")=Some(registry);
+        *self.imap_registry.lock().expect("IMAP registry lock") = Some(registry);
     }
 
     pub fn loaded(&self) -> bool {
@@ -477,7 +486,14 @@ impl SessionDenylist {
         let _guard = self.refresh_gate.lock().await;
         let generation = self.state.lock().expect("denylist lock").generation;
         let mut rows = self.db.active_session_revocations().await?;
-        if let Some(registry)=self.imap_registry.lock().expect("IMAP registry lock").as_ref(){registry.reconcile(&rows.iter().filter_map(imap_row).collect::<Vec<_>>());}
+        if let Some(registry) = self
+            .imap_registry
+            .lock()
+            .expect("IMAP registry lock")
+            .as_ref()
+        {
+            registry.reconcile(&rows.iter().filter_map(imap_row).collect::<Vec<_>>());
+        }
         let mut state = self.state.lock().expect("denylist lock");
         let now = utc_nanos(Utc::now());
         prune_protocol_rows(&mut state, now);
@@ -532,7 +548,16 @@ impl SessionDenylist {
             not_before_nanos: not_before,
             expires_at_nanos: expires,
         };
-        if let Some(registry)=self.imap_registry.lock().expect("IMAP registry lock").as_ref(){if let Some(row)=imap_row(&row){registry.apply(&row);}}
+        if let Some(registry) = self
+            .imap_registry
+            .lock()
+            .expect("IMAP registry lock")
+            .as_ref()
+        {
+            if let Some(row) = imap_row(&row) {
+                registry.apply(&row);
+            }
+        }
         let mut state = self.state.lock().expect("denylist lock");
         let now = utc_nanos(Utc::now());
         prune_protocol_rows(&mut state, now);
@@ -571,7 +596,10 @@ impl SessionDenylist {
             let _guard = ListenerReadiness(self.state.clone());
             // Subscribe before reconciling, so reconnect gaps are repaired now
             // and changes racing this snapshot remain queued on the listener.
-            if !matches!(tokio::time::timeout(Duration::from_secs(2), self.refresh_once()).await, Ok(Ok(()))) {
+            if !matches!(
+                tokio::time::timeout(Duration::from_secs(2), self.refresh_once()).await,
+                Ok(Ok(()))
+            ) {
                 eprintln!("session denylist: reconnect reconcile failed; keeping prior snapshot");
             }
             while let Some(notification) = listener.recv().await {
@@ -610,10 +638,18 @@ impl SessionDenylist {
     }
 }
 
-fn imap_row(row:&SessionRevocation)->Option<setjoin_imap::RevocationRow>{
-    if row.scope!="all"||row.not_before_nanos<=0{return None}
-    let time=|n:i128|std::time::UNIX_EPOCH.checked_add(Duration::from_nanos(u64::try_from(n).ok()?));
-    Some(setjoin_imap::RevocationRow{user_id:row.user_id,not_before:time(row.not_before_nanos)?,expires_at:row.expires_at_nanos.and_then(time),scope_all:true})
+fn imap_row(row: &SessionRevocation) -> Option<setjoin_imap::RevocationRow> {
+    if row.scope != "all" || row.not_before_nanos <= 0 {
+        return None;
+    }
+    let time =
+        |n: i128| std::time::UNIX_EPOCH.checked_add(Duration::from_nanos(u64::try_from(n).ok()?));
+    Some(setjoin_imap::RevocationRow {
+        user_id: row.user_id,
+        not_before: time(row.not_before_nanos)?,
+        expires_at: row.expires_at_nanos.and_then(time),
+        scope_all: true,
+    })
 }
 
 struct ListenerReadiness(Arc<Mutex<DenylistState>>);

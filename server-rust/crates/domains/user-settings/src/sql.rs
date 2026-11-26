@@ -12,8 +12,7 @@ macro_rules! rfc3339_fmt {
 pub const PROFILE_UPDATE: SqlContract = SqlContract {
     id: "user_settings.profile_update",
     domain: "user-settings",
-    sql: "WITH written AS (UPDATE users SET display_name = $2::text, updated_at = now() WHERE id = $1::bigint RETURNING 1) \
-          SELECT count(*)::bigint FROM written",
+    sql: "SELECT rust_user_profile_update($1::bigint, $2::text)",
     params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
@@ -92,8 +91,7 @@ pub const VIEW_PREFS_GET: SqlContract = SqlContract {
 pub const VIEW_PREFS_PUT: SqlContract = SqlContract {
     id: "user_settings.view_prefs_put",
     domain: "user-settings",
-    sql: "WITH written AS (UPDATE users SET view_prefs = $2::text::jsonb WHERE id = $1::bigint RETURNING 1) \
-          SELECT count(*)::bigint FROM written",
+    sql: "SELECT rust_user_view_prefs_set($1::bigint, $2::text)",
     params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
@@ -115,9 +113,7 @@ pub const UNDO_DELAY_PUT: SqlContract = SqlContract {
 pub const NEWSLETTER_PUT: SqlContract = SqlContract {
     id: "user_settings.newsletter_put",
     domain: "user-settings",
-    sql: "WITH written AS (UPDATE users SET view_prefs = COALESCE(view_prefs, '{}'::jsonb) || $2::text::jsonb \
-          WHERE id = $1::bigint RETURNING 1) \
-          SELECT count(*)::bigint FROM written",
+    sql: "SELECT rust_user_view_prefs_merge($1::bigint, $2::text)",
     params: &[Type::INT8, Type::TEXT],
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,

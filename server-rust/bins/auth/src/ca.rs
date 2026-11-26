@@ -22,10 +22,10 @@ impl AuthServer {
     /// Required CA and device-trust feature flags (#454/#457). A lookup error
     /// fails closed at the caller (500 on login/MFA/OIDC; 503 on SAML ACS).
     pub(super) async fn ca_flags(&self) -> Result<(bool, bool), ()> {
-        let ca = login::enabled(&self.exec, "feature.conditional_access")
+        let ca = login::enabled(&self.auth_db, "feature.conditional_access")
             .await
             .map_err(|_| ())?;
-        let dt = login::enabled(&self.exec, "feature.device_trust_enforcement")
+        let dt = login::enabled(&self.auth_db, "feature.device_trust_enforcement")
             .await
             .map_err(|_| ())?;
         Ok((ca, dt))

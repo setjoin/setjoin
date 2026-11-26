@@ -199,7 +199,7 @@ impl Handler {
             .map(|b| format!("{b:02x}"))
             .collect();
         let unavailable = Authentication::Reply(500, "Authentication service unavailable", "");
-        let found = match scim::token_by_hash(&self.exec, &lookup).await {
+        let found = match scim_token_by_hash(&self.worker, &lookup).await {
             Ok(found) => found,
             Err(_) => return unavailable,
         };
@@ -213,7 +213,7 @@ impl Handler {
             self.used(candidate.id);
             return Authentication::Token(candidate);
         }
-        let Ok(legacy) = scim::legacy_tokens(&self.exec).await else {
+        let Ok(legacy) = scim_legacy_tokens(&self.worker).await else {
             return unavailable;
         };
         for (candidate, hash) in legacy {
@@ -227,8 +227,8 @@ impl Handler {
 
     /// Go bumps `last_used_at` asynchronously and ignores failure.
     fn used(&self, token: i64) {
-        let exec = self.exec.clone();
-        tokio::spawn(async move { scim::record_usage(&exec, token).await });
+        let worker = self.worker.clone();
+        tokio::spawn(async move { scim_record_usage(&worker, token).await });
     }
 
     async fn serve(&self, mut r: Request<Body>, c: RequestContext) -> Response<Body> {
@@ -301,7 +301,7 @@ impl Handler {
         } else {
             scim::Page::All(start, count)
         };
-        let listed = match scim::list_users(&self.worker, source, page).await {
+        let listed = match scim_list_users(&self.worker, source, page).await {
             Ok(listed) => listed,
             Err(scim::ListError::Http(e)) => return out.http(&e),
             Err(scim::ListError::Query) => return out.error(500, "Query failed", ""),
@@ -344,7 +344,7 @@ impl Handler {
         let Some(user) = scim::go_parse_int(id) else {
             return out.error(400, "Invalid user ID", "invalidValue");
         };
-        match scim::get_user(&self.worker, token.fence.source_id, user).await {
+        match scim_get_user(&self.worker, token.fence.source_id, user).await {
             Some(row) => out.json(200, scim::user_resource(&row).json()),
             None => out.error(404, &format!("User {id} not found"), "invalidValue"),
         }
@@ -377,7 +377,7 @@ impl Handler {
         };
         // Go starts the welcome email from a goroutine and answers without it.
         let worker = self.worker.clone();
-        tokio::spawn(async move { scim::send_welcome(&worker, id).await });
+        tokio::spawn(async move { send_welcome(&worker, id).await });
         let now = now();
         let user = scim::resource_from(
             id,
@@ -417,7 +417,7 @@ impl Handler {
             return out.error(400, "userName is required", "invalidValue");
         }
         let Some(external) =
-            scim::source_subject(&self.worker, token.fence.source_id, path_id).await
+            scim_source_subject(&self.worker, token.fence.source_id, path_id).await
         else {
             return out.error(
                 404,
@@ -481,7 +481,7 @@ impl Handler {
             Err(bad) => return bad.reply(out),
         };
         let Some((mut current, external)) =
-            scim::user_for_patch(&self.worker, token.fence.source_id, id, &now()).await
+            scim_user_for_patch(&self.worker, token.fence.source_id, id, &now()).await
         else {
             return out.error(
                 404,
@@ -521,7 +521,7 @@ impl Handler {
             return out.error(400, "Invalid user ID", "invalidValue");
         };
         let Some((mut current, external)) =
-            scim::user_for_patch(&self.worker, token.fence.source_id, id, &now()).await
+            scim_user_for_patch(&self.worker, token.fence.source_id, id, &now()).await
         else {
             return out.error(
                 404,
@@ -565,7 +565,7 @@ impl Handler {
         let request = crate::jmap::random()
             .map(uuid)
             .ok_or(scim::ApplyError::Status(500))?;
-        scim::apply_user(
+        scim_apply_user(
             &self.worker,
             token.fence,
             &request,
@@ -609,15 +609,15 @@ impl Handler {
     async fn list_groups(&self, r: &Request<Body>, token: &Token, out: &Out<'_>) -> Response<Body> {
         let source = token.fence.source_id;
         let (start, count) = paging(r);
-        let Ok(total) = scim::group_total(&self.exec, source).await else {
+        let Ok(total) = scim_group_total(&self.worker, source).await else {
             return out.error(500, "Query failed", "");
         };
-        let Ok(rows) = scim::list_groups(&self.exec, source, start, count).await else {
+        let Ok(rows) = scim_list_groups(&self.worker, source, start, count).await else {
             return out.error(500, "Query failed", "");
         };
         let mut resources = vec![];
         for row in &rows {
-            let members = scim::group_members(&self.worker, source, row.id).await;
+            let members = scim_group_members(&self.worker, source, row.id).await;
             resources.push(scim::group_resource(row, &row.id.to_string(), members).json());
         }
         out.json(200, wire::list_json(total, start, &resources))
@@ -628,9 +628,9 @@ impl Handler {
         let Some(id) = scim::go_parse_int(id_text) else {
             return out.error(400, "Invalid group ID", "invalidValue");
         };
-        match scim::get_group(&self.exec, source, id).await {
+        match scim_get_group(&self.worker, source, id).await {
             Ok(Some(row)) => {
-                let members = scim::group_members(&self.worker, source, id).await;
+                let members = scim_group_members(&self.worker, source, id).await;
                 out.json(200, scim::group_resource(&row, id_text, members).json())
             }
             Ok(None) => out.error(404, &format!("Group {id_text} not found"), "invalidValue"),
@@ -666,7 +666,7 @@ impl Handler {
             return out.error(400, "displayName is required", "invalidValue");
         }
         let ids: Vec<String> = req.members.iter().map(|m| m.value.clone()).collect();
-        let id = match scim::create_group(
+        let id = match scim_create_group(
             self.member_pool(),
             token.fence,
             &req.external_id,
@@ -682,7 +682,7 @@ impl Handler {
             id: id.to_string(),
             external_id: req.external_id,
             display_name: req.display_name,
-            members: scim::group_members(&self.worker, token.fence.source_id, id).await,
+            members: scim_group_members(&self.worker, token.fence.source_id, id).await,
             meta: Some(wire::Meta {
                 resource_type: "Group".into(),
                 location: format!("/scim/v2/Groups/{id}"),
@@ -702,7 +702,7 @@ impl Handler {
         let Some(id) = scim::go_parse_int(id_text) else {
             return out.error(400, "Invalid group ID", "invalidValue");
         };
-        let external = match scim::group_external_id(&self.exec, token.fence.source_id, id).await {
+        let external = match scim_group_external_id(&self.worker, token.fence.source_id, id).await {
             Some(e) if !e.is_empty() => e,
             _ => return out.error(404, &format!("Group {id_text} not found"), "invalidValue"),
         };
@@ -718,7 +718,7 @@ impl Handler {
                 Ok(step) => step,
                 Err(e) => return out.http(&e),
             };
-            match scim::run_group_step(self.member_pool(), token.fence, id, &external, step).await {
+            match scim_run_group_step(self.member_pool(), token.fence, id, &external, step).await {
                 Ok(()) => {}
                 Err(scim::GroupFailure::Http(e)) => return out.http(&e),
                 Err(scim::GroupFailure::Status(s)) => return out.error(s, "PATCH failed", ""),
@@ -731,12 +731,536 @@ impl Handler {
         let Some(id) = scim::go_parse_int(id_text) else {
             return out.error(400, "Invalid group ID", "invalidValue");
         };
-        match scim::delete_group(&self.exec, token.fence, id).await {
+        match scim_delete_group(&self.worker, token.fence, id).await {
             Err(status) => out.error(status, "Failed to delete group", ""),
             Ok(false) => out.error(404, &format!("Group {id_text} not found"), "invalidValue"),
             Ok(true) => out.no_content(),
         }
     }
+}
+
+fn scim_failure(msg: &str) -> setjoin_pg::StatementFailure {
+    setjoin_pg::StatementFailure {
+        sqlstate: None,
+        hint: None,
+        message: msg.into(),
+    }
+}
+
+async fn worker_query(
+    exec: &ScopedExecutor,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let pool = exec
+        .try_worker_pool()
+        .ok_or_else(|| scim_failure("worker pool unavailable"))?;
+    let mut tx = pool.begin_repeatable_read_only().await?;
+    let rows = tx.query_contract(contract, values).await?;
+    tx.commit().await?;
+    Ok(rows)
+}
+
+async fn worker_mutate(
+    exec: &ScopedExecutor,
+    contract: &'static setjoin_pg::SqlContract,
+    values: &[&(dyn setjoin_pg::ToSql + Sync)],
+) -> Result<Vec<setjoin_pg::Row>, setjoin_pg::StatementFailure> {
+    let pool = exec
+        .try_worker_pool()
+        .ok_or_else(|| scim_failure("worker pool unavailable"))?;
+    let mut tx = pool.begin_read_write().await?;
+    match tx.query_contract(contract, values).await {
+        Ok(rows) => {
+            tx.commit().await?;
+            Ok(rows)
+        }
+        Err(e) => {
+            let _ = tx.rollback().await;
+            Err(e)
+        }
+    }
+}
+
+async fn scim_token_by_hash(
+    exec: &ScopedExecutor,
+    sha256: &str,
+) -> Result<Option<(Token, String)>, setjoin_pg::StatementFailure> {
+    let rows = worker_query(
+        exec,
+        &setjoin_directory_sync::sql::SCIM_TOKEN_BY_HASH,
+        &[&sha256],
+    )
+    .await?;
+    rows.first().map(scim::candidate).transpose()
+}
+
+async fn scim_legacy_tokens(
+    exec: &ScopedExecutor,
+) -> Result<Vec<(Token, String)>, setjoin_pg::StatementFailure> {
+    let rows = worker_query(exec, &setjoin_directory_sync::sql::SCIM_LEGACY_TOKENS, &[]).await?;
+    rows.iter().map(scim::candidate).collect()
+}
+
+async fn scim_record_usage(exec: &ScopedExecutor, token_id: i64) {
+    let _ = worker_mutate(
+        exec,
+        &setjoin_directory_sync::sql::SCIM_RECORD_USAGE,
+        &[&token_id],
+    )
+    .await;
+}
+
+async fn scim_list_users(
+    worker: &ScopedExecutor,
+    source: i64,
+    page: scim::Page,
+) -> Result<scim::Listed, scim::ListError> {
+    use setjoin_directory_sync::sql;
+    let query_err = |_| scim::ListError::Query;
+    match page {
+        scim::Page::Filter(node, start, count) => {
+            let fp = scim::resolve_filter(&node)?;
+            let total_rows = worker_query(
+                worker,
+                &sql::SCIM_USERS_FILTER_COUNT,
+                &[&source, &fp.attribute, &fp.operator, &fp.value],
+            )
+            .await
+            .map_err(query_err)?;
+            let total: i64 = total_rows
+                .first()
+                .ok_or(scim::ListError::Query)?
+                .try_get(0)
+                .map_err(|_| scim::ListError::Query)?;
+            let offset = start - 1;
+            let rows = worker_query(
+                worker,
+                &sql::SCIM_USERS_FILTER_LIST,
+                &[
+                    &source,
+                    &fp.attribute,
+                    &fp.operator,
+                    &fp.value,
+                    &count,
+                    &offset,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+            Ok(scim::Listed {
+                rows: rows.iter().filter_map(scim::user_row).collect(),
+                total,
+            })
+        }
+        scim::Page::Sync(token, count) => {
+            let cursor = scim::decode_sync_token(&token, source).map_err(|()| {
+                scim::ListError::Http(patch::http(400, "Invalid syncToken", "invalidValue"))
+            })?;
+            let rows = worker_query(
+                worker,
+                &sql::SCIM_USERS_SYNC_LIST,
+                &[&source, &cursor, &count],
+            )
+            .await
+            .map_err(query_err)?;
+            Ok(scim::Listed {
+                rows: rows.iter().filter_map(scim::user_row).collect(),
+                total: 0,
+            })
+        }
+        scim::Page::All(start, count) => {
+            let total_rows = worker_query(worker, &sql::SCIM_USERS_ALL_COUNT, &[&source])
+                .await
+                .map_err(query_err)?;
+            let total: i64 = total_rows
+                .first()
+                .ok_or(scim::ListError::Query)?
+                .try_get(0)
+                .map_err(|_| scim::ListError::Query)?;
+            let offset = start - 1;
+            let rows = worker_query(
+                worker,
+                &sql::SCIM_USERS_ALL_LIST,
+                &[&source, &count, &offset],
+            )
+            .await
+            .map_err(query_err)?;
+            Ok(scim::Listed {
+                rows: rows.iter().filter_map(scim::user_row).collect(),
+                total,
+            })
+        }
+    }
+}
+
+async fn scim_get_user(worker: &ScopedExecutor, source: i64, id: i64) -> Option<scim::UserRow> {
+    let rows = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_USER_GET,
+        &[&source, &id],
+    )
+    .await
+    .ok()?;
+    rows.first().and_then(scim::user_row)
+}
+
+async fn scim_source_subject(worker: &ScopedExecutor, source: i64, user: i64) -> Option<String> {
+    let rows = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_SOURCE_SUBJECT,
+        &[&source, &user],
+    )
+    .await
+    .ok()?;
+    rows.first()?.try_get(0).ok()
+}
+
+async fn scim_user_for_patch(
+    worker: &ScopedExecutor,
+    source: i64,
+    user: i64,
+    now: &str,
+) -> Option<(wire::User, String)> {
+    let rows = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_USER_FOR_PATCH,
+        &[&source, &user],
+    )
+    .await
+    .ok()?;
+    rows.first()
+        .and_then(|row| scim::decode_patch_row(row, user, now))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn scim_apply_user(
+    worker: &ScopedExecutor,
+    fence: scim::Fence,
+    request: &str,
+    external_id: &str,
+    fields: &scim::UserFields,
+    title: &str,
+    expected: i64,
+    touched: Option<&patch::Touched>,
+) -> Result<i64, scim::ApplyError> {
+    let payload =
+        scim::build_apply_user_payload(fence, external_id, fields, title, expected, touched)?;
+    let rows = worker_mutate(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_USER_APPLY,
+        &[
+            &fence.source_id,
+            &fence.generation,
+            &request,
+            &external_id,
+            &payload,
+        ],
+    )
+    .await
+    .map_err(|e| scim::ApplyError::Status(scim::reducer_status(&e)))?;
+    let raw: String = rows
+        .first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or(scim::ApplyError::Status(500))?;
+    scim::parse_apply_user_result(&raw)
+}
+
+async fn scim_group_total(
+    worker: &ScopedExecutor,
+    source: i64,
+) -> Result<i64, setjoin_pg::StatementFailure> {
+    let rows = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_GROUP_TOTAL,
+        &[&source],
+    )
+    .await?;
+    rows.first()
+        .and_then(|r| r.try_get(0).ok())
+        .ok_or_else(|| scim_failure("count"))
+}
+
+async fn scim_list_groups(
+    worker: &ScopedExecutor,
+    source: i64,
+    start: i64,
+    count: i64,
+) -> Result<Vec<scim::GroupRow>, setjoin_pg::StatementFailure> {
+    let offset = start - 1;
+    let rows = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_GROUP_LIST,
+        &[&source, &count, &offset],
+    )
+    .await?;
+    Ok(rows.iter().filter_map(scim::group_row).collect())
+}
+
+async fn scim_get_group(
+    worker: &ScopedExecutor,
+    source: i64,
+    id: i64,
+) -> Result<Option<scim::GroupRow>, setjoin_pg::StatementFailure> {
+    let rows = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_GROUP_GET,
+        &[&id, &source],
+    )
+    .await?;
+    Ok(rows.first().and_then(scim::group_row))
+}
+
+async fn scim_group_members(worker: &ScopedExecutor, source: i64, group: i64) -> Vec<wire::Member> {
+    let Ok(rows) = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_GROUP_MEMBERS,
+        &[&group, &source],
+    )
+    .await
+    else {
+        return vec![];
+    };
+    rows.iter().filter_map(scim::group_member_row).collect()
+}
+
+async fn scim_group_external_id(worker: &ScopedExecutor, source: i64, id: i64) -> Option<String> {
+    let rows = worker_query(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_GROUP_EXTERNAL_ID,
+        &[&id, &source],
+    )
+    .await
+    .ok()?;
+    rows.first()?.try_get(0).ok()
+}
+
+async fn scim_create_group(
+    exec: &ScopedExecutor,
+    fence: scim::Fence,
+    external_id: &str,
+    display_name: &str,
+    members: &[String],
+) -> Result<i64, u16> {
+    let members = members.to_vec();
+    let rows = worker_mutate(
+        exec,
+        &setjoin_directory_sync::sql::SCIM_GROUP_CREATE,
+        &[
+            &fence.source_id,
+            &fence.generation,
+            &external_id,
+            &display_name,
+            &members,
+        ],
+    )
+    .await
+    .map_err(|e| scim::reducer_status(&e))?;
+    rows.first().and_then(|r| r.try_get(0).ok()).ok_or(500)
+}
+
+async fn scim_run_group_step(
+    exec: &ScopedExecutor,
+    fence: scim::Fence,
+    group: i64,
+    external_id: &str,
+    step: patch::GroupStep,
+) -> Result<(), scim::GroupFailure> {
+    use patch::GroupStep::*;
+    use setjoin_directory_sync::sql;
+    let status =
+        |e: setjoin_pg::StatementFailure| scim::GroupFailure::Status(scim::reducer_status(&e));
+    match step {
+        Rename(name) => {
+            let rows = worker_mutate(
+                exec,
+                &sql::SCIM_GROUP_UPSERT,
+                &[&fence.source_id, &fence.generation, &external_id, &name],
+            )
+            .await
+            .map_err(status)?;
+            let updated: i64 = rows
+                .first()
+                .and_then(|r| r.try_get(0).ok())
+                .ok_or(scim::GroupFailure::Status(500))?;
+            if updated != group {
+                return Err(scim::GroupFailure::Http(patch::http(
+                    404,
+                    "Group is not managed by this SCIM source",
+                    "noTarget",
+                )));
+            }
+            Ok(())
+        }
+        Replace(ids) => {
+            worker_mutate(
+                exec,
+                &sql::SCIM_GROUP_APPLY_MEMBERS,
+                &[
+                    &fence.source_id,
+                    &fence.generation,
+                    &external_id,
+                    &ids,
+                    &true,
+                ],
+            )
+            .await
+            .map_err(status)?;
+            Ok(())
+        }
+        Add(ids) => {
+            worker_mutate(
+                exec,
+                &sql::SCIM_GROUP_APPLY_MEMBERS,
+                &[
+                    &fence.source_id,
+                    &fence.generation,
+                    &external_id,
+                    &ids,
+                    &false,
+                ],
+            )
+            .await
+            .map_err(status)?;
+            Ok(())
+        }
+        Remove(ids) => {
+            worker_mutate(
+                exec,
+                &sql::SCIM_GROUP_REMOVE_MEMBERS,
+                &[&fence.source_id, &fence.generation, &external_id, &ids],
+            )
+            .await
+            .map_err(status)?;
+            Ok(())
+        }
+    }
+}
+
+async fn scim_delete_group(
+    worker: &ScopedExecutor,
+    fence: scim::Fence,
+    group: i64,
+) -> Result<bool, u16> {
+    let rows = worker_mutate(
+        worker,
+        &setjoin_directory_sync::sql::SCIM_GROUP_DELETE,
+        &[&fence.source_id, &fence.generation, &group],
+    )
+    .await
+    .map_err(|e| scim::reducer_status(&e))?;
+    rows.first().and_then(|r| r.try_get(0).ok()).ok_or(500)
+}
+
+/// Go `notify.SendWelcomeEmail(ctx, workerPool, id, "", logger)`: idempotent,
+/// best effort, never fails the request. Delivery is the `deliver` reducer.
+pub(crate) async fn send_welcome(worker: &ScopedExecutor, user: i64) {
+    use setjoin_directory_sync::sql;
+    let sentinel = format!("system:welcome:{user}");
+    let Ok(rows) = worker_query(worker, &sql::WELCOME_SENTINEL_EXISTS, &[&user, &sentinel]).await
+    else {
+        return;
+    };
+    if rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()) != Some(false) {
+        return;
+    }
+    let Ok(rows) = worker_query(worker, &sql::WELCOME_CONFIG_GET, &[]).await else {
+        return;
+    };
+    let Some(Some(raw)) = rows
+        .first()
+        .map(|r| r.try_get::<_, Option<String>>(0).ok().flatten())
+    else {
+        return;
+    };
+    let Ok(config) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    let Some(template) = scim::welcome_template(&config) else {
+        return;
+    };
+    let Ok(rows) = worker_query(worker, &sql::WELCOME_PRIMARY_MAILBOX, &[&user]).await else {
+        return;
+    };
+    let Some(mailbox) = rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) else {
+        return;
+    };
+    let Ok(rows) = worker_query(worker, &sql::WELCOME_RECIPIENT_PROFILE, &[&mailbox]).await else {
+        return;
+    };
+    let Some(row) = rows.first() else { return };
+    let (Ok(mut display), Ok(username), Ok(email)) = (
+        row.try_get::<_, String>(0),
+        row.try_get::<_, String>(1),
+        row.try_get::<_, String>(2),
+    ) else {
+        return;
+    };
+    let (local, domain) = match email.rfind('@') {
+        Some(at) => (&email[..at], &email[at + 1..]),
+        None => ("", email.as_str()),
+    };
+    if display.is_empty() {
+        display = if local.is_empty() {
+            email.clone()
+        } else {
+            local.to_owned()
+        };
+    }
+    let values = [
+        ("DisplayName", display),
+        ("Email", email.clone()),
+        ("Username", username),
+        ("OrgName", domain.to_owned()),
+        ("WebmailURL", format!("https://{domain}")),
+    ];
+    let substitute = |text: &str| {
+        let mut out = text.to_owned();
+        for (key, value) in &values {
+            out = out.replace(&format!("{{{{{key}}}}}"), value);
+        }
+        out
+    };
+    let (subject, body_text, body_html) = (
+        substitute(&template.0),
+        substitute(&template.1),
+        substitute(&template.2),
+    );
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    let message_id = format!("welcome-{user}-{nanos}@setjoin");
+    let from = format!("noreply@{domain}");
+    let to = format!(
+        "[{{\"email\":{},\"name\":\"\"}}]",
+        serde_json::to_string(&email).unwrap_or_default()
+    );
+    let size = (body_text.len() + body_html.len()) as i64;
+    let _ = worker_mutate(
+        worker,
+        &sql::WELCOME_DELIVER,
+        &[
+            &sentinel,
+            &message_id,
+            &from,
+            &"SetJoin Team",
+            &email,
+            &to,
+            &"[]",
+            &"[]",
+            &subject,
+            &"",
+            &"",
+            &body_text,
+            &body_html,
+            &size,
+            &"none",
+            &"none",
+            &"none",
+            &"{}",
+        ],
+    )
+    .await;
 }
 
 const PROVIDER_CONFIG: &str = "{\"authenticationSchemes\":[{\"description\":\"SCIM API token\",\"name\":\"OAuth Bearer Token\",\"primary\":true,\"specUri\":\"http://tools.ietf.org/html/rfc6750\",\"type\":\"oauthbearertoken\"}],\"bulk\":{\"maxOperations\":0,\"maxPayloadSize\":0,\"supported\":false},\"changePassword\":{\"supported\":false},\"documentationUri\":\"\",\"etag\":{\"supported\":false},\"filter\":{\"maxResults\":1000,\"supported\":true},\"patch\":{\"supported\":true},\"schemas\":[\"urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig\"],\"sort\":{\"supported\":false}}";

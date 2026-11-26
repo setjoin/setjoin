@@ -2,8 +2,7 @@
 //! problem shapes. Database work lives in `setjoin_admin_identity::roles`.
 use super::*;
 use setjoin_admin_identity::roles::{self as db, Problem};
-use setjoin_admin_identity::Authority;
-use setjoin_authz::AuthContext;
+use setjoin_authz::principals::{AdminPermissionProof, AdminPrincipal, TxFactory, UserPrincipal};
 
 pub(super) fn is_write(what: Action) -> bool {
     matches!(
@@ -26,13 +25,13 @@ fn problem_for(p: u16, detail: &str) -> Option<Problem> {
 }
 
 /// Go's `permissions.IsValid` loop, then Rule A (grant-only-what-you-hold).
-fn grant_problem(authority: &Authority, wanted: &[String], rule_a: &str) -> Option<Problem> {
+fn grant_problem(authority: &AdminPrincipal, wanted: &[String], rule_a: &str) -> Option<Problem> {
     if let Some(unknown) = wanted.iter().find(|p| !db::is_known(p)) {
         return problem_for(400, &format!("unknown permission: {unknown}"));
     }
     wanted
         .iter()
-        .find(|p| !authority.holds(p))
+        .find(|p| !authority.has_permission(p))
         .and_then(|p| problem_for(403, &format!("{rule_a}{p}")))
 }
 
@@ -63,8 +62,8 @@ fn shown_problem(p: &Problem, go_path: &str, c: &RequestContext, id: &str) -> Re
 /// A rolled-back command: Go's problem, a protection denial, or a 500.
 #[allow(clippy::too_many_arguments)]
 async fn failed(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     error: &Rejection<setjoin_pg::StatementFailure>,
     target: Option<i64>,
     ip: &str,
@@ -93,25 +92,26 @@ async fn failed(
         _ => return database(),
     };
     if let Some(target) = target {
-        db::protection_denied(exec, actor, target, class, ip, operation).await;
+        db::protection_denied(factory, user, target, class, ip, operation).await;
     }
     reducer(status, class, &e.message, remediation, go_path, c, id)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn serve(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
     what: Action,
     mut r: Request<Body>,
-    actor: &AuthContext,
-    authority: &Authority,
+    user_principal: &UserPrincipal,
+    authority: &AdminPrincipal,
+    admin_proof: &AdminPermissionProof,
     c: &RequestContext,
     id: &str,
     path: &str,
     go_path: &str,
     operation: [u8; 16],
 ) -> Response<Body> {
-    let scope = authority.domain_scope();
+    let scope = authority.enforced_domain_scope().unwrap_or(0);
     let ip = c.identity.client_ip.to_string();
     let head = r.method() == hyper::Method::HEAD;
     let reply = |body: String| {
@@ -147,11 +147,11 @@ pub(super) async fn serve(
     let shown = |p: &Problem| shown_problem(p, go_path, c, id);
     let role_id = |index: usize| segment(path, index).parse::<i64>().ok();
     match what {
-        Action::Roles => match db::roles(exec, scope).await {
+        Action::Roles => match db::roles(factory, admin_proof, scope).await {
             Ok(body) => reply(body),
             Err(_) => db_failed(),
         },
-        Action::Permissions => match db::catalog(exec).await {
+        Action::Permissions => match db::catalog(factory, admin_proof).await {
             Ok(body) => reply(body),
             Err(_) => db_failed(),
         },
@@ -159,7 +159,15 @@ pub(super) async fn serve(
             let Some(role) = role_id(4) else {
                 return full(400, "invalid role id");
             };
-            match db::role(exec, actor.user_id(), scope, role).await {
+            match db::role(
+                factory,
+                admin_proof,
+                user_principal.user().get(),
+                scope,
+                role,
+            )
+            .await
+            {
                 Ok(Some(body)) => reply(body),
                 Ok(None) => full(404, "role not found"),
                 Err(_) => db_failed(),
@@ -169,7 +177,7 @@ pub(super) async fn serve(
             let Some(user) = role_id(4) else {
                 return full(400, "invalid user id");
             };
-            match db::effective_permissions(exec, scope, user).await {
+            match db::effective_permissions(factory, admin_proof, scope, user).await {
                 Ok(Some(body)) => reply(body),
                 Ok(None) => full(404, "user not found"),
                 Err(_) => db_failed(),
@@ -208,10 +216,21 @@ pub(super) async fn serve(
                 permissions: &wanted,
                 domain_scope: body.domain_scope,
             };
-            match db::create_role(exec, actor, &new, &ip, operation).await {
+            match db::create_role(factory, admin_proof, &new, &ip, operation).await {
                 CommandOutcome::Committed(role) => created("id", role, 201),
                 CommandOutcome::RolledBack(e) => {
-                    failed(exec, actor, &e, None, &ip, operation, go_path, c, id).await
+                    failed(
+                        factory,
+                        user_principal,
+                        &e,
+                        None,
+                        &ip,
+                        operation,
+                        go_path,
+                        c,
+                        id,
+                    )
+                    .await
                 }
                 CommandOutcome::Unknown { operation } => unknown(operation),
             }
@@ -221,7 +240,7 @@ pub(super) async fn serve(
                 return full(400, "invalid role id");
             };
             let outcome = if what == Action::DeleteRole {
-                db::delete_role(exec, actor, scope, role, &ip, operation).await
+                db::delete_role(factory, admin_proof, scope, role, &ip, operation).await
             } else {
                 let patch = match input::first::<input::RoleUpdate>(&mut r, 1 << 20).await {
                     Err(()) => db::RolePatch {
@@ -276,12 +295,23 @@ pub(super) async fn serve(
                         }
                     }
                 };
-                db::update_role(exec, actor, scope, role, &patch, &ip, operation).await
+                db::update_role(factory, admin_proof, scope, role, &patch, &ip, operation).await
             };
             match outcome {
                 CommandOutcome::Committed(_) => no_content(c, id),
                 CommandOutcome::RolledBack(e) => {
-                    failed(exec, actor, &e, None, &ip, operation, go_path, c, id).await
+                    failed(
+                        factory,
+                        user_principal,
+                        &e,
+                        None,
+                        &ip,
+                        operation,
+                        go_path,
+                        c,
+                        id,
+                    )
+                    .await
                 }
                 CommandOutcome::Unknown { operation } => unknown(operation),
             }
@@ -324,14 +354,26 @@ pub(super) async fn serve(
                     }
                 }
             }
-            match db::assign_member(exec, actor, authority, role, &a, &ip, operation).await {
+            let permissions: Vec<String> = authority.permissions().iter().cloned().collect();
+            match db::assign_member(
+                factory,
+                admin_proof,
+                scope,
+                &permissions,
+                role,
+                &a,
+                &ip,
+                operation,
+            )
+            .await
+            {
                 CommandOutcome::Committed(reply) => {
                     created("id", reply.id.unwrap_or_default(), 201)
                 }
                 CommandOutcome::RolledBack(e) => {
                     failed(
-                        exec,
-                        actor,
+                        factory,
+                        user_principal,
                         &e,
                         Some(a.user),
                         &ip,
@@ -350,10 +392,21 @@ pub(super) async fn serve(
             let (Some(role), Some(user)) = (role, user) else {
                 return full(400, "invalid role id or user id");
             };
-            match db::remove_member(exec, actor, scope, role, user, &ip, operation).await {
+            match db::remove_member(factory, admin_proof, scope, role, user, &ip, operation).await {
                 CommandOutcome::Committed(_) => no_content(c, id),
                 CommandOutcome::RolledBack(e) => {
-                    failed(exec, actor, &e, Some(user), &ip, operation, go_path, c, id).await
+                    failed(
+                        factory,
+                        user_principal,
+                        &e,
+                        Some(user),
+                        &ip,
+                        operation,
+                        go_path,
+                        c,
+                        id,
+                    )
+                    .await
                 }
                 CommandOutcome::Unknown { operation } => unknown(operation),
             }
@@ -363,12 +416,12 @@ pub(super) async fn serve(
             let Some(role) = role_id(4) else {
                 return full(400, "invalid role id");
             };
-            let held = match db::role_permissions(exec, role).await {
+            let held = match db::role_permissions(factory, admin_proof, role).await {
                 Ok(Some(held)) => held,
                 Ok(None) => return full(404, "role not found"),
                 Err(_) => return db_failed(),
             };
-            if let Some(missing) = held.iter().find(|p| !authority.holds(p)) {
+            if let Some(missing) = held.iter().find(|p| !authority.has_permission(p)) {
                 return full(
                     403,
                     &format!(
@@ -414,14 +467,25 @@ pub(super) async fn serve(
                 scope_id: if assign { body.scope_id } else { None },
                 eligible: assign && body.eligible.unwrap_or(false),
             };
-            match db::enqueue_bulk(exec, actor, &job, operation).await {
+            match db::enqueue_bulk(factory, user_principal, admin_proof, &job, operation).await {
                 CommandOutcome::Committed(job) => created("jobId", job, 202),
                 CommandOutcome::RolledBack(e) => {
-                    failed(exec, actor, &e, None, &ip, operation, go_path, c, id).await
+                    failed(
+                        factory,
+                        user_principal,
+                        &e,
+                        None,
+                        &ip,
+                        operation,
+                        go_path,
+                        c,
+                        id,
+                    )
+                    .await
                 }
                 CommandOutcome::Unknown { operation } => unknown(operation),
             }
         }
-        _ => unreachable!("not a roles action"),
+        _ => full(404, "not found"),
     }
 }

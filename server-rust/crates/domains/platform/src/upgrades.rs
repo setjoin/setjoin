@@ -1,20 +1,11 @@
 //! Platform slice `updates-deploy`, group `upgrades`: the release-first upgrade control
 //! plane (`/admin/system/upgrades/*`).
-//!
-//! Go's `UpgradeHandler` is a thin translator over the `upgrade_*` reducers, which own the
-//! authority check (`upgrade_actor_authorized`), the state machine, audit rows and
-//! notifications. Every call here passes the verified actor from the sealed auth context
-//! (never a request field) and returns the reducer's JSONB verbatim (`::text` is what pgx
-//! hands Go's `json.RawMessage`). Writes are one receipted statement each: the reducer is
-//! the whole transaction.
-use super::{command, deadline, envelope, invalid, scope};
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, Param, ScopedExecutor, StatementFailure, Type};
+use super::{command, deadline, envelope, invalid, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
-/// The reducer's JSONB as text; `None` is SQL NULL (Go then writes an empty body).
 pub type Raw = Option<String>;
 
-/// A refused reducer call projected like `reducererr.WriteClassified`.
 pub struct Refusal {
     pub status: u16,
     pub detail: &'static str,
@@ -31,8 +22,6 @@ fn class_remediation(status: u16) -> &'static str {
     }
 }
 
-/// The updater codes BZ242-BZ251 (`reducererr.codeClass`); anything else is unclassified
-/// and Go answers its fixed 500.
 pub fn classify(e: &StatementFailure) -> Option<Refusal> {
     let code = e.sqlstate.as_deref()?;
     let (status, detail) = match code {
@@ -43,21 +32,18 @@ pub fn classify(e: &StatementFailure) -> Option<Refusal> {
         _ => return None,
     };
     let class_text = class_remediation(status);
-    // A HINT's `remediation` replaces the class text; a malformed HINT is no reducer error.
     let remediation = match e.hint.as_deref().filter(|h| !h.is_empty()) {
         None => class_text.to_owned(),
         Some(hint) => {
             let serde_json::Value::Object(object) = serde_json::from_str(hint).ok()? else {
                 return None;
             };
-            let found = object
-                .get("remediation")
-                .or_else(|| {
-                    object
-                        .iter()
-                        .find(|(k, _)| k.eq_ignore_ascii_case("remediation"))
-                        .map(|(_, v)| v)
-                });
+            let found = object.get("remediation").or_else(|| {
+                object
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case("remediation"))
+                    .map(|(_, v)| v)
+            });
             match found {
                 Some(serde_json::Value::String(text)) if !text.is_empty() => text.clone(),
                 None | Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) => {
@@ -82,75 +68,272 @@ fn text(rows: &[setjoin_pg::Row]) -> Result<Raw, StatementFailure> {
     }
 }
 
-/// A read-only reducer (`STABLE`): console, intent, diagnostics, recovery context.
-pub async fn read(
-    exec: &ScopedExecutor,
-    sql: &str,
-    params: &[Param<'_>],
+pub async fn console_read(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
 ) -> Result<Raw, StatementFailure> {
-    text(&exec.read(sql, params).await?)
+    let actor = admin.actor().get();
+    text(
+        &factory
+            .run_admin_read_contract(admin, &sql::UPGRADE_CONSOLE_READ, &[&actor])
+            .await?,
+    )
 }
 
-/// A mutating reducer as one receipted statement. `sql` binds the caller's own
-/// parameters from `$4` (`$1..$3` are the receipt guard).
-pub async fn write(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
-    name: &'static str,
-    sql: &str,
-    params: &[Param<'_>],
+pub async fn recovery_context_read(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<Raw, StatementFailure> {
+    let actor = admin.actor().get();
+    text(
+        &factory
+            .run_admin_read_contract(admin, &sql::UPGRADE_RECOVERY_CONTEXT_READ, &[&actor])
+            .await?,
+    )
+}
+
+pub async fn intent_read(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    intent: i64,
+) -> Result<Raw, StatementFailure> {
+    text(
+        &factory
+            .run_admin_read_contract(admin, &sql::UPGRADE_INTENT_READ, &[&intent])
+            .await?,
+    )
+}
+
+pub async fn intent_diagnostics(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    intent: i64,
+) -> Result<Raw, StatementFailure> {
+    let actor = admin.actor().get();
+    text(
+        &factory
+            .run_admin_read_contract(admin, &sql::UPGRADE_INTENT_DIAGNOSTICS, &[&actor, &intent])
+            .await?,
+    )
+}
+
+pub async fn intent_preview(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    release: &str,
+    reason: &str,
+    schedule: Option<i64>,
+) -> Result<Raw, StatementFailure> {
+    let actor = admin.actor().get();
+    text(
+        &factory
+            .run_admin_read_contract(
+                admin,
+                &sql::UPGRADE_INTENT_PREVIEW,
+                &[&actor, &release, &reason, &schedule],
+            )
+            .await?,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn challenge_complete(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    challenge: &str,
+    session: &[u8],
+    factor: &[u8],
+    amr: &[String],
+    acr: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Raw, StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command(name),
-        &envelope(&auth, operation, name),
-        &auth,
-        deadline(),
-        sql,
-        params,
-        text,
-    )
-    .await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        "upgrade_challenge_complete",
+    );
+    let amr_vec = amr.to_vec();
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::UPGRADE_CHALLENGE_COMPLETE,
+            &[&challenge, &session, &factor, &amr_vec, &acr],
+            Some(command("upgrade_challenge_complete")),
+            |rows, _audited| text(&rows),
+        )
+        .await
 }
 
-/// Go's `RequireReason`: whether `area` is a reason-required audit area.
-pub async fn reason_required(exec: &ScopedExecutor, area: &str) -> bool {
-    exec.read(
-        "SELECT $1::text=ANY(reason_required_areas) FROM audit_policy WHERE id=1",
-        &[(&area, Type::TEXT)],
-    )
-    .await
-    .ok()
-    .and_then(|r| r.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-    .unwrap_or(false)
+#[allow(clippy::too_many_arguments)]
+pub async fn challenge_issue(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    release: &str,
+    reason: &str,
+    schedule: Option<i64>,
+    digest: &str,
+    key: &str,
+    operation: [u8; 16],
+) -> CommandOutcome<Raw, StatementFailure> {
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        "upgrade_challenge_issue",
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::UPGRADE_CHALLENGE_ISSUE,
+            &[&release, &reason, &schedule, &digest, &key],
+            Some(command("upgrade_challenge_issue")),
+            |rows, _audited| text(&rows),
+        )
+        .await
 }
 
-/// The durable `sensitive_action.reason_missing` row Go writes before its 400.
+#[allow(clippy::too_many_arguments)]
+pub async fn intent_request(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    release: &str,
+    reason: &str,
+    schedule: Option<i64>,
+    digest: &str,
+    elevation: &str,
+    key: &str,
+    operation: [u8; 16],
+) -> CommandOutcome<Raw, StatementFailure> {
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        "upgrade_intent_request",
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::UPGRADE_INTENT_REQUEST,
+            &[&release, &reason, &schedule, &digest, &elevation, &key],
+            Some(command("upgrade_intent_request")),
+            |rows, _audited| text(&rows),
+        )
+        .await
+}
+
+pub async fn intent_cancel(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    intent: i64,
+    generation: i64,
+    reason: &str,
+    operation: [u8; 16],
+) -> CommandOutcome<Raw, StatementFailure> {
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        "upgrade_intent_cancel",
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::UPGRADE_INTENT_CANCEL,
+            &[&intent, &generation, &reason],
+            Some(command("upgrade_intent_cancel")),
+            |rows, _audited| text(&rows),
+        )
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn recovery_set_record(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    set_id: &str,
+    timeline: &str,
+    source: &str,
+    schema: i32,
+    manifest: &str,
+    checks: &str,
+    created: i64,
+    expires: i64,
+    operation: [u8; 16],
+) -> CommandOutcome<Raw, StatementFailure> {
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        "upgrade_recovery_set_record",
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::UPGRADE_RECOVERY_SET_RECORD,
+            &[
+                &set_id, &timeline, &source, &schema, &manifest, &checks, &created, &expires,
+            ],
+            Some(command("upgrade_recovery_set_record")),
+            |rows, _audited| text(&rows),
+        )
+        .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn restore_proof_record(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    proof: &str,
+    set_id: &str,
+    target: &str,
+    checks: &str,
+    proved: i64,
+    operation: [u8; 16],
+) -> CommandOutcome<Raw, StatementFailure> {
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        "upgrade_restore_proof_record",
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::UPGRADE_RESTORE_PROOF_RECORD,
+            &[&proof, &set_id, &target, &checks, &proved],
+            Some(command("upgrade_restore_proof_record")),
+            |rows, _audited| text(&rows),
+        )
+        .await
+}
+
+pub async fn reason_required(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    area: &str,
+) -> bool {
+    crate::reason_required(factory, admin, area).await
+}
+
 pub async fn missing_reason(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
     ip: &str,
     perm: &str,
     operation: [u8; 16],
 ) {
-    let auth = scope(actor);
-    let _ = setjoin_pg::run_receipted_command(
-        exec,
-        command("reason_missing"),
-        &envelope(&auth, operation, &format!("{ip}:{perm}")),
-        &auth,
-        deadline(),
-        "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($5::text,'')::inet,$4::text,'core') \
-         WHERE $1::bigint >= 0 AND $3::text <> '') w",
-        &[(&perm, Type::TEXT), (&ip, Type::TEXT)],
-        |rows| {
-            rows.first()
-                .and_then(|r| r.try_get::<_, i64>(0).ok())
-                .map(|_| ())
-                .ok_or_else(invalid)
-        },
-    )
-    .await;
+    crate::missing_reason(factory, user, ip, perm, operation).await;
 }

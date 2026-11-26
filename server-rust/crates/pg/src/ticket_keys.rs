@@ -41,7 +41,10 @@ impl TicketKeyStore {
         let (client, connection) = self.config.connect(NoTls).await?;
         let mut driver = Driver(tokio::spawn(connection));
         let result = client
-            .execute("DELETE FROM system_config WHERE key='tls_session_ticket_keys'", &[])
+            .execute(
+                "DELETE FROM system_config WHERE key='tls_session_ticket_keys'",
+                &[],
+            )
             .await;
         drop(client);
         let driver_result = (&mut driver.0).await?;

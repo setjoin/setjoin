@@ -1239,7 +1239,12 @@ impl<K: KeySource + 'static> PolicyGate<K> {
                         GateThreatAction::Allow => {}
                     }
                 }
-                let verdict = basic::verify_with_dummy(
+                let pre_auth = self
+                    .tx_factory
+                    .as_ref()
+                    .and_then(TxFactory::admin_worker_pool);
+                let verdict = basic::verify_with_pre_auth(
+                    pre_auth,
                     &self.exec,
                     &self.passwords,
                     email,
@@ -1357,60 +1362,67 @@ impl<K: KeySource + 'static> PolicyGate<K> {
                         return Err(GateDenial::SpnegoFailed);
                     }
                 };
-                let (user, totp_required) =
-                    match kerberos::lookup_principal(&self.exec, &principal).await {
-                        PrincipalLookup::Found(u) => (u, false),
-                        PrincipalLookup::TotpRequired(u) => (u, true),
-                        PrincipalLookup::Guest(u) => {
-                            kerberos::record_kerberos_event(
-                                &self.exec,
-                                Some(u.user_id),
-                                "login_failed",
-                                Some(&u.email),
-                                Some(&client_ip),
-                                Some(r#"{"reason":"guest_refused"}"#),
-                            )
-                            .await;
-                            if let Some(threat) = &self.threat {
-                                let guest_meta = GateThreatMeta {
-                                    source_ip: client_ip,
-                                    username: u.email,
-                                    protocol: "http".into(),
-                                    user_agent: req.user_agent.to_owned(),
-                                    ..Default::default()
-                                };
-                                threat.record_result(&guest_meta, false, 0).await;
-                            }
-                            return Err(GateDenial::GuestRefused);
+                let pre_auth = self
+                    .tx_factory
+                    .as_ref()
+                    .and_then(TxFactory::admin_worker_pool);
+                let (user, totp_required) = match kerberos::lookup_principal_with_pre_auth(
+                    pre_auth, &self.exec, &principal,
+                )
+                .await
+                {
+                    PrincipalLookup::Found(u) => (u, false),
+                    PrincipalLookup::TotpRequired(u) => (u, true),
+                    PrincipalLookup::Guest(u) => {
+                        kerberos::record_kerberos_event(
+                            &self.exec,
+                            Some(u.user_id),
+                            "login_failed",
+                            Some(&u.email),
+                            Some(&client_ip),
+                            Some(r#"{"reason":"guest_refused"}"#),
+                        )
+                        .await;
+                        if let Some(threat) = &self.threat {
+                            let guest_meta = GateThreatMeta {
+                                source_ip: client_ip,
+                                username: u.email,
+                                protocol: "http".into(),
+                                user_agent: req.user_agent.to_owned(),
+                                ..Default::default()
+                            };
+                            threat.record_result(&guest_meta, false, 0).await;
                         }
-                        PrincipalLookup::NotFound => {
-                            kerberos::record_kerberos_event(
-                                &self.exec,
-                                None,
-                                "login_failed",
-                                None,
-                                Some(&client_ip),
-                                Some(r#"{"reason":"user_not_found"}"#),
-                            )
-                            .await;
-                            if let Some(threat) = &self.threat {
-                                let principal_meta = GateThreatMeta {
-                                    source_ip: client_ip,
-                                    username: principal,
-                                    protocol: "http".into(),
-                                    user_agent: req.user_agent.to_owned(),
-                                    ..Default::default()
-                                };
-                                threat.record_result(&principal_meta, false, 0).await;
-                            }
-                            return Err(GateDenial::InvalidCredential);
+                        return Err(GateDenial::GuestRefused);
+                    }
+                    PrincipalLookup::NotFound => {
+                        kerberos::record_kerberos_event(
+                            &self.exec,
+                            None,
+                            "login_failed",
+                            None,
+                            Some(&client_ip),
+                            Some(r#"{"reason":"user_not_found"}"#),
+                        )
+                        .await;
+                        if let Some(threat) = &self.threat {
+                            let principal_meta = GateThreatMeta {
+                                source_ip: client_ip,
+                                username: principal,
+                                protocol: "http".into(),
+                                user_agent: req.user_agent.to_owned(),
+                                ..Default::default()
+                            };
+                            threat.record_result(&principal_meta, false, 0).await;
                         }
-                        PrincipalLookup::Unavailable => {
-                            return Err(GateDenial::Unavailable(
-                                "kerberos principal lookup unavailable".into(),
-                            ));
-                        }
-                    };
+                        return Err(GateDenial::InvalidCredential);
+                    }
+                    PrincipalLookup::Unavailable => {
+                        return Err(GateDenial::Unavailable(
+                            "kerberos principal lookup unavailable".into(),
+                        ));
+                    }
+                };
                 // Phase 2: targeted account lockout check without double rate-limit burn.
                 let user_meta = GateThreatMeta {
                     source_ip: client_ip.clone(),
@@ -2146,9 +2158,12 @@ pub async fn lookup_primary_mailbox_lifecycle(
     exec: &ScopedExecutor,
     user_id: i64,
 ) -> Result<Option<(i64, bool)>, GateDenial> {
+    let actor = setjoin_contracts::ids::ActorId::new(user_id)
+        .map_err(|_| GateDenial::Unavailable("invalid user id".into()))?;
     let rows = tokio::time::timeout(
         crate::precheck_timeout(),
-        exec.read(
+        exec.read_user_scoped(
+            actor,
             "SELECT id, mailbox_lifecycle_access_allowed(id) \
                FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
             &[(&user_id, Type::INT8)],

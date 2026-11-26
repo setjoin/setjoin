@@ -886,9 +886,13 @@ impl S3Store {
         Ok(url)
     }
 
-    pub(crate) fn bucket_name(&self) -> String { self.bucket.name() }
+    pub(crate) fn bucket_name(&self) -> String {
+        self.bucket.name()
+    }
 
-    pub(crate) fn endpoint(&self) -> &str { &self.endpoint }
+    pub(crate) fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
 
     pub(crate) async fn bucket(&self) -> Result<s3::Bucket, String> {
         use s3::{
@@ -929,10 +933,9 @@ impl S3Store {
                 // rust-s3 percent-encodes the path; attach location as a query and reuse no_redirect.
                 let mut location_bucket = (*self.bucket).clone();
                 location_bucket.add_query("location", "");
-                let request =
-                    ReqwestRequest::new(&location_bucket, "", Command::GetBucketLocation)
-                        .await
-                        .map_err(|error| error.to_string())?;
+                let request = ReqwestRequest::new(&location_bucket, "", Command::GetBucketLocation)
+                    .await
+                    .map_err(|error| error.to_string())?;
                 let url = request.url().map_err(|error| error.to_string())?;
                 let signed = request.headers().await.map_err(|error| error.to_string())?;
                 let mut req_headers = reqwest::header::HeaderMap::new();
@@ -1635,20 +1638,23 @@ mod tests {
             }
         }));
 
-        let store = Arc::new(
-            S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap(),
-        );
+        let store =
+            Arc::new(S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap());
         *store.region.lock().await = Some("us-east-1".into());
 
         let caller = store.clone();
-        let handle = tokio::spawn(async move { caller.legal_hold_with_retries("key-a", true).await });
+        let handle =
+            tokio::spawn(async move { caller.legal_hold_with_retries("key-a", true).await });
         entered.notified().await;
         // Simulate another request refreshing the cached region while attempt 0 is in flight.
         *store.region.lock().await = Some("eu-west-1".into());
         release.notify_one();
 
         let res = handle.await.unwrap();
-        assert!(res.is_ok(), "expected retry after 403 signed-region mismatch: {res:?}");
+        assert!(
+            res.is_ok(),
+            "expected retry after 403 signed-region mismatch: {res:?}"
+        );
         let recorded = auths.lock().unwrap();
         assert_eq!(recorded.len(), 2);
         assert!(recorded[0].contains("/us-east-1/s3/aws4_request"));
@@ -1694,8 +1700,14 @@ mod tests {
         let store = S3Store::new(&format!("http://{addr}"), "mailblobs", "ak", "sk").unwrap();
         *store.region.lock().await = Some("eu-west-1".into());
 
-        let err = store.legal_hold_with_retries("key-b", false).await.unwrap_err();
-        assert!(err.contains("403"), "expected terminal 403 error, got {err}");
+        let err = store
+            .legal_hold_with_retries("key-b", false)
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("403"),
+            "expected terminal 403 error, got {err}"
+        );
         assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 
@@ -1764,10 +1776,15 @@ mod tests {
     #[test]
     fn from_lookup_matches_go_minio_overrides() {
         let lookup = |pairs: &[(&str, &str)]| {
-            let entries: Vec<(String, String)> =
-                pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
+            let entries: Vec<(String, String)> = pairs
+                .iter()
+                .map(|(k, v)| ((*k).into(), (*v).into()))
+                .collect();
             S3Store::from_lookup(move |k| {
-                entries.iter().find(|(name, _)| name == k).map(|(_, v)| v.clone())
+                entries
+                    .iter()
+                    .find(|(name, _)| name == k)
+                    .map(|(_, v)| v.clone())
             })
         };
         let store = lookup(&[
@@ -1787,7 +1804,11 @@ mod tests {
 
         assert!(lookup(&[("S3_ENDPOINT", ""), ("MINIO_ENDPOINT", "127.0.0.1:9100")]).is_err());
         assert!(lookup(&[("S3_BUCKET", ""), ("MINIO_BUCKET", "custom-bucket")]).is_err());
-        assert!(lookup(&[("S3_ENDPOINT", "HTTP://127.0.0.1:9000"), ("S3_SECURE", "true")]).is_err());
+        assert!(lookup(&[
+            ("S3_ENDPOINT", "HTTP://127.0.0.1:9000"),
+            ("S3_SECURE", "true")
+        ])
+        .is_err());
 
         let store = lookup(&[("S3_SECURE", " true ")]).unwrap();
         assert_eq!(store.bucket_name(), "mailblobs");
@@ -1805,11 +1826,7 @@ mod tests {
             Arc,
         };
 
-        async fn run_case(
-            status: u16,
-            header_region: Option<&'static str>,
-            body: &'static [u8],
-        ) {
+        async fn run_case(status: u16, header_region: Option<&'static str>, body: &'static [u8]) {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let addr = listener.local_addr().unwrap();
             let hits = Arc::new(AtomicUsize::new(0));
@@ -1832,7 +1849,8 @@ mod tests {
                                 if let Some(region) = header_region {
                                     builder = builder.header("x-amz-bucket-region", region);
                                 }
-                                let resp = builder.body(Full::new(Bytes::from_static(body))).unwrap();
+                                let resp =
+                                    builder.body(Full::new(Bytes::from_static(body))).unwrap();
                                 Ok::<_, std::convert::Infallible>(resp)
                             }
                         });
@@ -1931,12 +1949,18 @@ mod tests {
                                 let resp = if n == 0 {
                                     Response::builder()
                                         .status(status)
-                                        .header("location", "http://127.0.0.1:9/redirected-never-follow")
+                                        .header(
+                                            "location",
+                                            "http://127.0.0.1:9/redirected-never-follow",
+                                        )
                                         .header("x-amz-bucket-region", target_region)
                                         .body(Full::new(Bytes::new()))
                                         .unwrap()
                                 } else {
-                                    Response::builder().status(204).body(Full::new(Bytes::new())).unwrap()
+                                    Response::builder()
+                                        .status(204)
+                                        .body(Full::new(Bytes::new()))
+                                        .unwrap()
                                 };
                                 Ok::<_, std::convert::Infallible>(resp)
                             }
@@ -1952,7 +1976,10 @@ mod tests {
             *store.region.lock().await = Some("eu-west-1".into());
             let res = store.legal_hold_with_retries("key-redir", true).await;
             drop(srv);
-            assert!(res.is_ok(), "expected empty {status} region redirect to retry: {res:?}");
+            assert!(
+                res.is_ok(),
+                "expected empty {status} region redirect to retry: {res:?}"
+            );
             assert_eq!(hits.load(Ordering::SeqCst), 2);
             assert_eq!(store.region.lock().await.as_deref(), Some(target_region));
             let recorded = auths.lock().unwrap();
@@ -2079,7 +2106,10 @@ mod tests {
             "https://s3-website.us-east-2.amazonaws.com"
         );
         assert_eq!(
-            regional_s3_endpoint("https://my-outpost.s3-outposts.us-east-1.amazonaws.com", "us-west-2"),
+            regional_s3_endpoint(
+                "https://my-outpost.s3-outposts.us-east-1.amazonaws.com",
+                "us-west-2"
+            ),
             "https://my-outpost.s3-outposts.us-east-1.amazonaws.com"
         );
         assert_eq!(
@@ -2088,7 +2118,10 @@ mod tests {
         );
 
         assert_eq!(s3_region_from_url("https://s3.amazonaws.com"), None);
-        assert_eq!(s3_region_from_url("https://s3-external-1.amazonaws.com"), None);
+        assert_eq!(
+            s3_region_from_url("https://s3-external-1.amazonaws.com"),
+            None
+        );
         assert_eq!(
             s3_region_from_url("https://s3-website-us-east-1.amazonaws.com"),
             None
@@ -2114,7 +2147,10 @@ mod tests {
             Some("fips-us-gov-west-1")
         );
         assert_eq!(
-            regional_s3_endpoint("https://s3-fips-us-gov-west-1.amazonaws.com", "us-gov-east-1"),
+            regional_s3_endpoint(
+                "https://s3-fips-us-gov-west-1.amazonaws.com",
+                "us-gov-east-1"
+            ),
             "https://s3-fips-us-gov-west-1.amazonaws.com"
         );
         assert_eq!(
@@ -2136,8 +2172,13 @@ mod tests {
             Some("us-east-1")
         );
 
-        let regional_store =
-            S3Store::new("https://s3-us-west-2.amazonaws.com", "mailblobs", "ak", "sk").unwrap();
+        let regional_store = S3Store::new(
+            "https://s3-us-west-2.amazonaws.com",
+            "mailblobs",
+            "ak",
+            "sk",
+        )
+        .unwrap();
         assert_eq!(
             regional_store.region.lock().await.as_deref(),
             Some("us-west-2")

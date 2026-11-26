@@ -16,6 +16,7 @@ use std::time::Instant;
 
 pub struct PlatformRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
+    pub worker: Option<ScopedExecutor>,
     pub keys: Arc<K>,
     pub issuer: String,
     started: Instant,
@@ -38,6 +39,7 @@ impl<K: KeySource + 'static> PlatformRoute<K> {
     pub fn new(exec: ScopedExecutor, keys: Arc<K>, issuer: String) -> Self {
         Self {
             exec,
+            worker: None,
             keys,
             issuer,
             started: Instant::now(),
@@ -47,6 +49,10 @@ impl<K: KeySource + 'static> PlatformRoute<K> {
             health: Arc::new(HealthState::default()),
             configuration: None,
         }
+    }
+    pub fn with_worker(mut self, worker: ScopedExecutor) -> Self {
+        self.worker = Some(worker);
+        self
     }
     pub fn with_configuration(mut self, configuration: Arc<crate::configuration::Runtime>) -> Self {
         self.configuration = Some(configuration);
@@ -315,8 +321,9 @@ fn skip_space(data: &[u8], mut at: usize) -> usize {
 
 #[allow(clippy::too_many_arguments)]
 async fn run_import<K: KeySource + 'static>(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &setjoin_authz::principals::TxFactory,
+    user: &setjoin_authz::principals::UserPrincipal,
+    admin: &setjoin_authz::principals::AdminPermissionProof,
     operation: [u8; 16],
     raw: &[u8],
     over: bool,
@@ -409,7 +416,7 @@ async fn run_import<K: KeySource + 'static>(
         };
         let mut op = operation;
         op[14..16].copy_from_slice(&((imported + skipped) as u16).to_be_bytes());
-        match config::import_item(exec, actor, key, value, description, op).await {
+        match config::import_item(factory, user, admin, key, value, description, op).await {
             CommandOutcome::Committed(()) => imported += 1,
             CommandOutcome::RolledBack(_) => skipped += 1,
             CommandOutcome::Unknown { operation } => {
@@ -466,8 +473,9 @@ fn is_group_b(what: Action) -> bool {
 
 /// What a group-1b handler needs from the request.
 struct Call<'a> {
-    exec: &'a ScopedExecutor,
-    actor: &'a setjoin_authz::AuthContext,
+    factory: &'a setjoin_authz::principals::TxFactory,
+    user: &'a setjoin_authz::principals::UserPrincipal,
+    admin: &'a setjoin_authz::principals::AdminPermissionProof,
     operation: [u8; 16],
     c: &'a RequestContext,
     id: &'a str,
@@ -605,7 +613,8 @@ fn probe(
 
 /// Go's `serveVerdict`: cached, throttled and serialised.
 async fn verdict(
-    exec: &ScopedExecutor,
+    factory: &setjoin_authz::principals::TxFactory,
+    admin: &setjoin_authz::principals::AdminPermissionProof,
     livekit: Option<&crate::meet_livekit::LiveKit>,
     state: &HealthState,
 ) -> health::Verdict {
@@ -622,7 +631,13 @@ async fn verdict(
     let probes = probes(livekit).await;
     let fresh = tokio::time::timeout(
         std::time::Duration::from_secs(15),
-        health::evaluate(exec, &probes, &now_rfc3339(), state.alerts.as_ref()),
+        health::evaluate(
+            factory,
+            admin,
+            &probes,
+            &now_rfc3339(),
+            state.alerts.as_ref(),
+        ),
     )
     .await
     .unwrap_or(health::Verdict::Internal);
@@ -660,11 +675,12 @@ async fn serve_b(
     health_state: &HealthState,
 ) -> Response<Body> {
     use crate::platform_input as input;
-    let exec = call.exec;
-    let actor = call.actor;
+    let factory = call.factory;
+    let user = call.user;
+    let admin = call.admin;
     let path = r.uri().path().to_owned();
     match what {
-        Action::AdminHealth => match verdict(exec, livekit, health_state).await {
+        Action::AdminHealth => match verdict(factory, admin, livekit, health_state).await {
             health::Verdict::Json { status, body } => call.json(body, status),
             health::Verdict::Internal => {
                 let mut response = call.json("internal error\n".into(), 500);
@@ -681,7 +697,7 @@ async fn serve_b(
                 response
             }
         },
-        Action::FeaturesList => match features::list(exec, overrides).await {
+        Action::FeaturesList => match features::list(factory, admin, overrides).await {
             Ok(body) => call.json(body, 200),
             Err(_) => call.internal(),
         },
@@ -725,14 +741,31 @@ async fn serve_b(
                         return call.feature(400, "invalid_request", "enabled is required");
                     };
                     mapped(
-                        features::set(exec, actor, &key, enabled, call.ip, &reason, call.operation)
-                            .await,
+                        features::set(
+                            factory,
+                            user,
+                            admin,
+                            &key,
+                            enabled,
+                            call.ip,
+                            &reason,
+                            call.operation,
+                        )
+                        .await,
                         |()| None,
                     )
                 }
                 Action::FeatureDelete => mapped(
-                    features::delete_unknown(exec, actor, &key, call.ip, &reason, call.operation)
-                        .await,
+                    features::delete_unknown(
+                        factory,
+                        user,
+                        admin,
+                        &key,
+                        call.ip,
+                        &reason,
+                        call.operation,
+                    )
+                    .await,
                     |()| None,
                 ),
                 _ => {
@@ -749,8 +782,9 @@ async fn serve_b(
                     }
                     mapped(
                         features::set_registry_mode(
-                            exec,
-                            actor,
+                            factory,
+                            user,
+                            admin,
                             &body.mode,
                             call.ip,
                             &reason,
@@ -782,7 +816,7 @@ async fn serve_b(
                 CommandOutcome::Unknown { operation } => call.unknown(operation),
             }
         }
-        Action::SodGet => match setjoin_platform::sod::get(exec).await {
+        Action::SodGet => match setjoin_platform::sod::get(factory, admin).await {
             Ok(body) => call.json(body, 200),
             Err(_) => call.internal(),
         },
@@ -791,7 +825,7 @@ async fn serve_b(
             else {
                 return call.detail(400, "request body must be JSON with an 'enabled' boolean");
             };
-            match setjoin_platform::sod::put(exec, actor, body.enabled, call.ip, call.operation)
+            match setjoin_platform::sod::put(factory, admin, body.enabled, call.ip, call.operation)
                 .await
             {
                 CommandOutcome::Committed(setjoin_platform::sod::Set::Enabled(enabled)) => {
@@ -804,7 +838,7 @@ async fn serve_b(
                 CommandOutcome::Unknown { operation } => call.unknown(operation),
             }
         }
-        Action::WelcomeGet => match welcome::get(exec).await {
+        Action::WelcomeGet => match welcome::get(factory, admin).await {
             Ok(welcome::Read::Stored(raw)) => call.json(raw, 200),
             Ok(welcome::Read::Shell(body)) => call.json(body, 200),
             Err(_) => call.error(500, "database error"),
@@ -835,7 +869,15 @@ async fn serve_b(
             if let Err(message) = welcome::validate(&config) {
                 return call.error(400, &message);
             }
-            match welcome::put(exec, actor, &welcome::marshal(&config), call.operation).await {
+            match welcome::put(
+                factory,
+                user,
+                admin,
+                &welcome::marshal(&config),
+                call.operation,
+            )
+            .await
+            {
                 CommandOutcome::Committed(()) => call.empty(204),
                 CommandOutcome::RolledBack(_) => call.error(500, "database error"),
                 CommandOutcome::Unknown { operation } => call.unknown(operation),
@@ -849,8 +891,9 @@ async fn serve_b(
                 return call.error(400, "subject and plain-text body are required");
             }
             match welcome::test_send(
-                exec,
-                actor,
+                factory,
+                user,
+                admin,
                 &body.subject,
                 &body.body_text,
                 &body.body_html,
@@ -863,7 +906,7 @@ async fn serve_b(
                 CommandOutcome::Unknown { operation } => call.unknown(operation),
             }
         }
-        Action::JitGet => match setjoin_platform::jit::get(exec).await {
+        Action::JitGet => match setjoin_platform::jit::get(factory, admin).await {
             Ok(body) => call.json(body, 200),
             Err(_) => call.database(),
         },
@@ -875,8 +918,9 @@ async fn serve_b(
                 return call.detail(400, "defaultMaxDurationMinutes must be positive");
             }
             match setjoin_platform::jit::put(
-                exec,
-                actor,
+                factory,
+                user,
+                admin,
                 body.minutes,
                 body.required,
                 call.operation,
@@ -888,7 +932,7 @@ async fn serve_b(
                 CommandOutcome::Unknown { operation } => call.unknown(operation),
             }
         }
-        Action::AuthList => match setjoin_platform::auth_methods::list(exec).await {
+        Action::AuthList => match setjoin_platform::auth_methods::list(factory, admin).await {
             Ok(body) => call.json(body, 200),
             Err(_) => call.error(500, "database error"),
         },
@@ -905,8 +949,15 @@ async fn serve_b(
                 priority: body.priority,
                 config: body.config,
             };
-            match setjoin_platform::auth_methods::update(exec, actor, &slug, &patch, call.operation)
-                .await
+            match setjoin_platform::auth_methods::update(
+                factory,
+                user,
+                admin,
+                &slug,
+                &patch,
+                call.operation,
+            )
+            .await
             {
                 CommandOutcome::Committed(true) => call.empty(204),
                 CommandOutcome::Committed(false) => call.error(404, "auth method not found"),
@@ -935,7 +986,12 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
+        let (exec, worker, keys, issuer) = (
+            self.exec.clone(),
+            self.worker.clone(),
+            self.keys.clone(),
+            self.issuer.clone(),
+        );
         let configuration = self.configuration.clone();
         let (started, started_at) = (self.started, self.started_at.clone());
         let (overrides, livekit, health_state) =
@@ -953,33 +1009,62 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
             };
             let id = crate::jmap::reply::request_id(r.headers().get("x-request-id"), operation);
             let actor = auth.context();
+            let Some(factory) = crate::policy_composition::tx_factory_from_executors(
+                &exec,
+                Some(worker.as_ref().unwrap_or(&exec)),
+            ) else {
+                return bare(503, "service unavailable", &c, &id);
+            };
+            let ip = c.identity.client_ip.to_string();
+            let Ok(user_principal) = factory.mint_user_from_authorized(&auth, &ip).await else {
+                return bare(503, "service unavailable", &c, &id);
+            };
             let go_path = segment_path(r.uri().path());
             let required = gate(what);
-            let authority = match setjoin_platform::authority(&exec, actor).await {
-                Ok(authority) if authority.allows_any(required) => authority,
-                _ => {
-                    let _ = setjoin_platform::console_denied(
-                        &exec,
-                        actor,
-                        &go_path,
-                        &required.join("|"),
-                        operation,
-                    )
-                    .await;
-                    return bare(403, "Forbidden", &c, &id);
-                }
+            let admin_opt = if actor.signed_admin() {
+                factory.mint_admin_from_authorized(&auth, &ip).await.ok()
+            } else {
+                None
             };
-            if authority.refused_for_scope(required) {
+            let Some(admin_principal) = admin_opt.filter(|a| a.allows_any(required)) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
+            let domain_scope = admin_principal.enforced_domain_scope().unwrap_or(0);
+            if admin_principal.refused_for_scope(required) {
                 let detail = format!(
                     "{} (domain-scoped principal; org-wide-only surface, domain={})",
                     required.join("|"),
-                    authority.domain_scope()
+                    domain_scope
                 );
-                let _ =
-                    setjoin_platform::console_denied(&exec, actor, &go_path, &detail, operation)
-                        .await;
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &detail,
+                    operation,
+                )
+                .await;
                 return bare(403, "Forbidden", &c, &id);
             }
+            let Ok(admin_proof) = admin_principal.require_any_permission(required) else {
+                let _ = setjoin_platform::console_denied(
+                    &factory,
+                    &user_principal,
+                    &go_path,
+                    &required.join("|"),
+                    operation,
+                )
+                .await;
+                return bare(403, "Forbidden", &c, &id);
+            };
             if what == Action::Reload {
                 let configuration =
                     configuration.expect("reload is matched only with a configuration runtime");
@@ -999,21 +1084,28 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
                 *response.status_mut() = hyper::StatusCode::from_u16(status).unwrap();
                 return response;
             }
-            let ip = c.identity.client_ip.to_string();
             if let Some((area, perm)) = reason_area(what) {
-                if setjoin_platform::reason_required(&exec, area).await
+                if setjoin_platform::reason_required(&factory, &admin_proof, area).await
                     && r.headers()
                         .get("x-audit-reason")
                         .is_none_or(|v| v.as_bytes().is_empty())
                 {
-                    setjoin_platform::missing_reason(&exec, actor, &ip, perm, operation).await;
+                    setjoin_platform::missing_reason(
+                        &factory,
+                        &user_principal,
+                        &ip,
+                        perm,
+                        operation,
+                    )
+                    .await;
                     return bare(400, "reason_required", &c, &id);
                 }
             }
             if is_group_b(what) {
                 let call = Call {
-                    exec: &exec,
-                    actor,
+                    factory: &factory,
+                    user: &user_principal,
+                    admin: &admin_proof,
                     operation,
                     c: &c,
                     id: &id,
@@ -1052,7 +1144,7 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
                 Action::Reload => unreachable!("reload handled before command dispatch"),
                 Action::Version => reply(db::version(), 200),
                 Action::Status | Action::Health => reply(db::status(&process()), 200),
-                Action::SchemaVersion => match db::schema_version(&exec).await {
+                Action::SchemaVersion => match db::schema_version(&factory, &admin_proof).await {
                     Ok(body) => reply(body, 200),
                     Err(e) => reply(
                         setjoin_platform::done(format!(
@@ -1066,32 +1158,40 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
                         500,
                     ),
                 },
-                Action::BackupList => match db::backup_list(&exec).await {
+                Action::BackupList => match db::backup_list(&factory, &admin_proof).await {
                     Ok(body) => reply(body, 200),
                     Err(_) => bare(500, "failed to list backups", &c, &id),
                 },
-                Action::BackupEnqueue => match db::backup_enqueue(&exec, actor, operation).await {
-                    CommandOutcome::Committed(body) => reply(body, 202),
-                    CommandOutcome::RolledBack(_) => bare(500, "failed to enqueue backup", &c, &id),
-                    CommandOutcome::Unknown { operation } => unknown_outcome(operation, &c, &id),
-                },
+                Action::BackupEnqueue => {
+                    match db::backup_enqueue(&factory, &user_principal, &admin_proof, operation)
+                        .await
+                    {
+                        CommandOutcome::Committed(body) => reply(body, 202),
+                        CommandOutcome::RolledBack(_) => {
+                            bare(500, "failed to enqueue backup", &c, &id)
+                        }
+                        CommandOutcome::Unknown { operation } => {
+                            unknown_outcome(operation, &c, &id)
+                        }
+                    }
+                }
                 Action::ConfigList => {
                     let prefix =
                         crate::admin_identity_input::query(r.uri(), "prefix").unwrap_or_default();
-                    match config::list(&exec, &prefix).await {
+                    match config::list(&factory, &admin_proof, &prefix).await {
                         Ok(body) => reply(body, 200),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
                 }
                 Action::ConfigGet => {
                     let key = segment(r.uri().path(), 5);
-                    match config::get(&exec, &key).await {
+                    match config::get(&factory, &admin_proof, &key).await {
                         Ok(Some(body)) => reply(body, 200),
                         Ok(None) => bare(404, "config key not found", &c, &id),
                         Err(_) => bare(500, "database error", &c, &id),
                     }
                 }
-                Action::ConfigExport => match config::export(&exec).await {
+                Action::ConfigExport => match config::export(&factory, &admin_proof).await {
                     Ok(body) => {
                         let mut response = reply(body, 200);
                         response.headers_mut().insert(
@@ -1121,8 +1221,9 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
                         );
                     }
                     match config::set(
-                        &exec,
-                        actor,
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
                         &key,
                         body.value.as_deref(),
                         body.encrypted,
@@ -1145,7 +1246,18 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
                     let Ok((raw, over)) = read_capped(&mut r).await else {
                         return bare(400, "invalid JSON", &c, &id);
                     };
-                    match run_import::<K>(&exec, actor, operation, &raw, over, &c, &id).await {
+                    match run_import::<K>(
+                        &factory,
+                        &user_principal,
+                        &admin_proof,
+                        operation,
+                        &raw,
+                        over,
+                        &c,
+                        &id,
+                    )
+                    .await
+                    {
                         Import::Done { imported, skipped } => reply(
                             setjoin_platform::done(format!(
                                 "{{\"imported\":{imported},\"skipped\":{skipped}}}"
@@ -1157,7 +1269,10 @@ impl<K: KeySource + 'static> Intercept for PlatformRoute<K> {
                 }
                 Action::BackupDownload => bare(501, "download not yet implemented", &c, &id),
                 Action::BackupDelete => bare(501, "delete not yet implemented", &c, &id),
-                _ => bare(500, "database error", &c, &id),
+                _ => {
+                    let _ = actor;
+                    bare(500, "database error", &c, &id)
+                }
             }
         })
     }

@@ -93,3 +93,33 @@ $$ LANGUAGE plpgsql SET search_path = pg_catalog, public;
 
 REVOKE ALL ON FUNCTION public.rust_system_config_delete(text) FROM PUBLIC, setjoin_app;
 GRANT EXECUTE ON FUNCTION public.rust_system_config_delete(text) TO setjoin_worker;
+
+CREATE OR REPLACE FUNCTION rust_system_config_upsert_batch_encrypted(
+  p_keys        TEXT[],
+  p_values      TEXT[],
+  p_encrypted   BOOLEAN[],
+  p_description TEXT
+) RETURNS BIGINT AS $$
+DECLARE
+  v_count BIGINT;
+BEGIN
+  IF NOT public.rls_caller_is_privileged() THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+  WITH w AS (
+    INSERT INTO public.system_config (key, value, encrypted, description, updated_at)
+    SELECT t.k, t.v::jsonb, t.e, p_description, now()
+      FROM unnest(p_keys, p_values, p_encrypted) AS t(k, v, e)
+    ON CONFLICT (key) DO UPDATE
+      SET value = EXCLUDED.value,
+          encrypted = EXCLUDED.encrypted,
+          updated_at = now()
+    RETURNING 1
+  )
+  SELECT count(*)::bigint INTO v_count FROM w;
+  RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SET search_path = pg_catalog, public;
+
+REVOKE ALL ON FUNCTION public.rust_system_config_upsert_batch_encrypted(text[],text[],boolean[],text) FROM PUBLIC, setjoin_app;
+GRANT EXECUTE ON FUNCTION public.rust_system_config_upsert_batch_encrypted(text[],text[],boolean[],text) TO setjoin_worker;

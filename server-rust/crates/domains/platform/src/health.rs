@@ -5,8 +5,8 @@
 //! registered live component probe, behind a 5 s verdict cache, a global token bucket and a
 //! one-evaluation concurrency bound. The ok-to-error alert is raised through an optional
 //! [`Alerts`] observer (the gateway's webhook dispatcher), which receives every checked row.
-use super::{config::go_f64, done, s};
-use setjoin_pg::ScopedExecutor;
+use super::{config::go_f64, done, s, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -79,20 +79,18 @@ pub struct Probe {
     pub error: Option<String>,
 }
 
-/// The query of Go's `runEvaluation`, with the numeric columns as float8 (pgx scans them
-/// into `*float64`).
-const LATEST: &str = "SELECT DISTINCT ON (check_name) check_name, status, value::float8, threshold::float8, details, \
-     to_char(checked_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS') || CASE WHEN date_part('microseconds', checked_at AT TIME ZONE 'UTC')::bigint % 1000000 = 0 THEN '' ELSE regexp_replace(to_char(checked_at AT TIME ZONE 'UTC','.US'),'0+$','') END || 'Z' \
-     FROM health_history ORDER BY check_name, checked_at DESC";
-
 /// A full evaluation. `now` renders the probes' `checked_at`.
 pub async fn evaluate(
-    exec: &ScopedExecutor,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
     probes: &[Probe],
     now: &str,
     alerts: Option<&Alerts>,
 ) -> Verdict {
-    let Ok(rows) = exec.read(LATEST, &[]).await else {
+    let Ok(rows) = factory
+        .run_admin_read_contract(admin, &sql::HEALTH_LATEST, &[])
+        .await
+    else {
         return Verdict::Internal;
     };
     let mut results: Vec<String> = Vec::new();

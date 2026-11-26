@@ -1,7 +1,7 @@
 //! Device bootstrap uses Go's explicit access-Bearer signature seam. It does
 //! not borrow full-session revocation/DPoP admission that Go omits here.
 use serde_json::Value;
-use setjoin_pg::{ScopedExecutor, Type};
+use setjoin_pg::{AuthDb, Type};
 pub struct Proof {
     user: i64,
     claims: serde_json::Map<String, Value>,
@@ -48,9 +48,10 @@ impl Proof {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn register(
         &self,
-        exec: &ScopedExecutor,
+        exec: &AuthDb,
         name: &str,
         platform: &str,
         os: &str,
@@ -58,10 +59,10 @@ impl Proof {
         fp: &str,
         enc: &[u8],
     ) -> setjoin_pg::CommandOutcome<(i64, bool), setjoin_pg::StatementFailure> {
-        exec.run_user_command(
+        exec.run_user_command_contract(
             setjoin_contracts::ids::ActorId::new(self.user).expect("verified user"),
             setjoin_contracts::ids::OperationId(*uuid::Uuid::new_v4().as_bytes()),
-            "SELECT * FROM rust_identity_device_register($1,$2,$3,$4,$5,$6,$7)",
+            &crate::sql::BOOTSTRAP_L64,
             &[
                 (&self.user, Type::INT8),
                 (&name, Type::TEXT),

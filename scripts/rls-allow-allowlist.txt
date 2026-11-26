@@ -174,3 +174,24 @@ tasks	COVERED	wave18b_force_rls.pg	ALLOW tasks: setjoin_app INSERT/UPDATE/DELETE
 user_sender_list	COVERED	wave18b_force_rls.pg	ALLOW user_sender_list: setjoin_app INSERT/UPDATE/DELETE own sender succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
 user_spam_model	COVERED	wave18b_force_rls.pg	ALLOW user_spam_model: setjoin_app UPDATE own model succeeds	V287: same-tenant UPDATE read-back under SET LOCAL ROLE setjoin_app with user GUC.
 vote_responses	COVERED	wave18b_force_rls.pg	ALLOW vote_responses: setjoin_app INSERT/UPDATE/DELETE own vote succeeds	V287: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app via parent message scope.
+
+# ── V288 Wave 1.8C root/auth FORCE RLS allow-flow proofs (20 tables) ────────
+app_passwords	COVERED	wave18c_force_rls.pg	ALLOW app_passwords: setjoin_app INSERT/UPDATE/DELETE own app_password succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+mailboxes	COVERED	wave18c_force_rls.pg	ALLOW mailboxes: setjoin_app UPDATE own mailbox succeeds	V288: same-tenant UPDATE under SET LOCAL ROLE setjoin_app with owner mailbox GUC.
+mfa_reauth_step_ups	COVERED	wave18c_force_rls.pg	ALLOW mfa_reauth_step_ups: setjoin_app INSERT/UPDATE/DELETE own step-up succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+oauth_tokens	COVERED	wave18c_force_rls.pg	ALLOW oauth_tokens: setjoin_app INSERT/UPDATE/DELETE own oauth_token succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+oidc_auth_requests	COVERED	wave18c_force_rls.pg	ALLOW oidc_auth_requests: setjoin_app INSERT/UPDATE/DELETE own request succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+oidc_tokens	COVERED	wave18c_force_rls.pg	ALLOW oidc_tokens: setjoin_app INSERT/UPDATE/DELETE own token succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+passkey_credentials	COVERED	wave18c_force_rls.pg	ALLOW passkey_credentials: setjoin_app INSERT/UPDATE/DELETE own passkey succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+password_history	COVERED	wave18c_force_rls.pg	ALLOW password_history: setjoin_app INSERT/DELETE own history succeeds	V288: same-tenant INSERT/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+push_devices	COVERED	wave18c_force_rls.pg	ALLOW push_devices: setjoin_app INSERT/UPDATE/DELETE own device succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+push_mfa_challenges	COVERED	wave18c_force_rls.pg	ALLOW push_mfa_challenges: setjoin_app INSERT/UPDATE/DELETE own challenge succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+recipient_smime_certs	COVERED	wave18c_force_rls.pg	ALLOW recipient_smime_certs: setjoin_app INSERT/UPDATE/DELETE own cert succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with owner user GUC.
+sessions	COVERED	wave18c_force_rls.pg	ALLOW sessions: setjoin_app INSERT/UPDATE/DELETE own session succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+totp_pending_enrollments	COVERED	wave18c_force_rls.pg	ALLOW totp_pending_enrollments: setjoin_app INSERT/UPDATE/DELETE own enrollment succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+totp_removal_step_ups	COVERED	wave18c_force_rls.pg	ALLOW totp_removal_step_ups: setjoin_app INSERT/UPDATE/DELETE own step-up succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+user_smime_certs	COVERED	wave18c_force_rls.pg	ALLOW user_smime_certs: setjoin_app INSERT/UPDATE/DELETE own cert succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+users	COVERED	wave18c_force_rls.pg	ALLOW users: setjoin_app UPDATE own profile succeeds	V288: same-tenant UPDATE via rust_user_profile_update under SET LOCAL ROLE setjoin_app with user GUC.
+webauthn_ceremonies	COVERED	wave18c_force_rls.pg	ALLOW webauthn_ceremonies: setjoin_app INSERT/UPDATE/DELETE own ceremony succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.
+webhook_subscriptions	COVERED	wave18c_force_rls.pg	ALLOW webhook_subscriptions: setjoin_app INSERT/UPDATE/DELETE own subscription succeeds	V288: same-tenant INSERT/UPDATE/DELETE via rust_webhook_self_* under SET LOCAL ROLE setjoin_app with user GUC.
+ws_subscriptions	COVERED	wave18c_force_rls.pg	ALLOW ws_subscriptions: setjoin_app INSERT/UPDATE/DELETE own subscription succeeds	V288: same-tenant INSERT/UPDATE/DELETE under SET LOCAL ROLE setjoin_app with user GUC.

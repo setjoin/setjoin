@@ -1,13 +1,13 @@
 //! Go's byte-range response projection, after the caller has checked authority.
 //! Object parts open lazily; dropping the response cancels its current S3 read.
 use crate::{
-    Body, BoxError,
     recovery_worker::{BlobReadError, S3Store},
+    Body, BoxError,
 };
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use http_body_util::{BodyExt, Full};
-use hyper::{Method, Request, Response, StatusCode, body::Frame};
+use hyper::{body::Frame, Method, Request, Response, StatusCode};
 use std::{
     pin::Pin,
     sync::{Arc, Mutex},

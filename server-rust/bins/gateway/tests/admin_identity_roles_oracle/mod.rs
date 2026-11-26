@@ -283,7 +283,15 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
             .await?;
     }
     // Grant shapes: global admin, scoped to the other (or the target's) domain, or none.
-    let granted = vec!["roles.manage", "users.read", "users.create"];
+    // Under dengbao.sod_mode=TRUE, PolicyGate strictly refuses actors holding unclassified
+    // mixed-class roles (#542), so `sod*` cases seed a clean `security`-class acting admin.
+    let sod_case = label.starts_with("sod");
+    let granted = if sod_case {
+        vec!["roles.manage", "users.read"]
+    } else {
+        vec!["roles.manage", "users.read", "users.create"]
+    };
+    let grant_class: Option<&str> = sod_case.then_some("security");
     let (permissions, scope): (Vec<&str>, Option<i64>) = match label {
         "denied" => (vec![], None),
         "foreign" => (granted, Some(b.domain)),
@@ -309,8 +317,8 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
     };
     let grant: i64 = owner
         .query_one(
-            "INSERT INTO admin_role_groups(name,permissions,domain_scope) VALUES('admin2-grant',$1,$2) RETURNING id",
-            &[&permissions, &scope],
+            "INSERT INTO admin_role_groups(name,permissions,domain_scope,sod_class) VALUES('admin2-grant',$1,$2,$3) RETURNING id",
+            &[&permissions, &scope, &grant_class],
         )
         .await?
         .get(0);
@@ -475,34 +483,49 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
             trigger = Some("admin_audit_log");
         }
         Some("no-tenant-filter") => {
-            let mut statements =
-                format!("CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO setjoin_app;");
-            for (table, column) in [
-                ("users", "domain_id"),
-                ("admin_role_groups", "domain_scope"),
+            let mut statements = format!(
+                "CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO setjoin_app, setjoin_worker;"
+            );
+            for (table, column, expr) in [
+                ("users", "domain_id", format!("{}::bigint", b.domain)),
+                (
+                    "admin_role_assignments",
+                    "domain_override",
+                    "NULL::bigint".to_string(),
+                ),
+                (
+                    "admin_role_groups",
+                    "domain_scope",
+                    "NULL::bigint".to_string(),
+                ),
             ] {
                 let columns: String = owner
                     .query_one("SELECT string_agg(quote_ident(column_name),',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name<>$2", &[&table, &column])
                     .await?
                     .get(0);
-                statements.push_str(&format!("CREATE VIEW {schema}.{table} AS SELECT {columns},{}::bigint AS {column} FROM public.{table};GRANT SELECT,UPDATE,DELETE ON {schema}.{table} TO setjoin_app;", b.domain));
+                statements.push_str(&format!("CREATE VIEW {schema}.{table} AS SELECT {columns},{expr} AS {column} FROM public.{table};GRANT SELECT,UPDATE,DELETE ON {schema}.{table} TO setjoin_app, setjoin_worker;"));
             }
+            statements.push_str(&format!("CREATE FUNCTION {schema}.admin_can_reach(bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';GRANT EXECUTE ON FUNCTION {schema}.admin_can_reach(bigint,bigint) TO setjoin_app, setjoin_worker;"));
             owner.batch_execute(&statements).await?;
             private = true;
         }
         _ => {}
     }
-    if private {
+    let worker_dsn = if private {
+        let sep = if db.app.as_deref().unwrap_or(&db.dsn).contains('?') {
+            "&"
+        } else {
+            "?"
+        };
         db.app = Some(format!(
-            "{}{}options=-csearch_path%3D{schema}%2Cpublic",
-            db.app.as_deref().unwrap_or(&db.dsn),
-            if db.app.as_deref().unwrap_or(&db.dsn).contains('?') {
-                "&"
-            } else {
-                "?"
-            }
+            "{}{sep}options=-csearch_path%3D{schema}%2Cpublic",
+            db.app.as_deref().unwrap_or(&db.dsn)
         ));
-    }
+        let wsep = if db.dsn.contains('?') { "&" } else { "?" };
+        format!("{}{wsep}options=-csearch_path%3D{schema}%2Cpublic", db.dsn)
+    } else {
+        db.dsn.clone()
+    };
     let users_names = [
         (t.user, "<target>"),
         (a.user, "<admin>"),
@@ -524,8 +547,10 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let recording = go.is_some();
         let exec = common::patient_exec(db.app.as_deref().unwrap_or(&db.dsn), 4)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = common::patient_exec(&worker_dsn, 4)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: AdminIdentityRoute { exec, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
+            inner: AdminIdentityRoute { exec, worker: Some(worker), keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;
@@ -598,7 +623,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                 "partial" => json!({"description":"only <this>"}).to_string(),
                 "scoped-move" => json!({"domainScope":b.domain}).to_string(),
                 "scoped-global" => json!({"domainScope":-1}).to_string(),
-                "sod-violation" => json!({"sodClass":"audit","permissions":["users.read","users.create"]}).to_string(),
+                "sod-violation" => json!({"sodClass":"audit","permissions":["users.read","roles.manage"]}).to_string(),
                 "sod-collision" => json!({"sodClass":"audit"}).to_string(),
                 "folded" => json!({"NAME":"admin2-folded","sodClass":null}).to_string() + " trailing",
                 _ => json!({"name":"admin2-renamed","description":"new","permissions":["users.read","roles.manage"],"sodClass":""}).to_string(),
@@ -747,6 +772,52 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
             *state = serde_json::from_str(&text)?;
             mask(state, &names, "");
         }
+        if sod_case && !recording {
+            // Assert strict SoD enforcement BEFORE normalizing the fixture/diagnostic
+            // back to the pre-#542 Go golden shape.
+            if (action, label) == ("role-update", "sod-violation") {
+                if status != 409
+                    || !text.contains("permissions not allowed in class 'audit': roles.manage")
+                {
+                    return Err(format!(
+                        "sod-violation expected 409 with roles.manage diagnostic, got {status}: {text}"
+                    )
+                    .into());
+                }
+                text = text.replace("roles.manage", "users.create");
+                if let Some(length) = headers.get_mut("content-length") {
+                    *length = json!([text.len().to_string()]);
+                }
+            }
+            for (phase, state) in [("before", &mut before), ("after", &mut after)] {
+                let mut saw_admin2_grant = false;
+                if let Some(roles) = state.get_mut("roles").and_then(Value::as_array_mut) {
+                    for role in roles {
+                        if role.get("name").and_then(Value::as_str) == Some("admin2-grant") {
+                            saw_admin2_grant = true;
+                            if role.get("class").and_then(Value::as_str) != Some("security")
+                                || role.get("permissions")
+                                    != Some(&json!(["roles.manage", "users.read"]))
+                            {
+                                return Err(format!(
+                                    "sod case ({action}/{label}) {phase} admin2-grant drifted: {role}"
+                                )
+                                .into());
+                            }
+                            role["class"] = Value::Null;
+                            role["permissions"] =
+                                json!(["roles.manage", "users.read", "users.create"]);
+                        }
+                    }
+                }
+                if !saw_admin2_grant {
+                    return Err(format!(
+                        "sod case ({action}/{label}) missing admin2-grant in {phase} roles"
+                    )
+                    .into());
+                }
+            }
+        }
         let effects = json!([{"table":"roles","before":before,"after":after}]);
         let mut request = json!({"method":method,"path":pattern,"external_path":format!("/api{pattern}")});
         if !query.is_empty() { request["query"] = json!(query); }
@@ -758,7 +829,11 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
             request["body"] = if label == "too-many" {
                 json!("{\"userIds\":[1..1001]}")
             } else {
-                json!(name_runs(&body.replace(&domain_t, "host-t.test"), &ids))
+                let mut recorded = name_runs(&body.replace(&domain_t, "host-t.test"), &ids);
+                if (action, label) == ("role-update", "sod-violation") && !recording {
+                    recorded = recorded.replace("roles.manage", "users.create");
+                }
+                json!(recorded)
             };
         }
         let observation = json!({"request":request,"response":{"status":status,"headers":headers,"body":text},"effects":effects,"audit":audit,"notify":[]});

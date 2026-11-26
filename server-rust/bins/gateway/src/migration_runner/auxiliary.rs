@@ -208,7 +208,9 @@ impl Inner {
                 // calendar ID, so another tenant's calendar could be probed and written.
                 // The target is the mailbox's own default calendar, and every statement
                 // below carries the calendar-belongs-to-mailbox predicate.
-                let (calendar, owner) = if setjoin_contracts::mutants::on("m365-aux-mailbox-as-calendar") {
+                let (calendar, owner) = if setjoin_contracts::mutants::on(
+                    "m365-aux-mailbox-as-calendar",
+                ) {
                     (mailbox, 0)
                 } else {
                     let rows=db.query("SELECT id FROM calendars WHERE mailbox_id=$1 AND is_default=true ORDER BY id LIMIT 1",&[(&mailbox,Type::INT8)]).await.map_err(|e|format!("resolve default calendar for mailbox {mailbox}: {e}"))?;

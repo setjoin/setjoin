@@ -5,9 +5,15 @@
 //! worker connection, exactly the statements frozen Go issues. Errors follow
 //! Go: an unreadable protection or authority state fails the entry (counted in
 //! `errors`), never degrades to "no protection".
-use super::client::{normalize_dn, ClientError, ConnClass, ConnError, LdapClient, LdapUser};
-use super::{canonical_address, go_duration, go_quote, log_warn};
+use super::log_warn_ldap as log_warn;
 use serde_json::Value;
+use setjoin_directory_sync::ldap::client::{
+    normalize_dn, ClientError, ConnClass, ConnError, LdapClient, LdapUser,
+};
+use setjoin_directory_sync::ldap::{
+    build_sync_filter, canonical_address, go_duration, go_json, go_json_string, go_quote,
+    parse_rfc3339, rfc3339_now, PreviewRow, SyncResult,
+};
 use setjoin_pg::workers::{WorkerConnection, WorkerDatabase};
 use setjoin_pg::Type;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -28,40 +34,6 @@ const ATTR_ORDER: [&str; 7] = [
     "phone",
 ];
 
-/// Go `ldaputil.SyncResult`, with Go's JSON field order and tags.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SyncResult {
-    pub checked: i64,
-    pub created: i64,
-    pub updated: i64,
-    pub disabled: i64,
-    pub skipped: i64,
-    pub errors: i64,
-    pub duration: String,
-}
-impl SyncResult {
-    pub fn json(&self) -> String {
-        format!(
-            "{{\"checked\":{},\"created\":{},\"updated\":{},\"disabled\":{},\"skipped\":{},\"errors\":{},\"duration\":{}}}\n",
-            self.checked,
-            self.created,
-            self.updated,
-            self.disabled,
-            self.skipped,
-            self.errors,
-            serde_json::to_string(&self.duration).expect("string")
-        )
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PreviewRow {
-    pub email: String,
-    pub display_name: String,
-    pub action: &'static str,
-    pub reason: String,
-}
-
 /// The built worker: one configured directory (Go `SyncWorker`).
 #[derive(Clone)]
 pub struct Worker {
@@ -75,29 +47,6 @@ pub struct Worker {
     pub instance: String,
     /// Go `SetEnabledResolver`: mutating cycles skip while disabled.
     pub enabled: bool,
-}
-
-/// `ldap.CompileFilter` admission used by Go's `SetFilter`.
-pub fn admit_filter(filter: &str) -> Res<()> {
-    if filter.is_empty() || super::filter::compile(filter).is_some() {
-        Ok(())
-    } else {
-        Err("invalid LDAP user filter".into())
-    }
-}
-
-/// Go `buildSyncFilter`.
-pub fn build_sync_filter(base: &str, cursor: &str) -> String {
-    let base = if base.is_empty() {
-        "(objectClass=person)"
-    } else {
-        base
-    };
-    if cursor.is_empty() {
-        base.to_owned()
-    } else {
-        format!("(&{base}(modifyTimestamp>={cursor}))")
-    }
 }
 
 fn printable_ascii(s: &str) -> bool {
@@ -284,7 +233,7 @@ impl Worker {
             });
         }
         if let Some(key) = &self.source_key {
-            return super::normalized::sync(self, key).await;
+            return super::ldap_normalized::sync(self, key).await;
         }
         let start = Instant::now();
         let mut result = SyncResult::default();
@@ -438,7 +387,7 @@ impl Worker {
     }
 
     async fn record_absence_sweep(&self, c: &WorkerConnection) -> Res<()> {
-        let now = go_quote(&super::rfc3339_now());
+        let now = go_quote(&rfc3339_now());
         c.query(
             "INSERT INTO system_config (key, value, description) VALUES ('ldap_sync_last_absence_sweep', $1::text::jsonb, \
              'LDAP absent-entry deprovisioning sweep timestamp (RFC3339)') \
@@ -960,8 +909,8 @@ pub async fn apply_user_update(
             continue;
         }
         if local_overrides.get(col).is_some_and(|v| !v.is_null()) {
-            let remote = super::go_json_string(val);
-            let local = super::go_json(&local_overrides[col]);
+            let remote = go_json_string(val);
+            let local = go_json(&local_overrides[col]);
             c.query(
                 "INSERT INTO sync_conflicts (user_id, field, local_value, remote_value, source) VALUES ($1, $2, $3, $4, $5)",
                 &[(&existing, Type::INT8), (&col, Type::TEXT), (&local, Type::TEXT), (&remote, Type::TEXT), (&source, Type::TEXT)],
@@ -1035,5 +984,5 @@ async fn audit_suppressed_principal_write(
 
 /// RFC 3339 parse for the absence-sweep stamp (`time.Parse(time.RFC3339, ...)`).
 fn chrono_free_rfc3339(raw: &str) -> Option<std::time::SystemTime> {
-    super::parse_rfc3339(raw)
+    parse_rfc3339(raw)
 }

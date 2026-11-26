@@ -6,11 +6,11 @@
 use super::idv2::{compact, valid_source_key};
 use super::idv2_writes::{members, BODY_MAX};
 use super::scope_sets::go_quote;
-use super::{deadline, envelope, go_escape, invalid, s, scope};
+use super::{deadline, envelope, go_escape, invalid, s, sql, FAMILY};
 use serde_json::value::RawValue;
 use serde_json::Value;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ReceiptCommand, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, ReceiptCommand, StatementFailure};
 use std::collections::BTreeMap;
 
 /// A validated source document.
@@ -376,7 +376,7 @@ pub fn stored_plaintext(document: &str, secrets: &BTreeMap<String, String>) -> S
 
 fn command(name: &'static str) -> ReceiptCommand {
     ReceiptCommand {
-        family: "F01",
+        family: FAMILY,
         command: name,
     }
 }
@@ -393,52 +393,60 @@ pub struct Apply<'a> {
 
 /// `POST /sources` and `PUT /sources/{key}`: Go's single `identity_source_config_apply`.
 pub async fn apply(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     input: &Apply<'_>,
     operation: [u8; 16],
 ) -> CommandOutcome<Option<String>, StatementFailure> {
-    let auth = scope(actor);
+    let actor = user.user().get();
     let capabilities = capabilities(&input.document.source_type);
     let mapping: i64 = 1;
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("identity_source_config_apply"),
-        &envelope(
-            &auth,
-            operation,
-            &format!("{}:{}:{:?}:{}", input.document.key, input.document.canonical, input.expected, input.idempotency),
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!(
+            "{}:{}:{:?}:{}",
+            input.document.key, input.document.canonical, input.expected, input.idempotency
         ),
-        &auth,
-        deadline(),
-        "SELECT identity_source_config_apply($2,$4,$5,$6,$7::text::jsonb,$8,$9,$10,$11,$12::text::uuid,$13)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&input.document.key, Type::TEXT),
-            (&input.document.display_name, Type::TEXT),
-            (&input.document.source_type, Type::TEXT),
-            (&capabilities, Type::TEXT),
-            (&input.envelope, Type::BYTEA),
-            (&input.key_version, Type::INT8),
-            (&mapping, Type::INT8),
-            (&input.expected, Type::INT8),
-            (&input.idempotency, Type::TEXT),
-            (&input.reason, Type::TEXT),
-        ],
-        |rows| {
-            rows.first()
-                .ok_or_else(invalid)?
-                .try_get::<_, Option<String>>(0)
-                .map_err(|_| invalid())
-        },
-    )
-    .await
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::IDV2_SOURCE_APPLY,
+            &[
+                &actor,
+                &input.document.key,
+                &input.document.display_name,
+                &input.document.source_type,
+                &capabilities,
+                &input.envelope,
+                &input.key_version,
+                &mapping,
+                &input.expected,
+                &input.idempotency,
+                &input.reason,
+            ],
+            Some(command("identity_source_config_apply")),
+            |rows| {
+                rows.first()
+                    .ok_or_else(invalid)?
+                    .try_get::<_, Option<String>>(0)
+                    .map_err(|_| invalid())
+            },
+        )
+        .await
 }
 
 /// `PUT .../secrets/{name}` and `POST .../secrets/{name}/rotate`.
 #[allow(clippy::too_many_arguments)]
 pub async fn set_secret(
-    worker: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     key: &str,
     name: &str,
     envelope_bytes: &[u8],
@@ -449,34 +457,41 @@ pub async fn set_secret(
     reason: &str,
     operation: [u8; 16],
 ) -> CommandOutcome<Option<String>, StatementFailure> {
-    let auth = scope(actor);
+    let actor = user.user().get();
     let grace: i32 = if rotate { 3600 } else { 0 };
-    setjoin_pg::run_receipted_command(
-        worker,
-        command("identity_source_secret_set"),
-        &envelope(&auth, operation, &format!("{key}:{name}:{expected}:{rotate}:{idempotency}")),
-        &auth,
-        deadline(),
-        "SELECT identity_source_secret_set($2,$4,$5,$6,$7,$8,$9,$10,$11::text::uuid,$12)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
-        &[
-            (&key, Type::TEXT),
-            (&name, Type::TEXT),
-            (&envelope_bytes, Type::BYTEA),
-            (&key_version, Type::INT8),
-            (&expected, Type::INT8),
-            (&rotate, Type::BOOL),
-            (&grace, Type::INT4),
-            (&idempotency, Type::TEXT),
-            (&reason, Type::TEXT),
-        ],
-        |rows| {
-            rows.first()
-                .ok_or_else(invalid)?
-                .try_get::<_, Option<String>>(0)
-                .map_err(|_| invalid())
-        },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{key}:{name}:{expected}:{rotate}:{idempotency}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::IDV2_SOURCE_SECRET_SET,
+            &[
+                &actor,
+                &key,
+                &name,
+                &envelope_bytes,
+                &key_version,
+                &expected,
+                &rotate,
+                &grace,
+                &idempotency,
+                &reason,
+            ],
+            Some(command("identity_source_secret_set")),
+            |rows| {
+                rows.first()
+                    .ok_or_else(invalid)?
+                    .try_get::<_, Option<String>>(0)
+                    .map_err(|_| invalid())
+            },
+        )
+        .await
 }
 
 /// `admin.IdentitySourceRuntimeConfig`: the decrypted runtime projection of an

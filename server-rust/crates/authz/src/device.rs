@@ -151,7 +151,17 @@ impl DeviceResolver {
                 if setjoin_contracts::mutants::on("device-reseal-under-rls") {
                     let _=self.exec.protocol_statement("UPDATE devices SET hmac_secret_enc=$2,hmac_secret_key_id='v1',hmac_secret=NULL WHERE id=$1 AND hmac_secret=$3 AND hmac_secret_enc IS NULL",&[(&id,Type::INT8),(&sealed,Type::BYTEA),(&legacy.as_str(),Type::TEXT)]).await;
                 } else {
-                    let _=self.exec.protocol_statement("SELECT rust_device_secret_reseal($1,$2,'v1',$3)",&[(&id,Type::INT8),(&sealed,Type::BYTEA),(&legacy.as_str(),Type::TEXT)]).await;
+                    let _ = self
+                        .exec
+                        .protocol_statement(
+                            "SELECT rust_device_secret_reseal($1,$2,'v1',$3)",
+                            &[
+                                (&id, Type::INT8),
+                                (&sealed, Type::BYTEA),
+                                (&legacy.as_str(), Type::TEXT),
+                            ],
+                        )
+                        .await;
                 }
             }
             Zeroizing::new(legacy.as_bytes().to_vec())

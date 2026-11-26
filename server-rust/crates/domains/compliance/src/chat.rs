@@ -1,175 +1,252 @@
 //! F04 chat-compliance, organization-wide authority rather than channel membership.
-use setjoin_pg::{ScopedExecutor, StatementFailure};
-pub async fn policies(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows=exec.read("SELECT id,name,applies_to,duration_days,enabled,effective_at::text,created_at::text,updated_at::text FROM chat_retention_policies ORDER BY id",&[]).await?;
+//! Sensitive hold reads enforce `AdminSensitiveRead` (Tx 1 core audit -> Tx 2 `BEGIN READ ONLY`).
+use super::{command as receipt_cmd, deadline, envelope, finish, invalid, quote, sql};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{AuditEvent, CommandOutcome, StatementFailure};
+
+pub async fn policies(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::CHAT_POLICIES_LIST, &[])
+        .await?;
     let mut entries = Vec::with_capacity(rows.len());
     for r in rows {
-        entries.push(format!("{{\"id\":{},\"name\":{},\"appliesTo\":{},\"durationDays\":{},\"enabled\":{},\"effectiveAt\":{},\"createdAt\":{},\"updatedAt\":{}}}",r.get::<_,i64>(0),super::quote(&r.get::<_,String>(1)),super::quote(&r.get::<_,String>(2)),r.get::<_,i32>(3),r.get::<_,bool>(4),super::quote(&r.get::<_,String>(5)),super::quote(&r.get::<_,String>(6)),super::quote(&r.get::<_,String>(7))));
+        let id: i64 = r.try_get(0).map_err(|_| invalid())?;
+        let name: String = r.try_get(1).map_err(|_| invalid())?;
+        let applies_to: String = r.try_get(2).map_err(|_| invalid())?;
+        let duration_days: i32 = r.try_get(3).map_err(|_| invalid())?;
+        let enabled: bool = r.try_get(4).map_err(|_| invalid())?;
+        let effective_at: String = r.try_get(5).map_err(|_| invalid())?;
+        let created_at: String = r.try_get(6).map_err(|_| invalid())?;
+        let updated_at: String = r.try_get(7).map_err(|_| invalid())?;
+        entries.push(format!(
+            "{{\"id\":{id},\"name\":{},\"appliesTo\":{},\"durationDays\":{duration_days},\"enabled\":{enabled},\"effectiveAt\":{},\"createdAt\":{},\"updatedAt\":{}}}",
+            quote(&name),
+            quote(&applies_to),
+            quote(&effective_at),
+            quote(&created_at),
+            quote(&updated_at)
+        ));
     }
-    Ok(super::finish(format!("[{}]", entries.join(","))))
+    Ok(finish(format!("[{}]", entries.join(","))))
 }
-pub async fn cases(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT id,name,status FROM ediscovery_cases ORDER BY status,name",
-            &[],
-        )
+
+pub async fn cases(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::CHAT_CASES_LIST, &[])
         .await?;
-    let entries = rows
-        .iter()
-        .map(|r| {
-            format!(
-                "{{\"id\":{},\"name\":{},\"status\":{}}}",
-                r.get::<_, i64>(0),
-                super::quote(&r.get::<_, String>(1)),
-                super::quote(&r.get::<_, String>(2))
-            )
+    let mut entries = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let id: i64 = r.try_get(0).map_err(|_| invalid())?;
+        let name: String = r.try_get(1).map_err(|_| invalid())?;
+        let status: String = r.try_get(2).map_err(|_| invalid())?;
+        entries.push(format!(
+            "{{\"id\":{id},\"name\":{},\"status\":{}}}",
+            quote(&name),
+            quote(&status)
+        ));
+    }
+    Ok(finish(format!("[{}]", entries.join(","))))
+}
+
+/// Sensitive read enforcing `AdminSensitiveRead`: Tx 1 commits
+/// `audit_write(actor, 'chat_case_hold_list', 'ediscovery_case', case, ..., ip, '', 'core')`
+/// before Tx 2 reads `chat_case_holds` under `BEGIN READ ONLY` on `AdminWorkerPool`.
+pub async fn holds(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    case: i64,
+    ip: &str,
+) -> Result<String, StatementFailure> {
+    let mut audit = AuditEvent::new("chat_case_hold_list", "ediscovery_case")
+        .map_err(|_| invalid())?
+        .with_target_id(case)
+        .with_notes("");
+    if !ip.is_empty() {
+        audit = audit.with_ip(ip);
+    }
+    let rows = factory
+        .run_admin_sensitive_read_with(admin, &audit, async move |tx| {
+            tx.query_contract(&sql::CHAT_HOLDS_LIST, &[&case]).await
         })
-        .collect::<Vec<_>>();
-    Ok(super::finish(format!("[{}]", entries.join(","))))
-}
-fn time(column: &str) -> String {
-    format!("rtrim(rtrim(to_char({column} AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US'),'0'),'.')||'Z'")
-}
-pub async fn holds(exec: &ScopedExecutor, case: i64) -> Result<String, StatementFailure> {
-    use setjoin_pg::Type;
-    let rows=exec.read(&format!("SELECT h.id,h.case_id,h.custodian_user_id,h.channel_id,h.reason,h.created_by,{}, {},h.released_by,(SELECT count(*) FROM chat_case_hold_channels hc WHERE hc.hold_id=h.id) FROM chat_case_holds h WHERE h.case_id=$1 ORDER BY h.id DESC",time("h.created_at"),time("h.released_at")),&[(&case,Type::INT8)]).await?;
+        .await?;
     let mut out = Vec::new();
     for r in rows {
-        let mut fields = format!(
-            "{{\"id\":{},\"caseId\":{}",
-            r.get::<_, i64>(0),
-            r.get::<_, i64>(1)
-        );
+        let id: i64 = r.try_get(0).map_err(|_| invalid())?;
+        let case_id: i64 = r.try_get(1).map_err(|_| invalid())?;
+        let mut fields = format!("{{\"id\":{id},\"caseId\":{case_id}");
         for (i, key) in [(2, "custodianUserId"), (3, "channelId")] {
-            if let Some(n) = r.get::<_, Option<i64>>(i) {
+            if let Some(n) = r.try_get::<_, Option<i64>>(i).map_err(|_| invalid())? {
                 fields += &format!(",\"{key}\":{n}");
             }
         }
+        let reason: String = r.try_get(4).map_err(|_| invalid())?;
+        let created_by: i64 = r.try_get(5).map_err(|_| invalid())?;
+        let created_at: String = r.try_get(6).map_err(|_| invalid())?;
         fields += &format!(
-            ",\"reason\":{},\"createdBy\":{},\"createdAt\":{}",
-            super::quote(&r.get::<_, String>(4)),
-            r.get::<_, i64>(5),
-            super::quote(&r.get::<_, String>(6))
+            ",\"reason\":{},\"createdBy\":{created_by},\"createdAt\":{}",
+            quote(&reason),
+            quote(&created_at)
         );
-        if let Some(t) = r.get::<_, Option<String>>(7) {
-            fields += &format!(",\"releasedAt\":{}", super::quote(&t));
+        if let Some(t) = r.try_get::<_, Option<String>>(7).map_err(|_| invalid())? {
+            fields += &format!(",\"releasedAt\":{}", quote(&t));
         }
-        if let Some(n) = r.get::<_, Option<i64>>(8) {
+        if let Some(n) = r.try_get::<_, Option<i64>>(8).map_err(|_| invalid())? {
             fields += &format!(",\"releasedBy\":{n}");
         }
-        fields += &format!(",\"channels\":{}}}", r.get::<_, i64>(9));
+        let channels: i64 = r.try_get(9).map_err(|_| invalid())?;
+        fields += &format!(",\"channels\":{channels}}}");
         out.push(fields);
     }
-    Ok(super::finish(format!("[{}]", out.join(","))))
+    Ok(finish(format!("[{}]", out.join(","))))
 }
-pub async fn audit(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
-    action: &str,
-    kind: &str,
-    target: i64,
-    ip: &str,
-    operation: [u8; 16],
-) {
-    use setjoin_pg::{ReceiptCommand, Type};
-    let auth = super::scope(actor);
-    let _=setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:super::FAMILY,command:"chat.audit"},&super::envelope(&auth,operation,action),&auth,super::deadline(),
- "SELECT audit_write($2,$4,$5,$6,NULL,NULL,NULLIF($7,'')::inet,'','core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
- &[(&action,Type::TEXT),(&kind,Type::TEXT),(&target,Type::INT8),(&ip,Type::TEXT)],|_|Ok::<_,StatementFailure>(())).await;
-}
-pub async fn preview(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows=exec.read("SELECT channel_id,purged_count,id_from,id_to,retention_days FROM chat_purge_expired(100000,TRUE)",&[]).await?;
+
+pub async fn preview(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::CHAT_PURGE_PREVIEW, &[])
+        .await?;
     let mut total = 0i64;
     let mut out = Vec::new();
     for r in rows {
-        let count = r.get::<_, i32>(1);
+        let channel_id: i64 = r.try_get(0).map_err(|_| invalid())?;
+        let count: i32 = r.try_get(1).map_err(|_| invalid())?;
+        let id_from: i64 = r.try_get(2).map_err(|_| invalid())?;
+        let id_to: i64 = r.try_get(3).map_err(|_| invalid())?;
+        let retention_days: i32 = r.try_get(4).map_err(|_| invalid())?;
         total += i64::from(count);
-        out.push(format!("{{\"channelId\":{},\"purgedCount\":{count},\"idFrom\":{},\"idTo\":{},\"retentionDays\":{}}}",r.get::<_,i64>(0),r.get::<_,i64>(2),r.get::<_,i64>(3),r.get::<_,i32>(4)));
+        out.push(format!(
+            "{{\"channelId\":{channel_id},\"purgedCount\":{count},\"idFrom\":{id_from},\"idTo\":{id_to},\"retentionDays\":{retention_days}}}"
+        ));
     }
-    Ok(super::finish(format!(
+    Ok(finish(format!(
         "{{\"channels\":[{}],\"totalChannels\":{},\"totalMessages\":{total}}}",
         out.join(","),
         out.len()
     )))
 }
 
-const OVERVIEW: &str = r#"
-SELECT
-  COALESCE((SELECT jsonb_agg(jsonb_build_object('id', ch.id, 'kind', ch.kind, 'name', ch.name,
-              'legalHoldReason', ch.legal_hold_reason, 'caseHolds', ch.case_holds) ORDER BY ch.id)
-    FROM (
-      SELECT c.id, c.kind, c.name, c.legal_hold_reason,
-             (SELECT jsonb_agg(jsonb_build_object('caseId', h.case_id, 'holdId', h.id))
-                FROM chat_case_hold_channels hc
-                JOIN chat_case_holds h ON h.id = hc.hold_id AND h.released_at IS NULL
-               WHERE hc.channel_id = c.id) AS case_holds
-        FROM chat_channels c
-       WHERE chat_hold_active(c.id)          -- REPOINTED (A4b spec §2.3)
-       -- ponytail: chat_hold_active(c.id) per row over all channels — a
-       -- per-row DEFINER call at admin-console frequency; inline the
-       -- two-arm predicate as a set query if a 100k-channel org ever drags.
-    ) ch), '[]'::jsonb),
-  COALESCE((SELECT jsonb_agg(jsonb_build_object('id', id, 'kind', kind, 'name', name, 'retentionDays', retention_days, 'wormMode', worm_mode) ORDER BY id)
-              FROM chat_channels WHERE classification = 'gxp'), '[]'::jsonb),
-  COALESCE((SELECT jsonb_agg(jsonb_build_object('id', id, 'kind', kind, 'name', name, 'retentionDays', retention_days) ORDER BY id)
-              FROM chat_channels WHERE retention_days IS NOT NULL AND classification = 'regular'), '[]'::jsonb)"#;
-pub async fn overview(exec: &ScopedExecutor, next: &str) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            &format!("SELECT a::text,b::text,c::text FROM ({OVERVIEW}) AS t(a,b,c)"),
-            &[],
-        )
+pub async fn overview(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    next: &str,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::CHAT_OVERVIEW, &[])
         .await?;
-    let r = rows.first().ok_or_else(super::invalid)?;
-    let last=exec.read("SELECT (after_state->>'channels')::int,(after_state->>'messages')::int,(after_state->>'drained')::boolean,to_char(occurred_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM admin_audit_log WHERE action='chat.purge_run' ORDER BY id DESC LIMIT 1",&[]).await?;
+    let r = rows.first().ok_or_else(invalid)?;
+    let under_hold: String = r.try_get(0).map_err(|_| invalid())?;
+    let gxp: String = r.try_get(1).map_err(|_| invalid())?;
+    let overrides: String = r.try_get(2).map_err(|_| invalid())?;
+    let last = factory
+        .run_admin_read_contract(admin, &sql::CHAT_OVERVIEW_LAST_PURGE, &[])
+        .await?;
     let last = if let Some(r) = last.first() {
+        let channels: i32 = r.try_get(0).map_err(|_| invalid())?;
+        let messages: i32 = r.try_get(1).map_err(|_| invalid())?;
+        let drained: bool = r.try_get(2).map_err(|_| invalid())?;
+        let occurred_at: String = r.try_get(3).map_err(|_| invalid())?;
         format!(
-            "{{\"channels\":{},\"drained\":{},\"messages\":{},\"occurredAt\":{}}}",
-            r.try_get::<_, i32>(0).map_err(|_| super::invalid())?,
-            r.try_get::<_, bool>(2).map_err(|_| super::invalid())?,
-            r.try_get::<_, i32>(1).map_err(|_| super::invalid())?,
-            super::quote(&r.get::<_, String>(3))
+            "{{\"channels\":{channels},\"drained\":{drained},\"messages\":{messages},\"occurredAt\":{}}}",
+            quote(&occurred_at)
         )
     } else {
         "null".into()
     };
-    Ok(super::finish(format!("{{\"channelsUnderHold\":{},\"channelsWithOverrides\":{},\"gxpChannels\":{},\"lastPurgeRun\":{last},\"nextRunAt\":{}}}",r.get::<_,String>(0),r.get::<_,String>(2),r.get::<_,String>(1),super::quote(next))))
+    Ok(finish(format!(
+        "{{\"channelsUnderHold\":{under_hold},\"channelsWithOverrides\":{overrides},\"gxpChannels\":{gxp},\"lastPurgeRun\":{last},\"nextRunAt\":{}}}",
+        quote(next)
+    )))
 }
 
 /// One reducer owns policy data and Go's best-effort core audit.
+#[allow(clippy::too_many_arguments)]
 pub async fn policy(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    admin: &AdminPermissionProof,
+    signed_non_admin: bool,
     action: &str,
     id: i64,
     data: &serde_json::Value,
     confirm: &str,
     ip: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<serde_json::Value, StatementFailure> {
-    use setjoin_pg::{ReceiptCommand, Type};
-    let auth = super::scope(actor);
-    let signed = !actor.signed_admin();
+) -> CommandOutcome<serde_json::Value, StatementFailure> {
+    let actor_id = admin.actor().get();
     let data = data.to_string();
-    setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:super::FAMILY,command:"chat.policy"},&super::envelope(&auth,operation,&serde_json::json!([action,id,data,confirm]).to_string()),&auth,super::deadline(),
- "SELECT rust_compliance_chat_policy($2,$4,$5,$6,$7::text::jsonb,$8,$9)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
- &[(&signed,Type::BOOL),(&action,Type::TEXT),(&id,Type::INT8),(&data,Type::TEXT),(&confirm,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).and_then(|raw|serde_json::from_str(&raw).ok()).ok_or_else(super::invalid)).await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &serde_json::json!([action, id, data, confirm]).to_string(),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CHAT_POLICY_MUTATE,
+            &[
+                &actor_id,
+                &signed_non_admin,
+                &action,
+                &id,
+                &data,
+                &confirm,
+                &ip,
+            ],
+            Some(receipt_cmd("chat.policy")),
+            |rows| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, String>(0).ok())
+                    .and_then(|raw| serde_json::from_str(&raw).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }
 
+/// Case-bound chat oversight command (`hold`, `release`, `search`, `read`, `export`)
+/// executed via `AdminWriteTx` (`ReducerWritesCoreAudit`).
+#[allow(clippy::too_many_arguments)]
 pub async fn command(
-    exec: &ScopedExecutor,
-    actor: &setjoin_authz::AuthContext,
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    signed_non_admin: bool,
     action: &str,
     data: &serde_json::Value,
     ip: &str,
     operation: [u8; 16],
-) -> setjoin_pg::CommandOutcome<serde_json::Value, StatementFailure> {
-    use setjoin_pg::{ReceiptCommand, Type};
-    let auth = super::scope(actor);
-    let signed = !actor.signed_admin();
+) -> CommandOutcome<serde_json::Value, StatementFailure> {
     let data = data.to_string();
-    setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:super::FAMILY,command:"chat.oversight"},&super::envelope(&auth,operation,&serde_json::json!([action,data]).to_string()),&auth,super::deadline(),
- "SELECT rust_compliance_chat_command($2,$4,$5,$6::text::jsonb,$7)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
- &[(&signed,Type::BOOL),(&action,Type::TEXT),(&data,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).and_then(|raw|serde_json::from_str(&raw).ok()).ok_or_else(super::invalid)).await
+    let env = envelope(
+        admin.actor(),
+        admin.generation(),
+        operation,
+        &serde_json::json!([action, data]).to_string(),
+    );
+    factory
+        .run_admin_audited_reducer_contract(
+            admin,
+            &env,
+            deadline(),
+            &sql::CHAT_COMMAND,
+            &[&signed_non_admin, &action, &data, &ip],
+            Some(receipt_cmd("chat.oversight")),
+            |rows, _audited| {
+                rows.first()
+                    .and_then(|r| r.try_get::<_, String>(0).ok())
+                    .and_then(|raw| serde_json::from_str(&raw).ok())
+                    .ok_or_else(invalid)
+            },
+        )
+        .await
 }

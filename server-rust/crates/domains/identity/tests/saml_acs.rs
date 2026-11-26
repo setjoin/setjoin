@@ -224,7 +224,7 @@ fn xsw_variants_1_to_8_are_refused() {
         // XSW1: signed Response cloned into an evil Response (as Extensions content).
         ("xsw1", response(&evil(), "", &format!("<samlp:Extensions>{signed_r}</samlp:Extensions>{evil_a}"))),
         // XSW2: legit signed Response placed before the evil assertion, inside the evil Response.
-        ("xsw2", format!("{}", response(&evil(), "", &format!("{evil_a}<samlp:Extensions>{signed_r}</samlp:Extensions>")))),
+        ("xsw2", response(&evil(), "", &format!("{evil_a}<samlp:Extensions>{signed_r}</samlp:Extensions>"))),
         // XSW3: evil assertion first, legit signed assertion kept after it.
         ("xsw3", shell(&format!("{evil_a}{signed_a}"))),
         // XSW4: legit signed assertion nested inside the evil assertion.
@@ -232,7 +232,7 @@ fn xsw_variants_1_to_8_are_refused() {
         // XSW5: evil assertion carrying the legit signature, legit (unsigned copy) alongside.
         ("xsw5", shell(&format!("{evil_sig_a}{}", assertion(&o, "")))),
         // XSW6: evil assertion carrying the legit signature, wrapping the legit signed one.
-        ("xsw6", shell(&assertion_with_child(&evil(), &format!("{signed_a}")).replace("<saml:Subject>", &format!("{}<saml:Subject>", extract(&signed_a, "<ds:Signature", "</ds:Signature>"))))),
+        ("xsw6", shell(&assertion_with_child(&evil(), &signed_a).replace("<saml:Subject>", &format!("{}<saml:Subject>", extract(&signed_a, "<ds:Signature", "</ds:Signature>"))))),
         // XSW7: legit signed assertion in Extensions, evil assertion at the real position.
         ("xsw7", shell(&format!("<samlp:Extensions>{signed_a}</samlp:Extensions>{evil_a}"))),
         // XSW8: legit signed assertion inside the Signature's Object, evil at the real position.
@@ -527,7 +527,7 @@ fn an_expired_assertion_is_refused_within_a_bounded_skew() {
         ..Opts::default()
     };
     assert_eq!(class(run(&signed(&past), idp)), "conditions");
-    assert!(setjoin_identity::saml_acs::SKEW <= 180);
+    const { assert!(setjoin_identity::saml_acs::SKEW <= 180) };
 }
 #[test]
 fn a_confirmation_that_outlives_its_window_is_refused_on_its_own() {
@@ -623,7 +623,13 @@ fn signed_info_must_read_the_same_in_the_signed_bytes() {
     use setjoin_identity::saml_acs::{canonical_element, signed_info_agreement};
     let idp = rsa_idp();
     let xml = signed_assertion(&Opts::default(), &SigSpec::new(idp));
-    let canonical = canonical_element(&xml, "http://www.w3.org/2000/09/xmldsig#", "SignedInfo", &[]).unwrap();
+    let canonical = canonical_element(
+        &xml,
+        "http://www.w3.org/2000/09/xmldsig#",
+        "SignedInfo",
+        &[],
+    )
+    .unwrap();
     signed_info_agreement(&xml, &canonical).expect("the genuine pair agrees");
     // A digest value, an algorithm or a Reference that differs in the covered bytes.
     let start = canonical.find("<ds:DigestValue>").unwrap() + "<ds:DigestValue>".len();
@@ -634,6 +640,9 @@ fn signed_info_must_read_the_same_in_the_signed_bytes() {
         canonical.replace("rsa-sha256", "rsa-sha512"),
         canonical.replace("URI=\"#_assertion1\"", "URI=\"#_response1\""),
     ] {
-        assert_eq!(signed_info_agreement(&xml, &changed).unwrap_err().class, "structure");
+        assert_eq!(
+            signed_info_agreement(&xml, &changed).unwrap_err().class,
+            "structure"
+        );
     }
 }

@@ -1018,6 +1018,10 @@ impl TxFactory {
         self.admin_pool.is_some()
     }
 
+    pub(crate) fn admin_worker_pool(&self) -> Option<&AdminWorkerPool> {
+        self.admin_pool.as_ref()
+    }
+
     pub fn group_resolver(&self) -> &Arc<GroupResolver> {
         &self.groups
     }

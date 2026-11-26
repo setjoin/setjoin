@@ -108,14 +108,14 @@ impl AuthServer {
             Ok(s) => s,
             Err(r) => return r,
         };
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
             return Self::not_found();
         }
         match setjoin_identity::identity_links::list(
-            self.recovery_worker.as_ref().unwrap_or(&self.exec),
+            self.recovery_worker.as_ref().unwrap_or(&self.auth_db),
             &session,
         )
         .await
@@ -141,7 +141,7 @@ impl AuthServer {
                 )))
                 .unwrap();
         }
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -157,7 +157,7 @@ impl AuthServer {
         let worker = self
             .recovery_worker
             .as_ref()
-            .unwrap_or(&self.exec)
+            .unwrap_or(&self.auth_db)
             .clone()
             .with_audit_keys(
                 self.config.db_encryption_key.clone(),
@@ -227,7 +227,7 @@ impl AuthServer {
                 )))
                 .unwrap();
         }
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -273,7 +273,7 @@ impl AuthServer {
         let worker = self
             .recovery_worker
             .as_ref()
-            .unwrap_or(&self.exec)
+            .unwrap_or(&self.auth_db)
             .clone()
             .with_audit_keys(
                 self.config.db_encryption_key.clone(),
@@ -354,7 +354,7 @@ impl AuthServer {
         ip: &str,
         clear: Option<String>,
     ) -> Response<Body> {
-        setjoin_identity::saml::audit(&self.exec, reg.id(), class, None, ip, detail).await;
+        setjoin_identity::saml::audit(&self.auth_db, reg.id(), class, None, ip, detail).await;
         let mut reply = Self::failure(
             status,
             match status {
@@ -499,7 +499,7 @@ impl AuthServer {
                     .await;
             }
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
         match reg.consume(worker, &claims, request_id).await {
             setjoin_identity::saml::Consumed::Fresh => {}
             setjoin_identity::saml::Consumed::Replayed => {
@@ -568,7 +568,7 @@ impl AuthServer {
                     )
                     .await;
             };
-            setjoin_identity::saml::audit(&self.exec, reg.id(), "link_held", None, &ip, "link")
+            setjoin_identity::saml::audit(&self.auth_db, reg.id(), "link_held", None, &ip, "link")
                 .await;
             let next = format!("{}?token={token}", reg.link_complete_path());
             let page = format!(
@@ -612,7 +612,7 @@ impl AuthServer {
         };
         if reply.status().is_redirection() {
             setjoin_identity::saml::audit(
-                &self.exec,
+                &self.auth_db,
                 reg.id(),
                 "success",
                 actor,
@@ -622,7 +622,7 @@ impl AuthServer {
             .await;
         } else {
             setjoin_identity::saml::audit(
-                &self.exec,
+                &self.auth_db,
                 reg.id(),
                 "refused",
                 None,
@@ -666,8 +666,8 @@ impl AuthServer {
                 )
             }
         };
-        let worker = self.recovery_worker.as_ref().unwrap_or(&self.exec);
-        let resolution = match assertion.resolve(&self.exec, worker).await {
+        let worker = self.recovery_worker.as_ref().unwrap_or(&self.auth_db);
+        let resolution = match assertion.resolve(&self.auth_db, worker).await {
             Ok(setjoin_identity::rp::Lookup::Existing(resolution)) => resolution,
             Ok(setjoin_identity::rp::Lookup::Missing(miss)) => {
                 // The OIDC RP's provisioning policy, unchanged (#546).
@@ -703,7 +703,7 @@ impl AuthServer {
                         None,
                     );
                 }
-                match miss.create(&self.exec, worker).await {
+                match miss.create(&self.auth_db, worker).await {
                     Ok(resolution) => resolution,
                     Err(error) if error.message == "explicit account linking is required" => {
                         return (Self::failure(409, &error.message, path), None)
@@ -764,7 +764,7 @@ impl AuthServer {
         reg: &Arc<setjoin_identity::saml::Registration>,
         raw_flow: &str,
     ) -> (Response<Body>, Option<i64>) {
-        if !login::enabled(&self.exec, "feature.identity_model_v2")
+        if !login::enabled(&self.auth_db, "feature.identity_model_v2")
             .await
             .unwrap_or(false)
         {
@@ -790,7 +790,7 @@ impl AuthServer {
         }) else {
             return (Self::failure(403, "linking session changed", ""), None);
         };
-        let flow = match flow.authorize(&session, &raw, &self.exec).await {
+        let flow = match flow.authorize(&session, &raw, &self.auth_db).await {
             Ok(f) => f,
             Err(detail) => {
                 return (
@@ -810,7 +810,7 @@ impl AuthServer {
         let worker = self
             .recovery_worker
             .as_ref()
-            .unwrap_or(&self.exec)
+            .unwrap_or(&self.auth_db)
             .clone()
             .with_audit_keys(
                 self.config.db_encryption_key.clone(),
@@ -912,11 +912,11 @@ impl AuthServer {
             .unwrap(),
         );
         if reply.status().is_redirection() {
-            setjoin_identity::saml::audit(&self.exec, reg.id(), "success", actor, &ip, "link")
+            setjoin_identity::saml::audit(&self.auth_db, reg.id(), "success", actor, &ip, "link")
                 .await;
         } else {
             setjoin_identity::saml::audit(
-                &self.exec,
+                &self.auth_db,
                 reg.id(),
                 "refused",
                 None,

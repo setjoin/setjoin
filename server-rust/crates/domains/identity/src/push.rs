@@ -17,7 +17,9 @@ pub fn vapid_public_key(private: &str) -> Option<String> {
 
 /// Reducer JSON is the first row's text column. A missing row, NULL, wrong type or bad JSON
 /// rejects the statement instead of panicking.
-fn reducer_json(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, setjoin_pg::StatementFailure> {
+fn reducer_json(
+    rows: &[setjoin_pg::Row],
+) -> Result<serde_json::Value, setjoin_pg::StatementFailure> {
     rows.first()
         .and_then(|r| r.try_get::<_, String>(0).ok())
         .and_then(|raw| serde_json::from_str(&raw).ok())
@@ -30,14 +32,14 @@ fn reducer_json(rows: &[setjoin_pg::Row]) -> Result<serde_json::Value, setjoin_p
 
 /// Password proof and the grant write share one retained transaction and user fence.
 pub async fn password_grant(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     session: &crate::session::Session,
     password: &str,
     operation: &str,
     target: Option<String>,
 ) -> setjoin_pg::CommandOutcome<serde_json::Value, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
-    use setjoin_pg::{ProvenStatement, Type};
+    use setjoin_pg::{ProvenContract, Type};
     use sha2::{Digest, Sha256};
     let Ok(actor) = ActorId::new(session.user()) else {
         return setjoin_pg::CommandOutcome::Committed(serde_json::json!({"status":"internal"}));
@@ -54,34 +56,30 @@ pub async fn password_grant(
         family: "F21",
         command: "mfa-password-grant",
     });
-    exec.run_user_proof_command(
+    exec.run_user_proof_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT rust_identity_possession_read($1,$2::text::jsonb)::text",
+        &crate::sql::PUSH_L60,
         &[(&user, Type::INT8), (&claims, Type::TEXT)],
         |rows| {
-            let value: serde_json::Value =
-                reducer_json(rows)?;
+            let value: serde_json::Value = reducer_json(rows)?;
             if value["status"] != "ready" {
                 return Ok(
-                    ProvenStatement::new("SELECT $1::text").bind(value.to_string(), Type::TEXT)
+                    ProvenContract::new(&crate::sql::ECHO_TEXT).bind(value.to_string(), Type::TEXT)
                 );
             }
             let valid =
                 setjoin_authz::password::verify(value["hash"].as_str().unwrap_or(""), password);
-            Ok(ProvenStatement::new(
-                "SELECT rust_identity_possession_issue($1,$2::text::jsonb,$3,$4,$5,$6)::text",
-            )
-            .bind(user, Type::INT8)
-            .bind(claims.clone(), Type::TEXT)
-            .bind(operation.to_owned(), Type::TEXT)
-            .bind(target, Type::TEXT)
-            .bind(hash, Type::TEXT)
-            .bind(valid, Type::BOOL))
+            Ok(ProvenContract::new(&crate::sql::PUSH_L73)
+                .bind(user, Type::INT8)
+                .bind(claims.clone(), Type::TEXT)
+                .bind(operation.to_owned(), Type::TEXT)
+                .bind(target, Type::TEXT)
+                .bind(hash, Type::TEXT)
+                .bind(valid, Type::BOOL))
         },
         |rows| {
-            let mut value: serde_json::Value =
-                reducer_json(rows)?;
+            let mut value: serde_json::Value = reducer_json(rows)?;
             if value["status"] == "issued" {
                 value["token"] = serde_json::json!(token);
             }
@@ -93,14 +91,14 @@ pub async fn password_grant(
 
 /// TOTP proof and the grant write share one retained transaction and user fence.
 pub async fn totp_grant(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     session: &crate::session::Session,
     code: &str,
     operation: &str,
     target: Option<String>,
 ) -> setjoin_pg::CommandOutcome<serde_json::Value, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
-    use setjoin_pg::{ProvenStatement, Type};
+    use setjoin_pg::{ProvenContract, Type};
     use sha2::{Digest, Sha256};
     let Ok(actor) = ActorId::new(session.user()) else {
         return setjoin_pg::CommandOutcome::Committed(serde_json::json!({"status":"internal"}));
@@ -117,38 +115,38 @@ pub async fn totp_grant(
         family: "F21",
         command: "mfa-totp-grant",
     });
-    exec.run_user_proof_command(
+    exec.run_user_proof_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT rust_identity_possession_totp_read($1,$2::text::jsonb)::text",
+        &crate::sql::PUSH_L123,
         &[(&user, Type::INT8), (&claims, Type::TEXT)],
         |rows| {
-            let value: serde_json::Value =
-                reducer_json(rows)?;
+            let value: serde_json::Value = reducer_json(rows)?;
             if value["status"] != "ready" {
                 return Ok(
-                    ProvenStatement::new("SELECT $1::text").bind(value.to_string(), Type::TEXT)
+                    ProvenContract::new(&crate::sql::ECHO_TEXT).bind(value.to_string(), Type::TEXT)
                 );
             }
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
-            let proof=crate::totp::counter_proof(code,crate::totp::ready_secret(&value)?,now);
-            let counter=proof.as_ref().map(|p|p.0);let factor=proof.map(|p|p.1);let valid=counter.is_some();
-            Ok(ProvenStatement::new(
-                "SELECT rust_identity_possession_totp_issue($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8)::text",
-            )
-            .bind(user, Type::INT8)
-            .bind(claims.clone(), Type::TEXT)
-            .bind(operation.to_owned(), Type::TEXT)
-            .bind(target, Type::TEXT)
-            .bind(hash, Type::TEXT)
-            .bind(valid, Type::BOOL).bind(counter,Type::INT8).bind(factor,Type::BYTEA))
+            let proof = crate::totp::counter_proof(code, crate::totp::ready_secret(&value)?, now);
+            let counter = proof.as_ref().map(|p| p.0);
+            let factor = proof.map(|p| p.1);
+            let valid = counter.is_some();
+            Ok(ProvenContract::new(&crate::sql::PUSH_L140)
+                .bind(user, Type::INT8)
+                .bind(claims.clone(), Type::TEXT)
+                .bind(operation.to_owned(), Type::TEXT)
+                .bind(target, Type::TEXT)
+                .bind(hash, Type::TEXT)
+                .bind(valid, Type::BOOL)
+                .bind(counter, Type::INT8)
+                .bind(factor, Type::BYTEA))
         },
         |rows| {
-            let mut value: serde_json::Value =
-                reducer_json(rows)?;
+            let mut value: serde_json::Value = reducer_json(rows)?;
             if value["status"] == "issued" {
                 value["token"] = serde_json::json!(token);
             }
@@ -160,13 +158,13 @@ pub async fn totp_grant(
 
 /// Recovery code generation consumes the proved tuple before hashing, in one transaction.
 pub async fn generate_backups(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     session: &crate::session::Session,
     proof: &str,
     ip: &str,
 ) -> setjoin_pg::CommandOutcome<serde_json::Value, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
-    use setjoin_pg::{CommandOutcome, ProvenStatement, Rejection, StatementFailure, Type};
+    use setjoin_pg::{CommandOutcome, ProvenContract, Rejection, StatementFailure, Type};
     use sha2::{Digest, Sha256};
     let failure = || StatementFailure {
         sqlstate: None,
@@ -187,25 +185,63 @@ pub async fn generate_backups(
         family: "F21",
         command: "mfa-backup-generate",
     });
-    let outcome=exec.run_user_async_proof_command_with_tail(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),
-  "SELECT rust_identity_possession_consume($1,$2::text::jsonb,$3,'recovery.regenerate',false,NULL)::text",
-  &[(&user,Type::INT8),(&claims,Type::TEXT),(&hash,Type::TEXT)],
-  |rows|{let parsed=reducer_json(rows);async move{let value:serde_json::Value=parsed?;
-   if value["status"]!="ready"{return Ok(ProvenStatement::new("SELECT $1::text").bind(value.to_string(),Type::TEXT));}
-   stage.store(true,std::sync::atomic::Ordering::Relaxed);
-   let (codes,hashes)=tokio::task::spawn_blocking(||->Result<_,()>{
-    use ring::rand::SecureRandom;let mut codes=Vec::with_capacity(10);let mut hashes=Vec::with_capacity(10);
-    for _ in 0..10{let mut bytes=[0;4];ring::rand::SystemRandom::new().fill(&mut bytes).map_err(|_|())?;
-     let code=bytes.iter().map(|b|format!("{b:02x}")).collect::<String>();
-     let hash=bcrypt::hash_with_result(&code,10).map_err(|_|())?.format_for_version(bcrypt::Version::TwoA);codes.push(code);hashes.push(hash);
-    }Ok((codes,hashes))
-   }).await.map_err(|_|failure())?.map_err(|_|failure())?;
-   *slot.lock().unwrap()=codes;
-   Ok(ProvenStatement::new("SELECT rust_identity_backup_generate($1,$2,$3)::text").bind(user,Type::INT8).bind(hashes,Type::TEXT_ARRAY).bind(ip.to_owned(),Type::TEXT))
-  }},
-  |rows|{let mut value:serde_json::Value=reducer_json(rows)?;
-   if value["status"]=="generated"{value["codes"]=serde_json::json!(*generated.lock().unwrap());}Ok(value)
-  },|_|async{}).await;
+    let outcome = exec
+        .run_user_async_proof_command_contract_with_tail(
+            actor,
+            OperationId(*uuid::Uuid::new_v4().as_bytes()),
+            &crate::sql::PUSH_L191,
+            &[
+                (&user, Type::INT8),
+                (&claims, Type::TEXT),
+                (&hash, Type::TEXT),
+            ],
+            |rows| {
+                let parsed = reducer_json(rows);
+                async move {
+                    let value: serde_json::Value = parsed?;
+                    if value["status"] != "ready" {
+                        return Ok(ProvenContract::new(&crate::sql::ECHO_TEXT)
+                            .bind(value.to_string(), Type::TEXT));
+                    }
+                    stage.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let (codes, hashes) = tokio::task::spawn_blocking(|| -> Result<_, ()> {
+                        use ring::rand::SecureRandom;
+                        let mut codes = Vec::with_capacity(10);
+                        let mut hashes = Vec::with_capacity(10);
+                        for _ in 0..10 {
+                            let mut bytes = [0; 4];
+                            ring::rand::SystemRandom::new()
+                                .fill(&mut bytes)
+                                .map_err(|_| ())?;
+                            let code = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+                            let hash = bcrypt::hash_with_result(&code, 10)
+                                .map_err(|_| ())?
+                                .format_for_version(bcrypt::Version::TwoA);
+                            codes.push(code);
+                            hashes.push(hash);
+                        }
+                        Ok((codes, hashes))
+                    })
+                    .await
+                    .map_err(|_| failure())?
+                    .map_err(|_| failure())?;
+                    *slot.lock().unwrap() = codes;
+                    Ok(ProvenContract::new(&crate::sql::PUSH_L204)
+                        .bind(user, Type::INT8)
+                        .bind(hashes, Type::TEXT_ARRAY)
+                        .bind(ip.to_owned(), Type::TEXT))
+                }
+            },
+            |rows| {
+                let mut value: serde_json::Value = reducer_json(rows)?;
+                if value["status"] == "generated" {
+                    value["codes"] = serde_json::json!(*generated.lock().unwrap());
+                }
+                Ok(value)
+            },
+            |_| async {},
+        )
+        .await;
     match outcome {
         CommandOutcome::RolledBack(_) if ready.load(std::sync::atomic::Ordering::Relaxed) => {
             CommandOutcome::RolledBack(Rejection::Statement(failure()))
@@ -216,7 +252,7 @@ pub async fn generate_backups(
 
 /// Frozen backup-code CAS: read/verify independently, then atomically claim the owned hash.
 pub async fn consume_backup(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     pending: &crate::session::Session,
     code: &str,
 ) -> setjoin_pg::CommandOutcome<bool, setjoin_pg::StatementFailure> {
@@ -226,9 +262,9 @@ pub async fn consume_backup(
         return CommandOutcome::RolledBack(Rejection::Unavailable);
     };
     let rows = match exec
-        .read_user_scoped(
+        .read_user_scoped_contract(
             actor,
-            "SELECT totp_backup_codes_enc FROM users WHERE id=$1",
+            &crate::sql::PUSH_L231,
             &[(&pending.user(), Type::INT8)],
         )
         .await
@@ -272,9 +308,14 @@ pub async fn consume_backup(
         family: "F21",
         command: "mfa-backup-consume",
     });
-    exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),
-  "UPDATE users SET totp_backup_codes_enc=array_remove(totp_backup_codes_enc,$2) WHERE id=$1 AND $2=ANY(totp_backup_codes_enc) RETURNING id",
-  &[(&pending.user(),Type::INT8),(&hash,Type::TEXT)],|rows|Ok(!rows.is_empty())).await
+    exec.run_user_command_contract(
+        actor,
+        OperationId(*uuid::Uuid::new_v4().as_bytes()),
+        &crate::sql::PUSH_L276,
+        &[(&pending.user(), Type::INT8), (&hash, Type::TEXT)],
+        |rows| Ok(!rows.is_empty()),
+    )
+    .await
 }
 
 /// Frozen native device key admission: hex, then uncompressed on-curve P-256.
@@ -293,7 +334,7 @@ pub fn native_key(text: &str) -> Result<Vec<u8>, &'static str> {
 /// The sealed access proof alone supplies the native approval-device owner.
 #[allow(clippy::too_many_arguments)]
 pub async fn register_native(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     proof: &crate::issuance::SessionProof,
     token: &str,
     provider: &str,
@@ -314,10 +355,10 @@ pub async fn register_native(
         command: "mfa-native-register",
     });
     let outcome = receipted
-        .run_user_command(
+        .run_user_command_contract(
             actor,
             OperationId(*uuid::Uuid::new_v4().as_bytes()),
-            "SELECT rust_identity_native_register($1,$2::text::jsonb,$3,$4,$5,$6,$7,$8)::text",
+            &crate::sql::PUSH_L320,
             &[
                 (&user, Type::INT8),
                 (&claims, Type::TEXT),
@@ -328,11 +369,7 @@ pub async fn register_native(
                 (&name, Type::TEXT),
                 (&ip, Type::TEXT),
             ],
-            |rows| {
-                Ok(
-                    reducer_json(rows)?,
-                )
-            },
+            reducer_json,
         )
         .await;
     if let CommandOutcome::Committed(value) = &outcome {
@@ -343,9 +380,21 @@ pub async fn register_native(
                 } else {
                     "native device register without a valid possession proof"
                 };
-            let _=exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),
-   "INSERT INTO admin_audit_log(user_id,ip,action,target_type,target_id,notes) VALUES($1,$2::text::inet,'mfa_reauth_refused','user',$1,$3)",
-   &[(&user,Type::INT8),(&ip,Type::TEXT),(&notes,Type::TEXT)],|_|Ok(())).await;
+            let action = "mfa_reauth_refused";
+            let _ = exec
+                .run_user_command_contract(
+                    actor,
+                    OperationId(*uuid::Uuid::new_v4().as_bytes()),
+                    &crate::sql::ADMIN_AUDIT_WRITE_USER,
+                    &[
+                        (&user, Type::INT8),
+                        (&ip, Type::TEXT),
+                        (&action, Type::TEXT),
+                        (&notes, Type::TEXT),
+                    ],
+                    |_| Ok(()),
+                )
+                .await;
         }
     }
     outcome
@@ -354,7 +403,7 @@ pub async fn register_native(
 /// An approved nonce can be harvested only by its exact initiating signed token.
 /// The claim commits independently before session issuance, as frozen Go does.
 pub async fn harvest(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     pending: &crate::session::Session,
     nonce: &str,
     token: &str,
@@ -362,7 +411,12 @@ pub async fn harvest(
     use setjoin_contracts::ids::{ActorId, OperationId};
     use setjoin_pg::{CommandOutcome, Rejection, StatementFailure, Type};
     let user = pending.user();
-    let approved=exec.read("SELECT approved_at IS NOT NULL FROM push_mfa_challenges WHERE nonce=decode($1,'hex') AND user_id=$2 ORDER BY created_at DESC LIMIT 1",&[(&nonce,Type::TEXT),(&user,Type::INT8)]).await;
+    let approved = exec
+        .read_contract(
+            &crate::sql::PUSH_L365,
+            &[(&nonce, Type::TEXT), (&user, Type::INT8)],
+        )
+        .await;
     // A query error or no row is not approved; an unreadable flag is a statement failure.
     let approved = match approved {
         Ok(rows) => match rows.first().map(|r| r.try_get::<_, bool>(0)) {
@@ -385,9 +439,18 @@ pub async fn harvest(
         family: "F21",
         command: "mfa-push-harvest",
     });
-    exec.run_user_command(ActorId::new(user).expect("signed pending principal"),OperationId(*uuid::Uuid::new_v4().as_bytes()),
-     "UPDATE push_mfa_challenges SET session_id=NULL WHERE nonce=decode($1,'hex') AND user_id=$2 AND session_id=$3 AND approved_at IS NOT NULL AND expires_at>now() RETURNING true",
-     &[(&nonce,Type::TEXT),(&user,Type::INT8),(&token,Type::TEXT)],|rows|Ok(!rows.is_empty())).await
+    exec.run_user_command_contract(
+        ActorId::new(user).expect("signed pending principal"),
+        OperationId(*uuid::Uuid::new_v4().as_bytes()),
+        &crate::sql::PUSH_L389,
+        &[
+            (&nonce, Type::TEXT),
+            (&user, Type::INT8),
+            (&token, Type::TEXT),
+        ],
+        |rows| Ok(!rows.is_empty()),
+    )
+    .await
 }
 
 /// Go preserves the pending AMR, appends the completed factors, then legacy pwd.
@@ -456,7 +519,12 @@ pub fn verify_approval(key: &[u8], canonical: &[u8], signature: &str) -> bool {
 /// Go's MFAApprove decision (device.go:307-345) over the locked reducer row. A missing or
 /// mistyped `failures`, `expires`, `code`, `session` or hex `key` is Go's failed Scan: a uniform
 /// "invalid" with no burn, failure count or approval, never zero failures (#455).
-fn approval_result(value: &serde_json::Value, assertion: &Approval, user: i64, now: i64) -> &'static str {
+fn approval_result(
+    value: &serde_json::Value,
+    assertion: &Approval,
+    user: i64,
+    now: i64,
+) -> &'static str {
     use subtle::ConstantTimeEq;
     let (Some(failures), Some(expires), Some(code), Some(session), Some(key)) = (
         value["failures"].as_i64(),
@@ -483,7 +551,11 @@ fn approval_result(value: &serde_json::Value, assertion: &Approval, user: i64, n
             .expires
             .checked_sub(assertion.issued)
             .is_none_or(|d| d > 120)
-        || !verify_approval(&key, &assertion.canonical(user, session), &assertion.signature)
+        || !verify_approval(
+            &key,
+            &assertion.canonical(user, session),
+            &assertion.signature,
+        )
     {
         "invalid"
     } else if !bool::from(code.as_bytes().ct_eq(assertion.code.as_bytes())) {
@@ -496,16 +568,21 @@ fn approval_result(value: &serde_json::Value, assertion: &Approval, user: i64, n
 /// Preauth capability lookup resolves a possible owner only; the locked callback
 /// authenticates the device signature before the reducer can approve any row.
 pub async fn approve(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     assertion: &Approval,
 ) -> setjoin_pg::CommandOutcome<String, setjoin_pg::StatementFailure> {
     use setjoin_contracts::ids::{ActorId, OperationId};
-    use setjoin_pg::{CommandOutcome, ProvenStatement, Type};
+    use setjoin_pg::{CommandOutcome, ProvenContract, Type};
     let invalid = || CommandOutcome::Committed("invalid".to_owned());
     let Some(nonce) = assertion.nonce_bytes() else {
         return invalid();
     };
-    let rows=exec.read("SELECT c.user_id FROM push_mfa_challenges c JOIN push_devices d ON d.user_id=c.user_id AND d.id=$2 WHERE c.nonce=$1 AND c.verified_at IS NULL AND c.expires_at>now() AND d.revoked_at IS NULL AND d.device_public_key IS NOT NULL ORDER BY c.created_at DESC LIMIT 1",&[(&nonce,Type::BYTEA),(&assertion.device,Type::INT8)]).await;
+    let rows = exec
+        .read_contract(
+            &crate::sql::PUSH_L508,
+            &[(&nonce, Type::BYTEA), (&assertion.device, Type::INT8)],
+        )
+        .await;
     let Some(user) = rows
         .ok()
         .and_then(|r| r.first().and_then(|r| r.try_get::<_, i64>(0).ok()))
@@ -519,33 +596,37 @@ pub async fn approve(
         family: "F21",
         command: "mfa-push-approve",
     });
-    exec.run_user_proof_command(
+    exec.run_user_proof_command_contract(
         actor,
         OperationId(*uuid::Uuid::new_v4().as_bytes()),
-        "SELECT rust_identity_push_approval_read($1,$2,$3)::text",
+        &crate::sql::PUSH_L525,
         &[
             (&user, Type::INT8),
             (&nonce, Type::BYTEA),
             (&assertion.device, Type::INT8),
         ],
         |rows| {
-            let value: serde_json::Value =
-                reducer_json(rows)?;
+            let value: serde_json::Value = reducer_json(rows)?;
             if value["status"] != "ready" {
-                return Ok(ProvenStatement::new("SELECT 'invalid'::text"));
+                return Ok(ProvenContract::new(&crate::sql::ECHO_TEXT)
+                    .bind("invalid".to_owned(), Type::TEXT));
             }
-            let id = value["id"].as_i64().ok_or_else(|| setjoin_pg::StatementFailure { sqlstate: None, hint: None, message: "reducer challenge id".into() })?;
+            let id = value["id"]
+                .as_i64()
+                .ok_or_else(|| setjoin_pg::StatementFailure {
+                    sqlstate: None,
+                    hint: None,
+                    message: "reducer challenge id".into(),
+                })?;
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64;
             let result = approval_result(&value, assertion, user, now);
-            Ok(
-                ProvenStatement::new("SELECT rust_identity_push_approval_finish($1,$2,$3)")
-                    .bind(user, Type::INT8)
-                    .bind(id, Type::INT8)
-                    .bind(result.to_owned(), Type::TEXT),
-            )
+            Ok(ProvenContract::new(&crate::sql::PUSH_L544)
+                .bind(user, Type::INT8)
+                .bind(id, Type::INT8)
+                .bind(result.to_owned(), Type::TEXT))
         },
         |rows| {
             rows.first()
@@ -603,21 +684,21 @@ pub enum Generated {
 }
 /// Only a signed pending principal or a proved password can mint a login challenge.
 pub async fn generate_pending(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     pending: &crate::session::Session,
     token: &str,
 ) -> setjoin_pg::CommandOutcome<Generated, setjoin_pg::StatementFailure> {
     generate_for(exec, pending.user(), token).await
 }
 pub async fn generate_login(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     proof: &crate::login::PasswordProof,
     token: &str,
 ) -> setjoin_pg::CommandOutcome<Generated, setjoin_pg::StatementFailure> {
     generate_for(exec, proof.user(), token).await
 }
 pub(super) async fn generate_for(
-    exec: &setjoin_pg::ScopedExecutor,
+    exec: &setjoin_pg::AuthDb,
     user: i64,
     session: &str,
 ) -> setjoin_pg::CommandOutcome<Generated, setjoin_pg::StatementFailure> {
@@ -625,7 +706,9 @@ pub(super) async fn generate_for(
     use setjoin_contracts::ids::{ActorId, OperationId};
     use setjoin_pg::{CommandOutcome, Rejection, Type};
     // These are separate transactions in frozen Go; do not invent serialization.
-    let count=exec.read("SELECT count(*) FROM push_mfa_challenges WHERE user_id=$1 AND created_at>now()-interval '5 minutes'",&[(&user,Type::INT8)]).await;
+    let count = exec
+        .read_contract(&crate::sql::PUSH_L628, &[(&user, Type::INT8)])
+        .await;
     let count = match count {
         Ok(rows) => match rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()) {
             Some(count) => count,
@@ -663,7 +746,21 @@ pub(super) async fn generate_for(
         family: "F21",
         command: "mfa-push-send",
     });
-    let result=exec.run_user_command(actor,OperationId(*uuid::Uuid::new_v4().as_bytes()),"INSERT INTO push_mfa_challenges(user_id,challenge_code,nonce,session_id,expires_at) VALUES($1,$2,$3,$4,to_timestamp($5))",&[(&user,Type::INT8),(&code,Type::TEXT),(&nonce.as_slice(),Type::BYTEA),(&session,Type::TEXT),(&deadline,Type::FLOAT8)],|_|Ok(())).await;
+    let result = exec
+        .run_user_command_contract(
+            actor,
+            OperationId(*uuid::Uuid::new_v4().as_bytes()),
+            &crate::sql::PUSH_L666,
+            &[
+                (&user, Type::INT8),
+                (&code, Type::TEXT),
+                (&nonce.as_slice(), Type::BYTEA),
+                (&session, Type::TEXT),
+                (&deadline, Type::FLOAT8),
+            ],
+            |_| Ok(()),
+        )
+        .await;
     match result {
         CommandOutcome::Committed(()) => CommandOutcome::Committed(Generated::Created(Challenge {
             user,
@@ -691,7 +788,8 @@ mod fail_closed_455 {
     fn signed() -> (Approval, String) {
         let rng = ring::rand::SystemRandom::new();
         let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
-        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap();
+        let pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng)
+            .unwrap();
         let mut a = Approval {
             nonce: "11".repeat(32),
             code: "42".into(),
@@ -703,7 +801,10 @@ mod fail_closed_455 {
         };
         let signature = pair.sign(&rng, &a.canonical(USER, "session")).unwrap();
         a.signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.as_ref());
-        (a, data_encoding::HEXLOWER.encode(pair.public_key().as_ref()))
+        (
+            a,
+            data_encoding::HEXLOWER.encode(pair.public_key().as_ref()),
+        )
     }
     fn row(key: &str) -> Value {
         json!({"status":"ready","id":1,"user":USER,"code":"42","session":"session","expires":NOW+120,"failures":0,"key":key})
@@ -715,14 +816,30 @@ mod fail_closed_455 {
         let mut r = row(&key);
         assert_eq!(approval_result(&r, &a, USER, NOW), "accepted");
         r["failures"] = json!(2);
-        assert_eq!(approval_result(&r, &a, USER, NOW), "accepted", "two strikes still allow the right code");
+        assert_eq!(
+            approval_result(&r, &a, USER, NOW),
+            "accepted",
+            "two strikes still allow the right code"
+        );
         r["code"] = json!("43");
-        assert_eq!(approval_result(&r, &a, USER, NOW), "wrong", "the third wrong answer is counted (the reducer burns at 3)");
+        assert_eq!(
+            approval_result(&r, &a, USER, NOW),
+            "wrong",
+            "the third wrong answer is counted (the reducer burns at 3)"
+        );
         r["code"] = json!("42");
         r["failures"] = json!(3);
-        assert_eq!(approval_result(&r, &a, USER, NOW), "burn", "three strikes burn even the right code");
+        assert_eq!(
+            approval_result(&r, &a, USER, NOW),
+            "burn",
+            "three strikes burn even the right code"
+        );
         r["failures"] = json!(-1);
-        assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "a negative count is never a fresh challenge");
+        assert_eq!(
+            approval_result(&r, &a, USER, NOW),
+            "invalid",
+            "a negative count is never a fresh challenge"
+        );
     }
 
     #[test]
@@ -741,13 +858,29 @@ mod fail_closed_455 {
         ] {
             let mut r = row(&key);
             r[field] = bad.clone();
-            assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "{field}={bad}");
+            assert_eq!(
+                approval_result(&r, &a, USER, NOW),
+                "invalid",
+                "{field}={bad}"
+            );
             r.as_object_mut().unwrap().remove(field);
-            assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "{field} missing");
+            assert_eq!(
+                approval_result(&r, &a, USER, NOW),
+                "invalid",
+                "{field} missing"
+            );
         }
         let mut r = row("");
-        assert_eq!(approval_result(&r, &a, USER, NOW), "invalid", "an empty key verifies nothing");
+        assert_eq!(
+            approval_result(&r, &a, USER, NOW),
+            "invalid",
+            "an empty key verifies nothing"
+        );
         r["failures"] = json!(3);
-        assert_eq!(approval_result(&r, &a, USER, NOW), "burn", "Go order: the burn precedes the signature check");
+        assert_eq!(
+            approval_result(&r, &a, USER, NOW),
+            "burn",
+            "Go order: the burn precedes the signature check"
+        );
     }
 }

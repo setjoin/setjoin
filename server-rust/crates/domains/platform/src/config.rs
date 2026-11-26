@@ -1,15 +1,9 @@
 //! Platform slice `system-features`, group `config`: `system_config` list, read, write and
 //! export (`/admin/system/config*`).
-//!
-//! Go's `ConfigHandler` and `ConfigBackupHandler`. Secret rows (the `encrypted` column, a
-//! `_enc` suffix or a named secret) are redacted on every read path. The write is Go's whole
-//! transaction (one `INSERT .. ON CONFLICT`; the table's own trigger raises
-//! `config_changed`), so it is one receipted statement with the foreign-key-free actor
-//! guard.
-use super::{command, deadline, done, envelope, invalid, s, scope};
+use super::{command, deadline, done, envelope, invalid, s, sql};
 use serde_json::Value;
-use setjoin_authz::AuthContext;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, StatementFailure, Type};
+use setjoin_authz::principals::{AdminPermissionProof, TxFactory, UserPrincipal};
+use setjoin_pg::{CommandOutcome, StatementFailure};
 
 /// Go's `redactedConfigValue`.
 pub const REDACTED: &str = "[ENCRYPTED]";
@@ -95,8 +89,6 @@ pub fn go_any(value: &Value) -> String {
     }
 }
 
-/// A stored value as the read routes show it: redacted, else Go's re-marshal of the
-/// decoded value (`null` when decoding fails, as Go ignores that error).
 fn shown(key: &str, text: &str, encrypted: bool) -> String {
     if encrypted || is_secret_key(key) {
         return s(REDACTED);
@@ -105,24 +97,23 @@ fn shown(key: &str, text: &str, encrypted: bool) -> String {
 }
 
 /// `GET /admin/system/config[?prefix=]`.
-pub async fn list(exec: &ScopedExecutor, prefix: &str) -> Result<String, StatementFailure> {
-    let like = format!("{prefix}%");
+pub async fn list(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    prefix: &str,
+) -> Result<String, StatementFailure> {
     let rows = if prefix.is_empty() {
-        exec.read(
-            "SELECT key, value::text, encrypted FROM system_config ORDER BY key",
-            &[],
-        )
-        .await?
+        factory
+            .run_admin_read_contract(admin, &sql::CONFIG_LIST_ALL, &[])
+            .await?
     } else {
-        exec.read(
-            "SELECT key, value::text, encrypted FROM system_config WHERE key LIKE $1 ORDER BY key",
-            &[(&like, Type::TEXT)],
-        )
-        .await?
+        let like = format!("{prefix}%");
+        factory
+            .run_admin_read_contract(admin, &sql::CONFIG_LIST_PREFIX, &[&like])
+            .await?
     };
     let mut out = Vec::new();
     for row in &rows {
-        // Go skips a row it cannot scan.
         let (Ok(key), Ok(value), Ok(encrypted)) = (
             row.try_get::<_, String>(0),
             row.try_get::<_, String>(1),
@@ -140,12 +131,13 @@ pub async fn list(exec: &ScopedExecutor, prefix: &str) -> Result<String, Stateme
 }
 
 /// `GET /admin/system/config/{key}`: `None` is Go's 404.
-pub async fn get(exec: &ScopedExecutor, key: &str) -> Result<Option<String>, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT value::text, encrypted FROM system_config WHERE key = $1",
-            &[(&key, Type::TEXT)],
-        )
+pub async fn get(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+    key: &str,
+) -> Result<Option<String>, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::CONFIG_GET, &[&key])
         .await?;
     let Some(row) = rows.first() else {
         return Ok(None);
@@ -159,32 +151,39 @@ pub async fn get(exec: &ScopedExecutor, key: &str) -> Result<Option<String>, Sta
     ))))
 }
 
-/// `PUT /admin/system/config/{key}` after the edge validation. A missing `value` binds NULL
-/// and violates the column's NOT NULL (Go's 500).
+/// `PUT /admin/system/config/{key}` after the edge validation.
 pub async fn set(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     key: &str,
     value: Option<&str>,
     encrypted: bool,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("config_set"),
-        &envelope(&auth, operation, &format!("{key}:{value:?}:{encrypted}")),
-        &auth,
-        deadline(),
-        "INSERT INTO system_config (key, value, encrypted, updated_at) \
-         SELECT $4::text, $5::text::jsonb, $6::bool, now() \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, encrypted = EXCLUDED.encrypted, updated_at = now() \
-         RETURNING key",
-        &[(&key, Type::TEXT), (&value, Type::TEXT), (&encrypted, Type::BOOL)],
-        |rows| if rows.len() == 1 { Ok(()) } else { Err(invalid()) },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{key}:{value:?}:{encrypted}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CONFIG_SET,
+            &[&key, &value, &encrypted],
+            Some(command("config_set")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }
 
 /// Whitespace outside strings removed: `json.Marshal` of a `RawMessage` compacts it.
@@ -212,12 +211,12 @@ pub fn compact(text: &str) -> String {
 }
 
 /// `GET /admin/system/config/export`: every row, secrets redacted, values verbatim.
-pub async fn export(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
-    let rows = exec
-        .read(
-            "SELECT key, value::text, encrypted, COALESCE(description,'') FROM system_config ORDER BY key",
-            &[],
-        )
+pub async fn export(
+    factory: &TxFactory,
+    admin: &AdminPermissionProof,
+) -> Result<String, StatementFailure> {
+    let rows = factory
+        .run_admin_read_contract(admin, &sql::CONFIG_EXPORT, &[])
         .await?;
     let mut out = Vec::new();
     for row in &rows {
@@ -243,41 +242,37 @@ pub async fn export(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
     Ok(done(format!("[{}]", out.join(","))))
 }
 
-/// One element of `POST /admin/system/config/import`: Go's `INSERT .. ON CONFLICT` run on
-/// its own transaction per item. The caller counts any rolled-back item as skipped, as Go
-/// does for every `Exec` error (bad JSON text, a description pgx cannot encode).
+/// One element of `POST /admin/system/config/import`.
 pub async fn import_item(
-    exec: &ScopedExecutor,
-    actor: &AuthContext,
+    factory: &TxFactory,
+    user: &UserPrincipal,
+    _admin: &AdminPermissionProof,
     key: &str,
     value: &str,
     description: Option<&str>,
     operation: [u8; 16],
 ) -> CommandOutcome<(), StatementFailure> {
-    let auth = scope(actor);
-    setjoin_pg::run_receipted_command(
-        exec,
-        command("config_import_item"),
-        &envelope(&auth, operation, &format!("{key}:{value}:{description:?}")),
-        &auth,
-        deadline(),
-        "INSERT INTO system_config (key, value, description) \
-         SELECT $4::text, $5::text::jsonb, $6::text \
-         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
-         ON CONFLICT (key) DO UPDATE SET value = $5::text::jsonb, updated_at = now() \
-         RETURNING key",
-        &[
-            (&key, Type::TEXT),
-            (&value, Type::TEXT),
-            (&description, Type::TEXT),
-        ],
-        |rows| {
-            if rows.len() == 1 {
-                Ok(())
-            } else {
-                Err(invalid())
-            }
-        },
-    )
-    .await
+    let env = envelope(
+        user.user(),
+        user.generation(),
+        operation,
+        &format!("{key}:{value}:{description:?}"),
+    );
+    factory
+        .run_user_write_contract_pipelined(
+            user,
+            &env,
+            deadline(),
+            &sql::CONFIG_IMPORT_ITEM,
+            &[&key, &value, &description],
+            Some(command("config_import_item")),
+            |rows| {
+                if rows.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(invalid())
+                }
+            },
+        )
+        .await
 }

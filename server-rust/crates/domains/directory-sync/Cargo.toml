@@ -11,6 +11,7 @@ setjoin-contracts = { path = "../../contracts" }
 setjoin-config-secret = { path = "../../config-secret" }
 setjoin-db = { path = "../../db" }
 setjoin-pg = { path = "../../pg" }
+setjoin-sql-catalog = { path = "../../sql-catalog" }
 serde_json = { version = "=1.0.145", features = ["raw_value"] }
 sha2 = "=0.10.9"
 base64 = "=0.22.1"

@@ -414,13 +414,17 @@ async fn run_inner(
         let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?
             .with_audit_keys(KEY.repeat(32), String::new());
-        let runtime = Arc::new(setjoin_directory_sync::ldap::runtime::LdapRuntime::with_codec(
+        let worker_exec = ScopedExecutor::from_dsn(&db.dsn, 4)
+            .map_err(|e| e.0)?
+            .with_audit_keys(KEY.repeat(32), String::new());
+        let runtime = Arc::new(setjoin_gateway::directory_sync_workers::LdapRuntime::with_codec(
             setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,
             Some(codec.clone()),
         ));
         let adapter = Probe {
             inner: DirectorySyncRoute {
                 exec,
+                worker: Some(worker_exec),
                 keys: Arc::new(common::recovery_keys()),
                 issuer: "mailserver".into(),
                 ldap: Some(runtime.clone()),

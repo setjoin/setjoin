@@ -53,6 +53,7 @@ pub struct AuthServer {
     webauthn: Option<setjoin_identity::webauthn::RelyingParty>,
     internal_key: std::sync::RwLock<String>,
     pub exec: setjoin_pg::ScopedExecutor,
+    auth_db: setjoin_pg::AuthDb,
     device_resolver: setjoin_authz::device::DeviceResolver,
     keys: Option<Arc<setjoin_authz::signing_keys::KeySet>>,
     legacy: Option<setjoin_authz::legacy_jwt::LegacyKeys>,
@@ -61,8 +62,8 @@ pub struct AuthServer {
     dpop_replay: setjoin_authz::dpop::ReplayCache,
     forgot_password: bool,
     recovery_ip: setjoin_identity::push::IpBudget,
-    recovery_worker: Option<setjoin_pg::ScopedExecutor>,
-    guest_worker: Option<setjoin_pg::ScopedExecutor>,
+    recovery_worker: Option<setjoin_pg::AuthDb>,
+    guest_worker: Option<setjoin_pg::AuthDb>,
     geo: Option<Arc<setjoin_authz::geoip::CountryDb>>,
     push_ip: setjoin_identity::push::IpBudget,
     native_push: setjoin_identity::push_delivery::Dispatch,
@@ -160,6 +161,7 @@ impl AuthServer {
         reply
     }
     pub fn new(exec: setjoin_pg::ScopedExecutor) -> Self {
+        let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), exec.clone());
         let device_resolver = setjoin_authz::device::DeviceResolver::new(
             exec.clone(),
             Vec::new(),
@@ -174,6 +176,7 @@ impl AuthServer {
             webauthn: None,
             internal_key: std::sync::RwLock::new(String::new()),
             exec,
+            auth_db,
             device_resolver,
             keys: None,
             legacy: None,
@@ -191,6 +194,10 @@ impl AuthServer {
             ca_engine,
             captcha_used: Default::default(),
         }
+    }
+    /// Contract-gated dual-pool database authority for `setjoin-identity`.
+    pub fn auth_db(&self) -> &setjoin_pg::AuthDb {
+        &self.auth_db
     }
     pub async fn load(exec: setjoin_pg::ScopedExecutor, config: Config) -> Result<Self, String> {
         Self::load_with_rp_http(
@@ -243,7 +250,30 @@ impl AuthServer {
             config.profile,
         )
         .await?;
-        let forgot_password = login::enabled(&exec, "feature.forgot_password")
+        let worker_env = std::env::var("DB_WORKER_DSN")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let resolved_worker_dsn = config
+            .worker_dsn
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or(worker_env.as_deref())
+            .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()));
+        let auth_worker = match resolved_worker_dsn {
+            Some(dsn) => {
+                let mut w = setjoin_pg::ScopedExecutor::from_dsn(dsn, 8).map_err(|e| e.0)?;
+                if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
+                    w = w.with_audit_keys(
+                        config.db_encryption_key.clone(),
+                        config.audit_hmac_key.clone(),
+                    );
+                }
+                w
+            }
+            None => exec.clone(),
+        };
+        let auth_db = setjoin_pg::AuthDb::from_executors(exec.clone(), auth_worker);
+        let forgot_password = login::enabled(&auth_db, "feature.forgot_password")
             .await
             .unwrap_or(false);
         let revocations =
@@ -258,7 +288,11 @@ impl AuthServer {
             .as_deref()
             .filter(|s| !s.is_empty())
             .or_else(|| (!config.dsn.is_empty()).then_some(config.dsn.as_str()))
-            .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 4).map_err(|e| e.0))
+            .map(|dsn| {
+                setjoin_pg::ScopedExecutor::from_dsn(dsn, 4)
+                    .map(|w| setjoin_pg::AuthDb::from_executors(w.clone(), w))
+                    .map_err(|e| e.0)
+            })
             .transpose()?;
         // #342: Go's guest-invite workerPool on its own two-connection pool.
         let guest_worker = config
@@ -269,14 +303,16 @@ impl AuthServer {
             .map(|dsn| setjoin_pg::ScopedExecutor::from_dsn(dsn, 2).map_err(|e| e.0))
             .transpose()?
             .map(|w| {
-                if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty() {
+                let w = if !config.db_encryption_key.is_empty() || !config.audit_hmac_key.is_empty()
+                {
                     w.with_audit_keys(
                         config.db_encryption_key.clone(),
                         config.audit_hmac_key.clone(),
                     )
                 } else {
                     w
-                }
+                };
+                setjoin_pg::AuthDb::from_executors(w.clone(), w)
             });
         match &guest_worker {
             Some(w) => {
@@ -314,7 +350,7 @@ impl AuthServer {
             && !config.saml_key_file.is_empty()
         {
             match setjoin_identity::saml::Registry::load(
-                exec.clone(),
+                auth_db.clone(),
                 &config.saml_cert_file,
                 &config.saml_key_file,
                 &config.db_encryption_key,
@@ -333,8 +369,12 @@ impl AuthServer {
         };
         let rp = if config.oidc_rp_enabled {
             Some(
-                setjoin_identity::rp::Registry::load(exec.clone(), config.secret.as_bytes(), http)
-                    .await,
+                setjoin_identity::rp::Registry::load(
+                    auth_db.clone(),
+                    config.secret.as_bytes(),
+                    http,
+                )
+                .await,
             )
         } else {
             None
@@ -373,6 +413,7 @@ impl AuthServer {
             ca_engine,
             captcha_used: Default::default(),
             exec,
+            auth_db,
             device_resolver,
             keys: Some(Arc::new(keys)),
             legacy: Some(legacy),
@@ -382,16 +423,17 @@ impl AuthServer {
     /// Embedding/test seam (#342): replace the guest-invite worker executor; the
     /// configured audit keys are applied. Grants no identity authority.
     pub fn with_guest_worker(mut self, worker: setjoin_pg::ScopedExecutor) -> Self {
-        self.guest_worker = Some(
-            if !self.config.db_encryption_key.is_empty() || !self.config.audit_hmac_key.is_empty() {
-                worker.with_audit_keys(
-                    self.config.db_encryption_key.clone(),
-                    self.config.audit_hmac_key.clone(),
-                )
-            } else {
-                worker
-            },
-        );
+        let w = if !self.config.db_encryption_key.is_empty()
+            || !self.config.audit_hmac_key.is_empty()
+        {
+            worker.with_audit_keys(
+                self.config.db_encryption_key.clone(),
+                self.config.audit_hmac_key.clone(),
+            )
+        } else {
+            worker
+        };
+        self.guest_worker = Some(setjoin_pg::AuthDb::from_executors(w.clone(), w));
         self
     }
     /// Attach the shared threat gate (#349). main.rs passes the gate that the
@@ -408,10 +450,19 @@ impl AuthServer {
     }
     /// [`Self::with_threat_gate`] with separate request and worker DSNs.
     pub async fn with_threat_gate_dsns(
-        self,
+        mut self,
         request_dsn: &str,
         worker_dsn: &str,
     ) -> Result<Self, Error> {
+        let mut worker_exec =
+            setjoin_pg::ScopedExecutor::from_dsn(worker_dsn, 8).map_err(|e| e.0)?;
+        if !self.config.db_encryption_key.is_empty() || !self.config.audit_hmac_key.is_empty() {
+            worker_exec = worker_exec.with_audit_keys(
+                self.config.db_encryption_key.clone(),
+                self.config.audit_hmac_key.clone(),
+            );
+        }
+        self.auth_db = setjoin_pg::AuthDb::from_executors(self.exec.clone(), worker_exec);
         let request = setjoin_pg::ScopedExecutor::from_dsn(request_dsn, 4).map_err(|e| e.0)?;
         let worker = setjoin_threat::WorkerPools::from_dsn(worker_dsn)?;
         let geo = if self.config.geoip_path.is_empty() {
@@ -925,7 +976,7 @@ impl AuthServer {
                     Self::wire_json(
                         200,
                         setjoin_identity::issuance::version(
-                            &self.exec,
+                            &self.auth_db,
                             req.uri().query().unwrap_or(""),
                             host,
                         )
@@ -959,7 +1010,7 @@ impl AuthServer {
                 },
                 "/auth/password-policy" if head => Self::failure(405, "Method not allowed", &path),
                 "/auth/password-policy" => {
-                    match setjoin_identity::password_policy(&self.exec).await {
+                    match setjoin_identity::password_policy(&self.auth_db).await {
                         Ok(p) => {
                             let mut r = Self::json(200, p);
                             r.headers_mut().insert(
@@ -1091,7 +1142,7 @@ impl AuthServer {
         };
         let op = uuid::Uuid::new_v4();
         match setjoin_identity::password::reset(
-            &self.exec,
+            &self.auth_db,
             &proof,
             password,
             self.config.profile,
@@ -1184,7 +1235,7 @@ impl AuthServer {
         for _ in 0..8 {
             let context = match session
                 .refresh(
-                    &self.exec,
+                    &self.auth_db,
                     &hash,
                     None,
                     None,
@@ -1204,7 +1255,7 @@ impl AuthServer {
                 _ => return Self::failure(401, "invalid or revoked refresh token", &path),
             };
             if risk.is_none() {
-                match session.risk(&self.exec).await {
+                match session.risk(&self.auth_db).await {
                     Ok(read) => risk = Some(read),
                     Err(_) => {
                         let mut r = Self::failure(
@@ -1262,7 +1313,7 @@ impl AuthServer {
             let new_hash = Sha256::digest(refresh.as_bytes()).to_vec();
             match session
                 .refresh(
-                    &self.exec,
+                    &self.auth_db,
                     &hash,
                     Some(&context),
                     Some(&new_hash),
@@ -1394,7 +1445,7 @@ impl AuthServer {
             let new = input.get("new_password").map_or("", String::as_str);
             let op = uuid::Uuid::new_v4();
             return match setjoin_identity::password::change(
-                &self.exec,
+                &self.auth_db,
                 &session,
                 old,
                 new,
@@ -1431,7 +1482,7 @@ impl AuthServer {
             let op = uuid::Uuid::new_v4();
             let result = session
                 .revoke(
-                    &self.exec,
+                    &self.auth_db,
                     setjoin_contracts::ids::OperationId(*op.as_bytes()),
                 )
                 .await;
@@ -1451,7 +1502,7 @@ impl AuthServer {
         let mut response = if recovery {
             Self::json(200, json!({"access_token":presented.unwrap()}))
         } else {
-            match session.me(&self.exec).await {
+            match session.me(&self.auth_db).await {
                 Ok(v) => Self::json(200, v),
                 Err(e) => Self::failure(503, e, path),
             }
@@ -1610,7 +1661,7 @@ impl AuthServer {
             return Self::failure(503, "signing keys unavailable", &path);
         }
         let proof = match login::verify(
-            &self.exec,
+            &self.auth_db,
             &input.email,
             &input.password,
             self.config.profile,
@@ -1619,13 +1670,13 @@ impl AuthServer {
         {
             Ok(Some(p)) => p,
             _ => {
-                login::record_failure(&self.exec, &input.email, &ip).await;
+                login::record_failure(&self.auth_db, &input.email, &ip).await;
                 return Self::failure(401, "invalid credentials", &path);
             }
         };
         // Go resolves guest CA context even when CA policies are disabled.
         // Lookup failure must precede force-password/MFA token minting (Go auth.go:805-822).
-        let is_guest = match login::guest_scope(&self.exec, &proof).await {
+        let is_guest = match login::guest_scope(&self.auth_db, &proof).await {
             Ok(g) => g,
             Err(_) => return Self::failure(503, "conditional access context unavailable", &path),
         };
@@ -1689,7 +1740,7 @@ impl AuthServer {
                 Err(_) => Self::failure(500, "token issue failed", &path),
             };
         }
-        match login::mfa_policy(&self.exec, &proof).await {
+        match login::mfa_policy(&self.auth_db, &proof).await {
             Ok(policy) => {
                 if policy["status"] == "enrollment_required" {
                     return Self::threat_challenge(
@@ -1714,11 +1765,11 @@ impl AuthServer {
                 )
             }
         }
-        let domain = match login::domain_scope(&self.exec, &proof).await {
+        let domain = match login::domain_scope(&self.auth_db, &proof).await {
             Ok(d) => d,
             Err(_) => return Self::failure(500, "authorization scope resolution failed", &path),
         };
-        let guest = match login::admission(&self.exec, &proof).await {
+        let guest = match login::admission(&self.auth_db, &proof).await {
             Ok((true, guest)) => guest,
             Ok((false, _)) => return Response::builder().status(409).header("cache-control","no-store").header("content-type","application/problem+json").body(body(problem::Problem::new(409,"Sign-in is temporarily fenced while identity transition security effects converge.").kind("https://setjoin.com/errors/conflict").instance(&path).body())).unwrap(),
             Err(login::AdmissionFailure::AccountType(_)) => {
@@ -1747,7 +1798,7 @@ impl AuthServer {
             self.config.access_seconds,
             domain,
         );
-        match login::risk(&self.exec, &proof).await {
+        match login::risk(&self.auth_db, &proof).await {
             Ok(Some(risk)) => access_claims["risk"] = risk,
             Ok(None) => {}
             Err(_) => return Self::failure(500, "token issue failed", &path),
@@ -1786,7 +1837,7 @@ impl AuthServer {
             _ => return Self::failure(500, "token issue failed", &path),
         };
         match login::mint(
-            &self.exec,
+            &self.auth_db,
             &proof,
             &refresh,
             self.config.refresh_seconds,
@@ -1848,7 +1899,7 @@ impl AuthServer {
             }
         }
         login::record_success(
-            &self.exec,
+            &self.auth_db,
             &proof,
             &access,
             &jti,

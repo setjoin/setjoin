@@ -159,6 +159,8 @@ async fn refresh(cut: wire::Cut) {
         .unwrap();
         let clean =
             setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 2).unwrap();
+        let clean_worker = setjoin_pg::ScopedExecutor::from_dsn(&db.dsn, 2).unwrap();
+        let clean = setjoin_pg::AuthDb::from_executors(clean, clean_worker);
         assert_eq!(
             proof
                 .lookup_refresh(&clean, setjoin_contracts::ids::OperationId(*id.as_bytes()))

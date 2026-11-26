@@ -35,8 +35,7 @@ pub const CACHE_CAPACITY: usize = 4096;
 /// Default bcrypt cost-10 dummy hash used for constant-time unknown/disabled/hash-less
 /// account verification (SECFIX3 / #542). Callers using a non-default crypto profile
 /// may override it via [`PasswordCache::with_dummy_hash`].
-pub const DEFAULT_DUMMY_HASH: &str =
-    "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+pub const DEFAULT_DUMMY_HASH: &str = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
 /// Which password kinds a protocol accepts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -130,11 +129,27 @@ pub async fn verify_with_dummy(
     policy: Policy,
     run_dummy_hash: bool,
 ) -> Verdict {
+    verify_with_pre_auth(None, exec, cache, email, secret, policy, run_dummy_hash).await
+}
+
+/// Same as [`verify_with_dummy`], routing pre-auth credential lookups through
+/// the private `AdminWorkerPool` (`setjoin_worker`) seam when configured (#546d).
+pub(crate) async fn verify_with_pre_auth(
+    pre_auth: Option<&setjoin_pg::AdminWorkerPool>,
+    exec: &ScopedExecutor,
+    cache: &PasswordCache,
+    email: &str,
+    secret: &str,
+    policy: Policy,
+    run_dummy_hash: bool,
+) -> Verdict {
     if matches!(
         policy.accept,
         Accept::AppPassword | Accept::AppPasswordThenAccountPassword
     ) {
-        if let Some(user) = app_password(exec, email, secret, policy.guest_app_passwords).await {
+        if let Some(user) =
+            app_password(pre_auth, exec, email, secret, policy.guest_app_passwords).await
+        {
             return Verdict::AppPassword(user);
         }
         if policy.accept == Accept::AppPassword {
@@ -142,6 +157,7 @@ pub async fn verify_with_dummy(
         }
     }
     match account_password(
+        pre_auth,
         exec,
         cache,
         email,
@@ -183,6 +199,7 @@ fn non_empty(s: &str) -> Option<&str> {
 /// `pwhash.CheckAppPassword`: SHA-256 of the presented token, bookkeeping and
 /// the audit rows on both outcomes (no IP, as Go). Never cached.
 async fn app_password(
+    pre_auth: Option<&setjoin_pg::AdminWorkerPool>,
     exec: &ScopedExecutor,
     email: &str,
     token: &str,
@@ -192,16 +209,19 @@ async fn app_password(
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let found = exec
-        .read(
-            "SELECT u.id FROM users u JOIN app_passwords ap ON ap.user_id = u.id \
-             WHERE lower(u.email) = lower($1) AND u.enabled = TRUE AND ap.token_hash = $2 \
-             AND ap.revoked_at IS NULL AND (ap.expires_at IS NULL OR ap.expires_at > now())",
-            &[(&email, Type::TEXT), (&hash, Type::TEXT)],
-        )
-        .await
-        .ok()
-        .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()));
+    const LOOKUP_SQL: &str = "SELECT u.id FROM users u JOIN app_passwords ap ON ap.user_id = u.id \
+         WHERE lower(u.email) = lower($1) AND u.enabled = TRUE AND ap.token_hash = $2 \
+         AND ap.revoked_at IS NULL AND (ap.expires_at IS NULL OR ap.expires_at > now())";
+    let lookup_params: [setjoin_pg::Param<'_>; 2] = [(&email, Type::TEXT), (&hash, Type::TEXT)];
+    let found = match pre_auth {
+        Some(pool) => {
+            pool.run_pre_auth_read_pipelined(LOOKUP_SQL, &lookup_params)
+                .await
+        }
+        None => exec.read(LOOKUP_SQL, &lookup_params).await,
+    }
+    .ok()
+    .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, i64>(0).ok()));
     let Some(user) = found else {
         record_event(exec, None, "login_failed", "app_password", email, None).await;
         return None;
@@ -214,8 +234,10 @@ async fn app_password(
     record_event(exec, Some(user), "login", "app_password", email, None).await;
     // Go re-reads the enabled user; a vanished row fails the credential after
     // the success row was already written.
+    let actor = setjoin_contracts::ids::ActorId::new(user).ok()?;
     let rows = exec
-        .read(
+        .read_user_scoped(
+            actor,
             "SELECT id, email FROM users WHERE id = $1 AND enabled = TRUE",
             &[(&user, Type::INT8)],
         )
@@ -233,6 +255,7 @@ async fn app_password(
 /// cached bcrypt/SM3 verification, best-effort below-floor self-heal guarded
 /// on the verified hash, then the fail-closed guest refusal.
 async fn account_password(
+    pre_auth: Option<&setjoin_pg::AdminWorkerPool>,
     exec: &ScopedExecutor,
     cache: &PasswordCache,
     email: &str,
@@ -240,14 +263,17 @@ async fn account_password(
     totp: TotpAccountPassword,
     run_dummy_hash: bool,
 ) -> Option<Verified> {
-    let rows = exec
-        .read(
-            "SELECT u.id, u.email, u.password_hash, u.totp_enabled FROM users u \
-             JOIN domains d ON d.id = u.domain_id WHERE u.email = $1 AND u.enabled = TRUE",
-            &[(&email, Type::TEXT)],
-        )
-        .await
-        .ok();
+    const ACCOUNT_SQL: &str = "SELECT u.id, u.email, u.password_hash, u.totp_enabled FROM users u \
+         JOIN domains d ON d.id = u.domain_id WHERE u.email = $1 AND u.enabled = TRUE";
+    let account_params: [setjoin_pg::Param<'_>; 1] = [(&email, Type::TEXT)];
+    let rows = match pre_auth {
+        Some(pool) => {
+            pool.run_pre_auth_read_pipelined(ACCOUNT_SQL, &account_params)
+                .await
+        }
+        None => exec.read(ACCOUNT_SQL, &account_params).await,
+    }
+    .ok();
     let known = rows.as_ref().and_then(|rows| rows.first()).and_then(|row| {
         let id: i64 = row.try_get(0).ok()?;
         let stored_email: String = row.try_get(1).ok()?;

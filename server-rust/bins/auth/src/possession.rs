@@ -162,7 +162,7 @@ impl AuthServer {
             Ok(t) => t,
             Err(reply) => return reply,
         };
-        match possession::begin(&self.exec, &session, rp, get("operation"), target).await {
+        match possession::begin(&self.auth_db, &session, rp, get("operation"), target).await {
             setjoin_pg::CommandOutcome::Committed(value) => match value["status"].as_str() {
                 Some("created") => Response::builder()
                     .status(200)
@@ -255,7 +255,7 @@ impl AuthServer {
             Ok(s) => s,
             Err(reply) => return reply,
         };
-        let ceremony = match possession::peek(&self.exec, &session).await {
+        let ceremony = match possession::peek(&self.auth_db, &session).await {
             Ok(Some(c)) => c,
             Ok(None) => return Self::possession_ceremony_required(&path),
             Err(_) => return Self::failure(500, "internal error", &path),
@@ -284,7 +284,7 @@ impl AuthServer {
                 &path,
             );
         }
-        match possession::finish(&self.exec, &session, rp, &ceremony, &raw).await {
+        match possession::finish(&self.auth_db, &session, rp, &ceremony, &raw).await {
             setjoin_pg::CommandOutcome::Committed(value) => match value["status"].as_str() {
                 Some("issued") => {
                     if value["pending"] == true {

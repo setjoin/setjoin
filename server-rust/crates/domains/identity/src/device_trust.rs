@@ -4,7 +4,7 @@
 use serde_json::{json, Value};
 use setjoin_authz::device::VerifiedDevice;
 use setjoin_contracts::ids::OperationId;
-use setjoin_pg::{CommandOutcome, ScopedExecutor, Type};
+use setjoin_pg::{AuthDb, CommandOutcome, Type};
 use std::collections::BTreeMap;
 
 /// Owner-approved security bound (#341): Go accepted any count in 64 KiB.
@@ -78,13 +78,10 @@ impl Effective {
 }
 
 /// GET /device/policy: the trusted evaluator on the request credential.
-pub async fn effective_policy(exec: &ScopedExecutor, device: &VerifiedDevice) -> Option<Effective> {
+pub async fn effective_policy(exec: &AuthDb, device: &VerifiedDevice) -> Option<Effective> {
     let id = device.id();
     let rows = exec
-        .read(
-            "SELECT mdm_effective_policy($1)::text",
-            &[(&id, Type::INT8)],
-        )
+        .read_contract(&crate::sql::DEVICE_TRUST_L85, &[(&id, Type::INT8)])
         .await
         .ok()?;
     Effective::decode(&rows.first()?.get::<_, Option<String>>(0)?)
@@ -94,7 +91,7 @@ pub async fn effective_policy(exec: &ScopedExecutor, device: &VerifiedDevice) ->
 /// and its receipt commit together, COMMIT is sent only after both succeed
 /// inside the statement deadline, so a client timeout can never commit late.
 pub async fn checkin(
-    exec: &ScopedExecutor,
+    exec: &AuthDb,
     device: &VerifiedDevice,
     events: &[Event],
 ) -> Result<Effective, CheckinError> {
@@ -107,14 +104,14 @@ pub async fn checkin(
     )
     .to_string();
     let outcome = exec
-        .run_protocol_command(
+        .run_protocol_command_contract(
             &format!("device:{id}"),
             OperationId(*uuid::Uuid::new_v4().as_bytes()),
             setjoin_pg::ReceiptCommand {
                 family: "F21",
                 command: "device-checkin",
             },
-            "SELECT rust_device_checkin($1,$2::text::jsonb)::text",
+            &crate::sql::DEVICE_TRUST_L117,
             &[(&id, Type::INT8), (&events, Type::TEXT)],
             |rows| Ok(rows.first().and_then(|r| r.get::<_, Option<String>>(0))),
         )

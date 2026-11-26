@@ -22,7 +22,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GUARD="$ROOT/scripts/check-identity-predicate.sh"
 REAL_REDUCER="$ROOT/mailserver/sql/reducers/resolve_identity.sql"
-REAL_CONNECTOR="$ROOT/server-rust/crates/domains/identity/src/rp/account.rs"
+REAL_CONNECTOR="$ROOT/server-rust/crates/domains/identity/src/sql.rs"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -61,7 +61,7 @@ fi
 # ── Negative 2: a changed case-fold in the connector twin → DRIFT. ──────────
 # Swap lower(u.email) → upper(u.email): a real normalization-rule change.
 cp "$REAL_CONNECTOR" "$TMP/connector_fold.rs"
-perl -0pi -e 's/lower\(u\.email\)\s*=\s*lower\(\$1\)/upper(u.email) = upper(\$1)/' "$TMP/connector_fold.rs"
+perl -0pi -e 's/lower\(u\.email\)\s*=\s*lower\(\$1\)/upper(u.email) = upper(\$1)/g' "$TMP/connector_fold.rs"
 if run_guard "$REAL_REDUCER" "$TMP/connector_fold.rs"; then
   bad "N2: changed case-fold — guard did NOT fire"; sed 's/^/        /' "$TMP/out"
 elif grep -q "DRIFT" "$TMP/out"; then

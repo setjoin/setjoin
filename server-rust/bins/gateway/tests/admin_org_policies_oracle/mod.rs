@@ -440,20 +440,24 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
     let schema = format!("gofree_admin10_fault_{}", a.user);
     let mut private = false;
     if fault == Some("reach-bypass") {
-        owner.batch_execute(&format!("CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO setjoin_app;CREATE FUNCTION {schema}.admin_can_reach(bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';CREATE FUNCTION {schema}.admin_can_reach_perm(bigint,bigint,text[]) RETURNS boolean LANGUAGE sql AS 'SELECT true';CREATE FUNCTION {schema}.admin_scope_within(bigint,text,bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA {schema} TO setjoin_app;")).await?;
+        owner.batch_execute(&format!("CREATE SCHEMA {schema};GRANT USAGE ON SCHEMA {schema} TO setjoin_app, setjoin_worker;CREATE FUNCTION {schema}.admin_can_reach(bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';CREATE FUNCTION {schema}.admin_can_reach_perm(bigint,bigint,text[]) RETURNS boolean LANGUAGE sql AS 'SELECT true';CREATE FUNCTION {schema}.admin_scope_within(bigint,text,bigint,bigint) RETURNS boolean LANGUAGE sql AS 'SELECT true';GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA {schema} TO setjoin_app, setjoin_worker;")).await?;
         private = true;
     }
-    if private {
+    let worker_dsn = if private {
+        let sep = if db.app.as_deref().unwrap_or(&db.dsn).contains('?') {
+            "&"
+        } else {
+            "?"
+        };
         db.app = Some(format!(
-            "{}{}options=-csearch_path%3D{schema}%2Cpublic",
-            db.app.as_deref().unwrap_or(&db.dsn),
-            if db.app.as_deref().unwrap_or(&db.dsn).contains('?') {
-                "&"
-            } else {
-                "?"
-            }
+            "{}{sep}options=-csearch_path%3D{schema}%2Cpublic",
+            db.app.as_deref().unwrap_or(&db.dsn)
         ));
-    }
+        let wsep = if db.dsn.contains('?') { "&" } else { "?" };
+        format!("{}{wsep}options=-csearch_path%3D{schema}%2Cpublic", db.dsn)
+    } else {
+        db.dsn.clone()
+    };
     let users: Vec<(i64, &str)> = vec![
         (t.user, "<target>"),
         (a.user, "<admin>"),
@@ -471,8 +475,11 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
         let exec = ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?
             .with_audit_keys("22".repeat(32), String::new());
+        let worker = ScopedExecutor::from_dsn(&worker_dsn, 4)
+            .map_err(|e| e.0)?
+            .with_audit_keys("22".repeat(32), String::new());
         let adapter = Probe {
-            inner: AdminOrgPoliciesRoute { exec, keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
+            inner: AdminOrgPoliciesRoute { exec, worker: Some(worker), keys: Arc::new(common::recovery_keys()), issuer: "mailserver".into() },
             changed_status: mutant,
         };
         let mut inventory: Value = serde_json::from_str(include_str!("../../route-inventory.json"))?;
