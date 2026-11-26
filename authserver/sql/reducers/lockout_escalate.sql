@@ -55,33 +55,32 @@ DECLARE
     v_failed_count INT;
     v_locked_until TIMESTAMPTZ;
 BEGIN
-    UPDATE auth_lockouts
+    -- Atomic upsert: serialize concurrent first-failure attempts on the PK so
+    -- simultaneous wrong-password requests never drop an increment via
+    -- ON CONFLICT DO NOTHING. On the first-failure INSERT branch locked_until
+    -- is now() (so `v_locked_until > now()` below is FALSE and no escalation
+    -- audit row is emitted, preserving exact first-failure semantics).
+    INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level, updated_at)
+    VALUES (p_lockout_key, 1, now(), 0, now())
+    ON CONFLICT (lockout_key) DO UPDATE
     SET
-        failed_count     = failed_count + 1,
+        failed_count     = auth_lockouts.failed_count + 1,
         escalation_level = CASE
-            -- Post-increment: `failed_count` here is the pre-increment value;
+            -- Post-increment: `auth_lockouts.failed_count` here is the pre-increment value;
             -- the increment in this same UPDATE is what crosses the threshold.
-            WHEN failed_count + 1 >= p_threshold AND escalation_level < v_max_level
-            THEN escalation_level + 1
-            ELSE escalation_level
+            WHEN auth_lockouts.failed_count + 1 >= p_threshold
+                 AND auth_lockouts.escalation_level < v_max_level
+            THEN auth_lockouts.escalation_level + 1
+            ELSE auth_lockouts.escalation_level
         END,
         locked_until = CASE
-            WHEN failed_count + 1 >= p_threshold  -- post-increment, matches above
-            THEN now() + (v_base_seconds * POWER(2, LEAST(escalation_level + 1, v_max_level))) * INTERVAL '1 second'
-            ELSE locked_until
+            WHEN auth_lockouts.failed_count + 1 >= p_threshold  -- post-increment, matches above
+            THEN now() + (v_base_seconds * POWER(2, LEAST(auth_lockouts.escalation_level + 1, v_max_level))) * INTERVAL '1 second'
+            ELSE auth_lockouts.locked_until
         END,
         updated_at    = now()
-    WHERE lockout_key = p_lockout_key
     RETURNING escalation_level, failed_count, locked_until
       INTO v_new_level, v_failed_count, v_locked_until;
-
-    -- Row did not exist: insert first failing attempt without lockout
-    IF v_new_level IS NULL THEN
-        INSERT INTO auth_lockouts (lockout_key, failed_count, locked_until, escalation_level)
-        VALUES (p_lockout_key, 1, now(), 0)
-        ON CONFLICT (lockout_key) DO NOTHING;
-        RETURN 0;
-    END IF;
 
     -- Escalation audit row: written only when this call armed/re-armed a lock
     -- (post-update locked_until in the future). The row lands in the SAME
