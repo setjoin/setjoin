@@ -40,6 +40,8 @@ BEGIN
       USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"name exceeds 200 chars"}';
   END IF;
 
+  PERFORM 1 FROM users WHERE id = p_user_id FOR KEY SHARE;
+
   INSERT INTO task_lists (owner_user_id, name, color)
   VALUES (p_user_id, p_name, p_color)
   RETURNING id INTO v_id;
@@ -66,6 +68,8 @@ BEGIN
     RAISE EXCEPTION 'task list name is required'
       USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"name is required"}';
   END IF;
+
+  PERFORM 1 FROM users WHERE id = p_user_id FOR KEY SHARE;
 
   UPDATE task_lists SET
     name  = COALESCE(NULLIF(p_patch->>'name', ''), name),
@@ -102,6 +106,27 @@ BEGIN
       USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
   END IF;
 
+  -- Canonical lock order: users -> all affected mailboxes (sorted) -> task_lists -> tasks (sorted).
+  -- DELETE FROM task_lists cascades ON DELETE SET NULL onto tasks, firing trg_journal_task -> mailboxes.
+  PERFORM 1 FROM users WHERE id = p_user_id FOR KEY SHARE;
+  PERFORM 1 FROM mailboxes
+   WHERE id IN (
+     SELECT mb.id FROM task_list_members m
+     JOIN mailboxes mb ON mb.user_id = m.user_id AND mb.is_primary
+     WHERE m.list_id = p_list_id
+     UNION
+     SELECT t.mailbox_id FROM tasks t WHERE t.list_id = p_list_id
+   )
+   ORDER BY id FOR KEY SHARE;
+
+  PERFORM 1 FROM task_lists WHERE id = p_list_id AND owner_user_id = p_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  PERFORM 1 FROM tasks WHERE list_id = p_list_id ORDER BY id FOR UPDATE;
+
   PERFORM notify_task_list_state(p_list_id, 'list_deleted');
 
   DELETE FROM task_lists WHERE id = p_list_id AND owner_user_id = p_user_id
@@ -126,6 +151,21 @@ CREATE OR REPLACE FUNCTION task_list_add_member(
 DECLARE
   v_member_id BIGINT;
 BEGIN
+  PERFORM 1 FROM task_lists WHERE id = p_list_id AND owner_user_id = p_user_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'task list not found'
+      USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
+  END IF;
+
+  SELECT user_id INTO v_member_id FROM resolve_identity(p_member_email);
+  IF v_member_id IS NULL THEN
+    RAISE EXCEPTION 'member email % does not resolve to an internal user', p_member_email
+      USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"not an internal user"}';
+  END IF;
+
+  -- Canonical lock order: users (sorted) -> task_lists (before counting/inserting members).
+  PERFORM 1 FROM users WHERE id IN (p_user_id, v_member_id) ORDER BY id FOR KEY SHARE;
+
   -- The state bump also writes this row. Take its write lock before counting
   -- members, so concurrent roster writers cannot both pass the cap check.
   PERFORM 1 FROM task_lists WHERE id = p_list_id AND owner_user_id = p_user_id
@@ -135,8 +175,7 @@ BEGIN
       USING ERRCODE = 'BZ130', HINT = '{"type":"notFound"}';
   END IF;
 
-  SELECT user_id INTO v_member_id FROM resolve_identity(p_member_email);
-  IF v_member_id IS NULL THEN
+  IF NOT EXISTS (SELECT 1 FROM users WHERE id = v_member_id AND enabled = TRUE) THEN
     RAISE EXCEPTION 'member email % does not resolve to an internal user', p_member_email
       USING ERRCODE = 'BZ131', HINT = '{"type":"invalidArguments","detail":"not an internal user"}';
   END IF;
@@ -169,6 +208,8 @@ DECLARE
   v_target_role TEXT;
   v_roster    JSONB;
 BEGIN
+  PERFORM 1 FROM users WHERE id IN (p_user_id, p_member_user_id) ORDER BY id FOR KEY SHARE;
+
   -- Lock the list before membership rows, including on self-leave, since the
   -- notification bumps the list state before the membership is deleted.
   SELECT CASE WHEN owner_user_id = p_user_id THEN 'owner' ELSE 'member' END

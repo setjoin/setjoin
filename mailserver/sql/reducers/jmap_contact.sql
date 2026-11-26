@@ -67,12 +67,14 @@ DECLARE
   v_old_state   BIGINT;
   v_new_state   BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
   v_old_state := entity_state(p_mailbox_id, 'AddressBook');
 
   FOR v_client_key, v_obj IN SELECT * FROM jsonb_each(p_creates)
   LOOP
     BEGIN
       IF (v_obj->>'isDefault')::BOOL = true THEN
+        PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
         UPDATE addressbooks SET is_default = FALSE
         WHERE mailbox_id = p_mailbox_id AND is_default = TRUE;
       END IF;
@@ -121,9 +123,11 @@ DECLARE
   v_old_state   BIGINT;
   v_new_state   BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
   v_old_state := entity_state(p_mailbox_id, 'AddressBook');
 
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       IF (v_patch->>'isDefault')::BOOL = true THEN
@@ -170,11 +174,16 @@ DECLARE
   v_new_state   BIGINT;
   v_had_contacts BOOLEAN;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
   v_old_state := entity_state(p_mailbox_id, 'AddressBook');
 
-  FOREACH v_id IN ARRAY p_ids
+  FOR v_id IN SELECT x FROM unnest(p_ids) AS x ORDER BY x
   LOOP
     BEGIN
+      PERFORM 1 FROM addressbooks
+      WHERE id = v_id AND mailbox_id = p_mailbox_id AND is_default = FALSE
+      FOR UPDATE;
+
       -- F1 (ghost-contact guard): the DELETE cascades this book's contacts away
       -- (contacts.addressbook_id → addressbooks ON DELETE CASCADE). The per-contact
       -- DELETE trigger can't resolve mailbox_id once the parent row is gone, so
@@ -351,6 +360,8 @@ DECLARE
   v_old_state   BIGINT;
   v_new_state   BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
   v_old_state := entity_state(p_mailbox_id, 'ContactCard');
 
   FOR v_client_key, v_obj IN SELECT * FROM jsonb_each(p_creates)
@@ -436,9 +447,11 @@ DECLARE
   v_old_state   BIGINT;
   v_new_state   BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
   v_old_state := entity_state(p_mailbox_id, 'ContactCard');
 
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       UPDATE contacts c SET
@@ -501,9 +514,11 @@ DECLARE
   v_old_state   BIGINT;
   v_new_state   BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
   v_old_state := entity_state(p_mailbox_id, 'ContactCard');
 
-  FOREACH v_id IN ARRAY p_ids
+  FOR v_id IN SELECT x FROM unnest(p_ids) AS x ORDER BY x
   LOOP
     BEGIN
       DELETE FROM contacts c
@@ -629,6 +644,14 @@ DECLARE
   v_phones     JSONB;
   v_categories TEXT[];
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
+  PERFORM 1 FROM contact_groups WHERE mailbox_id = p_mailbox_id ORDER BY id FOR SHARE;
+  PERFORM 1 FROM contacts c
+   WHERE c.id IN (p_keep_id, p_drop_id)
+     AND EXISTS (SELECT 1 FROM addressbooks ab WHERE ab.id = c.addressbook_id AND ab.mailbox_id = p_mailbox_id)
+   ORDER BY c.id FOR UPDATE;
+
   -- Keeper: resolve + ownership in the WHERE (R3).
   SELECT c.* INTO v_keep
   FROM contacts c

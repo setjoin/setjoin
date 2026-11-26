@@ -17,6 +17,7 @@ DECLARE
   v_requested_count BIGINT;
   v_resolved_count BIGINT;
 BEGIN
+  PERFORM admin_authority_fence();
   PERFORM 1 FROM identity_sources
    WHERE id=p_source_id
      AND kind='scim'

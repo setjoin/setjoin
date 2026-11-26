@@ -143,6 +143,8 @@ DECLARE
   v_new_state  BIGINT;
   v_changed    BOOLEAN := FALSE;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
   SELECT COALESCE(MAX(jmap_state), 0) INTO v_old_state
   FROM contact_groups WHERE mailbox_id = p_mailbox_id;
 
@@ -211,10 +213,12 @@ DECLARE
   v_new_state  BIGINT;
   v_changed    BOOLEAN := FALSE;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
   SELECT COALESCE(MAX(jmap_state), 0) INTO v_old_state
   FROM contact_groups WHERE mailbox_id = p_mailbox_id;
 
-  FOR v_id, v_patch IN SELECT * FROM jsonb_each(p_updates)
+  FOR v_id, v_patch IN SELECT k::BIGINT, v FROM jsonb_each(p_updates) AS t(k, v) ORDER BY k::BIGINT
   LOOP
     BEGIN
       v_name := NULLIF(TRIM(COALESCE(v_patch->>'name', '')), '');
@@ -278,10 +282,12 @@ DECLARE
   v_new_state   BIGINT;
   v_changed     BOOLEAN := FALSE;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
   SELECT COALESCE(MAX(jmap_state), 0) INTO v_old_state
   FROM contact_groups WHERE mailbox_id = p_mailbox_id;
 
-  FOREACH v_id IN ARRAY p_ids
+  FOR v_id IN SELECT x FROM unnest(p_ids) AS x ORDER BY x
   LOOP
     DELETE FROM contact_groups WHERE id = v_id AND mailbox_id = p_mailbox_id;
     IF FOUND THEN
@@ -323,11 +329,24 @@ DECLARE
   v_contact_id BIGINT;
   v_email      TEXT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM addressbooks WHERE mailbox_id = p_mailbox_id ORDER BY id FOR NO KEY UPDATE;
+
   -- R1/R3 ownership gate (no TOCTOU): the group must belong to the caller.
-  IF NOT EXISTS (SELECT 1 FROM contact_groups WHERE id = p_group_id AND mailbox_id = p_mailbox_id) THEN
+  PERFORM 1 FROM contact_groups WHERE id = p_group_id AND mailbox_id = p_mailbox_id FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'Contact group not owned by caller'
       USING ERRCODE = 'BZ045', HINT = '{"type":"contact_group_forbidden"}';
   END IF;
+
+  PERFORM 1 FROM contacts c
+   WHERE c.id IN (
+     SELECT NULLIF(item->>'contactId', '')::BIGINT
+       FROM jsonb_array_elements(COALESCE(p_add, '[]'::JSONB)) item
+      WHERE NULLIF(item->>'contactId', '') IS NOT NULL
+   )
+     AND EXISTS (SELECT 1 FROM addressbooks ab WHERE ab.id = c.addressbook_id AND ab.mailbox_id = p_mailbox_id)
+   ORDER BY c.id FOR SHARE;
 
   -- Adds.
   FOR v_item IN SELECT * FROM jsonb_array_elements(COALESCE(p_add, '[]'::JSONB))

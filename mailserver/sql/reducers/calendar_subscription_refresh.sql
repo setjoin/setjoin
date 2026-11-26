@@ -73,6 +73,21 @@ BEGIN
             )::TEXT;
   END IF;
 
+  PERFORM 1 FROM mailboxes WHERE id = v_mailbox_id FOR KEY SHARE;
+  PERFORM 1 FROM calendars WHERE id = p_calendar_id AND mailbox_id = v_mailbox_id FOR NO KEY UPDATE;
+  IF NOT FOUND OR NOT EXISTS (
+    SELECT 1 FROM calendar_subscriptions
+     WHERE id = p_subscription_id AND calendar_id = p_calendar_id
+  ) THEN
+    RAISE EXCEPTION 'Subscription not found or calendar_id does not belong to it'
+      USING ERRCODE = 'BZ118',
+            HINT = jsonb_build_object(
+              'type', 'notFound',
+              'subscription_id', p_subscription_id,
+              'calendar_id', p_calendar_id
+            )::TEXT;
+  END IF;
+
   FOR v_elem IN SELECT * FROM jsonb_array_elements(p_events)
   LOOP
     v_uid := NULLIF(v_elem->>'uid', '');

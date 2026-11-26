@@ -26,6 +26,8 @@ BEGIN
         RETURN jsonb_build_object('status','ok','note','no mailbox','processed',0,'truncated',false);
     END IF;
 
+    PERFORM 1 FROM mailboxes WHERE id = v_mailbox_id FOR KEY SHARE;
+
     v_rule_id := NULLIF(p_action.payload->>'rule_id','')::BIGINT;
     v_window  := COALESCE(p_action.payload->>'window','90d');
 

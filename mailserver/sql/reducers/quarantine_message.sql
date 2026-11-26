@@ -45,6 +45,8 @@ DECLARE
     v_quar_tag_id  BIGINT;
     v_original_tag TEXT;
 BEGIN
+    PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
     -- Ensure the Quarantined system tag exists in the target mailbox. The
     -- per-mailbox tag seed (create_system_tags) has never included it, so any
     -- mailbox created after the seed migration would BZ074-abort the whole

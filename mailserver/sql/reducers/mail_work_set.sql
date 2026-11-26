@@ -29,6 +29,9 @@ BEGIN
     RAISE EXCEPTION 'invalid mail-work mutation' USING ERRCODE='BZ301';
   END IF;
 
+  -- Canonical lock order: users (sorted) -> mailboxes -> mailbox_delegates -> mail_thread_work.
+  PERFORM 1 FROM users WHERE id IN (p_actor_user_id, p_assignee_user_id) ORDER BY id FOR KEY SHARE;
+
   SELECT * INTO v_mailbox FROM mailboxes WHERE id=p_mailbox_id FOR UPDATE;
   IF NOT FOUND OR v_mailbox.user_id IS NOT NULL THEN
     RAISE EXCEPTION 'shared mailbox not found' USING ERRCODE='BZ006';

@@ -51,6 +51,11 @@ DECLARE
   v_can_send_as   BOOL;
   v_can_on_behalf BOOL;
 BEGIN
+  -- Canonical lock order: users -> mailboxes.
+  IF p_user_id IS NOT NULL THEN
+    PERFORM 1 FROM users WHERE id = p_user_id FOR KEY SHARE;
+  END IF;
+
   -- 1. Verify user is authorized to send from this mailbox
   SELECT mb.* INTO v_mailbox FROM mailboxes mb
   WHERE mb.id = p_mailbox_id AND mb.enabled = TRUE
@@ -529,6 +534,8 @@ DECLARE
   v_policy        TEXT;
   v_user_id       BIGINT;
 BEGIN
+  PERFORM 1 FROM mailboxes WHERE id = p_mailbox_id FOR KEY SHARE;
+
   -- Ownership: the message must live in the caller's account mailbox (R1/R3).
   -- p_mailbox_id is a mailbox id, so scope by mb.id (NOT mb.user_id, which would
   -- treat the mailbox id as a user id and match zero rows for any real account).

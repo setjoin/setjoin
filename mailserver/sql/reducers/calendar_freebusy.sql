@@ -827,10 +827,12 @@ CREATE OR REPLACE FUNCTION calendar_book_resource(
   p_owner_mailbox_id     BIGINT DEFAULT NULL
 ) RETURNS JSONB AS $$
 DECLARE
-  v_cal        RECORD;
-  v_event      RECORD;
-  v_booking_id BIGINT;
-  v_conflicts  BIGINT[];
+  v_cal          RECORD;
+  v_event        RECORD;
+  v_event_cal_id BIGINT;
+  v_event_mbox   BIGINT;
+  v_booking_id   BIGINT;
+  v_conflicts    BIGINT[];
 BEGIN
   SELECT * INTO v_cal FROM calendars WHERE id = p_resource_calendar_id
     AND (p_owner_mailbox_id IS NULL OR mailbox_id = p_owner_mailbox_id);
@@ -852,11 +854,44 @@ BEGIN
     RETURN jsonb_build_object('type', 'forbidden', 'description', 'Cannot book a personal calendar as a resource');
   END IF;
 
-  SELECT ce.*, c.mailbox_id INTO v_event
+  SELECT ce.calendar_id, c.mailbox_id INTO v_event_cal_id, v_event_mbox
   FROM calendar_events ce
   JOIN calendars c ON c.id = ce.calendar_id
   WHERE ce.id = p_event_id
     AND (p_owner_mailbox_id IS NULL OR c.mailbox_id = p_owner_mailbox_id);
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('type', 'notFound', 'description', 'Event not found');
+  END IF;
+
+  -- Canonical lock order: all distinct mailboxes (sorted) -> both calendars (sorted) -> event.
+  PERFORM 1 FROM mailboxes
+  WHERE id IN (p_mailbox_id, v_cal.mailbox_id, v_event_mbox)
+  ORDER BY id FOR KEY SHARE;
+
+  PERFORM 1 FROM calendars
+  WHERE id IN (p_resource_calendar_id, v_event_cal_id)
+  ORDER BY id FOR NO KEY UPDATE;
+
+  -- Re-check resource calendar, caller mailbox, and event under lock (TOCTOU safe).
+  SELECT * INTO v_cal FROM calendars WHERE id = p_resource_calendar_id
+    AND (p_owner_mailbox_id IS NULL OR mailbox_id = p_owner_mailbox_id);
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('type', 'notFound', 'description', 'Resource calendar not found');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM mailboxes WHERE id = p_mailbox_id) THEN
+    RAISE EXCEPTION 'Calendar not found' USING ERRCODE = 'BZ001';
+  END IF;
+
+  IF v_cal.resource_type = 'personal' THEN
+    RETURN jsonb_build_object('type', 'forbidden', 'description', 'Cannot book a personal calendar as a resource');
+  END IF;
+
+  SELECT ce.* INTO v_event
+  FROM calendar_events ce
+  WHERE ce.id = p_event_id AND ce.calendar_id = v_event_cal_id
+  FOR SHARE;
 
   IF NOT FOUND THEN
     RETURN jsonb_build_object('type', 'notFound', 'description', 'Event not found');

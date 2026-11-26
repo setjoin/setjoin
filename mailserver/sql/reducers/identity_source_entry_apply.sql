@@ -29,6 +29,7 @@ DECLARE
     v_expected_user_id BIGINT;
     v_replace_all BOOLEAN;
 BEGIN
+    PERFORM admin_authority_fence();
     -- The master feature row is an authorization input, not merely a process
     -- startup hint. Hold it through the whole reducer so rollback/disable is
     -- linearizable with lifecycle mutation even if LISTEN was disconnected.
