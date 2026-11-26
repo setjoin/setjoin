@@ -34,5 +34,14 @@
     "rust_source": "server-rust/crates/protocols/ldap/src/lib.rs:session",
     "test": "interleaved_valid_then_failed_binds_leave_connection_anonymous",
     "mutant": "oracle-mutants restores concurrent dispatch; scripts/test-authrt-ldap-mutants.py requires the TLS socket test to reject it"
+  },
+  "policy-gate-totp-revocation-lockdown-lifecycle": {
+    "issue": "#542",
+    "reviewed": true,
+    "reason": "Frozen Go LDAP accepted TOTP users' account passwords and skipped constant-time dummy hashing, durable session_revocations, feature.device_lockdown, mailbox lifecycle, and live session eviction. Rust routes LDAP Bind through setjoin_authz::basic::verify (Accept::AccountPassword + TotpAccountPassword::Refuse + constant-time dummy hash) and PolicyGate::check_protocol_post_auth while preserving LdapResultCode::InvalidCredentials.",
+    "review": "Wave 1.4 PLAN-542 Rev 2",
+    "go_source": "mailserver/internal/ldap/server.go:255-295",
+    "rust_source": "server-rust/crates/protocols/ldap/src/lib.rs",
+    "test": "policy_gate_db::surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifecycle"
   }
 }

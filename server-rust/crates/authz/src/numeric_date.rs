@@ -281,6 +281,7 @@ mod tests {
     /// `jwt.NumericDate.UnmarshalJSON` (v5.3.1) on each literal, then `.Unix()`,
     /// `!now.Before(d.Time)` and `now.Before(d.Time)` with `now = time.Unix(1800000000, 0)`.
     /// `None` = Go returned an error.
+    #[allow(clippy::type_complexity)]
     const GO: &[(&str, Option<(i64, bool, bool)>)] = &[
         ("1800000900", Some((1800000900, false, true))),
         ("1800000900.5", Some((1800000900, false, true))),

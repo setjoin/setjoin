@@ -5,12 +5,92 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use hyper::{HeaderMap, Request, Response};
 use setjoin_authz::{
     auth_chain::Chain,
-    basic::{self, PasswordCache, Verdict, Verified, DAV_POLICY},
-    kerberos::{self, KerberosValidator, PrincipalLookup},
+    basic::{PasswordCache, Verified},
+    kerberos::KerberosValidator,
+    policy_gate::{
+        self, BoxFuture as GateBoxFuture, GateDenial, GateThreatAction, GateThreatMeta,
+        ProtocolSurface, ThreatAdapter,
+    },
 };
 use setjoin_pg::ScopedExecutor;
 use setjoin_threat::{ConnectionMeta, ThreatAction, ThreatGate};
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+
+struct ThreatBridge(Arc<dyn ThreatGate>);
+
+impl ThreatBridge {
+    fn to_meta(meta: &GateThreatMeta) -> ConnectionMeta {
+        ConnectionMeta {
+            source_ip: meta.source_ip.clone(),
+            username: meta.username.clone(),
+            protocol: meta.protocol.clone(),
+            user_agent: meta.user_agent.clone(),
+            user_id: meta.user_id,
+            app_password: meta.app_password,
+            device_bound: meta.device_bound,
+            ..Default::default()
+        }
+    }
+
+    fn from_action(action: ThreatAction) -> GateThreatAction {
+        match action {
+            ThreatAction::Allow => GateThreatAction::Allow,
+            ThreatAction::Reject => GateThreatAction::Reject,
+            ThreatAction::Tarpitted => GateThreatAction::Tarpitted,
+            ThreatAction::RateLimited => GateThreatAction::RateLimited,
+        }
+    }
+}
+
+impl ThreatAdapter for ThreatBridge {
+    fn intercept<'a>(
+        &'a self,
+        meta: &'a GateThreatMeta,
+    ) -> GateBoxFuture<'a, (GateThreatAction, Duration)> {
+        let cm = Self::to_meta(meta);
+        Box::pin(async move {
+            let (action, delay) = self.0.intercept(&cm).await;
+            (Self::from_action(action), delay)
+        })
+    }
+
+    fn check_account_lockout<'a>(
+        &'a self,
+        meta: &'a GateThreatMeta,
+    ) -> GateBoxFuture<'a, (GateThreatAction, Duration)> {
+        let cm = Self::to_meta(meta);
+        Box::pin(async move {
+            let (action, delay) = self.0.check_account_lockout(&cm).await;
+            (Self::from_action(action), delay)
+        })
+    }
+
+    fn record_result<'a>(
+        &'a self,
+        meta: &'a GateThreatMeta,
+        success: bool,
+        user_id: i64,
+    ) -> GateBoxFuture<'a, ()> {
+        let cm = Self::to_meta(meta);
+        Box::pin(async move { self.0.record_result(&cm, success, user_id).await })
+    }
+
+    fn record_ip_failure<'a>(&'a self, meta: &'a GateThreatMeta) -> GateBoxFuture<'a, ()> {
+        let cm = Self::to_meta(meta);
+        Box::pin(async move { self.0.record_ip_failure(&cm).await })
+    }
+
+    fn evaluate_post_auth<'a>(
+        &'a self,
+        meta: &'a mut GateThreatMeta,
+    ) -> GateBoxFuture<'a, (GateThreatAction, String)> {
+        let mut cm = Self::to_meta(meta);
+        Box::pin(async move {
+            let (action, reason) = self.0.evaluate_post_auth(&mut cm).await;
+            (Self::from_action(action), reason)
+        })
+    }
+}
 
 #[derive(Clone)]
 pub struct DavBasicAuth {
@@ -46,10 +126,10 @@ impl DavBasicAuth {
         let Some((email, secret)) = parse_basic_header(r.headers()) else {
             return Err(crate::deny::unauthorized(r.headers(), c));
         };
-        if !self.chain.as_ref().is_none_or(|ch| ch.basic_allowed()) {
-            return Err(crate::deny::unauthorized(r.headers(), c));
-        }
         let Some(threat) = self.threat.as_ref() else {
+            if !self.chain.as_ref().is_none_or(|ch| ch.basic_allowed()) {
+                return Err(crate::deny::unauthorized(r.headers(), c));
+            }
             return Err(crate::admission::problem(
                 r.headers(),
                 &c.identity,
@@ -61,37 +141,27 @@ impl DavBasicAuth {
             .headers()
             .get(hyper::header::USER_AGENT)
             .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned();
-        let meta = ConnectionMeta {
-            source_ip: c.identity.client_ip.to_string(),
-            username: email.clone(),
-            protocol: "http".into(),
-            user_agent: ua,
-            ..Default::default()
-        };
-        let (action, delay) = threat.intercept(&meta).await;
-        match action {
-            ThreatAction::Reject | ThreatAction::Tarpitted => {
-                if !delay.is_zero() {
-                    tokio::time::sleep(delay).await;
-                }
-                return Err(crate::deny::unauthorized(r.headers(), c));
+            .unwrap_or("");
+        let bridge = ThreatBridge(threat.clone());
+        let client_ip = c.identity.client_ip.to_string();
+        let user = policy_gate::verify_basic_with_threat(
+            exec,
+            &self.password_cache,
+            self.chain.as_deref(),
+            &bridge,
+            ProtocolSurface::CalDav,
+            &email,
+            &secret,
+            &client_ip,
+            ua,
+        )
+        .await
+        .map_err(|denial| match denial {
+            GateDenial::Unavailable(_) => {
+                crate::admission::problem(r.headers(), &c.identity, 503, "service unavailable")
             }
-            ThreatAction::RateLimited => {
-                return Err(crate::deny::unauthorized(r.headers(), c));
-            }
-            ThreatAction::Allow => {}
-        }
-        let verdict = basic::verify(exec, &self.password_cache, &email, &secret, DAV_POLICY).await;
-        let (success, user_id, verified) = match verdict {
-            Verdict::AppPassword(user) => (true, user.user_id, Some(user)),
-            Verdict::AccountPassword(_) | Verdict::Refused => (false, 0, None),
-        };
-        threat.record_result(&meta, success, user_id).await;
-        let Some(user) = verified else {
-            return Err(crate::deny::unauthorized(r.headers(), c));
-        };
+            _ => crate::deny::unauthorized(r.headers(), c),
+        })?;
         if let Some(runtime) = &self.runtime {
             if let Some(resp) = runtime.enforce_basic(r, c, user.user_id).await {
                 return Err(resp);
@@ -100,11 +170,8 @@ impl DavBasicAuth {
         Ok(user)
     }
 
-    /// Authenticate an `Authorization: Negotiate ...` header natively (#355b)
-    /// via `libgssapi` (MIT krb5 FFI), live `auth_methods` chain gating (fail-closed
-    /// when `chain: None`), shared `ThreatGate` (single rate-limit burn + IP lockout
-    /// on bad SPNEGO + targeted account lockout), fail-closed guest & TOTP checks,
-    /// `auth_event_log` audit parity, and `RuntimeGate::enforce_kerberos`.
+    /// Authenticate an `Authorization: Negotiate ...` header natively (#355b, #542)
+    /// via `PolicyGate`'s shared two-phase ThreatGate + SPNEGO verifier.
     pub async fn authenticate_negotiate(
         &self,
         exec: &ScopedExecutor,
@@ -114,14 +181,11 @@ impl DavBasicAuth {
         if !has_scheme(r.headers(), b"Negotiate ") {
             return Err(crate::deny::unauthorized(r.headers(), c));
         }
-        // Fail closed when auth_chain is absent, Kerberos is disabled in auth_methods,
-        // or the verifier is not configured/enabled. Zero DB/threat side effects.
-        if !self.chain.as_ref().is_some_and(|ch| ch.kerberos_allowed()) {
+        if !self.chain.as_ref().is_some_and(|ch| ch.kerberos_allowed())
+            || self.kerberos.is_none()
+        {
             return Err(crate::deny::unauthorized(r.headers(), c));
         }
-        let Some(validator) = self.kerberos.as_ref() else {
-            return Err(crate::deny::unauthorized(r.headers(), c));
-        };
         let Some(threat) = self.threat.as_ref() else {
             return Err(crate::admission::problem(
                 r.headers(),
@@ -135,151 +199,24 @@ impl DavBasicAuth {
             .headers()
             .get(hyper::header::USER_AGENT)
             .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_owned();
-        let ip_meta = ConnectionMeta {
-            source_ip: client_ip.clone(),
-            username: String::new(),
-            protocol: "http".into(),
-            user_agent: ua.clone(),
-            ..Default::default()
-        };
-        let (action, delay) = threat.intercept(&ip_meta).await;
-        match action {
-            ThreatAction::Reject | ThreatAction::Tarpitted => {
-                if !delay.is_zero() {
-                    tokio::time::sleep(delay).await;
-                }
-                return Err(crate::deny::unauthorized(r.headers(), c));
-            }
-            ThreatAction::RateLimited => {
-                return Err(crate::deny::unauthorized(r.headers(), c));
-            }
-            ThreatAction::Allow => {}
-        }
-
-        // Parse & verify SPNEGO after IP-level ThreatGate so oversized/malformed/NTLM
-        // floods trigger spnego_validation_failed audit and IP lockout escalation.
-        let token = match kerberos::parse_negotiate_token(r.headers()) {
-            Ok(token) => token,
-            Err(_) => {
-                kerberos::record_kerberos_event(
-                    exec,
-                    None,
-                    "login_failed",
-                    None,
-                    Some(&client_ip),
-                    Some(r#"{"reason":"spnego_validation_failed"}"#),
-                )
-                .await;
-                threat.record_ip_failure(&ip_meta).await;
-                return Err(crate::deny::unauthorized(r.headers(), c));
-            }
-        };
-        let principal = match validator.validate_spnego(&token).await {
-            Ok(principal) => principal,
-            Err(_) => {
-                kerberos::record_kerberos_event(
-                    exec,
-                    None,
-                    "login_failed",
-                    None,
-                    Some(&client_ip),
-                    Some(r#"{"reason":"spnego_validation_failed"}"#),
-                )
-                .await;
-                threat.record_ip_failure(&ip_meta).await;
-                return Err(crate::deny::unauthorized(r.headers(), c));
-            }
-        };
-
-        let lookup = kerberos::lookup_principal(exec, &principal).await;
-        let (user, totp_required) = match lookup {
-            PrincipalLookup::Found(user) => (user, false),
-            PrincipalLookup::TotpRequired(user) => (user, true),
-            PrincipalLookup::Guest(user) => {
-                kerberos::record_kerberos_event(
-                    exec,
-                    Some(user.user_id),
-                    "login_failed",
-                    Some(&user.email),
-                    Some(&client_ip),
-                    Some(r#"{"reason":"guest_refused"}"#),
-                )
-                .await;
-                let guest_meta = ConnectionMeta {
-                    source_ip: client_ip,
-                    username: user.email,
-                    protocol: "http".into(),
-                    user_agent: ua,
-                    ..Default::default()
-                };
-                threat.record_result(&guest_meta, false, 0).await;
-                return Err(crate::deny::unauthorized(r.headers(), c));
-            }
-            PrincipalLookup::NotFound => {
-                kerberos::record_kerberos_event(
-                    exec,
-                    None,
-                    "login_failed",
-                    None,
-                    Some(&client_ip),
-                    Some(r#"{"reason":"user_not_found"}"#),
-                )
-                .await;
-                let principal_meta = ConnectionMeta {
-                    source_ip: client_ip,
-                    username: principal,
-                    protocol: "http".into(),
-                    user_agent: ua,
-                    ..Default::default()
-                };
-                threat.record_result(&principal_meta, false, 0).await;
-                return Err(crate::deny::unauthorized(r.headers(), c));
-            }
-            PrincipalLookup::Unavailable => {
-                return Err(crate::admission::problem(
-                    r.headers(),
-                    &c.identity,
-                    503,
-                    "service unavailable",
-                ));
-            }
-        };
-
-        // Targeted user/ip_user lockout check without double-burning rate_limit_counters.
-        let user_meta = ConnectionMeta {
-            source_ip: client_ip.clone(),
-            username: user.email.clone(),
-            protocol: "http".into(),
-            user_agent: ua,
-            ..Default::default()
-        };
-        let (lock_action, lock_delay) = threat.check_account_lockout(&user_meta).await;
-        if lock_action != ThreatAction::Allow {
-            if !lock_delay.is_zero() {
-                tokio::time::sleep(lock_delay).await;
-            }
-            return Err(crate::deny::unauthorized(r.headers(), c));
-        }
-
-        // Go parity (`mailserver/internal/auth/chain.go:585-594`): log `login` for the
-        // validated principal before refusing TOTP accounts; do not penalize ThreatGate
-        // with a failure strike on TOTP policy refusal.
-        kerberos::record_kerberos_event(
+            .unwrap_or("");
+        let bridge = ThreatBridge(threat.clone());
+        let user = policy_gate::verify_negotiate_two_phase(
             exec,
-            Some(user.user_id),
-            "login",
-            Some(&user.email),
-            Some(&client_ip),
-            None,
+            self.chain.as_deref(),
+            self.kerberos.as_deref(),
+            &bridge,
+            r.headers(),
+            &client_ip,
+            ua,
         )
-        .await;
-        if totp_required {
-            return Err(crate::deny::unauthorized(r.headers(), c));
-        }
-        threat.record_result(&user_meta, true, user.user_id).await;
-
+        .await
+        .map_err(|denial| match denial {
+            GateDenial::Unavailable(_) => {
+                crate::admission::problem(r.headers(), &c.identity, 503, "service unavailable")
+            }
+            _ => crate::deny::unauthorized(r.headers(), c),
+        })?;
         if let Some(runtime) = &self.runtime {
             if let Some(resp) = runtime.enforce_kerberos(r, c, user.user_id).await {
                 return Err(resp);

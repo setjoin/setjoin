@@ -602,6 +602,11 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
                 initial,
                 stop.clone(),
             );
+            let groups = self
+                .engine
+                .group_resolver()
+                .clone()
+                .listen_watch(self.direct.clone(), stop.clone());
             let sessions = async {
                 if self.own_sessions && !self.direct.is_empty() {
                     if let Some(sessions) = &self.sessions {
@@ -617,7 +622,7 @@ impl<K: KeySource + 'static> RuntimeGate for RuntimeAccess<K> {
                 }
                 stopped(stop).await;
             };
-            tokio::join!(policy, sessions);
+            tokio::join!(policy, groups, sessions);
         })
     }
     fn check<'a>(&'a self, r: &'a mut Request<Body>, c: &'a RequestContext) -> Check<'a> {

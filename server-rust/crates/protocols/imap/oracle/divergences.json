@@ -10,5 +10,15 @@
     "secure_test": "password_policy::totp_user_account_password_is_refused_even_on_a_warm_cache",
     "mutant": "imap-totp-account-password-admit",
     "mutant_note": "TotpAccountPassword::Admit in imap/src/auth.rs POLICY makes secure_test fail (not wired to a lane yet)"
+  },
+  "policy-gate-guest-app-password-and-post-auth": {
+    "issue": "#542",
+    "reviewed": true,
+    "reviewer": "plan-542 rev2",
+    "reason": "Frozen Go CheckAppPassword omitted guest exclusion and IMAP skipped durable session_revocations, feature.device_lockdown, and check_user_app_entitlement('mail'). Rust enforces ProtocolSurface::Imap through PolicyGate: GuestAppPasswords::Refuse, durable session_revocations, device lockdown unless break-glass, and mail entitlement.",
+    "review": "Wave 1.4 PLAN-542 Rev 2",
+    "go_source": "shared/pwhash/pwhash.go:100-145; mailserver/internal/imap/imap.go:580-660",
+    "goldens": "unchanged: no recorded IMAP fixture grants a guest an app password or revokes/locks down a fixture account prior to login",
+    "secure_test": "policy_gate_db::surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifecycle"
   }
 }

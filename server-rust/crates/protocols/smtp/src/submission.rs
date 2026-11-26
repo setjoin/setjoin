@@ -72,12 +72,8 @@ pub struct Submission {
     max_connections: usize,
     users: ConnTracker,
     registry: Option<Arc<ProtocolSessionRegistry>>,
-    dummy_hash: &'static str,
-    dummy_verifications: std::sync::atomic::AtomicUsize,
+    passwords: setjoin_authz::basic::PasswordCache,
 }
-
-/// bcrypt cost 10; the gateway passes the profile's own algorithm (SECFIX3).
-const DUMMY_BCRYPT: &str = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
 impl Submission {
     /// `Unwired` threat policy mirrors Go's nil interceptor (fixtures only); the
@@ -94,19 +90,18 @@ impl Submission {
             max_connections: 0,
             users: ConnTracker::default(),
             registry: None,
-            dummy_hash: DUMMY_BCRYPT,
-            dummy_verifications: Default::default(),
+            passwords: setjoin_authz::basic::PasswordCache::new(),
         }
     }
     /// The fixed hash an unknown/disabled account is verified against, in the
     /// crypto profile's algorithm (`setjoin_identity::login::dummy_hash`).
     pub fn with_dummy_hash(mut self, hash: &'static str) -> Self {
-        self.dummy_hash = hash;
+        self.passwords = self.passwords.with_dummy_hash(hash);
         self
     }
     /// How many password hashes were spent on accounts that do not exist.
     pub fn dummy_verifications(&self) -> usize {
-        self.dummy_verifications.load(std::sync::atomic::Ordering::SeqCst)
+        self.passwords.dummy_verifications()
     }
     pub fn with_threat_gate(mut self, gate: Arc<dyn ThreatGate>) -> Self {
         self.gate = Some(gate);
@@ -518,6 +513,8 @@ impl Submission {
                     .await;
                     c.authed = false;
                     c.user = 0;
+                    c.slot = None;
+                    c.registry_release = None;
                     return c
                         .reply(535, &format!("5.7.0 Access blocked by policy: {reason}"))
                         .await;
@@ -557,6 +554,8 @@ impl Submission {
                 .await;
                 c.authed = false;
                 c.user = 0;
+                c.slot = None;
+                c.registry_release = None;
                 return c
                     .reply(535, &format!("5.7.0 Access blocked by policy: {reason}"))
                     .await;
@@ -565,24 +564,33 @@ impl Submission {
         self.admit(c, user, authenticated_at).await
     }
 
-    /// Per-user slot, then the revocation registry, then 235.
+    /// Unified PolicyGate post-auth checks, per-user slot (release-then-acquire),
+    /// revocation registry registration, then 235.
     async fn admit(
         &self,
         c: &mut State,
         user: i64,
         authenticated_at: std::time::SystemTime,
     ) -> io::Result<()> {
+        if let Some(reason) = self.policy_gate_post_auth(c, user).await {
+            c.authed = false;
+            c.user = 0;
+            c.slot = None;
+            c.registry_release = None;
+            return c.reply(535, reason).await;
+        }
+        // Wave 1.4 (#542) security fix: release any previous slot on re-AUTH
+        // before acquiring the new identity's slot (fixes Go's ConnTracker leak).
+        c.slot = None;
         match self.users.try_acquire(user) {
             Ok(slot) => {
-                // Mirrored Go defect: a second successful AUTH overwrites `c.release`
-                // without calling it, so the first slot is never given back.
-                if let Some(first) = c.slot.replace(slot) {
-                    std::mem::forget(first);
-                }
+                c.slot = Some(slot);
             }
             Err(()) => {
                 c.authed = false;
                 c.user = 0;
+                c.slot = None;
+                c.registry_release = None;
                 return c.reply(550, "Too many connections from this account").await;
             }
         }
@@ -593,7 +601,104 @@ impl Submission {
         c.reply(235, "Authentication successful").await
     }
 
-    /// `pwhash.CheckAppPassword`.
+    /// Unified PolicyGate post-auth enforcement for SMTP submission (#542):
+    /// durable `session_revocations` (`scope='all'`), `feature.device_lockdown`,
+    /// `check_user_app_entitlement(user, 'mail')`, and primary mailbox
+    /// `mailbox_lifecycle_access_allowed`.
+    async fn policy_gate_post_auth(&self, c: &mut State, user: i64) -> Option<&'static str> {
+        let iat = setjoin_authz::policy_gate::SENTINEL_NON_JWT_IAT as f64;
+        let revoked = c
+            .query(
+                &self.db,
+                "SELECT EXISTS(SELECT 1 FROM session_revocations \
+                  WHERE user_id = $1 AND expires_at > now() \
+                    AND scope = 'all' AND not_before >= to_timestamp($2::float8))",
+                &[(&user, Type::INT8), (&iat, Type::FLOAT8)],
+            )
+            .await
+            .ok()
+            .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()));
+        match revoked {
+            Some(true) => return Some("5.7.0 Session revoked"),
+            None => return Some("5.7.0 Authentication verification unavailable"),
+            Some(false) => {}
+        }
+
+        let keys: Vec<String> = ["feature.conditional_access", "feature.device_lockdown"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let flags = c
+            .query(
+                &self.db,
+                "SELECT key, enabled FROM feature_toggles WHERE key = ANY($1::text[])",
+                &[(&keys, Type::TEXT_ARRAY)],
+            )
+            .await
+            .ok();
+        let Some(flags) = flags else {
+            return Some("5.7.0 Authentication verification unavailable");
+        };
+        let on = |k: &str| {
+            flags
+                .iter()
+                .any(|r| r.get::<_, String>(0) == k && r.get::<_, bool>(1))
+        };
+        if on("feature.conditional_access") && on("feature.device_lockdown") {
+            let Ok(bg_rows) = c
+                .query(
+                    &self.db,
+                    "SELECT value::text FROM system_config WHERE key = 'ca_break_glass_user_ids'",
+                    &[],
+                )
+                .await
+            else {
+                return Some("5.7.0 Authentication verification unavailable");
+            };
+            let bg: Vec<i64> = bg_rows
+                .first()
+                .and_then(|r| serde_json::from_str::<Vec<i64>>(&r.get::<_, String>(0)).ok())
+                .unwrap_or_default();
+            if !bg.is_empty() && !bg.contains(&user) {
+                return Some("5.7.0 Device not enrolled");
+            }
+        }
+
+        let entitled = c
+            .query(
+                &self.db,
+                "SELECT check_user_app_entitlement($1, 'mail')",
+                &[(&user, Type::INT8)],
+            )
+            .await
+            .ok()
+            .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()));
+        if entitled != Some(true) {
+            return Some("5.7.0 Mail access disabled by policy");
+        }
+
+        let mb_rows = c
+            .query(
+                &self.db,
+                "SELECT mailbox_lifecycle_access_allowed(id) \
+                   FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
+                &[(&user, Type::INT8)],
+            )
+            .await
+            .ok();
+        let Some(mb_rows) = mb_rows else {
+            return Some("5.7.0 Authentication verification unavailable");
+        };
+        let allowed = mb_rows
+            .first()
+            .and_then(|r| r.try_get::<_, Option<bool>>(0).ok().flatten());
+        if allowed != Some(true) {
+            return Some("5.7.0 Mailbox access suspended");
+        }
+        None
+    }
+
+    /// `pwhash.CheckAppPassword` + fail-closed guest refusal (#542).
     async fn check_app_password(&self, c: &mut State, email: &str, token: &str) -> Option<i64> {
         let digest = Sha256::digest(token.as_bytes());
         let hash: String = digest.iter().map(|b| format!("{b:02x}")).collect();
@@ -613,6 +718,20 @@ impl Submission {
                 .await;
             return None;
         };
+        let is_guest = c
+            .query(
+                &self.db,
+                "SELECT is_guest_account($1)",
+                &[(&user, Type::INT8)],
+            )
+            .await
+            .ok()
+            .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()));
+        if is_guest != Some(false) {
+            self.log_event(c, None, "login_failed", "app_password", email, "", false)
+                .await;
+            return None;
+        }
         let _ = c
             .query(
                 &self.db,
@@ -642,39 +761,36 @@ impl Submission {
         Some(user)
     }
 
-    /// `auth.CheckPassword`: bcrypt/SM3 verification, best-effort below-floor
-    /// self-heal, then the fail-closed guest check.
+    /// `auth.CheckPassword`: constant-time dummy hash via `PasswordCache`,
+    /// TOTP account-password refusal (#542), bcrypt/SM3 verification,
+    /// best-effort below-floor self-heal, then fail-closed guest check.
     async fn check_user_password(&self, c: &mut State, email: &str, password: &str) -> Option<i64> {
         let rows = c
             .query(
                 &self.db,
-                "SELECT u.id, u.password_hash FROM users u JOIN domains d ON d.id = u.domain_id \
+                "SELECT u.id, u.password_hash, u.totp_enabled FROM users u \
+                 JOIN domains d ON d.id = u.domain_id \
                  WHERE u.email = $1 AND u.enabled = TRUE",
                 &[(&email, Type::TEXT)],
             )
             .await
             .ok();
-        // Security fix (SECFIX3 pattern, #501): frozen Go returned before any hash
-        // for an unknown/disabled/hash-less account, so timing revealed which
-        // accounts exist. Every such path now costs one verify of the profile's
-        // algorithm.
+        // Security fix (SECFIX3 pattern, #501, #542): unknown/disabled/hash-less
+        // accounts spend one constant-time dummy hash verification.
         let known = rows.as_ref().and_then(|rows| rows.first()).and_then(|row| {
             let hash = row.try_get::<_, String>(1).ok().filter(|h| !h.is_empty())?;
-            Some((row.get::<_, i64>(0), hash))
+            let totp_enabled: bool = row.try_get(2).ok()?;
+            Some((row.get::<_, i64>(0), hash, totp_enabled))
         });
-        let Some((id, hash)) = known else {
+        let Some((id, hash, totp_enabled)) = known else {
             if !crate::mutants::on("smtp-no-dummy-hash") {
-                self.dummy_verifications
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                let dummy = self.dummy_hash;
-                let pw = password.to_string();
-                let _ = tokio::task::spawn_blocking(move || {
-                    setjoin_authz::password::verify(dummy, &pw)
-                })
-                .await;
+                self.passwords.spend_dummy_hash(password).await;
             }
             return None;
         };
+        if totp_enabled {
+            return None;
+        }
         let verified = hash.clone();
         let pw = password.to_string();
         let (valid, upgrade) = tokio::task::spawn_blocking(move || {

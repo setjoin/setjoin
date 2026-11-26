@@ -818,5 +818,18 @@
   "review": "owner-approved security fix 2026-11-05",
   "secure_test": "session::secfix12_trailing_unsigned_part_is_not_fully_signed / secfix12_preamble_part_cannot_hide_behind_a_signed_message + smime::tests",
   "mutant": "SETJOIN_SMTP_MUTANT=smime-trailing-parts-ignored / smime-line-boundary"
+ },
+ {
+  "case": "policy-gate-submission-reauth-and-gates",
+  "corpus": [
+   "submission-go.json"
+  ],
+  "baseline": "submission-go.json",
+  "issue": "#542",
+  "go_replay": "unchanged",
+  "reviewed": true,
+  "reason": "Wave 1.4 PLAN-542 Rev 2: SMTP submission fixes the frozen-Go re-AUTH ConnTracker slot leak (releasing any prior slot before try_acquire instead of std::mem::forget), refuses guest app passwords and TOTP account passwords, and enforces durable session_revocations, feature.device_lockdown, check_user_app_entitlement('mail'), and mailbox_lifecycle_access_allowed.",
+  "review": "Wave 1.4 PLAN-542 Rev 2",
+  "secure_test": "submission::reauth_releases_previous_conn_tracker_slot + policy_gate_db::surface_matrix_enforces_revocation_lockdown_guest_entitlement_and_lifecycle"
  }
 ]

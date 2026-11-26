@@ -11,7 +11,10 @@ use base64::{
     engine::{general_purpose::GeneralPurposeConfig, GeneralPurpose},
     Engine,
 };
-use setjoin_authz::basic::{Accept, GuestAppPasswords, Policy, TotpAccountPassword, Verdict};
+use setjoin_authz::{
+    basic::{Policy, Verdict},
+    policy_gate::{self, GateDenial, ProtocolSurface},
+};
 use setjoin_pg::Type;
 use std::time::SystemTime;
 
@@ -21,13 +24,12 @@ const STD: GeneralPurpose = GeneralPurpose::new(
     GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true),
 );
 
-/// IMAP's explicit credential policy: Go's app-then-account order; guest app
-/// passwords admitted (frozen Go parity, follow-up); TOTP users' account
-/// password refused (owner ruling 2026-11-14, security divergence).
-const POLICY: Policy = Policy {
-    accept: Accept::AppPasswordThenAccountPassword,
-    guest_app_passwords: GuestAppPasswords::Admit,
-    totp_account_password: TotpAccountPassword::Refuse,
+/// IMAP's unified credential policy (#355-0, #542): app-then-account order,
+/// guest app passwords refused (`GuestAppPasswords::Refuse`), and TOTP users'
+/// account passwords refused (`TotpAccountPassword::Refuse`).
+const POLICY: Policy = match ProtocolSurface::Imap.basic_policy() {
+    Some(p) => p,
+    None => unreachable!(),
 };
 
 #[derive(Clone, Copy)]
@@ -250,7 +252,7 @@ async fn admit(
     if app {
         webhook(s, true, email, "app_password", client_ip).await;
     }
-    if deny_if_imap_disabled(s, tag, user).await || deny_if_mailbox_blocked(s, tag, user).await {
+    if deny_if_imap_disabled(s, tag, user).await || deny_if_policy_gate_blocks(s, tag, user).await {
         return;
     }
     meta.device_bound = false;
@@ -306,33 +308,18 @@ async fn deny_if_imap_disabled(s: &mut Session, tag: &str, user: i64) -> bool {
     }
 }
 
-async fn deny_if_mailbox_blocked(s: &mut Session, tag: &str, user: i64) -> bool {
-    let mailbox: Option<i64> = s
-        .server
-        .db
-        .read(
-            "SELECT id FROM mailboxes WHERE user_id = $1 AND is_primary = TRUE LIMIT 1",
-            &[(&user, Type::INT8)],
-        )
-        .await
-        .ok()
-        .and_then(|rows| rows.first().and_then(|r| r.try_get(0).ok()));
-    let Some(mailbox) = mailbox else {
-        return deny(s, tag, "NO Mailbox access unavailable");
-    };
-    let allowed = s
-        .server
-        .db
-        .read(
-            "SELECT mailbox_lifecycle_access_allowed($1)",
-            &[(&mailbox, Type::INT8)],
-        )
-        .await
-        .ok()
-        .and_then(|rows| rows.first().and_then(|r| r.try_get::<_, bool>(0).ok()))
-        .unwrap_or(false);
-    if !allowed {
-        return deny(s, tag, "NO Mailbox access suspended");
+async fn deny_if_policy_gate_blocks(s: &mut Session, tag: &str, user: i64) -> bool {
+    match policy_gate::check_protocol_post_auth(&s.server.db, ProtocolSurface::Imap, user).await {
+        Ok(()) => false,
+        Err(GateDenial::SessionRevoked) => deny(s, tag, "NO Session revoked"),
+        Err(GateDenial::DeviceLockdown) => {
+            deny(s, tag, "NO Device not enrolled — contact your administrator")
+        }
+        Err(GateDenial::EntitlementDenied(_)) => {
+            deny(s, tag, "NO Mail access disabled for this account by policy")
+        }
+        Err(GateDenial::NoPrimaryMailbox) => deny(s, tag, "NO Mailbox access unavailable"),
+        Err(GateDenial::MailboxBlocked) => deny(s, tag, "NO Mailbox access suspended"),
+        Err(_) => deny(s, tag, "NO internal error"),
     }
-    false
 }

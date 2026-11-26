@@ -1,0 +1,208 @@
+-- group_membership_notify.pg — pgTAP verification for V285 (#542):
+-- Verifies app_notify('group_membership_changed', ...) triggers on
+-- user_group_members, directory_group_invalidations (per-user + NULL -> all),
+-- distribution_group_members, and distribution_groups admin-scope metadata updates.
+BEGIN;
+SELECT plan(14);
+SET LOCAL app.capture_notify = 'on';
+
+INSERT INTO domains (id, name, is_local) VALUES (954201, 'notify542.test', TRUE)
+  ON CONFLICT DO NOTHING;
+INSERT INTO users (id, username, domain_id, email, display_name, password_hash, enabled) VALUES
+  (954211, 'u1_542', 954201, 'u1@notify542.test', 'U1', 'x', TRUE),
+  (954212, 'u2_542', 954201, 'u2@notify542.test', 'U2', 'x', TRUE)
+  ON CONFLICT DO NOTHING;
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary, enabled) VALUES
+  (954221, 954211, 954201, 'u1@notify542.test', 'U1', 'personal', TRUE, TRUE),
+  (954222, 954212, 954201, 'u2@notify542.test', 'U2', 'personal', TRUE, TRUE)
+  ON CONFLICT DO NOTHING;
+
+-- 1. user_group_members INSERT / UPDATE / DELETE
+DELETE FROM _test_notify_log;
+INSERT INTO user_group_members (user_id, group_id) VALUES (954211, 7001);
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'user_group_members'
+      AND ((payload::jsonb)->>'user_id')::bigint = 954211),
+  1,
+  'user_group_members INSERT emits user_id notification'
+);
+
+DELETE FROM _test_notify_log;
+UPDATE user_group_members SET user_id = 954212 WHERE user_id = 954211 AND group_id = 7001;
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'user_group_members'
+      AND ((payload::jsonb)->>'user_id')::bigint IN (954211, 954212)),
+  2,
+  'user_group_members UPDATE moving user_id emits notifications for both OLD and NEW users'
+);
+
+DELETE FROM _test_notify_log;
+DELETE FROM user_group_members WHERE user_id = 954212 AND group_id = 7001;
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'user_group_members'
+      AND ((payload::jsonb)->>'user_id')::bigint = 954212),
+  1,
+  'user_group_members DELETE emits user_id notification'
+);
+
+-- 2. directory_group_invalidations per-user vs NULL (group-wide -> all:true)
+INSERT INTO directory_groups (domain_id, name, kind, state, visibility)
+VALUES (954201, 'dg_notify_542', 'static', 'active', 'members');
+
+DELETE FROM _test_notify_log;
+INSERT INTO directory_group_members (group_id, user_id, membership_source)
+SELECT id, 954211, 'static' FROM directory_groups WHERE domain_id = 954201 AND name = 'dg_notify_542';
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'directory_group_invalidations'
+      AND ((payload::jsonb)->>'user_id')::bigint = 954211),
+  1,
+  'directory_group_members INSERT triggers directory_group_invalidations user_id notification'
+);
+
+DELETE FROM _test_notify_log;
+DELETE FROM directory_group_members
+WHERE user_id = 954211
+  AND group_id = (SELECT id FROM directory_groups WHERE domain_id = 954201 AND name = 'dg_notify_542');
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'directory_group_invalidations'
+      AND ((payload::jsonb)->>'user_id')::bigint = 954211),
+  1,
+  'directory_group_members DELETE triggers directory_group_invalidations user_id notification'
+);
+
+DELETE FROM _test_notify_log;
+UPDATE directory_groups SET state = 'deleted'
+WHERE domain_id = 954201 AND name = 'dg_notify_542';
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'directory_group_invalidations'
+      AND ((payload::jsonb)->>'all')::boolean = TRUE),
+  1,
+  'directory_groups metadata/state update (user_id IS NULL) emits all:true'
+);
+
+-- Direct UPDATE and DELETE on directory_group_invalidations also emit
+DELETE FROM _test_notify_log;
+INSERT INTO directory_group_invalidations (group_id, user_id, generation, reason)
+VALUES (
+  (SELECT id FROM directory_groups WHERE domain_id = 954201 AND name = 'dg_notify_542'),
+  954211, 99, 'member_add'
+);
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'directory_group_invalidations'
+      AND ((payload::jsonb)->>'user_id')::bigint = 954211),
+  1,
+  'direct directory_group_invalidations INSERT with user_id emits user_id notification'
+);
+
+DELETE FROM _test_notify_log;
+UPDATE directory_group_invalidations SET user_id = NULL
+WHERE user_id = 954211 AND generation = 99;
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'directory_group_invalidations'
+      AND ((payload::jsonb)->>'all')::boolean = TRUE),
+  1,
+  'directory_group_invalidations UPDATE to NULL user_id emits all:true'
+);
+
+-- 3. distribution_group_members INSERT / UPDATE / DELETE
+INSERT INTO mailboxes (id, user_id, domain_id, email, display_name, type, is_primary, enabled) VALUES
+  (954229, NULL, 954201, 'dist542@notify542.test', 'Dist542', 'personal', FALSE, TRUE)
+  ON CONFLICT DO NOTHING;
+INSERT INTO identity_sources (id, source_key, display_name, kind, capabilities, state) VALUES
+  (954299, 'src-notify-542', 'Notify542', 'scim', '{"groups":true}'::jsonb, 'active')
+  ON CONFLICT DO NOTHING;
+INSERT INTO distribution_groups (mailbox_id, is_dynamic, usable_as_admin_scope)
+VALUES (954229, FALSE, FALSE);
+
+DELETE FROM _test_notify_log;
+INSERT INTO distribution_group_members (group_id, mailbox_id, source)
+SELECT id, 954221, 'manual' FROM distribution_groups WHERE mailbox_id = 954229;
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'distribution_group_members'
+      AND ((payload::jsonb)->>'user_id')::bigint = 954211),
+  1,
+  'distribution_group_members INSERT resolves mailbox -> user_id and emits notification'
+);
+
+DELETE FROM _test_notify_log;
+UPDATE distribution_group_members SET mailbox_id = 954222
+WHERE mailbox_id = 954221
+  AND group_id = (SELECT id FROM distribution_groups WHERE mailbox_id = 954229);
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'distribution_group_members'
+      AND ((payload::jsonb)->>'user_id')::bigint IN (954211, 954212)),
+  2,
+  'distribution_group_members UPDATE moving mailbox_id notifies both OLD and NEW users'
+);
+
+DELETE FROM _test_notify_log;
+DELETE FROM distribution_group_members
+WHERE mailbox_id = 954222
+  AND group_id = (SELECT id FROM distribution_groups WHERE mailbox_id = 954229);
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'distribution_group_members'
+      AND ((payload::jsonb)->>'user_id')::bigint = 954212),
+  1,
+  'distribution_group_members DELETE emits user_id notification'
+);
+
+-- 4. distribution_groups UPDATE OF is_dynamic, scim_external_id, usable_as_admin_scope
+DELETE FROM _test_notify_log;
+UPDATE distribution_groups SET usable_as_admin_scope = TRUE
+WHERE mailbox_id = 954229;
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'distribution_groups'
+      AND ((payload::jsonb)->>'all')::boolean = TRUE),
+  1,
+  'distribution_groups UPDATE usable_as_admin_scope emits all:true'
+);
+
+DELETE FROM _test_notify_log;
+UPDATE distribution_groups SET scim_external_id = 'scim-542', scim_source_id = 954299
+WHERE mailbox_id = 954229;
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'distribution_groups'
+      AND ((payload::jsonb)->>'all')::boolean = TRUE),
+  1,
+  'distribution_groups UPDATE scim_external_id emits all:true'
+);
+
+DELETE FROM _test_notify_log;
+UPDATE distribution_groups SET moderated = TRUE
+WHERE mailbox_id = 954229;
+SELECT is(
+  (SELECT count(*)::int FROM _test_notify_log
+    WHERE channel = 'group_membership_changed'
+      AND (payload::jsonb)->>'source' = 'distribution_groups'),
+  0,
+  'distribution_groups unrelated column UPDATE does not emit spurious notification'
+);
+
+SELECT finish();
+ROLLBACK;

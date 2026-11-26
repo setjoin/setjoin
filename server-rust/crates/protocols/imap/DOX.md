@@ -212,3 +212,5 @@ IMAP attempts. Append-only audit cleanup is owner-only, transaction-local replic
 mode with exact user/event predicates; user/FK cleanup keeps normal triggers.
 
 Security (#449, owner-approved 2026-11-05): a disconnect during IDLE ends the session and frees its slots; test `extra.rs::disconnect_during_idle_frees_the_connection_slot`, mutant `imap-idle-spins-on-close`.
+
+Wave 1.4 (`#542`): IMAP routes password verification through `ProtocolSurface::Imap.basic_policy()` (`GuestAppPasswords::Refuse`, `TotpAccountPassword::Refuse`, constant-time dummy hash) and post-auth checks through `setjoin_authz::policy_gate::check_protocol_post_auth` (durable `session_revocations`, `feature.device_lockdown`, `check_user_app_entitlement('mail')`, and `mailbox_lifecycle_access_allowed`). Recorded in `oracle/divergences.json`.

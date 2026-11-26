@@ -280,16 +280,26 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                 )
                 .await;
                 let user = identity.user_id();
-                let mailbox = commands
-                    .exec
-                    .read(
-                        "SELECT id FROM mailboxes WHERE user_id=$1 AND is_primary LIMIT 1",
-                        &[(&user, Type::INT8)],
-                    )
-                    .await
-                    .ok()
-                    .and_then(|r| r.first().map(|r| r.get::<_, i64>(0)));
-                let Some(mailbox) = mailbox else { return }; // Frozen Go WS (unlike SSE) closes mailbox-less guests.
+                let mailbox = match setjoin_authz::policy_gate::lookup_primary_mailbox_lifecycle(
+                    &commands.exec,
+                    user,
+                )
+                .await
+                {
+                    Ok(Some((mb, true))) => mb,
+                    // Frozen Go WS (unlike SSE) closes mailbox-less guests; Wave 1.4 (#542)
+                    // also closes mailboxes whose lifecycle access is blocked.
+                    Ok(Some((_, false))) => {
+                        let _ = socket
+                            .close(Some(CloseFrame {
+                                code: CloseCode::Policy,
+                                reason: "mailbox access suspended".into(),
+                            }))
+                            .await;
+                        return;
+                    }
+                    _ => return,
+                };
                 let (Ok(actor), Ok(mailbox_id)) = (ActorId::new(user), MailboxId::new(mailbox))
                 else {
                     return;
@@ -360,6 +370,7 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                         _=ping.tick()=>{if socket.send(Message::Ping(Vec::new().into())).await.is_err(){break}continue},
                         _=revalidate.tick()=>{
                             let mut allowed=identity.expires_at().is_some_and(|exp|chrono::Utc::now().timestamp()<exp);
+                            allowed &= setjoin_authz::policy_gate::check_mailbox_lifecycle(&commands.exec, mailbox).await.unwrap_or(false);
                             for channel in &admitted {
                                 let app=if channel.starts_with("chat:"){Some("chat")}else if channel.starts_with("meet:"){Some("meet")}else if channel.starts_with("drive-"){Some("drive")}else{None};
                                 if let Some(app)=app {allowed &=app_allowed(&commands.exec,&identity,app).await;}
@@ -428,6 +439,18 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                             .close(Some(CloseFrame {
                                 code: CloseCode::Policy,
                                 reason: "device access revoked".into(),
+                            }))
+                            .await;
+                        break;
+                    }
+                    if !setjoin_authz::policy_gate::check_mailbox_lifecycle(&commands.exec, mailbox)
+                        .await
+                        .unwrap_or(false)
+                    {
+                        let _ = socket
+                            .close(Some(CloseFrame {
+                                code: CloseCode::Policy,
+                                reason: "mailbox access suspended".into(),
                             }))
                             .await;
                         break;

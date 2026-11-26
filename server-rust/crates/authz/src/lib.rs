@@ -15,12 +15,15 @@ pub mod clientip;
 pub mod csrf;
 pub mod es256;
 pub mod gates;
+pub mod groups;
 pub mod jwks;
 pub mod kerberos;
 pub mod mailbox;
 pub mod numeric_date;
 pub mod legacy_jwt;
 pub mod password;
+pub mod policy_gate;
+pub mod principals;
 pub mod push;
 pub mod signing_keys;
 pub mod token;
@@ -318,6 +321,7 @@ pub async fn admit_console(
     admit_inner(exec, keys, issuer, headers, method, path, scope, false).await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn admit_inner(
     exec: &ScopedExecutor,
     keys: &impl KeySource,
@@ -459,6 +463,7 @@ fn authorized(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn authorize_with_feature(
     exec: &ScopedExecutor,
     keys: &impl KeySource,
@@ -732,6 +737,7 @@ mod admit_credential {
     }
 
     #[test]
+    #[allow(clippy::type_complexity)]
     fn credential_follows_go_first_value_and_cookie_rules() {
         let cases: Vec<(Vec<(&str, &str)>, Result<&str, Refusal>)> = vec![
             (vec![], Err(Refusal::NoCredential)),

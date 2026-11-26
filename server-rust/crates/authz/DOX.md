@@ -105,24 +105,51 @@ only after verification; nonstandard profile selection belongs to production
 shared protocol admission. The LDAP corpus compares repeated login and committed
 upgrade effects. `tests/password_formats.rs` also replays frozen format vectors.
 
-## Shared protocol password check (#355-0)
+## Shared protocol password check (#355-0, #542)
 
 `basic::verify` ports `pwhash.CheckAppPassword` and `auth.CheckPassword` once
-for every protocol. Each caller passes an explicit `Policy`: accepted kinds
-(`Accept`), guest app passwords, and TOTP account passwords. IMAP uses
-app-then-account; DAV/Drive Basic (#355a) uses `DAV_POLICY` (`Accept::AppPassword`,
-`GuestAppPasswords::Refuse`, `TotpAccountPassword::Refuse`), plus
-`authorize_basic_member` for primary-mailbox/revocation checks,
-`PushIdentity::from_basic` (paired with `Option<i64>` `expires_at()`), and
-`Proof::basic(user_id)`. By owner
-ruling (2026-11-14) both refuse a TOTP user's account password, a recorded
-divergence from frozen Go; the flag is read by the per-call account SELECT
-before the cache. The account lookup, the enabled filter and the fail-closed
-`is_guest_account` refusal run on every call. `PasswordCache` keeps Go's 60 s
-verification cache, bounded (4096), swept on insert, keyed by a random
-per-instance HMAC over user id, email, stored hash and secret; app passwords
-are never cached. `tests/basic_password.rs` covers each rule against the
-assigned DB.
+for every protocol, upgraded in `#542` with constant-time dummy-hash
+verification (`PasswordCache::spend_dummy_hash` / `dummy_verifications()`) on
+unknown, disabled, and hash-less accounts (SECFIX3). Each caller passes an
+explicit `Policy` (derived from `ProtocolSurface::basic_policy()`): IMAP and
+SMTP submission use `Accept::AppPasswordThenAccountPassword` with
+`GuestAppPasswords::Refuse` and `TotpAccountPassword::Refuse`; DAV/Drive Basic
+uses `DAV_POLICY` (`Accept::AppPassword`, `GuestAppPasswords::Refuse`,
+`TotpAccountPassword::Refuse`); LDAP uses `Accept::AccountPassword` with
+`GuestAppPasswords::Refuse` and `TotpAccountPassword::Refuse`.
+
+## Wave 1.4: Shared `GroupResolver`, Sealed Principals, and Unified `PolicyGate` (#542)
+
+- **`groups::GroupResolver` (`crates/authz/src/groups.rs`)** resolves all three
+  strictly disjoint group namespaces (`CaGroupId`, `DirectoryGroupId`,
+  `DistributionGroupId` + `admin_scope_groups`) inside `UserTx<ReadOnly>` /
+  `read_user_scoped` (`app.current_user_id = user_id`), satisfying `FORCE RLS`
+  on `user_group_members`, `directory_groups`, and `directory_group_members`
+  (fixing `policy/store.rs:64`'s zero-row bug under `setjoin_app`). Uses a
+  bounded LRU cache (4096 users, 60s TTL) with a short sync mutex never held
+  across `.await`, fails closed (`GroupResolveError::Unavailable`), and
+  subscribes to `V285`'s `group_membership_changed` channel (`user_id` or
+  `all:true` -> `invalidate_all()`, subscribe-before-refresh on reconnect).
+- **`policy::store::resolve_scope`** routes CA groups through `GroupResolver`
+  and filters `admin_role_assignments` by `admin_assignment_active(eligible, activated_until)`
+  (fixing `policy/store.rs:71`'s dormant JIT bug).
+- **`principals` (`crates/authz/src/principals.rs`)** defines sealed
+  `MailboxPrincipal`, `UserPrincipal`, `AdminPrincipal`, and `TxFactory`
+  (privately wrapping `#540`'s `AppPool`). `MailboxPrincipal` enforces the
+  `Gate`-aligned `MailboxAuthority` lattice (`Owner | Delegated`), returning a
+  distinct `SubmitCapability` for `send_as`/`send_on_behalf` that cannot
+  satisfy `Gate::Mutate` (`TxFactory::run_mailbox_write`). `AdminPrincipal`
+  rejects guests and `act` impersonation, keeps narrowest non-NULL
+  `enforced_domain_scope` (never widened by `broadest_scope`), enforces JIT and
+  `dengbao.sod_mode`, and never falls back to JWT claims on DB error.
+- **`policy_gate::PolicyGate` (`crates/authz/src/policy_gate.rs`)** enforces a
+  zero-DB-first 10-stage pipeline across the exhaustive 11-variant
+  `ProtocolSurface` (`Http`, `Jmap`, `CalDav`, `CardDav`, `DriveNativeToken`,
+  `AttachmentTransfer`, `WebSocket`, `Sse`, `Imap`, `SmtpSubmission`, `Ldap`),
+  wired into gateway admission, DAV/Negotiate (two-phase ThreatGate), WS/SSE
+  (live `mailbox_lifecycle_access_allowed` + revalidation), IMAP, SMTP
+  submission (fixing the `std::mem::forget` `ConnTracker` re-AUTH leak), and
+  LDAP. Legacy `admit`/`authorize_*` shims remain intact until Wave 1.8 (`#546`).
 
 ## First-party key custody and legacy JWTs (#331)
 

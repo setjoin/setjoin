@@ -160,7 +160,7 @@ impl KeySet {
         let key = self.keys.get(header["kid"].as_str()?)?;
         if key.alg != "ES256"
             || !key.public.verify(
-                token[..h.len() + 1 + p.len()].as_bytes(),
+                &token.as_bytes()[..h.len() + 1 + p.len()],
                 &URL_SAFE_NO_PAD.decode(s).ok()?,
             )
         {

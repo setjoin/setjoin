@@ -71,7 +71,10 @@ impl Chain {
                 loop {
                     tokio::select! {
                      _=&mut stop=>{drop(listener);return;},
-                     message=listener.recv()=>{if message.is_none(){break;}if let Err(error)=self.reload(&db).await{eprintln!("auth-chain reload: {error}");}}
+                     message=listener.recv()=>{
+                         if message.is_none(){break;}
+                         if let Err(error)=self.reload(&db).await{eprintln!("auth-chain reload: {error}");}
+                     }
                     }
                 }
             } else if !subscribed {
