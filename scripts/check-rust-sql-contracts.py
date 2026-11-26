@@ -9,6 +9,11 @@ Enforces:
   catalog-enforced crates and monotonic downward ratchet on legacy crates.
 - UNCATALOGED_SQL: zero uncataloged raw SQL literals outside `src/sql.rs` in
   catalog-enforced crates and monotonic downward ratchet on legacy crates.
+- AUDIT_POSTURE_*: `SqlAuditPosture::ReducerWritesCoreAudit` is permitted ONLY
+  in `crates/domains/*/src/sql.rs`, must parse strictly as a single top-level
+  `SELECT [public.]<fn>(...)`, and must target a PL/pgSQL reducer in
+  `mailserver/sql/reducers/*.sql` that invokes `audit_write(..., 'core')`
+  outside any `EXCEPTION WHEN OTHERS` handler (#546a).
 """
 
 from __future__ import annotations
@@ -58,6 +63,41 @@ PROC_MACRO_FLAG_RE = re.compile(
 SQLX_LOCK_RE = re.compile(
     r'^\s*name\s*=\s*"(?:sqlx|sqlx-macros)"\s*$',
     re.MULTILINE,
+)
+
+# Infrastructure files allowed to reference `ReducerWritesCoreAudit` directly.
+AUDIT_POSTURE_INFRA_FILES = {
+    "crates/sql-catalog/src/lib.rs",
+    "crates/pg/src/capability.rs",
+    "crates/pg/src/tests.rs",
+    "tests/sql-contracts/src/main.rs",
+}
+
+REDUCER_DEF_RE = re.compile(
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+"
+    r"(?:public\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(",
+    re.IGNORECASE,
+)
+
+SELECT_CALL_RE = re.compile(
+    r"^\s*SELECT\s+(?:public\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(",
+    re.IGNORECASE,
+)
+
+FORBIDDEN_ARG_SQL_RE = re.compile(
+    r"\b(?:SELECT|INSERT|UPDATE|DELETE|WITH|FROM|UNION|INTERSECT|EXCEPT)\b",
+    re.IGNORECASE,
+)
+
+VALID_CALL_TAIL_RE = re.compile(
+    r"^\s*(?:::\s*[a-zA-Z_][a-zA-Z0-9_\s]*(?:\[\])?)*"
+    r"(?:\s+AS\s+[a-zA-Z_][a-zA-Z0-9_]*)?\s*$",
+    re.IGNORECASE,
+)
+
+ACTOR_FIRST_ARG_RE = re.compile(
+    r"^\s*\$1(?:\s*::\s*(?:bigint|int8))?\s*$",
+    re.IGNORECASE,
 )
 
 
@@ -484,6 +524,582 @@ def check_proc_macro_ban(server_rust: pathlib.Path, errors: list[str]) -> None:
             )
 
 
+def _strip_sql_comments(sql: str) -> str:
+    """Strip SQL `-- ...` and `/* ... */` comments, preserving single-quoted strings."""
+    out: list[str] = []
+    n = len(sql)
+    i = 0
+    while i < n:
+        ch = sql[i]
+        if ch == "'":
+            out.append(ch)
+            i += 1
+            while i < n:
+                out.append(sql[i])
+                if sql[i] == "'":
+                    if i + 1 < n and sql[i + 1] == "'":
+                        out.append(sql[i + 1])
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            nl = sql.find("\n", i + 2)
+            if nl == -1:
+                break
+            out.append("\n")
+            i = nl + 1
+            continue
+        if ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            depth = 1
+            i += 2
+            while i < n and depth > 0:
+                if sql[i] == "/" and i + 1 < n and sql[i + 1] == "*":
+                    depth += 1
+                    i += 2
+                elif sql[i] == "*" and i + 1 < n and sql[i + 1] == "/":
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            out.append(" ")
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _strip_sql_single_quoted(sql: str) -> str:
+    """Replace single-quoted SQL literals with spaces for keyword scanning."""
+    out: list[str] = []
+    n = len(sql)
+    i = 0
+    while i < n:
+        if sql[i] == "'":
+            out.append(" ")
+            i += 1
+            while i < n:
+                if sql[i] == "'":
+                    if i + 1 < n and sql[i + 1] == "'":
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            continue
+        out.append(sql[i])
+        i += 1
+    return "".join(out)
+
+
+def _split_sql_top_level_args(args_str: str) -> list[str]:
+    """Split a SQL function argument list on top-level commas."""
+    parts: list[str] = []
+    cur: list[str] = []
+    depth = 0
+    n = len(args_str)
+    i = 0
+    while i < n:
+        ch = args_str[i]
+        if ch == "'":
+            cur.append(ch)
+            i += 1
+            while i < n:
+                cur.append(args_str[i])
+                if args_str[i] == "'":
+                    if i + 1 < n and args_str[i + 1] == "'":
+                        cur.append(args_str[i + 1])
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "(":
+            depth += 1
+            cur.append(ch)
+        elif ch == ")":
+            depth -= 1
+            cur.append(ch)
+        elif ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    if cur or parts:
+        parts.append("".join(cur))
+    return parts
+
+
+def parse_single_select_reducer_call(sql: str) -> str | None:
+    """Return lowercase fn name iff sql is SELECT [public.]fn($1, ...)."""
+    cleaned = _strip_sql_comments(sql).strip()
+    if not cleaned:
+        return None
+    if ";" in _strip_sql_single_quoted(cleaned):
+        return None
+    m = SELECT_CALL_RE.match(cleaned)
+    if not m:
+        return None
+    fn_name = m.group(1).lower()
+    open_idx = m.end() - 1
+    depth = 0
+    i = open_idx
+    n = len(cleaned)
+    close_idx = -1
+    while i < n:
+        ch = cleaned[i]
+        if ch == "'":
+            i += 1
+            while i < n:
+                if cleaned[i] == "'":
+                    if i + 1 < n and cleaned[i + 1] == "'":
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                close_idx = i
+                break
+        i += 1
+    if close_idx == -1:
+        return None
+    raw_args = cleaned[open_idx + 1 : close_idx]
+    args_src = _strip_sql_single_quoted(raw_args)
+    if FORBIDDEN_ARG_SQL_RE.search(args_src):
+        return None
+    top_args = _split_sql_top_level_args(raw_args)
+    if not top_args or not ACTOR_FIRST_ARG_RE.match(top_args[0]):
+        return None
+    tail = cleaned[close_idx + 1 :]
+    if not VALID_CALL_TAIL_RE.match(tail):
+        return None
+    return fn_name
+
+
+def _tokenize_plpgsql(body: str) -> list[tuple[str, str]]:
+    """Tokenize PL/pgSQL body into (kind, value) skipping comments."""
+    tokens: list[tuple[str, str]] = []
+    n = len(body)
+    i = 0
+    while i < n:
+        ch = body[i]
+        if ch in (" ", "\t", "\r", "\n"):
+            i += 1
+            continue
+        if ch == "-" and i + 1 < n and body[i + 1] == "-":
+            nl = body.find("\n", i + 2)
+            if nl == -1:
+                break
+            i = nl + 1
+            continue
+        if ch == "/" and i + 1 < n and body[i + 1] == "*":
+            depth = 1
+            i += 2
+            while i < n and depth > 0:
+                if body[i] == "/" and i + 1 < n and body[i + 1] == "*":
+                    depth += 1
+                    i += 2
+                elif body[i] == "*" and i + 1 < n and body[i + 1] == "/":
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            continue
+        if ch == "'":
+            i += 1
+            chars: list[str] = []
+            while i < n:
+                if body[i] == "'":
+                    if i + 1 < n and body[i + 1] == "'":
+                        chars.append("'")
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                chars.append(body[i])
+                i += 1
+            tokens.append(("str", "".join(chars)))
+            continue
+        if ch.isalpha() or ch == "_":
+            start = i
+            i += 1
+            while i < n and (body[i].isalnum() or body[i] == "_"):
+                i += 1
+            tokens.append(("word", body[start:i].lower()))
+            continue
+        if ch in ("(", ")", ",", ";", "."):
+            tokens.append(("punct", ch))
+        i += 1
+    return tokens
+
+
+def _extract_dollar_quoted_body(src: str, start_pos: int) -> str | None:
+    """Extract the first `$tag$ ... $tag$` body starting at or after `start_pos`."""
+    m = re.search(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$", src[start_pos:])
+    if not m:
+        return None
+    delim = m.group(0)
+    body_start = start_pos + m.end()
+    body_end = src.find(delim, body_start)
+    if body_end == -1:
+        return None
+    return src[body_start:body_end]
+
+
+def load_reducer_bodies(root: pathlib.Path) -> dict[str, list[tuple[str, str]]]:
+    """Load `CREATE [OR REPLACE] FUNCTION` bodies from `mailserver/sql/reducers/`."""
+    bodies: dict[str, list[tuple[str, str]]] = {}
+    reducers_dir = root / "mailserver/sql/reducers"
+    if not reducers_dir.is_dir():
+        return bodies
+    for sql_file in sorted(reducers_dir.glob("*.sql")):
+        src = sql_file.read_text(encoding="utf-8", errors="ignore")
+        rel = sql_file.relative_to(root).as_posix()
+        for m in REDUCER_DEF_RE.finditer(src):
+            fn_name = m.group(1).lower()
+            body = _extract_dollar_quoted_body(src, m.end())
+            if body is not None:
+                bodies.setdefault(fn_name, []).append((rel, body))
+    return bodies
+
+
+def analyze_reducer_audit(body: str) -> tuple[bool, bool]:
+    """Return `(has_core_audit, has_swallowed_audit)` for a PL/pgSQL function body."""
+    toks = _tokenize_plpgsql(body)
+    n = len(toks)
+    # Stack entries are either `"case"` or `[in_exc, has_audit, has_when_others]`.
+    stack: list[str | list[bool]] = []
+    has_core_audit = False
+    has_swallowed_audit = False
+
+    def _current_begin() -> list[bool] | None:
+        for frame in reversed(stack):
+            if isinstance(frame, list):
+                return frame
+        return None
+
+    i = 0
+    while i < n:
+        kind, val = toks[i]
+        if kind == "word" and val == "begin":
+            stack.append([False, False, False])
+            i += 1
+            continue
+        if kind == "word" and val == "case":
+            stack.append("case")
+            i += 1
+            continue
+        if kind == "word" and val == "exception":
+            cur = _current_begin()
+            if cur is not None:
+                cur[0] = True
+            i += 1
+            continue
+        if kind == "word" and val == "when":
+            cur = _current_begin()
+            if cur is not None and cur[0]:
+                # Scan until `then` to detect `WHEN ... OTHERS ... THEN`.
+                k = i + 1
+                while k < n and not (toks[k][0] == "word" and toks[k][1] == "then"):
+                    if toks[k][0] == "word" and toks[k][1] == "others":
+                        cur[2] = True
+                    k += 1
+            i += 1
+            continue
+        if kind == "word" and val == "end":
+            nxt = toks[i + 1] if i + 1 < n else None
+            if nxt is not None and nxt[0] == "word" and nxt[1] in ("if", "loop"):
+                i += 2
+                continue
+            if nxt is not None and nxt[0] == "word" and nxt[1] == "case":
+                if stack and stack[-1] == "case":
+                    stack.pop()
+                i += 2
+                continue
+            if stack and stack[-1] == "case":
+                stack.pop()
+                i += 1
+                continue
+            if stack and isinstance(stack[-1], list):
+                frame = stack.pop()
+                assert isinstance(frame, list)
+                if frame[1] and frame[2]:
+                    has_swallowed_audit = True
+                parent = _current_begin()
+                if parent is not None and frame[1]:
+                    parent[1] = True
+            i += 1
+            continue
+        if (
+            kind == "word"
+            and val == "audit_write"
+            and i + 1 < n
+            and toks[i + 1] == ("punct", "(")
+        ):
+            cur = _current_begin()
+            if cur is not None:
+                cur[1] = True
+            depth = 1
+            j = i + 2
+            args: list[list[tuple[str, str]]] = []
+            cur_arg: list[tuple[str, str]] = []
+            while j < n and depth > 0:
+                tk = toks[j]
+                if tk == ("punct", "("):
+                    depth += 1
+                    cur_arg.append(tk)
+                elif tk == ("punct", ")"):
+                    depth -= 1
+                    if depth > 0:
+                        cur_arg.append(tk)
+                elif depth == 1 and tk == ("punct", ","):
+                    args.append(cur_arg)
+                    cur_arg = []
+                else:
+                    cur_arg.append(tk)
+                j += 1
+            if cur_arg:
+                args.append(cur_arg)
+            if args and len(args[-1]) == 1 and args[-1][0] == ("str", "core"):
+                has_core_audit = True
+            i = j
+            continue
+        i += 1
+
+    # Handle any unclosed top-level frame defensively.
+    for frame in stack:
+        if isinstance(frame, list) and frame[1] and frame[2]:
+            has_swallowed_audit = True
+
+    return (has_core_audit, has_swallowed_audit)
+
+
+def _extract_const_sql_expr(expr_tokens: list[Token]) -> str | None:
+    """Resolve a static SQL string literal or `concat!(...)` expression."""
+    if not expr_tokens:
+        return None
+    if len(expr_tokens) == 1 and expr_tokens[0].kind == "string":
+        return expr_tokens[0].value
+    if (
+        len(expr_tokens) >= 4
+        and expr_tokens[0].kind == "ident"
+        and expr_tokens[0].value == "concat"
+        and expr_tokens[1].kind == "punct"
+        and expr_tokens[1].value == "!"
+        and expr_tokens[2].kind == "punct"
+        and expr_tokens[2].value == "("
+        and expr_tokens[-1].kind == "punct"
+        and expr_tokens[-1].value == ")"
+    ):
+        parts: list[str] = []
+        for tk in expr_tokens[3:-1]:
+            if tk.kind == "string":
+                parts.append(tk.value)
+            elif tk.kind == "punct" and tk.value == ",":
+                continue
+            else:
+                return None
+        return "".join(parts)
+    return None
+
+
+def _extract_contract_sql_field(body_tokens: list[Token]) -> str | None:
+    """Extract the `sql: ...` field from tokens inside `SqlContract { ... }`."""
+    n = len(body_tokens)
+    depth = 0
+    i = 0
+    while i < n:
+        tk = body_tokens[i]
+        if tk.kind == "punct" and tk.value in ("(", "[", "{"):
+            depth += 1
+        elif tk.kind == "punct" and tk.value in (")", "]", "}"):
+            depth -= 1
+        elif (
+            depth == 0
+            and tk.kind == "ident"
+            and tk.value == "sql"
+            and i + 1 < n
+            and body_tokens[i + 1].kind == "punct"
+            and body_tokens[i + 1].value == ":"
+        ):
+            j = i + 2
+            val_tokens: list[Token] = []
+            fdepth = 0
+            while j < n:
+                tj = body_tokens[j]
+                if tj.kind == "punct" and tj.value in ("(", "[", "{"):
+                    fdepth += 1
+                    val_tokens.append(tj)
+                elif tj.kind == "punct" and tj.value in (")", "]", "}"):
+                    fdepth -= 1
+                    val_tokens.append(tj)
+                elif fdepth == 0 and tj.kind == "punct" and tj.value == ",":
+                    break
+                else:
+                    val_tokens.append(tj)
+                j += 1
+            return _extract_const_sql_expr(val_tokens)
+        i += 1
+    return None
+
+
+def _is_audit_posture_allowed_file(rel: str) -> bool:
+    if rel in AUDIT_POSTURE_INFRA_FILES:
+        return True
+    parts = pathlib.PurePosixPath(rel).parts
+    if len(parts) == 4 and parts[:3] == ("crates", "pg", "tests"):
+        return True
+    return False
+
+
+def _is_domain_sql_catalog(rel: str) -> bool:
+    parts = pathlib.PurePosixPath(rel).parts
+    return (
+        len(parts) == 5
+        and parts[0] == "crates"
+        and parts[1] == "domains"
+        and parts[3] == "src"
+        and parts[4] == "sql.rs"
+    )
+
+
+def check_audit_posture_contracts(
+    root: pathlib.Path,
+    server_rust: pathlib.Path,
+    errors: list[str],
+) -> None:
+    """Enforce all 4 `ReducerWritesCoreAudit` static security rules (#546a)."""
+    reducer_bodies: dict[str, list[tuple[str, str]]] | None = None
+
+    for rs_path in sorted(server_rust.rglob("*.rs")):
+        rel_parts = rs_path.relative_to(server_rust).parts
+        if "target" in rel_parts or (rel_parts and rel_parts[0] == "pilot"):
+            continue
+        rel = rs_path.relative_to(server_rust).as_posix()
+        src = rs_path.read_text(encoding="utf-8", errors="ignore")
+        if "ReducerWritesCoreAudit" not in src:
+            continue
+        tokens = tokenize_rust(src)
+        audit_tok_indices = [
+            idx
+            for idx, tk in enumerate(tokens)
+            if tk.kind == "ident" and tk.value == "ReducerWritesCoreAudit"
+        ]
+        if not audit_tok_indices:
+            continue
+
+        if _is_audit_posture_allowed_file(rel):
+            continue
+
+        # Rule 1: forbid ReducerWritesCoreAudit outside crates/domains/*/src/sql.rs.
+        if not _is_domain_sql_catalog(rel):
+            for idx in audit_tok_indices:
+                errors.append(
+                    f"AUDIT_POSTURE_FORBIDDEN: {rel}:{tokens[idx].line} "
+                    "(ReducerWritesCoreAudit is only permitted in "
+                    "crates/domains/*/src/sql.rs)"
+                )
+            continue
+
+        # Inside crates/domains/*/src/sql.rs: every occurrence must live directly
+        # inside a `SqlContract { ... }` literal and pass Rules 2, 3, and 4.
+        if reducer_bodies is None:
+            reducer_bodies = load_reducer_bodies(root)
+
+        covered_indices: set[int] = set()
+        n = len(tokens)
+        i = 0
+        while i < n:
+            if (
+                tokens[i].kind == "ident"
+                and tokens[i].value == "SqlContract"
+                and i + 1 < n
+                and tokens[i + 1].kind == "punct"
+                and tokens[i + 1].value == "{"
+            ):
+                depth = 1
+                j = i + 2
+                while j < n and depth > 0:
+                    if tokens[j].kind == "punct" and tokens[j].value == "{":
+                        depth += 1
+                    elif tokens[j].kind == "punct" and tokens[j].value == "}":
+                        depth -= 1
+                    j += 1
+                block_audit = [idx for idx in audit_tok_indices if i + 2 <= idx < j - 1]
+                if block_audit:
+                    covered_indices.update(block_audit)
+                    line = tokens[block_audit[0]].line
+                    sql_text = _extract_contract_sql_field(tokens[i + 2 : j - 1])
+                    if sql_text is None:
+                        errors.append(
+                            f"AUDIT_POSTURE_SQL_INVALID: {rel}:{line} "
+                            "(cannot statically resolve sql field for "
+                            "ReducerWritesCoreAudit contract)"
+                        )
+                        i = j
+                        continue
+                    # Rule 2: single top-level SELECT [public.]<fn>($1, ...) only.
+                    fn_name = parse_single_select_reducer_call(sql_text)
+                    if fn_name is None:
+                        errors.append(
+                            f"AUDIT_POSTURE_SQL_INVALID: {rel}:{line} "
+                            "(ReducerWritesCoreAudit SQL must be a single "
+                            "top-level SELECT [public.]<fn>($1, ...) with $1 as "
+                            "first actor arg and no CTEs or inline DML)"
+                        )
+                        i = j
+                        continue
+                    # Rule 3 & 4: resolve reducer body, require 'core' audit_write
+                    # and forbid EXCEPTION WHEN OTHERS wrapping audit_write.
+                    defs = reducer_bodies.get(fn_name, [])
+                    if not defs:
+                        errors.append(
+                            f"AUDIT_POSTURE_REDUCER_MISSING: {rel}:{line} "
+                            f"(reducer '{fn_name}' not found in "
+                            "mailserver/sql/reducers/*.sql)"
+                        )
+                        i = j
+                        continue
+                    any_core = False
+                    for def_rel, body in defs:
+                        has_core, has_swallowed = analyze_reducer_audit(body)
+                        if has_swallowed:
+                            errors.append(
+                                f"AUDIT_POSTURE_SWALLOWED_AUDIT: {rel}:{line} "
+                                f"(reducer '{fn_name}' in {def_rel} wraps "
+                                "audit_write in EXCEPTION WHEN OTHERS)"
+                            )
+                        if has_core:
+                            any_core = True
+                    if not any_core:
+                        errors.append(
+                            f"AUDIT_POSTURE_CORE_AUDIT_MISSING: {rel}:{line} "
+                            f"(reducer '{fn_name}' does not invoke "
+                            "audit_write(..., 'core'))"
+                        )
+                i = j
+                continue
+            i += 1
+
+        for idx in audit_tok_indices:
+            if idx not in covered_indices:
+                errors.append(
+                    f"AUDIT_POSTURE_FORBIDDEN: {rel}:{tokens[idx].line} "
+                    "(ReducerWritesCoreAudit must appear directly inside a "
+                    "SqlContract struct literal)"
+                )
+
+
 def collect_domain_findings(
     server_rust: pathlib.Path,
 ) -> tuple[dict[str, list[int]], dict[str, list[int]]]:
@@ -542,6 +1158,7 @@ def main() -> int:
 
     errors: list[str] = []
     check_proc_macro_ban(server_rust, errors)
+    check_audit_posture_contracts(root, server_rust, errors)
     fmt_map, raw_map = collect_domain_findings(server_rust)
 
     if args.write_ratchet:

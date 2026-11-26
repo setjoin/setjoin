@@ -456,3 +456,20 @@ accept `https://` for any host and refuse plaintext `http://` outside loopback.
 `legacy_jwt::LegacyKeys` supports per-kid HMAC keys (`with_hmac_kid`, never
 verifying HS256 with an empty secret) and `from_sm2_public_pem` for public-only
 SM2 verification without `JWT_SECRET` or an SM2 private key.
+
+## Wave 1.8 Phase `546a` `TxFactory`, `AdminPermissionProof`, & `ListenHub` seams (#546)
+
+- `TxFactory::with_admin_pool(AppPool, AdminWorkerPool, Arc<GroupResolver>)` routes
+  `MailboxTx` / `UserTx` exclusively over `AppPool` (`setjoin_app`, `NOBYPASSRLS`) and
+  routes `AdminReadTx` / `AdminSensitiveRead` / `AdminWriteTx` strictly through sealed
+  `AdminPermissionProof` (`AdminPrincipal::require_{permission,any_permission,global_permission}`)
+  over the encapsulated `AdminWorkerPool` (`setjoin_worker`, `BYPASSRLS`), keeping
+  `setjoin-authz` out of `WORKER_POOL_FEATURE_ALLOWLIST`.
+- `TxFactory` exposes distinct capability-typed helpers (`run_mailbox_effect_write(&MutateCapability)`,
+  `run_mailbox_submit_effect_write(&SubmitCapability)`, `run_calendar_locked_tx(&CalendarCapability)`,
+  `run_mailbox_locked_tx(&MutateCapability)`, `run_user_effect_write(&UserPrincipal)`,
+  `lookup_{mailbox,user}_command`) plus a `pub(crate)` pre-auth credential-proof seam
+  (`begin_pre_auth_read` / `run_pre_auth_read_contract`, exposed strictly on `PolicyGate`
+  via `PolicyGate::with_tx_factory` and banned in `crates/domains/*`).
+- `GroupResolver::subscribe_listen_hub` subscribes to `group_membership_changed` over
+  `#543a`'s single-backend `ListenHub` (subscribe-before-refresh + `ResyncRequired` invalidation).

@@ -487,3 +487,25 @@ with a coalesced `watch` dirty-epoch watermark so slow/overflowing subscribers
 never block other channels, never lose `ResyncRequired`, and never surface stale
 pre-watermark notifications; `UNLISTEN` errors transition cleanly to reconnect,
 and root `CancellationToken` cancellation tears down cleanly without `Drop::abort`.
+
+### Wave 1.8 Phase `546a` foundation seams (#546)
+
+- **Unforgeable `ReducerWritesCoreAudit` proof:** `audit_write.sql` sets transaction-local
+  `app.core_audit_written = '1'` strictly after a successful `'core'` insert.
+  `AdminWriteTx<Unaudited>::execute_audited_reducer_contract` binds `$1` (`p_actor`) from
+  `self.principal.actor` (R2), resets `app.core_audit_written`, executes the
+  `SqlAuditPosture::ReducerWritesCoreAudit` contract, and checks
+  `current_setting('app.core_audit_written', true) = '1'`: returning
+  `AdminReducerOutcome::Audited` (`AdminWriteTx<Audited>`, zero double-audit) iff `'1'`,
+  or rollback-only `AdminReducerOutcome::NoOp` (`AdminRollbackOnlyTx`, no `.commit()`).
+- **Encapsulated `AdminWorkerPool` & `PreAuthReadTx` (`mint` feature):** minted from
+  `WorkerPool::admin_pool()` at binary composition roots without exposing `WorkerTx` or
+  `worker-pool` to `setjoin-authz` or domain crates; serves cross-tenant `AdminReadTx`,
+  `AdminSensitiveRead`, `AdminWriteTx`, and `BEGIN READ ONLY` `SqlScope::AuthPreScope`
+  pre-auth credential proofs.
+- **Effect/lock safety & iterated reads:** `AppPool::run_{mailbox,user}_effect_write`
+  enforces `SET LOCAL idle_in_transaction_session_timeout = 8000`, `<= 5s` peripheral body
+  timeout, bounded concurrency semaphore, preamble advisory lock, and same-tx receipt
+  insert (`lookup_{mailbox,user}_command`). `MailboxTx<ReadWrite>::prelock_mailbox_hierarchy`
+  enforces `#481` `users FOR KEY SHARE -> mailboxes FOR UPDATE`. All `ReadOnly` handles
+  expose `query_iterated_contract` preserving frozen-Go `Rows.Err` parity.

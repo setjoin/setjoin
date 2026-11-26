@@ -1,5 +1,7 @@
 //! Static typed SQL contract catalog for `setjoin-rules` (F09).
-use setjoin_sql_catalog::{pg_rfc3339, ColumnSpec, RlsCheck, SqlContract, SqlScope, Type};
+use setjoin_sql_catalog::{
+    pg_rfc3339, ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type,
+};
 
 macro_rules! rule_columns {
     () => {
@@ -70,6 +72,7 @@ pub const PERSONAL_LIST: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_COUNT: SqlContract = SqlContract {
@@ -80,6 +83,7 @@ pub const PERSONAL_COUNT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_CREATE: SqlContract = SqlContract {
@@ -101,6 +105,7 @@ pub const PERSONAL_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_UPDATE: SqlContract = SqlContract {
@@ -123,6 +128,7 @@ pub const PERSONAL_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PERSONAL_DELETE: SqlContract = SqlContract {
@@ -133,6 +139,7 @@ pub const PERSONAL_DELETE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ACTIVE_SWEEPS: SqlContract = SqlContract {
@@ -143,6 +150,7 @@ pub const ACTIVE_SWEEPS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const APPLY_RETROACTIVE: SqlContract = SqlContract {
@@ -153,6 +161,7 @@ pub const APPLY_RETROACTIVE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const APPLY_STATUS: SqlContract = SqlContract {
@@ -167,6 +176,7 @@ pub const APPLY_STATUS: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_LIST_BY_MAILBOX: SqlContract = SqlContract {
@@ -181,6 +191,7 @@ pub const ADMIN_LIST_BY_MAILBOX: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_LIST_ALL: SqlContract = SqlContract {
@@ -195,6 +206,7 @@ pub const ADMIN_LIST_ALL: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_GET: SqlContract = SqlContract {
@@ -205,6 +217,7 @@ pub const ADMIN_GET: SqlContract = SqlContract {
     columns: RULE_ROW_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const MAILBOX_EXISTS: SqlContract = SqlContract {
@@ -215,6 +228,7 @@ pub const MAILBOX_EXISTS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_CREATE: SqlContract = SqlContract {
@@ -238,6 +252,7 @@ pub const ADMIN_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_UPDATE: SqlContract = SqlContract {
@@ -262,6 +277,7 @@ pub const ADMIN_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_DELETE: SqlContract = SqlContract {
@@ -272,6 +288,7 @@ pub const ADMIN_DELETE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ADMIN_TEST_LOOKUP: SqlContract = SqlContract {
@@ -286,6 +303,7 @@ pub const ADMIN_TEST_LOOKUP: SqlContract = SqlContract {
     ],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const AUTHORITY_RESOLVE: SqlContract = SqlContract {
@@ -299,6 +317,7 @@ pub const AUTHORITY_RESOLVE: SqlContract = SqlContract {
     ],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const AUTHORITY_DENIED_AUDIT: SqlContract = SqlContract {
@@ -309,6 +328,7 @@ pub const AUTHORITY_DENIED_AUDIT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_LIST_ADMIN: SqlContract = SqlContract {
@@ -323,6 +343,7 @@ pub const TEMPLATE_LIST_ADMIN: SqlContract = SqlContract {
     columns: TEMPLATE_ROW_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_LIST_USER: SqlContract = SqlContract {
@@ -337,6 +358,7 @@ pub const TEMPLATE_LIST_USER: SqlContract = SqlContract {
     columns: TEMPLATE_ROW_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_GET: SqlContract = SqlContract {
@@ -351,6 +373,7 @@ pub const TEMPLATE_GET: SqlContract = SqlContract {
     columns: TEMPLATE_DETAIL_COLUMNS,
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_LOAD: SqlContract = SqlContract {
@@ -367,6 +390,7 @@ pub const TEMPLATE_LOAD: SqlContract = SqlContract {
     ],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_CREATE: SqlContract = SqlContract {
@@ -388,6 +412,7 @@ pub const TEMPLATE_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_UPDATE: SqlContract = SqlContract {
@@ -411,6 +436,7 @@ pub const TEMPLATE_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_DELETE: SqlContract = SqlContract {
@@ -421,6 +447,7 @@ pub const TEMPLATE_DELETE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_VISIBILITY_LIST: SqlContract = SqlContract {
@@ -434,6 +461,7 @@ pub const TEMPLATE_VISIBILITY_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::AdminRead,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_VISIBILITY_HIDE: SqlContract = SqlContract {
@@ -444,6 +472,7 @@ pub const TEMPLATE_VISIBILITY_HIDE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_VISIBILITY_SHOW: SqlContract = SqlContract {
@@ -454,6 +483,7 @@ pub const TEMPLATE_VISIBILITY_SHOW: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const TEMPLATE_INSTANTIATE: SqlContract = SqlContract {
@@ -471,6 +501,7 @@ pub const TEMPLATE_INSTANTIATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AdminWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 // Note: `rule_templates` and `rule_template_visibility` are retired legacy-fixture-only

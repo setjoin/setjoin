@@ -18,7 +18,7 @@
 #![forbid(unsafe_code)]
 
 use serde::Deserialize;
-use setjoin_sql_catalog::{RlsCheck, SqlContract, SqlScope, Type};
+use setjoin_sql_catalog::{RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 use std::{
     collections::{BTreeMap, HashSet},
     env, fs,
@@ -55,6 +55,7 @@ struct OwnedContract {
     columns: Vec<OwnedColumn>,
     scope: SqlScope,
     rls_check: RlsCheck,
+    audit: SqlAuditPosture,
 }
 
 impl From<&SqlContract> for OwnedContract {
@@ -74,6 +75,7 @@ impl From<&SqlContract> for OwnedContract {
                 .collect(),
             scope: c.scope,
             rls_check: c.rls_check,
+            audit: c.audit,
         }
     }
 }
@@ -93,6 +95,8 @@ struct MutantContractJson {
     columns: Vec<MutantColumnJson>,
     scope: String,
     rls_check: String,
+    #[serde(default)]
+    audit: Option<String>,
 }
 
 fn parse_scope(raw: &str) -> Result<SqlScope, String> {
@@ -113,6 +117,14 @@ fn parse_rls_check(raw: &str) -> Result<RlsCheck, String> {
         "PrepareAndExplain" => Ok(RlsCheck::PrepareAndExplain),
         "PrepareExplainAndRlsDenyProbe" => Ok(RlsCheck::PrepareExplainAndRlsDenyProbe),
         other => Err(format!("unknown RlsCheck '{other}'")),
+    }
+}
+
+fn parse_audit_posture(raw: Option<&str>) -> Result<SqlAuditPosture, String> {
+    match raw {
+        None | Some("Standard") => Ok(SqlAuditPosture::Standard),
+        Some("ReducerWritesCoreAudit") => Ok(SqlAuditPosture::ReducerWritesCoreAudit),
+        Some(other) => Err(format!("unknown SqlAuditPosture '{other}'")),
     }
 }
 
@@ -183,6 +195,7 @@ fn load_mutant_contracts(path: &str) -> Result<Vec<OwnedContract>, String> {
             columns,
             scope: parse_scope(&item.scope)?,
             rls_check: parse_rls_check(&item.rls_check)?,
+            audit: parse_audit_posture(item.audit.as_deref())?,
         });
     }
     Ok(out)
@@ -333,6 +346,21 @@ fn preflight_static(contracts: &[OwnedContract]) -> Result<(), Vec<String>> {
                 "PREFLIGHT_ADMIT_FAILED [{}]: statement rejected by setjoin_pg::statement::admit: {reason}",
                 c.id
             ));
+        }
+        if c.audit == SqlAuditPosture::ReducerWritesCoreAudit {
+            if c.scope != SqlScope::AdminWrite {
+                errs.push(format!(
+                    "AUDIT_POSTURE_SCOPE_INVALID [{}]: ReducerWritesCoreAudit requires SqlScope::AdminWrite (got {})",
+                    c.id,
+                    c.scope.as_str()
+                ));
+            }
+            if c.params.first() != Some(&Type::INT8) {
+                errs.push(format!(
+                    "AUDIT_POSTURE_ACTOR_INVALID [{}]: ReducerWritesCoreAudit requires $1 to be INT8 p_actor",
+                    c.id
+                ));
+            }
         }
         for (idx, ty) in c.params.iter().enumerate() {
             if ty.oid() >= FIRST_CUSTOM_OID {
@@ -1346,6 +1374,7 @@ mod tests {
             }],
             scope: SqlScope::UserScoped,
             rls_check: RlsCheck::PrepareAndExplain,
+            audit: SqlAuditPosture::Standard,
         };
         let errs = preflight_static(&[bad.clone(), bad]).unwrap_err();
         assert!(errs.iter().any(|e| e.contains("CUSTOM_OID_FORBIDDEN")));

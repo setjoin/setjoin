@@ -12,10 +12,10 @@
 //! upgraded sessions retain their application-owned lifetime.
 
 pub mod acme;
-pub mod auth_admin;
 pub mod activation;
 mod admission;
 pub mod attachment;
+pub mod auth_admin;
 mod blob_content;
 pub mod blobs;
 pub mod catchall;
@@ -55,6 +55,7 @@ pub mod metrics;
 pub mod office;
 pub mod office_provider;
 pub mod offline;
+pub mod policy_composition;
 pub mod problem;
 pub mod proxy;
 pub mod recovery;
@@ -668,9 +669,7 @@ async fn handle(
                         response
                             .headers_mut()
                             .entry(hyper::header::CACHE_CONTROL)
-                            .or_insert_with(|| {
-                                hyper::header::HeaderValue::from_static("no-store")
-                            });
+                            .or_insert_with(|| hyper::header::HeaderValue::from_static("no-store"));
                     }
                     response
                 }

@@ -375,15 +375,30 @@ pub(crate) fn build_begin_sql(
     timeout: Duration,
     hint: PlanCacheHint,
 ) -> String {
+    build_begin_sql_with_idle_timeout(begin_clause, timeout, None, hint)
+}
+
+/// Build the step-1 simple-protocol batch (`BEGIN ...; SET LOCAL ...`) with an
+/// optional transaction-local `idle_in_transaction_session_timeout` (in ms) for
+/// effect transactions that perform bounded peripheral I/O (#546a).
+pub(crate) fn build_begin_sql_with_idle_timeout(
+    begin_clause: &str,
+    timeout: Duration,
+    idle_in_tx_ms: Option<u32>,
+    hint: PlanCacheHint,
+) -> String {
     let ms = timeout.as_millis().clamp(1, i32::MAX as u128);
-    match hint {
-        PlanCacheHint::Auto => format!("{begin_clause}; SET LOCAL statement_timeout = {ms}"),
-        PlanCacheHint::ForceCustomPlan => {
-            format!(
-                "{begin_clause}; SET LOCAL statement_timeout = {ms}; SET LOCAL plan_cache_mode = force_custom_plan"
-            )
-        }
+    let mut sql = format!("{begin_clause}; SET LOCAL statement_timeout = {ms}");
+    if let Some(idle_ms) = idle_in_tx_ms {
+        let clamped = idle_ms.max(1);
+        sql.push_str(&format!(
+            "; SET LOCAL idle_in_transaction_session_timeout = {clamped}"
+        ));
     }
+    if matches!(hint, PlanCacheHint::ForceCustomPlan) {
+        sql.push_str("; SET LOCAL plan_cache_mode = force_custom_plan");
+    }
+    sql
 }
 
 /// Execute a 1-RTT pipelined `BEGIN READ ONLY` query with stale-socket 1-retry.

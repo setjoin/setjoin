@@ -1,5 +1,5 @@
 //! Static typed SQL contract catalog for `setjoin-blobs` (F16).
-use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlContract, SqlScope, Type};
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 
 pub const ABORT_UPLOAD: SqlContract = SqlContract {
     id: "blobs.abort_upload",
@@ -9,6 +9,7 @@ pub const ABORT_UPLOAD: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const FORK_CONSENT: SqlContract = SqlContract {
@@ -19,6 +20,7 @@ pub const FORK_CONSENT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const UPLOAD_ITEM: SqlContract = SqlContract {
@@ -34,6 +36,7 @@ pub const UPLOAD_ITEM: SqlContract = SqlContract {
     ],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CHUNK_AT: SqlContract = SqlContract {
@@ -48,6 +51,7 @@ pub const CHUNK_AT: SqlContract = SqlContract {
     ],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const RECORD_CHUNK: SqlContract = SqlContract {
@@ -68,6 +72,7 @@ pub const RECORD_CHUNK: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const USER_INCIDENTS: SqlContract = SqlContract {
@@ -78,6 +83,7 @@ pub const USER_INCIDENTS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BLOB_OWNED: SqlContract = SqlContract {
@@ -103,6 +109,7 @@ pub const BLOB_OWNED: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ITEM_FOR_COMMIT: SqlContract = SqlContract {
@@ -119,6 +126,7 @@ pub const ITEM_FOR_COMMIT: SqlContract = SqlContract {
     ],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ITEM_CHUNKS: SqlContract = SqlContract {
@@ -134,6 +142,7 @@ pub const ITEM_CHUNKS: SqlContract = SqlContract {
     ],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VERIFY_ITEM: SqlContract = SqlContract {
@@ -151,6 +160,7 @@ pub const VERIFY_ITEM: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ACCOUNT_UPLOAD: SqlContract = SqlContract {
@@ -171,6 +181,7 @@ pub const ACCOUNT_UPLOAD: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ATTACHMENT_METADATA: SqlContract = SqlContract {
@@ -184,6 +195,7 @@ pub const ATTACHMENT_METADATA: SqlContract = SqlContract {
     ],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BEGIN_UPLOAD: SqlContract = SqlContract {
@@ -208,6 +220,7 @@ pub const BEGIN_UPLOAD: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const FINALIZE_ITEM: SqlContract = SqlContract {
@@ -223,6 +236,7 @@ pub const FINALIZE_ITEM: SqlContract = SqlContract {
     ],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const REPLAY_FINALIZE: SqlContract = SqlContract {
@@ -233,6 +247,7 @@ pub const REPLAY_FINALIZE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const QUARANTINE: SqlContract = SqlContract {
@@ -252,6 +267,7 @@ pub const QUARANTINE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SQL_CONTRACTS: &[SqlContract] = &[

@@ -25,7 +25,10 @@
 //!   unparseable payload), using subscribe-before-refresh on reconnect.
 
 use setjoin_contracts::ids::{ActorId, Generation};
-use setjoin_pg::{workers::DirectListener, AppPool, ScopedExecutor, StatementFailure, Type};
+use setjoin_pg::{
+    workers::DirectListener, AppPool, ListenEvent, ListenHub, ListenHubError, ScopedExecutor,
+    StatementFailure, Type,
+};
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
@@ -454,6 +457,44 @@ impl GroupResolver {
             }
         })
         .await;
+    }
+
+    /// Subscribe to `group_membership_changed` through the shared single-backend
+    /// `#543a` [`ListenHub`] multiplexer (zero additional `DB_DIRECT_DSN`
+    /// backend connection), invalidating the cache on subscribe and on every
+    /// [`ListenEvent::ResyncRequired`] reconnect/overflow event (#546a).
+    pub async fn subscribe_listen_hub(
+        self: Arc<Self>,
+        hub: &ListenHub,
+        mut stop: tokio::sync::watch::Receiver<bool>,
+    ) -> Result<tokio::task::JoinHandle<()>, ListenHubError> {
+        let mut sub = hub.subscribe(NOTIFY_CHANNEL).await?;
+        // Subscribe-before-refresh: clear any entries cached prior to subscription.
+        self.invalidate_all();
+        let handle = tokio::spawn(async move {
+            loop {
+                if *stop.borrow() {
+                    break;
+                }
+                tokio::select! {
+                    changed = stop.changed() => {
+                        if changed.is_err() || *stop.borrow() {
+                            break;
+                        }
+                    }
+                    event = sub.recv() => {
+                        let Some(event) = event else {
+                            break;
+                        };
+                        match event {
+                            ListenEvent::Notification(n) => self.on_notification(&n.payload),
+                            ListenEvent::ResyncRequired { .. } => self.invalidate_all(),
+                        }
+                    }
+                }
+            }
+        });
+        Ok(handle)
     }
 
     async fn listen_until<F: std::future::Future<Output = ()>>(

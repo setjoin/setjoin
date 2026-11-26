@@ -1,5 +1,5 @@
 //! Static typed SQL contract catalog for `setjoin-calendar` (F17).
-use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlContract, SqlScope, Type};
+use setjoin_sql_catalog::{ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type};
 
 macro_rules! contact_columns {
     () => {
@@ -64,6 +64,7 @@ pub const FLAG: SqlContract = SqlContract {
     columns: &[ColumnSpec::named("enabled", Type::BOOL)],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ENTITLED_APP: SqlContract = SqlContract {
@@ -74,6 +75,7 @@ pub const ENTITLED_APP: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PAGE_LIST: SqlContract = SqlContract {
@@ -84,6 +86,7 @@ pub const PAGE_LIST: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PAGE_UPSERT: SqlContract = SqlContract {
@@ -94,6 +97,7 @@ pub const PAGE_UPSERT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PAGE_DELETE: SqlContract = SqlContract {
@@ -104,6 +108,7 @@ pub const PAGE_DELETE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadWrite,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BOOKING_PUBLIC_GET: SqlContract = SqlContract {
@@ -114,6 +119,7 @@ pub const BOOKING_PUBLIC_GET: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BOOKING_SLOTS: SqlContract = SqlContract {
@@ -124,6 +130,7 @@ pub const BOOKING_SLOTS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BOOKING_CREATE: SqlContract = SqlContract {
@@ -142,6 +149,7 @@ pub const BOOKING_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BOOKING_CONFIRM: SqlContract = SqlContract {
@@ -152,6 +160,7 @@ pub const BOOKING_CONFIRM: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BOOKING_CANCEL: SqlContract = SqlContract {
@@ -162,6 +171,7 @@ pub const BOOKING_CANCEL: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const BOOKING_EXPIRE_DUE: SqlContract = SqlContract {
@@ -172,6 +182,7 @@ pub const BOOKING_EXPIRE_DUE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT4)],
     scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const FREE_BUSY_MULTI: SqlContract = SqlContract {
@@ -182,6 +193,7 @@ pub const FREE_BUSY_MULTI: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const ENTITY_EMAIL: SqlContract = SqlContract {
@@ -194,6 +206,7 @@ pub const ENTITY_EMAIL: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SUBSCRIPTIONS_LIST: SqlContract = SqlContract {
@@ -219,6 +232,7 @@ pub const SUBSCRIPTIONS_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SUBSCRIPTION_COUNT: SqlContract = SqlContract {
@@ -229,6 +243,7 @@ pub const SUBSCRIPTION_COUNT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SUBSCRIBE: SqlContract = SqlContract {
@@ -242,6 +257,7 @@ pub const SUBSCRIBE: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const UNSUBSCRIBE: SqlContract = SqlContract {
@@ -255,6 +271,7 @@ pub const UNSUBSCRIBE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const OWNED_MAILBOX_FOR_BOOK: SqlContract = SqlContract {
@@ -267,6 +284,7 @@ pub const OWNED_MAILBOX_FOR_BOOK: SqlContract = SqlContract {
     columns: &[ColumnSpec::named("id", Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const OWNS_CONTACT: SqlContract = SqlContract {
@@ -280,6 +298,7 @@ pub const OWNS_CONTACT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CONTACT_EXISTS: SqlContract = SqlContract {
@@ -293,6 +312,7 @@ pub const CONTACT_EXISTS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const WRITE_CONTACT: SqlContract = SqlContract {
@@ -321,6 +341,7 @@ pub const WRITE_CONTACT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const REMOVE_CONTACT: SqlContract = SqlContract {
@@ -331,6 +352,7 @@ pub const REMOVE_CONTACT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const NOTIFY_IMPORT: SqlContract = SqlContract {
@@ -341,6 +363,7 @@ pub const NOTIFY_IMPORT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const EXPORT_CSV_ROWS: SqlContract = SqlContract {
@@ -368,6 +391,7 @@ pub const EXPORT_CSV_ROWS: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const EXPORT_VCARD_ROWS: SqlContract = SqlContract {
@@ -386,6 +410,7 @@ pub const EXPORT_VCARD_ROWS: SqlContract = SqlContract {
     columns: CONTACT_ROW_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const EXPORT_VCARD_ROW: SqlContract = SqlContract {
@@ -403,6 +428,7 @@ pub const EXPORT_VCARD_ROW: SqlContract = SqlContract {
     columns: CONTACT_ROW_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_CALENDARS: SqlContract = SqlContract {
@@ -418,6 +444,7 @@ pub const DAV_CALENDARS: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_CALENDAR: SqlContract = SqlContract {
@@ -433,6 +460,7 @@ pub const DAV_CALENDAR: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_EVENT: SqlContract = SqlContract {
@@ -443,6 +471,7 @@ pub const DAV_EVENT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_TIMEZONE_CATALOG: SqlContract = SqlContract {
@@ -457,6 +486,7 @@ pub const DAV_TIMEZONE_CATALOG: SqlContract = SqlContract {
     ],
     scope: SqlScope::WorkerBypass,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_OWNED_TIMEZONE: SqlContract = SqlContract {
@@ -467,6 +497,7 @@ pub const DAV_OWNED_TIMEZONE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_OVERRIDES: SqlContract = SqlContract {
@@ -477,6 +508,7 @@ pub const DAV_OVERRIDES: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_EVENTS: SqlContract = SqlContract {
@@ -487,6 +519,7 @@ pub const DAV_EVENTS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_SYNC: SqlContract = SqlContract {
@@ -497,6 +530,7 @@ pub const DAV_SYNC: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_FREE_BUSY: SqlContract = SqlContract {
@@ -507,6 +541,7 @@ pub const DAV_FREE_BUSY: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_CREATE: SqlContract = SqlContract {
@@ -517,6 +552,7 @@ pub const DAV_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_EVENT_ETAG: SqlContract = SqlContract {
@@ -527,6 +563,7 @@ pub const DAV_EVENT_ETAG: SqlContract = SqlContract {
     columns: &[ColumnSpec::named("etag", Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_UPDATE: SqlContract = SqlContract {
@@ -537,6 +574,7 @@ pub const DAV_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_OCCURRENCE: SqlContract = SqlContract {
@@ -547,6 +585,7 @@ pub const DAV_OCCURRENCE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_DESTROY: SqlContract = SqlContract {
@@ -557,6 +596,7 @@ pub const DAV_DESTROY: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_BLOCKED_AUDIT: SqlContract = SqlContract {
@@ -567,6 +607,7 @@ pub const DAV_BLOCKED_AUDIT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::VOID)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DAV_LOOKUP_OPERATION: SqlContract = SqlContract {
@@ -577,6 +618,7 @@ pub const DAV_LOOKUP_OPERATION: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_BLOCKED_AUDIT: SqlContract = SqlContract {
@@ -587,6 +629,7 @@ pub const CARDDAV_BLOCKED_AUDIT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::VOID)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_BOOKS: SqlContract = SqlContract {
@@ -602,6 +645,7 @@ pub const CARDDAV_BOOKS: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_GET_CONTACT: SqlContract = SqlContract {
@@ -616,6 +660,7 @@ pub const CARDDAV_GET_CONTACT: SqlContract = SqlContract {
     columns: CARDDAV_CONTACT_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_BOOK: SqlContract = SqlContract {
@@ -631,6 +676,7 @@ pub const CARDDAV_BOOK: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_LIST_CONTACTS: SqlContract = SqlContract {
@@ -645,6 +691,7 @@ pub const CARDDAV_LIST_CONTACTS: SqlContract = SqlContract {
     columns: CARDDAV_CONTACT_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_SEARCH_CONTACTS: SqlContract = SqlContract {
@@ -659,6 +706,7 @@ pub const CARDDAV_SEARCH_CONTACTS: SqlContract = SqlContract {
     columns: CARDDAV_CONTACT_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_CONTACTS_BY_UIDS: SqlContract = SqlContract {
@@ -673,6 +721,7 @@ pub const CARDDAV_CONTACTS_BY_UIDS: SqlContract = SqlContract {
     columns: CARDDAV_CONTACT_COLUMNS,
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_SYNC: SqlContract = SqlContract {
@@ -683,6 +732,7 @@ pub const CARDDAV_SYNC: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::MailboxReadOnly,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_CREATE: SqlContract = SqlContract {
@@ -693,6 +743,7 @@ pub const CARDDAV_CREATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_UPDATE: SqlContract = SqlContract {
@@ -703,6 +754,7 @@ pub const CARDDAV_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_DELETE: SqlContract = SqlContract {
@@ -713,6 +765,7 @@ pub const CARDDAV_DELETE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_GAL_USERS: SqlContract = SqlContract {
@@ -723,6 +776,7 @@ pub const CARDDAV_GAL_USERS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_GAL_USERS_MUTANT: SqlContract = SqlContract {
@@ -733,6 +787,7 @@ pub const CARDDAV_GAL_USERS_MUTANT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_GAL_RECORD: SqlContract = SqlContract {
@@ -743,6 +798,7 @@ pub const CARDDAV_GAL_RECORD: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::JSONB)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_GAL_SYNC: SqlContract = SqlContract {
@@ -753,6 +809,7 @@ pub const CARDDAV_GAL_SYNC: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const CARDDAV_PRIMARY_MAILBOX: SqlContract = SqlContract {
@@ -763,6 +820,7 @@ pub const CARDDAV_PRIMARY_MAILBOX: SqlContract = SqlContract {
     columns: &[ColumnSpec::named("id", Type::INT8)],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 // Frozen-Go parity quirk: `calendar::entity_email` intentionally mirrors Go's

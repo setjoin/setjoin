@@ -3,7 +3,7 @@
 ## Purpose
 
 Leaf crate defining compile-time static SQL contracts (`SqlContract`, `SqlScope`,
-`ColumnSpec`, `RlsCheck`) and zero-proc-macro `macro_rules!` SQL helpers
+`ColumnSpec`, `RlsCheck`, `SqlAuditPosture`) and zero-proc-macro `macro_rules!` SQL helpers
 (`pg_rfc3339!`, `pg_go_utc_time!`). Depends **only** on `tokio-postgres`
 (`types::Type`), with `#![forbid(unsafe_code)]`, zero procedural macros, zero
 `syn`/`quote`, and zero `sqlx`.

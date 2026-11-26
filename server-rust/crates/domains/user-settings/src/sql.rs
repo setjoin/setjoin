@@ -1,6 +1,6 @@
 //! Static typed SQL contract catalog for `setjoin-user-settings` (F19).
 use setjoin_sql_catalog::{
-    pg_go_utc_time, pg_rfc3339, ColumnSpec, RlsCheck, SqlContract, SqlScope, Type,
+    pg_go_utc_time, pg_rfc3339, ColumnSpec, RlsCheck, SqlAuditPosture, SqlContract, SqlScope, Type,
 };
 
 macro_rules! rfc3339_fmt {
@@ -18,6 +18,7 @@ pub const PROFILE_UPDATE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const QUOTA_GET: SqlContract = SqlContract {
@@ -32,6 +33,7 @@ pub const QUOTA_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const IMAP_GET: SqlContract = SqlContract {
@@ -49,6 +51,7 @@ pub const IMAP_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const IMAP_PUT: SqlContract = SqlContract {
@@ -74,6 +77,7 @@ pub const IMAP_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT4)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIEW_PREFS_GET: SqlContract = SqlContract {
@@ -84,6 +88,7 @@ pub const VIEW_PREFS_GET: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIEW_PREFS_PUT: SqlContract = SqlContract {
@@ -95,6 +100,7 @@ pub const VIEW_PREFS_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const UNDO_DELAY_PUT: SqlContract = SqlContract {
@@ -105,6 +111,7 @@ pub const UNDO_DELAY_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const NEWSLETTER_PUT: SqlContract = SqlContract {
@@ -117,6 +124,7 @@ pub const NEWSLETTER_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_LIST: SqlContract = SqlContract {
@@ -142,6 +150,7 @@ pub const SIGNATURE_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_OTHERS: SqlContract = SqlContract {
@@ -152,6 +161,7 @@ pub const SIGNATURE_OTHERS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_PUT: SqlContract = SqlContract {
@@ -171,6 +181,7 @@ pub const SIGNATURE_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SIGNATURE_DELETE: SqlContract = SqlContract {
@@ -183,6 +194,7 @@ pub const SIGNATURE_DELETE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const NOTIFICATION_GET: SqlContract = SqlContract {
@@ -209,6 +221,7 @@ pub const NOTIFICATION_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const NOTIFICATION_PUT: SqlContract = SqlContract {
@@ -250,6 +263,7 @@ pub const NOTIFICATION_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT4)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIP_GET: SqlContract = SqlContract {
@@ -260,6 +274,7 @@ pub const VIP_GET: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VIP_PUT: SqlContract = SqlContract {
@@ -270,6 +285,7 @@ pub const VIP_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const PRIMARY_MAILBOX: SqlContract = SqlContract {
@@ -280,6 +296,7 @@ pub const PRIMARY_MAILBOX: SqlContract = SqlContract {
     columns: &[ColumnSpec::named("id", Type::INT8)],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VACATION_GET: SqlContract = SqlContract {
@@ -302,6 +319,7 @@ pub const VACATION_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const VACATION_PUT: SqlContract = SqlContract {
@@ -327,6 +345,7 @@ pub const VACATION_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DELEGATION_GET: SqlContract = SqlContract {
@@ -345,6 +364,7 @@ pub const DELEGATION_GET: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DELEGATION_PUT: SqlContract = SqlContract {
@@ -363,6 +383,7 @@ pub const DELEGATION_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SESSIONS_LIST: SqlContract = SqlContract {
@@ -395,6 +416,7 @@ pub const SESSIONS_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const DEVICES_LIST: SqlContract = SqlContract {
@@ -420,6 +442,7 @@ pub const DEVICES_LIST: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const LOGIN_HISTORY: SqlContract = SqlContract {
@@ -452,6 +475,7 @@ pub const LOGIN_HISTORY: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const LOGIN_HISTORY_SUMMARY: SqlContract = SqlContract {
@@ -471,6 +495,7 @@ pub const LOGIN_HISTORY_SUMMARY: SqlContract = SqlContract {
     ],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_TOTP: SqlContract = SqlContract {
@@ -481,6 +506,7 @@ pub const SECURITY_SCORE_TOTP: SqlContract = SqlContract {
     columns: &[ColumnSpec::named("totp_enabled", Type::BOOL)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_BACKUP_CODES: SqlContract = SqlContract {
@@ -491,6 +517,7 @@ pub const SECURITY_SCORE_BACKUP_CODES: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT4)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_FAILED_LOGINS: SqlContract = SqlContract {
@@ -501,6 +528,7 @@ pub const SECURITY_SCORE_FAILED_LOGINS: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURITY_SCORE_DEVICE_COUNT: SqlContract = SqlContract {
@@ -511,6 +539,7 @@ pub const SECURITY_SCORE_DEVICE_COUNT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareExplainAndRlsDenyProbe,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SESSION_REVOKE_ONE: SqlContract = SqlContract {
@@ -521,6 +550,7 @@ pub const SESSION_REVOKE_ONE: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SESSIONS_REVOKE_ALL: SqlContract = SqlContract {
@@ -531,6 +561,7 @@ pub const SESSIONS_REVOKE_ALL: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::INT8)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SECURE_ACCOUNT_SELF: SqlContract = SqlContract {
@@ -541,6 +572,7 @@ pub const SECURE_ACCOUNT_SELF: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_TOGGLES: SqlContract = SqlContract {
@@ -560,6 +592,7 @@ pub const SYNC_TOGGLES: SqlContract = SqlContract {
     ],
     scope: SqlScope::AuthPreScope,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_DEVICE: SqlContract = SqlContract {
@@ -572,6 +605,7 @@ pub const SYNC_DEVICE: SqlContract = SqlContract {
     // `user_devices` carries permissive `user_devices_admin_read (true)` SELECT RLS;
     // tenant isolation is enforced via R1 `WHERE user_id = $1`.
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_CAPABILITIES: SqlContract = SqlContract {
@@ -582,6 +616,7 @@ pub const SYNC_CAPABILITIES: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SYNC_PUT: SqlContract = SqlContract {
@@ -604,6 +639,7 @@ pub const SYNC_PUT: SqlContract = SqlContract {
     columns: &[ColumnSpec::unnamed(Type::TEXT)],
     scope: SqlScope::UserScoped,
     rls_check: RlsCheck::PrepareAndExplain,
+    audit: SqlAuditPosture::Standard,
 };
 
 pub const SQL_CONTRACTS: &[SqlContract] = &[
