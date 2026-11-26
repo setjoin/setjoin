@@ -175,24 +175,6 @@ async fn owner_statements_run_on_the_owner_dsn_and_the_rest_on_the_worker_dsn(
     Ok(())
 }
 
-fn worker_dsn(owner: &str) -> String {
-    if let Ok(v) = std::env::var("DB_WORKER_DSN") {
-        if !v.is_empty() {
-            return v;
-        }
-    }
-    let config: tokio_postgres::Config = owner.parse().expect("owner DSN parses");
-    let host = match config.get_hosts().first() {
-        Some(tokio_postgres::config::Host::Tcp(h)) => h.clone(),
-        _ => "127.0.0.1".into(),
-    };
-    format!(
-        "host={host} port={} dbname={} user=setjoin_worker",
-        config.get_ports().first().copied().unwrap_or(5432),
-        config.get_dbname().unwrap_or("mailserver_test"),
-    )
-}
-
 #[tokio::test]
 async fn prune_rust_operation_receipts_drains_multiple_batches_and_propagates_errors(
 ) -> Result<(), BoxError> {
@@ -201,7 +183,8 @@ async fn prune_rust_operation_receipts_drains_multiple_batches_and_propagates_er
         return Ok(());
     };
     let owner = db.connect().await?;
-    let worker = WorkerDatabase::new(&worker_dsn(&db.dsn))?;
+    let worker_env = std::env::var("DB_WORKER_DSN").ok();
+    let worker = WorkerDatabase::from_dsns(&db.dsn, worker_env.as_deref())?;
     let dbs = CronDatabases {
         worker: worker.clone(),
         owner: worker.clone(),
