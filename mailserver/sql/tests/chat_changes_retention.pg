@@ -1,0 +1,521 @@
+-- chat_changes_retention.pg — Wave 2.6 (#553): dedicated public.chat_changes
+-- monotonic journal, compliance purge 'resync' sentinel preserving
+-- last_purged_seq, GUEST_HISTORY_FLOOR & detached-parent contract on
+-- chat_changes_since, unified effective_journal_retention_days() >= 30d +
+-- high-water cap across mail/chat/drive/revocations, public.sync_tombstone_floor
+-- advancement & mandatory scope-membership reconcile signaling across Chat,
+-- Drive, and JMAP Email/Entity, plus FORCE RLS denial & allow proofs under
+-- SET LOCAL ROLE setjoin_app.
+BEGIN;
+SELECT plan(75);
+SET LOCAL app.capture_notify = 'on';
+
+-- ── Schema & function existence ──────────────────────────────────────────
+SELECT has_table('public', 'chat_changes', 'public.chat_changes exists');
+SELECT has_table('public', 'sync_tombstone_floor', 'public.sync_tombstone_floor exists');
+SELECT has_function('effective_journal_retention_days', ARRAY['integer'], 'effective_journal_retention_days(int) exists');
+SELECT has_function('sync_tombstone_floor_at', ARRAY[]::text[], 'sync_tombstone_floor_at() exists');
+SELECT has_function('append_chat_change', ARRAY['bigint','bigint','bigint','text'], 'append_chat_change exists');
+SELECT has_function('chat_changes_since', ARRAY['bigint','bigint','bigint','integer'], 'chat_changes_since exists');
+SELECT has_function('prune_chat_changes', ARRAY['integer','integer'], 'prune_chat_changes exists');
+SELECT has_function('prune_drive_changes', ARRAY['integer','integer'], 'prune_drive_changes exists');
+
+-- ── Fixtures (disjoint user/mailbox ids via mk_account) ──────────────────
+SELECT mk_account('cc553-owner') AS owner_mb \gset
+SELECT mk_account('cc553-member') AS member_mb \gset
+SELECT mk_account('cc553-outsider') AS outsider_mb \gset
+SELECT user_id AS owner_uid FROM mailboxes WHERE id = :owner_mb \gset
+SELECT user_id AS member_uid FROM mailboxes WHERE id = :member_mb \gset
+SELECT user_id AS outsider_uid FROM mailboxes WHERE id = :outsider_mb \gset
+
+SELECT chat_channel_create(:owner_uid, 'cc553-chan', NULL, 'private') AS ch1 \gset
+SELECT chat_member_add(:owner_uid, :ch1, :member_uid);
+
+-- ── 1. Monotonic journal records send/edit/delete/pin/unpin without touching last_purged_seq ──
+SELECT (chat_message_send(:owner_uid, :ch1, 'hello 553') ->> 'messageId')::bigint AS m1 \gset
+SELECT chat_message_edit(:owner_uid, :m1, 'hello 553 edited') AS edit_seq \gset
+SELECT chat_pin_toggle(:owner_uid, :m1) AS pinned_on \gset
+SELECT chat_pin_toggle(:owner_uid, :m1) AS pinned_off \gset
+SELECT chat_message_delete(:owner_uid, :m1) AS del_seq \gset
+
+SELECT is(
+  (SELECT array_agg(op ORDER BY change_seq) FROM public.chat_changes WHERE channel_id = :ch1),
+  ARRAY['created', 'updated', 'pinned', 'unpinned', 'destroyed']::text[],
+  'chat_changes records send/edit/pin/unpin/delete monotonically in exact op order'
+);
+SELECT is(
+  (SELECT array_agg(change_seq ORDER BY change_seq) FROM public.chat_changes WHERE channel_id = :ch1),
+  ARRAY[1, 2, 3, 4, 5]::bigint[],
+  'chat_changes change_seq matches strictly monotonic channel change_seq 1..5'
+);
+SELECT is(
+  (SELECT last_purged_seq FROM public.chat_channels WHERE id = :ch1),
+  0::bigint,
+  'normal send/edit/pin/unpin/delete never touch chat_channels.last_purged_seq'
+);
+
+-- Pagination & delta replay via chat_changes_since
+SELECT chat_changes_since(:member_uid, :ch1, 0, 2) AS page1 \gset
+SELECT is((:'page1'::jsonb ->> 'oldState'), '0', 'page1 oldState = 0');
+SELECT is((:'page1'::jsonb ->> 'newState'), '2', 'page1 newState = 2');
+SELECT is((:'page1'::jsonb ->> 'hasMoreChanges')::boolean, TRUE, 'page1 hasMoreChanges = true');
+SELECT is(jsonb_array_length(:'page1'::jsonb -> 'changes'), 2, 'page1 returns 2 changes');
+SELECT is((:'page1'::jsonb ->> 'tombstoneFloorExceeded')::boolean, FALSE, 'page1 tombstoneFloorExceeded = false when floor is -infinity');
+
+SELECT chat_changes_since(:member_uid, :ch1, 2, 10) AS page2 \gset
+SELECT is((:'page2'::jsonb ->> 'newState'), '5', 'page2 newState advances to head seq 5');
+SELECT is((:'page2'::jsonb ->> 'hasMoreChanges')::boolean, FALSE, 'page2 hasMoreChanges = false at head');
+SELECT is(jsonb_array_length(:'page2'::jsonb -> 'changes'), 3, 'page2 returns remaining 3 changes');
+
+-- Non-member & invalid/future cursors
+SELECT throws_ok(
+  format($$ SELECT chat_changes_since(%s, %s, 0, 50) $$, :outsider_uid, :ch1),
+  'BZ163', NULL,
+  'non-member chat_changes_since raises BZ163'
+);
+SELECT throws_ok(
+  format($$ SELECT chat_changes_since(%s, %s, -1, 50) $$, :member_uid, :ch1),
+  'BZ011', NULL,
+  'negative cursor raises BZ011'
+);
+SELECT throws_ok(
+  format($$ SELECT chat_changes_since(%s, %s, 999, 50) $$, :member_uid, :ch1),
+  'BZ011', NULL,
+  'future cursor > change_seq raises BZ011'
+);
+
+-- ── 2. FORCE RLS denial + allow proofs under SET LOCAL ROLE setjoin_app ──
+SAVEPOINT rls_checks;
+SET LOCAL ROLE setjoin_app;
+
+-- sync_tombstone_floor deny-all
+SELECT throws_ok(
+  $$ SELECT count(*) FROM public.sync_tombstone_floor $$,
+  '42501', NULL,
+  'setjoin_app direct SELECT on sync_tombstone_floor is denied'
+);
+SELECT throws_ok(
+  $$ UPDATE public.sync_tombstone_floor SET pruned_before_at = now() WHERE id = 1 $$,
+  '42501', NULL,
+  'setjoin_app direct UPDATE on sync_tombstone_floor is denied'
+);
+SELECT is(
+  public.sync_tombstone_floor_at(),
+  '-infinity'::timestamptz,
+  'setjoin_app reads scalar tombstone floor via worker-owned SECURITY DEFINER sync_tombstone_floor_at()'
+);
+SELECT throws_ok(
+  $$ SELECT public.prune_chat_changes(30, 50000) $$,
+  '42501', NULL,
+  'setjoin_app cannot invoke worker-only prune_chat_changes'
+);
+SELECT throws_ok(
+  $$ SELECT public.prune_drive_changes(90, 50000) $$,
+  '42501', NULL,
+  'setjoin_app cannot invoke worker-only prune_drive_changes'
+);
+SELECT throws_ok(
+  $$ SELECT public.prune_changes_journal(30, 0) $$,
+  '42501', NULL,
+  'setjoin_app cannot invoke worker-only prune_changes_journal'
+);
+
+-- chat_changes unset GUC fails closed
+SELECT is(
+  (SELECT count(*)::int FROM public.chat_changes WHERE channel_id = :ch1),
+  0,
+  'unset GUC sees zero chat_changes rows (fail-closed)'
+);
+SELECT throws_ok(
+  format($$ SELECT chat_changes_since(%s, %s, 0, 50) $$, :member_uid, :ch1),
+  'BZ163', NULL,
+  'unset GUC chat_changes_since fails closed with BZ163 under setjoin_app'
+);
+
+-- chat_changes non-member denial
+SELECT set_config('app.current_user_id', :'outsider_uid', true);
+SELECT is(
+  (SELECT count(*)::int FROM public.chat_changes WHERE channel_id = :ch1),
+  0,
+  'non-member sees zero chat_changes rows under FORCE RLS'
+);
+SELECT throws_ok(
+  format($$ INSERT INTO public.chat_changes (channel_id, change_seq, message_id, op) VALUES (%s, 99, %s, 'created') $$, :ch1, :m1),
+  '42501', NULL,
+  'non-member direct INSERT into chat_changes is denied under FORCE RLS'
+);
+
+-- chat_changes member ALLOW flow + no UPDATE/DELETE
+SELECT set_config('app.current_user_id', :'member_uid', true);
+SELECT (chat_message_send(:member_uid, :ch1, 'sent as setjoin_app') ->> 'seq')::bigint AS app_seq \gset
+SELECT is(
+  (SELECT count(*)::int FROM public.chat_changes WHERE channel_id = :ch1 AND change_seq = :app_seq AND op = 'created'),
+  1,
+  'member chat_message_send writes and reads back chat_changes row as setjoin_app (ALLOW)'
+);
+SELECT throws_ok(
+  format($$ DELETE FROM public.chat_changes WHERE channel_id = %s $$, :ch1),
+  '42501', NULL,
+  'setjoin_app cannot DELETE from chat_changes'
+);
+SELECT throws_ok(
+  format($$ UPDATE public.chat_changes SET op = 'updated' WHERE channel_id = %s $$, :ch1),
+  '42501', NULL,
+  'setjoin_app cannot UPDATE chat_changes'
+);
+SELECT throws_ok(
+  format($$ INSERT INTO public.chat_changes (channel_id, change_seq, message_id, op) VALUES (%s, 99999, %s, 'created') $$, :ch1, :m1),
+  '42501', NULL,
+  'member cannot INSERT synthetic chat_changes row ahead of chat_channels.change_seq under FORCE RLS'
+);
+SELECT throws_ok(
+  format($$ SELECT chat_changes_since(%s, %s, 0, 50) $$, :owner_uid, :ch1),
+  'BZ163', NULL,
+  'chat_changes_since rejects mismatched p_user_id vs app.current_user_id GUC'
+);
+
+ROLLBACK TO SAVEPOINT rls_checks;
+RELEASE SAVEPOINT rls_checks;
+
+-- ── 2b. Pre-V289 / aged-out empty journal cursor floor semantics ─────────
+SELECT chat_channel_create(:owner_uid, 'cc553-legacy-chan', NULL, 'private') AS ch_legacy \gset
+UPDATE public.chat_channels SET change_seq = 5 WHERE id = :ch_legacy;
+SELECT throws_ok(
+  format($$ SELECT chat_changes_since(%s, %s, 0, 50) $$, :owner_uid, :ch_legacy),
+  'BZ011', NULL,
+  'since=0 on pre-V289/pruned channel with head>0 and empty journal raises BZ011'
+);
+SELECT chat_changes_since(:owner_uid, :ch_legacy, 5, 50) AS legacy_head \gset
+SELECT is(
+  (:'legacy_head'::jsonb ->> 'newState'),
+  '5',
+  'since=head on empty aged-out journal succeeds with newState=head'
+);
+SELECT is(
+  jsonb_array_length(:'legacy_head'::jsonb -> 'changes'),
+  0,
+  'since=head on empty aged-out journal returns empty changes array'
+);
+
+-- ── 3. GUEST_HISTORY_FLOOR & detached-parent contract on chat_changes_since ──
+SELECT mk_account('cc553-guest') AS guest_mb \gset
+SELECT user_id AS guest_uid FROM mailboxes WHERE id = :guest_mb \gset
+
+SELECT chat_channel_create(:owner_uid, 'cc553-guest-chan', NULL, 'private') AS ch_guest \gset
+SELECT (chat_message_send(:owner_uid, :ch_guest, 'pre-floor parent') ->> 'messageId')::bigint AS pre_parent \gset
+-- Backdate pre-floor parent before guest joins
+UPDATE public.chat_messages SET created_at = now() - interval '10 minutes' WHERE id = :pre_parent;
+SELECT change_seq AS guest_floor FROM public.chat_channels WHERE id = :ch_guest \gset
+
+INSERT INTO public.chat_channel_members (channel_id, user_id, role, history_floor_seq, joined_at)
+VALUES (:ch_guest, :guest_uid, 'member', :guest_floor, now() - interval '1 minute');
+
+-- Pre-floor parent edited AFTER guest joined (seq advances past floor, but created_at < joined_at -> must stay hidden!)
+SELECT chat_message_edit(:owner_uid, :pre_parent, 'pre-floor edited after join');
+-- Post-floor reply to pre-floor parent (must surface as detached: parentMessageId=null, parentUnavailable=true!)
+SELECT (chat_message_send(:owner_uid, :ch_guest, 'post-floor reply', :pre_parent) ->> 'messageId')::bigint AS post_reply \gset
+
+SELECT chat_changes_since(:guest_uid, :ch_guest, 0, 50) AS guest_delta \gset
+SELECT is(
+  jsonb_array_length(:'guest_delta'::jsonb -> 'changes'),
+  1,
+  'GUEST_HISTORY_FLOOR hides pre-floor message and post-join edits to pre-floor messages'
+);
+SELECT is(
+  ((:'guest_delta'::jsonb -> 'changes' -> 0 ->> 'messageId')::bigint),
+  :post_reply::bigint,
+  'GUEST_HISTORY_FLOOR surfaces post-floor reply'
+);
+SELECT is(
+  (:'guest_delta'::jsonb -> 'changes' -> 0 -> 'message' -> 'parentMessageId'),
+  'null'::jsonb,
+  'detached post-floor reply blanks parentMessageId to null'
+);
+SELECT is(
+  (:'guest_delta'::jsonb -> 'changes' -> 0 -> 'message' ->> 'parentUnavailable')::boolean,
+  TRUE,
+  'detached post-floor reply sets parentUnavailable = true'
+);
+
+-- ── 4. Compliance chat_purge_expired preserves last_purged_seq AND appends 'resync' sentinel ──
+UPDATE public.feature_toggles SET enabled = TRUE WHERE key = 'feature.chat_compliance';
+SELECT chat_channel_create(:owner_uid, 'cc553-purge-chan', NULL, 'private') AS ch_purge \gset
+UPDATE public.chat_channels SET retention_days = 10 WHERE id = :ch_purge;
+SELECT (chat_message_send(:owner_uid, :ch_purge, 'old compliance msg') ->> 'messageId')::bigint AS m_old,
+       (chat_message_send(:owner_uid, :ch_purge, 'fresh compliance msg') ->> 'messageId')::bigint AS m_fresh \gset
+UPDATE public.chat_messages SET created_at = now() - interval '15 days' WHERE id = :m_old;
+
+SELECT purged_count AS pcnt FROM chat_purge_expired(1000, FALSE) WHERE channel_id = :ch_purge \gset
+SELECT is(:pcnt, 1, 'chat_purge_expired purges the expired message');
+SELECT is(
+  (SELECT last_purged_seq FROM public.chat_channels WHERE id = :ch_purge),
+  1::bigint,
+  'chat_purge_expired preserves last_purged_seq = max destroyed message seq (1)'
+);
+SELECT is(
+  (SELECT change_seq FROM public.chat_channels WHERE id = :ch_purge),
+  3::bigint,
+  'chat_purge_expired bumps change_seq monotonically past surviving seqs to 3'
+);
+SELECT is(
+  (SELECT op FROM public.chat_changes WHERE channel_id = :ch_purge AND change_seq = 3),
+  'resync',
+  'chat_purge_expired appends resync sentinel into chat_changes at bumped seq'
+);
+SELECT is(
+  (SELECT message_id FROM public.chat_changes WHERE channel_id = :ch_purge AND change_seq = 3),
+  NULL::bigint,
+  'resync sentinel carries NULL message_id'
+);
+SELECT is(
+  last_notify_payload('sync'),
+  'channel:' || :ch_purge || ':3',
+  'chat_purge_expired emits sync wakeup bell for the resync seq'
+);
+SELECT throws_ok(
+  format($$ SELECT chat_changes_since(%s, %s, 1, 50) $$, :owner_uid, :ch_purge),
+  'BZ011', NULL,
+  'chat_changes_since before compliance purge resync sentinel raises BZ011'
+);
+SELECT is(
+  (chat_changes_since(:owner_uid, :ch_purge, 3, 50) ->> 'newState'),
+  '3',
+  'chat_changes_since at/after resync seq succeeds after client resyncs'
+);
+
+-- ── 5. Unified GREATEST(configured_offline_window_days, 30) + high-water cap across all pruners ──
+INSERT INTO public.offline_policies (name, scope_type, enabled, max_offline_days)
+VALUES ('cc553-120d-window', 'global', TRUE, 120);
+
+SELECT is(
+  public.effective_journal_retention_days(7),
+  120,
+  'effective_journal_retention_days clamps UP to enabled offline_policies.max_offline_days (120)'
+);
+
+-- Seed 45d (must survive 120d!) and 130d (must prune!) across JMAP, Chat, Drive, ScopeRevocations
+INSERT INTO public.jmap_changes_journal (mailbox_id, datatype, state_seq, entity_id, op, created_at)
+VALUES
+  (:owner_mb, 'email', 1, 1001, 'created', now() - interval '130 days'),
+  (:owner_mb, 'email', 2, 1002, 'created', now() - interval '45 days');
+
+SELECT chat_channel_create(:owner_uid, 'cc553-prune-chan', NULL, 'private') AS ch_prune \gset
+INSERT INTO public.chat_changes (channel_id, change_seq, message_id, op, created_at)
+VALUES
+  (:ch_prune, 1, 1, 'created', now() - interval '130 days'),
+  (:ch_prune, 2, 2, 'created', now() - interval '45 days'),
+  (:ch_prune, 3, 3, 'created', now() - interval '1 day'),
+  (:ch_prune, 4, 4, 'created', now());
+
+SELECT drive_space_create(:owner_uid, 'cc553-drive-space', 'regular') AS drv_sid \gset
+DELETE FROM public.drive_changes WHERE space_id = :drv_sid;
+INSERT INTO public.drive_changes (space_id, seq, node_id, op, at)
+VALUES
+  (:drv_sid, 1, 10, 'create', now() - interval '130 days'),
+  (:drv_sid, 2, 11, 'create', now() - interval '100 days'),
+  (:drv_sid, 3, 12, 'create', now() - interval '1 day'),
+  (:drv_sid, 4, 13, 'create', now());
+UPDATE public.drive_spaces SET change_seq = 4 WHERE id = :drv_sid;
+
+INSERT INTO public.scope_revocations (occurred_at, user_id, scope_kind, scope_id, reason)
+VALUES
+  (now() - interval '130 days', :outsider_uid, 'channel', :ch_prune, 'cc553_prune_130d'),
+  (now() - interval '45 days',  :outsider_uid, 'channel', :ch_prune, 'cc553_keep_45d');
+
+-- Prune with tiny requested days (7): ALL 4 pruners MUST clamp UP to 120d!
+SELECT prune_changes_journal(7, 50000);
+SELECT prune_chat_changes(7, 50000);
+SELECT prune_drive_changes(7, 50000);
+SELECT prune_scope_revocations(7);
+
+SELECT is(
+  (SELECT array_agg(state_seq ORDER BY state_seq) FROM public.jmap_changes_journal WHERE mailbox_id = :owner_mb AND datatype = 'email'),
+  ARRAY[2]::bigint[],
+  'prune_changes_journal(7) honors 120d offline policy: prunes 130d, keeps 45d'
+);
+SELECT is(
+  (SELECT array_agg(change_seq ORDER BY change_seq) FROM public.chat_changes WHERE channel_id = :ch_prune),
+  ARRAY[2, 3, 4]::bigint[],
+  'prune_chat_changes(7) honors 120d offline policy: prunes 130d, keeps 45d+'
+);
+SELECT is(
+  (SELECT array_agg(seq ORDER BY seq) FROM public.drive_changes WHERE space_id = :drv_sid),
+  ARRAY[2, 3, 4]::bigint[],
+  'prune_drive_changes(7) honors 120d offline policy: prunes 130d, keeps 100d+'
+);
+SELECT is(
+  (SELECT array_agg(reason ORDER BY reason) FROM public.scope_revocations WHERE reason LIKE 'cc553_%'),
+  ARRAY['cc553_keep_45d']::text[],
+  'prune_scope_revocations(7) honors 120d offline policy: prunes 130d, keeps 45d'
+);
+
+-- High-water cap trims chat_changes and drive_changes per scope
+SELECT prune_chat_changes(30, 2);
+SELECT is(
+  (SELECT array_agg(change_seq ORDER BY change_seq) FROM public.chat_changes WHERE channel_id = :ch_prune),
+  ARRAY[3, 4]::bigint[],
+  'prune_chat_changes high-water cap trims to newest 2 seqs per channel'
+);
+SELECT prune_drive_changes(90, 2);
+SELECT is(
+  (SELECT array_agg(seq ORDER BY seq) FROM public.drive_changes WHERE space_id = :drv_sid),
+  ARRAY[3, 4]::bigint[],
+  'prune_drive_changes high-water cap trims to newest 2 seqs per space'
+);
+
+-- ── 6. Drive-aligned >=90d revocation floor, prefix-only no-hole pruning, & tombstone floor ──
+SELECT ok(
+  public.sync_tombstone_floor_at() > '-infinity'::timestamptz,
+  'prune_scope_revocations advanced public.sync_tombstone_floor.pruned_before_at above -infinity'
+);
+
+-- Lower offline policy to 30d: prune_scope_revocations(30) MUST still enforce >=90d Drive floor!
+UPDATE public.offline_policies SET max_offline_days = 30 WHERE name = 'cc553-120d-window';
+INSERT INTO public.scope_revocations (occurred_at, user_id, scope_kind, scope_id, reason)
+VALUES
+  (now() - interval '95 days', :outsider_uid, 'channel', :ch_prune, 'cc553_floor_95d'),
+  (now() - interval '89 days', :outsider_uid, 'channel', :ch_prune, 'cc553_keep_89d'),
+  (now() - interval '45 days', :outsider_uid, 'channel', :ch_prune, 'cc553_keep_45d_90floor');
+SELECT prune_scope_revocations(30);
+-- Now sync_tombstone_floor_at() == now() - 90 days.
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations WHERE reason IN ('cc553_keep_89d', 'cc553_keep_45d_90floor')),
+  2,
+  'prune_scope_revocations(30) retains 45d and 89d revocations under >=90d Drive-aligned floor'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations WHERE reason = 'cc553_floor_95d'),
+  0,
+  'prune_scope_revocations(30) prunes >=90d revocation (95d row pruned)'
+);
+
+-- Prefix-only age pruning: an older created_at row with a HIGHER seq than a newer created_at
+-- row MUST NOT be deleted out of the middle across Chat, Drive, and JMAP journals!
+SELECT chat_channel_create(:owner_uid, 'cc553-nohole-chat', NULL, 'private') AS ch_nohole \gset
+INSERT INTO public.chat_changes (channel_id, change_seq, message_id, op, created_at)
+VALUES
+  (:ch_nohole, 1, 1, 'created', now() - interval '45 days'),
+  (:ch_nohole, 2, 2, 'created', now() - interval '5 days'),
+  (:ch_nohole, 3, 3, 'created', now() - interval '45 days'),
+  (:ch_nohole, 4, 4, 'created', now() - interval '1 day');
+SELECT prune_chat_changes(30, 50000);
+SELECT is(
+  (SELECT array_agg(change_seq ORDER BY change_seq) FROM public.chat_changes WHERE channel_id = :ch_nohole),
+  ARRAY[2, 3, 4]::bigint[],
+  'prune_chat_changes deletes only contiguous prefix and never punches a hole at seq=3'
+);
+
+SELECT drive_space_create(:owner_uid, 'cc553-nohole-drive', 'regular') AS drv_nohole \gset
+DELETE FROM public.drive_changes WHERE space_id = :drv_nohole;
+INSERT INTO public.drive_changes (space_id, seq, node_id, op, at)
+VALUES
+  (:drv_nohole, 1, 1, 'create', now() - interval '100 days'),
+  (:drv_nohole, 2, 2, 'create', now() - interval '5 days'),
+  (:drv_nohole, 3, 3, 'create', now() - interval '100 days'),
+  (:drv_nohole, 4, 4, 'create', now() - interval '1 day');
+SELECT prune_drive_changes(90, 50000);
+SELECT is(
+  (SELECT array_agg(seq ORDER BY seq) FROM public.drive_changes WHERE space_id = :drv_nohole),
+  ARRAY[2, 3, 4]::bigint[],
+  'prune_drive_changes deletes only contiguous prefix and never punches a hole at seq=3'
+);
+
+SELECT mk_account('cc553-nohole-mb') AS nohole_mb \gset
+INSERT INTO public.jmap_changes_journal (mailbox_id, datatype, state_seq, entity_id, op, created_at)
+VALUES
+  (:nohole_mb, 'email', 1, 1, 'created', now() - interval '45 days'),
+  (:nohole_mb, 'email', 2, 2, 'created', now() - interval '5 days'),
+  (:nohole_mb, 'email', 3, 3, 'created', now() - interval '45 days'),
+  (:nohole_mb, 'email', 4, 4, 'created', now() - interval '1 day');
+SELECT prune_changes_journal(30, 50000);
+SELECT is(
+  (SELECT array_agg(state_seq ORDER BY state_seq) FROM public.jmap_changes_journal WHERE mailbox_id = :nohole_mb AND datatype = 'email'),
+  ARRAY[2, 3, 4]::bigint[],
+  'prune_changes_journal deletes only contiguous prefix and never punches a hole at state_seq=3'
+);
+
+-- Chat: cursor at 95d ago (< 90d floor) -> tombstoneFloorExceeded = true; cursor at 1d ago -> false;
+-- fail-closed when cursor row itself is absent (empty aged-out journal at head) -> tombstoneFloorExceeded = true
+SELECT chat_channel_create(:owner_uid, 'cc553-tomb-chat', NULL, 'private') AS ch_tomb \gset
+SELECT (chat_message_send(:owner_uid, :ch_tomb, 'old cursor msg') ->> 'seq')::bigint AS tc1 \gset
+SELECT (chat_message_send(:owner_uid, :ch_tomb, 'new cursor msg') ->> 'seq')::bigint AS tc2 \gset
+UPDATE public.chat_changes SET created_at = now() - interval '95 days' WHERE channel_id = :ch_tomb AND change_seq = :tc1;
+
+SELECT is(
+  (chat_changes_since(:owner_uid, :ch_tomb, :tc1, 50) ->> 'tombstoneFloorExceeded')::boolean,
+  TRUE,
+  'chat_changes_since signals tombstoneFloorExceeded=true when cursor predates tombstone floor'
+);
+SELECT is(
+  (chat_changes_since(:owner_uid, :ch_tomb, :tc2, 50) ->> 'tombstoneFloorExceeded')::boolean,
+  FALSE,
+  'chat_changes_since signals tombstoneFloorExceeded=false when cursor is newer than tombstone floor'
+);
+SELECT is(
+  (chat_changes_since(:owner_uid, :ch_legacy, 5, 50) ->> 'tombstoneFloorExceeded')::boolean,
+  TRUE,
+  'chat_changes_since fails closed with tombstoneFloorExceeded=true when no journal row <= since exists'
+);
+
+-- Drive: cursor at 95d ago (< 90d floor) -> cannotCalculateChanges=true AND tombstoneFloorExceeded=true;
+-- newer cursor omits both keys.
+SELECT drive_space_create(:owner_uid, 'cc553-tomb-drive', 'regular') AS drv_tomb \gset
+SELECT drive_notify_change(:drv_tomb, 101, 'create');
+SELECT drive_notify_change(:drv_tomb, 102, 'create');
+UPDATE public.drive_changes SET at = now() - interval '95 days' WHERE space_id = :drv_tomb AND seq <= 2;
+
+SELECT drive_changes_since(:owner_uid, :drv_tomb, 2) AS drv_tomb_res \gset
+SELECT is(
+  (:'drv_tomb_res'::jsonb ->> 'cannotCalculateChanges')::boolean,
+  TRUE,
+  'drive_changes_since sets cannotCalculateChanges=true when cursor predates tombstone floor'
+);
+SELECT is(
+  (:'drv_tomb_res'::jsonb ->> 'tombstoneFloorExceeded')::boolean,
+  TRUE,
+  'drive_changes_since signals tombstoneFloorExceeded=true when cursor predates tombstone floor'
+);
+SELECT is(
+  (drive_changes_since(:owner_uid, :drv_tomb, 3) ? 'tombstoneFloorExceeded'),
+  FALSE,
+  'drive_changes_since omits tombstoneFloorExceeded when cursor is newer than tombstone floor'
+);
+
+-- JMAP Email & Entity: cursor at 95d ago (< 90d floor) -> BZ011 (tombstoneFloorExceeded)
+UPDATE public.mailboxes SET jmap_email_state = 2 WHERE id = :member_mb;
+INSERT INTO public.jmap_changes_journal (mailbox_id, datatype, state_seq, entity_id, op, created_at)
+VALUES
+  (:member_mb, 'email', 1, 5001, 'created', now() - interval '95 days'),
+  (:member_mb, 'email', 2, 5002, 'created', now());
+
+SELECT throws_ok(
+  format($$ SELECT jmap_email_changes(%s, '1') $$, :member_mb),
+  'BZ011', NULL,
+  'jmap_email_changes raises BZ011 when cursor predates tombstone floor'
+);
+SELECT is(
+  (jmap_email_changes(:member_mb, '2') ->> 'newState'),
+  '2',
+  'jmap_email_changes succeeds when cursor is newer than tombstone floor'
+);
+
+SELECT bump_entity_state(:member_mb, 'task');
+SELECT bump_entity_state(:member_mb, 'task');
+INSERT INTO public.jmap_changes_journal (mailbox_id, datatype, state_seq, entity_id, op, created_at)
+VALUES
+  (:member_mb, 'task', 1, 6001, 'created', now() - interval '95 days'),
+  (:member_mb, 'task', 2, 6002, 'created', now());
+
+SELECT throws_ok(
+  format($$ SELECT jmap_entity_changes(%s, 'task', '1') $$, :member_mb),
+  'BZ011', NULL,
+  'jmap_entity_changes raises BZ011 when cursor predates tombstone floor'
+);
+SELECT is(
+  (jmap_entity_changes(:member_mb, 'task', '2') ->> 'newState'),
+  '2',
+  'jmap_entity_changes succeeds when cursor is newer than tombstone floor'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

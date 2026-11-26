@@ -145,4 +145,4 @@ Owns reducer authority, schema/forward migrations, partitions, RLS and pgTAP. Re
 - [Rust shared unlink (#341)](DOX.md#rust-shared-identity-unlink-341) — owned detach/revocation and opaque receipt.
 
 - [Identity S/MIME](DOX.md#rust-identity-self-service-smime-494) (#494), [SMTP security/iMIP](DOX.md#rust-smtp-inbound-security-transaction-526) (#526).
-- WorkQueue/schedules (V286–V287, #548–#549); SyncWakeup/revocations (V288, #552).
+- WorkQueue/schedules (V286–V287, #548–#549); SyncWakeup (V288, #552); `chat_changes`/retention (V289, #553).

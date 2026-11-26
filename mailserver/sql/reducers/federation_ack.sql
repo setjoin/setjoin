@@ -144,10 +144,29 @@ BEGIN
         UPDATE chat_messages SET seq = v_seq, delivered_at = now()
           WHERE id = v_message_id;
 
+        PERFORM append_chat_change(v_channel_id, v_seq, v_message_id, 'updated');
         PERFORM notify_chat_state(v_channel_id, 'message_delivered', v_message_id, v_seq);
       END IF;
     END IF;
   END IF;
 END;
 $$;
-SELECT apply_worker_ownership('federation_ack(text,bigint)'::regprocedure);
+DO $$
+DECLARE
+    v_granted_create BOOLEAN := FALSE;
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
+        IF NOT has_schema_privilege('setjoin_worker', 'public', 'CREATE') THEN
+            GRANT CREATE ON SCHEMA public TO setjoin_worker;
+            v_granted_create := TRUE;
+        END IF;
+        PERFORM public.apply_worker_ownership(
+            'public.federation_ack(text,bigint)'::regprocedure
+        );
+        IF v_granted_create THEN
+            REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+        END IF;
+    ELSE
+        REVOKE ALL ON FUNCTION public.federation_ack(text,bigint) FROM PUBLIC;
+    END IF;
+END $$;

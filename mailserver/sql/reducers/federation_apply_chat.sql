@@ -316,11 +316,32 @@ BEGIN
       RETURNING id INTO v_msg_id;
 
     IF v_msg_id IS NOT NULL THEN
+      PERFORM append_chat_change(v_channel_id, v_seq, v_msg_id, 'created');
       PERFORM notify_chat_state(v_channel_id, 'message_created', v_msg_id, v_seq);
+    ELSE
+      PERFORM append_chat_change(v_channel_id, v_seq, NULL, 'resync');
     END IF;
   END IF;
 
   RETURN 'applied';
 END;
 $$;
-SELECT apply_worker_ownership('federation_apply_chat(text,bigint,text,jsonb,boolean,text)'::regprocedure);
+DO $$
+DECLARE
+    v_granted_create BOOLEAN := FALSE;
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
+        IF NOT has_schema_privilege('setjoin_worker', 'public', 'CREATE') THEN
+            GRANT CREATE ON SCHEMA public TO setjoin_worker;
+            v_granted_create := TRUE;
+        END IF;
+        PERFORM public.apply_worker_ownership(
+            'public.federation_apply_chat(text,bigint,text,jsonb,boolean,text)'::regprocedure
+        );
+        IF v_granted_create THEN
+            REVOKE CREATE ON SCHEMA public FROM setjoin_worker;
+        END IF;
+    ELSE
+        REVOKE ALL ON FUNCTION public.federation_apply_chat(text,bigint,text,jsonb,boolean,text) FROM PUBLIC;
+    END IF;
+END $$;

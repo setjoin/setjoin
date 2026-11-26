@@ -156,6 +156,32 @@ pub async fn since(
     Ok((rows[0].get(0), rows[0].get(1)))
 }
 
+/// Wave 2.6 (#553): monotonic per-channel delta replay from `public.chat_changes`.
+pub async fn changes(
+    exec: &ScopedExecutor,
+    actor: &AuthContext,
+    channel: i64,
+    since_seq: i64,
+    limit: Option<i32>,
+) -> Result<String, StatementFailure> {
+    let user = actor.user_id();
+    let rows = exec
+        .read_scoped(
+            &scope(actor),
+            "SELECT chat_changes_since($1,$2,$3,$4)::text",
+            &[
+                (&user, Type::INT8),
+                (&channel, Type::INT8),
+                (&since_seq, Type::INT8),
+                (&limit, Type::INT4),
+            ],
+        )
+        .await?;
+    rows.first()
+        .and_then(|row| row.try_get::<_, String>(0).ok())
+        .ok_or_else(invalid_result)
+}
+
 async fn mutate<T, D>(
     exec: &ScopedExecutor,
     actor: &AuthContext,

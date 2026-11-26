@@ -20,7 +20,7 @@ CREATE OR REPLACE FUNCTION chat_purge_expired(
 LANGUAGE plpgsql AS $$
 DECLARE
   v_ch RECORD; v_total INT := 0; v_ret INT;
-  v_n INT; v_from BIGINT; v_to BIGINT; v_seq_max BIGINT; v_elems JSONB;
+  v_n INT; v_from BIGINT; v_to BIGINT; v_seq_max BIGINT; v_resync_seq BIGINT; v_elems JSONB;
   v_nodes BIGINT[];
   -- F4 (pipeline review fix): the scheduled_actions DELETE below had no
   -- RETURNING and no digest — a failed scheduled send is an A4b export class
@@ -202,8 +202,12 @@ BEGIN
       -- but skip it outright rather than write a no-op row).
       IF v_n > 0 THEN
         UPDATE chat_channels
-           SET last_purged_seq = GREATEST(last_purged_seq, v_seq_max)
-         WHERE id = v_ch.id;
+           SET last_purged_seq = GREATEST(last_purged_seq, v_seq_max),
+               change_seq      = change_seq + 1
+         WHERE id = v_ch.id
+         RETURNING change_seq INTO v_resync_seq;
+        PERFORM append_chat_change(v_ch.id, v_resync_seq, NULL, 'resync');
+        PERFORM public.emit_wakeup_bell('sync', 'channel:' || v_ch.id || ':' || v_resync_seq);
       END IF;
 
       -- Proof of disposition, not just a count (gate 3, rewritten per verify N1/N2).

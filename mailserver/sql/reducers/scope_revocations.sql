@@ -392,34 +392,52 @@ BEGIN
 END $$;
 
 -- Worker-only retention pruner for public.scope_revocations.
--- Clamps retention UP via GREATEST(p_retention_days, max_offline_days, 30)
--- so offline sync windows are never undercut.
+-- Clamps retention UP via effective_journal_retention_days(GREATEST(COALESCE(p_retention_days, 90), 90))
+-- so tombstone retention is NEVER shorter than Drive's 90-day floor or any
+-- configured offline window, and atomically advances public.sync_tombstone_floor
+-- whenever expired rows are deleted.
 CREATE OR REPLACE FUNCTION prune_scope_revocations(
-    p_retention_days INT DEFAULT 30
+    p_retention_days INT DEFAULT 90
 ) RETURNS BIGINT
 LANGUAGE plpgsql VOLATILE SECURITY INVOKER
 SET search_path = pg_catalog, public
 AS $$
 DECLARE
-    v_offline_days INT;
-    v_retain_days  INT;
-    v_deleted      BIGINT := 0;
+    v_retain_days INT;
+    v_cutoff      TIMESTAMPTZ;
+    v_deleted     BIGINT := 0;
+    v_max_id      BIGINT;
 BEGIN
     PERFORM public.work_queue_require_worker();
 
-    SELECT COALESCE(MAX(max_offline_days), 30)
-      INTO v_offline_days
-      FROM public.offline_policies
-     WHERE enabled;
-
-    v_retain_days := GREATEST(COALESCE(p_retention_days, 30), COALESCE(v_offline_days, 30), 30);
+    v_retain_days := public.effective_journal_retention_days(
+        GREATEST(COALESCE(p_retention_days, 90), 90)
+    );
+    v_cutoff := now() - make_interval(days => v_retain_days);
 
     WITH del AS (
         DELETE FROM public.scope_revocations
-         WHERE occurred_at < now() - make_interval(days => v_retain_days)
-        RETURNING 1
+         WHERE occurred_at < v_cutoff
+        RETURNING id
     )
-    SELECT count(*) INTO v_deleted FROM del;
+    SELECT count(*), MAX(id) INTO v_deleted, v_max_id FROM del;
+
+    IF v_deleted > 0 THEN
+        INSERT INTO public.sync_tombstone_floor (
+            id, pruned_before_at, pruned_before_revocation_id, updated_at
+        )
+        VALUES (1, v_cutoff, COALESCE(v_max_id, 0), now())
+        ON CONFLICT (id) DO UPDATE
+           SET pruned_before_at = GREATEST(
+                   public.sync_tombstone_floor.pruned_before_at,
+                   EXCLUDED.pruned_before_at
+               ),
+               pruned_before_revocation_id = GREATEST(
+                   public.sync_tombstone_floor.pruned_before_revocation_id,
+                   EXCLUDED.pruned_before_revocation_id
+               ),
+               updated_at = now();
+    END IF;
 
     RETURN v_deleted;
 END;
@@ -428,6 +446,9 @@ $$;
 DO $$
 BEGIN
     REVOKE ALL ON FUNCTION public.prune_scope_revocations(integer) FROM PUBLIC;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_app') THEN
+        REVOKE ALL ON FUNCTION public.prune_scope_revocations(integer) FROM setjoin_app;
+    END IF;
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'setjoin_worker') THEN
         GRANT EXECUTE ON FUNCTION public.prune_scope_revocations(integer) TO setjoin_worker;
     END IF;

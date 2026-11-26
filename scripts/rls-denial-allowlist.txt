@@ -257,3 +257,7 @@ worker_schedules	COVERED	worker_schedules.pg	setjoin_app direct SELECT on worker
 
 # ── V288 durable scope_revocations journal (Wave 2.5, #552). ────────────────
 scope_revocations	COVERED	scope_revocations.pg	setjoin_app direct SELECT on scope_revocations is denied	V288: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT/DELETE fail with 42501 and spoofed emit_scope_revoked raises 42501.
+
+# ── V289 chat_changes monotonic journal & sync_tombstone_floor (Wave 2.6, #553). ──
+chat_changes	COVERED	chat_changes_retention.pg	non-member sees zero chat_changes rows under FORCE RLS	V289: member-scoped chat_member_role FORCE RLS (SELECT+INSERT only, fail-closed on unset GUC); SET LOCAL ROLE setjoin_app proves non-member SELECT 0-count, foreign INSERT 42501, and UPDATE/DELETE denied.
+sync_tombstone_floor	COVERED	chat_changes_retention.pg	setjoin_app direct SELECT on sync_tombstone_floor is denied	V289: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/UPDATE fail with 42501 while sync_tombstone_floor_at() reads the scalar floor.

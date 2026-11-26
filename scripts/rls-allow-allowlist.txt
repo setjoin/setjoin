@@ -137,3 +137,6 @@ webauthn_login_replays	PENDING	-	-	V277: rust_identity_webauthn_login_claim.pg t
 oidc_link_completions	PENDING	-	-	V282: worker-only policy (USING/WITH CHECK current_user='setjoin_worker', REVOKE ALL FROM setjoin_app); written only by SECURITY DEFINER worker-owned reducers (rust_identity_rp_link_hold/take), no setjoin_app direct write exists.
 saml_assertion_replay	PENDING	-	-	V281: worker-only policy (USING/WITH CHECK current_user='setjoin_worker', REVOKE ALL FROM setjoin_app); written only by SECURITY DEFINER worker-owned reducer (rust_identity_saml_consume), no setjoin_app direct write exists.
 saml_link_completions	PENDING	-	-	V281: worker-only policy (USING/WITH CHECK current_user='setjoin_worker', REVOKE ALL FROM setjoin_app); written only by SECURITY DEFINER worker-owned reducers (rust_identity_saml_link_hold/take), no setjoin_app direct write exists.
+
+# ── V289 chat_changes monotonic journal (Wave 2.6, #553). ───────────────────
+chat_changes	COVERED	chat_changes_retention.pg	member chat_message_send writes and reads back chat_changes row as setjoin_app (ALLOW)	V289: chat_message_send() appends a chat_changes row as setjoin_app under the member GUC and reads it back under FORCE RLS.

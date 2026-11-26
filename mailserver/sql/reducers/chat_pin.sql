@@ -86,6 +86,10 @@ BEGIN
           VALUES (v_channel_id, p_message_id, p_user_id);
         v_pinned := true;
     END IF;
+    PERFORM append_chat_change(
+        v_channel_id, v_seq, p_message_id,
+        CASE WHEN v_pinned THEN 'pinned' ELSE 'unpinned' END
+    );
     -- A4a Task 3: chained ACT (pin.add / pin.remove), inert while
     -- feature.chat_compliance is OFF.
     IF COALESCE((SELECT enabled FROM feature_toggles

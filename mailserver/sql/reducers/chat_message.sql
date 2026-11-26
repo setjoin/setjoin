@@ -381,6 +381,7 @@ BEGIN
     INSERT INTO chat_messages (channel_id, seq, author_id, parent_message_id, body, broadcast, msg_type, payload)
       VALUES (p_channel_id, v_seq, p_user_id, p_parent_id, COALESCE(p_body, ''), p_broadcast, v_msg_type, v_payload)
       RETURNING id INTO v_id;
+    PERFORM append_chat_change(p_channel_id, v_seq, v_id, 'created');
 
     -- C1 Task 2 / C2 Task 3: the outbound federation enqueue, SAME
     -- transaction as the local write above — a rollback of this call
@@ -612,6 +613,7 @@ BEGIN
         RAISE EXCEPTION 'only the author may edit this message'
             USING ERRCODE='BZ167', HINT='{"type":"forbidden"}';
     END IF;
+    PERFORM append_chat_change(v_channel_id, v_seq, p_message_id, 'updated');
     -- A4a Task 3: chained ACT, never message content — the prior body is
     -- already evidenced by the chat_message_revisions insert above; the chain
     -- row just proves an edit act happened, at what seq, by whom. Inert
@@ -691,6 +693,7 @@ BEGIN
         RAISE EXCEPTION 'author or channel owner/admin required'
             USING ERRCODE='BZ167', HINT='{"type":"forbidden"}';
     END IF;
+    PERFORM append_chat_change(v_channel_id, v_seq, p_message_id, 'destroyed');
     -- Review blocker fix (chat_pin.sql Task 3): soft-delete closes any pin,
     -- mirroring the poll-anchor-soft-delete posture (chat_poll.sql, Task 9)
     -- — a pin on a message nobody can see is dead weight, not a curation

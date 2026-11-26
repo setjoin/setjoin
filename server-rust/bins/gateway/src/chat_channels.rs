@@ -28,6 +28,7 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 "/api/chat/channels/{id}/readers",
                 "/api/chat/channels/{id}/messages",
                 "/api/chat/channels/{id}/messages/since",
+                "/api/chat/channels/{id}/changes",
                 "/api/chat/channels/{id}/federation",
             ]
             .iter()
@@ -1055,7 +1056,10 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                 r.uri().path(),
             )
             .is_some();
-            let channel = if roster || search || pins || readers || messages || since {
+            let changes =
+                crate::inventory::path_score("/api/chat/channels/{id}/changes", r.uri().path())
+                    .is_some();
+            let channel = if roster || search || pins || readers || messages || since || changes {
                 match r.uri().path().split('/').nth(4).and_then(|s| {
                     String::from_utf8_lossy(&crate::inventory::unescape(s))
                         .parse::<i64>()
@@ -1105,8 +1109,35 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
             } else {
                 None
             };
+            let (changes_since, changes_limit) = if changes {
+                let parsed_since = match strict_query_int(&r, "since") {
+                    Ok(Some(v)) if v >= 0 => v,
+                    Ok(None) => 0,
+                    _ => return problem(400, "invalid since", &path, &c, id, &language),
+                };
+                let parsed_limit = match strict_query_int(&r, "limit") {
+                    Ok(Some(v)) if v > 0 => match i32::try_from(v) {
+                        Ok(n) => Some(n),
+                        Err(_) => return problem(400, "invalid limit", &path, &c, id, &language),
+                    },
+                    Ok(None) => None,
+                    _ => return problem(400, "invalid limit", &path, &c, id, &language),
+                };
+                (parsed_since, parsed_limit)
+            } else {
+                (0, None)
+            };
             let mut cursor = None;
-            let result = if since {
+            let result = if changes {
+                setjoin_chat::channels::changes(
+                    &exec,
+                    auth.context(),
+                    channel,
+                    changes_since,
+                    changes_limit,
+                )
+                .await
+            } else if since {
                 setjoin_chat::channels::since(&exec, auth.context(), channel, seq)
                     .await
                     .map(|(body, seq)| {
@@ -1160,6 +1191,15 @@ impl<K: KeySource + 'static> Intercept for ChannelRoute<K> {
                         }
                         None => problem(500, "request failed", &path, &c, id, &language),
                     }
+                }
+                Err(error) if changes && error.sqlstate.as_deref() == Some("BZ011") => {
+                    let mut response = crate::jmap::reply::response(
+                        "{\"type\":\"cannotCalculateChanges\"}\n".to_owned(),
+                        c.identity.proto,
+                        id,
+                    );
+                    *response.status_mut() = hyper::StatusCode::CONFLICT;
+                    response
                 }
                 Err(error) => failure(&error, &path, &c, id, &language),
             }
@@ -1226,6 +1266,73 @@ fn optional_int(r: &Request<Body>, key: &str) -> Result<Option<i64>, ()> {
         .filter(|s| !s.is_empty())
         .map(|s| s.parse::<i64>().map_err(|_| ()))
         .transpose()
+}
+
+fn decode_query_component_strict(raw: &str) -> Result<String, ()> {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' => {
+                let hi = bytes.get(i + 1).copied().ok_or(())?;
+                let lo = bytes.get(i + 2).copied().ok_or(())?;
+                let hex = |b: u8| -> Result<u8, ()> {
+                    match b {
+                        b'0'..=b'9' => Ok(b - b'0'),
+                        b'a'..=b'f' => Ok(b - b'a' + 10),
+                        b'A'..=b'F' => Ok(b - b'A' + 10),
+                        _ => Err(()),
+                    }
+                };
+                out.push((hex(hi)? << 4) | hex(lo)?);
+                i += 3;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).map_err(|_| ())
+}
+
+fn strict_query_int(r: &Request<Body>, key: &str) -> Result<Option<i64>, ()> {
+    let Some(query) = r.uri().query() else {
+        return Ok(None);
+    };
+    if query.is_empty() {
+        return Ok(None);
+    }
+    let mut found = None;
+    for pair in query.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (raw_k, raw_v) = match pair.split_once('=') {
+            Some((k, v)) => (k, Some(v)),
+            None => (pair, None),
+        };
+        let decoded_k = decode_query_component_strict(raw_k)?;
+        if decoded_k != key {
+            continue;
+        }
+        if found.is_some() {
+            return Err(());
+        }
+        let raw_v = raw_v.ok_or(())?;
+        let decoded_v = decode_query_component_strict(raw_v)?;
+        if decoded_v.is_empty() {
+            return Err(());
+        }
+        let parsed = decoded_v.parse::<i64>().map_err(|_| ())?;
+        found = Some(parsed);
+    }
+    Ok(found)
 }
 
 pub(crate) fn problem(

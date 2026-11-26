@@ -473,24 +473,24 @@ SELECT is(
   'mailbox_lifecycle_effect_apply(revoke_delegates) commits per-delegate revocation row'
 );
 
--- ── 10. prune_scope_revocations clamps UP to MAX(offline_policies) ───────
+-- ── 10. prune_scope_revocations clamps UP to MAX(offline_policies, 90d Drive floor) ──
 INSERT INTO offline_policies (name, scope_type, enabled, max_offline_days)
-VALUES ('sr-60d-window', 'global', TRUE, 60);
+VALUES ('sr-120d-window', 'global', TRUE, 120);
 INSERT INTO public.scope_revocations (occurred_at, user_id, scope_kind, scope_id, reason)
 VALUES
-  (now() - interval '45 days', :delegate_uid, 'mailbox', :owner_mb, 'sr_keep_45d'),
-  (now() - interval '75 days', :delegate_uid, 'mailbox', :owner_mb, 'sr_prune_75d');
+  (now() - interval '105 days', :delegate_uid, 'mailbox', :owner_mb, 'sr_keep_105d'),
+  (now() - interval '135 days', :delegate_uid, 'mailbox', :owner_mb, 'sr_prune_135d');
 
 SELECT prune_scope_revocations(7) AS pruned_cnt \gset
 SELECT is(
-  (SELECT count(*)::int FROM public.scope_revocations WHERE reason = 'sr_keep_45d'),
+  (SELECT count(*)::int FROM public.scope_revocations WHERE reason = 'sr_keep_105d'),
   1,
-  'prune_scope_revocations clamps retention UP to max_offline_days (45d row preserved under 60d policy)'
+  'prune_scope_revocations clamps retention UP to max_offline_days (105d row preserved under 120d policy)'
 );
 SELECT is(
-  (SELECT count(*)::int FROM public.scope_revocations WHERE reason = 'sr_prune_75d'),
+  (SELECT count(*)::int FROM public.scope_revocations WHERE reason = 'sr_prune_135d'),
   0,
-  'prune_scope_revocations deletes rows older than clamped retention window (75d row pruned)'
+  'prune_scope_revocations deletes rows older than clamped retention window (135d row pruned)'
 );
 
 SELECT * FROM finish();

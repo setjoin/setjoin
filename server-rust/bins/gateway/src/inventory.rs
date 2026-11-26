@@ -224,6 +224,23 @@ impl Inventory {
         } else {
             method
         };
+        // #553 (Wave 2.6): Rust serves GET/HEAD /api/chat/channels/{id}/changes
+        // through ChannelRoute alongside GET /chat/channels/{id}/messages/since;
+        // keep the frozen Go census in route-inventory.json untouched while
+        // routing the delta-journal endpoint to the same F12 owner.
+        let path_alias;
+        let path = if matches!(*method, Method::GET | Method::HEAD)
+            && path_score("/api/chat/channels/{id}/changes", path).is_some()
+        {
+            if let Some(prefix) = path.strip_suffix("/changes") {
+                path_alias = format!("{prefix}/messages/since");
+                path_alias.as_str()
+            } else {
+                path
+            }
+        } else {
+            path
+        };
         self.0
             .iter()
             .filter_map(|route| {

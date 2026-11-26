@@ -49,22 +49,22 @@ Engines: polardb = PolarDB for PostgreSQL · opengauss = openGauss · gaussdb = 
 
 Counting unit: the function NAME. Live universe extracted from `mailserver/sql/reducers/*.sql`:
 
-- Reducer files: 799 · declarations: 1208 · unique names: 1205
+- Reducer files: 800 · declarations: 1214 · unique names: 1211
 - Represented in `compatibility_matrix.csv`: 106 names (106 rows) — representation is not attestation
 - Names with any evidence-bearing cell (attested anywhere): 0
-- Canonical complement (no CSV row): 1099 → `unattested_functions.csv`
+- Canonical complement (no CSV row): 1105 → `unattested_functions.csv`
 
-Per-engine attestation against the full 1205-name universe (a name is attested-for-engine iff its cell is non-`untested`):
+Per-engine attestation against the full 1211-name universe (a name is attested-for-engine iff its cell is non-`untested`):
 
 | Engine | Attested | Not attested |
 |---|---|---|
-| polardb | 0 | 1205 |
-| opengauss | 0 | 1205 |
-| gaussdb | 0 | 1205 |
-| kingbase | 0 | 1205 |
-| dameng | 0 | 1205 |
-| oceanbase_pg | 0 | 1205 |
-| oceanbase_oracle | 0 | 1205 |
+| polardb | 0 | 1211 |
+| opengauss | 0 | 1211 |
+| gaussdb | 0 | 1211 |
+| kingbase | 0 | 1211 |
+| dameng | 0 | 1211 |
+| oceanbase_pg | 0 | 1211 |
+| oceanbase_oracle | 0 | 1211 |
 
 `uses_digest` is SOURCE-DERIVED USAGE — a non-comment `digest(` call exists in the defining file (73 files / 142 call sites repo-wide). It is never a parity attestation; pgcrypto parity is attested (or not) per engine via `pgcrypto_digest_parity` above. Covered rows with `uses_digest`: 17 of 106.
 
@@ -115,7 +115,7 @@ The reducers below are the certification critical path for the primary combinati
 | ca | 25 |
 | caldav | 1 |
 | calendar | 15 |
-| chat | 67 |
+| chat | 72 |
 | check | 2 |
 | cjk | 1 |
 | classify | 1 |
@@ -127,7 +127,7 @@ The reducers below are the certification critical path for the primary combinati
 | device | 2 |
 | directory | 11 |
 | dlp | 1 |
-| drive | 138 |
+| drive | 139 |
 | effective | 1 |
 | email | 8 |
 | entity | 2 |
@@ -201,7 +201,7 @@ The reducers below are the certification critical path for the primary combinati
 | webhook | 10 |
 | work | 21 |
 | worker | 5 |
-| Total | 1099 across 102 families |
+| Total | 1105 across 102 families |
 
 <!-- END GENERATED -->
 

@@ -1148,4 +1148,15 @@ Workers use the established worker credential; these wrappers add no grants.
 | Function | File | Contract | Authority | Effects |
 |---|---|---|---|---|
 | `emit_scope_revoked` | scope_revocations.sql | Worker-owned `SECURITY DEFINER` (`SET search_path = pg_catalog, public`, `REVOKE ALL FROM PUBLIC`) journal emitter verifying authoritative post-revocation state (`42501` on spoofed live access) before recording into `public.scope_revocations` and enqueuing opaque `'scope_revoked'` pointer bell | `setjoin_app` / `setjoin_worker` | `scope_revocations` row + `notify_intents` `'scope_revoked'` pointer bell |
-| `prune_scope_revocations` | scope_revocations.sql | Worker-only (`work_queue_require_worker`) retention sweep clamping retention UP via `GREATEST(p_retention_days, max_offline_days, 30)` | `setjoin_worker` (`BZ003` otherwise) | deletes expired `scope_revocations` rows |
+| `prune_scope_revocations` | scope_revocations.sql | Worker-only (`work_queue_require_worker`) retention sweep clamping retention UP via `effective_journal_retention_days(GREATEST(COALESCE(p_retention_days, 90), 90))` (`>=` Drive's 90-day floor) and atomically advancing `public.sync_tombstone_floor` on deletion | `setjoin_worker` (`BZ003` otherwise) | deletes expired `scope_revocations` rows + advances `sync_tombstone_floor` |
+
+### Chat Monotonic Journal & Uniform Retention Floor (Wave 2.6, #553, V289)
+
+| Function | File | Contract | Authority | Effects |
+|---|---|---|---|---|
+| `effective_journal_retention_days` | chat_changes.sql | Worker-owned `SECURITY DEFINER` (`SET search_path = pg_catalog, public`) scalar helper returning `GREATEST(p_requested_days, MAX(offline_policies.max_offline_days WHERE enabled), 30)` | `setjoin_app` / `setjoin_worker` | none |
+| `sync_tombstone_floor_at` | chat_changes.sql | Worker-owned `SECURITY DEFINER` (`SET search_path = pg_catalog, public`) scalar reader returning `public.sync_tombstone_floor.pruned_before_at` (default `'-infinity'`) | `setjoin_app` / `setjoin_worker` | none |
+| `append_chat_change` | chat_changes.sql | Appends one monotonic `(channel_id, change_seq, message_id, op)` row (`'created'\|'updated'\|'destroyed'\|'pinned'\|'unpinned'\|'resync'`) into `public.chat_changes` in the same txn as `chat_channels.change_seq` bump | `SECURITY INVOKER` (RLS member or worker) | inserts `chat_changes` row |
+| `chat_changes_since` | chat_changes.sql | Member-scoped (`BZ163`, GUC-bound, `GUEST_HISTORY_FLOOR`, detached parents) delta reader over `public.chat_changes`; raises `BZ011` on negative/future/pruned cursor or `'resync'` sentinel; reports `tombstoneFloorExceeded` | `setjoin_app` | none |
+| `prune_chat_changes` | chat_changes.sql | Worker-only (`work_queue_require_worker`) retention sweep using `effective_journal_retention_days()` + per-channel `p_high_water` cap (`dense_rank`) | `setjoin_worker` (`BZ003` otherwise) | deletes expired/over-cap `chat_changes` rows |
+| `prune_drive_changes` | drive_maintenance_sweep.sql | Worker-only (`work_queue_require_worker`) retention sweep over `drive_changes` using `effective_journal_retention_days(COALESCE(p_max_window_days, 90))` + per-space `p_high_water` cap | `setjoin_worker` (`BZ003` otherwise) | deletes expired/over-cap `drive_changes` rows |

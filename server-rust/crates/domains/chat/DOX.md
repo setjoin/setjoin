@@ -241,3 +241,13 @@ User adapters accept live guest proofs after the front door's program/route belt
 transactions preserve their real mailbox. Reducer membership and guest door denials
 remain authoritative. Conversation `attachmentsEnabled` is always false for guests,
 as in frozen Go. The shared guest-domain corpus covers read and denied-create bytes.
+
+## Monotonic `chat_changes` delta endpoint (#553)
+
+`src/channels.rs::changes` reads `chat_changes_since($1,$2,$3,$4)` inside a scoped
+`READ ONLY` transaction under the verified actor (`app.current_user_id`), and
+`bins/gateway/src/chat_channels.rs` exposes `GET /api/chat/channels/{id}/changes?since=<seq>&limit=<n>`
+(aliased to `GET /chat/channels/{id}/messages/since` in `inventory.rs` so the frozen Go
+route census stays untouched while leaving `/messages/since` unchanged). SQLSTATE `BZ011`
+(pruned cursor, future cursor, or compliance purge `'resync'` sentinel) maps to HTTP `409 Conflict`
+with `{"type":"cannotCalculateChanges"}`; `BZ163` maps to HTTP `403`. Tests: `tests/chat_changes_retention.rs`.

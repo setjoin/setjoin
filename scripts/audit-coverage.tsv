@@ -1203,3 +1203,9 @@ worker_schedules.sql	worker_schedule_register	EXEMPT	-	periodic schedule catalog
 worker_schedules.sql	worker_schedule_release	EXEMPT	-	fenced graceful shutdown schedule lease handoff; operational transport
 scope_revocations.sql	emit_scope_revoked	EXEMPT	-	durable scope-revocation notification journal emitter called inside audited authority-revoking reducers; operational transport
 scope_revocations.sql	prune_scope_revocations	EXEMPT	-	worker-only retention pruner for scope_revocations; operational maintenance
+chat_changes.sql	append_chat_change	EXEMPT	-	transactional per-channel sync change journal append helper; callers own business audit
+chat_changes.sql	chat_changes_since	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_changes.sql	effective_journal_retention_days	READ_ONLY	-	pure read path (guard re-derives no DML)
+chat_changes.sql	prune_chat_changes	EXEMPT	-	worker-only retention pruner for chat_changes; operational maintenance
+chat_changes.sql	sync_tombstone_floor_at	READ_ONLY	-	pure read path (guard re-derives no DML)
+drive_maintenance_sweep.sql	prune_drive_changes	EXEMPT	-	worker-only retention pruner for drive_changes; operational maintenance
