@@ -409,7 +409,7 @@ pub(crate) async fn serve(
                     exec,
                     actor,
                     "upgrade_challenge_complete",
-                    "SELECT upgrade_challenge_complete($4::bigint,$5::text::uuid,$6::bytea,$7::bytea,$8::text[],$9::text)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+                    "SELECT upgrade_challenge_complete($4::bigint,$5::text::uuid,$6::bytea,$7::bytea,$8::text[],$9::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
                     &params,
                     operation
                 ),
@@ -485,7 +485,7 @@ pub(crate) async fn serve(
                         exec,
                         actor,
                         "upgrade_challenge_issue",
-                        "SELECT upgrade_challenge_issue($4::bigint,$5::text,$6::text,CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'epoch'::timestamptz+$7::bigint*interval '1 microsecond' END,$8::text,$9::text::uuid)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+                        "SELECT upgrade_challenge_issue($4::bigint,$5::text,$6::text,CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'epoch'::timestamptz+$7::bigint*interval '1 microsecond' END,$8::text,$9::text::uuid)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
                         &params,
                         operation
                     ),
@@ -506,7 +506,7 @@ pub(crate) async fn serve(
                         exec,
                         actor,
                         "upgrade_intent_request",
-                        "SELECT upgrade_intent_request($4::bigint,$5::text,$6::text,CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'epoch'::timestamptz+$7::bigint*interval '1 microsecond' END,$8::text,$9::text::uuid,$10::text::uuid)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+                        "SELECT upgrade_intent_request($4::bigint,$5::text,$6::text,CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'epoch'::timestamptz+$7::bigint*interval '1 microsecond' END,$8::text,$9::text::uuid,$10::text::uuid)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
                         &params,
                         operation
                     ),
@@ -538,7 +538,7 @@ pub(crate) async fn serve(
                     exec,
                     actor,
                     "upgrade_intent_cancel",
-                    "SELECT upgrade_intent_cancel($4::bigint,$5::bigint,$6::bigint,$7::text)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+                    "SELECT upgrade_intent_cancel($4::bigint,$5::bigint,$6::bigint,$7::text)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
                     &params,
                     operation
                 ),
@@ -595,7 +595,7 @@ pub(crate) async fn serve(
                     exec,
                     actor,
                     "upgrade_recovery_set_record",
-                    "SELECT upgrade_recovery_set_record($4::bigint,$5::text::uuid,$6::text::uuid,$7::text,$8::int,$9::text,$10::text::jsonb,'epoch'::timestamptz+$11::bigint*interval '1 microsecond','epoch'::timestamptz+$12::bigint*interval '1 microsecond')::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+                    "SELECT upgrade_recovery_set_record($4::bigint,$5::text::uuid,$6::text::uuid,$7::text,$8::int,$9::text,$10::text::jsonb,'epoch'::timestamptz+$11::bigint*interval '1 microsecond','epoch'::timestamptz+$12::bigint*interval '1 microsecond')::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
                     &params,
                     operation
                 ),
@@ -629,7 +629,7 @@ pub(crate) async fn serve(
                     exec,
                     actor,
                     "upgrade_restore_proof_record",
-                    "SELECT upgrade_restore_proof_record($4::bigint,$5::text::uuid,$6::text::uuid,$7::text,$8::text::jsonb,'epoch'::timestamptz+$9::bigint*interval '1 microsecond')::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+                    "SELECT upgrade_restore_proof_record($4::bigint,$5::text::uuid,$6::text::uuid,$7::text,$8::text::jsonb,'epoch'::timestamptz+$9::bigint*interval '1 microsecond')::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
                     &params,
                     operation
                 ),

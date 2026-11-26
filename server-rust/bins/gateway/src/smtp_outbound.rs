@@ -20,11 +20,6 @@ pub async fn from_environment() -> Result<Option<setjoin_smtp::outbound::Outboun
     if !listed("RUST_WORKERS_ON") {
         return Ok(None);
     }
-    if !listed("GO_WORKERS_OFF") {
-        return Err(
-            "outbound-mail requires GO_WORKERS_OFF=outbound-mail before Rust starts it".into(),
-        );
-    }
     let request = std::env::var("DB_DSN")
         .ok()
         .filter(|s| !s.is_empty())

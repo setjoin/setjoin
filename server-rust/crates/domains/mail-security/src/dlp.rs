@@ -139,7 +139,7 @@ pub async fn patterns_put(
         &auth,
         deadline(),
         "SELECT rust_mailsec_dlp_patterns_replace($4::text[],$5::boolean[],$6::text[],$7::text[]) \
-         WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[
             (&names, Type::TEXT_ARRAY),
             (&enabled, Type::BOOL_ARRAY),
@@ -266,7 +266,7 @@ pub async fn antiphish_put(
         deadline(),
         "INSERT INTO system_config (key, value, description) \
          SELECT t.k, t.v::jsonb, 'anti-phish config' FROM unnest($4::text[], $5::text[]) AS t(k, v) \
-         WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' \
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' \
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now() RETURNING true",
         &[(&keys, Type::TEXT_ARRAY), (&values, Type::TEXT_ARRAY)],
         |rows| {

@@ -13,7 +13,7 @@ pub mod carddav;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
     CommandOutcome, MailboxAuthContext, ReceiptCommand, Row, ScopedExecutor, StatementFailure, Type,
@@ -24,11 +24,7 @@ use sha2::{Digest as _, Sha256};
 pub const MAX_SUBSCRIPTIONS_PER_USER: i64 = 25;
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified user"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 
 fn invalid() -> StatementFailure {
@@ -429,7 +425,7 @@ pub async fn unsubscribe(
         &envelope(&auth, operation, &id.to_string()),
         &auth,
         deadline(),
-        "SELECT CASE WHEN $1::bigint > 0 AND $3::text <> '' \
+        "SELECT CASE WHEN $1::bigint >= 0 AND $3::text <> '' \
            THEN rust_calendar_unsubscribe($1, $2, $4) ELSE 0::bigint END",
         &[(&id, Type::INT8)],
         |rows| match rows {

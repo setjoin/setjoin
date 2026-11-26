@@ -839,12 +839,11 @@ fn fake_refresh(email: &str) -> String {
     )
 }
 
-fn rust_config(db: &Db, preset: Preset, upstream: Option<String>) -> Result<Config, Err> {
+fn rust_config(db: &Db, preset: Preset, _upstream: Option<String>) -> Result<Config, Err> {
     let secret = fixture_secret();
     let mut cfg = Config::for_secret(secret.clone());
     cfg.signing_alg = "ES256".into();
     cfg.dsn = db.dsn.clone();
-    cfg.go_upstream = upstream;
     let env = preset.env();
     let lookup = |name: &str, _: &str| {
         env.iter()

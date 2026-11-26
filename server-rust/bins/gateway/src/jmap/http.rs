@@ -3,7 +3,7 @@ use super::{reply, token::KeySource, JmapCommands};
 use crate::{Body, RequestContext};
 use hyper::{Method, Request, Response};
 use serde_json::{json, Value};
-use setjoin_contracts::ids::{ActorId, Generation, MailboxId};
+use setjoin_contracts::ids::ActorId;
 use setjoin_pg::MailboxAuthContext;
 
 pub fn matches(method: &Method, path: &str) -> bool {
@@ -50,17 +50,13 @@ impl<K: KeySource> JmapCommands<K> {
             return problem(500, "serverFail", "internal error", ctx, &id);
         };
         let actor = authorized.context();
-        if actor.mailbox_id() == 0 && req.uri().path() == "/.well-known/jmap" {
+        if actor.is_guest() && req.uri().path() == "/.well-known/jmap" {
             return guest_session(&self.exec, actor.user_id(), ctx, id).await;
         }
-        let (Ok(actor_id), Ok(mailbox_id)) = (
-            ActorId::new(actor.user_id()),
-            MailboxId::new(actor.mailbox_id()),
-        ) else {
+        if ActorId::new(actor.user_id()).is_err() {
             return problem(500, "serverFail", "internal error", ctx, &id);
-        };
-        let auth =
-            MailboxAuthContext::from_authenticated_session(actor_id, mailbox_id, Generation(1));
+        }
+        let auth = actor.database_scope();
         if req
             .uri()
             .path()
@@ -87,6 +83,17 @@ impl<K: KeySource> JmapCommands<K> {
                 .headers_mut()
                 .insert("cache-control", cache.parse().unwrap());
             return response;
+        }
+        if actor.mailbox_id() == 0 {
+            return crate::admission::problem(req.headers(), &ctx.identity, 500, "internal error");
+        }
+        if actor.mailbox_blocked() {
+            return crate::admission::problem(
+                req.headers(),
+                &ctx.identity,
+                403,
+                "mailbox access is suspended",
+            );
         }
         let s = setjoin_jmap::session::settings(&self.exec, &auth).await;
         let enabled = |key: &str| s.flags.get(key).copied().unwrap_or(false);

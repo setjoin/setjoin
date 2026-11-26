@@ -106,10 +106,6 @@ fi
 cargo deny --version >/dev/null 2>&1 || { echo "✗ lane: cargo-deny not installed" >&2; exit 1; }
 [[ -x "${PEBBLE_BIN:-}" ]] || { echo "✗ lane: PEBBLE_BIN is not an executable" >&2; exit 1; }
 docker image inspect setjoin-ci-linux-tc:local-amd64 >/dev/null 2>&1 || { echo "✗ lane: image setjoin-ci-linux-tc:local-amd64 missing" >&2; exit 1; }
-if [[ ! -f test-results/gofree-tlsfront/peer-receipt.json ]]; then
-  stamp "building the frozen Go TLS peer"
-  python3 server-rust/tests/conformance/tlsfront/build-peer.py >&2 || { echo "✗ lane: TLS peer build failed" >&2; exit 1; }
-fi
 
 # ── quick debug run ───────────────────────────────────────────────────────────────────
 if [[ "${LANE_QUICK:-}" == 1 ]]; then

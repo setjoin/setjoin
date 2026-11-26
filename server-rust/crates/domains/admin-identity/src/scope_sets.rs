@@ -211,7 +211,7 @@ pub async fn missing_reason(
         &auth,
         deadline(),
         "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,'scope_sets.manage','core') \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&ip, Type::TEXT)],
         _count,
     )
@@ -261,7 +261,7 @@ pub async fn create(
         &envelope(&auth, operation, &format!("{name}:{domain:?}:{description}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_scope_set_create($2,$4,$5,$6,$7) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_scope_set_create($2,$4,$5,$6,$7) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&name, Type::TEXT),
             (&domain, Type::INT8),
@@ -302,7 +302,7 @@ pub async fn update(
         &auth,
         deadline(),
         "SELECT json_build_object('status',CASE WHEN rust_admin_scope_set_update($2,$4,$5,$6,$7) THEN 204 ELSE 404 END,'detail','scope set not found')::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&id, Type::INT8),
             (&name, Type::TEXT),
@@ -328,7 +328,7 @@ pub async fn delete(
         &envelope(&auth, operation, &id.to_string()),
         &auth,
         deadline(),
-        "SELECT rust_admin_scope_set_delete($2,$4,$5)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_scope_set_delete($2,$4,$5)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&id, Type::INT8), (&ip, Type::TEXT)],
         |rows| verdict(rows, &[204]).map(|_| ()),
     )
@@ -352,7 +352,7 @@ pub async fn add_member(
         &envelope(&auth, operation, &format!("{set}:{member_type}:{member}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_scope_set_member_add($2,$4,$5,$6,$7)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_scope_set_member_add($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&set, Type::INT8),
             (&member_type, Type::TEXT),
@@ -380,7 +380,7 @@ pub async fn remove_member(
         &envelope(&auth, operation, &format!("{set}:{member_type}:{member}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_scope_set_member_remove($2,$4,$5,$6,$7)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_scope_set_member_remove($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&set, Type::INT8),
             (&member_type, Type::TEXT),

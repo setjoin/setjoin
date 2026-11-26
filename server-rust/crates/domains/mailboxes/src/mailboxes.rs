@@ -215,7 +215,7 @@ pub async fn create(
         "INSERT INTO mailboxes (user_id, domain_id, email, display_name, type, is_primary, quota_bytes) \
          SELECT u.id, u.domain_id, $5, $6, 'personal', FALSE, $7::bigint FROM users u \
          WHERE u.id = $4 AND ($8::bigint = 0 OR u.domain_id = $8) \
-         AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
+         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
         &[
             (&user, Type::INT8),
             (&email, Type::TEXT),
@@ -263,7 +263,7 @@ pub async fn update(
          litigation_hold = COALESCE($9::boolean, litigation_hold), deleted_purge_days = $10::integer, \
          spam_purge_days = $11::integer, updated_at = now() \
          WHERE id = $4 AND ($5::bigint = 0 OR domain_id = $5) \
-         AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM u",
+         AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING 1) SELECT count(*)::bigint FROM u",
         &[
             (&id, Type::INT8),
             (&domain_scope, Type::INT8),
@@ -309,7 +309,7 @@ pub async fn delete(
         &envelope(&auth, operation, &format!("{id}:{domain_scope}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_mailbox_delete($4,$5) WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_mailbox_delete($4,$5) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&id, Type::INT8), (&domain_scope, Type::INT8)],
         super::first_bool,
     )
@@ -351,7 +351,7 @@ pub async fn folder_create(
         &envelope(&auth, operation, &format!("{mailbox}:{parent:?}:{name}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_folder_create($4,$5,$6,$7)::text WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_folder_create($4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&mailbox, Type::INT8),
             (&domain_scope, Type::INT8),
@@ -383,7 +383,7 @@ pub async fn folder_update(
         &envelope(&auth, operation, &format!("{mailbox}:{folder}:{name}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_folder_update($4,$5,$6,$7)::text WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_folder_update($4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&mailbox, Type::INT8),
             (&domain_scope, Type::INT8),
@@ -410,7 +410,7 @@ pub async fn folder_delete(
         &envelope(&auth, operation, &format!("{mailbox}:{folder}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_folder_delete($4,$5,$6)::text WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_folder_delete($4,$5,$6)::text WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[
             (&mailbox, Type::INT8),
             (&domain_scope, Type::INT8),

@@ -286,7 +286,7 @@ pub async fn session_revoke(
         &envelope(&auth, operation, &format!("session.revoke:{id}")),
         &auth,
         deadline(),
-        "SELECT rust_session_revoke_one($2, $4) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_session_revoke_one($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&id, Type::TEXT)],
         |rows| match rows
             .first()
@@ -314,7 +314,7 @@ pub async fn sessions_revoke_all(
         &envelope(&auth, operation, "sessions.revoke_all"),
         &auth,
         deadline(),
-        "SELECT rust_sessions_revoke_all($2) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_sessions_revoke_all($2) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )
@@ -335,7 +335,7 @@ pub async fn secure_account(
         &envelope(&auth, operation, &format!("account.secure:{ip}")),
         &auth,
         deadline(),
-        "SELECT rust_secure_account_self($2, $4)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_secure_account_self($2, $4)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&ip, Type::TEXT)],
         |rows| rows.first().map(|_| ()).ok_or_else(invalid),
     )

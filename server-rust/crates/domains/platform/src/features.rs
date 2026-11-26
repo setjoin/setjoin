@@ -275,7 +275,7 @@ fn render_row(row: &Row, mode: &str, enforce: bool, overrides: &Overrides) -> St
 }
 
 /// Reducer statement shape: the verified-actor guard first, as every Platform command.
-const GUARD: &str = "WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''";
+const GUARD: &str = "WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''";
 
 fn one_jsonb(rows: &[setjoin_pg::Row]) -> Result<String, StatementFailure> {
     rows.first()

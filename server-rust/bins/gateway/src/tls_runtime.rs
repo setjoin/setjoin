@@ -10,15 +10,8 @@ fn listed(get: &dyn Fn(&str) -> Option<String>, key: &str, name: &str) -> bool {
         .split(',')
         .any(|part| part.trim() == name)
 }
-/// Shared-effect workers and whole listeners transfer only with the named Go copy off.
-pub fn guard(get: &dyn Fn(&str) -> Option<String>) -> Result<(), String> {
-    for name in [CERT_MONITOR, TICKET_KEYS, HTTP_TLS, HTTP_H2C] {
-        if listed(get, "RUST_WORKERS_ON", name) && !listed(get, "GO_WORKERS_OFF", name) {
-            return Err(format!(
-                "{name} requires GO_WORKERS_OFF={name} before Rust starts it"
-            ));
-        }
-    }
+/// Retained for caller compatibility; Go-free cutover (#359) no longer requires `GO_WORKERS_OFF`.
+pub fn guard(_get: &dyn Fn(&str) -> Option<String>) -> Result<(), String> {
     Ok(())
 }
 
@@ -218,11 +211,6 @@ pub fn guard_activation(
         return Err("http-tls requires the socket-activated descriptor named `https`".into());
     }
     if has_https {
-        if !listed(get, "GO_WORKERS_OFF", HTTP_H2C) {
-            return Err(
-                "the https listener requires GO_WORKERS_OFF=http-h2c as well as http-tls".into(),
-            );
-        }
         if matches!(get("GATEWAY_ENABLED").as_deref(), Some("false" | "0")) {
             return Err("the native https listener requires the Rust front door".into());
         }

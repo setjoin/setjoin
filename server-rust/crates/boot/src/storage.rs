@@ -11,10 +11,28 @@ pub(crate) struct Store {
 }
 impl Store {
     pub fn from_env() -> Result<Self, String> {
-        let configured = setting("S3_ENDPOINT", "MINIO_ENDPOINT", "127.0.0.1:9000");
-        let endpoint = configured.trim();
-        let secure = setting("S3_SECURE", "MINIO_SECURE", "false");
-        let secure = secure == "true" || secure == "1";
+        Self::from_lookup(|name| std::env::var(name).ok())
+    }
+
+    pub(crate) fn from_lookup<F>(lookup: F) -> Result<Self, String>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let get = |name: &str| lookup(name).filter(|s| !s.is_empty());
+        let mut endpoint = lookup("S3_ENDPOINT").unwrap_or_else(|| "127.0.0.1:9000".into());
+        if endpoint == "127.0.0.1:9000" {
+            if let Some(v) = get("MINIO_ENDPOINT") {
+                endpoint = v;
+            }
+        }
+        let endpoint = endpoint.trim();
+        let secure = if let Some(v) = get("MINIO_SECURE") {
+            parse_go_bool(&v).ok_or_else(|| "MINIO_SECURE must be a boolean".to_owned())?
+        } else if let Some(v) = get("S3_SECURE") {
+            parse_go_bool(&v).unwrap_or(false)
+        } else {
+            false
+        };
         // Go's blob.NewMinIOClient first resolves transport, then hands a
         // scheme-less host to MinIO. cfg.S3Secure is an explicit bool there.
         let lower = endpoint.to_ascii_lowercase();
@@ -57,8 +75,21 @@ impl Store {
             return Err("plaintext storage requires a loopback peer".into());
         }
         let endpoint = format!("{scheme}://{host}");
-        let access = setting("S3_ACCESS_KEY", "MINIO_ACCESS_KEY", "");
-        let secret = setting("S3_SECRET_KEY", "MINIO_SECRET_KEY", "");
+        let access = get("S3_ACCESS_KEY")
+            .or_else(|| get("MINIO_ACCESS_KEY"))
+            .unwrap_or_default();
+        let secret = get("S3_SECRET_KEY")
+            .or_else(|| get("MINIO_SECRET_KEY"))
+            .unwrap_or_default();
+        let mut bucket = lookup("S3_BUCKET").unwrap_or_else(|| "mailblobs".into());
+        if bucket == "mailblobs" {
+            if let Some(v) = get("MINIO_BUCKET") {
+                bucket = v;
+            }
+        }
+        if bucket.is_empty() {
+            return Err("object storage bucket is required".into());
+        }
         let creds = if access.is_empty() && secret.is_empty() {
             s3::creds::Credentials::anonymous()
         } else {
@@ -66,7 +97,7 @@ impl Store {
         }
         .map_err(|e| e.to_string())?;
         let bucket = s3::Bucket::new(
-            &setting("S3_BUCKET", "MINIO_BUCKET", "mailblobs"),
+            &bucket,
             s3::Region::Custom {
                 region: "us-east-1".into(),
                 endpoint: endpoint.clone(),
@@ -374,10 +405,47 @@ impl Store {
     }
 }
 
-fn setting(primary: &str, legacy: &str, default: &str) -> String {
-    std::env::var(primary)
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var(legacy).ok().filter(|s| !s.is_empty()))
-        .unwrap_or_else(|| default.into())
+fn parse_go_bool(v: &str) -> Option<bool> {
+    match v {
+        "true" | "True" | "TRUE" | "1" | "t" | "T" => Some(true),
+        "false" | "False" | "FALSE" | "0" | "f" | "F" => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Store;
+
+    #[test]
+    fn from_lookup_matches_go_minio_precedence() {
+        let lookup = |pairs: &[(&str, &str)]| {
+            let entries: Vec<(String, String)> =
+                pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect();
+            Store::from_lookup(move |k| {
+                entries.iter().find(|(name, _)| name == k).map(|(_, v)| v.clone())
+            })
+        };
+        let store = lookup(&[
+            ("S3_ENDPOINT", "127.0.0.1:9000"),
+            ("MINIO_ENDPOINT", "127.0.0.1:9100"),
+            ("S3_BUCKET", "mailblobs"),
+            ("MINIO_BUCKET", "custom-bucket"),
+            ("S3_SECURE", "bogus"),
+            ("MINIO_SECURE", "true"),
+        ])
+        .unwrap();
+        assert_eq!(store.bucket.name(), "custom-bucket");
+        assert_eq!(store.endpoint, "https://127.0.0.1:9100");
+
+        let err = lookup(&[("MINIO_SECURE", "maybe")]).err().unwrap();
+        assert!(err.contains("MINIO_SECURE"), "unexpected err: {err}");
+
+        assert!(lookup(&[("S3_ENDPOINT", ""), ("MINIO_ENDPOINT", "127.0.0.1:9100")]).is_err());
+        assert!(lookup(&[("S3_BUCKET", ""), ("MINIO_BUCKET", "custom-bucket")]).is_err());
+
+        let store = lookup(&[("S3_SECURE", " true ")]).unwrap();
+        assert_eq!(store.bucket.name(), "mailblobs");
+        assert_eq!(store.endpoint, "http://127.0.0.1:9000");
+    }
 }

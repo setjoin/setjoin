@@ -75,7 +75,7 @@ pub async fn audit(
     use setjoin_pg::{ReceiptCommand, Type};
     let auth = super::scope(actor);
     let _=setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:super::FAMILY,command:"chat.audit"},&super::envelope(&auth,operation,action),&auth,super::deadline(),
- "SELECT audit_write($2,$4,$5,$6,NULL,NULL,NULLIF($7,'')::inet,'','core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT audit_write($2,$4,$5,$6,NULL,NULL,NULLIF($7,'')::inet,'','core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&action,Type::TEXT),(&kind,Type::TEXT),(&target,Type::INT8),(&ip,Type::TEXT)],|_|Ok::<_,StatementFailure>(())).await;
 }
 pub async fn preview(exec: &ScopedExecutor) -> Result<String, StatementFailure> {
@@ -153,7 +153,7 @@ pub async fn policy(
     let signed = !actor.signed_admin();
     let data = data.to_string();
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:super::FAMILY,command:"chat.policy"},&super::envelope(&auth,operation,&serde_json::json!([action,id,data,confirm]).to_string()),&auth,super::deadline(),
- "SELECT rust_compliance_chat_policy($2,$4,$5,$6,$7::text::jsonb,$8,$9)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_chat_policy($2,$4,$5,$6,$7::text::jsonb,$8,$9)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&signed,Type::BOOL),(&action,Type::TEXT),(&id,Type::INT8),(&data,Type::TEXT),(&confirm,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).and_then(|raw|serde_json::from_str(&raw).ok()).ok_or_else(super::invalid)).await
 }
 
@@ -170,6 +170,6 @@ pub async fn command(
     let signed = !actor.signed_admin();
     let data = data.to_string();
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:super::FAMILY,command:"chat.oversight"},&super::envelope(&auth,operation,&serde_json::json!([action,data]).to_string()),&auth,super::deadline(),
- "SELECT rust_compliance_chat_command($2,$4,$5,$6::text::jsonb,$7)::text WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_chat_command($2,$4,$5,$6::text::jsonb,$7)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&signed,Type::BOOL),(&action,Type::TEXT),(&data,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get::<_,String>(0).ok()).and_then(|raw|serde_json::from_str(&raw).ok()).ok_or_else(super::invalid)).await
 }

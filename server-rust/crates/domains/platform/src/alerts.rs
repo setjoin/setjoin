@@ -111,7 +111,7 @@ pub async fn acknowledge(
         &auth,
         deadline(),
         "INSERT INTO health_alerts (check_name, suppressed, acknowledged_at) \
-         SELECT $4::text, true, now() WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         SELECT $4::text, true, now() WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          ON CONFLICT (check_name) DO UPDATE SET suppressed = true, acknowledged_at = now(), updated_at = now() \
          RETURNING check_name",
         &[(&check, Type::TEXT)],
@@ -135,7 +135,7 @@ pub async fn unsuppress(
         &auth,
         deadline(),
         "UPDATE health_alerts SET suppressed = false, updated_at = now() \
-         WHERE check_name = $4::text AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         WHERE check_name = $4::text AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          RETURNING check_name",
         &[(&check, Type::TEXT)],
         |rows| {
@@ -171,7 +171,7 @@ pub async fn set_config(
         deadline(),
         "INSERT INTO system_config (key, value, description) \
          SELECT e.key, e.value, 'Health check configuration' FROM jsonb_each($4::text::jsonb) e \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now() \
          RETURNING key",
         &[(&document, Type::TEXT)],

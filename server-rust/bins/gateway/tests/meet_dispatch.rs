@@ -161,6 +161,7 @@ async fn run(kill: bool, rollback: bool, livekit: bool, denied: bool) -> Result<
         if kill || rollback {
             command.env("GATEWAY_UPSTREAM", format!("http://{go}"));
         }
+        let rollback_file = dir.join(format!("gofree-meet1-rollback-{}.json", a.user));
         if rollback {
             let mut inventory: Value = serde_json::from_str(setjoin_gateway::inventory::BUNDLED)?;
             for row in inventory["routes"].as_array_mut().unwrap() {
@@ -169,9 +170,8 @@ async fn run(kill: bool, rollback: bool, livekit: bool, denied: bool) -> Result<
                     row["upstream"] = "go-mail".into();
                 }
             }
-            let file = dir.join(format!("gofree-meet1-rollback-{}.json", a.user));
-            std::fs::write(&file, inventory.to_string())?;
-            command.env("GATEWAY_ROUTE_INVENTORY", file);
+            std::fs::write(&rollback_file, inventory.to_string())?;
+            command.env("GATEWAY_ROUTE_INVENTORY", &rollback_file);
         }
         if let Ok(path) = std::env::var("LLVM_PROFILE_FILE") {
             command.env("LLVM_PROFILE_FILE", path);
@@ -184,6 +184,32 @@ async fn run(kill: bool, rollback: bool, livekit: bool, denied: bool) -> Result<
                 .spawn_boot()?,
         );
         ledger(&format!("Started gofree-meet1-gateway PID {}", child.0.id()))?;
+        if kill || rollback {
+            let mut exited = None;
+            for _ in 0..500 {
+                if let Some(status) = child.0.try_wait()? {
+                    exited = Some(status);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            if !exited.is_some_and(|s| !s.success()) {
+                return Err(format!(
+                    "gateway kill={kill} rollback={rollback} should have been rejected: {exited:?}"
+                )
+                .into());
+            }
+            let pid = child.0.id();
+            drop(child);
+            ledger(&format!("Stopped/reaped gofree-meet1-gateway PID {pid}"))?;
+            if rollback && rollback_file.exists() {
+                std::fs::remove_file(&rollback_file)?;
+            }
+            if hits.load(Ordering::SeqCst) != 0 {
+                return Err("unexpected Go request count".into());
+            }
+            return Ok::<_, BoxError>(());
+        }
         let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
         loop {
             if let Some(status) = child.0.try_wait()? {

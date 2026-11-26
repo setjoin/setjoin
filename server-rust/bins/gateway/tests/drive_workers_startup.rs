@@ -22,9 +22,9 @@ fn gateway(
         .stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("GATEWAY_ENABLED", "false"),
         ("DB_DSN", request_dsn),
         ("DB_WORKER_DSN", worker_dsn),
+        ("DB_DIRECT_DSN", worker_dsn),
         ("RUST_WORKERS_ON", rust_on),
         ("GO_WORKERS_OFF", go_off),
     ]
@@ -44,29 +44,21 @@ fn stop(child: &mut crate::common::boot::Child) {
 }
 
 #[tokio::test]
-async fn refuses_without_go_off() -> Result<(), BoxError> {
+async fn starts_without_go_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("drive-workers-startup") else {
         return Ok(());
     };
+    let s3 = [
+        ("S3_ENDPOINT", "http://127.0.0.1:1"),
+        ("S3_BUCKET", "mailblobs"),
+    ];
     for name in ["drive-maintenance", "drive-preview"] {
-        let other = if name == "drive-maintenance" {
-            "drive-preview"
-        } else {
-            "drive-maintenance"
-        };
-        for off in ["", other, "drive-watch", &format!("{name}-x")] {
-            let child = gateway(&db.dsn, &db.dsn, name, off, &[])?;
-            let out = tokio::task::spawn_blocking(move || child.wait_with_output()).await??;
-            let err = String::from_utf8_lossy(&out.stderr);
-            if out.status.success() || !err.contains(&format!("GO_WORKERS_OFF={name}")) {
-                return Err(format!(
-                    "{name}: expected refusal for {off:?}, got {:?}: {err}",
-                    out.status
-                )
-                .into());
-            }
-        }
-        println!("GOLDEN-REPLAY: worker {name} :: refuses-without-go-off");
+        let mut child = gateway(&db.dsn, &db.dsn, name, "", &s3)?;
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        let running = child.try_wait()?.is_none();
+        stop(&mut child);
+        assert!(running, "{name} must start without GO_WORKERS_OFF");
+        println!("GOLDEN-REPLAY: worker {name} :: starts-without-go-off");
     }
     Ok(())
 }

@@ -175,7 +175,7 @@ pub async fn record_unsubscribe(
         auth,
         deadline,
         "WITH audit AS (SELECT audit_write($2::bigint, 'unsubscribe_newsletter', 'message', $4::bigint, \
-             NULL, NULL, NULL, 'List-Unsubscribe POST', 'routine') WHERE $1::bigint > 0 AND $3::text <> ''), \
+             NULL, NULL, NULL, 'List-Unsubscribe POST', 'routine') WHERE $1::bigint >= 0 AND $3::text <> ''), \
          blocked AS (INSERT INTO user_sender_list (user_id, sender, list_type) \
              SELECT $2::bigint, $5::text, 'blocked' WHERE $5::text <> '' \
              ON CONFLICT (user_id, sender, list_type) DO NOTHING) \

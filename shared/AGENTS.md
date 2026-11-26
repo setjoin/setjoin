@@ -40,4 +40,4 @@ Owns reusable Go seams, not business authority or service protocols. No upward i
 - [Verification](DOX.md#verification)
 - [Child DOX Index](DOX.md#child-dox-index)
 
-Auth runtime feed recording: [oracle](DOX.md#auth-runtime-recording-420).
+Auth runtime feed recording: [oracle](DOX.md#auth-runtime-recording-202).

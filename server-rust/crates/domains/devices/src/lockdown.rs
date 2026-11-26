@@ -176,7 +176,7 @@ pub async fn transition(
     let auth = scope(actor);
     let sql = format!(
         "SELECT rust_device_enroll_transition($2::bigint, $4::bigint, $5::text, $6::text, {})::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         reach("(SELECT d.user_id FROM devices d WHERE d.id = $4::bigint)", "$2::bigint", "mam.write")
     );
     setjoin_pg::run_receipted_command(

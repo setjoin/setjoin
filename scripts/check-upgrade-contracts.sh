@@ -390,6 +390,8 @@ bash "$ROOT/mailserver/deploy/scripts/test-setjoin-lifecycle.sh" >/dev/null
 bash "$ROOT/mailserver/deploy/scripts/test-upgrade-rollback.sh" >/dev/null
 bash "$ROOT/mailserver/deploy/scripts/test-install-front-door.sh" >/dev/null
 bash "$ROOT/mailserver/deploy/scripts/test-imap-sockets.sh" >/dev/null
+bash "$ROOT/mailserver/deploy/scripts/test-tls-front-socket.sh" >/dev/null
+bash "$ROOT/mailserver/deploy/scripts/test-tls-front-upgrade.sh" >/dev/null
 for lifecycle_contract in \
   'install -o root -g root -m 0755' \
   '/usr/local/sbin/setjoinctl restart'; do
@@ -422,8 +424,14 @@ check_rehearsal_u8_eligibility || true
 grep -Fq 'ExecStart={{RUNTIME_DIR}}/mailserverd' "$ROOT/mailserver/deploy/mailserver.service.template" || {
   echo "[upgrade-contract] gateway unit does not execute immutable current" >&2; exit 1;
 }
-grep -Fq 'ExecStart={{RUNTIME_DIR}}/authserverd' "$ROOT/mailserver/deploy/authserver.service.template" || {
-  echo "[upgrade-contract] auth unit does not execute immutable current" >&2; exit 1;
+grep -Fq 'ExecStart={{RUNTIME_DIR}}/setjoin-auth' "$ROOT/mailserver/deploy/authserver.service.template" || {
+  echo "[upgrade-contract] auth unit does not execute the Rust setjoin-auth in immutable current" >&2; exit 1;
+}
+! grep -Eq '^EnvironmentFile=\{\{DB_CREDENTIALS_FILE\}\}' "$ROOT/mailserver/deploy/authserver.service.template" || {
+  echo "[upgrade-contract] the Rust auth unit must not load the privileged credential file" >&2; exit 1;
+}
+! grep -Eq 'auth/login' "$ROOT/mailserver/deploy/authserver.service.template" || {
+  echo "[upgrade-contract] auth readiness must not send credential requests (captcha/tarpit lockout)" >&2; exit 1;
 }
 grep -Fq 'release must contain exactly one recovery guide artifact' "$ROOT/shared/release/manifest.go" || {
   echo "[upgrade-contract] release schema does not require the recovery guide" >&2; exit 1;

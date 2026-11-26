@@ -6,11 +6,36 @@ use setjoin_compliance as db;
 use setjoin_pg::{CommandOutcome, ScopedExecutor};
 use std::sync::Arc;
 
+#[derive(Clone, Copy, Debug)]
+pub struct WormConfig {
+    pub mode_enabled: bool,
+    pub legal_hold_enabled: bool,
+}
+
+impl WormConfig {
+    pub fn from_settings(settings: &crate::configuration::Settings) -> Self {
+        let mode_enabled = !settings.string("worm.mode").is_empty();
+        let legal_hold_enabled = mode_enabled && settings.boolean("worm.legal_hold_enabled");
+        Self {
+            mode_enabled,
+            legal_hold_enabled,
+        }
+    }
+
+    pub fn from_env() -> Self {
+        Self {
+            mode_enabled: worm_mode_enabled(),
+            legal_hold_enabled: worm_legal_hold_enabled(),
+        }
+    }
+}
+
 pub struct ComplianceRoute<K: KeySource + 'static> {
     pub exec: ScopedExecutor,
     pub worker: ScopedExecutor,
     pub jobs: SearchJobs,
     pub store: Option<Arc<crate::recovery_worker::S3Store>>,
+    pub worm: Option<WormConfig>,
     pub keys: Arc<K>,
     pub issuer: String,
 }
@@ -96,13 +121,14 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
         })
     }
     fn handle(&self, mut r: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
-        let (exec, keys, issuer, worker, jobs, store) = (
+        let (exec, keys, issuer, worker, jobs, store, worm) = (
             self.exec.clone(),
             self.keys.clone(),
             self.issuer.clone(),
             self.worker.clone(),
             self.jobs.clone(),
             self.store.clone(),
+            self.worm,
         );
         Box::pin(async move {
             let EdiscoveryMatch {
@@ -119,11 +145,6 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 start,
                 search,
             } = EdiscoveryMatch::from(r.method(), r.uri().path());
-            // F04 Compliance #289 owns the unported S3 SetLegalHold adapter.
-            // F16 PutObjectRetention is covered by #301/#419.
-            if (hold || release) && std::env::var("WORM_MODE").is_ok_and(|v| !v.is_empty()) {
-                return c.upstream.forward(r, &c.identity).await;
-            }
             let verdict =
                 crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Member).await;
             let auth = match verdict {
@@ -327,19 +348,34 @@ impl<K: KeySource + 'static> Intercept for ComplianceRoute<K> {
                 )
                 .await
                 {
-                    CommandOutcome::Committed(held) => json_response(
-                        200,
-                        if hold {
-                            format!(
-                                "{{\"held\":{},\"legal_hold_objects\":0,\"total\":{total}}}\n",
-                                held.len()
+                    CommandOutcome::Committed(held) => {
+                        let worm = worm.unwrap_or_else(WormConfig::from_env);
+                        let legal_hold_objects = if !held.is_empty() && worm.mode_enabled {
+                            apply_legal_hold(
+                                &worker,
+                                store.as_deref(),
+                                &held,
+                                hold,
+                                worm.legal_hold_enabled,
                             )
+                            .await
                         } else {
-                            format!("{{\"released\":{},\"total\":{total}}}\n", held.len())
-                        },
-                        &c,
-                        id,
-                    ),
+                            0
+                        };
+                        json_response(
+                            200,
+                            if hold {
+                                format!(
+                                    "{{\"held\":{},\"legal_hold_objects\":{legal_hold_objects},\"total\":{total}}}\n",
+                                    held.len()
+                                )
+                            } else {
+                                format!("{{\"released\":{},\"total\":{total}}}\n", held.len())
+                            },
+                            &c,
+                            id,
+                        )
+                    }
                     CommandOutcome::Unknown { .. } => unknown(operation, &c, &id),
                     CommandOutcome::RolledBack(_) => problem(500, "database error", &c, &id),
                 }
@@ -623,6 +659,78 @@ async fn search_fields(r: &mut Request<Body>) -> Result<(crate::chat::Fields, by
     Ok((fields, original))
 }
 
+fn worm_mode_enabled() -> bool {
+    std::env::vars()
+        .fold(None, |acc, (k, v)| {
+            if k.eq_ignore_ascii_case("WORM_MODE") || k.eq_ignore_ascii_case("WORM__MODE") {
+                Some(v)
+            } else {
+                acc
+            }
+        })
+        .is_some_and(|mode| !mode.is_empty())
+}
+
+fn worm_legal_hold_enabled() -> bool {
+    if !worm_mode_enabled() {
+        return false;
+    }
+    match std::env::var("WORM_LEGAL_HOLD_ENABLED") {
+        Ok(value) => matches!(value.as_str(), "1" | "t" | "T" | "true" | "TRUE" | "True"),
+        Err(_) => true,
+    }
+}
+
+async fn apply_legal_hold(
+    worker: &ScopedExecutor,
+    store: Option<&crate::recovery_worker::S3Store>,
+    held: &[db::HeldMessage],
+    on: bool,
+    legal_hold_enabled: bool,
+) -> usize {
+    let Some(store) = store else {
+        return 0;
+    };
+    let ids: Vec<i64> = held.iter().map(|m| m.id).collect();
+    let received_ats: Vec<String> = held.iter().map(|m| m.received_at.clone()).collect();
+    let rows = match worker
+        .read(
+            "SELECT DISTINCT ma.blob_sha256 \
+             FROM unnest($1::bigint[], $2::text[]::timestamptz[]) AS target(message_id, received_at) \
+             JOIN message_attachments ma \
+               ON ma.message_id = target.message_id AND ma.received_at = target.received_at",
+            &[
+                (&ids, setjoin_pg::Type::INT8_ARRAY),
+                (&received_ats, setjoin_pg::Type::TEXT_ARRAY),
+            ],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(err) => {
+            eprintln!("ediscovery: object legal hold lookup failed: {err:?}");
+            return 0;
+        }
+    };
+    let mut n = 0;
+    for row in rows {
+        let Ok(Some(hash)) = row.try_get::<_, Option<String>>(0) else {
+            continue;
+        };
+        if hash.is_empty() {
+            continue;
+        }
+        if legal_hold_enabled {
+            if let Err(err) = store.legal_hold_with_retries(&hash, on).await {
+                eprintln!("ediscovery: object legal hold failed key={hash}: {err}");
+                continue;
+            }
+        }
+        n += 1;
+    }
+    n
+}
+
 // Go flushes a large single JSON write before completion. Hide the known
 // Full length so Hyper also omits Content-Length on HEAD for that response.
 struct UnknownLength(Body);
@@ -637,5 +745,59 @@ impl hyper::body::Body for UnknownLength {
     }
     fn is_end_stream(&self) -> bool {
         self.0.is_end_stream()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WormConfig;
+    use crate::configuration::Settings;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn worm_config_from_settings_tracks_yaml_and_env_overrides() {
+        let yaml = "worm:\n  mode: compliance\n";
+        let settings = Settings::parse(yaml, &BTreeMap::new()).unwrap();
+        let cfg = WormConfig::from_settings(&settings);
+        assert!(cfg.mode_enabled);
+        assert!(cfg.legal_hold_enabled);
+
+        let mut env = BTreeMap::new();
+        env.insert("WORM_LEGAL_HOLD_ENABLED".into(), "false".into());
+        let settings = Settings::parse(yaml, &env).unwrap();
+        let cfg = WormConfig::from_settings(&settings);
+        assert!(cfg.mode_enabled);
+        assert!(!cfg.legal_hold_enabled);
+
+        let mut env = BTreeMap::new();
+        env.insert("WORM_MODE".into(), String::new());
+        let settings = Settings::parse(yaml, &env).unwrap();
+        let cfg = WormConfig::from_settings(&settings);
+        assert!(!cfg.mode_enabled);
+        assert!(!cfg.legal_hold_enabled);
+
+        let ordered_enable = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM__MODE".into(), String::new()),
+                ("WORM_MODE".into(), "compliance".into()),
+            ],
+        )
+        .unwrap();
+        let cfg = WormConfig::from_settings(&ordered_enable);
+        assert!(cfg.mode_enabled);
+        assert!(cfg.legal_hold_enabled);
+
+        let ordered_disable = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM_MODE".into(), "compliance".into()),
+                ("WORM__MODE".into(), String::new()),
+            ],
+        )
+        .unwrap();
+        let cfg = WormConfig::from_settings(&ordered_disable);
+        assert!(!cfg.mode_enabled);
+        assert!(!cfg.legal_hold_enabled);
     }
 }

@@ -157,14 +157,6 @@ async fn bundled_guests_are_native_and_both_kill_switches_forward() -> Result<()
                         format!("http://{keys}/.well-known/jwks.json"),
                     )
                     .env(
-                        "GO_WORKERS_OFF",
-                        if mode == "native" {
-                            "guest-lifecycle"
-                        } else {
-                            ""
-                        },
-                    )
-                    .env(
                         "RUST_WORKERS_ON",
                         if mode == "native" {
                             "guest-lifecycle"
@@ -178,6 +170,21 @@ async fn bundled_guests_are_native_and_both_kill_switches_forward() -> Result<()
                     .stderr(Stdio::null())
                     .spawn_boot()?,
             );
+            if mode != "native" {
+                let mut exited = None;
+                for _ in 0..500 {
+                    if let Some(status) = process.0.try_wait()? {
+                        exited = Some(status);
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                if !exited.is_some_and(|s| !s.success()) {
+                    return Err(format!("gateway {mode} should have been rejected: {exited:?}").into());
+                }
+                drop(process);
+                continue;
+            }
             let mut ready = false;
             for _ in 0..6000 {
                 if tokio::net::TcpStream::connect(address).await.is_ok() {
@@ -212,37 +219,24 @@ async fn bundled_guests_are_native_and_both_kill_switches_forward() -> Result<()
                 let status = response.status().as_u16();
                 let marker = response.headers().contains_key("x-gofree-guests1-go");
                 let bytes = body_bytes(response).await;
-                let expected = if mode == "native" { native_status } else { 218 };
-                if status != expected || marker != (mode != "native") {
+                if status != native_status || marker {
                     return Err(format!(
-                        "{mode}: {method} {path}: {status}, expected {expected}: {bytes:?}"
+                        "{mode}: {method} {path}: {status}, expected {native_status}: {bytes:?}"
                     )
                     .into());
                 }
             }
             let forwarded = go_count.load(Ordering::SeqCst) - before;
-            if forwarded != if mode == "native" { 0 } else { 20 } {
+            if forwarded != 0 {
                 return Err(format!("wrong Go forwarding count in {mode}: {forwarded}").into());
             }
-            if mode == "native" {
-                let response =
-                    send(address, Request::get("/_gateway/metrics").body(full(""))?).await;
-                let metrics = String::from_utf8(body_bytes(response).await.to_vec())?;
-                if !metrics
-                    .contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F11\"} 0")
-                {
-                    return Err(metrics.into());
-                }
-            }
-            if mode == "routes-off" {
-                let response =
-                    send(address, Request::get("/_gateway/metrics").body(full(""))?).await;
-                let body = String::from_utf8(body_bytes(response).await.to_vec())?;
-                if !body
-                    .contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F11\"} 20")
-                {
-                    return Err(format!("rollback counter: {body}").into());
-                }
+            let response =
+                send(address, Request::get("/_gateway/metrics").body(full(""))?).await;
+            let metrics = String::from_utf8(body_bytes(response).await.to_vec())?;
+            if !metrics
+                .contains("setjoin_gateway_proxied_to_go_by_family_total{family=\"F11\"} 0")
+            {
+                return Err(metrics.into());
             }
             unsafe {
                 libc::kill(process.0.id() as i32, libc::SIGTERM);
@@ -301,22 +295,28 @@ async fn bundled_guests_are_native_and_both_kill_switches_forward() -> Result<()
 }
 
 #[tokio::test]
-async fn guest_worker_requires_the_go_off_declaration() -> Result<(), BoxError> {
+async fn guest_worker_starts_without_go_workers_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("guests-worker-transfer") else {
         return Ok(());
     };
-    let output = Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
-        .arg0("gofree-guests1-worker-transfer-denied")
-        .env_clear()
-        .env("DB_DSN", &db.dsn)
-        .env("RUST_WORKERS_ON", "guest-lifecycle")
-        .env("GATEWAY_ENABLED", "false")
-        .output_boot()?;
-    if output.status.success()
-        || !String::from_utf8_lossy(&output.stderr)
-            .contains("guest-lifecycle requires GO_WORKERS_OFF=guest-lifecycle")
-    {
-        return Err(format!("worker transfer was not refused: {:?}", output.status).into());
+    let mut child = Process(
+        Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            .arg0("gofree-guests1-worker-transfer")
+            .env_clear()
+            .env("GATEWAY_LISTEN", "127.0.0.1:0")
+            .env("DB_DSN", &db.dsn)
+            .env("DB_DIRECT_DSN", &db.dsn)
+            .env("RUST_WORKERS_ON", "guest-lifecycle")
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn_boot()?,
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let running = child.0.try_wait()?.is_none();
+    unsafe {
+        libc::kill(child.0.id() as i32, libc::SIGTERM);
     }
+    let _ = child.0.wait();
+    assert!(running, "guest-lifecycle must start without GO_WORKERS_OFF");
     Ok(())
 }

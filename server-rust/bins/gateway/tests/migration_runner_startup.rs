@@ -127,14 +127,14 @@ async fn runner_needs_go_off_and_serves_native_provider_shapes() -> Result<(), B
         std::fs::write(&inventory.0, include_str!("../route-inventory.json"))?;
         // Reserved ports (below the ephemeral range, one process each): see setjoin_conformance::ports.
         let free = || async { setjoin_conformance::ports::address() };
-        // The guard: the runner without Go's copy off refuses to start.
+        // #359 cutover: GATEWAY_ENABLED=false and OFF/go-mail inventory rows are rejected.
         let mut refused = gateway(
             go,
             keys,
             free().await,
             &db,
             &inventory.0,
-            true,
+            false,
             "migration-runner",
             "",
             s3,
@@ -149,12 +149,8 @@ async fn runner_needs_go_off_and_serves_native_provider_shapes() -> Result<(), B
             (status, text)
         })
         .await?;
-        if status.0?.success()
-            || !status
-                .1
-                .contains("migration-runner requires GO_WORKERS_OFF=migration-runner")
-        {
-            return Err(format!("the runner started without the guard: {}", status.1).into());
+        if status.0?.success() || !status.1.contains("GATEWAY_ENABLED") {
+            return Err(format!("GATEWAY_ENABLED=false was not rejected: {}", status.1).into());
         }
         let runner_routes = [
             ("POST", "/api/admin/migration/start"),
@@ -165,23 +161,15 @@ async fn runner_needs_go_off_and_serves_native_provider_shapes() -> Result<(), B
             ("POST", "/api/admin/migration/test-connection"),
         ];
         let native_callbacks = [("GET", "/api/admin/migration/m365/callback")];
-        for mode in ["native", "all-go", "routes-off", "runner-off"] {
+        for mode in ["native", "runner-off"] {
             let listen = free().await;
-            let mut config: serde_json::Value =
+            let config: serde_json::Value =
                 serde_json::from_str(include_str!("../route-inventory.json"))?;
-            if mode == "routes-off" {
-                for route in config["routes"].as_array_mut().ok_or("routes")? {
-                    if route["family"] == "F05" {
-                        route["state"] = "OFF".into();
-                        route["upstream"] = "go-mail".into();
-                    }
-                }
-            }
             std::fs::write(&inventory.0, config.to_string())?;
             let (rust_on, go_off) = if mode == "runner-off" {
                 ("", "")
             } else {
-                ("migration-runner", "migration-runner")
+                ("migration-runner", "")
             };
             let mut process = gateway(
                 go,
@@ -189,7 +177,7 @@ async fn runner_needs_go_off_and_serves_native_provider_shapes() -> Result<(), B
                 listen,
                 &db,
                 &inventory.0,
-                mode != "all-go",
+                true,
                 rust_on,
                 go_off,
                 s3,
@@ -232,28 +220,18 @@ async fn runner_needs_go_off_and_serves_native_provider_shapes() -> Result<(), B
                 let status = response.status().as_u16();
                 let marker = response.headers().contains_key("x-gofree-mbox7-go");
                 let bytes = body_bytes(response).await;
-                // An unprivileged account: the native chain refuses it (403), Go's sentinel is 218.
-                let expected = if matches!(mode, "native" | "runner-off") {
-                    403
-                } else {
-                    218
-                };
-                if status != expected || marker != (expected == 218) {
+                // An unprivileged account: the native chain refuses it (403); zero Go forwards.
+                if status != 403 || marker {
                     return Err(format!(
-                        "{mode}: {method} {path}: {status}, expected {expected}: {bytes:?}"
+                        "{mode}: {method} {path}: {status}, expected 403: {bytes:?}"
                     )
                     .into());
                 }
             }
             let forwarded = go_count.load(Ordering::SeqCst) - before;
-            let wanted = if matches!(mode, "native" | "runner-off") {
-                0
-            } else {
-                runner_routes.len() + native_callbacks.len()
-            };
-            if forwarded != wanted {
+            if forwarded != 0 {
                 return Err(format!(
-                    "wrong Go forwarding count in {mode}: {forwarded}, wanted {wanted}"
+                    "wrong Go forwarding count in {mode}: {forwarded}, wanted 0"
                 )
                 .into());
             }

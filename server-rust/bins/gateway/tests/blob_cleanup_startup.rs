@@ -21,9 +21,9 @@ fn gateway(
         .stderr(Stdio::piped());
     for (k, v) in [
         ("GATEWAY_LISTEN", "127.0.0.1:0"),
-        ("GATEWAY_ENABLED", "false"),
         ("DB_DSN", request_dsn),
         ("DB_WORKER_DSN", worker_dsn),
+        ("DB_DIRECT_DSN", worker_dsn),
         ("RUST_WORKERS_ON", rust_on),
         ("GO_WORKERS_OFF", go_off),
     ]
@@ -43,26 +43,20 @@ fn stop(child: &mut crate::common::boot::Child) {
 }
 
 #[tokio::test]
-async fn refuses_without_go_off() -> Result<(), BoxError> {
+async fn starts_without_go_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("blob-cleanup-startup") else {
         return Ok(());
     };
-    for off in [
-        "",
-        "drive-maintenance",
-        "blob-cleanup-x",
-        "mail-recovery-cleanup",
-    ] {
-        let child = gateway(&db.dsn, &db.dsn, "blob-cleanup", off, &[])?;
-        let out = tokio::task::spawn_blocking(move || child.wait_with_output()).await??;
-        let err = String::from_utf8_lossy(&out.stderr);
-        if out.status.success() || !err.contains("GO_WORKERS_OFF=blob-cleanup") {
-            return Err(
-                format!("expected refusal for {off:?}, got {:?}: {err}", out.status).into(),
-            );
-        }
-    }
-    println!("GOLDEN-REPLAY: worker blob-cleanup :: refuses-without-go-off");
+    let s3 = [
+        ("S3_ENDPOINT", "http://127.0.0.1:1"),
+        ("S3_BUCKET", "mailblobs"),
+    ];
+    let mut child = gateway(&db.dsn, &db.dsn, "blob-cleanup", "", &s3)?;
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    let running = child.try_wait()?.is_none();
+    stop(&mut child);
+    assert!(running, "blob-cleanup must start without GO_WORKERS_OFF");
+    println!("GOLDEN-REPLAY: worker blob-cleanup :: starts-without-go-off");
     Ok(())
 }
 

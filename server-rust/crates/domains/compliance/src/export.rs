@@ -14,7 +14,7 @@ pub async fn authorize(
     let auth = scope(actor);
     let original = serde_json::to_string(original).expect("strings");
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:"export.authorize"},&envelope(&auth,operation,&serde_json::json!([case,ids,original]).to_string()),&auth,deadline(),
- "SELECT rust_compliance_export_authorize($2,$4,$5,$6::text::jsonb,$7) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_export_authorize($2,$4,$5,$6::text::jsonb,$7) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&case,Type::INT8),(ids,Type::INT8_ARRAY),(&original,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 pub async fn messages(

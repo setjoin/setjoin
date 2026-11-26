@@ -6,7 +6,7 @@ HTTP/effect recordings; 17 route contracts write or consume state. The native
 suite also has 28 real HTTP status mutants, four private-schema SQL effect
 mutants and two actual COMMIT wire cuts (231 tests total). Four executable
 tests cover native dispatch with Go unset, both rollback switches and the
-native-token deferral to identity #331. Accepted divergences: none.
+native-token deferral to identity #112. Accepted divergences: none.
 
 The Go 1.26.6 covered build must include **both** packages:
 
@@ -35,7 +35,7 @@ post-consume metadata failure are recorded independently of the observer.
 Unreached defenses include nil claims already excluded by the front door,
 crypto/rand failure branches that Go 1.26 cannot return normally, and typed
 Scan/JSON decode failures excluded by the canonical NOT NULL/schema-shaped
-projections. Native-token is not qualified here: the shared signer is #331.
+projections. Native-token is not qualified here: the shared signer is #112.
 These are admission/schema exclusions and an explicit later-ticket boundary,
 not accepted changes to frozen Go behavior.
 

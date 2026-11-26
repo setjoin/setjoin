@@ -143,7 +143,7 @@ def verify(binary):
         environment.write_text(
             f"DB_DSN={dsn}\nDB_DIRECT_DSN={dsn}\n"
             "GATEWAY_AUTH_UPSTREAM=http://127.0.0.1:9\nGATEWAY_LISTEN=127.0.0.1:0\n"
-            "GO_WORKERS_OFF=federation-service\nFEDERATION_LOCAL_DOMAIN=zulu.test\n"
+            "WORM_MODE=\nGO_WORKERS_OFF=federation-service\nFEDERATION_LOCAL_DOMAIN=zulu.test\n"
             f"FEDERATION_CERT={directory}/zulu.crt\nFEDERATION_KEY={directory}/zulu.key\n"
         )
         environment.chmod(0o600)

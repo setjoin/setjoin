@@ -47,6 +47,24 @@ signed DDL preserves Go's one-transaction-per-migration schema/evidence contract
 ambiguous completion requires exact durable checksum evidence before success.
 Feature-registry contracts bind preflight, commit and rollback to live mode,
 catalog digest and the previous binary's compatibility evidence.
+`host::preflight` evaluates `setjoin-gateway.service` and its systemd `<unit>.d/*.conf`
+drop-ins across system tiers (`/lib`, `/usr/lib`, `/usr/local/lib`, `/run`, `/etc`,
+with higher tiers overriding same-named files and failing closed on unreadable
+drop-ins or metadata errors) for `EnvironmentFile=` (respecting empty resets,
+with optional whitespace around `=`, failing closed on unreadable required files)
+followed by `UnsetEnvironment=` (respecting empty resets), and checks that:
+- DB-backed hosts declare explicit empty `WORM_MODE=` in `gateway.env` with an
+  empty effective `WORM_MODE` when WORM is disabled;
+- active WORM settings (`SETJOIN_CONFIG_DIR` or unit-derived `config.env`, plus
+  UTF-8-BOM-stripped `SETJOIN_CONFIG` YAML `worm.mode` and `worm.retention_days`)
+  match a present `storage.env`, matching effective `S3_*`/`MINIO_*` storage
+  settings, and effective `WORM_MODE`/`WORM_LEGAL_HOLD_ENABLED`/`WORM_RETENTION_DAYS`,
+  failing closed on unreadable, merged, or unparsed YAML constructs in `worm` config;
+- configured `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`/`LIVEKIT_URL` in `config.env`
+  match the gateway's effective unit env (`federation.env`).
+All DB-backed or LiveKit-enabled immutable hosts should upgrade `setjoin-updater`
+and run `upgrade.sh refresh-gateway-env` before activating a gateway release that
+retires Go's legal-hold or `/api/rtc` forwards.
 
 The Rust-only versioned hash-chain journal uses `rust-events.jsonl`,
 `rust-tip.json` and `rust-last-terminal.json` with a private `executor.lock`.
@@ -188,8 +206,8 @@ never promoted into a complete rollback cohort. Its immutable Go recording is
 its manifest and ignores manifest.digest and installed.evidence.json; Rust no longer
 does (see SECURITY.md). The frozen-Go recording of that gap was removed.
 
-`package-server-release.sh` now takes eight inputs: architecture, Go binary dir,
-Rust gateway, Rust mailctl, Rust asrbotd, Rust updater, webmail build and output.
+`package-server-release.sh` now takes nine inputs (setjoin-auth added, #359b): architecture, Go binary dir,
+Rust gateway, Rust setjoin-auth, Rust mailctl, Rust asrbotd, Rust updater, webmail build and output.
 Only Go mailserverd/authserverd and the temporary Office-runner source remain Go
 binary inputs; Go recovery is not required or staged. `build.sh` stages the native
 updater at its canonical Rust path. Floor builds discover this existing workspace
@@ -213,3 +231,10 @@ Owner-approved security fixes (2026-11-05, tickets #506, #505, #507) live in
 recovery wrapper path, ownership checks, `sslmode`, debug-only verify flags and the
 raise-only `--minimum-threshold`. `scripts/test-updater-secfix-mutants.py` restores
 each gap and requires its test to fail.
+
+#359b: `core_setjoin_auth` is an optional staged executable (`setjoin-auth`, mode 0500); adoption
+captures an optional flat `setjoin-auth` (4–6 entries) and quarantines `setjoin-auth.prev`.
+`stage_release` and rollback call `host::require_unit_binaries` over `START` units only, refusing
+before stop/migration or rollback switch if any fixed core unit executes a binary from `current/`
+that is absent from the target release. `setjoin-auth.service` executes `setjoin-auth` directly
+without Go `authserverd` chaining, so `START`/`STOP` and the login probe are unchanged.

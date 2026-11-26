@@ -34,5 +34,14 @@
     "review_reference": "FABLE-CODE-354B0.md follow-up 3 and 'Front door' paragraph (bins/gateway/src/admission.rs:115-139)",
     "go_source": "shared/middleware/runtime_access.go:135-145",
     "test": "setjoin-gateway front-door revocation-unreadable 503 test (admission.rs)"
+  },
+  "non-dav-alternative-credential-401": {
+    "reason": "On non-DAV REST routes, Basic or Negotiate Authorization headers without a valid JWT are answered natively with 401 (WWW-Authenticate: Negotiate, Bearer realm=\"mailserver\" and RequireAuth Problem body) instead of forwarding to Go. DAV (/caldav/, /carddav/) and POST /api/drive/native-token retain native Basic (#355a) and Negotiate (#355b) authentication.",
+    "review": "owner-approved (2026-11-25)",
+    "reviewed": true,
+    "reviewer": "owner",
+    "review_reference": "PLAN-359 Rev 2 section A5",
+    "go_source": "mailserver/internal/auth/chain.go:400-433",
+    "test": "setjoin-gateway::deny::tests + bins/gateway/tests/authz_deny_final.rs"
   }
 }

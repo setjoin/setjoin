@@ -10,7 +10,7 @@ DECLARE
  v_cal_mailbox bigint;
  v_rows bigint := 0;
 BEGIN
- IF COALESCE(p_mailbox, 0) <= 0 THEN
+ IF COALESCE(p_mailbox, -1) < 0 THEN
   RETURN 0;
  END IF;
  SELECT c.id, c.mailbox_id INTO v_cal_id, v_cal_mailbox

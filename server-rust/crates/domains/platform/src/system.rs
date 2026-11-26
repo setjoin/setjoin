@@ -114,7 +114,7 @@ pub async fn backup_enqueue(
         &envelope(&auth, operation, "backup"),
         &auth,
         deadline(),
-        "INSERT INTO backup_runs (status) SELECT 'pending' WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
+        "INSERT INTO backup_runs (status) SELECT 'pending' WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
         &[],
         |rows| match rows {
             [row] => Ok(done(format!(

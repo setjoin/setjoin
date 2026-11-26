@@ -7,7 +7,7 @@
 //! checked row to an [`Alerts`] observer (the gateway's webhook dispatcher) so
 //! `system.health_alert` is raised in Rust. The SFU/egress/ASR probes run through an
 //! optional [`Probes`] runner; a deployment with those sidecars configured and no
-//! runner is left to Go ([`Outcome::Defer`]).
+//! runner is left to fail closed (`Outcome::Defer` -> 503 in the gateway).
 use setjoin_pg::ScopedExecutor;
 use std::future::Future;
 use std::pin::Pin;
@@ -25,7 +25,7 @@ pub enum Outcome {
     Json { status: u16, overall: &'static str },
     /// Go's `http.Error(w, "internal error", 500)` (query failed).
     Internal,
-    /// Leave the whole request to Go (live probes are configured).
+    /// Fail closed with 503 (live probes are configured, no probe runner).
     Defer,
 }
 
@@ -87,7 +87,7 @@ impl HealthGate {
         }
     }
 
-    /// Run the live probes in each full evaluation instead of leaving the request to Go.
+    /// Run the live probes in each full evaluation instead of returning `Outcome::Defer` (503).
     pub fn with_probes(mut self, probes: Probes) -> Self {
         self.probes = Some(probes);
         self

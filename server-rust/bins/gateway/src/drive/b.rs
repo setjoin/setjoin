@@ -21,7 +21,15 @@ pub(super) async fn handle<K: KeySource + 'static>(
     issuer: String,
     store: Option<Arc<crate::recovery_worker::S3Store>>,
 ) -> Response<Body> {
-    let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, crate::deny::Scope::Drive).await;
+    let scope = if *r.method() == hyper::Method::GET
+        && crate::inventory::path_score("/api/drive/versions/{id}/content", r.uri().path())
+            .is_some()
+    {
+        crate::deny::Scope::DriveUser
+    } else {
+        crate::deny::Scope::Drive
+    };
+    let verdict = crate::deny::admit(&exec, &keys, &issuer, &r, scope).await;
     let auth = match verdict {
         Ok(auth) => auth,
         Err(refusal) => return crate::deny::answer(refusal, r, &c).await,

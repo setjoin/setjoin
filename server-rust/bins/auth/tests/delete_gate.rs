@@ -263,7 +263,7 @@ async fn fake_go(
     });
     Ok((addr, task))
 }
-async fn start(db: &Db, threat: [bool; 5], go: std::net::SocketAddr) -> Result<Server, Err> {
+async fn start(db: &Db, threat: [bool; 5], _go: std::net::SocketAddr) -> Result<Server, Err> {
     let keys: Value = serde_json::from_str(include_str!(
         "../../../tests/conformance/identity-login/keys.json"
     ))?;
@@ -282,7 +282,6 @@ async fn start(db: &Db, threat: [bool; 5], go: std::net::SocketAddr) -> Result<S
     ] {
         cfg.threat.overrides.insert(key.into(), on);
     }
-    cfg.go_upstream = Some(format!("http://{go}"));
     let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
         .map_err(|e| e.0)?;
     Ok(serve(Arc::new(

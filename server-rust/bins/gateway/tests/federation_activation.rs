@@ -87,6 +87,7 @@ fn launch_configured(
         .env("DB_DSN", &db.dsn)
         .env("DB_WORKER_DSN", worker_dsn)
         .env("DB_DIRECT_DSN", direct)
+        .env("WORM_MODE", "")
         .env("GO_WORKERS_OFF", off)
         .env("RUST_WORKERS_ON", worker)
         .env("FEDERATION_LOCAL_DOMAIN", "zulu.test")
@@ -251,41 +252,22 @@ async fn executable_uses_inherited_socket_for_recorded_delivery_and_graceful_shu
 }
 
 #[tokio::test]
-async fn executable_refuses_a_duplicate_worker_and_a_duplicate_federation_service() {
+async fn executable_starts_federation_service_and_reaper_without_go_workers_off() {
     let _serial = SERIAL.lock().await;
-    use std::io::Read;
     let Some(db) = setjoin_conformance::harness::Db::for_case("federation-startup-guards") else {
         return;
     };
-    for (off, worker, needle) in [
-        ("", "", "GO_WORKERS_OFF=federation-service"),
-        (
-            "federation-service",
-            "federation-residue-reap",
-            "GO_WORKERS_OFF=federation-residue-reap",
-        ),
-    ] {
+    for (off, worker) in [("", ""), ("", "federation-residue-reap")] {
         let (mut child, _) = launch(&db, off, worker);
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let Some(status) = child.0.try_wait().unwrap() {
-                    assert!(!status.success());
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .unwrap();
-        let mut stderr = String::new();
-        child
-            .0
-            .stderr
-            .take()
-            .unwrap()
-            .read_to_string(&mut stderr)
-            .unwrap();
-        assert!(stderr.contains(needle), "{stderr}");
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert_running(
+            &mut child,
+            "federation service and reaper must start without GO_WORKERS_OFF",
+        );
+        unsafe {
+            libc::kill(child.0.id() as i32, libc::SIGTERM);
+        }
+        let _ = child.0.wait();
     }
 }
 
@@ -737,5 +719,94 @@ async fn delayed_first_feature_snapshot_starts_outbound_reconcile_without_waitin
         .unwrap();
     if let Err(panic) = result {
         std::panic::resume_unwind(panic);
+    }
+}
+
+#[tokio::test]
+async fn activated_db_gateway_refuses_unrefreshed_worm_environment() {
+    let _serial = SERIAL.lock().await;
+    let Some(db) = setjoin_conformance::harness::Db::for_case("fed2-worm-guard") else {
+        return;
+    };
+    struct ChildGuard(std::process::Child);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    for (fdnames, worm_val, expected_needle) in [
+        (
+            "http",
+            None,
+            "systemd-activated gateway requires explicit WORM_MODE (empty when disabled) in gateway.env; run upgrade.sh refresh-gateway-env before activating",
+        ),
+        (
+            "federation",
+            None,
+            "systemd-activated gateway requires explicit WORM_MODE (empty when disabled) in gateway.env; run upgrade.sh refresh-gateway-env before activating",
+        ),
+        (
+            "http",
+            Some("compliance"),
+            "WORM_MODE is enabled in gateway settings, but no S3_*/MINIO_* storage settings were loaded; run upgrade.sh refresh-gateway-env before activating",
+        ),
+    ] {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let fd = listener.as_raw_fd();
+        let mut command = Command::new("bash");
+        command
+            .env_clear()
+            .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:9")
+            .env("DB_DSN", &db.dsn)
+            .env("DB_WORKER_DSN", &db.dsn)
+            .env("DB_DIRECT_DSN", &db.direct)
+            .env("LISTEN_FDNAMES", fdnames)
+            .env("LISTEN_FDS", "1")
+            .arg("-c")
+            .arg("export LISTEN_PID=$$; exec -a \"$2-gateway\" \"$1\"")
+            .arg("gofree-fed2-worm-guard")
+            .arg(env!("CARGO_BIN_EXE_setjoin-gateway"))
+            .arg(resource_prefix())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        if let Some(val) = worm_val {
+            command.env("WORM_MODE", val);
+        }
+        unsafe {
+            command.pre_exec(move || {
+                if libc::dup2(fd, 3) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = ChildGuard(command.spawn().unwrap());
+        let status = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(status) = child.0.try_wait().unwrap() {
+                    return status;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("gateway must refuse unrefreshed WORM environment at startup");
+        assert!(
+            !status.success(),
+            "expected failure for fdnames={fdnames} worm_val={worm_val:?}"
+        );
+        use std::io::Read;
+        let mut stderr = String::new();
+        if let Some(mut pipe) = child.0.stderr.take() {
+            pipe.read_to_string(&mut stderr).unwrap();
+        }
+        assert!(
+            stderr.contains(expected_needle),
+            "unexpected stderr for fdnames={fdnames} worm_val={worm_val:?}: {stderr}"
+        );
     }
 }

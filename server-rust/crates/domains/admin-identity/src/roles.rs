@@ -623,7 +623,7 @@ pub async fn missing_reason(
         actor,
         "reason_missing",
         "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($4::text,'')::inet,'roles.manage','core') \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&ip, Type::TEXT)],
         ip,
         operation,
@@ -646,7 +646,7 @@ pub async fn protection_denied(
         actor,
         "admin_protection.denied",
         "SELECT count(*)::bigint FROM (SELECT audit_write($2,'admin_protection.denied','user',$5,NULL,$4::text::jsonb,NULLIF($6::text,'')::inet,'','core') \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&after, Type::TEXT), (&target, Type::INT8), (&ip, Type::TEXT)],
         &after,
         operation,
@@ -687,7 +687,7 @@ pub async fn create_role(
         ),
         &auth,
         deadline(),
-        "SELECT rust_admin_role_create($2,$4,$5,$6,$7,$8) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_role_create($2,$4,$5,$6,$7,$8) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&role.name, Type::TEXT),
             (&role.description, Type::TEXT),
@@ -748,7 +748,7 @@ pub async fn update_role(
         ),
         &auth,
         deadline(),
-        "SELECT rust_admin_role_update($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::text::jsonb,$14)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_role_update($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::text::jsonb,$14)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&domain_scope, Type::INT8),
             (&id, Type::INT8),
@@ -785,7 +785,7 @@ pub async fn delete_role(
         &envelope(&auth, operation, &format!("{id}:{domain_scope}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_role_delete($2,$4,$5,$6)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_role_delete($2,$4,$5,$6)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&domain_scope, Type::INT8),
             (&id, Type::INT8),
@@ -844,7 +844,7 @@ pub async fn assign_member(
         ),
         &auth,
         deadline(),
-        "SELECT rust_admin_role_assign($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_role_assign($2,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&domain_scope, Type::INT8),
             (&perms, Type::TEXT_ARRAY),
@@ -884,7 +884,7 @@ pub async fn remove_member(
         &envelope(&auth, operation, &format!("{role}:{user}:{domain_scope}")),
         &auth,
         deadline(),
-        "SELECT rust_admin_role_remove($2,$4,$5,$6,$7)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_admin_role_remove($2,$4,$5,$6,$7)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&domain_scope, Type::INT8),
             (&role, Type::INT8),
@@ -934,7 +934,7 @@ pub async fn enqueue_bulk(
         &auth,
         deadline(),
         "WITH inserted AS (INSERT INTO bulk_role_jobs (op, role_id, actor_id, user_ids, expires_at, total, scope_type, scope_id, eligible) \
-         SELECT $4, $5, $2, $6, $7::text::timestamptz, $8, $9, $10, $11 WHERE $1::bigint > 0 AND $3::text <> '' RETURNING id) \
+         SELECT $4, $5, $2, $6, $7::text::timestamptz, $8, $9, $10, $11 WHERE $1::bigint >= 0 AND $3::text <> '' RETURNING id) \
          SELECT id FROM inserted",
         &[
             (&job.op, Type::TEXT),

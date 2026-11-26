@@ -69,7 +69,7 @@ No notification mutant is fabricated. Test executors bind the same protected
 audit-key configuration as production, including explicit worker executors.
 
 The fifteen qualified F12 `sub-router-b` registrations default ON/local-rust (#268). Presence is native on the shared WS/SSE registry (#318/#319/#418); translation is native through the Static/Assist adapter (#271). The catch-all retains its existing forwarding contract. Shared authentication and guest admission follow the gateway/authz contracts
-(#406). The compliance slice transfers no workers; Go's process-local workers continue until Go is deleted.
+(#188). The compliance slice transfers no workers; Go's process-local workers continue until Go is deleted.
 
 Measured Go coverage and unreachable status branches: [coverage record](../../../tests/conformance/chat/COVERAGE.md).
 
@@ -234,7 +234,7 @@ never fetch/retry. Existing TTL/cron transfer gates stay unchanged.
 Han-script search dispatch uses foundation `setjoin_contracts::han`, whose
 Go-recorded table moved verbatim from the gateway's former `chat_b/han.rs` (#291).
 
-## Mailbox-less guest admission (#406)
+## Mailbox-less guest admission (#188)
 
 User adapters accept live guest proofs after the front door's program/route belt.
 `channels`/`members` use the shared user-only scope when no mailbox exists; member

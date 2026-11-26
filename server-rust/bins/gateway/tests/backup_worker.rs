@@ -20,7 +20,7 @@ fn recorded_go_backup_worker_through_gateway_process() {
 }
 
 #[test]
-fn backup_effects_require_go_worker_transfer() {
+fn backup_effects_require_db_dsn_without_go_workers_off() {
     let _serial = serial();
     use std::os::unix::fs::PermissionsExt;
     let key = std::env::temp_dir().join(format!("gofree-mctl4-worker-key-{}", std::process::id()));
@@ -29,7 +29,6 @@ fn backup_effects_require_go_worker_transfer() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
         .env_clear()
         .env("GATEWAY_LISTEN", "127.0.0.1:0")
-        .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
         .env("BACKUP_SIGNING_KEY_FILE", &key)
         .env("BACKUP_PROVIDER", "s3")
         .env("BACKUP_BUCKET", "fixture")
@@ -37,7 +36,7 @@ fn backup_effects_require_go_worker_transfer() {
         .unwrap();
     std::fs::remove_file(key).unwrap();
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("GO_WORKERS_OFF=backup-engine"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("DB_DSN is required for backup-engine"));
 }
 
 #[test]

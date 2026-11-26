@@ -443,6 +443,17 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                         None,
                     );
                 }
+                if auth.context().mailbox_id() == 0 {
+                    return typed(
+                        &r,
+                        &c,
+                        &id,
+                        500,
+                        "internal-error",
+                        "mailbox not found",
+                        None,
+                    );
+                }
                 match setjoin_rules::active_sweeps(&e,auth.context()).await {
                     Ok(n) if n>=3=>return typed(&r,&c,&id,429,"rate-limited","this mailbox already has the maximum number of rule sweeps in progress; wait for one to finish",Some("Too many active rule sweeps")),
                     Err(_)=>return typed(&r,&c,&id,500,"internal-error","database error",None),_=>{}
@@ -522,6 +533,9 @@ impl<K: KeySource + 'static> Intercept for RulesRoute<K> {
                     return crate::mailboxes::bare(400, &detail, &c, &id);
                 }
                 if creating {
+                    if auth.context().mailbox_id() == 0 {
+                        return crate::mailboxes::bare(500, "mailbox not found", &c, &id);
+                    }
                     match setjoin_rules::personal_count(&e, auth.context()).await {
                         Ok(n) if n >= 100 => {
                             return crate::mailboxes::bare(

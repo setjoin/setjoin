@@ -131,14 +131,24 @@ fn weak_database_encryption_key_is_rejected_before_listening() {
 }
 
 #[tokio::test]
-async fn auth_runtime_shared_tasks_refuse_without_process_swap_attestation(){
+async fn auth_runtime_shared_tasks_start_without_go_workers_off(){
  let db=setjoin_conformance::harness::Db::for_case("AUTHRT-startup").unwrap();let c=db.connect().await.unwrap();c.query_one("SELECT pg_advisory_lock(hashtextextended('gofree-idlogin1-oracle',0))",&[]).await.unwrap();common::signing_key(&c).await;
+ let listener=setjoin_conformance::ports::std_listener();let addr=listener.local_addr().unwrap();drop(listener);
  let mut child=Owned(Command::new(env!("CARGO_BIN_EXE_setjoin-auth")).arg0("gofree-authrt-guard")
-  .env("DB_DSN",&db.dsn).env("JWT_SECRET","idlogin1-fixture-secret-at-least-32-bytes").env("LISTEN_ADDR","127.0.0.1:0").env_remove("SETJOIN_CONFIG")
+  .env("DB_DSN",&db.dsn).env("JWT_SECRET","idlogin1-fixture-secret-at-least-32-bytes").env("LISTEN_ADDR",addr.to_string()).env_remove("SETJOIN_CONFIG")
   .env("RUST_WORKERS_ON","auth-runtime").env("GO_WORKERS_OFF","").stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap());
- let status=tokio::time::timeout(std::time::Duration::from_secs(5),async{loop{if let Some(status)=child.0.try_wait().unwrap(){break status}tokio::time::sleep(std::time::Duration::from_millis(20)).await}}).await.expect("shared effects started without retiring Go authserverd");
- assert!(!status.success());let mut stderr=String::new();std::io::Read::read_to_string(&mut child.0.stderr.take().unwrap(),&mut stderr).unwrap();
- assert!(stderr.contains("auth-runtime requires GO_WORKERS_OFF=auth-runtime"),"{stderr}");
+ let mut connected=false;
+ for _ in 0..100 {
+  if let Ok(mut stream)=tokio::net::TcpStream::connect(addr).await {
+   stream.write_all(b"GET /health HTTP/1.1\r\nHost: auth.test\r\nConnection: close\r\n\r\n").await.unwrap();
+   let mut response=Vec::new();stream.read_to_end(&mut response).await.unwrap();
+   assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 200"));
+   connected=true;break;
+  }
+  assert!(child.0.try_wait().unwrap().is_none(),"auth-runtime exited without GO_WORKERS_OFF");
+  tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+ }
+ assert!(connected,"auth-runtime did not bind its listener without GO_WORKERS_OFF");
 }
 
 #[tokio::test]

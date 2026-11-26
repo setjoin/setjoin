@@ -232,7 +232,7 @@ pub async fn create(
         deadline(),
         "INSERT INTO webhook_subscriptions (user_id, url, secret_enc, secret_key_id, event_types, scope) \
          SELECT $2::bigint, $4::text, $5::bytea, $6::text, $7::text::jsonb, $8::text \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id",
         &[
             (&url, Type::TEXT),
             (&sealed, Type::BYTEA),
@@ -273,7 +273,7 @@ pub async fn delete(
         &auth,
         deadline(),
         "DELETE FROM webhook_subscriptions WHERE id = $4::bigint AND user_id = $2::bigint \
-         AND $1::bigint > 0 AND $3::text <> '' RETURNING id",
+         AND $1::bigint >= 0 AND $3::text <> '' RETURNING id",
         &[(&id, Type::INT8)],
         |rows| Ok(!rows.is_empty()),
     )
@@ -350,7 +350,7 @@ pub async fn rotate(
             "UPDATE webhook_subscriptions \
                 SET prev_secret = NULL, prev_secret_enc = $5::bytea, prev_secret_key_id = $6::text, \
                     secret = NULL, secret_enc = $7::bytea, secret_key_id = $6::text \
-              WHERE id = $4::bigint AND user_id = $2::bigint AND $1::bigint > 0 AND $3::text <> '' \
+              WHERE id = $4::bigint AND user_id = $2::bigint AND $1::bigint >= 0 AND $3::text <> '' \
                 AND secret IS NOT DISTINCT FROM $8::text \
                 AND secret_enc IS NOT DISTINCT FROM $9::bytea \
                 AND secret_key_id IS NOT DISTINCT FROM $10::text \

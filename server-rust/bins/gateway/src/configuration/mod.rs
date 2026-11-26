@@ -12,7 +12,18 @@ pub struct Settings {
 }
 impl Settings {
     pub fn load(environment: &BTreeMap<String, String>) -> Result<Self, String> {
-        let yaml = match environment.get("SETJOIN_CONFIG").filter(|p| !p.is_empty()) {
+        let ordered: Vec<(String, String)> =
+            environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        Self::load_ordered(&ordered)
+    }
+    pub fn load_ordered(environment: &[(String, String)]) -> Result<Self, String> {
+        let yaml = match environment
+            .iter()
+            .rev()
+            .find(|(k, _)| k == "SETJOIN_CONFIG")
+            .map(|(_, v)| v.as_str())
+            .filter(|p| !p.is_empty())
+        {
             Some(path) => std::fs::read_to_string(path).map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
                     format!("open {path}: no such file or directory")
@@ -22,13 +33,26 @@ impl Settings {
             })?,
             None => String::new(),
         };
-        Self::parse(&yaml, environment)
+        Self::parse_ordered(&yaml, environment)
     }
     pub fn set_network_mode(&mut self, mode: String) {
         self.values.insert("network.mode".into(), mode.into());
     }
 
     pub fn parse(yaml: &str, environment: &BTreeMap<String, String>) -> Result<Self, String> {
+        let ordered: Vec<(String, String)> =
+            environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        Self::parse_ordered(yaml, &ordered)
+    }
+    pub fn parse_ordered(yaml: &str, environment: &[(String, String)]) -> Result<Self, String> {
+        let env_get = |k: &str| {
+            environment
+                .iter()
+                .rev()
+                .find(|(name, _)| name == k)
+                .map(|(_, value)| value.as_str())
+        };
+        let env_has = |k: &str| environment.iter().any(|(name, _)| name == k);
         let mut values: BTreeMap<String, Value> =
             serde_json::from_str(include_str!("defaults.json")).expect("Go defaults");
         // LoadBase seeds these defaults from env BEFORE the YAML layer. In
@@ -38,17 +62,18 @@ impl Settings {
             ("db.worker_dsn", "DB_WORKER_DSN", "DB_DSN"),
             ("db.owner_dsn", "DB_OWNER_DSN", "DB_DSN"),
         ] {
-            let value = environment
-                .get(name)
+            let value = env_get(name)
                 .filter(|v| !v.is_empty())
-                .or_else(|| environment.get(fallback));
+                .or_else(|| env_get(fallback));
             if let Some(value) = value {
-                values.insert(key.into(), value.clone().into());
+                values.insert(key.into(), value.to_owned().into());
             }
         }
         let mut file = BTreeMap::new();
         if !yaml.trim().is_empty() {
-            let value: Value = serde_saphyr::from_str(yaml).map_err(|e| format!("yaml: {e}"))?;
+            let normalized_yaml = normalize_yaml_underscore_numbers(yaml);
+            let value: Value =
+                serde_saphyr::from_str(&normalized_yaml).map_err(|e| format!("yaml: {e}"))?;
             if !value.is_null() && !value.is_object() {
                 return Err("yaml: configuration must be a mapping".into());
             }
@@ -80,10 +105,32 @@ impl Settings {
             ("s3.bucket", "MINIO_BUCKET", "mailblobs"),
         ] {
             if values.get(key).and_then(Value::as_str) == Some(default) {
-                if let Some(value) = environment.get(name).filter(|v| !v.is_empty()) {
-                    values.insert(key.into(), value.clone().into());
+                if let Some(value) = env_get(name).filter(|v| !v.is_empty()) {
+                    values.insert(key.into(), value.to_owned().into());
                     file_keys.insert(key.into());
                 }
+            }
+        }
+        // Mirror Go config.go:615-620 and 634-637 fallback rules when the explicit env vars are absent.
+        if !env_has("INTERNAL_DOMAINS")
+            && values.get("internal.domains").and_then(Value::as_str) == Some("localhost")
+        {
+            if let Some(host) = env_get("HOSTNAME").filter(|v| !v.is_empty()) {
+                values.insert("internal.domains".into(), host.to_owned().into());
+                file_keys.insert("internal.domains".into());
+            }
+        }
+        if !env_has("WORM_LEGAL_HOLD_ENABLED") {
+            let worm_mode_non_empty = values
+                .get("worm.mode")
+                .and_then(Value::as_str)
+                .is_some_and(|v| !v.is_empty());
+            values.insert(
+                "worm.legal_hold_enabled".into(),
+                Value::Bool(worm_mode_non_empty),
+            );
+            if worm_mode_non_empty || file_keys.contains("worm.legal_hold_enabled") {
+                file_keys.insert("worm.legal_hold_enabled".into());
             }
         }
         Ok(Self { values, file_keys })
@@ -97,10 +144,14 @@ impl Settings {
         }
     }
     pub fn boolean(&self, key: &str) -> bool {
-        matches!(
-            self.string(key).as_str(),
-            "1" | "t" | "T" | "true" | "TRUE" | "True"
-        )
+        match self.values.get(key) {
+            Some(Value::Bool(b)) => *b,
+            Some(Value::Number(n)) => {
+                n.as_f64() == Some(1.0) || n.as_i64() == Some(1) || n.as_u64() == Some(1)
+            }
+            Some(Value::String(s)) => matches!(s.as_str(), "1" | "t" | "T" | "true" | "TRUE" | "True"),
+            _ => false,
+        }
     }
     /// The client-visible configuration projection recorded by the Go overlay.
     pub fn projection(&self) -> Value {
@@ -137,7 +188,23 @@ impl Settings {
                 continue;
             }
             let name = key.replace('.', "_").to_ascii_uppercase();
-            std::env::set_var(&name, self.string(key));
+            let env_value = if key == "s3.secure"
+                && matches!(
+                    self.values.get(key.as_str()),
+                    Some(Value::Bool(_) | Value::Number(_))
+                ) {
+                if self.boolean(key) {
+                    "true".to_owned()
+                } else {
+                    "false".to_owned()
+                }
+            } else if key == "worm.retention_days" {
+                canonical_worm_retention_value(self.values.get(key.as_str()))
+                    .unwrap_or_else(|| self.string(key))
+            } else {
+                self.string(key)
+            };
+            std::env::set_var(&name, env_value);
             // Existing protocol adapters use Go's field-oriented spelling.
             match key.as_str() {
                 "tls.cert" => std::env::set_var("TLS_CERT_FILE", self.string(key)),
@@ -147,6 +214,325 @@ impl Settings {
         }
     }
 }
+fn valid_underscore_digits(s: &str, pred: fn(u8) -> bool) -> bool {
+    let bytes = s.as_bytes();
+    let mut saw_digit = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'_' {
+            if i == 0 || i + 1 == bytes.len() || bytes[i - 1] == b'_' || bytes[i + 1] == b'_' {
+                return false;
+            }
+        } else if pred(b) {
+            saw_digit = true;
+        } else {
+            return false;
+        }
+    }
+    saw_digit
+}
+
+fn parse_go_hex_float64(s: &str) -> Option<f64> {
+    let (neg, rest) = if let Some(r) = s.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = s.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, s)
+    };
+    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X"))?;
+    let p_idx = rest.find(['p', 'P'])?;
+    let mant_raw = &rest[..p_idx];
+    let exp_raw = &rest[p_idx + 1..];
+    let (exp_neg, exp_digits) = if let Some(r) = exp_raw.strip_prefix('-') {
+        (true, r)
+    } else if let Some(r) = exp_raw.strip_prefix('+') {
+        (false, r)
+    } else {
+        (false, exp_raw)
+    };
+    if !valid_underscore_digits(exp_digits, |b| b.is_ascii_digit()) {
+        return None;
+    }
+    let exp_mag: i32 = exp_digits.replace('_', "").parse().ok()?;
+    let exp_p = if exp_neg { -exp_mag } else { exp_mag };
+    let (int_hex, frac_hex) = match mant_raw.split_once('.') {
+        Some((i, f)) => {
+            if !i.is_empty()
+                && !valid_underscore_digits(
+                    i.strip_prefix('_').unwrap_or(i),
+                    |b| b.is_ascii_hexdigit(),
+                )
+            {
+                return None;
+            }
+            if !f.is_empty() && !valid_underscore_digits(f, |b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            (i, f)
+        }
+        None => {
+            if !valid_underscore_digits(
+                mant_raw.strip_prefix('_').unwrap_or(mant_raw),
+                |b| b.is_ascii_hexdigit(),
+            ) {
+                return None;
+            }
+            (mant_raw, "")
+        }
+    };
+    let int_clean = int_hex.replace('_', "");
+    let frac_clean = frac_hex.replace('_', "");
+    if int_clean.is_empty() && frac_clean.is_empty() {
+        return None;
+    }
+    let mut val = 0.0_f64;
+    for b in int_clean.bytes() {
+        val = val * 16.0 + (b as char).to_digit(16)? as f64;
+    }
+    let mut frac_scale = 1.0_f64 / 16.0;
+    for b in frac_clean.bytes() {
+        val += ((b as char).to_digit(16)? as f64) * frac_scale;
+        frac_scale /= 16.0;
+    }
+    let scaled = val * 2.0_f64.powi(exp_p);
+    let result = if neg { -scaled } else { scaled };
+    result.is_finite().then_some(result)
+}
+
+fn parse_go_float64(raw: &str) -> Option<f64> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let unsigned = s.strip_prefix(['+', '-']).unwrap_or(s);
+    if unsigned.starts_with("0x") || unsigned.starts_with("0X") {
+        return parse_go_hex_float64(s);
+    }
+    let mantissa = match unsigned.find(['e', 'E']) {
+        Some(idx) => {
+            let exp_raw = &unsigned[idx + 1..];
+            let exp_digits = exp_raw.strip_prefix(['+', '-']).unwrap_or(exp_raw);
+            if !valid_underscore_digits(exp_digits, |b| b.is_ascii_digit()) {
+                return None;
+            }
+            &unsigned[..idx]
+        }
+        None => unsigned,
+    };
+    match mantissa.split_once('.') {
+        Some((int_part, frac_part)) => {
+            if int_part.is_empty() && frac_part.is_empty() {
+                return None;
+            }
+            if !int_part.is_empty() && !valid_underscore_digits(int_part, |b| b.is_ascii_digit()) {
+                return None;
+            }
+            if !frac_part.is_empty() && !valid_underscore_digits(frac_part, |b| b.is_ascii_digit())
+            {
+                return None;
+            }
+        }
+        None => {
+            if !valid_underscore_digits(mantissa, |b| b.is_ascii_digit()) {
+                return None;
+            }
+        }
+    }
+    let v: f64 = s.replace('_', "").parse().ok()?;
+    v.is_finite().then_some(v)
+}
+
+fn normalize_go_yaml_number(raw: &str) -> Option<String> {
+    let sign = if raw.starts_with('-') { "-" } else { "" };
+    let unsigned = raw.strip_prefix(['+', '-']).unwrap_or(raw);
+    if let Some(hex) = unsigned.strip_prefix("0x").or_else(|| unsigned.strip_prefix("0X")) {
+        if !raw.contains('_') {
+            return None;
+        }
+        let digits = hex.strip_prefix('_').unwrap_or(hex);
+        if valid_underscore_digits(digits, |b| b.is_ascii_hexdigit()) {
+            return Some(raw.replace('_', ""));
+        }
+        return None;
+    }
+    if let Some(oct) = unsigned.strip_prefix("0o").or_else(|| unsigned.strip_prefix("0O")) {
+        if !raw.contains('_') {
+            return None;
+        }
+        let digits = oct.strip_prefix('_').unwrap_or(oct);
+        if valid_underscore_digits(digits, |b| matches!(b, b'0'..=b'7')) {
+            return Some(raw.replace('_', ""));
+        }
+        return None;
+    }
+    if let Some(bin) = unsigned.strip_prefix("0b").or_else(|| unsigned.strip_prefix("0B")) {
+        if !raw.contains('_') {
+            return None;
+        }
+        let digits = bin.strip_prefix('_').unwrap_or(bin);
+        if valid_underscore_digits(digits, |b| matches!(b, b'0' | b'1')) {
+            return Some(raw.replace('_', ""));
+        }
+        return None;
+    }
+    if unsigned.starts_with('0') && unsigned.len() > 1 && !unsigned.contains(['.', 'e', 'E']) {
+        let digits = unsigned[1..].strip_prefix('_').unwrap_or(&unsigned[1..]);
+        if valid_underscore_digits(digits, |b| matches!(b, b'0'..=b'7')) {
+            if let Ok(v) = i64::from_str_radix(&digits.replace('_', ""), 8) {
+                return Some(format!("{sign}{v}"));
+            }
+        }
+        return None;
+    }
+    if !raw.contains('_') {
+        return None;
+    }
+    let (mantissa, exponent) = match unsigned.find(['e', 'E']) {
+        Some(idx) => {
+            let exp_raw = &unsigned[idx + 1..];
+            let exp = exp_raw.strip_prefix(['+', '-']).unwrap_or(exp_raw);
+            if !valid_underscore_digits(exp, |b| b.is_ascii_digit()) {
+                return None;
+            }
+            (&unsigned[..idx], Some(exp))
+        }
+        None => (unsigned, None),
+    };
+    let int_ok = |part: &str| {
+        part == "0"
+            || (part.as_bytes().first().is_some_and(|b| matches!(b, b'1'..=b'9'))
+                && valid_underscore_digits(part, |b| b.is_ascii_digit()))
+    };
+    if let Some((int_part, frac_part)) = mantissa.split_once('.') {
+        if int_part.is_empty() && frac_part.is_empty() {
+            return None;
+        }
+        if !int_part.is_empty() && !int_ok(int_part) {
+            return None;
+        }
+        if !frac_part.is_empty() && !valid_underscore_digits(frac_part, |b| b.is_ascii_digit()) {
+            return None;
+        }
+        return Some(raw.replace('_', ""));
+    }
+    if int_ok(mantissa) && exponent.is_some() {
+        return Some(raw.replace('_', ""));
+    }
+    if int_ok(mantissa) {
+        return Some(raw.replace('_', ""));
+    }
+    None
+}
+
+fn normalize_yaml_underscore_numbers(yaml: &str) -> String {
+    use serde_saphyr::granit_parser::{Event, Parser, ScalarStyle};
+
+    let mut edits: Vec<(usize, usize, String)> = Vec::new();
+    for item in Parser::new_from_str(yaml) {
+        let Ok((event, span)) = item else {
+            return yaml.to_owned();
+        };
+        let Event::Scalar(text, style, _, tag) = event else {
+            continue;
+        };
+        let is_numeric_tag = tag.as_ref().is_some_and(|t| {
+            (t.handle() == "tag:yaml.org,2002:" && matches!(t.suffix(), "int" | "float"))
+                || (t.handle().is_empty()
+                    && matches!(
+                        t.suffix(),
+                        "tag:yaml.org,2002:int" | "tag:yaml.org,2002:float"
+                    ))
+        });
+        if tag.is_some() && !is_numeric_tag {
+            continue;
+        }
+        if tag.is_none() && style != ScalarStyle::Plain {
+            continue;
+        }
+        let Some(normalized) = normalize_go_yaml_number(text.as_ref()) else {
+            continue;
+        };
+        let (Some(start), Some(end)) = (span.start.byte_offset(), span.end.byte_offset()) else {
+            continue;
+        };
+        match style {
+            ScalarStyle::Plain => {
+                if yaml.get(start..end) == Some(text.as_ref()) {
+                    edits.push((start, end, normalized));
+                }
+            }
+            ScalarStyle::DoubleQuoted => {
+                if end >= start + 2
+                    && yaml.as_bytes().get(start) == Some(&b'"')
+                    && yaml.as_bytes().get(end - 1) == Some(&b'"')
+                    && yaml.get(start + 1..end - 1) == Some(text.as_ref())
+                {
+                    edits.push((start, end, format!("\"{normalized}\"")));
+                }
+            }
+            ScalarStyle::SingleQuoted => {
+                if end >= start + 2
+                    && yaml.as_bytes().get(start) == Some(&b'\'')
+                    && yaml.as_bytes().get(end - 1) == Some(&b'\'')
+                    && yaml.get(start + 1..end - 1) == Some(text.as_ref())
+                {
+                    edits.push((start, end, format!("'{normalized}'")));
+                }
+            }
+            _ => {}
+        }
+    }
+    if edits.is_empty() {
+        return yaml.to_owned();
+    }
+    edits.sort_by_key(|(start, _, _)| *start);
+    let mut out = String::with_capacity(yaml.len());
+    let mut cursor = 0usize;
+    for (start, end, replacement) in edits {
+        if start < cursor {
+            continue;
+        }
+        out.push_str(&yaml[cursor..start]);
+        out.push_str(&replacement);
+        cursor = end;
+    }
+    out.push_str(&yaml[cursor..]);
+    out
+}
+
+fn canonical_worm_retention_value(value: Option<&Value>) -> Option<String> {
+    match value {
+        Some(Value::Number(n)) => {
+            if let Some(i) = n.as_i64() {
+                Some(i.to_string())
+            } else if let Some(u) = n.as_u64() {
+                Some(u.to_string())
+            } else {
+                n.as_f64()
+                    .filter(|f| {
+                        f.is_finite()
+                            && *f >= (i64::MIN as f64)
+                            && *f < 9_223_372_036_854_775_808.0
+                    })
+                    .map(|f| (f as i64).to_string())
+            }
+        }
+        Some(Value::String(s)) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Ok(exact) = trimmed.parse::<i64>() {
+                return Some(exact.to_string());
+            }
+            parse_go_float64(trimmed)
+                .filter(|f| *f >= (i64::MIN as f64) && *f < 9_223_372_036_854_775_808.0)
+                .map(|f| (f as i64).to_string())
+        }
+        _ => None,
+    }
+}
+
 fn transform(name: &str) -> String {
     let mut key = name.to_lowercase().replace("__", ".");
     if let Some(at) = key.find('_') {
@@ -311,4 +697,140 @@ fn loopback_listener(address: &str) -> bool {
         || address
             .strip_prefix("localhost:")
             .is_some_and(|port| !port.contains(':'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn settings_boolean_matches_koanf_numeric_one() {
+        let numeric = Settings::parse("s3:\n  secure: 1.0\n", &BTreeMap::new()).unwrap();
+        assert!(numeric.boolean("s3.secure"));
+
+        let quoted = Settings::parse("s3:\n  secure: \"1.0\"\n", &BTreeMap::new()).unwrap();
+        assert!(!quoted.boolean("s3.secure"));
+    }
+
+    #[test]
+    fn settings_parse_ordered_preserves_last_slot_alias_precedence() {
+        let worm_on = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM__MODE".into(), String::new()),
+                ("WORM_MODE".into(), "compliance".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(worm_on.string("worm.mode"), "compliance");
+        assert!(worm_on.boolean("worm.legal_hold_enabled"));
+
+        let worm_off = Settings::parse_ordered(
+            "",
+            &[
+                ("WORM_MODE".into(), "compliance".into()),
+                ("WORM__MODE".into(), String::new()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(worm_off.string("worm.mode"), "");
+        assert!(!worm_off.boolean("worm.legal_hold_enabled"));
+
+        let bucket_single = Settings::parse_ordered(
+            "",
+            &[
+                ("S3__BUCKET".into(), "first".into()),
+                ("S3_BUCKET".into(), "second".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(bucket_single.string("s3.bucket"), "second");
+
+        let bucket_double = Settings::parse_ordered(
+            "",
+            &[
+                ("S3_BUCKET".into(), "first".into()),
+                ("S3__BUCKET".into(), "second".into()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(bucket_double.string("s3.bucket"), "second");
+    }
+
+    #[test]
+    fn yaml_underscore_numbers_and_canonical_retention_match_go() {
+        let float_one = Settings::parse("s3:\n  secure: 1_0e-1\n", &BTreeMap::new()).unwrap();
+        assert!(float_one.boolean("s3.secure"));
+
+        let tagged_float =
+            Settings::parse("s3:\n  secure: !!float 1_0e-1\n", &BTreeMap::new()).unwrap();
+        assert!(tagged_float.boolean("s3.secure"));
+
+        let hex_one = Settings::parse("s3:\n  secure: 0x_1\n", &BTreeMap::new()).unwrap();
+        assert!(hex_one.boolean("s3.secure"));
+
+        let legacy_oct_one = Settings::parse("s3:\n  secure: 0_1\n", &BTreeMap::new()).unwrap();
+        assert!(legacy_oct_one.boolean("s3.secure"));
+
+        let verbatim_float =
+            Settings::parse("s3:\n  secure: !<tag:yaml.org,2002:float> 1_0e-1\n", &BTreeMap::new())
+                .unwrap();
+        assert!(verbatim_float.boolean("s3.secure"));
+
+        let tagged_quoted_float =
+            Settings::parse("s3:\n  secure: !!float \"1_0e-1\"\n", &BTreeMap::new()).unwrap();
+        assert!(tagged_quoted_float.boolean("s3.secure"));
+
+        let verbatim_squote = Settings::parse(
+            "s3:\n  secure: !<tag:yaml.org,2002:float> '1_0e-1'\n",
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert!(verbatim_squote.boolean("s3.secure"));
+
+        let quoted = Settings::parse("s3:\n  secure: \"1_0e-1\"\n", &BTreeMap::new()).unwrap();
+        assert!(!quoted.boolean("s3.secure"));
+
+        let quoted_oct = Settings::parse("s3:\n  secure: \"0_1\"\n", &BTreeMap::new()).unwrap();
+        assert!(!quoted_oct.boolean("s3.secure"));
+
+        let str_tagged =
+            Settings::parse("s3:\n  secure: !!str 1_0e-1\n", &BTreeMap::new()).unwrap();
+        assert!(!str_tagged.boolean("s3.secure"));
+
+        let yaml_retention =
+            Settings::parse("worm:\n  retention_days: 3650.0\n", &BTreeMap::new()).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(yaml_retention.values.get("worm.retention_days"))
+                .as_deref(),
+            Some("3650")
+        );
+
+        let mut env = BTreeMap::new();
+        env.insert("WORM_RETENTION_DAYS".into(), "0x1p+4".into());
+        let env_retention = Settings::parse("", &env).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(env_retention.values.get("worm.retention_days"))
+                .as_deref(),
+            Some("16")
+        );
+
+        let mut bad_hex = BTreeMap::new();
+        bad_hex.insert("WORM_RETENTION_DAYS".into(), "0x10".into());
+        let env_bad_hex = Settings::parse("", &bad_hex).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(env_bad_hex.values.get("worm.retention_days")),
+            None
+        );
+
+        let mut exact_i64 = BTreeMap::new();
+        exact_i64.insert("WORM_RETENTION_DAYS".into(), "9007199254740993".into());
+        let env_exact_i64 = Settings::parse("", &exact_i64).unwrap();
+        assert_eq!(
+            super::canonical_worm_retention_value(env_exact_i64.values.get("worm.retention_days"))
+                .as_deref(),
+            Some("9007199254740993")
+        );
+    }
 }

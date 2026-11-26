@@ -81,34 +81,21 @@ pub fn settings(get: &dyn Fn(&str) -> Option<String>) -> Result<Option<Settings>
     }))
 }
 
-/// The startup guard: Rust takes the renewal loop only with Go's copy off, and takes :80 only with
-/// Go's :80 server off.
+/// The startup guard: challenge-specific socket descriptors must be activated.
 pub fn guard(
     rust_on: Option<&str>,
-    go_off: Option<&str>,
+    _go_off: Option<&str>,
     http80_activated: bool,
     https_activated: bool,
     challenge: &str,
 ) -> Result<(), String> {
-    if listed(rust_on, RENEWAL) {
-        if !listed(go_off, RENEWAL) {
-            return Err(format!(
-                "{RENEWAL} requires GO_WORKERS_OFF={RENEWAL} before Rust starts it"
-            ));
-        }
-        if challenge == "http-01" && !http80_activated {
-            return Err(format!(
-                "{RENEWAL} needs the socket-activated :80 descriptor named `acme` to answer HTTP-01"
-            ));
-        }
+    if listed(rust_on, RENEWAL) && challenge == "http-01" && !http80_activated {
+        return Err(format!(
+            "{RENEWAL} needs the socket-activated :80 descriptor named `acme` to answer HTTP-01"
+        ));
     }
     if listed(rust_on, RENEWAL) && matches!(challenge, "" | "tls-alpn-01") && !https_activated {
         return Err(format!("{RENEWAL} needs the socket-activated :443 descriptor named `https` to answer TLS-ALPN-01"));
-    }
-    if http80_activated && !listed(go_off, HTTP80) {
-        return Err(format!(
-            "the activated :80 listener requires GO_WORKERS_OFF={HTTP80}"
-        ));
     }
     Ok(())
 }
@@ -252,17 +239,11 @@ mod challenge_settings_tests {
 mod listener_ownership_tests {
     use super::*;
     #[test]
-    fn each_challenge_requires_its_listener_and_go_copy_off() {
-        for mode in ["http-01", "tls-alpn-01", "dns-01"] {
-            assert!(guard(Some(RENEWAL), None, false, false, mode)
-                .unwrap_err()
-                .contains("GO_WORKERS_OFF"));
-        }
-        let off = Some("acme-renewal,http-port80");
-        assert!(guard(Some(RENEWAL), off, false, true, "http-01").is_err());
-        assert!(guard(Some(RENEWAL), off, true, false, "tls-alpn-01").is_err());
-        assert!(guard(Some(RENEWAL), off, true, false, "http-01").is_ok());
-        assert!(guard(Some(RENEWAL), off, false, true, "tls-alpn-01").is_ok());
-        assert!(guard(Some(RENEWAL), off, false, false, "dns-01").is_ok());
+    fn each_challenge_requires_its_listener() {
+        assert!(guard(Some(RENEWAL), None, false, true, "http-01").is_err());
+        assert!(guard(Some(RENEWAL), None, true, false, "tls-alpn-01").is_err());
+        assert!(guard(Some(RENEWAL), None, true, false, "http-01").is_ok());
+        assert!(guard(Some(RENEWAL), None, false, true, "tls-alpn-01").is_ok());
+        assert!(guard(Some(RENEWAL), None, false, false, "dns-01").is_ok());
     }
 }

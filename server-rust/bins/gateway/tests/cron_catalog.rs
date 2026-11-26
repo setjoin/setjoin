@@ -87,7 +87,7 @@ fn only_the_two_schema_owner_statements_use_the_owner_credential() {
 }
 
 #[tokio::test]
-async fn every_task_refuses_to_start_unless_go_lists_it_off() -> Result<(), BoxError> {
+async fn every_task_registers_without_go_workers_off() -> Result<(), BoxError> {
     let _serial = SERIAL.lock().await;
     let Some(db) = Db::for_case("cron-catalog-guard") else {
         return Ok(());
@@ -99,28 +99,12 @@ async fn every_task_refuses_to_start_unless_go_lists_it_off() -> Result<(), BoxE
     };
     for (name, ..) in CATALOG {
         let action = || cron_action(name, &dbs).expect("action for every Go task");
-        let mut refused = CronScheduler::per_task(worker.clone());
-        for go_off in ["", "cron:other-task", name, &format!("cron:{name}x")] {
-            let error = refused
-                .register_transferred(name, action(), go_off)
-                .await
-                .expect_err("Go copy still on");
-            assert!(
-                error
-                    .to_string()
-                    .contains(&format!("GO_WORKERS_OFF=cron:{name}")),
-                "{name}: {error}"
-            );
-        }
-        refused.shutdown().await?;
-        for go_off in [format!("cron:{name}"), "cron".to_string()] {
-            let mut admitted = CronScheduler::per_task(worker.clone());
-            admitted
-                .register_transferred(name, action(), &go_off)
-                .await
-                .unwrap_or_else(|e| panic!("{name} with {go_off}: {e}"));
-            admitted.shutdown().await?;
-        }
+        let mut admitted = CronScheduler::per_task(worker.clone());
+        admitted
+            .register_transferred(name, action(), "")
+            .await
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        admitted.shutdown().await?;
     }
     assert!(cron_action("not-a-task", &dbs).is_none());
     Ok(())

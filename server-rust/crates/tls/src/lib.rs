@@ -1,9 +1,11 @@
 //! Serving-only TLS plumbing for the Go-free front door (#413).
 mod certificates;
 mod policy;
-mod state;
+#[doc(hidden)]
+pub mod state;
 pub use policy::aes_gcm_hardware;
-mod tickets;
+#[doc(hidden)]
+pub mod tickets;
 use rustls::pki_types::pem::PemObject;
 use std::{io, sync::Arc};
 use tokio::net::TcpStream;
@@ -34,7 +36,11 @@ impl Frontend {
         get: &dyn Fn(&str) -> Option<String>,
         aes_gcm: bool,
     ) -> Result<Option<Arc<Self>>, String> {
-        Self::configured(get, aes_gcm, rustls::server::WebPkiClientVerifier::no_client_auth())
+        Self::configured(
+            get,
+            aes_gcm,
+            rustls::server::WebPkiClientVerifier::no_client_auth(),
+        )
     }
 
     /// Install the gateway's audited optional client verifier. The gateway owns

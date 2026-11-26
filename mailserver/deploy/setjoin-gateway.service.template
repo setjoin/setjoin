@@ -24,6 +24,9 @@ ExecStart={{RUNTIME_DIR}}/setjoin-gateway
 # Federation gets only its app/worker/LISTEN credentials and static settings.
 # Never load config.env or the owner credential tier into the front door.
 EnvironmentFile=-{{FEDERATION_ENV}}
+# Storage gets only S3/MinIO endpoint and credentials, independent of SMTP
+# enablement (#289 legal holds, blobs, attachments).
+EnvironmentFile=-{{STORAGE_ENV}}
 # SMTP (#501) likewise gets its own allow-listed file: the worker tier and the
 # settings it needs, never the owner credential tier or config.env.
 EnvironmentFile=-{{SMTP_ENV}}

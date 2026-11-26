@@ -42,10 +42,9 @@ TLS-ALPN-01 responders and DNS provider APIs. No HTTP routes, no database. The g
   `bins/gateway/tests/acme_renewal_recorded.rs`.
 
 `tests/dns_recorded.rs` replays twelve Go managed ticks (nine single-name and three multi-domain; AWS environment credentials,
-all five TSIG hashes and unsigned RFC2136). A Go CI-image peripheral supplies fake DNS/provider
-APIs, validates AWS signatures with the independent official Go SDK and validates TSIG on both
-sides. Bad-token/key mutants must cause no mutation. The helper and source-hash receipt are
-built with `tests/conformance/tlsfront/build-peer.py`; normal replay runs no Go authority.
+all five TSIG hashes and unsigned RFC2136). An in-process pure-Rust peripheral (`tests/support/dns_fake.rs`) supplies fake
+DNS/provider APIs, validates AWS SigV4 signatures independently and validates RFC2136 TSIG (all five hashes) on both sides.
+Bad-token/key mutants must cause no mutation. Normal replay runs with zero Docker and zero Go.
 `gateway --test acme_tls` proves live chain replacement and an existing h2 connection survives.
 The two TLS-ALPN worker goldens are in `tests/conformance/acme/goldens/acme-tls-alpn-*`.
 

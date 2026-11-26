@@ -47,7 +47,7 @@ Owns authentication/signing/MFA/directory and threat contracts. Auth and mail sh
 - [6. Verification](DOX.md#6-verification)
 - [7. Child DOX Index](DOX.md#7-child-dox-index)
 
-Auth background task recording: [runtime oracle](DOX.md#auth-runtime-recording-420).
+Auth background task recording: [runtime oracle](DOX.md#auth-runtime-recording-202).
 
 OIDC RP task transfer: [named listener gate](DOX.md#oidc-rp-listener-transfer-340).
 

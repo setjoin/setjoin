@@ -402,8 +402,15 @@ wave1_case!(http_transport_errors_and_auth_first_forwarding, |e| {
         .body(full("{".to_owned()))
         .unwrap();
     let basic_resp = common::send(e.gateway, basic_req).await;
-    assert_eq!(basic_resp.status().as_u16(), 299);
-    assert!(e.upstream_hits.load(Ordering::SeqCst) > before);
+    assert_eq!(basic_resp.status().as_u16(), 401);
+    assert_eq!(
+        basic_resp
+            .headers()
+            .get("www-authenticate")
+            .and_then(|v| v.to_str().ok()),
+        Some(r#"Negotiate, Bearer realm="mailserver""#)
+    );
+    assert_eq!(e.upstream_hits.load(Ordering::SeqCst), before);
 
     let token = e.token(e.a.user);
 

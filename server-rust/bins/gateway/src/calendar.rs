@@ -452,6 +452,9 @@ impl<K: KeySource + 'static> Intercept for CalendarRoute<K> {
                         Ok(false) | Err(_) => return out.bare(404, "not found"),
                     }
                     let actor = auth.context();
+                    if actor.mailbox_id() == 0 {
+                        return out.bare(404, "mailbox not found");
+                    }
                     match what {
                         Action::PageList => {
                             match setjoin_calendar::page_list(&this.exec, actor).await {
@@ -804,6 +807,9 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         if end.signed_duration_since(start) > chrono::Duration::hours(366 * 24) {
             return error(400, "free/busy window is limited to 366 days per request");
         }
+        if auth.context().mailbox_id() == 0 {
+            return error(403, "no primary mailbox for caller");
+        }
         let (Ok(from), Ok(to)) = (
             crate::guests_input::timestamp(&body.start),
             crate::guests_input::timestamp(&body.end),
@@ -945,6 +951,9 @@ impl<K: KeySource + 'static> CalendarRoute<K> {
         } else {
             name
         };
+        if actor.mailbox_id() == 0 {
+            return out.bare(404, "mailbox not found");
+        }
         match setjoin_calendar::subscribe(&self.exec, actor, &name, &feed, operation).await {
             CommandOutcome::Committed((subscription, calendar)) => {
                 if let Some(kick) = &self.kick {

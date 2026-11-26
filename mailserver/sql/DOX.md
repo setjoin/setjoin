@@ -1956,8 +1956,9 @@ SQL authority checks: `tests/rust_compliance.pg`.
 best-effort hold/release audit. It uses the worker credential for the explicitly
 organization-wide surface, includes the verified actor in the UPDATE predicate,
 and preserves Go's swallowed query/audit errors and lack of state/journal/notify.
-WORM object effects stay forwarded to Go until Platform storage (#301) provides
-the retention registry; no second registry is constructed by Compliance.
+S3 Object Lock legal-hold writes execute natively in the gateway via
+`S3Store::legal_hold_with_retries` when `WORM_MODE` and `WORM_LEGAL_HOLD_ENABLED`
+are enabled (or count attached blobs as a no-op when `WORM_LEGAL_HOLD_ENABLED` is false).
 
 `rust_compliance_search_complete` owns count + result rebind + completion in one
 transaction, matching Go's executeSearch. The family builds the predicate from
@@ -2073,7 +2074,7 @@ roll back. Gateway's `identity_set_database_fault` cancels the final phase and
 compares the absent alias/user effects against Go. The frozen Go bypass for
 both batch wrappers is documented for the orchestrator's follow-up.
 
-### Rust identity password login (#331)
+### Rust identity password login (#112)
 
 `rust_identity_login_mint` wraps frozen Go's local authentication fence,
 credential-version check and refresh-anchor insertion in one transaction.
@@ -2301,7 +2302,7 @@ compares frozen-Go boot effects and decrypts the fixture ciphertexts.
 `rust_identity_password_write` (credential row keyed on the signed uid, never the signed email,
 #490) carry owner-approved security fixes of 2026-11-05; tests: `server-rust/bins/auth/tests/secfix3.rs`.
 
-## Rust OIDC Provider transactions (#339)
+## Rust OIDC Provider transactions (#120)
 
 `rust_identity_oidc_consume` mirrors frozen authserver's code lookup/deletion
 transaction. A presented hash supplies only a candidate owner; transaction user
@@ -2311,7 +2312,7 @@ PKCE, client and redirect validation because Go does. No audit, state bump or
 notification is invented. Caller receipts are opaque infrastructure metadata.
 Verification: `tests/rust_identity_oidc.pg`, plus the native auth HTTP oracle.
 
-OIDC refresh rotation (#339): `rust_identity_oidc_rotate` repeats the proved user's
+OIDC refresh rotation (#120): `rust_identity_oidc_rotate` repeats the proved user's
 GUC/client/hash under FOR UPDATE, inserts the successor, attaches its new hash
 and revokes the predecessor atomically. No audit/state/NOTIFY is invented; error
 phase HINT metadata preserves Go's HTTP error prefix. `rust_identity_oidc.pg`

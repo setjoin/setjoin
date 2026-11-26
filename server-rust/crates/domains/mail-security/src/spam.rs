@@ -198,7 +198,7 @@ pub async fn switch_model(
             "spam.model.reset",
             "WITH r AS (SELECT admin_can_reach($2, $4) AS ok), \
              d AS (DELETE FROM user_spam_model WHERE user_id = $4 AND (SELECT ok FROM r) RETURNING 1) \
-             SELECT ok FROM r WHERE $1::bigint > 0 AND $3::text <> ''",
+             SELECT ok FROM r WHERE $1::bigint >= 0 AND $3::text <> ''",
         ),
         Switch::Disable => (
             "spam.model.disable",
@@ -206,13 +206,13 @@ pub async fn switch_model(
              i AS (INSERT INTO user_spam_model (user_id, model_bytes, sample_count, disabled) \
                    SELECT $4, '\\x'::bytea, 0, TRUE FROM r WHERE ok \
                    ON CONFLICT (user_id) DO UPDATE SET disabled = TRUE RETURNING 1) \
-             SELECT ok FROM r WHERE $1::bigint > 0 AND $3::text <> ''",
+             SELECT ok FROM r WHERE $1::bigint >= 0 AND $3::text <> ''",
         ),
         Switch::Enable => (
             "spam.model.enable",
             "WITH r AS (SELECT admin_can_reach($2, $4) AS ok), \
              u AS (UPDATE user_spam_model SET disabled = FALSE WHERE user_id = $4 AND (SELECT ok FROM r) RETURNING 1) \
-             SELECT ok FROM r WHERE $1::bigint > 0 AND $3::text <> ''",
+             SELECT ok FROM r WHERE $1::bigint >= 0 AND $3::text <> ''",
         ),
     };
     setjoin_pg::run_receipted_command(
@@ -309,7 +309,7 @@ pub async fn sender_list_replace_legacy(
         ),
         &auth,
         deadline(),
-        "SELECT rust_mailsec_sender_list_replace($2, $4, $5) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_mailsec_sender_list_replace($2, $4, $5) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&safe, Type::TEXT_ARRAY), (&blocked, Type::TEXT_ARRAY)],
         flag,
     )
@@ -337,7 +337,7 @@ pub async fn sender_list_replace(
         &envelope(&auth, operation, &format!("senders.replace.generation:{operation_id}")),
         &auth,
         deadline(),
-        "SELECT sender_list_replace($2, $4::text::uuid, $5, $6, $7, $8)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT sender_list_replace($2, $4::text::uuid, $5, $6, $7, $8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&operation_id, Type::TEXT),
             (&generation, Type::INT8),
@@ -364,7 +364,7 @@ pub async fn never_block(
         &envelope(&auth, operation, "senders.never_block"),
         &auth,
         deadline(),
-        "SELECT rust_mailsec_sender_never_block($2, $4) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_mailsec_sender_never_block($2, $4) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&sender, Type::TEXT)],
         flag,
     )
@@ -425,7 +425,7 @@ pub async fn sender_control_action(
         ),
         &auth,
         deadline(),
-        "SELECT sender_control_action($2, $4, $5, $6::text::timestamptz, $7::text::uuid, $8, $9, $10, $11::text::uuid)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT sender_control_action($2, $4, $5, $6::text::timestamptz, $7::text::uuid, $8, $9, $10, $11::text::uuid)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&a.mailbox, Type::INT8),
             (&a.message, Type::INT8),
@@ -477,14 +477,14 @@ pub async fn trusted_write(
         (
             "trusted_senders.add",
             "INSERT INTO user_image_allow (user_id, sender) SELECT $2, $4 \
-             WHERE $1::bigint > 0 AND $3::text <> '' \
+             WHERE $1::bigint >= 0 AND $3::text <> '' \
              ON CONFLICT (user_id, sender) DO NOTHING RETURNING true",
         )
     } else {
         (
             "trusted_senders.remove",
             "DELETE FROM user_image_allow WHERE user_id = $2 AND sender = $4 \
-             AND $1::bigint > 0 AND $3::text <> '' RETURNING true",
+             AND $1::bigint >= 0 AND $3::text <> '' RETURNING true",
         )
     };
     setjoin_pg::run_receipted_command(
@@ -594,7 +594,7 @@ pub async fn external_put(
         &auth,
         deadline(),
         "UPDATE users SET external_sender_warning = $4 WHERE id = $2 \
-         AND $1::bigint > 0 AND $3::text <> '' RETURNING true",
+         AND $1::bigint >= 0 AND $3::text <> '' RETURNING true",
         &[(&enabled, Type::BOOL)],
         |_| Ok(true),
     )
@@ -619,7 +619,7 @@ pub async fn report(
         &envelope(&auth, operation, &format!("report:{message}:{kind}")),
         &auth,
         deadline(),
-        "SELECT rust_mailsec_report($2, $4, $5, $6) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT rust_mailsec_report($2, $4, $5, $6) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&message, Type::INT8),
             (&kind, Type::TEXT),

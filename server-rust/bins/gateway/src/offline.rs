@@ -313,6 +313,9 @@ impl<K: KeySource + 'static> Intercept for OfflineRoute<K> {
                         Ok(v) => v,
                         Err(_) => return bare(400, "device_id required", &c, &id),
                     };
+                    if actor.mailbox_id() == 0 {
+                        return bare(404, "mailbox not found", &c, &id);
+                    }
                     match offline::command(&exec, actor, "ack", payload, operation).await {
                         CommandOutcome::Committed(_) => {
                             return reply(200, "{\"status\":\"ok\"}\n".into())

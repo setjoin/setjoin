@@ -104,15 +104,22 @@ pub async fn switches() -> Result<(), BoxError> {
                     edge_limit: None,
                 },
                 RouteTable::proxy_all().with(adapter(&db)?),
-            )?
-            .with_inventory(&inventory.to_string())?
-            .with_enabled(!global);
+            )?;
+            if !global {
+                if gateway.with_inventory(&inventory.to_string()).is_ok() {
+                    return Err("OFF/go-mail F04 retention-audit inventory should have been rejected".into());
+                }
+                golden::compare(&json!([]), &json!(*calls.lock().unwrap()))?;
+                continue;
+            }
+            let gateway = gateway
+                .with_inventory(&inventory.to_string())?
+                .with_enabled(false);
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
             let addr = listener.local_addr()?;
             let server = tokio::spawn(gateway.serve(listener));
             let phase = async {
                 let body = "invalid JSON\n";
-                let mut expected = Vec::new();
                 for (method, uri) in routes {
                     let response = common::send(
                         addr,
@@ -127,13 +134,9 @@ pub async fn switches() -> Result<(), BoxError> {
                             .body(common::full(body))?,
                     )
                     .await;
-                    if response.status().as_u16() != 299 {
-                        return Err(format!("switch served {method} {uri} locally").into());
+                    if response.status().as_u16() == 299 {
+                        return Err(format!("legacy with_enabled(false) forwarded {method} {uri} to Go").into());
                     }
-                    if common::body_bytes(response).await.as_ref() != b"kill switch\n" {
-                        return Err("switch response changed".into());
-                    }
-                    expected.push(json!({"method":method,"uri":uri,"body":body}));
                 }
                 let response = common::send(
                     addr,
@@ -142,17 +145,15 @@ pub async fn switches() -> Result<(), BoxError> {
                 .await;
                 let status = response.status().as_u16();
                 let text = String::from_utf8(common::body_bytes(response).await.to_vec())?;
-                if global {
-                    if status != 299 {
-                        return Err("global switch intercepted metrics".into());
-                    }
-                    expected.push(json!({"method":"GET","uri":"/_gateway/metrics","body":""}));
-                } else if !text.lines().any(|l| {
-                    l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 14"
-                }) {
-                    return Err(format!("wrong switch metrics: {text}").into());
+                if status != 200
+                    || !text.lines().any(|l| l == "setjoin_gateway_proxied_to_go_total 0")
+                    || !text.lines().any(|l| {
+                        l == "setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0"
+                    })
+                {
+                    return Err(format!("wrong switch metrics: {status} {text}").into());
                 }
-                golden::compare(&json!(expected), &json!(*calls.lock().unwrap()))?;
+                golden::compare(&json!([]), &json!(*calls.lock().unwrap()))?;
                 Ok::<_, BoxError>(())
             }
             .await;
@@ -162,7 +163,7 @@ pub async fn switches() -> Result<(), BoxError> {
         }
         golden::compare(&before, &state(&owner, &a).await?)?;
         eprintln!(
-            "SWITCHES: all fourteen routes forwarded unchanged by inventory OFF and global OFF"
+            "SWITCHES: inventory OFF rejected and legacy global OFF kept all fourteen routes native"
         );
         Ok::<_, BoxError>(())
     }

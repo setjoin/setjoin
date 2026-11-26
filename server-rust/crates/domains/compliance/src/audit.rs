@@ -40,7 +40,7 @@ pub async fn missing_reason(
     use setjoin_pg::Type;
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"audit.reason_missing"},&super::envelope(&auth,operation,"audit.export"),&auth,super::deadline(),
- "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,$4::text::inet,'audit.export','core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",&[(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
+ "SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,$4::text::inet,'audit.export','core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",&[(&ip,Type::TEXT)],|rows|if rows.len()==1{Ok(())}else{Err(invalid())}).await
 }
 pub async fn put(
     exec: &ScopedExecutor,
@@ -54,7 +54,7 @@ pub async fn put(
     use setjoin_pg::Type;
     let auth = super::scope(actor);
     setjoin_pg::run_receipted_command(exec,setjoin_pg::ReceiptCommand{family:super::FAMILY,command:"audit.policy.set"},&super::envelope(&auth,operation,&serde_json::json!([level,areas,reason,ip]).to_string()),&auth,super::deadline(),
- "SELECT rust_compliance_audit_policy_set($2,$4,$5,$6,$7) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+ "SELECT rust_compliance_audit_policy_set($2,$4,$5,$6,$7) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
  &[(&level,Type::TEXT),(areas,Type::TEXT_ARRAY),(&reason,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 pub fn policy_body(level: &str, areas: &[String]) -> String {

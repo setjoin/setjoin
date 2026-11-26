@@ -56,8 +56,40 @@ fn main() -> ExitCode {
         println!("setjoin-gateway {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
-    let environment = std::env::vars().collect();
-    let settings = match setjoin_gateway::configuration::Settings::load(&environment) {
+    let environment: Vec<(String, String)> = std::env::vars().collect();
+    let env_get = |k: &str| {
+        environment
+            .iter()
+            .rev()
+            .find(|(name, _)| name == k)
+            .map(|(_, value)| value.as_str())
+    };
+    let explicit_worm_env = environment
+        .iter()
+        .any(|(k, _)| k.eq_ignore_ascii_case("WORM_MODE") || k.eq_ignore_ascii_case("WORM__MODE"));
+    let explicit_storage_env = environment.iter().any(|(k, v)| {
+        !v.is_empty()
+            && ([
+                "S3_ENDPOINT",
+                "S3__ENDPOINT",
+                "S3_BUCKET",
+                "S3__BUCKET",
+                "S3_ACCESS_KEY",
+                "S3_SECRET_KEY",
+            ]
+            .iter()
+            .any(|name| k.eq_ignore_ascii_case(name))
+                || matches!(
+                    k.as_str(),
+                    "MINIO_ENDPOINT" | "MINIO_BUCKET" | "MINIO_ACCESS_KEY" | "MINIO_SECRET_KEY"
+                ))
+    });
+    let socket_activated = env_get("LISTEN_PID")
+        .is_some_and(|pid| pid == std::process::id().to_string())
+        && env_get("LISTEN_FDS")
+            .and_then(|fds| fds.parse::<usize>().ok())
+            .is_some_and(|n| n > 0);
+    let settings = match setjoin_gateway::configuration::Settings::load_ordered(&environment) {
         Ok(settings) => settings,
         Err(error) => {
             eprintln!("setjoin-gateway: {error}");
@@ -66,10 +98,7 @@ fn main() -> ExitCode {
     };
     // An explicit Go configuration has the same validation boundary as reload.
     // The bare front-door bootstrap can still run without local application pools.
-    if environment
-        .get("SETJOIN_CONFIG")
-        .is_some_and(|path| !path.is_empty())
-    {
+    if env_get("SETJOIN_CONFIG").is_some_and(|path| !path.is_empty()) {
         if let Err(error) = settings.validate() {
             eprintln!("setjoin-gateway: {error}");
             return ExitCode::FAILURE;
@@ -77,13 +106,32 @@ fn main() -> ExitCode {
     }
     // Publish the resolved startup layer before any runtime thread can read env.
     settings.install_startup_environment();
-    let configuration = match setjoin_gateway::configuration::Runtime::new(environment, settings) {
-        Ok(configuration) => Arc::new(configuration),
-        Err(error) => {
-            eprintln!("setjoin-gateway: {error}");
+    let db_backed = std::env::var("DB_DSN")
+        .ok()
+        .is_some_and(|s| !s.is_empty());
+    if db_backed && socket_activated {
+        if !explicit_worm_env {
+            eprintln!(
+                "setjoin-gateway: systemd-activated gateway requires explicit WORM_MODE (empty when disabled) in gateway.env; run upgrade.sh refresh-gateway-env before activating"
+            );
             return ExitCode::FAILURE;
         }
-    };
+        let worm = setjoin_gateway::compliance::WormConfig::from_settings(&settings);
+        if worm.mode_enabled && !explicit_storage_env {
+            eprintln!(
+                "setjoin-gateway: WORM_MODE is enabled in gateway settings, but no S3_*/MINIO_* storage settings were loaded; run upgrade.sh refresh-gateway-env before activating"
+            );
+            return ExitCode::FAILURE;
+        }
+    }
+    let configuration =
+        match setjoin_gateway::configuration::Runtime::new_ordered(environment, settings) {
+            Ok(configuration) => Arc::new(configuration),
+            Err(error) => {
+                eprintln!("setjoin-gateway: {error}");
+                return ExitCode::FAILURE;
+            }
+        };
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -106,7 +154,9 @@ fn main() -> ExitCode {
     }
 }
 
-async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Result<(), String> {
+async fn run(
+    configuration: Arc<setjoin_gateway::configuration::Runtime>,
+) -> Result<(), String> {
     let mut reload_signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
         .map_err(|e| format!("SIGHUP registration: {e}"))?;
     let mut settings = configuration.startup_settings();
@@ -119,15 +169,25 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         .refresh_proxies(configuration_exec.as_ref())
         .await;
     let listen = std::env::var("GATEWAY_LISTEN").unwrap_or_else(|_| "127.0.0.1:8090".into());
-    let upstream = std::env::var("GATEWAY_UPSTREAM")
+    if std::env::var("GATEWAY_UPSTREAM")
         .ok()
-        .filter(|v| !v.is_empty());
+        .is_some_and(|v| !v.is_empty())
+    {
+        eprintln!(
+            "setjoin-gateway: WARNING: GATEWAY_UPSTREAM is deprecated and ignored (Go mailserver forwarding has been removed)"
+        );
+    }
     let trusted = std::env::var("GATEWAY_TRUSTED_PROXIES").unwrap_or_default();
-    let enabled = match std::env::var("GATEWAY_ENABLED").as_deref() {
-        Err(_) | Ok("") | Ok("true") | Ok("1") => true,
-        Ok("false") | Ok("0") => false,
+    match std::env::var("GATEWAY_ENABLED").as_deref() {
+        Err(_) | Ok("") | Ok("true") | Ok("1") => {}
+        Ok("false") | Ok("0") => {
+            return Err(
+                "GATEWAY_ENABLED=false is no longer supported; legacy Go proxy-all mode has been removed"
+                    .into(),
+            );
+        }
         _ => return Err("GATEWAY_ENABLED must be true/false or 1/0".into()),
-    };
+    }
     let activated = setjoin_gateway::activation::take_from_env()?;
     setjoin_gateway::tls_runtime::guard_activation(
         &|name| std::env::var(name).ok(),
@@ -152,10 +212,6 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         })?;
     let federation_reaper =
         setjoin_federation::runtime::reaper_from_env(&|name| std::env::var(name).ok())?;
-    require_go_off("mail-work")?;
-    require_go_off("mailbox-lifecycle")?;
-    require_go_off("migration-runner")?;
-    require_go_off(setjoin_smtp::outbound::NAME)?;
     let webhook = webhook_dispatcher()?;
     let outbound = setjoin_gateway::smtp_outbound::from_environment().await?;
     let migration_runner = migration_runner(webhook.as_ref()).await?;
@@ -193,35 +249,27 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
     let identity_workers = identity_workers()?;
     let admin_jobs = admin_job_workers()?;
     let chain = Arc::new(setjoin_authz::auth_chain::Chain::default());
-    let chain_config = if enabled {
-        std::env::var("DB_DSN")
-            .ok()
-            .zip(std::env::var("DB_DIRECT_DSN").ok())
-    } else {
-        None
-    };
+    let chain_config = std::env::var("DB_DSN")
+        .ok()
+        .zip(std::env::var("DB_DIRECT_DSN").ok());
     if settings.string("network.mode").is_empty() {
         settings.set_network_mode(setjoin_gateway::configuration::detect_network_mode().await);
     }
-    let platform_storage = if enabled {
-        std::env::var("DB_DSN")
-            .ok()
-            .filter(|dsn| !dsn.is_empty())
-            .map(|dsn| {
-                Ok::<_, String>(Arc::new(
-                    setjoin_gateway::platform_storage::Runtime::from_env()?.with_database(
-                        WorkerDatabase::from_dsns(
-                            &dsn,
-                            std::env::var("DB_WORKER_DSN").ok().as_deref(),
-                        )
-                        .map_err(|e| e.to_string())?,
-                    ),
-                ))
-            })
-            .transpose()?
-    } else {
-        None
-    };
+    let platform_storage = std::env::var("DB_DSN")
+        .ok()
+        .filter(|dsn| !dsn.is_empty())
+        .map(|dsn| {
+            Ok::<_, String>(Arc::new(
+                setjoin_gateway::platform_storage::Runtime::from_env()?.with_database(
+                    WorkerDatabase::from_dsns(
+                        &dsn,
+                        std::env::var("DB_WORKER_DSN").ok().as_deref(),
+                    )
+                    .map_err(|e| e.to_string())?,
+                ),
+            ))
+        })
+        .transpose()?;
     if let Some(storage) = &platform_storage {
         storage.recover().await;
     }
@@ -231,16 +279,13 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         activated.smtps.is_some(),
         activated.submission.is_some(),
     );
-    if imap_on && !listed("GO_LISTENERS_OFF", "imap") {
-        return Err("imap sockets require GO_LISTENERS_OFF=imap before Rust activation".into());
-    }
     let mut security_protocols = Vec::new();
     if imap_on {
         security_protocols.push("imap");
     }
     security_protocols.extend(smtp_off);
     let protocol_security =
-        if !security_protocols.is_empty() || (enabled && !settings.string("db.dsn").is_empty()) {
+        if !security_protocols.is_empty() || !settings.string("db.dsn").is_empty() {
             let label = if security_protocols.is_empty() {
                 "http".to_owned()
             } else {
@@ -263,26 +308,22 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         Some((gate, watchers)) => (Some(gate), Some(watchers)),
         None => (None, None),
     };
-    let (routes, edge_limit) = if enabled {
-        routes(
-            &settings,
-            configuration.clone(),
-            worker.as_ref().map(|(denylist, _)| denylist.clone()),
-            chain_config.as_ref().map(|_| chain.clone()),
-            threat_gate.clone(),
-            guests.clone(),
-            ldap.clone(),
-            ad.clone(),
-            subscription_sync.clone(),
-            migration_runner.clone(),
-            webhook.clone(),
-            federation.as_ref().map(|runtime| runtime.service.clone()),
-            platform_storage.clone(),
-        )
-        .await?
-    } else {
-        (RouteTable::proxy_all(), None)
-    };
+    let (routes, edge_limit) = routes(
+        &settings,
+        configuration.clone(),
+        worker.as_ref().map(|(denylist, _)| denylist.clone()),
+        chain_config.as_ref().map(|_| chain.clone()),
+        threat_gate.clone(),
+        guests.clone(),
+        ldap.clone(),
+        ad.clone(),
+        subscription_sync.clone(),
+        migration_runner.clone(),
+        webhook.clone(),
+        federation.as_ref().map(|runtime| runtime.service.clone()),
+        platform_storage.clone(),
+    )
+    .await?;
     let chain_task = if let Some((dsn, direct)) = chain_config {
         let exec = ScopedExecutor::from_dsn(&dsn, 2).map_err(|e| e.0)?;
         let registry = exec
@@ -306,11 +347,7 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         None
     };
     let config = Config {
-        upstream: upstream
-            .as_deref()
-            .map(str::parse)
-            .transpose()
-            .map_err(|e| format!("GATEWAY_UPSTREAM: {e}"))?,
+        upstream: None,
         trusted_proxies: TrustedProxies::parse(&trusted)
             .map_err(|e| format!("GATEWAY_TRUSTED_PROXIES: {e}"))?,
         upstream_header_timeout: match std::env::var("GATEWAY_UPSTREAM_HEADER_TIMEOUT_SECS") {
@@ -331,32 +368,35 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
     let mut gateway = Gateway::new(config, routes)?
         .with_http_limits(http_limits)
         .map_err(|e| format!("GATEWAY_MAX_CONNECTIONS: {e}"))?
-        .with_configuration(&configuration)
-        .with_enabled(enabled);
-    if enabled {
-        let auth = std::env::var("GATEWAY_AUTH_UPSTREAM")
-            .map_err(|_| "GATEWAY_AUTH_UPSTREAM is required when enabled")?;
-        gateway = gateway.with_auth_upstream(
-            auth.parse()
-                .map_err(|e| format!("GATEWAY_AUTH_UPSTREAM: {e}"))?,
+        .with_configuration(&configuration);
+    let rust_auth = match std::env::var("GATEWAY_RUST_AUTH_UPSTREAM")
+        .ok()
+        .filter(|v| !v.is_empty())
+    {
+        Some(auth) => Some(("GATEWAY_RUST_AUTH_UPSTREAM", auth)),
+        None => std::env::var("GATEWAY_AUTH_UPSTREAM")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .map(|auth| {
+                eprintln!(
+                    "setjoin-gateway: WARNING: GATEWAY_AUTH_UPSTREAM is deprecated; using it as GATEWAY_RUST_AUTH_UPSTREAM until gateway.env is refreshed"
+                );
+                ("GATEWAY_AUTH_UPSTREAM", auth)
+            }),
+    };
+    if let Some((var, auth)) = rust_auth {
+        gateway = gateway.with_rust_auth_upstream(
+            auth.parse().map_err(|e| format!("{var}: {e}"))?,
         )?;
-        if let Ok(auth) = std::env::var("GATEWAY_RUST_AUTH_UPSTREAM") {
-            if !auth.is_empty() {
-                gateway = gateway.with_rust_auth_upstream(
-                    auth.parse()
-                        .map_err(|e| format!("GATEWAY_RUST_AUTH_UPSTREAM: {e}"))?,
-                )?;
-            }
-        }
-        if let Ok(path) = std::env::var("GATEWAY_ROUTE_INVENTORY") {
-            let json = std::fs::read_to_string(path)
-                .map_err(|e| format!("GATEWAY_ROUTE_INVENTORY: {e}"))?;
-            let candidate = setjoin_gateway::inventory::Inventory::parse(&json)?;
-            let qualified =
-                setjoin_gateway::inventory::Inventory::parse(setjoin_gateway::inventory::BUNDLED)?;
-            candidate.require_qualified(&qualified)?;
-            gateway = gateway.with_inventory(&json)?;
-        }
+    }
+    if let Ok(path) = std::env::var("GATEWAY_ROUTE_INVENTORY") {
+        let json = std::fs::read_to_string(path)
+            .map_err(|e| format!("GATEWAY_ROUTE_INVENTORY: {e}"))?;
+        let candidate = setjoin_gateway::inventory::Inventory::parse(&json)?;
+        let qualified =
+            setjoin_gateway::inventory::Inventory::parse(setjoin_gateway::inventory::BUNDLED)?;
+        candidate.require_qualified(&qualified)?;
+        gateway = gateway.with_inventory(&json)?;
     }
     let mut tls_workers = match tls_frontend.as_ref() {
         Some(frontend) => Some(
@@ -416,8 +456,7 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         }));
         (stop, task)
     });
-    // Setup control socket (#305): Rust owns it only with Go's copy off.
-    require_go_off(setjoin_gateway::setup_control::NAME)?;
+    // Setup control socket (#305).
     let setup_control_task = if listed("RUST_WORKERS_ON", setjoin_gateway::setup_control::NAME) {
         let request = std::env::var("DB_DSN")
             .ok()
@@ -829,10 +868,7 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
     let bound = listener
         .local_addr()
         .map_err(|e| format!("listener address: {e}"))?;
-    eprintln!(
-        "setjoin-gateway: listening on {bound}, Go upstream {}",
-        upstream.as_deref().unwrap_or("unset")
-    );
+    eprintln!("setjoin-gateway: listening on {bound}");
     let federation_stop = tokio_util::sync::CancellationToken::new();
     let federation_task =
         federation.map(|runtime| tokio::spawn(runtime.run(federation_stop.clone())));
@@ -1211,6 +1247,7 @@ async fn routes(
     let office =
         setjoin_gateway::f15::F15Config::from_env(exec.clone(), keys.clone(), issuer.clone())?;
     let compliance_worker_dsn = env("DB_WORKER_DSN").unwrap_or_else(|| dsn.clone());
+    let worm = setjoin_gateway::compliance::WormConfig::from_settings(settings);
     let compliance = setjoin_gateway::compliance::ComplianceRoute {
         exec: exec.clone(),
         worker: ScopedExecutor::from_dsn(&compliance_worker_dsn, pool)
@@ -1227,6 +1264,7 @@ async fn routes(
         store: Some(Arc::new(
             setjoin_gateway::recovery_worker::S3Store::from_env()?,
         )),
+        worm: Some(worm),
         keys: keys.clone(),
         issuer: issuer.clone(),
     };
@@ -1300,7 +1338,11 @@ async fn routes(
         compliance.worker.clone(),
         keys.clone(),
         issuer.clone(),
-    );
+    )
+    .with_import_dir(Some(
+        setjoin_gateway::mail_security_tls::import_dir_from_settings(settings),
+    ))
+    .with_trace(setjoin_gateway::mail_security_trace::TraceConfig::from_settings(settings));
     let rules = setjoin_gateway::rules::RulesRoute {
         exec: exec.clone(),
         worker: compliance.worker.clone(),
@@ -1814,7 +1856,8 @@ async fn routes(
         setjoin_gateway::rtc::SFU_SIGNAL
             .parse()
             .expect("fixed SFU signal address"),
-    );
+    )
+    .without_guest_belt();
     let (assist_exec, assist_keys, assist_issuer) = (exec.clone(), keys.clone(), issuer.clone());
     let commands = Arc::new(JmapCommands {
         worker: Some(compliance.worker.clone()),
@@ -1977,11 +2020,6 @@ fn listed(var: &str, name: &str) -> bool {
 /// two copies never sync one directory.
 fn ldap_runtime() -> Result<Option<Arc<setjoin_directory_sync::ldap::runtime::LdapRuntime>>, String>
 {
-    if listed("RUST_WORKERS_ON", "ldap-sync") && !listed("GO_WORKERS_OFF", "ldap-sync") {
-        return Err(
-            "ldap-sync requires GO_WORKERS_OFF=ldap-sync before Rust starts shared effects".into(),
-        );
-    }
     let Some(request) = std::env::var("DB_DSN").ok().filter(|s| !s.is_empty()) else {
         if listed("RUST_WORKERS_ON", "ldap-sync") {
             return Err("DB_DSN is required for ldap-sync".into());
@@ -1996,8 +2034,6 @@ fn ldap_runtime() -> Result<Option<Arc<setjoin_directory_sync::ldap::runtime::Ld
     )))
 }
 
-/// A worker Rust takes over needs Go's copy off first, so two copies never
-/// run one effect (the startup guard of #259 for the #381 worker names).
 /// Go's `sharedwebhook.NewSecretCodec([]byte(cfg.JWTSecret), cfg.CryptoProfile)`.
 fn webhook_codec() -> setjoin_platform::webhook_secret::SecretCodec {
     setjoin_platform::webhook_secret::SecretCodec::new(
@@ -2008,23 +2044,11 @@ fn webhook_codec() -> setjoin_platform::webhook_secret::SecretCodec {
     )
 }
 
-fn require_go_off(name: &str) -> Result<(), String> {
-    if listed("RUST_WORKERS_ON", name) && !listed("GO_WORKERS_OFF", name) {
-        return Err(format!(
-            "{name} requires GO_WORKERS_OFF={name} before Rust starts it"
-        ));
-    }
-    Ok(())
-}
-
 /// The AD runtime (#381): the four AD runtime routes and the optional
 /// `ad-sync` worker share it. The resolved boot YAML/env pins Go's enable
 /// value. Disabled handlers still exist and answer their native auth/config
 /// outcomes; only shared-effect workers require the enable value to be true.
 fn ad_runtime() -> Result<Option<Arc<setjoin_directory_sync::ad::AdRuntime>>, String> {
-    for name in ["ad-sync", "ad-toggle-observer"] {
-        require_go_off(name)?;
-    }
     let wanted = ["ad-sync", "ad-toggle-observer"]
         .iter()
         .any(|name| listed("RUST_WORKERS_ON", name));
@@ -2072,7 +2096,6 @@ fn decode_source(
 /// falling back to `DB_DSN`).
 fn identity_source_runtime(
 ) -> Result<Option<Arc<setjoin_directory_sync::catalog::IdentitySourceRuntime>>, String> {
-    require_go_off("identity-source-runtime")?;
     if !listed("RUST_WORKERS_ON", "identity-source-runtime") {
         return Ok(None);
     }
@@ -2108,9 +2131,6 @@ fn admin_job_workers() -> Result<AdminJobs, String> {
         "identity-operations",
         "identity-transitions",
     ];
-    for name in NAMES {
-        require_go_off(name)?;
-    }
     if !NAMES.iter().any(|name| listed("RUST_WORKERS_ON", name)) {
         return Ok(AdminJobs {
             bulk: None,
@@ -2151,9 +2171,6 @@ fn admin_job_workers() -> Result<AdminJobs, String> {
 }
 
 fn identity_workers() -> Result<IdentityWorkers, String> {
-    for name in ["identity-toggle-observer", "identity-metrics"] {
-        require_go_off(name)?;
-    }
     let observing = ["ad-toggle-observer", "identity-toggle-observer"]
         .iter()
         .any(|name| listed("RUST_WORKERS_ON", name));
@@ -2335,14 +2352,6 @@ fn guest_lifecycle() -> Result<Option<Arc<setjoin_gateway::guest_worker::GuestLi
         .unwrap_or_default()
         .split(',')
         .any(|s| s.trim() == "guest-lifecycle");
-    if requested
-        && !std::env::var("GO_WORKERS_OFF")
-            .unwrap_or_default()
-            .split(',')
-            .any(|s| s.trim() == "guest-lifecycle")
-    {
-        return Err("guest-lifecycle requires GO_WORKERS_OFF=guest-lifecycle before Rust starts shared effects".into());
-    }
     let Some(request) = request else {
         if requested {
             return Err("DB_DSN is required for guest-lifecycle".into());
@@ -2377,7 +2386,6 @@ fn guest_lifecycle() -> Result<Option<Arc<setjoin_gateway::guest_worker::GuestLi
 /// `RUST_WORKERS_ON=booking-expiry` takes Go's booking sweeper; two sweeps
 /// would race on the same rows, so Go must be off first.
 fn booking_expiry() -> Result<Option<setjoin_gateway::booking_worker::BookingExpiry>, String> {
-    require_go_off("booking-expiry")?;
     if !listed("RUST_WORKERS_ON", "booking-expiry") {
         return Ok(None);
     }
@@ -2400,7 +2408,6 @@ fn booking_expiry() -> Result<Option<setjoin_gateway::booking_worker::BookingExp
 /// `RUST_WORKERS_ON=user-risk` takes Go's user-risk cron (#314); two scorers would run the
 /// same reducer per user, so Go must be off first (`GO_WORKERS_OFF=user-risk`).
 fn user_risk_worker() -> Result<Option<setjoin_gateway::user_risk_worker::UserRisk>, String> {
-    require_go_off("user-risk")?;
     if !listed("RUST_WORKERS_ON", "user-risk") {
         return Ok(None);
     }
@@ -2448,8 +2455,6 @@ fn webhook_workers(
     String,
 > {
     use setjoin_gateway::webhook::{PUBLICATIONS, RETRY};
-    require_go_off(PUBLICATIONS)?;
-    require_go_off(RETRY)?;
     let wanted = |name| listed("RUST_WORKERS_ON", name);
     if (wanted(PUBLICATIONS) || wanted(RETRY)) && dispatcher.is_none() {
         return Err("DB_DSN is required for the webhook workers".into());
@@ -2471,7 +2476,6 @@ fn webhook_workers(
 fn notify_drain_worker() -> Result<Option<setjoin_gateway::notify_drain::NotifyIntentDrain>, String>
 {
     use setjoin_gateway::notify_drain::NAME;
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2494,7 +2498,6 @@ fn notify_drain_worker() -> Result<Option<setjoin_gateway::notify_drain::NotifyI
 /// outbox is FORCE-RLS deny-all: worker credential only.
 fn secevents_worker() -> Result<Option<setjoin_gateway::secevents::SecurityEventDelivery>, String> {
     use setjoin_gateway::secevents::NAME;
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2516,7 +2519,6 @@ fn secevents_worker() -> Result<Option<setjoin_gateway::secevents::SecurityEvent
 /// (the `HOSTNAME` environment; a config-file `hostname` cannot be read here).
 fn tls_rpt_worker() -> Result<Option<Arc<setjoin_gateway::tls_rpt::TlsRptReport>>, String> {
     use setjoin_gateway::tls_rpt::NAME;
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2558,7 +2560,6 @@ fn smime_trust_listener(
 /// credential (cross-tenant sweeps) with the audit keys on the session.
 fn meet_reconcile_worker() -> Result<Option<setjoin_gateway::meet_worker::MeetReconcile>, String> {
     use setjoin_gateway::meet_worker::NAME;
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2589,7 +2590,6 @@ fn meet_reconcile_worker() -> Result<Option<setjoin_gateway::meet_worker::MeetRe
 async fn dmarc_report_worker() -> Result<Option<setjoin_gateway::dmarc_report::DmarcReport>, String>
 {
     use setjoin_gateway::dmarc_report::{DmarcReport, NAME};
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2636,7 +2636,6 @@ async fn dmarc_report_worker() -> Result<Option<setjoin_gateway::dmarc_report::D
 /// without an object store, and so does this: the digest stores its message there.
 fn push_drain_worker() -> Result<Option<setjoin_gateway::push_drain::PushIntentDrain>, String> {
     use setjoin_gateway::push_drain::{GuestDigest, PushIntentDrain, NAME};
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2704,7 +2703,6 @@ fn drive_worker_database(name: &str) -> Result<WorkerDatabase, String> {
 fn drive_maintenance_worker(
 ) -> Result<Option<setjoin_gateway::drive_workers::DriveMaintenance>, String> {
     use setjoin_gateway::drive_workers::{DriveMaintenance, MAINTENANCE};
-    require_go_off(MAINTENANCE)?;
     if !listed("RUST_WORKERS_ON", MAINTENANCE) {
         return Ok(None);
     }
@@ -2719,7 +2717,6 @@ fn drive_maintenance_worker(
 /// Rust copy cannot run beside a Go one once a command appears).
 fn drive_preview_worker() -> Result<Option<setjoin_gateway::drive_workers::DrivePreview>, String> {
     use setjoin_gateway::drive_workers::{DrivePreview, PREVIEW};
-    require_go_off(PREVIEW)?;
     if !listed("RUST_WORKERS_ON", PREVIEW) {
         return Ok(None);
     }
@@ -2738,7 +2735,6 @@ fn drive_preview_worker() -> Result<Option<setjoin_gateway::drive_workers::Drive
 /// first. Needs the object store, as Go does.
 fn blob_cleanup_worker() -> Result<Option<setjoin_gateway::blob_cleanup::BlobCleanup>, String> {
     use setjoin_gateway::blob_cleanup::{BlobCleanup, NAME};
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2753,7 +2749,6 @@ fn blob_cleanup_worker() -> Result<Option<setjoin_gateway::blob_cleanup::BlobCle
 /// rows, so Go must be off first.
 fn subscription_sync(
 ) -> Result<Option<Arc<setjoin_gateway::subscription_sync::SubscriptionSync>>, String> {
-    require_go_off("calendar-subscription-sync")?;
     if !listed("RUST_WORKERS_ON", "calendar-subscription-sync") {
         return Ok(None);
     }
@@ -2799,12 +2794,6 @@ fn drive_watch_worker() -> Result<Option<(setjoin_drive::watch::DriveWatch, Stri
     };
     if !listed("RUST_WORKERS_ON") {
         return Ok(None);
-    }
-    if !listed("GO_WORKERS_OFF") {
-        return Err(
-            "drive-watch requires GO_WORKERS_OFF=drive-watch before Rust starts shared effects"
-                .into(),
-        );
     }
     let request = std::env::var("DB_DSN").map_err(|_| "DB_DSN is required for workers")?;
     let worker = std::env::var("DB_WORKER_DSN")
@@ -2973,7 +2962,6 @@ async fn migration_runner(
 fn exchange_deletion_worker(
 ) -> Result<Option<setjoin_gateway::exchange_deletion::DeletionWorker>, String> {
     use setjoin_gateway::exchange_deletion::{DeletionWorker, NAME};
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }
@@ -2991,7 +2979,6 @@ fn exchange_deletion_worker(
 fn spam_trainer_worker(
 ) -> Result<Option<(setjoin_gateway::spam_trainer::SpamTrainer, String)>, String> {
     use setjoin_gateway::spam_trainer::{SpamTrainer, NAME};
-    require_go_off(NAME)?;
     if !listed("RUST_WORKERS_ON", NAME) {
         return Ok(None);
     }

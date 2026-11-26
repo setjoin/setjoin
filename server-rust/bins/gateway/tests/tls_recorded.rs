@@ -1,13 +1,24 @@
-//! #413: frozen-Go TLS/HTTP negotiations replayed against the native front door.
-#[path = "../../../crates/acme/tests/support/pebble.rs"]
-mod pebble;
-#[path = "../../../tests/conformance/tlsfront/peer.rs"]
-mod peer;
+//! #413: frozen-Go TLS/HTTP negotiations replayed against the native front door (pure Rust).
+use bytes::Bytes;
+use http_body_util::{BodyExt, Empty};
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use serde_json::{json, Value};
 use setjoin_gateway::{Config, Gateway, RouteTable, TrustedProxies};
 use std::{
+    net::SocketAddr,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
+};
+use tokio::net::TcpStream;
+use tokio_rustls::rustls::{
+    self,
+    client::{ClientSessionMemoryCache, ClientSessionStore, Resumption},
+    pki_types::{pem::PemObject, CertificateDer, ServerName},
+    ClientConfig, HandshakeKind, NamedGroup, RootCertStore,
 };
 
 fn root() -> PathBuf {
@@ -16,133 +27,72 @@ fn root() -> PathBuf {
         .canonicalize()
         .unwrap()
 }
+
 struct Work(PathBuf);
 impl Drop for Work {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).unwrap();
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn pair(cn: &str, names: &[&str], year: i32) -> (String, String) {
-    let key = rcgen::KeyPair::generate().unwrap();
-    let mut p =
-        rcgen::CertificateParams::new(names.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
-            .unwrap();
-    p.distinguished_name.push(rcgen::DnType::CommonName, cn);
-    p.not_after = rcgen::date_time_ymd(year, 1, 1);
-    let cert = p.self_signed(&key).unwrap();
-    (cert.pem(), key.serialize_pem())
+
+#[derive(Debug)]
+struct CountingStore {
+    inner: ClientSessionMemoryCache,
+    tickets: AtomicUsize,
 }
-fn assets() -> Value {
-    let (cert, key) = pair(
-        "static.localhost",
-        &[
-            "localhost",
-            "foreign.localhost",
-            "managed.localhost",
-            "127.0.0.1",
-            "one.example.test",
-            "a.b.example.test",
-        ],
-        2037,
-    );
-    let (managed, mkey) = pair("managed.localhost", &["managed.localhost"], 2037);
-    let (auto, akey) = pair("autocert.localhost", &["managed.localhost"], 2037);
-    let (expired, ekey) = pair("managed.localhost", &["managed.localhost"], 2020);
-    let (wrong, wkey) = pair("wrong.localhost", &["wrong.localhost"], 2037);
-    let (wildcard, wildkey) = pair("*.example.test", &["*.example.test"], 2037);
-    json!({"certificate":cert,"public_test_key":key,"managed_blob":format!("{mkey}{managed}"),"autocert_blob":format!("{akey}{auto}"),"expired_blob":format!("{ekey}{expired}"),"wrong_blob":format!("{wkey}{wrong}"),"wildcard_blob":format!("{wildkey}{wildcard}"),"roots":format!("{cert}{managed}{auto}{wildcard}")})
+
+impl CountingStore {
+    fn new() -> Self {
+        Self {
+            inner: ClientSessionMemoryCache::new(8),
+            tickets: AtomicUsize::new(0),
+        }
+    }
+    fn issued(&self) -> usize {
+        self.tickets.load(Ordering::SeqCst)
+    }
 }
-fn case(name: &str, sni: &str, alpn: &str, version: u16, cache: &str) -> Value {
-    json!({"name":name,"sni":sni,"alpn":alpn,"version":version,"plain":false,"cache":cache})
+
+impl ClientSessionStore for CountingStore {
+    fn set_kx_hint(&self, server_name: ServerName<'static>, group: NamedGroup) {
+        self.inner.set_kx_hint(server_name, group);
+    }
+    fn kx_hint(&self, server_name: &ServerName<'_>) -> Option<NamedGroup> {
+        self.inner.kx_hint(server_name)
+    }
+    fn set_tls12_session(
+        &self,
+        server_name: ServerName<'static>,
+        value: rustls::client::Tls12ClientSessionValue,
+    ) {
+        self.tickets.fetch_add(1, Ordering::SeqCst);
+        self.inner.set_tls12_session(server_name, value);
+    }
+    fn tls12_session(
+        &self,
+        server_name: &ServerName<'_>,
+    ) -> Option<rustls::client::Tls12ClientSessionValue> {
+        self.inner.tls12_session(server_name)
+    }
+    fn remove_tls12_session(&self, server_name: &ServerName<'static>) {
+        self.inner.remove_tls12_session(server_name);
+    }
+    fn insert_tls13_ticket(
+        &self,
+        server_name: ServerName<'static>,
+        value: rustls::client::Tls13ClientSessionValue,
+    ) {
+        self.tickets.fetch_add(1, Ordering::SeqCst);
+        self.inner.insert_tls13_ticket(server_name, value);
+    }
+    fn take_tls13_ticket(
+        &self,
+        server_name: &ServerName<'static>,
+    ) -> Option<rustls::client::Tls13ClientSessionValue> {
+        self.inner.take_tls13_ticket(server_name)
+    }
 }
-fn cases() -> Vec<Value> {
-    let mut plain = case("h2c-prior-knowledge", "localhost", "h2", 0, "none");
-    plain["plain"] = json!(true);
-    vec![
-        case("tls13-h2", "localhost", "h2", 0x304, "none"),
-        case("tls13-http11", "localhost", "http/1.1", 0x304, "none"),
-        case("tls12-http11", "localhost", "http/1.1", 0x303, "none"),
-        plain,
-        case("managed-sni", "managed.localhost", "h2", 0x304, "managed"),
-        case(
-            "normalized-sni",
-            "MANAGED.localhost.",
-            "http/1.1",
-            0x304,
-            "managed",
-        ),
-        case(
-            "foreign-sni-fallback",
-            "foreign.localhost",
-            "h2",
-            0x304,
-            "managed",
-        ),
-        case(
-            "empty-sni-fallback",
-            "127.0.0.1",
-            "http/1.1",
-            0x304,
-            "managed",
-        ),
-        case(
-            "cold-cache-fallback",
-            "managed.localhost",
-            "h2",
-            0x304,
-            "cold",
-        ),
-        case(
-            "expired-cache-fallback",
-            "managed.localhost",
-            "h2",
-            0x304,
-            "expired",
-        ),
-        case(
-            "corrupt-cache-fallback",
-            "managed.localhost",
-            "h2",
-            0x304,
-            "corrupt",
-        ),
-        case(
-            "autocert-literal-cache",
-            "managed.localhost",
-            "h2",
-            0x304,
-            "autocert",
-        ),
-        case(
-            "autocert-wrong-host-fallback",
-            "managed.localhost",
-            "h2",
-            0x304,
-            "wrong",
-        ),
-        case(
-            "managed-precedes-autocert",
-            "managed.localhost",
-            "h2",
-            0x304,
-            "both",
-        ),
-        case(
-            "wildcard-one-label",
-            "one.example.test",
-            "h2",
-            0x304,
-            "wildcard",
-        ),
-        case(
-            "wildcard-deeper-fallback",
-            "a.b.example.test",
-            "h2",
-            0x304,
-            "wildcard",
-        ),
-    ]
-}
+
 fn prepare(work: &Work, a: &Value, c: &Value) -> Vec<String> {
     std::fs::write(work.0.join("cert.pem"), a["certificate"].as_str().unwrap()).unwrap();
     std::fs::write(
@@ -203,50 +153,187 @@ fn prepare(work: &Work, a: &Value, c: &Value) -> Vec<String> {
     }
     domains
 }
-fn config(work: &Work, c: &Value) -> Value {
-    json!({"Cert":work.0.join("cert.pem"),"Key":work.0.join("key.pem"),"Roots":work.0.join("roots.pem"),"Raw":false,"Plain":c["plain"],"SNI":c["sni"],"ALPN":c["alpn"],"Version":c["version"],"Out":work.0.join("out.json")})
-}
-async fn record(work: &Work, a: &Value, c: &Value, aes: bool) -> Value {
-    let domains = prepare(work, a, c);
-    let _ = std::fs::remove_file(work.0.join("ready"));
-    let mut cfg = config(work, c);
-    cfg["Mode"] = json!("server");
-    cfg["DisableAES"] = json!(!aes);
-    cfg["Listen"] = json!("127.0.0.1:0");
-    cfg["Ready"] = json!(work.0.join("ready"));
-    cfg["Cache"] = json!(work.0.join("cache"));
-    cfg["Domains"] = json!(domains);
-    cfg["Directory"] = json!(pebble::DIRECTORY);
-    cfg["CA"] = json!(pebble::ca_root());
-    if c["cache"] == "wildcard" {
-        cfg["Challenge"] = json!("dns-01");
+
+fn http_version_label(version: hyper::Version) -> &'static str {
+    match version {
+        hyper::Version::HTTP_10 => "HTTP/1.0",
+        hyper::Version::HTTP_11 => "HTTP/1.1",
+        hyper::Version::HTTP_2 => "HTTP/2.0",
+        hyper::Version::HTTP_3 => "HTTP/3.0",
+        _ => "HTTP/unknown",
     }
-    let mut server = peer::Server::spawn(&root(), &cfg, &work.0.join("server.log"));
-    let mut address = None;
-    for _ in 0..500 {
-        if let Ok(addr) = std::fs::read_to_string(work.0.join("ready")) {
-            address = Some(addr);
-            break;
-        }
-        assert!(
-            server.try_wait().unwrap().is_none(),
-            "Go exited: {}",
-            std::fs::read_to_string(work.0.join("server.log")).unwrap()
-        );
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    let mut cfg = config(work, c);
-    cfg["Mode"] = json!("probe");
-    cfg["Listen"] = json!(address.expect("Go not ready"));
-    let output = peer::run(&root(), &cfg);
-    assert!(
-        output.status.success(),
-        "{} {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&std::fs::read(work.0.join("out.json")).unwrap()).unwrap()
 }
+
+fn header_str(headers: &hyper::HeaderMap, name: &str) -> String {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn leaf_common_name(der: &[u8]) -> String {
+    let (_, cert) = x509_parser::parse_x509_certificate(der).expect("parse leaf certificate");
+    let cn = cert
+        .subject()
+        .iter_common_name()
+        .next()
+        .and_then(|attr| attr.as_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    cn
+}
+
+async fn probe(work: &Work, addr: SocketAddr, c: &Value) -> Value {
+    let plain = c["plain"].as_bool().unwrap();
+    let sni = c["sni"].as_str().unwrap();
+    if plain {
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let (mut sender, conn) =
+            hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(tcp))
+                .await
+                .unwrap();
+        let driver = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        let req = hyper::Request::builder()
+            .method("GET")
+            .uri(format!("http://{sni}/_gateway/healthz"))
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = sender.send_request(req).await.unwrap();
+        let status = resp.status().as_u16();
+        let http_version = http_version_label(resp.version());
+        let content_type = header_str(resp.headers(), "content-type");
+        let hsts = header_str(resp.headers(), "strict-transport-security");
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        drop(sender);
+        driver.abort();
+        return json!({
+            "resumed": false,
+            "version": 0,
+            "cipher": 0,
+            "alpn": "",
+            "subject": "",
+            "chain": 0,
+            "body": String::from_utf8(body.to_vec()).unwrap(),
+            "status": status,
+            "http_version": http_version,
+            "content_type": content_type,
+            "hsts": hsts,
+            "tickets_issued": 0,
+        });
+    }
+
+    let mut roots = RootCertStore::empty();
+    for cert in CertificateDer::pem_file_iter(work.0.join("roots.pem")).unwrap() {
+        roots.add(cert.unwrap()).unwrap();
+    }
+    let version = c["version"].as_u64().unwrap() as u16;
+    let versions: &[&rustls::SupportedProtocolVersion] = match version {
+        0x303 => &[&rustls::version::TLS12],
+        0x304 => &[&rustls::version::TLS13],
+        _ => panic!("unexpected TLS version {version:#x}"),
+    };
+    let store = Arc::new(CountingStore::new());
+    let mut cfg =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(versions)
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+    cfg.resumption = Resumption::store(store.clone());
+    let alpn = c["alpn"].as_str().unwrap();
+    if !alpn.is_empty() {
+        cfg.alpn_protocols = alpn.split(',').map(|s| s.as_bytes().to_vec()).collect();
+    }
+
+    let tcp = TcpStream::connect(addr).await.unwrap();
+    let server_name = ServerName::try_from(sni.to_owned()).unwrap();
+    let tls = tokio_rustls::TlsConnector::from(Arc::new(cfg))
+        .connect(server_name, tcp)
+        .await
+        .unwrap();
+
+    let (resumed, negotiated_version, cipher, negotiated_alpn, chain, subject) = {
+        let conn = tls.get_ref().1;
+        let certs = conn.peer_certificates().unwrap_or_default();
+        let subject = certs
+            .first()
+            .map(|der| leaf_common_name(der.as_ref()))
+            .unwrap_or_default();
+        (
+            conn.handshake_kind() == Some(HandshakeKind::Resumed),
+            u16::from(conn.protocol_version().unwrap()),
+            u16::from(conn.negotiated_cipher_suite().unwrap().suite()),
+            String::from_utf8_lossy(conn.alpn_protocol().unwrap_or_default()).into_owned(),
+            certs.len(),
+            subject,
+        )
+    };
+
+    let (status, http_version, content_type, hsts, body) = if negotiated_alpn == "h2" {
+        let (mut sender, conn) =
+            hyper::client::conn::http2::handshake(TokioExecutor::new(), TokioIo::new(tls))
+                .await
+                .unwrap();
+        let driver = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        let req = hyper::Request::builder()
+            .method("GET")
+            .uri(format!("https://{sni}/_gateway/healthz"))
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = sender.send_request(req).await.unwrap();
+        let status = resp.status().as_u16();
+        let http_version = http_version_label(resp.version());
+        let content_type = header_str(resp.headers(), "content-type");
+        let hsts = header_str(resp.headers(), "strict-transport-security");
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        drop(sender);
+        driver.abort();
+        (status, http_version, content_type, hsts, body)
+    } else {
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls))
+            .await
+            .unwrap();
+        let driver = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        let req = hyper::Request::builder()
+            .method("GET")
+            .uri("/_gateway/healthz")
+            .header("host", sni)
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = sender.send_request(req).await.unwrap();
+        let status = resp.status().as_u16();
+        let http_version = http_version_label(resp.version());
+        let content_type = header_str(resp.headers(), "content-type");
+        let hsts = header_str(resp.headers(), "strict-transport-security");
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        drop(sender);
+        driver.abort();
+        (status, http_version, content_type, hsts, body)
+    };
+
+    json!({
+        "resumed": resumed,
+        "version": negotiated_version,
+        "cipher": cipher,
+        "alpn": negotiated_alpn,
+        "subject": subject,
+        "chain": chain,
+        "body": String::from_utf8(body.to_vec()).unwrap(),
+        "status": status,
+        "http_version": http_version,
+        "content_type": content_type,
+        "hsts": hsts,
+        "tickets_issued": store.issued(),
+    })
+}
+
 async fn replay(work: &Work, a: &Value, c: &Value, aes: bool) -> Value {
     let domains = prepare(work, a, c);
     let gateway = Gateway::new(
@@ -285,22 +372,12 @@ async fn replay(work: &Work, a: &Value, c: &Value, aes: bool) -> Value {
             gateway.serve_tls_until(listener, frontend, stop).await
         }
     });
-    let mut cfg = config(work, c);
-    cfg["Mode"] = json!("probe");
-    cfg["Listen"] = json!(addr.to_string());
-    let output = tokio::task::spawn_blocking(move || peer::run(&root(), &cfg))
-        .await
-        .unwrap();
+    let observed = probe(work, addr, c).await;
     let _ = stop.send(());
     server.await.unwrap();
-    assert!(
-        output.status.success(),
-        "{} {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    serde_json::from_slice(&std::fs::read(work.0.join("out.json")).unwrap()).unwrap()
+    observed
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn https_h2c_and_sni_match_recorded_go() {
     let work = Work(
@@ -318,28 +395,6 @@ async fn https_h2c_and_sni_match_recorded_go() {
         let path = root()
             .join("server-rust/tests/conformance/tlsfront")
             .join(name);
-        let target = std::env::var("GOFREE_RECORD_TLSFRONT_HTTP").ok();
-        if target.as_deref() == Some(if aes { "1" } else { "no-aes" }) {
-            let _pebble = pebble::Pebble::start()
-                .await
-                .expect("recording requires test ACME server");
-            let assets = assets();
-            let mut cases = cases();
-            for case in &mut cases {
-                case["observation"] = record(&work, &assets, case, aes).await;
-            }
-            let source = std::process::Command::new("git")
-                .args(["rev-parse", "HEAD"])
-                .output()
-                .unwrap();
-            use std::io::Write;
-            let mut out = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-                .unwrap();
-            out.write_all(&serde_json::to_vec_pretty(&json!({"format":1,"go_source":String::from_utf8(source.stdout).unwrap().trim(),"aes":aes,"fixtures":assets,"cases":cases})).unwrap()).unwrap();
-        }
         let recorded: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         for case in recorded["cases"].as_array().unwrap() {
             let actual = replay(&work, &recorded["fixtures"], case, aes).await;

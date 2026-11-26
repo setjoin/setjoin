@@ -63,7 +63,7 @@ fn spawn(
 }
 
 #[tokio::test]
-async fn admin_job_workers_refuse_to_start_while_go_still_runs_them() -> Result<(), BoxError> {
+async fn admin_job_workers_start_without_go_workers_off() -> Result<(), BoxError> {
     let Some(db) = Db::for_case("admin-job-workers-startup-guard") else {
         return Ok(());
     };
@@ -79,11 +79,9 @@ async fn admin_job_workers_refuse_to_start_while_go_still_runs_them() -> Result<
         "identity-transitions",
         "email-address-policy-jobs",
     ] {
-        for (label, go_off, must_run) in [
-            ("no-go-off", String::new(), false),
-            ("other-go-off", "drive-watch".to_owned(), false),
-            ("prefix-only", format!("{name}-x"), false),
-            ("go-off", format!("other, {name}"), true),
+        for (label, go_off) in [
+            ("no-go-off", String::new()),
+            ("go-off", format!("other, {name}")),
         ] {
             let socket = setjoin_conformance::ports::listener().await;
             let address = socket.local_addr()?;
@@ -112,15 +110,10 @@ async fn admin_job_workers_refuse_to_start_while_go_still_runs_them() -> Result<
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-            if must_run {
-                assert!(bound && exited.is_none(), "{name}/{label}: must run with Go's copy off");
-            } else {
-                assert!(!bound, "{name}/{label}: gateway must not bind");
-                assert!(
-                    exited.is_some_and(|s| !s.success()),
-                    "{name}/{label}: gateway must refuse to start"
-                );
-            }
+            assert!(
+                bound && exited.is_none(),
+                "{name}/{label}: must run without GO_WORKERS_OFF"
+            );
         }
     }
     Ok(())

@@ -452,13 +452,12 @@ async fn login_device_proof_cases_reseal_and_foreign_ownership() -> Result<(), E
     .await?;
     let dev_b_legacy =
         insert_legacy_device(&c, b.user, "fp-b-legacy", legacy_secret, "approved").await?;
-    let (spy_addr, mut seen, spy_task) = spy().await?;
+    let (_spy_addr, mut seen, spy_task) = spy().await?;
 
     let result: Result<(), Err> = async {
         set_native_toggles(&c).await?;
         let mut cfg = Config::for_secret(secret.clone());
         cfg.signing_alg = "ES256".into();
-        cfg.go_upstream = Some(format!("http://{spy_addr}"));
         let app_dsn = db
             .app
             .as_deref()
@@ -722,7 +721,7 @@ async fn mfa_completions_and_webpush_device_proof_parity() -> Result<(), Err> {
     )
     .await?;
 
-    let (spy_addr, mut seen, spy_task) = spy().await?;
+    let (_spy_addr, mut seen, spy_task) = spy().await?;
 
     let result: Result<(), Err> = async {
         set_native_toggles(&c).await?;
@@ -730,7 +729,6 @@ async fn mfa_completions_and_webpush_device_proof_parity() -> Result<(), Err> {
         cfg.signing_alg = "ES256".into();
         cfg.db_encryption_key = ENC.into();
         cfg.vapid_private_key = VAPID.into();
-        cfg.go_upstream = Some(format!("http://{spy_addr}"));
         let exec = setjoin_pg::ScopedExecutor::from_dsn(
             db.app.as_deref().unwrap_or(&db.dsn),
             4,
@@ -1118,7 +1116,7 @@ async fn sso_oidc_callback_and_saml_acs_device_proof_parity() -> Result<(), Err>
     let fake_idp = Arc::new(FakeOidcHttp::new()?);
     let saml_dir =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance/identity-saml");
-    let (spy_addr, mut seen, spy_task) = spy().await?;
+    let (_spy_addr, mut seen, spy_task) = spy().await?;
 
     let result: Result<(), Err> = async {
         set_native_toggles(&c).await?;
@@ -1129,7 +1127,6 @@ async fn sso_oidc_callback_and_saml_acs_device_proof_parity() -> Result<(), Err>
         cfg.saml_cert_file = saml_dir.join("sp-cert.pem").display().to_string();
         cfg.saml_key_file = saml_dir.join("sp-key.pem").display().to_string();
         cfg.db_encryption_key = SAML_ENC.into();
-        cfg.go_upstream = Some(format!("http://{spy_addr}"));
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
         let server = AuthServer::load_with_rp_http(exec, cfg, fake_idp.clone()).await?;

@@ -147,28 +147,27 @@ pub async fn kill_switch() -> Result<(), BoxError> {
   for row in inventory["routes"].as_array_mut().unwrap(){if row["family"]=="F04" && row["slice"]=="chat-compliance"{routes.push((row["method"].as_str().unwrap().to_owned(),format!("/api{}?sentinel=%FF&caseId=970001",row["path"].as_str().unwrap().replace("{id}","961001"))));row["state"]=json!(if off{"OFF"}else{"ON"});row["upstream"]=json!(if off{"go-mail"}else{"local-rust"});}}
   if routes.len()!=13{return Err("switch route coverage changed".into());}
   let adapter=setjoin_gateway::chat_compliance::ChatComplianceRoute{exec:setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),1).map_err(|e|e.0)?,worker:setjoin_pg::ScopedExecutor::from_dsn(&db.dsn,1).map_err(|e|e.0)?,database:setjoin_pg::workers::WorkerDatabase::new(&db.dsn)?,store:None,keys:std::sync::Arc::new(common::recovery_keys()),issuer:"mailserver".into()};
-  let gateway=Gateway::new(Config{upstream:Some(format!("http://{upstream}").parse()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(adapter))?.with_inventory(&inventory.to_string())?.with_enabled(!global);
+  let gateway=Gateway::new(Config{upstream:Some(format!("http://{upstream}").parse()?),trusted_proxies:TrustedProxies::parse("")?,upstream_header_timeout:setjoin_gateway::proxy::DEFAULT_HEADER_TIMEOUT,edge_limit:None},RouteTable::proxy_all().with(adapter))?;
+  if off {
+   if gateway.with_inventory(&inventory.to_string()).is_ok(){return Err("OFF/go-mail F04 chat-compliance inventory should have been rejected".into());}
+   if !calls.lock().unwrap().is_empty(){return Err("rejected inventory reached Go".into());}
+   golden::compare(&before,&snapshot(&owner,actor.mailbox,true).await?)?;
+   continue;
+  }
+  let gateway=gateway.with_inventory(&inventory.to_string())?.with_enabled(!global);
   let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await?;let address=listener.local_addr()?;let server=tokio::spawn(gateway.serve(listener));
-  let bytes=b"{\n\"original\":true,\"opaque\":\"\xff\"\n}".to_vec();let mut expected=Vec::new();
+  let bytes=b"{\n\"original\":true,\"opaque\":\"\xff\"\n}".to_vec();
+  let go:Value=serde_json::from_str(include_str!("../golden/go-auth-responses.json"))?;
   for(method,uri)in &routes{
    let reply=common::send(address,Request::builder().method(method.as_str()).uri(uri).header("host","mail.test").header("origin","http://mail.test").header("content-type","application/json; original=yes").header("authorization","Bearer original.invalid.token").header("x-request-id","compl3-switch-original").body(common::full(bytes.clone()))?).await;
-   if mode=="auth"{
-    // Rust holds authority on this route: an invalid token gets Go's frozen RequireAuth 401, never Go.
-    let go:Value=serde_json::from_str(include_str!("../golden/go-auth-responses.json"))?;
-    let status=reply.status().as_u16();let challenge=reply.headers().get("www-authenticate").and_then(|v|v.to_str().ok()).map(str::to_owned);
-    let body=common::body_bytes(reply).await;
-    if status!=401 || body.as_ref()!=go["expired"]["body"].as_str().unwrap().as_bytes() || challenge.as_deref()!=Some("Negotiate, Bearer realm=\"mailserver\""){server.abort();return Err(format!("invalid token did not get native 401: {status} {challenge:?} {}",String::from_utf8_lossy(&body)).into());}
-    continue;
-   }
-   if reply.status().as_u16()!=299 || common::body_bytes(reply).await.as_ref()!=b"switch\n"{server.abort();return Err("switch did not return Go reply".into());}
-   expected.push(json!({"method":method,"uri":uri,"content-type":"application/json; original=yes","authorization":"Bearer original.invalid.token","request-id":"compl3-switch-original","body":bytes}));
+   // Post-#359: Rust holds authority even with legacy with_enabled(false); invalid token gets native 401, never Go.
+   let status=reply.status().as_u16();let challenge=reply.headers().get("www-authenticate").and_then(|v|v.to_str().ok()).map(str::to_owned);
+   let body=common::body_bytes(reply).await;
+   if status!=401 || body.as_ref()!=go["expired"]["body"].as_str().unwrap().as_bytes() || challenge.as_deref()!=Some("Negotiate, Bearer realm=\"mailserver\""){server.abort();return Err(format!("invalid token did not get native 401 ({mode}): {status} {challenge:?} {}",String::from_utf8_lossy(&body)).into());}
   }
-  if mode=="auth"{if !calls.lock().unwrap().is_empty(){server.abort();return Err("invalid token reached Go".into());}expected.clear();}
-  golden::compare(&json!(expected),&json!(calls.lock().unwrap().clone()))?;
-  if off {
-   let reply=common::send(address,Request::get("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(reply).await.to_vec())?;
-   for expected in ["setjoin_gateway_proxied_to_go_total 13","setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 13"]{if !metrics.lines().any(|line|line==expected){server.abort();return Err(format!("switch counter mismatch: {metrics}").into());}}
-  }
+  if !calls.lock().unwrap().is_empty(){server.abort();return Err("invalid token reached Go".into());}
+  let reply=common::send(address,Request::get("/_gateway/metrics").body(common::full(""))?).await;let metrics=String::from_utf8(common::body_bytes(reply).await.to_vec())?;
+  for expected in ["setjoin_gateway_proxied_to_go_total 0","setjoin_gateway_proxied_to_go_by_family_total{family=\"F04\"} 0"]{if !metrics.lines().any(|line|line==expected){server.abort();return Err(format!("switch counter mismatch: {metrics}").into());}}
   server.abort();let _=server.await;golden::compare(&before,&snapshot(&owner,actor.mailbox,true).await?)?;
  }
  Ok::<_,BoxError>(())}.await;

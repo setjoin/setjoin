@@ -31,7 +31,7 @@ fn vector(out: &mut Vec<u8>, n: usize, value: &[u8]) -> Option<()> {
     Some(())
 }
 
-pub(crate) fn for_rustls(
+pub fn for_rustls(
     plain: &[u8],
     server_name: Option<&str>,
     negotiated: Option<u16>,
@@ -113,7 +113,7 @@ pub(crate) fn for_rustls(
     Some(out)
 }
 
-pub(crate) fn for_go(plain: &[u8]) -> Option<Vec<u8>> {
+pub fn for_go(plain: &[u8]) -> Option<Vec<u8>> {
     let mut input = Reader(plain);
     match input.byte()? {
         0 => {}

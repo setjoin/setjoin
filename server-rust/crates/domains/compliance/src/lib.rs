@@ -11,7 +11,7 @@ use serde_json::json;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
     CommandOutcome, MailboxAuthContext, ReceiptCommand, Row, ScopedExecutor, StatementFailure, Type,
@@ -30,11 +30,7 @@ pub const MAIL_CONSOLE: [&str; 5] = [
     "mail.security",
 ];
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
@@ -129,7 +125,7 @@ pub async fn console_denied(
         &envelope(&auth, operation, &before),
         &auth,
         deadline(),
-        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&before, Type::TEXT), (&path, Type::TEXT)],
         |rows| {
             if rows.len() == 1 {
@@ -231,7 +227,7 @@ pub async fn create_case(
 ) -> CommandOutcome<i64, StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:"case.create"},&envelope(&auth,operation,&json!([name,description]).to_string()),&auth,deadline(),
-        "INSERT INTO ediscovery_cases(name,description,created_by) SELECT $4,$5,$2 WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "INSERT INTO ediscovery_cases(name,description,created_by) SELECT $4,$5,$2 WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[(&name,Type::TEXT),(&description,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 
@@ -245,7 +241,7 @@ pub async fn update_case(
 ) -> CommandOutcome<bool, StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:"case.update"},&envelope(&auth,operation,&json!([id,name,description]).to_string()),&auth,deadline(),
-        "UPDATE ediscovery_cases SET name=COALESCE(NULLIF($5::text,''),name),description=COALESCE($6::text,description),updated_at=now() WHERE id=$4 AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "UPDATE ediscovery_cases SET name=COALESCE(NULLIF($5::text,''),name),description=COALESCE($6::text,description),updated_at=now() WHERE id=$4 AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[(&id,Type::INT8),(&name,Type::TEXT),(&description,Type::TEXT)],|rows|Ok(!rows.is_empty())).await
 }
 
@@ -257,7 +253,7 @@ pub async fn delete_case(
 ) -> CommandOutcome<bool, StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:"case.delete"},&envelope(&auth,operation,&id.to_string()),&auth,deadline(),
-        "DELETE FROM ediscovery_cases WHERE id=$4 AND NOT EXISTS(SELECT 1 FROM ediscovery_searches WHERE case_id=$4) AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "DELETE FROM ediscovery_cases WHERE id=$4 AND NOT EXISTS(SELECT 1 FROM ediscovery_searches WHERE case_id=$4) AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[(&id,Type::INT8)],|rows|Ok(!rows.is_empty())).await
 }
 
@@ -270,7 +266,7 @@ pub async fn associate_search(
 ) -> CommandOutcome<bool, StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:"search.associate"},&envelope(&auth,operation,&json!([search,case]).to_string()),&auth,deadline(),
-        "UPDATE ediscovery_searches SET case_id=$5 WHERE id=$4 AND case_id IS NULL AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "UPDATE ediscovery_searches SET case_id=$5 WHERE id=$4 AND case_id IS NULL AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[(&search,Type::INT8),(&case,Type::INT8)],|rows|Ok(!rows.is_empty())).await
 }
 
@@ -284,8 +280,14 @@ pub async fn close_case(
 ) -> CommandOutcome<bool, StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:"case.close"},&envelope(&auth,operation,&json!([id,reason]).to_string()),&auth,deadline(),
-        "SELECT rust_compliance_case_close($2,$4,$5,$6) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT rust_compliance_case_close($2,$4,$5,$6) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&id,Type::INT8),(&reason,Type::TEXT),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct HeldMessage {
+    pub id: i64,
+    pub received_at: String,
 }
 
 pub async fn hold(
@@ -295,11 +297,28 @@ pub async fn hold(
     on: bool,
     ip: &str,
     operation: [u8; 16],
-) -> CommandOutcome<Vec<i64>, StatementFailure> {
+) -> CommandOutcome<Vec<HeldMessage>, StatementFailure> {
     let auth = scope(actor);
-    setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:if on{"message.hold"}else{"message.release"}},&envelope(&auth,operation,&json!([ids,on]).to_string()),&auth,deadline(),
-        "SELECT rust_compliance_message_hold($2,$4,$5,$6) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
-        &[(ids,Type::INT8_ARRAY),(&on,Type::BOOL),(&ip,Type::TEXT)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
+    setjoin_pg::run_receipted_command(
+        exec,
+        ReceiptCommand {
+            family: FAMILY,
+            command: if on { "message.hold" } else { "message.release" },
+        },
+        &envelope(&auth, operation, &json!([ids, on]).to_string()),
+        &auth,
+        deadline(),
+        "SELECT rust_compliance_message_hold($2,$4,$5,$6,true)::text WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
+        &[(ids, Type::INT8_ARRAY), (&on, Type::BOOL), (&ip, Type::TEXT)],
+        |rows| {
+            let raw = rows
+                .first()
+                .and_then(|r| r.try_get::<_, String>(0).ok())
+                .ok_or_else(invalid)?;
+            serde_json::from_str::<Vec<HeldMessage>>(&raw).map_err(|_| invalid())
+        },
+    )
+    .await
 }
 
 /// Go's GetSearch uses the worker credential and only reads persisted bindings.

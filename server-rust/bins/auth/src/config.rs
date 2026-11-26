@@ -38,7 +38,6 @@ pub struct Config {
     pub listen: String,
     pub dsn: String,
     pub worker_dsn: Option<String>,
-    pub go_upstream: Option<String>,
     pub cookie_secure: bool,
 }
 impl Config {
@@ -80,7 +79,6 @@ impl Config {
             listen: "127.0.0.1:8443".into(),
             dsn: String::new(),
             worker_dsn: std::env::var("DB_WORKER_DSN").ok(),
-            go_upstream: None,
             cookie_secure: false,
         }
     }
@@ -293,9 +291,6 @@ impl Config {
         if c.listen.starts_with(':') {
             c.listen = format!("0.0.0.0{}", c.listen);
         }
-        c.go_upstream = std::env::var("AUTHSERVER_GO_UPSTREAM")
-            .ok()
-            .filter(|s| !s.is_empty());
         // authserverd derives HandlerConfig.CookieSecure from TLSCertFile.
         c.cookie_secure = c.tls_cert.is_some();
         Ok(c)

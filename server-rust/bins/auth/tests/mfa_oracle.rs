@@ -1925,7 +1925,6 @@ async fn dpop_totp_bound_sessions_and_verify_issuance() {
         let mut cfg = Config::for_secret(secret.into());
         cfg.db_encryption_key = ENC.into();
         cfg.signing_alg = "ES256".into();
-        cfg.go_upstream = None;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
         let srv = auth_server(
@@ -2279,7 +2278,6 @@ async fn dpop_totp_bootstrap_confirm_issuance() {
         let mut cfg = Config::for_secret(secret.into());
         cfg.db_encryption_key = ENC.into();
         cfg.signing_alg = "ES256".into();
-        cfg.go_upstream = None;
         let exec = setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn), 4)
             .map_err(|e| e.0)?;
         let srv = auth_server(

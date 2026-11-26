@@ -49,6 +49,8 @@ fn target(a: &Artifact) -> Result<PathBuf> {
         "core_authserverd" => "authserverd".into(),
         "core_mailctl" => "mailctl".into(),
         "core_setjoin_gateway" => "setjoin-gateway".into(),
+        // #359b: optional in manifest; required wherever a core unit runs it (host::require_unit_binaries).
+        "core_setjoin_auth" => "setjoin-auth".into(),
         "core_migrations" => {
             ensure!(
                 a.media_type == "application/sql",
@@ -166,6 +168,7 @@ pub fn stage(store: &Path, root: &Path, id: &str, digest_value: &str) -> Result<
                         | "core_authserverd"
                         | "core_mailctl"
                         | "core_setjoin_gateway"
+                        | "core_setjoin_auth"
                         | "compatible_sidecar"
                 );
                 let mut out = std::fs::OpenOptions::new()
@@ -342,7 +345,7 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
         let map = e["artifacts"]
             .as_object()
             .ok_or_else(|| anyhow::anyhow!("missing adoption artifacts"))?;
-        ensure!((4..=5).contains(&map.len()), "invalid adoption inventory");
+        ensure!((4..=6).contains(&map.len()), "invalid adoption inventory");
         ensure!(
             fs::read_dir(&dir)?.count() == map.len() + 1,
             "adoption inventory differs"
@@ -354,7 +357,12 @@ fn validate_cohort(root: &Path, id: &str, require_index: bool) -> Result<()> {
             ensure!(
                 matches!(
                     name.as_str(),
-                    "mailserverd" | "authserverd" | "mailctl" | "setjoin-gateway" | "webmail"
+                    "mailserverd"
+                        | "authserverd"
+                        | "mailctl"
+                        | "setjoin-auth"
+                        | "setjoin-gateway"
+                        | "webmail"
                 ),
                 "unknown adoption artifact"
             );

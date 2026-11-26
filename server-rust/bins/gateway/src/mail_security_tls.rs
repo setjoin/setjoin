@@ -15,17 +15,14 @@ use setjoin_pg::{CommandOutcome, ScopedExecutor};
 pub const DEFAULT_CACHE_DIR: &str = "/var/cache/mailserver/autocert";
 
 /// The directory `POST /admin/tls/import-cert` writes: `cfg.TLSAutocertCacheDir + "/imported"`.
-/// Go's `TLS_AUTOCERT_CACHE_DIR` environment override is honoured; when it is unset and a
-/// `SETJOIN_CONFIG` file might set the key, Rust cannot know the directory and the route is
-/// left to Go (`None`).
+pub fn import_dir_from_settings(settings: &crate::configuration::Settings) -> String {
+    format!("{}/imported", settings.string("tls.autocert_cache_dir"))
+}
+
+/// Environment-only `import_dir` resolution for standalone `MailSecurityRoute::new` callers.
 pub fn import_dir_from_env() -> Option<String> {
-    let base = std::env::var("TLS_AUTOCERT_CACHE_DIR").unwrap_or_default();
-    if base.is_empty() {
-        if std::env::var("SETJOIN_CONFIG").is_ok_and(|v| !v.is_empty()) {
-            return None;
-        }
-        return Some(format!("{DEFAULT_CACHE_DIR}/imported"));
-    }
+    let base =
+        std::env::var("TLS_AUTOCERT_CACHE_DIR").unwrap_or_else(|_| DEFAULT_CACHE_DIR.to_owned());
     Some(format!("{base}/imported"))
 }
 
@@ -155,7 +152,7 @@ pub(crate) async fn handle(
         }
         Action::TlsImportCert => {
             let Some(import_dir) = import_dir else {
-                return c.upstream.forward(r, &c.identity).await;
+                return bare(500, "storage error", c, id);
             };
             let Ok((cert, key)) = form_files(&mut r).await else {
                 return bare(400, "failed to parse form", c, id);

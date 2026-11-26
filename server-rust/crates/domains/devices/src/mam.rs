@@ -71,7 +71,7 @@ pub async fn set_global(
     let auth = scope(actor);
     let payload = json!(policies.as_ref().cloned().unwrap_or_default()).to_string();
     setjoin_pg::run_receipted_command(exec,command("mam_global_policy_set"),&envelope(&auth,operation,&payload),&auth,deadline(),
-        "SELECT rust_mam_global_policy_set($4::text::jsonb) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT rust_mam_global_policy_set($4::text::jsonb) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&payload,Type::TEXT)],|rows|rows.first().ok_or_else(invalid)?.try_get(0).map_err(|_|invalid())).await
 }
 /// A separate transaction, matching Go's checked post-commit notification.
@@ -90,7 +90,7 @@ pub async fn notify(
         super::s(action)
     );
     setjoin_pg::run_receipted_command(exec,command("mam_policy_notify"),&envelope(&auth,operation,&payload),&auth,deadline(),
-        "SELECT pg_notify('device_policy',$4::text) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT pg_notify('device_policy',$4::text) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&payload,Type::TEXT)],|rows|if rows.len()==1 {Ok(())}else{Err(invalid())}).await
 }
 
@@ -129,7 +129,7 @@ pub async fn set_group(
     let auth = scope(actor);
     let payload = json!(policies.as_ref().cloned().unwrap_or_default()).to_string();
     setjoin_pg::run_receipted_command(exec,command("mam_group_policy_set"),&envelope(&auth,operation,&format!("{group}\n{id}\n{payload}")),&auth,deadline(),
-        "SELECT rust_mam_group_policy_set($4::text,$5::bigint,$6::text::jsonb) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT rust_mam_group_policy_set($4::text,$5::bigint,$6::text::jsonb) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&group,Type::TEXT),(&id,Type::INT8),(&payload,Type::TEXT)],|rows|if rows.len()==1 {Ok(())}else{Err(invalid())}).await
 }
 
@@ -143,7 +143,7 @@ pub async fn delete_group(
 ) -> CommandOutcome<bool, StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,command("mam_group_policy_delete"),&envelope(&auth,operation,&format!("{group}\n{id}\n{key}")),&auth,deadline(),
-        "DELETE FROM device_policy_groups WHERE group_type=$4::text AND group_id=$5::bigint AND policy_key=$6::text AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "DELETE FROM device_policy_groups WHERE group_type=$4::text AND group_id=$5::bigint AND policy_key=$6::text AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[(&group,Type::TEXT),(&id,Type::INT8),(&key,Type::TEXT)],|rows|Ok(!rows.is_empty())).await
 }
 
@@ -259,7 +259,7 @@ pub async fn log_event(
     let auth = scope(actor);
     let details = details.to_string();
     setjoin_pg::run_receipted_command(exec,command("mam_device_event"),&envelope(&auth,operation,&format!("{device}\n{domain_scope}\n{event}\n{severity}\n{details}")),&auth,deadline(),
-        "INSERT INTO device_events(device_id,event_type,severity,details,occurred_at) SELECT $4::bigint,$5::text,$6::text,$7::text::jsonb,clock_timestamp() WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' AND ($8::bigint<=0 OR EXISTS(SELECT 1 FROM devices dev JOIN users u ON u.id=dev.user_id WHERE dev.id=$4 AND u.domain_id=$8)) RETURNING device_id",
+        "INSERT INTO device_events(device_id,event_type,severity,details,occurred_at) SELECT $4::bigint,$5::text,$6::text,$7::text::jsonb,clock_timestamp() WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' AND ($8::bigint<=0 OR EXISTS(SELECT 1 FROM devices dev JOIN users u ON u.id=dev.user_id WHERE dev.id=$4 AND u.domain_id=$8)) RETURNING device_id",
         &[(&device,Type::INT8),(&event,Type::TEXT),(&severity,Type::TEXT),(&details,Type::TEXT),(&domain_scope,Type::INT8)],|rows|Ok(!rows.is_empty())).await
 }
 
@@ -274,7 +274,7 @@ pub async fn set_device(
     let auth = scope(actor);
     let payload = json!(policies.as_ref().cloned().unwrap_or_default()).to_string();
     setjoin_pg::run_receipted_command(exec,command("mam_device_policy_set"),&envelope(&auth,operation,&format!("{device}\n{domain_scope}\n{payload}")),&auth,deadline(),
-        "SELECT rust_mam_device_policy_set($4::bigint,$5::bigint,$6::text::jsonb) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT rust_mam_device_policy_set($4::bigint,$5::bigint,$6::text::jsonb) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&device,Type::INT8),(&domain_scope,Type::INT8),(&payload,Type::TEXT)],|rows|if rows.len()==1 {Ok(())}else{Err(invalid())}).await
 }
 pub fn out_of_scope(error: &setjoin_pg::Rejection<StatementFailure>) -> bool {
@@ -291,7 +291,7 @@ pub async fn delete_device(
 ) -> CommandOutcome<bool, StatementFailure> {
     let auth = scope(actor);
     setjoin_pg::run_receipted_command(exec,command("mam_device_policy_delete"),&envelope(&auth,operation,&format!("{device}\n{domain_scope}\n{key}")),&auth,deadline(),
-        "DELETE FROM device_policy dp WHERE dp.device_id=$4::bigint AND dp.policy_key=$5::text AND ($6::bigint<=0 OR EXISTS(SELECT 1 FROM devices dev JOIN users u ON u.id=dev.user_id WHERE dev.id=dp.device_id AND u.domain_id=$6)) AND $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING dp.id",
+        "DELETE FROM device_policy dp WHERE dp.device_id=$4::bigint AND dp.policy_key=$5::text AND ($6::bigint<=0 OR EXISTS(SELECT 1 FROM devices dev JOIN users u ON u.id=dev.user_id WHERE dev.id=dp.device_id AND u.domain_id=$6)) AND $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING dp.id",
         &[(&device,Type::INT8),(&key,Type::TEXT),(&domain_scope,Type::INT8)],|rows|Ok(!rows.is_empty())).await
 }
 

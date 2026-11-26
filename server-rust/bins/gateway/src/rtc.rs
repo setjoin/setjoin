@@ -15,12 +15,13 @@
 //!
 //! Go's global middleware wraps the answer (`SecurityHeaders`, the single
 //! `Cache-Control` authority, `X-Request-ID`) and its `ServeMux` redirects an
-//! unclean path with `307` before any handler runs. Go's guest belt only sees a
-//! request carrying a JWT credential: such a request is proxied natively only
-//! when the verified-member precheck admits it, otherwise it stays with Go.
+//! unclean path with `307` before any handler runs. Go's guest belt is enforced
+//! natively via `admission::check_guest_belt`: active guests follow `guest_allowlist`,
+//! disallowed or off-program guests return 404, inactive guests return 401, and
+//! unavailable state returns 503. Unauthenticated or invalid JWTs proxy to the SFU.
 //! Without LiveKit configuration Go registers no `/rtc` handler and its root mux
 //! answers (SPA or 404). The executable gives this route the catch-all as its
-//! fallback, so that answer is native (#357); a table without one keeps Go.
+//! fallback, so that answer is native (#357); a table without one answers unregistered (404).
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -56,6 +57,7 @@ pub struct RtcRoute<K: KeySource + 'static> {
     upstream: SocketAddr,
     client: Client<HttpConnector, Body>,
     fallback: Option<Arc<crate::catchall::CatchallRoute>>,
+    check_guest: bool,
 }
 
 impl<K: KeySource + 'static> RtcRoute<K> {
@@ -83,6 +85,7 @@ impl<K: KeySource + 'static> RtcRoute<K> {
             upstream,
             client,
             fallback: None,
+            check_guest: true,
         }
     }
 
@@ -91,67 +94,160 @@ impl<K: KeySource + 'static> RtcRoute<K> {
         self.fallback = Some(fallback);
         self
     }
+
+    /// Skip the adapter-local guest belt when front-door `SessionAdmission`
+    /// already enforces it on `/rtc` and `/rtc/`.
+    pub fn without_guest_belt(mut self) -> Self {
+        self.check_guest = false;
+        self
+    }
+}
+
+fn strip_api_prefix(path: &str) -> &str {
+    path.strip_prefix("/api")
+        .filter(|rest| rest.starts_with('/'))
+        .unwrap_or(path)
 }
 
 fn is_rtc(path: &str) -> bool {
-    path == "/rtc" || path.starts_with("/rtc/")
+    let Some(rest) = strip_api_prefix(path).strip_prefix('/') else {
+        return false;
+    };
+    let first = rest.split('/').next().unwrap_or("");
+    crate::inventory::unescape(first) == b"rtc"
 }
 
-fn carries_jwt(headers: &HeaderMap) -> bool {
-    if headers
-        .get(hyper::header::AUTHORIZATION)
-        .is_some_and(|v| v.as_bytes().starts_with(b"Bearer "))
-    {
-        return true;
+/// Go's `net/http` request-line `url.ParseRequestURI` bad-escape rejection
+/// (400), run before outer CSRF and edge rate limiting.
+pub(crate) fn bad_escape_check(req: &Request<Body>) -> Option<Response<Body>> {
+    let path = req.uri().path();
+    (is_rtc(path) && unescape(path).is_none())
+        .then(|| empty(StatusCode::BAD_REQUEST, HeaderMap::new()))
+}
+
+/// Go's `net/http` bad-escape rejection (400) and `ServeMux` clean-path
+/// redirect (307) for `/rtc`, invoked before outer guest admission so
+/// malformed escapes and unclean paths never turn into 401/404.
+pub(crate) fn pre_admission_check(
+    req: &Request<Body>,
+    c: &RequestContext,
+) -> Option<Response<Body>> {
+    if !is_rtc(req.uri().path()) {
+        return None;
     }
-    headers
-        .get_all(hyper::header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(';'))
-        .any(|pair| {
-            pair.trim()
-                .split_once('=')
-                .is_some_and(|(n, v)| n == "access_token" && !v.is_empty())
-        })
+    let id = crate::jmap::reply::request_id(
+        req.headers().get("x-request-id"),
+        crate::jmap::random().unwrap_or([0; 16]),
+    );
+    canonical_check(req, c, &id).err()
 }
 
 impl<K: KeySource + 'static> Intercept for RtcRoute<K> {
+    fn skips_outer_guest_belt(&self, req: &Request<Body>) -> bool {
+        !self.configured
+            && !req
+                .uri()
+                .path()
+                .strip_prefix("/api")
+                .is_some_and(|rest| rest.starts_with('/'))
+    }
+
     fn matches(&self, req: &Request<Body>) -> bool {
         is_rtc(req.uri().path())
     }
 
     fn handle(&self, req: Request<Body>, c: RequestContext) -> BoxFuture<Response<Body>> {
         let (exec, keys, issuer) = (self.exec.clone(), self.keys.clone(), self.issuer.clone());
-        let (configured, upstream, client) = (self.configured, self.upstream, self.client.clone());
+        let (configured, upstream, client, check_guest) = (
+            self.configured,
+            self.upstream,
+            self.client.clone(),
+            self.check_guest,
+        );
         let fallback = self.fallback.clone();
         Box::pin(async move {
-            if !configured {
-                return match fallback {
-                    Some(fallback) => fallback.handle(req, c).await,
-                    None => c.upstream.forward(req, &c.identity).await,
-                };
-            }
-            if carries_jwt(req.headers())
-                && setjoin_authz::authorize_user_request(
-                    &exec,
-                    &keys,
-                    &issuer,
-                    req.headers(),
-                    c.identity.proto,
-                )
-                .await
-                .is_none()
-            {
-                return c.upstream.forward(req, &c.identity).await;
-            }
             let id = crate::jmap::reply::request_id(
                 req.headers().get("x-request-id"),
                 crate::jmap::random().unwrap_or([0; 16]),
             );
-            serve(req, &c, id, upstream, &client).await
+            let decoded = match canonical_check(&req, &c, &id) {
+                Ok(decoded) => decoded,
+                Err(response) => return response,
+            };
+            let is_api_mount = req
+                .uri()
+                .path()
+                .strip_prefix("/api")
+                .is_some_and(|rest| rest.starts_with('/'));
+            if !configured {
+                if is_api_mount {
+                    if check_guest {
+                        if let Some(response) = crate::admission::check_guest_belt(
+                            &exec,
+                            &*keys,
+                            &issuer,
+                            req.headers(),
+                            req.method(),
+                            req.uri().path(),
+                            &c.identity,
+                        )
+                        .await
+                        {
+                            return response;
+                        }
+                    }
+                    return crate::surface::unregistered(&req, c.identity.proto);
+                }
+                return match fallback {
+                    Some(fallback) => fallback.serve_spa_or_404(req, c).await,
+                    None => crate::surface::unregistered(&req, c.identity.proto),
+                };
+            }
+            if check_guest {
+                if let Some(response) = crate::admission::check_guest_belt(
+                    &exec,
+                    &*keys,
+                    &issuer,
+                    req.headers(),
+                    req.method(),
+                    req.uri().path(),
+                    &c.identity,
+                )
+                .await
+                {
+                    return response;
+                }
+            }
+            serve(req, &c, id, &decoded, upstream, &client).await
         })
     }
+}
+
+fn canonical_check(
+    req: &Request<Body>,
+    c: &RequestContext,
+    id: &str,
+) -> Result<Vec<u8>, Response<Body>> {
+    let raw = req.uri().path();
+    let Some(decoded) = unescape(raw) else {
+        // Go rejects a malformed escape while parsing the request line.
+        return Err(empty(StatusCode::BAD_REQUEST, HeaderMap::new()));
+    };
+    let escaped = if valid_encoded(raw) {
+        raw.to_owned()
+    } else {
+        escape_path(&decoded)
+    };
+    let cleaned = clean_path(&escaped);
+    if cleaned != escaped && req.method() != Method::CONNECT {
+        return Err(redirect(
+            req.method(),
+            &cleaned,
+            req.uri().query(),
+            envelope(c, id),
+        ));
+    }
+    Ok(decoded)
 }
 
 /// Go's middleware envelope: `SecurityHeaders`, `Cache-Control: no-store` (the
@@ -177,27 +273,32 @@ async fn serve(
     mut req: Request<Body>,
     c: &RequestContext,
     id: String,
+    decoded: &[u8],
     upstream: SocketAddr,
     client: &Client<HttpConnector, Body>,
 ) -> Response<Body> {
     let headers = envelope(c, &id);
-    let raw_path = req.uri().path().to_owned();
-    let Some(decoded) = unescape(&raw_path) else {
-        // Go rejects a malformed escape while parsing the request line.
-        return empty(StatusCode::BAD_REQUEST, HeaderMap::new());
+    let target_decoded = if req
+        .uri()
+        .path()
+        .strip_prefix("/api")
+        .is_some_and(|rest| rest.starts_with('/'))
+    {
+        decoded.strip_prefix(b"/api").unwrap_or(decoded)
+    } else {
+        decoded
     };
-    let cleaned = clean_path(&decoded);
-    if cleaned != decoded && req.method() != Method::CONNECT {
-        return redirect(req.method(), &cleaned, req.uri().query(), headers);
-    }
-    let out_path = match decoded.strip_prefix("/rtc") {
-        Some("") | None => "/".to_owned(),
-        Some(rest) => rest.to_owned(),
+    let out_path: &[u8] = match target_decoded.strip_prefix(b"/rtc") {
+        Some(b"") | None => b"/",
+        Some(rest) => rest,
     };
-    let mut target = escape_path(&out_path);
+    let mut target = escape_path(out_path);
     if let Some(q) = req.uri().query() {
-        target.push('?');
-        target.push_str(q);
+        let cleaned = clean_query_params(q);
+        if !cleaned.is_empty() || q.is_empty() {
+            target.push('?');
+            target.push_str(&cleaned);
+        }
     }
     let uri: Uri = match format!("http://{upstream}{target}").parse() {
         Ok(u) => u,
@@ -370,7 +471,7 @@ fn redirect(
     query: Option<&str>,
     mut headers: HeaderMap,
 ) -> Response<Body> {
-    let mut location = escape_path(cleaned);
+    let mut location = escape_path(cleaned.as_bytes());
     if let Some(q) = query {
         location.push('?');
         location.push_str(q);
@@ -429,51 +530,197 @@ fn clean_path(p: &str) -> String {
     np
 }
 
+fn from_hex(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 /// `url.PathUnescape` over the request path: `None` on a malformed escape.
-fn unescape(p: &str) -> Option<String> {
+fn unescape(p: &str) -> Option<Vec<u8>> {
     let bytes = p.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
-            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
+            let hi = from_hex(*bytes.get(i + 1)?)?;
+            let lo = from_hex(*bytes.get(i + 2)?)?;
+            out.push((hi << 4) | lo);
             i += 3;
         } else {
             out.push(bytes[i]);
             i += 1;
         }
     }
-    Some(String::from_utf8_lossy(&out).into_owned())
+    Some(out)
 }
 
-/// `url.URL.EscapedPath` of a decoded path with no `RawPath`.
-fn escape_path(p: &str) -> String {
-    if p == "*" {
+fn is_unescaped_path_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'-' | b'_'
+                | b'.'
+                | b'~'
+                | b'$'
+                | b'&'
+                | b'+'
+                | b','
+                | b'/'
+                | b':'
+                | b';'
+                | b'='
+                | b'@'
+        )
+}
+
+/// `net/url`'s `validEncoded(p, encodePath)` (Go 1.26.6 net/url/url.go:665-685).
+fn valid_encoded(p: &str) -> bool {
+    p.bytes().all(|c| {
+        matches!(
+            c,
+            b'!' | b'$'
+                | b'&'
+                | b'\''
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b','
+                | b';'
+                | b'='
+                | b':'
+                | b'@'
+                | b'['
+                | b']'
+                | b'%'
+        ) || is_unescaped_path_byte(c)
+    })
+}
+
+/// `url.URL.EscapedPath` of decoded path bytes with no `RawPath`.
+fn escape_path(p: &[u8]) -> String {
+    if p == b"*" {
         return "*".into();
     }
     let mut out = String::with_capacity(p.len());
-    for b in p.bytes() {
-        let keep = b.is_ascii_alphanumeric()
-            || matches!(
-                b,
-                b'-' | b'_'
-                    | b'.'
-                    | b'~'
-                    | b'$'
-                    | b'&'
-                    | b'+'
-                    | b','
-                    | b'/'
-                    | b':'
-                    | b';'
-                    | b'='
-                    | b'@'
-            );
-        if keep {
+    for &b in p {
+        if is_unescaped_path_byte(b) {
             out.push(b as char);
         } else {
             out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Go `net/http/httputil.cleanQueryParams` parity: keep valid queries verbatim;
+/// strip semicolon-containing or malformed percent-escape segments via
+/// `url.ParseQuery`, and discard the entire query when raw `&`-delimited
+/// segments exceed `MAX_PARAMS` (10,000).
+fn clean_query_params(s: &str) -> String {
+    const MAX_PARAMS: usize = 10_000;
+    let b = s.as_bytes();
+    let num_params = b.iter().filter(|&&c| c == b'&').count() + 1;
+    if num_params > MAX_PARAMS {
+        return String::new();
+    }
+    let mut i = 0;
+    let mut needs_clean = false;
+    while i < b.len() {
+        match b[i] {
+            b';' => {
+                needs_clean = true;
+                break;
+            }
+            b'%' => {
+                if i + 2 >= b.len()
+                    || !b[i + 1].is_ascii_hexdigit()
+                    || !b[i + 2].is_ascii_hexdigit()
+                {
+                    needs_clean = true;
+                    break;
+                }
+                i += 3;
+            }
+            _ => i += 1,
+        }
+    }
+    if !needs_clean {
+        return s.to_owned();
+    }
+    reencode_query(s)
+}
+
+fn query_unescape(s: &str) -> Option<Vec<u8>> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' => {
+                let (Some(&h), Some(&l)) = (b.get(i + 1), b.get(i + 2)) else {
+                    return None;
+                };
+                out.push((from_hex(h)? << 4) | from_hex(l)?);
+                i += 3;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    Some(out)
+}
+
+fn query_escape(bytes: &[u8], out: &mut String) {
+    use std::fmt::Write;
+    for &b in bytes {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => {
+                let _ = write!(out, "%{b:02X}");
+            }
+        }
+    }
+}
+
+fn reencode_query(s: &str) -> String {
+    let mut map: std::collections::BTreeMap<Vec<u8>, Vec<Vec<u8>>> =
+        std::collections::BTreeMap::new();
+    for part in s.split('&') {
+        if part.is_empty() {
+            continue;
+        }
+        if part.contains(';') {
+            continue;
+        }
+        let (raw_k, raw_v) = part.split_once('=').unwrap_or((part, ""));
+        let (Some(k), Some(v)) = (query_unescape(raw_k), query_unescape(raw_v)) else {
+            continue;
+        };
+        map.entry(k).or_default().push(v);
+    }
+    let mut out = String::new();
+    for (k, vals) in map {
+        for v in vals {
+            if !out.is_empty() {
+                out.push('&');
+            }
+            query_escape(&k, &mut out);
+            out.push('=');
+            query_escape(&v, &mut out);
         }
     }
     out
@@ -485,11 +732,46 @@ mod tests {
 
     #[test]
     fn mount_prefix_and_escaping_follow_go() {
-        assert_eq!(escape_path("/a b/é?x"), "/a%20b/%C3%A9%3Fx");
-        assert_eq!(escape_path("/v1/!*'()"), "/v1/%21%2A%27%28%29");
+        assert_eq!(escape_path("/a b/é?x".as_bytes()), "/a%20b/%C3%A9%3Fx");
+        assert_eq!(escape_path(b"/\xff"), "/%FF");
+        assert_eq!(escape_path(b"/v1/!*'()"), "/v1/%21%2A%27%28%29");
         assert_eq!(clean_path("/rtc//x/./y/../z/"), "/rtc/x/z/");
         assert_eq!(clean_path("/rtc/.."), "/");
-        assert_eq!(unescape("/rtc/a%2Fb").as_deref(), Some("/rtc/a/b"));
+        assert_eq!(clean_path("/rtc/%2e%2e/x"), "/rtc/%2e%2e/x");
+        assert_eq!(
+            escape_path(clean_path("/rtc//a%20b").as_bytes()),
+            "/rtc/a%2520b"
+        );
+        assert!(valid_encoded("/rtc/%2e%2e/x"));
+        assert!(valid_encoded("/rtc/!a'()*[0]%2Fb"));
+        assert!(!valid_encoded("/rtc/a b"));
+        assert_eq!(unescape("/rtc/a%2Fb").as_deref(), Some(b"/rtc/a/b".as_slice()));
+        assert_eq!(
+            unescape("/api/%72tc/%FF").as_deref(),
+            Some(b"/api/rtc/\xff".as_slice())
+        );
         assert_eq!(unescape("/rtc/%zz"), None);
+        assert_eq!(unescape("/rtc/%+a"), None);
+        assert_eq!(unescape("/rtc/%-1"), None);
+        assert!(is_rtc("/rtc"));
+        assert!(is_rtc("/%72tc"));
+        assert!(is_rtc("/api/%72tc/rtc/validate"));
+        assert!(!is_rtc("/api/%72tcx"));
+        assert!(!is_rtc("/%72tc%2Ffoo"));
+        assert!(!is_rtc("/rtcx"));
+
+        assert_eq!(
+            clean_query_params("access_token=abc&auto_subscribe=1"),
+            "access_token=abc&auto_subscribe=1"
+        );
+        assert_eq!(clean_query_params("b=2&bad;x=1&a=1"), "a=1&b=2");
+        assert_eq!(clean_query_params("b=2&bad=%ZZ&a=1"), "a=1&b=2");
+        assert_eq!(clean_query_params("%ZZ"), "");
+
+        let at_limit = format!("a=1{}", "&a=1".repeat(9_999));
+        assert_eq!(clean_query_params(&at_limit), at_limit);
+        let over_limit = format!("a=1{}", "&a=1".repeat(10_000));
+        assert_eq!(clean_query_params(&over_limit), "");
+        assert_eq!(clean_query_params(&"&".repeat(10_000)), "");
     }
 }

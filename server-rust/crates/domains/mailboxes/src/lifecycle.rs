@@ -201,7 +201,7 @@ pub async fn transition(
         &auth,
         deadline(),
         "SELECT mailbox_lifecycle_transition($2,$4,$5::text::uuid,$6,$7,$8,$9,$10,$11,$12,$13,$14,\
-         to_timestamp($15::bigint),$16,NULL::text)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+         to_timestamp($15::bigint),$16,NULL::text)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&t.mailbox, Type::INT8),
             (&t.key, Type::TEXT),
@@ -250,7 +250,7 @@ pub async fn purge_schedule(
         &auth,
         deadline(),
         "SELECT mailbox_purge_schedule($2,$4,$5::text::uuid,$6,$7,$8,$9,$10)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&p.mailbox, Type::INT8),
             (&p.key, Type::TEXT),
@@ -281,7 +281,7 @@ pub async fn purge_approval(
         &auth,
         deadline(),
         "SELECT mailbox_purge_approval_apply($4,$2,$5,$6)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&request, Type::INT8),
             (&decision, Type::TEXT),
@@ -308,7 +308,7 @@ pub async fn purge_execute(
         &auth,
         deadline(),
         "SELECT mailbox_purge_execute($2,$4::text::uuid,$5::text::uuid,$6)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&purge, Type::TEXT),
             (&key, Type::TEXT),
@@ -336,7 +336,7 @@ pub async fn purge_cancel(
         &auth,
         deadline(),
         "SELECT mailbox_purge_cancel($2,$4::text::uuid,$5::text::uuid,$6,$7)::text \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&purge, Type::TEXT),
             (&key, Type::TEXT),

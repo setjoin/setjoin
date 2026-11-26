@@ -81,6 +81,9 @@ pub struct AuthContext {
     permissions: Vec<String>,
     roles: Vec<i64>,
     auth_time: Option<i64>,
+    /// Signed impersonation actor (`act` claim), if present (`> 0`), for provenance.
+    pub actor_id: Option<i64>,
+    mailbox_blocked: bool,
 }
 
 impl AuthContext {
@@ -129,6 +132,14 @@ impl AuthContext {
     /// The signed `auth_time` claim (Go's `claims.SessionAuthTime`), Unix seconds.
     pub fn auth_time(&self) -> Option<i64> {
         self.auth_time
+    }
+    /// Signed impersonation actor (`act` claim), if present (`> 0`), for provenance.
+    pub fn actor_id(&self) -> Option<i64> {
+        self.actor_id
+    }
+    /// True when the primary mailbox exists but `mailbox_lifecycle_access_allowed` is not true.
+    pub fn mailbox_blocked(&self) -> bool {
+        self.mailbox_blocked
     }
 }
 
@@ -281,8 +292,42 @@ pub fn credential(headers: &HeaderMap) -> Result<String, Refusal> {
 /// Go's handler sees ([`go_url::mailserver_handler_path`], chain.go:434). Where Go
 /// reaches no handler that path is `None`: a scoped token is refused and the request is
 /// off the Drive surface. Answering Go's 400/redirect/SPA itself is the router's job.
-pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
-    headers: &HeaderMap, method: &str, path: &str, scope: Scope) -> Result<Authorized, Refusal> {
+pub async fn admit(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    scope: Scope,
+) -> Result<Authorized, Refusal> {
+    admit_inner(exec, keys, issuer, headers, method, path, scope, true).await
+}
+
+/// Console-surface variant of [`admit`] that omits redundant role loading,
+/// matching [`authorize_console_request`] so console permission handlers own their audit/error path.
+pub async fn admit_console(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    scope: Scope,
+) -> Result<Authorized, Refusal> {
+    admit_inner(exec, keys, issuer, headers, method, path, scope, false).await
+}
+
+async fn admit_inner(
+    exec: &ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    method: &str,
+    path: &str,
+    scope: Scope,
+    resolve_roles: bool,
+) -> Result<Authorized, Refusal> {
     let handler_path = go_url::mailserver_handler_path(method, path);
     let handler_path = handler_path.as_deref();
     let drive = drive_surface(scope, handler_path);
@@ -298,7 +343,11 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
     if matches!(scope, Scope::User | Scope::DriveUser) {
         // The user scopes accept exactly the tokens Go's chain accepts (scoped on its
         // path, any NumericDate Go decodes), then read the guest status like the push seam.
-        if !token::go_accepts(&claims, issuer, now, drive, handler_path) {
+        // Validate optional `act` BEFORE `is_guest()` return so non-positive/non-integer
+        // `act` claims cannot bypass `session_from`.
+        if !token::go_accepts(&claims, issuer, now, drive, handler_path)
+            || token::actor_id_from(&claims).is_err()
+        {
             return Err(remap(headers, Refusal::InvalidToken));
         }
         // Off the Drive surface the push seam requires `iat` (approved divergence
@@ -313,7 +362,6 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
             Ok(Err(push::PushAuthError::Invalid)) => return Err(remap(headers, Refusal::InvalidToken)),
             Ok(Ok(identity)) => identity,
         };
-        if identity.has_act() { return Err(Refusal::Impersonation); }
         if identity.is_guest() {
             if !identity.has_issued_at() { return Err(Refusal::MissingIssuedAt); }
             if !tokio::time::timeout(precheck_timeout(), gates::admission_allowed(exec, None)).await.unwrap_or(false) {
@@ -332,23 +380,21 @@ pub async fn admit(exec: &ScopedExecutor, keys: &impl KeySource, issuer: &str,
         return Err(Refusal::Unavailable);
     }
     let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session)).await.unwrap_or(gates::Caller::Unavailable);
-    let (mailbox, state) = match caller {
-        gates::Caller::Member { mailbox, state } => (mailbox, state),
+    let (mailbox, mailbox_blocked, state) = match caller {
+        gates::Caller::Member { mailbox, mailbox_blocked, state } => (mailbox, mailbox_blocked, state),
         gates::Caller::Guest => return Err(Refusal::Guest),
         gates::Caller::Revoked => return Err(Refusal::Revoked),
-        gates::Caller::NoMailbox => return Err(Refusal::NoPrimaryMailbox),
-        gates::Caller::Blocked => return Err(Refusal::MailboxBlocked),
         gates::Caller::Unavailable => return Err(Refusal::Unavailable),
     };
-    let roles = if session.admin {
+    let roles = if resolve_roles && session.admin {
         tokio::time::timeout(precheck_timeout(), gates::roles(exec, session.user_id)).await.ok().flatten().ok_or(Refusal::Unavailable)?
     } else { Vec::new() };
-    Ok(authorized(session, mailbox, state, roles))
+    Ok(authorized(session, mailbox, mailbox_blocked, state, roles))
 }
 
 /// Authorize a Basic-authenticated member after credential verification (#355a).
 /// Checks guest exclusion, `session_revocations` (`scope='all'`), primary
-/// mailbox existence, `mailbox_lifecycle_access_allowed`, and loads pre-dispatch
+/// mailbox lookup, `mailbox_lifecycle_access_allowed`, and loads pre-dispatch
 /// `SessionState`.
 pub async fn authorize_basic_member(
     exec: &ScopedExecutor,
@@ -368,28 +414,48 @@ pub async fn authorize_basic_member(
         acr: String::new(),
         amr: Vec::new(),
         device_id: String::new(),
+        actor_id: None,
     };
     let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
         .await
         .unwrap_or(gates::Caller::Unavailable);
-    let (mailbox, state) = match caller {
-        gates::Caller::Member { mailbox, state } => (mailbox, state),
+    let (mailbox, mailbox_blocked, state) = match caller {
+        gates::Caller::Member { mailbox, mailbox_blocked, state } => (mailbox, mailbox_blocked, state),
         gates::Caller::Guest => return Err(Refusal::Guest),
         gates::Caller::Revoked => return Err(Refusal::Revoked),
-        gates::Caller::NoMailbox => return Err(Refusal::NoPrimaryMailbox),
-        gates::Caller::Blocked => return Err(Refusal::MailboxBlocked),
         gates::Caller::Unavailable => return Err(Refusal::Unavailable),
     };
-    Ok(authorized(session, mailbox, state, Vec::new()))
+    Ok(authorized(session, mailbox, mailbox_blocked, state, Vec::new()))
 }
 
-fn authorized(session: token::Session, mailbox: i64, state: gates::SessionState, roles: Vec<i64>) -> Authorized {
+fn authorized(
+    session: token::Session,
+    mailbox: i64,
+    mailbox_blocked: bool,
+    state: gates::SessionState,
+    roles: Vec<i64>,
+) -> Authorized {
     Authorized {
-        context: AuthContext { guest: false, user_id: session.user_id, email: session.email, mailbox_id: mailbox,
-            domain_scope: session.domain_scope, admin: session.admin, permissions: session.permissions,
-            auth_time: session.auth_time, roles },
-        state, issued_at: session.issued_at, token_id: session.jti, token_family: session.family,
-        acr: session.acr, amr: session.amr, device_id: session.device_id,
+        context: AuthContext {
+            guest: false,
+            user_id: session.user_id,
+            email: session.email,
+            mailbox_id: mailbox,
+            domain_scope: session.domain_scope,
+            admin: session.admin,
+            permissions: session.permissions,
+            auth_time: session.auth_time,
+            roles,
+            actor_id: session.actor_id,
+            mailbox_blocked,
+        },
+        state,
+        issued_at: session.issued_at,
+        token_id: session.jti,
+        token_family: session.family,
+        acr: session.acr,
+        amr: session.amr,
+        device_id: session.device_id,
     }
 }
 
@@ -416,11 +482,13 @@ async fn authorize_with_feature(
     let caller = tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
         .await
         .unwrap_or(gates::Caller::Unavailable);
-    let (mailbox,state)=match caller {
-        gates::Caller::Member {mailbox,state}=>(mailbox,state),
-        _ if allow_without_mailbox=>{
-            let iat=session.issued_at as f64;
-            let rows=tokio::time::timeout(precheck_timeout(),exec.read(
+    let (mailbox, mailbox_blocked, state) = match caller {
+        gates::Caller::Member { mailbox, mailbox_blocked, state } if mailbox > 0 && !mailbox_blocked => {
+            (mailbox, mailbox_blocked, state)
+        }
+        gates::Caller::Member { mailbox: 0, mailbox_blocked: false, .. } if allow_without_mailbox => {
+            let iat = session.issued_at as f64;
+            let rows = tokio::time::timeout(precheck_timeout(), exec.read(
                 "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1) \
                  AND NOT EXISTS(SELECT 1 FROM mailboxes WHERE user_id=$1) \
                  AND NOT EXISTS(SELECT 1 FROM guest_account_status($1)) \
@@ -428,12 +496,12 @@ async fn authorize_with_feature(
                    AND ((r.scope='all' AND r.not_before>=to_timestamp($2::float8)) \
                      OR (r.scope='jti' AND $3<>'' AND r.jti=$3) \
                      OR (r.scope='family' AND $4<>'' AND r.family_id=$4)))",
-                &[(&session.user_id,setjoin_pg::Type::INT8),(&iat,setjoin_pg::Type::FLOAT8),(&session.jti,setjoin_pg::Type::TEXT),(&session.family,setjoin_pg::Type::TEXT)]
+                &[(&session.user_id, setjoin_pg::Type::INT8), (&iat, setjoin_pg::Type::FLOAT8), (&session.jti, setjoin_pg::Type::TEXT), (&session.family, setjoin_pg::Type::TEXT)]
             )).await.ok()?.ok()?;
-            if !rows.first()?.try_get::<_,bool>(0).ok()? {return None;}
-            (0,gates::SessionState {email:0,mailbox:0,thread:0,tag:0,calendar:0,contact:0,task:0,identity:0})
-        },
-        _=>return None,
+            if !rows.first()?.try_get::<_, bool>(0).ok()? { return None; }
+            (0, false, gates::SessionState { email: 0, mailbox: 0, thread: 0, tag: 0, calendar: 0, contact: 0, task: 0, identity: 0 })
+        }
+        _ => return None,
     };
     let roles = if session.admin && resolve_roles {
         tokio::time::timeout(precheck_timeout(), gates::roles(exec, session.user_id))
@@ -442,7 +510,7 @@ async fn authorize_with_feature(
     } else {
         Vec::new()
     };
-    Some(authorized(session, mailbox, state, roles))
+    Some(authorized(session, mailbox, mailbox_blocked, state, roles))
 }
 
 /// Verified exact-surface attachment bearer and its signed binding. Identity
@@ -468,13 +536,16 @@ pub async fn authorize_attachment(
         .ok()?
         .as_secs_f64();
     let (session, claims) = token::attachment(&token, issuer, now, secrets)?;
-    let gates::Caller::Member { mailbox, .. } =
+    let gates::Caller::Member { mailbox, mailbox_blocked: false, .. } =
         tokio::time::timeout(precheck_timeout(), gates::caller(exec, &session))
             .await
             .ok()?
     else {
         return None;
     };
+    if mailbox <= 0 {
+        return None;
+    }
     Some(AuthorizedAttachment {
         identity: AuthContext {
             guest: false,
@@ -486,6 +557,8 @@ pub async fn authorize_attachment(
             permissions: Vec::new(),
             roles: Vec::new(),
             auth_time: None,
+            actor_id: None,
+            mailbox_blocked: false,
         },
         claims,
     })
@@ -518,11 +591,15 @@ pub async fn admit_attachment(
         .await
         .unwrap_or(gates::Caller::Unavailable);
     let mailbox = match caller {
+        gates::Caller::Member { mailbox, .. } if mailbox <= 0 => {
+            return Err(Refusal::NoPrimaryMailbox);
+        }
+        gates::Caller::Member { mailbox_blocked: true, .. } => {
+            return Err(Refusal::MailboxBlocked);
+        }
         gates::Caller::Member { mailbox, .. } => mailbox,
         gates::Caller::Guest => return Err(Refusal::Guest),
         gates::Caller::Revoked => return Err(Refusal::Revoked),
-        gates::Caller::NoMailbox => return Err(Refusal::NoPrimaryMailbox),
-        gates::Caller::Blocked => return Err(Refusal::MailboxBlocked),
         gates::Caller::Unavailable => return Err(Refusal::Unavailable),
     };
     Ok(AuthorizedAttachment {
@@ -536,6 +613,8 @@ pub async fn admit_attachment(
             permissions: Vec::new(),
             roles: Vec::new(),
             auth_time: None,
+            actor_id: None,
+            mailbox_blocked: false,
         },
         claims,
     })

@@ -496,7 +496,7 @@ pub async fn ip_rule_create(
         &envelope(&auth, operation, &digest),
         &auth,
         deadline(),
-        "SELECT rust_mailsec_ip_rule_create($2,$4,$5,$6,$7,$8) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT rust_mailsec_ip_rule_create($2,$4,$5,$6,$7,$8) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[
             (&cidr, Type::TEXT),
             (&action, Type::TEXT),
@@ -524,7 +524,7 @@ pub async fn ip_rule_delete(
         &envelope(&auth, operation, &format!("threat.ip_rule.delete:{id}")),
         &auth,
         deadline(),
-        "SELECT rust_mailsec_ip_rule_delete($2,$4,$5) WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT rust_mailsec_ip_rule_delete($2,$4,$5) WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&id, Type::INT8), (&ip, Type::TEXT)],
         |rows| {
             rows.first()

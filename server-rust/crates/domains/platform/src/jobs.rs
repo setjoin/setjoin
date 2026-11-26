@@ -93,7 +93,7 @@ pub async fn retry_journal(
         &envelope(&auth, operation, &format!("journal_retry:{id}")),
         &auth,
         deadline(),
-        "SELECT repend_dead_journal_row($4::bigint) WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT repend_dead_journal_row($4::bigint) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&id, Type::INT8)],
         |rows| {
             rows.first()
@@ -136,7 +136,7 @@ pub async fn bulk_retry(
         &auth,
         deadline(),
         "WITH u AS (UPDATE bulk_role_jobs SET status = 'queued', error = NULL, updated_at = now() \
-           WHERE id = $4::bigint AND status = 'error' AND $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) \
+           WHERE id = $4::bigint AND status = 'error' AND $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' RETURNING id) \
          SELECT u.id, (SELECT count(*) FROM (SELECT audit_write($2::bigint, 'bulk_role_job_retry', 'bulk_role_job', u.id, NULL, NULL, NULLIF($5::text, '')::inet, '', 'core')) w)::bigint FROM u",
         &[(&id, Type::INT8), (&ip, Type::TEXT)],
         |rows| match rows {

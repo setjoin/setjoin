@@ -178,7 +178,7 @@ pub async fn set(
         deadline(),
         "INSERT INTO system_config (key, value, encrypted, updated_at) \
          SELECT $4::text, $5::text::jsonb, $6::bool, now() \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, encrypted = EXCLUDED.encrypted, updated_at = now() \
          RETURNING key",
         &[(&key, Type::TEXT), (&value, Type::TEXT), (&encrypted, Type::BOOL)],
@@ -263,7 +263,7 @@ pub async fn import_item(
         deadline(),
         "INSERT INTO system_config (key, value, description) \
          SELECT $4::text, $5::text::jsonb, $6::text \
-         WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> '' \
+         WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> '' \
          ON CONFLICT (key) DO UPDATE SET value = $5::text::jsonb, updated_at = now() \
          RETURNING key",
         &[

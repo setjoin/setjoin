@@ -53,7 +53,7 @@ pub async fn reset(
          remediated_at=now(), updated_at=now() WHERE user_id=$4 RETURNING user_id), \
          a AS (SELECT audit_write($2,'user_risk.reset','user_risk',$4,NULL,$5::text::jsonb,$6::text::inet,'','core') FROM r) \
          SELECT (SELECT count(*) FROM r)::bigint, (SELECT count(*) FROM a)::bigint \
-         WHERE $1::bigint > 0 AND $3::text <> ''",
+         WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&user, Type::INT8), (&after, Type::TEXT), (&ip, Type::TEXT)],
         |rows| match rows {
             [row] => {

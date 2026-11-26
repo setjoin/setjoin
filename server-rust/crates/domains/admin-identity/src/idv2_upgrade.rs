@@ -128,7 +128,7 @@ pub async fn backfill_start(
         &envelope(&auth, operation, &format!("{checksum}:{idempotency}:{reason}")),
         &auth,
         deadline(),
-        "SELECT identity_upgrade_backfill_start($2,$4,$5::text::uuid,$6,$7,$8,$9,$10,$11,$12)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_upgrade_backfill_start($2,$4,$5::text::uuid,$6,$7,$8,$9,$10,$11,$12)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&checksum, Type::TEXT),
             (&idempotency, Type::TEXT),
@@ -168,7 +168,7 @@ pub async fn canary(
         ),
         &auth,
         deadline(),
-        "SELECT identity_upgrade_canary($2,$4,$5,$6,$7,$8)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_upgrade_canary($2,$4,$5,$6,$7,$8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&key, Type::TEXT),
             (&generation, Type::INT8),
@@ -195,7 +195,7 @@ pub async fn rollback(
         &envelope(&auth, operation, reason),
         &auth,
         deadline(),
-        "SELECT identity_upgrade_rollback($2,$4)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_upgrade_rollback($2,$4)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&reason, Type::TEXT)],
         text,
     )
@@ -225,7 +225,7 @@ pub async fn diagnostic_create(
         ),
         &auth,
         deadline(),
-        "SELECT identity_job_create($2,'diagnostics',$4::text::uuid,$5,$6::text::uuid,$7::text::jsonb,$8)::text WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_job_create($2,'diagnostics',$4::text::uuid,$5,$6::text::uuid,$7::text::jsonb,$8)::text WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[
             (&idempotency, Type::TEXT),
             (&source, Type::TEXT),
@@ -253,7 +253,7 @@ pub async fn diagnostic_delete(
         &envelope(&auth, operation, &format!("{job}:{reason}")),
         &auth,
         deadline(),
-        "SELECT identity_diagnostic_delete($2,$4::text::uuid,$5) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT identity_diagnostic_delete($2,$4::text::uuid,$5) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&job, Type::TEXT), (&reason, Type::TEXT)],
         |rows| {
             rows.first()
@@ -286,7 +286,7 @@ pub async fn diagnostic_download(
         &envelope(&auth, operation, job),
         &auth,
         deadline(),
-        "SELECT artifact, artifact_sha256, manifest_version FROM identity_diagnostic_download($2,$4::text::uuid) WHERE $1::bigint > 0 AND $3::text <> ''",
+        "SELECT artifact, artifact_sha256, manifest_version FROM identity_diagnostic_download($2,$4::text::uuid) WHERE $1::bigint >= 0 AND $3::text <> ''",
         &[(&job, Type::TEXT)],
         |rows| match rows.first() {
             None => Ok(None),
@@ -330,7 +330,7 @@ pub async fn missing_reason(
         &auth,
         deadline(),
         "SELECT count(*)::bigint FROM (SELECT audit_write($2,'sensitive_action.reason_missing','',NULL,NULL,NULL,NULLIF($5::text,'')::inet,$4::text,'core') \
-         WHERE $1::bigint > 0 AND $3::text <> '') w",
+         WHERE $1::bigint >= 0 AND $3::text <> '') w",
         &[(&perm, Type::TEXT), (&ip, Type::TEXT)],
         |rows| {
             rows.first()

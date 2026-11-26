@@ -16,7 +16,7 @@ pub async fn start(
     let auth = scope(actor);
     let query = query.to_string();
     setjoin_pg::run_receipted_command(exec,ReceiptCommand{family:FAMILY,command:"search.start"},&envelope(&auth,operation,&serde_json::json!([name,query,case]).to_string()),&auth,deadline(),
-        "INSERT INTO ediscovery_searches(name,created_by,query,status,case_id) SELECT $4,$2,$5::text::jsonb,'pending',$6 WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
+        "INSERT INTO ediscovery_searches(name,created_by,query,status,case_id) SELECT $4,$2,$5::text::jsonb,'pending',$6 WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>'' RETURNING id",
         &[(&name,Type::TEXT),(&query,Type::TEXT),(&case,Type::INT8)],|rows|rows.first().and_then(|r|r.try_get(0).ok()).ok_or_else(invalid)).await
 }
 

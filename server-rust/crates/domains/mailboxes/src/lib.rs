@@ -19,7 +19,7 @@ use serde_json::json;
 use setjoin_authz::AuthContext;
 use setjoin_contracts::{
     command::CommandEnvelope,
-    ids::{ActorId, Digest, Generation, MailboxId, OperationId},
+    ids::{Digest, OperationId},
 };
 use setjoin_pg::{
     CommandOutcome, MailboxAuthContext, ReceiptCommand, Rejection, Row, ScopedExecutor,
@@ -43,11 +43,7 @@ pub const USERS_DELETE: [&str; 1] = ["users.delete"];
 pub const MAIL_EXPORT: [&str; 1] = ["mail.export"];
 
 pub fn scope(actor: &AuthContext) -> MailboxAuthContext {
-    MailboxAuthContext::from_authenticated_session(
-        ActorId::new(actor.user_id()).expect("verified actor"),
-        MailboxId::new(actor.mailbox_id()).expect("verified mailbox"),
-        Generation(1),
-    )
+    actor.database_scope()
 }
 pub(crate) fn invalid() -> StatementFailure {
     StatementFailure {
@@ -142,7 +138,7 @@ pub async fn console_denied(
         &envelope(&auth, operation, &before),
         &auth,
         deadline(),
-        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+        "SELECT audit_write(NULL,'console.denied','console',NULL,$4::text::jsonb,NULL,NULL,$5,'core') WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&before, Type::TEXT), (&path, Type::TEXT)],
         |rows| {
             if rows.len() == 1 {

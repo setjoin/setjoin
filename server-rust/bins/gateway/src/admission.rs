@@ -40,59 +40,13 @@ impl<K: KeySource + 'static> Admission for SessionAdmission<K> {
             let alternative = headers.get("authorization").is_some_and(|v| {
                 v.as_bytes().starts_with(b"Basic ") || v.as_bytes().starts_with(b"Negotiate ")
             });
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0.0, |d| d.as_secs_f64());
-            let claims = if let Some(token) = setjoin_authz::token::presented(&headers) {
-                setjoin_authz::token::validate_first_party(&token, &issuer, now, &keys).await
-            } else {
-                None
-            };
-            let valid = claims.as_ref().is_some_and(|c| {
-                let scope = c.get("scp").and_then(|v| v.as_str()).unwrap_or("");
-                c.get("typ").and_then(|v| v.as_str()) == Some("access")
-                    && (scope.is_empty()
-                        || path == format!("/{scope}")
-                        || path.starts_with(&format!("/{scope}/"))
-                        || path == format!("/api/{scope}")
-                        || path.starts_with(&format!("/api/{scope}/")))
-            });
-            if valid {
-                let claims = claims.unwrap();
+            if let Some(claims) = valid_claims(&*keys, &issuer, &headers, &path).await {
+                if let Some(response) =
+                    check_claims_guest(&guest, &claims, &headers, &method, &path, &identity).await
+                {
+                    return Some(response);
+                }
                 let user = claims.get("uid").and_then(|v| v.as_i64()).unwrap_or(0);
-                let rows = tokio::time::timeout(setjoin_authz::precheck_timeout(), guest.read(
-                    "SELECT status, expires_at IS NOT NULL AND expires_at < now() FROM guest_account_status($1)",
-                    &[(&user,setjoin_pg::Type::INT8)],
-                )).await;
-                let rows = match rows {
-                    Ok(Ok(rows)) => rows,
-                    _ => return Some(problem(&headers, &identity, 503, "service unavailable")),
-                };
-                let claimed_guest = claims.get("acct").and_then(|v| v.as_str()) == Some("guest");
-                let inactive = rows.first().map_or(claimed_guest, |r| {
-                    r.get::<_, String>(0) != "active" || r.get::<_, bool>(1)
-                });
-                if inactive {
-                    return Some(problem(&headers, &identity, 401, "Unauthorized"));
-                }
-                if !rows.is_empty() {
-                    let flags = tokio::time::timeout(setjoin_authz::precheck_timeout(), guest.read(
-                        "SELECT s.mode::text,coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'),false) FROM feature_toggle_registry_state s WHERE s.singleton", &[],
-                    )).await;
-                    let enabled = match flags {
-                        Ok(Ok(rows))
-                            if rows.first().is_some_and(|r| {
-                                matches!(r.get::<_, String>(0).as_str(), "observe" | "enforce")
-                            }) =>
-                        {
-                            rows[0].get::<_, bool>(1)
-                        }
-                        _ => return Some(problem(&headers, &identity, 503, "service unavailable")),
-                    };
-                    if !enabled || !guest_allowed(&method, &path) {
-                        return Some(not_found(&headers, &identity));
-                    }
-                }
                 if required {
                     let iat = claims
                         .get("iat")
@@ -153,6 +107,98 @@ impl<K: KeySource + 'static> Admission for SessionAdmission<K> {
     }
 }
 
+/// Validates a presented bearer/cookie token and its optional route scope for guest-belt admission.
+async fn valid_claims(
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    path: &str,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64());
+    let token = setjoin_authz::token::presented(headers)?;
+    let claims = setjoin_authz::token::validate_first_party(&token, issuer, now, keys).await?;
+    let scope = claims.get("scp").and_then(|v| v.as_str()).unwrap_or("");
+    let decoded = String::from_utf8_lossy(&crate::inventory::unescape(path)).into_owned();
+    let ok = claims.get("typ").and_then(|v| v.as_str()) == Some("access")
+        && (scope.is_empty()
+            || decoded == format!("/{scope}")
+            || decoded.starts_with(&format!("/{scope}/"))
+            || decoded == format!("/api/{scope}")
+            || decoded.starts_with(&format!("/api/{scope}/")));
+    ok.then_some(claims)
+}
+
+/// Checks guest status, `feature.guest_accounts`, and `guest_allowed` for validated claims.
+async fn check_claims_guest(
+    guest: &setjoin_pg::ScopedExecutor,
+    claims: &serde_json::Map<String, serde_json::Value>,
+    headers: &HeaderMap,
+    method: &Method,
+    path: &str,
+    identity: &ClientIdentity,
+) -> Option<Response<Body>> {
+    let user = claims.get("uid").and_then(|v| v.as_i64()).unwrap_or(0);
+    let rows = tokio::time::timeout(
+        setjoin_authz::precheck_timeout(),
+        guest.read(
+            "SELECT status, expires_at IS NOT NULL AND expires_at < now() FROM guest_account_status($1)",
+            &[(&user, setjoin_pg::Type::INT8)],
+        ),
+    )
+    .await;
+    let rows = match rows {
+        Ok(Ok(rows)) => rows,
+        _ => return Some(problem(headers, identity, 503, "service unavailable")),
+    };
+    let claimed_guest = claims.get("acct").and_then(|v| v.as_str()) == Some("guest");
+    let inactive = rows.first().map_or(claimed_guest, |r| {
+        r.get::<_, String>(0) != "active" || r.get::<_, bool>(1)
+    });
+    if inactive {
+        return Some(problem(headers, identity, 401, "Unauthorized"));
+    }
+    if !rows.is_empty() {
+        let flags = tokio::time::timeout(
+            setjoin_authz::precheck_timeout(),
+            guest.read(
+                "SELECT s.mode::text,coalesce((SELECT enabled FROM feature_toggles WHERE key='feature.guest_accounts'),false) FROM feature_toggle_registry_state s WHERE s.singleton",
+                &[],
+            ),
+        )
+        .await;
+        let enabled = match flags {
+            Ok(Ok(rows))
+                if rows.first().is_some_and(|r| {
+                    matches!(r.get::<_, String>(0).as_str(), "observe" | "enforce")
+                }) =>
+            {
+                rows[0].get::<_, bool>(1)
+            }
+            _ => return Some(problem(headers, identity, 503, "service unavailable")),
+        };
+        if !enabled || !guest_allowed(method, path) {
+            return Some(not_found(headers, identity));
+        }
+    }
+    None
+}
+
+/// Optional-auth guest-belt gate matching `SessionAdmission::check(..., required = false)`.
+pub(crate) async fn check_guest_belt(
+    guest: &setjoin_pg::ScopedExecutor,
+    keys: &impl KeySource,
+    issuer: &str,
+    headers: &HeaderMap,
+    method: &Method,
+    path: &str,
+    identity: &ClientIdentity,
+) -> Option<Response<Body>> {
+    let claims = valid_claims(keys, issuer, headers, path).await?;
+    check_claims_guest(guest, &claims, headers, method, path, identity).await
+}
+
 pub(crate) fn problem(
     headers: &HeaderMap,
     identity: &ClientIdentity,
@@ -175,7 +221,7 @@ pub(crate) fn problem(
     response
 }
 
-fn not_found(headers: &HeaderMap, identity: &ClientIdentity) -> Response<Body> {
+pub(crate) fn not_found(headers: &HeaderMap, identity: &ClientIdentity) -> Response<Body> {
     let mut response = problem(headers, identity, 404, "not found");
     crate::problem::set_body(&mut response, "404 page not found\n".into());
     response

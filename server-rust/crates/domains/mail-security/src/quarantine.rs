@@ -211,9 +211,9 @@ pub async fn resolve(
     let auth = scope(actor);
     let user = actor.user_id();
     let (name, sql) = if reject {
-        ("quarantine.reject", "SELECT rust_mailsec_quarantine_reject($4,$5,$6) WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''")
+        ("quarantine.reject", "SELECT rust_mailsec_quarantine_reject($4,$5,$6) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''")
     } else {
-        ("quarantine.release", "SELECT rust_mailsec_quarantine_release($4,$5,$6) WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''")
+        ("quarantine.release", "SELECT rust_mailsec_quarantine_release($4,$5,$6) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''")
     };
     setjoin_pg::run_receipted_command(
         worker,

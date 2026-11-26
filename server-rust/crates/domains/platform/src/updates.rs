@@ -203,7 +203,7 @@ pub async fn push(
         &envelope(&auth, operation, &payload),
         &auth,
         deadline(),
-        "SELECT pg_notify('update_available', $4::text) WHERE $1::bigint > 0 AND $2::bigint > 0 AND $3::text <> ''",
+        "SELECT pg_notify('update_available', $4::text) WHERE $1::bigint >= 0 AND $2::bigint > 0 AND $3::text <> ''",
         &[(&payload, Type::TEXT)],
         |rows| {
             if rows.len() == 1 {

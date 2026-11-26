@@ -184,7 +184,7 @@ pub async fn policy_put(
         &auth,
         deadline(),
         "SELECT rust_mailsec_tls_policy_set($4::text::jsonb,$5::text::jsonb,$6::text::jsonb) \
-         WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[
             (&enforce_json, Type::TEXT),
             (&skip_json, Type::TEXT),
@@ -303,7 +303,7 @@ pub async fn config_set(
         &auth,
         deadline(),
         "SELECT rust_mailsec_tls_config_set($4::text[],$5::text[],$6::boolean[],$2::bigint,$7::text,$8::text::jsonb,$9::text) \
-         WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[
             (&keys, Type::TEXT_ARRAY),
             (&texts, Type::TEXT_ARRAY),
@@ -349,7 +349,7 @@ pub async fn import_audit(
         &auth,
         deadline(),
         "SELECT audit_write($2,'tls_cert_import','system_config',NULL,NULL,$4::text::jsonb,NULLIF($5::text,'')::inet,'','core') \
-         WHERE $1::bigint>0 AND $2::bigint>0 AND $3::text<>''",
+         WHERE $1::bigint>=0 AND $2::bigint>0 AND $3::text<>''",
         &[(&after, Type::TEXT), (&ip, Type::TEXT)],
         |rows| {
             if rows.len() == 1 {

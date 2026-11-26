@@ -445,11 +445,11 @@ pub(crate) async fn set_batch(
 /// `Call(jmap_calendar_get_shared, user.UserID, ownerEmail)`. The viewer is
 /// the seam-bound actor `$2`; the scope mailbox `$1` only sets the GUC.
 const CALENDAR_GET_SHARED: &str =
-    "SELECT jmap_calendar_get_shared($2,$3)::text WHERE $1::bigint>0 AND $2::bigint>0";
+    "SELECT jmap_calendar_get_shared($2,$3)::text WHERE $1::bigint>=0 AND $2::bigint>0";
 
 /// CalendarEvent/getShared (calendar_a3.go:97): Go's unscoped
 /// `jmap_calendar_event_get_shared(user.UserID, ownerEmail, after, before)`.
-const CALENDAR_EVENT_GET_SHARED: &str = "SELECT jmap_calendar_event_get_shared($2,$3,$4::text::timestamptz,$5::text::timestamptz)::text WHERE $1::bigint>0 AND $2::bigint>0";
+const CALENDAR_EVENT_GET_SHARED: &str = "SELECT jmap_calendar_event_get_shared($2,$3,$4::text::timestamptz,$5::text::timestamptz)::text WHERE $1::bigint>=0 AND $2::bigint>0";
 
 /// QuickStep/apply (quicksteps.go:147-165, one `dbscope.RunScoped`
 /// transaction): the message lookup in the scope mailbox, then the reducer.

@@ -501,7 +501,8 @@ async fn step(
             )
         }
         "stage_release" => {
-            stage::stage(store, root, &e.release_id, &e.manifest_digest)?;
+            let staged = stage::stage(store, root, &e.release_id, &e.manifest_digest)?;
+            host::require_unit_binaries(&staged)?;
             Ok(json!({"release_id":e.release_id,"installed_path":e.release_id}))
         }
         "stop_core" => {
@@ -544,6 +545,10 @@ async fn rollback(
 ) -> Result<Value> {
     let root = &a.config.install_root;
     if stage::active(root, "current")? == e.release_id {
+        let old = stage::active(root, "previous")?;
+        if old != e.release_id {
+            host::require_unit_binaries(&root.join("releases").join(&old))?;
+        }
         stage::previous(root, &e.release_id)?;
     }
     host::start().await?;

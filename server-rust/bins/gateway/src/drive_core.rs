@@ -115,7 +115,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 p["manifest"]=if p["status"]=="ready" {match setjoin_drive::core::preview_manifest(&exec,auth.context(),version).await{Ok(v)=>v,Err(e)=>return rejected(&setjoin_pg::Rejection::Statement(e),Some(&path),&c,id)}}else{json!([])};
                 if p["status"]=="none" {
                     let Some(request)=crate::jmap::random() else{return problem(500,"database error",None,&c,id)};
-                    match setjoin_drive::core::write(&exec,auth.context(),"drive_preview_request","SELECT to_jsonb(drive_preview_request($2,$4))::text WHERE $1::bigint>0 AND $3::text IS NOT NULL",&[(&version,setjoin_pg::Type::INT8)],request).await {
+                    match setjoin_drive::core::write(&exec,auth.context(),"drive_preview_request","SELECT to_jsonb(drive_preview_request($2,$4))::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[(&version,setjoin_pg::Type::INT8)],request).await {
                         setjoin_pg::CommandOutcome::Committed(v)=>p["status"]=v,out=>return result(out,200,true,&path,&c,id)
                     }
                 }
@@ -139,7 +139,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 if p["classification"]!="regular" || p["auditReads"]==true {
                     let Some(audit)=crate::jmap::random() else{return problem(500,"database error",None,&c,id)};
                     let space=p["spaceId"].as_i64().unwrap();
-                    match setjoin_drive::core::write(&exec,auth.context(),"drive_rust_preview_audit","SELECT 'null'::text FROM drive_rust_preview_audit($2,$4,$5,true) WHERE $1::bigint>0 AND $3::text IS NOT NULL",&[(&space,setjoin_pg::Type::INT8),(&version,setjoin_pg::Type::INT8)],audit).await {setjoin_pg::CommandOutcome::Committed(_)=>{},out=>return result(out,200,false,&path,&c,id)}
+                    match setjoin_drive::core::write(&exec,auth.context(),"drive_rust_preview_audit","SELECT 'null'::text FROM drive_rust_preview_audit($2,$4,$5,true) WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[(&space,setjoin_pg::Type::INT8),(&version,setjoin_pg::Type::INT8)],audit).await {setjoin_pg::CommandOutcome::Committed(_)=>{},out=>return result(out,200,false,&path,&c,id)}
                 }
                 return preview_response(&r, &p, store, &c, id);
             }
@@ -662,7 +662,7 @@ impl<K: KeySource + 'static> Intercept for CoreRoute<K> {
                 );
             }
             if query(&r,"admin").as_deref()==Some("1") {
-                let permission=setjoin_drive::core::write(&exec,auth.context(),"drive_admin_read_permission","SELECT to_jsonb(drive_has_admin_perm($2,'drive.view'))::text WHERE $1::bigint>0 AND $3::text IS NOT NULL",&[],operation).await;
+                let permission=setjoin_drive::core::write(&exec,auth.context(),"drive_admin_read_permission","SELECT to_jsonb(drive_has_admin_perm($2,'drive.view'))::text WHERE $1::bigint>=0 AND $3::text IS NOT NULL",&[],operation).await;
                 match permission {setjoin_pg::CommandOutcome::Committed(v) if v==true=>{},setjoin_pg::CommandOutcome::Committed(_)=>return typed_problem(403,"drive.view required","forbidden",None,Some(&path),&c,id),out=>return result(out,200,true,&path,&c,id)}
                 return match setjoin_drive::core::admin_spaces(&worker,auth.context()).await{Ok(v)=>result(setjoin_pg::CommandOutcome::Committed(v),200,true,&path,&c,id),Err(_)=>problem(500,"database error",None,&c,id)};
             }

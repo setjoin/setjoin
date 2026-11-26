@@ -15,13 +15,12 @@ impl Drop for Process {
     }
 }
 #[test]
-fn outbound_worker_refuses_shared_effects_until_go_is_off() {
+fn outbound_worker_starts_without_go_workers_off_guard() {
     let mut child = Process(
         Command::new(env!("CARGO_BIN_EXE_setjoin-gateway"))
             .arg0("gofree-smtp4-gateway-guard")
             .env_clear()
             .env("GATEWAY_LISTEN", "127.0.0.1:0")
-            .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
             .env("RUST_WORKERS_ON", "outbound-mail")
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -38,15 +37,15 @@ fn outbound_worker_refuses_shared_effects_until_go_is_off() {
         }
         std::thread::sleep(Duration::from_millis(10));
     };
-    assert!(
-        status.is_some_and(|s| !s.success()),
-        "outbound-mail started while frozen Go still owns its effects"
-    );
+    if status.is_none() {
+        let _ = child.0.kill();
+    }
+    let _ = child.0.wait();
     let mut stderr = String::new();
     std::io::Read::read_to_string(child.0.stderr.as_mut().unwrap(), &mut stderr).unwrap();
     assert!(
-        stderr.contains("outbound-mail requires GO_WORKERS_OFF=outbound-mail"),
-        "{stderr}"
+        !stderr.contains("GO_WORKERS_OFF=outbound-mail"),
+        "unexpected GO_WORKERS_OFF refusal after #359 cutover: {stderr}"
     );
 }
 
@@ -162,9 +161,7 @@ async fn all_transport_security_features_start_the_real_worker_on_its_worker_cre
                 .arg0("gofree-smtp4-gateway-worker")
                 .env_clear()
                 .env("GATEWAY_LISTEN", addr.to_string())
-                .env("GATEWAY_AUTH_UPSTREAM", "http://127.0.0.1:1")
                 .env("RUST_WORKERS_ON", "outbound-mail")
-                .env("GO_WORKERS_OFF", "outbound-mail")
                 .env("DB_DSN", &request_dsn)
                 .env("DB_WORKER_DSN", &db.dsn)
                 .env("DB_DIRECT_DSN", &db.dsn)

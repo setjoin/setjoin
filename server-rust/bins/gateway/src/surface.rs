@@ -2,10 +2,9 @@
 //! discovery documents, cert hint, favicon and the telemetry kill-switch path.
 //!
 //! Every response carries the headers Go's listener chain sets (security
-//! headers, the `Cache-Control` policy table, `X-Request-Id`). A request this
-//! adapter cannot answer exactly as Go does is forwarded whole. Discovery,
-//! configured sidecar probes, device-proof telemetry and full-spec permission
-//! denials (including their audits) are native (#406, #417, #457).
+//! headers, the `Cache-Control` policy table, `X-Request-Id`). Unserved auth
+//! refusals delegate through `crate::deny::answer`; surface routes answer
+//! natively without forwarding healthy requests to Go (#406, #417, #457).
 use crate::{Body, BoxFuture, Intercept, RequestContext};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -332,13 +331,18 @@ fn redirect(location: &str, code: u16, method: &Method) -> Option<Reply<'static>
     Some(reply)
 }
 
+enum ReplyRejection {
+    Response(Response<Body>),
+    Refusal(crate::deny::Refusal),
+}
+
 impl<K: KeySource + 'static> SurfaceRoute<K> {
     async fn reply(
         &self,
         kind: Kind,
         r: &Request<Body>,
-        proto: &'static str,
-    ) -> Option<Reply<'static>> {
+        c: &RequestContext,
+    ) -> Result<Reply<'static>, ReplyRejection> {
         let path = r.uri().path();
         let decoded = || String::from_utf8_lossy(&crate::inventory::unescape(path)).into_owned();
         let segment = |index: usize| -> Option<String> {
@@ -347,7 +351,7 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
         };
         let cfg = &self.config;
         let get = *r.method() == Method::GET;
-        Some(match kind {
+        Ok(match kind {
             Kind::Yaml => Reply::new(
                 200,
                 Some("application/yaml; charset=utf-8"),
@@ -385,14 +389,18 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                 openapi::font(&decoded()),
             ),
             Kind::FullYaml | Kind::FullJson => {
-                let auth = setjoin_authz::authorize_console_request(
+                let auth = match crate::deny::admit_console(
                     &self.exec,
                     &*self.keys,
                     &self.issuer,
-                    r.headers(),
-                    proto,
+                    r,
+                    crate::deny::Scope::Member,
                 )
-                .await?;
+                .await
+                {
+                    Ok(auth) => auth,
+                    Err(refusal) => return Err(ReplyRejection::Refusal(refusal)),
+                };
                 let actor = auth.context();
                 let allowed = match tokio::time::timeout(
                     setjoin_authz::precheck_timeout(),
@@ -413,14 +421,19 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                     }
                 };
                 if !allowed {
-                    let actor_id = setjoin_contracts::ids::ActorId::new(actor.user_id()).ok()?;
+                    let Ok(actor_id) = setjoin_contracts::ids::ActorId::new(actor.user_id()) else {
+                        return Err(ReplyRejection::Response(crate::deny::unauthorized(
+                            r.headers(),
+                            c,
+                        )));
+                    };
                     let target = decoded();
                     let before=serde_json::json!({"actor":actor.email(),"target":target,"missingPermission":"system.config"}).to_string();
                     let _ = self
                         .exec
                         .audit_console_denied(actor_id, &before, &target)
                         .await;
-                    return Some(problem_status(403, "Forbidden", "Forbidden"));
+                    return Ok(problem_status(403, "Forbidden", "Forbidden"));
                 }
                 if kind == Kind::FullYaml {
                     Reply::new(
@@ -449,14 +462,19 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
             ),
             Kind::Platform if !get => text_error(405, "method not allowed"),
             Kind::Platform => {
-                let slug: String = segment(2)?;
+                let Some(slug) = segment(2) else {
+                    return Ok(text_error(404, "unknown platform"));
+                };
                 match downloads::platform_target(&slug) {
-                    Some(target) => redirect(&target, 302, r.method())?,
+                    Some(target) => redirect(&target, 302, r.method())
+                        .unwrap_or_else(|| text_error(400, "invalid request")),
                     None => text_error(404, "unknown platform"),
                 }
             }
             Kind::Asset => {
-                let asset: String = segment(3)?;
+                let Some(asset) = segment(3) else {
+                    return Ok(text_error(400, "asset is required"));
+                };
                 if asset.is_empty() {
                     text_error(400, "asset is required")
                 } else if !downloads::asset_is_valid(&asset) {
@@ -466,12 +484,13 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                         &downloads::mirror_url(&cfg.network_mode, &asset),
                         302,
                         r.method(),
-                    )?
+                    )
+                    .unwrap_or_else(|| text_error(400, "invalid request"))
                 }
             }
             Kind::Favicon => {
                 if !cfg.website_dir {
-                    return Some(text_error(404, "404 page not found"));
+                    return Ok(text_error(404, "404 page not found"));
                 }
                 Reply::new(
                     200,
@@ -487,7 +506,9 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                     "no-store",
                 ),
                 setjoin_static::health::Outcome::Internal => text_error(500, "internal error"),
-                setjoin_static::health::Outcome::Defer => return None,
+                setjoin_static::health::Outcome::Defer => {
+                    json(503, "{\"status\":\"error\"}\n", "no-store")
+                }
             },
             Kind::Ready => {
                 if setjoin_static::health::ready(&self.exec).await {
@@ -545,7 +566,8 @@ impl<K: KeySource + 'static> SurfaceRoute<K> {
                 } else {
                     "/carddav/"
                 };
-                redirect(target, 301, r.method())?
+                redirect(target, 301, r.method())
+                    .unwrap_or_else(|| text_error(400, "invalid request"))
             }
             Kind::CertHint => json(200, "{\"cert_status\":\"none\"}\n", "no-store")
                 .header("x-cert-status", "none"),
@@ -623,9 +645,10 @@ impl<K: KeySource + 'static> Intercept for SurfaceRoute<K> {
                     };
                 }
             }
-            match this.reply(kind, &r, c.identity.proto).await {
-                Some(reply) => reply.build(&c, id),
-                None => c.upstream.forward(r, &c.identity).await,
+            match this.reply(kind, &r, &c).await {
+                Ok(reply) => reply.build(&c, id),
+                Err(ReplyRejection::Response(resp)) => resp,
+                Err(ReplyRejection::Refusal(refusal)) => crate::deny::answer(refusal, r, &c).await,
             }
         })
     }
