@@ -128,6 +128,7 @@ struct Shared {
     edge_limit: Option<jmap::limit::EdgeLimit>,
     http_limits: http_limits::HttpLimits,
     connections: Arc<tokio::sync::Semaphore>,
+    search_runtime: Option<Arc<setjoin_search::SearchRuntime>>,
 }
 
 #[derive(Clone)]
@@ -156,8 +157,25 @@ impl Gateway {
                 connections: Arc::new(tokio::sync::Semaphore::new(
                     http_limits::HttpLimits::default().max_connections,
                 )),
+                search_runtime: None,
             }),
         })
+    }
+
+    /// Attach the optional two-tier search runtime (#556; default OFF).
+    pub fn with_search_runtime(
+        mut self,
+        search_runtime: Arc<setjoin_search::SearchRuntime>,
+    ) -> Self {
+        if let Some(shared) = Arc::get_mut(&mut self.shared) {
+            shared.search_runtime = Some(search_runtime);
+        }
+        self
+    }
+
+    /// Inspect the attached two-tier search runtime, if configured.
+    pub fn search_runtime(&self) -> Option<&Arc<setjoin_search::SearchRuntime>> {
+        self.shared.search_runtime.as_ref()
     }
 
     /// Listener resource policy, shared by TLS and loopback HTTP.

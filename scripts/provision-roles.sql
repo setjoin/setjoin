@@ -402,3 +402,18 @@ BEGIN
     END LOOP;
   END IF;
 END $$;
+
+-- V290 (#556): two-tier search freshness staging tables are worker-only
+-- (ENABLE + FORCE RLS, zero policies, owned by setjoin_owner). Restated here
+-- so the blanket GRANT ON ALL TABLES above does not re-widen setjoin_app.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['search_dirty_keys', 'search_index_watermarks'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I OWNER TO setjoin_owner', t);
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC, setjoin_app, setjoin_worker', t);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO setjoin_worker', t);
+    END IF;
+  END LOOP;
+END $$;

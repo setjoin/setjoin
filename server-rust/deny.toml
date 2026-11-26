@@ -33,3 +33,9 @@ ignore = [
   # #340: openidconnect 4.1.0 also brings rsa0.9 for PUBLIC JWKS verification only; no RP private-key operation.
   { id = "RUSTSEC-2023-0071", reason = "#335: rsa0.10rc19 is used for WebAuthn PUBLIC-key signature verification (direct identity PSS and unmodified webauthn-rs-core0.6/crypto-glue). #339 also generates/decodes/validates PKCS#8 key files at startup. No request-driven RSA private-key operation uses this crate: OP signing/verification is ring (OpenSSL only for existing Go key profiles ring cannot represent), and no RSA decryption is implemented. Marvin requires an attacker-driven secret operation; public verification and offline startup key custody do not expose that oracle. See crates/domains/identity/WEBAUTHN.md and OIDC.md; re-evaluate before any new RSA signing/decryption use." },
 ]
+
+[bans]
+deny = [
+  { crate = "lindera-cc-cedict", reason = "#556: CC-BY-SA dictionary license is forbidden; use pure-MIT zh_jieba + cjk_bigram." },
+  { crate = "unidic", reason = "#556: non-permissive / online-downloaded dictionary crate is forbidden; use pure-MIT cjk_bigram." },
+]

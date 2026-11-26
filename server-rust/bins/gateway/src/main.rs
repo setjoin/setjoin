@@ -362,6 +362,22 @@ async fn run(configuration: Arc<setjoin_gateway::configuration::Runtime>) -> Res
         .with_http_limits(http_limits)
         .map_err(|e| format!("GATEWAY_MAX_CONNECTIONS: {e}"))?
         .with_configuration(&configuration);
+    let search_caps = match configuration_exec.as_ref() {
+        Some(exec) => setjoin_search::probe_pg_capabilities_exec(exec)
+            .await
+            .unwrap_or_default(),
+        None => setjoin_search::PgSearchCapabilities::default(),
+    };
+    let search_runtime = Arc::new(setjoin_search::SearchRuntime::from_env(search_caps));
+    if search_runtime.config().tier2_enabled {
+        let health = search_runtime.health();
+        if !health.is_healthy() {
+            eprintln!(
+                "setjoin-gateway: Tier-2 search enabled but degraded ({health:?}); falling back to Tier-1 PostgreSQL baseline"
+            );
+        }
+    }
+    gateway = gateway.with_search_runtime(search_runtime);
     let rust_auth = match std::env::var("GATEWAY_RUST_AUTH_UPSTREAM")
         .ok()
         .filter(|v| !v.is_empty())

@@ -2488,3 +2488,17 @@ emitting `app_notify('group_membership_changed', ...)` on `user_group_members`,
 `distribution_groups` (`{"all": true}`). `setjoin_authz::groups::GroupResolver`
 subscribes via `DB_DIRECT_DSN` (`listen` / `listen_watch`) with subscribe-before-refresh
 invalidation. Proof: `tests/group_membership_notify.pg`.
+
+## Two-tier search freshness fencing & optional `pg_bigm` (`V290__search_two_tier_optional_pg_bigm.sql`, #556)
+
+`V290__search_two_tier_optional_pg_bigm.sql` probes `pg_available_extensions` for
+optional `pg_bigm` inside an exception-trapped `DO` block (never failing on Xinchuang,
+managed PostgreSQL, or clusters without `pg_bigm`) and creates `gin_bigm_ops` indexes
+only when `pg_bigm` is present. It adds two worker-only `system_only` freshness-fencing
+tables — `public.search_dirty_keys` (preserving composite `(id, received_at_us)` mail
+keys and reserved `sub_id`) and `public.search_index_watermarks` — both with
+`ENABLE`+`FORCE ROW LEVEL SECURITY`, zero policies (deny-all to `setjoin_app` and
+`PUBLIC`), `OWNER TO setjoin_owner`, and `SELECT, INSERT, UPDATE, DELETE` granted only
+to `setjoin_worker` (restated in `scripts/provision-roles.sql`). Zero `blobs` columns
+and zero `feature_toggles` rows are added. Proof: `tests/V290__search_two_tier.pg` and
+`server-rust/crates/search/tests/two_tier_db.rs`.

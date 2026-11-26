@@ -174,3 +174,5 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/certificates` — shared Go certificate/PEM profile and recipient trust cache; [contract](crates/certificates/DOX.md).
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
+
+- `crates/search` (`setjoin-search`, #556) — foundation two-tier `SearchEngine`/`SearchIndexer` seam, optional `pg_bigm` Tier-1 baseline, pure-MIT `tantivy` index (`<= 50 MB` writer cap, default OFF), and PG re-authorization helpers; [contract](crates/search/DOX.md).
