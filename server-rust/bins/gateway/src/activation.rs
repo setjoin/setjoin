@@ -227,16 +227,11 @@ fn capture_and_cloexec(first_fd: i32, count: usize) -> Result<Vec<OwnedFd>, Stri
     Ok(owned)
 }
 
-/// Validate and convert an already-owned, `FD_CLOEXEC` descriptor into a
-/// nonblocking Tokio [`TcpListener`]. On any error, `owned` is dropped and
-/// closed immediately.
-fn adopt_owned(owned: OwnedFd) -> Result<TcpListener, String> {
-    let fd = owned.as_raw_fd();
+fn is_listening_stream_socket(fd: i32) -> bool {
     let mut kind: libc::c_int = 0;
-    let mut accepting: libc::c_int = 0;
     let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
-    let valid = unsafe {
-        if libc::getsockopt(
+    let is_stream = unsafe {
+        libc::getsockopt(
             fd,
             libc::SOL_SOCKET,
             libc::SO_TYPE,
@@ -244,21 +239,49 @@ fn adopt_owned(owned: OwnedFd) -> Result<TcpListener, String> {
             &mut len,
         ) == 0
             && kind == libc::SOCK_STREAM
-        {
-            len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
-            libc::getsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                libc::SO_ACCEPTCONN,
-                (&mut accepting as *mut libc::c_int).cast(),
-                &mut len,
-            ) == 0
-                && accepting != 0
-        } else {
-            false
-        }
     };
-    if !valid {
+    if !is_stream {
+        return false;
+    }
+    let mut accepting: libc::c_int = 0;
+    len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+    if unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_ACCEPTCONN,
+            (&mut accepting as *mut libc::c_int).cast(),
+            &mut len,
+        )
+    } == 0
+    {
+        return accepting != 0;
+    }
+    // Darwin defines SO_ACCEPTCONN in headers but returns ENOPROTOOPT at runtime.
+    // Fall back to verifying the stream socket is not connected (getpeername -> ENOTCONN);
+    // local_addr() below verifies it is bound to a TCP endpoint.
+    #[cfg(target_os = "macos")]
+    if std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOPROTOOPT) {
+        let mut peer: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+        let mut peer_len = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+        let peer_res = unsafe {
+            libc::getpeername(
+                fd,
+                (&mut peer as *mut libc::sockaddr_storage).cast(),
+                &mut peer_len,
+            )
+        };
+        return peer_res < 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOTCONN);
+    }
+    false
+}
+
+/// Validate and convert an already-owned, `FD_CLOEXEC` descriptor into a
+/// nonblocking Tokio [`TcpListener`]. On any error, `owned` is dropped and
+/// closed immediately.
+fn adopt_owned(owned: OwnedFd) -> Result<TcpListener, String> {
+    if !is_listening_stream_socket(owned.as_raw_fd()) {
         return Err("socket activation descriptor is not a listening stream socket".into());
     }
     let listener = std::net::TcpListener::from(owned);

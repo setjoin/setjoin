@@ -38,6 +38,43 @@ impl Watchers {
             tokio::spawn(run(gate, policy, true, None)),
         ]))
     }
+
+    /// Multiplex `config_changed` and `conditional_access` onto a shared
+    /// [`setjoin_pg::ListenHub`] instead of opening two standalone direct
+    /// PostgreSQL connections (#543).
+    pub async fn start_with_hub(
+        gate: Arc<Gate>,
+        hub: &setjoin_pg::ListenHub,
+    ) -> Result<Self, Error> {
+        let mut flags_sub = hub
+            .subscribe("config_changed")
+            .await
+            .map_err(|e| format!("threat flags listen hub subscribe: {e}"))?;
+        let mut policy_sub = hub
+            .subscribe("conditional_access")
+            .await
+            .map_err(|e| format!("threat policy listen hub subscribe: {e}"))?;
+        gate.reload_flags().await?;
+        let flags_gate = gate.clone();
+        let flags_task = tokio::spawn(async move {
+            while let Some(event) = flags_sub.recv().await {
+                if matches!(event, setjoin_pg::ListenEvent::Notification(_)) {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                if let Err(error) = reconcile(&flags_gate, false).await {
+                    eprintln!("auth config reload: {error}");
+                }
+            }
+        });
+        let policy_task = tokio::spawn(async move {
+            while let Some(_event) = policy_sub.recv().await {
+                if let Err(error) = reconcile(&gate, true).await {
+                    eprintln!("auth config reload: {error}");
+                }
+            }
+        });
+        Ok(Self(vec![flags_task, policy_task]))
+    }
 }
 async fn reconcile(gate: &Gate, policy: bool) -> Result<(), Error> {
     if policy {

@@ -456,6 +456,46 @@ impl GroupResolver {
         .await;
     }
 
+    /// Multiplex `group_membership_changed` over a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn listen_with_hub(
+        self: Arc<Self>,
+        hub: setjoin_pg::ListenHub,
+        mut stop: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let Ok(mut sub) = hub.subscribe(NOTIFY_CHANNEL).await else {
+            while !*stop.borrow() {
+                if stop.changed().await.is_err() {
+                    break;
+                }
+            }
+            return;
+        };
+        self.invalidate_all();
+        loop {
+            if *stop.borrow() {
+                return;
+            }
+            tokio::select! {
+                changed = stop.changed() => {
+                    if changed.is_err() || *stop.borrow() {
+                        return;
+                    }
+                }
+                event = sub.recv() => {
+                    match event {
+                        Some(setjoin_pg::ListenEvent::Notification(notif)) => {
+                            self.on_notification(&notif.payload);
+                        }
+                        Some(setjoin_pg::ListenEvent::ResyncRequired { .. }) => {
+                            self.invalidate_all();
+                        }
+                        None => return,
+                    }
+                }
+            }
+        }
+    }
+
     async fn listen_until<F: std::future::Future<Output = ()>>(
         self: Arc<Self>,
         direct_dsn: String,

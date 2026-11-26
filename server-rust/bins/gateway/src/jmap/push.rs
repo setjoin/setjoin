@@ -38,6 +38,11 @@ pub struct WebSocketRoute<K: KeySource + 'static> {
 impl<K: KeySource + 'static> WebSocketRoute<K> {
     pub fn with_device_cache(mut self,devices:Arc<super::device_cache::DeviceCache>)->Self{self.devices=devices;self}
 
+    pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
+        self.hub = super::hub::PushHub::with_listen_hub(hub);
+        self
+    }
+
     pub fn new(commands: Arc<JmapCommands<K>>, direct_dsn: String) -> Self {
         Self {
             commands,

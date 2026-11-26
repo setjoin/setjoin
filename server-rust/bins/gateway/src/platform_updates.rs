@@ -60,6 +60,17 @@ impl<K: KeySource + 'static> PlatformUpdatesRoute<K> {
             Some(crate::platform_recovery_admin::RecoveryAdmin::new(worker, ready, direct).await);
         self
     }
+    pub async fn with_recovery_hub(
+        mut self,
+        worker: ScopedExecutor,
+        ready: bool,
+        hub: setjoin_pg::ListenHub,
+    ) -> Self {
+        self.recovery = Some(
+            crate::platform_recovery_admin::RecoveryAdmin::new_with_hub(worker, ready, hub).await,
+        );
+        self
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

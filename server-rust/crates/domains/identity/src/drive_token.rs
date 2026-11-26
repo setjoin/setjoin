@@ -61,6 +61,58 @@ impl Issuer {
             crate::issuance::object(&[("token", json!(token)), ("expiresAt", json!(expires))])
         ))
     }
+
+    /// Mint a Drive native token from a verified [`DriveTokenRequest`] across
+    /// the [`setjoin_authz::auth_authority::AuthAuthority`] seam (#543).
+    pub fn issue_request(
+        &self,
+        req: &setjoin_authz::auth_authority::DriveTokenRequest,
+        now: i64,
+    ) -> Result<setjoin_authz::auth_authority::DriveTokenResponse, Refused> {
+        if req.device_bound {
+            return Err(Refused::DeviceBound);
+        }
+        let expiry = req
+            .expires_at
+            .map_or(now + 43200, |exp| (now + 43200).min(exp));
+        if expiry <= now {
+            return Err(Refused::Expired);
+        }
+        let mut claims = json!({"uid":req.user_id,"email":req.email,"typ":"access","scp":"drive","iss":self.issuer,"aud":["mailserver-gateway"],"iat":now,"exp":expiry});
+        if let Some(act) = req.actor_id {
+            if !setjoin_contracts::mutants::on("drive-token-drops-act") {
+                claims["act"] = json!(act);
+            }
+        }
+        for (name, value) in [
+            ("jti", req.jti.as_str()),
+            ("fam", req.family.as_str()),
+            ("acct", req.account_type.as_str()),
+        ] {
+            if !value.is_empty() {
+                claims[name] = json!(value);
+            }
+        }
+        let header = URL_SAFE_NO_PAD
+            .encode(br#"{"alg":"HS256","kid":"mailserver-drive-native-1","typ":"JWT"}"#);
+        let signed = format!("{header}.{}", URL_SAFE_NO_PAD.encode(claims.to_string()));
+        let token = format!(
+            "{signed}.{}",
+            URL_SAFE_NO_PAD.encode(hmac::sign(&self.key, signed.as_bytes()).as_ref())
+        );
+        let expires_at = chrono::DateTime::from_timestamp(expiry, 0)
+            .expect("verified JWT timestamp")
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let raw_json = format!(
+            "{}\n",
+            crate::issuance::object(&[("token", json!(token)), ("expiresAt", json!(expires_at))])
+        );
+        Ok(setjoin_authz::auth_authority::DriveTokenResponse {
+            token,
+            expires_at,
+            raw_json,
+        })
+    }
 }
 
 #[cfg(test)]

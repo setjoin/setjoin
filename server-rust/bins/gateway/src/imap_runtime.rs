@@ -22,6 +22,7 @@ pub struct ImapRuntime {
     listeners: Vec<(Arc<Server>, TcpListener)>,
     revocations: Arc<crate::workers::SessionDenylist>,
     direct: String,
+    listen_hub: Option<setjoin_pg::ListenHub>,
 }
 
 fn number<T: std::str::FromStr>(
@@ -143,10 +144,16 @@ pub fn start(
         listeners,
         revocations,
         direct,
+        listen_hub: None,
     }))
 }
 
 impl ImapRuntime {
+    pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
+        self.listen_hub = Some(hub);
+        self
+    }
+
     /// Serve until `stop` flips; sessions end with the listener.
     pub async fn run(self, mut stop: watch::Receiver<bool>) {
         // A cold registry cannot reject already-revoked password sessions.
@@ -171,17 +178,20 @@ impl ImapRuntime {
         }
         let mut tasks = tokio::task::JoinSet::new();
         let mut revoked_stop = stop.clone();
+        let hub = self.listen_hub;
         tasks.spawn(async move {
-            let _ = self
-                .revocations
-                .run(self.direct, async move {
-                    while !*revoked_stop.borrow() {
-                        if revoked_stop.changed().await.is_err() {
-                            break;
-                        }
+            let shutdown_fut = async move {
+                while !*revoked_stop.borrow() {
+                    if revoked_stop.changed().await.is_err() {
+                        break;
                     }
-                })
-                .await;
+                }
+            };
+            if let Some(hub) = hub {
+                let _ = self.revocations.run_with_hub(hub, shutdown_fut).await;
+            } else {
+                let _ = self.revocations.run(self.direct, shutdown_fut).await;
+            }
         });
         for (server, listener) in self.listeners {
             let stop = stop.clone();
@@ -249,6 +259,16 @@ pub async fn load_security(
     settings: &crate::configuration::Settings,
     label: &str,
 ) -> Result<(Arc<setjoin_threat::Gate>, setjoin_threat::Watchers), String> {
+    load_security_with_hub(settings, label, None).await
+}
+
+/// Load the shared process-wide threat gate, optionally multiplexing its
+/// watchers onto a shared [`setjoin_pg::ListenHub`] (#543).
+pub async fn load_security_with_hub(
+    settings: &crate::configuration::Settings,
+    label: &str,
+    hub: Option<&setjoin_pg::ListenHub>,
+) -> Result<(Arc<setjoin_threat::Gate>, setjoin_threat::Watchers), String> {
     let request = settings.string("db.dsn");
     if request.is_empty() {
         return Err("DB_DSN is required for the protocol threat gate".into());
@@ -270,14 +290,20 @@ pub async fn load_security(
     )
     .await
     .map_err(|e| format!("protocol threat gate initialization failed: {e}"))?;
-    let direct = if direct.is_empty() { &request } else { &direct };
-    let watchers = setjoin_threat::Watchers::start(
-        gate.clone(),
-        direct,
-        &format!("setjoin-{label}-{}", std::process::id()),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let watchers = if let Some(hub) = hub {
+        setjoin_threat::Watchers::start_with_hub(gate.clone(), hub)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        let direct = if direct.is_empty() { &request } else { &direct };
+        setjoin_threat::Watchers::start(
+            gate.clone(),
+            direct,
+            &format!("setjoin-{label}-{}", std::process::id()),
+        )
+        .await
+        .map_err(|e| e.to_string())?
+    };
     Ok((gate, watchers))
 }
 

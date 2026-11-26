@@ -608,6 +608,60 @@ impl SessionDenylist {
             }
         }
     }
+
+    /// Multiplex `session_revoke` over a shared [`setjoin_pg::ListenHub`] (#543).
+    pub async fn run_with_hub(
+        self: Arc<Self>,
+        hub: setjoin_pg::ListenHub,
+        shutdown: impl Future<Output = ()>,
+    ) -> Result<(), WorkerError> {
+        tokio::pin!(shutdown);
+        let mut sub = match hub.subscribe("session_revoke").await {
+            Ok(sub) => sub,
+            Err(_) => {
+                shutdown.await;
+                return Ok(());
+            }
+        };
+        self.state.lock().expect("denylist lock").listening = true;
+        let _guard = ListenerReadiness(self.state.clone());
+        if !matches!(
+            tokio::time::timeout(Duration::from_secs(2), self.refresh_once()).await,
+            Ok(Ok(()))
+        ) {
+            eprintln!("session denylist: initial reconcile failed; keeping prior snapshot");
+        }
+        let mut ticker = tokio::time::interval(Duration::from_secs(30));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = &mut shutdown => return Ok(()),
+                event = sub.recv() => {
+                    match event {
+                        Some(setjoin_pg::ListenEvent::Notification(notif)) => {
+                            if self.apply_notification(&notif.payload).is_err() {
+                                eprintln!("session denylist: malformed session_revoke notification");
+                            }
+                        }
+                        Some(setjoin_pg::ListenEvent::ResyncRequired { .. }) => {
+                            if !matches!(
+                                tokio::time::timeout(Duration::from_secs(2), self.refresh_once()).await,
+                                Ok(Ok(()))
+                            ) {
+                                eprintln!("session denylist: resync reconcile failed; keeping prior snapshot");
+                            }
+                        }
+                        None => return Ok(()),
+                    }
+                }
+                _ = ticker.tick() => {
+                    if !matches!(tokio::time::timeout(Duration::from_secs(2), self.refresh_once()).await, Ok(Ok(()))) {
+                        eprintln!("session denylist: reconcile failed; keeping prior snapshot");
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn imap_row(row:&SessionRevocation)->Option<setjoin_imap::RevocationRow>{

@@ -6999,6 +6999,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "setjoind"
+version = "0.0.0"
+dependencies = [
+ "bcrypt",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "reqwest",
+ "serde_json",
+ "setjoin-auth",
+ "setjoin-authz",
+ "setjoin-boot",
+ "setjoin-config-secret",
+ "setjoin-conformance",
+ "setjoin-gateway",
+ "setjoin-identity",
+ "setjoin-pg",
+ "setjoin-schema",
+ "setjoin-threat",
+ "tempfile",
+ "tokio",
+ "tokio-postgres",
+ "tokio-rustls",
+ "tokio-util",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

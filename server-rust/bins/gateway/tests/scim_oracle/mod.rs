@@ -508,6 +508,7 @@ async fn run_inner(action: &str, kind: &str) -> Result<(), BoxError> {
                 issuer: "mailserver".into(),
                 authserver_url: format!("http://{authserver}"),
                 internal_key: INTERNAL_KEY.into(),
+                authority: None,
             },
             changed_status: mutant,
         };

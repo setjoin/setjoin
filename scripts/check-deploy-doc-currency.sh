@@ -78,9 +78,13 @@ CONFIG_ENV_SAMPLE="${CONFIG_ENV_SAMPLE:-$ROOT/mailserver/deploy/config.env.sampl
 SERVICE_FILE="${SERVICE_FILE:-$ROOT/mailserver/deploy/setjoin-gateway.service.template}"
 CONFIG_RUST_FILES=(
   "$ROOT/server-rust/bins/gateway/src/main.rs"
+  "$ROOT/server-rust/bins/gateway/src/runtime/mod.rs"
+  "$ROOT/server-rust/bins/gateway/src/runtime/routes.rs"
+  "$ROOT/server-rust/bins/gateway/src/runtime/workers.rs"
   "$ROOT/server-rust/bins/gateway/src/acme.rs"
   "$ROOT/server-rust/bins/gateway/src/configuration/mod.rs"
   "$ROOT/server-rust/bins/auth/src/config.rs"
+  "$ROOT/server-rust/bins/setjoind/src/lib.rs"
   "$ROOT/server-rust/crates/domains/platform/src/config.rs"
 )
 

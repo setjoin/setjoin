@@ -119,6 +119,14 @@ impl Config {
         Ok(threat)
     }
     pub fn from_env() -> Result<Self, String> {
+        Self::from_env_for(false)
+    }
+
+    /// Load auth configuration. When `unified` is true (`setjoind` running both
+    /// `http` and `auth` in one process), `auth` does not bind a standalone TCP
+    /// listener, so standalone `LISTEN_ADDR` non-loopback TLS / `AUTHSERVER_URL`
+    /// checks are skipped (the `http` listener / ACME owns public TLS).
+    pub fn from_env_for(unified: bool) -> Result<Self, String> {
         let yaml: Value = match std::env::var("SETJOIN_CONFIG")
             .ok()
             .filter(|s| !s.is_empty())
@@ -269,7 +277,7 @@ impl Config {
         if c.tls_cert.is_some() != c.tls_key.is_some() {
             return Err("TLS_CERT and TLS_KEY must be configured together".into());
         }
-        if !loopback && c.tls_cert.is_none() {
+        if !unified && !loopback && c.tls_cert.is_none() {
             return Err("non-loopback auth listener requires TLS".into());
         }
         c.trust_proxy = get("AUTH_TRUST_PROXY", "auth.trust_proxy").is_some_and(|s| go_bool(&s));
@@ -285,7 +293,7 @@ impl Config {
                     .map_err(|_| "invalid AUTH_TRUSTED_PROXY_CIDRS")?,
             );
         }
-        if !loopback && uri.is_none() {
+        if !unified && !loopback && uri.is_none() {
             return Err("non-loopback auth listener requires valid AUTHSERVER_URL".into());
         }
         if c.listen.starts_with(':') {

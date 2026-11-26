@@ -124,6 +124,40 @@ pub async fn run_observer(
     }
 }
 
+/// Multiplex `config_changed` onto a shared [`setjoin_pg::ListenHub`] (#543).
+/// Calls `signal` once after initial subscription, on every matching
+/// notification, and on [`setjoin_pg::ListenEvent::ResyncRequired`].
+pub async fn run_observer_with_hub(
+    hub: setjoin_pg::ListenHub,
+    wanted: fn(&Notification) -> bool,
+    signal: impl Fn(),
+    stop: impl Future<Output = ()>,
+) {
+    tokio::pin!(stop);
+    let Ok(mut sub) = hub.subscribe(CONFIG_CHANGED).await else {
+        stop.await;
+        return;
+    };
+    signal();
+    loop {
+        let event = tokio::select! {
+            _ = &mut stop => return,
+            event = sub.recv() => event,
+        };
+        match event {
+            Some(setjoin_pg::ListenEvent::Notification(n)) => {
+                if wanted(&decode(&n.payload)) {
+                    signal();
+                }
+            }
+            Some(setjoin_pg::ListenEvent::ResyncRequired { .. }) => {
+                signal();
+            }
+            None => return,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

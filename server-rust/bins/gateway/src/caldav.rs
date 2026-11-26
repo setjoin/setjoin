@@ -36,6 +36,9 @@ impl<K: KeySource + 'static> CalDavRoute<K> {
     pub fn start_timezone_listener(&self, direct: String) {
         self.timezones.start(self.exec.clone(), direct);
     }
+    pub fn start_timezone_hub(&self, hub: setjoin_pg::ListenHub) {
+        self.timezones.start_with_hub(self.exec.clone(), hub);
+    }
     pub fn timezone_listening(&self) -> bool {
         self.timezones.listening()
     }

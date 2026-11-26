@@ -63,6 +63,7 @@ pub mod recovery_finalize;
 pub mod recovery_worker;
 pub mod routes;
 pub mod rtc;
+pub mod runtime;
 pub mod served_stats;
 pub mod smtp_runtime;
 pub mod surface;
@@ -118,6 +119,7 @@ pub struct Config {
 struct Shared {
     upstream: Upstream,
     rust_auth_upstream: Option<Upstream>,
+    auth_authority: Option<Arc<dyn setjoin_authz::auth_authority::AuthAuthority>>,
     inventory: inventory::Inventory,
     go_proxies: Arc<metrics::GoProxies>,
     upstream_header_timeout: Duration,
@@ -144,6 +146,7 @@ impl Gateway {
             shared: Arc::new(Shared {
                 upstream,
                 rust_auth_upstream: None,
+                auth_authority: None,
                 inventory: inventory::Inventory::parse(inventory::BUNDLED)?,
                 go_proxies: Arc::new(metrics::GoProxies::default()),
                 upstream_header_timeout: config.upstream_header_timeout,
@@ -186,6 +189,17 @@ impl Gateway {
         shared.rust_auth_upstream =
             Some(Upstream::new(uri)?.with_header_timeout(shared.upstream_header_timeout));
         Ok(self)
+    }
+
+    /// Unified [`AuthAuthority`] seam (co-located or remote HTTP/HTTPS) (#543).
+    pub fn with_auth_authority(
+        mut self,
+        authority: Arc<dyn setjoin_authz::auth_authority::AuthAuthority>,
+    ) -> Self {
+        Arc::get_mut(&mut self.shared)
+            .expect("new gateway is unshared")
+            .auth_authority = Some(authority);
+        self
     }
 
     /// Load reviewed transfer decisions (also used by recording/rehearsal tools).
@@ -456,6 +470,7 @@ async fn handle(
             return response;
         }
     }
+    let mut csrf_verified = false;
     // Owner-approved security fix 2026-11-05 (#491): the global CSRF gate runs
     // before the over-budget branch. An over-budget request that is not answered
     // here used to skip it entirely (and the later gate only runs without an edge
@@ -467,6 +482,7 @@ async fn handle(
         if let Some(response) = csrf_denial(&req, &identity) {
             return response;
         }
+        csrf_verified = true;
     }
     if let Some(limit) = &shared.edge_limit {
         let now = std::time::SystemTime::now()
@@ -482,6 +498,7 @@ async fn handle(
                 if let Some(response) = csrf_denial(&req, &identity) {
                     return response;
                 }
+                csrf_verified = true;
             }
             // Go's net/http request-line unescape and ServeMux canonicalization precede buildRootDispatch's belt.
             if route.is_some_and(|r| r.target == inventory::Target::LocalRust)
@@ -611,6 +628,7 @@ async fn handle(
         if let Some(response) = csrf_denial(&req, &identity) {
             return response;
         }
+        csrf_verified = true;
     }
     if shared.routes.catchall && shared.inventory.root_on() {
         let ctx = RequestContext {
@@ -649,7 +667,7 @@ async fn handle(
         },
         |r| r.target,
     );
-    // Qualified auth routes reach setjoin-auth.
+    // Qualified auth routes reach the configured AuthAuthority or setjoin-auth upstream.
     match target {
         inventory::Target::RustAuth => {
             if route.is_some_and(|r| {
@@ -657,6 +675,40 @@ async fn handle(
                     && inventory::Inventory::is_pinned_and_mounted(r)
             }) {
                 strip_api_prefix(&mut req);
+            }
+            if !auth_listener && is_internal_only_auth_path(req.uri().path()) {
+                return proxy::status(StatusCode::NOT_FOUND, "404 page not found\n");
+            }
+            if let Some(authority) = &shared.auth_authority {
+                let meta = setjoin_authz::auth_authority::AuthRequestMeta {
+                    client_ip: identity.client_ip,
+                    proto: identity.proto,
+                    peer,
+                    tls: secure,
+                    csrf_verified,
+                };
+                let mut response = match authority.handle_http(req, meta).await {
+                    Ok(response) => response,
+                    Err(setjoin_authz::auth_authority::AuthAuthorityError::PayloadTooLarge) => {
+                        proxy::status(StatusCode::PAYLOAD_TOO_LARGE, "request body too large\n")
+                    }
+                    Err(setjoin_authz::auth_authority::AuthAuthorityError::Unavailable(_)) => {
+                        proxy::status(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Rust auth upstream unavailable\n",
+                        )
+                    }
+                    Err(_) => proxy::status(StatusCode::BAD_GATEWAY, "auth authority error\n"),
+                };
+                if !auth_listener && route.is_some_and(inventory::Inventory::is_pinned_and_mounted)
+                {
+                    jmap::reply::security_headers(response.headers_mut(), identity.proto);
+                    response
+                        .headers_mut()
+                        .entry(hyper::header::CACHE_CONTROL)
+                        .or_insert_with(|| hyper::header::HeaderValue::from_static("no-store"));
+                }
+                return response;
             }
             return match &shared.rust_auth_upstream {
                 Some(upstream) => {
@@ -751,6 +803,48 @@ fn strip_api_prefix(req: &mut Request<Body>) {
     {
         *req.uri_mut() = stripped;
     }
+}
+
+fn is_internal_only_auth_path(raw: &str) -> bool {
+    let mut decoded = Vec::with_capacity(raw.len());
+    let bytes = raw.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = |b: u8| match b {
+                b'0'..=b'9' => Some(b - b'0'),
+                b'a'..=b'f' => Some(b - b'a' + 10),
+                b'A'..=b'F' => Some(b - b'A' + 10),
+                _ => None,
+            };
+            if let (Some(hi), Some(lo)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                decoded.push((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[i]);
+        i += 1;
+    }
+    let decoded = String::from_utf8_lossy(&decoded);
+    let mut collapsed = String::with_capacity(decoded.len());
+    let mut prev_slash = false;
+    for ch in decoded.chars() {
+        if ch == '/' {
+            if !prev_slash {
+                collapsed.push('/');
+            }
+            prev_slash = true;
+        } else {
+            collapsed.push(ch);
+            prev_slash = false;
+        }
+    }
+    while collapsed.len() > 1 && collapsed.ends_with('/') {
+        collapsed.pop();
+    }
+    collapsed.eq_ignore_ascii_case("/auth/scim/disable")
+        || collapsed.eq_ignore_ascii_case("/admin/reload")
 }
 
 fn csrf_denial(req: &Request<Body>, identity: &ClientIdentity) -> Option<Response<Body>> {

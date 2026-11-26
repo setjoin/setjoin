@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [features]
+default = ["in-process-authority"]
+in-process-authority = ["setjoin-identity/in-process-authority"]
 oracle-mutants = ["setjoin-contracts/oracle-mutants", "setjoin-authz/oracle-mutants", "setjoin-identity/oracle-mutants"]
 
 [dependencies]

@@ -166,6 +166,7 @@ async fn lifecycle_events_are_delivered_by_rust_to_matching_subscriptions() -> R
             issuer: "mailserver".into(),
             authserver_url: String::new(),
             internal_key: String::new(),
+            authority: None,
             dispatcher: dispatcher.clone(),
         };
         let go_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));

@@ -452,6 +452,7 @@ async fn run_inner(action: &str, kind: &str, fault: Option<&str>) -> Result<(), 
                 issuer: "mailserver".into(),
                 authserver_url: format!("http://{authserver}"),
                 internal_key: INTERNAL_KEY.into(),
+                authority: None,
                 dispatcher: setjoin_gateway::webhook::Dispatcher::unguarded_for_tests(
                     setjoin_pg::workers::WorkerDatabase::new(&db.dsn).map_err(|e| e.to_string())?,
                     None,

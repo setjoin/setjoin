@@ -66,6 +66,20 @@ impl AuthServer {
     /// Reconstructs the client-facing `htu` URI (scheme + host + escaped path,
     /// without query string), mirroring Go `token.dpopClientFacingURI`.
     pub(super) fn dpop_client_facing_uri(req: &Request<Body>) -> String {
+        if let Some(auth_meta) = req
+            .extensions()
+            .get::<setjoin_authz::auth_authority::AuthRequestMeta>()
+        {
+            let host = req
+                .uri()
+                .authority()
+                .map(|a| a.as_str())
+                .or_else(|| req.headers().get("host").and_then(|v| v.to_str().ok()))
+                .unwrap_or("");
+            let path = req.uri().path();
+            let path = if path.is_empty() { "/" } else { path };
+            return format!("{}://{host}{path}", auth_meta.proto);
+        }
         let mut scheme = if req
             .extensions()
             .get::<ConnectionMeta>()

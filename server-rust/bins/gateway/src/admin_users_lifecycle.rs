@@ -24,6 +24,8 @@ pub struct AdminUsersLifecycleRoute<K: KeySource + 'static> {
     /// Go's `scim.RevokeAuthSessions` target; either empty disables the call.
     pub authserver_url: String,
     pub internal_key: String,
+    /// Optional [`AuthAuthority`] seam for session revocation (#543).
+    pub authority: Option<Arc<dyn setjoin_authz::auth_authority::AuthAuthority>>,
     /// Go's `webhook.Dispatcher`: legacy best-effort fan-out after the commit.
     pub dispatcher: crate::webhook::Dispatcher,
 }
@@ -141,7 +143,11 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
             self.keys.clone(),
             self.issuer.clone(),
         );
-        let (revoke_url, revoke_key) = (self.authserver_url.clone(), self.internal_key.clone());
+        let (revoke_url, revoke_key, revoke_authority) = (
+            self.authserver_url.clone(),
+            self.internal_key.clone(),
+            self.authority.clone(),
+        );
         let dispatcher = self.dispatcher.clone();
         Box::pin(async move {
             let what = action(r.method(), r.uri().path()).expect("matched route");
@@ -315,7 +321,19 @@ impl<K: KeySource + 'static> Intercept for AdminUsersLifecycleRoute<K> {
                     {
                         CommandOutcome::Committed(queued) => {
                             if disabling {
-                                revoke_sessions(&revoke_url, &revoke_key, target);
+                                if let Some(authority) = revoke_authority.clone() {
+                                    tokio::spawn(async move {
+                                        let _ = authority
+                                            .disable_user_sessions(
+                                                setjoin_authz::auth_authority::DisableTarget::UserId(
+                                                    target,
+                                                ),
+                                            )
+                                            .await;
+                                    });
+                                } else {
+                                    revoke_sessions(&revoke_url, &revoke_key, target);
+                                }
                             }
                             if !queued {
                                 let event = crate::webhook::CloudEvent::new(

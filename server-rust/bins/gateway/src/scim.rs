@@ -31,6 +31,8 @@ pub struct ScimRoute<K: KeySource + 'static> {
     /// `SCIM_AUTHSERVER_URL` (Go default `http://localhost:8443`) and `INTERNAL_API_KEY`.
     pub authserver_url: String,
     pub internal_key: String,
+    /// Optional [`AuthAuthority`] seam for session revocation (#543).
+    pub authority: Option<Arc<dyn setjoin_authz::auth_authority::AuthAuthority>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -130,6 +132,7 @@ impl<K: KeySource + 'static> Intercept for ScimRoute<K> {
             worker: self.worker.clone(),
             authserver_url: self.authserver_url.clone(),
             internal_key: self.internal_key.clone(),
+            authority: self.authority.clone(),
         };
         Box::pin(async move { route.serve(r, c).await })
     }
@@ -140,6 +143,7 @@ struct Handler {
     worker: ScopedExecutor,
     authserver_url: String,
     internal_key: String,
+    authority: Option<Arc<dyn setjoin_authz::auth_authority::AuthAuthority>>,
 }
 
 struct Out<'a> {
@@ -578,8 +582,19 @@ impl Handler {
         .await
     }
 
-    /// Go's best-effort `RevokeAuthSessions`: a bounded POST to the authserver.
+    /// Go's best-effort `RevokeAuthSessions`: delegates to [`AuthAuthority`] when
+    /// wired (#543), else falls back to a bounded POST to the authserver.
     fn revoke(&self, user: i64) {
+        if let Some(authority) = self.authority.clone() {
+            tokio::spawn(async move {
+                let _ = authority
+                    .disable_user_sessions(setjoin_authz::auth_authority::DisableTarget::UserId(
+                        user,
+                    ))
+                    .await;
+            });
+            return;
+        }
         if self.authserver_url.is_empty() || self.internal_key.is_empty() {
             return;
         }
