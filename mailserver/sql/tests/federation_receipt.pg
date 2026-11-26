@@ -64,15 +64,15 @@ SELECT is(
 SELECT is(
   (SELECT acked_at FROM federation_outbox WHERE peer_domain = 'bravo.test' AND peer_seq = 1) IS NOT NULL, true,
   'the C0 ack behavior is unchanged: the outbox row is still marked acked');
-SELECT is(notify_count('chat:81001'), 1,
-  'the ack emits exactly one live push on the recipient''s own chat:{user_id} channel');
+SELECT is(notify_count('sync'), 1,
+  'the ack emits exactly one O(1) sync bell on the channel');
 SELECT is(
-  (last_notify_payload('chat:81001')::jsonb) ->> 'event', 'message_delivered',
-  'the pushed event is message_delivered');
+  notify_count('chat:81001'), 0,
+  'the ack emits zero per-member chat:<uid> pushes');
 SELECT is(
-  ((last_notify_payload('chat:81001')::jsonb) ->> 'seq')::bigint,
-  (SELECT seq FROM chat_messages WHERE id = :msg_bravo_id),
-  'the pushed payload carries the re-stamped seq');
+  last_notify_payload('sync'),
+  format('channel:%s:%s', :ch_bravo, (SELECT seq FROM chat_messages WHERE id = :msg_bravo_id)),
+  'the sync bell carries the channel id and re-stamped seq');
 
 -- A message the ack was never about is untouched.
 SELECT is((SELECT delivered_at FROM chat_messages WHERE id = :msg_gamma_id), NULL::timestamptz,
@@ -84,10 +84,10 @@ SELECT is((SELECT delivered_at FROM chat_messages WHERE id = :msg_gamma_id), NUL
 -- ══════════════════════════════════════════════════════════════════════
 
 SELECT seq, delivered_at FROM chat_messages WHERE id = :msg_bravo_id \gset after1_
-SELECT notify_count('chat:81001') AS count_before_reack \gset
+SELECT notify_count('sync') AS count_before_reack \gset
 
 SELECT federation_ack('bravo.test', 1);
-SELECT is(notify_count('chat:81001'), :count_before_reack,
+SELECT is(notify_count('sync'), :count_before_reack,
   'a re-ack of the same peer_seq fires NO ADDITIONAL live push (idempotent no-op — count unchanged)');
 
 SELECT is(

@@ -67,7 +67,7 @@ SELECT is((SELECT payload -> 'preview' ->> 'appliedBy' FROM chat_messages WHERE 
   'apply stamps the provenance marker onto every preview it merges');
 SELECT is((SELECT payload FROM chat_messages WHERE id = :msg2_id), NULL,
   'apply on msg_id never touches the sibling message linking the same url');
-SELECT is(last_notify_event('chat:931'), 'message_edited', 'apply fans out a message_edited-style notify');
+SELECT ok(last_notify_payload('sync') LIKE format('channel:%s:%%', :ch_id), 'apply emits O(1) sync bell for channel');
 
 -- ── apply is a no-op when the cache row is not yet status=ok (pending) ─────
 SELECT chat_link_preview_claim('urlhash-b', 'https://example.com/b') AS won3 \gset

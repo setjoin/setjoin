@@ -67,8 +67,8 @@ SELECT is((SELECT role FROM chat_channel_members WHERE channel_id = :ch_a AND us
 SELECT is((SELECT left_at FROM federation_room_members
             WHERE room_id = 'roomA@hub1-ctrl.test' AND member_domain = 'ctrl-contact.test') IS NULL, TRUE,
   'our own domain lands non-left in our own roster mirror');
-SELECT is(last_notify_event(format('chat:%s', 98101)), 'federation_roster',
-  'the invite fires a federation_roster notify to the new owner');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :ch_a),
+  'the invite emits an O(1) sync bell on the mirror channel');
 
 -- ══════════════════════════════════════════════════════════════════════
 -- §2 op:'invite' idempotency — a re-delivered invite (new seq/stanza, same
@@ -254,8 +254,8 @@ SELECT is(
 );
 SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = :ch_c) IS NOT NULL, TRUE,
   'the mirror is marked removed/closed');
-SELECT is(last_notify_event(format('chat:%s', 98101)), 'federation_removed',
-  'op:remove fires the federation_removed banner notify');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :ch_c),
+  'op:remove emits an O(1) sync bell on the mirror channel');
 
 -- control-op replay idempotency: the EXACT same (peer,seq) re-delivered
 -- returns 'dup', never re-applies (Step 1 bookkeeping is op-agnostic).
@@ -353,8 +353,8 @@ SELECT is((SELECT content_type FROM federation_inbox
   'the advisory content_type is recorded verbatim in the inbox envelope (F3)');
 SELECT is((SELECT federated_room_removed_at FROM chat_channels WHERE id = :ch_e) IS NOT NULL, TRUE,
   'roomE mirror is now read-only after room_revoked');
-SELECT is(last_notify_event(format('chat:%s', 98101)), 'federation_removed',
-  'room_revoked fires the SAME federation_removed banner notify as remove');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :ch_e),
+  'room_revoked emits an O(1) sync bell on the mirror channel');
 SELECT throws_ok(
   format($$ SELECT chat_message_send(98101, %s, 'hello after revoke') $$, :ch_e),
   'BZ213', NULL, 'a local send into the revoked mirror refuses BZ213 — the same kicked-mirror choke'

@@ -19,6 +19,7 @@ BEGIN
   END IF;
   INSERT INTO drive_changes (space_id, seq, node_id, op) VALUES (p_space_id, v_seq, p_node_id, p_op);
   PERFORM app_notify('drive', json_build_object('spaceId', p_space_id, 'seq', v_seq)::text);
+  PERFORM public.emit_wakeup_bell('sync', 'space:' || p_space_id || ':' || v_seq);
   RETURN v_seq;
 END;
 $$;

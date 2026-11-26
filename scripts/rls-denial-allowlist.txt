@@ -254,3 +254,6 @@ notify_intents	COVERED	notify_decouple.pg	setjoin_app direct SELECT on notify_in
 
 # ── V287 distributed SKIP LOCKED worker_schedules (Wave 2.2, #549). ─────────
 worker_schedules	COVERED	worker_schedules.pg	setjoin_app direct SELECT on worker_schedules is denied	V287: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT and worker_schedule_* / work_release reducers raise 42501.
+
+# ── V288 durable scope_revocations journal (Wave 2.5, #552). ────────────────
+scope_revocations	COVERED	scope_revocations.pg	setjoin_app direct SELECT on scope_revocations is denied	V288: zero-policy FORCE RLS deny-all + REVOKE ALL FROM PUBLIC, setjoin_app; SET LOCAL ROLE setjoin_app proves direct SELECT/INSERT/DELETE fail with 42501 and spoofed emit_scope_revoked raises 42501.

@@ -1,0 +1,497 @@
+-- scope_revocations.pg: Wave 2.5 (#552) scope_revocations table, RLS denial,
+-- reserved 'scope_revoked' notify channel, anti-spoofing + caller-authority
+-- gates in emit_scope_revoked, false-42501 regression pins (secondary space
+-- access & owner self-calendar-ACL), same-tx revocation emission across all
+-- authority-changing reducers (including guest direct/meeting-bound Drive
+-- spaces & guest_expire_due), and prune_scope_revocations retention clamping.
+BEGIN;
+SELECT plan(43);
+SET LOCAL app.capture_notify = 'on';
+
+-- ── Schema & function existence ──────────────────────────────────────────
+SELECT has_table('public', 'scope_revocations', 'public.scope_revocations exists');
+SELECT has_function(
+  'emit_scope_revoked',
+  ARRAY['bigint', 'text', 'bigint', 'text', 'bigint'],
+  'emit_scope_revoked(user_id, scope_kind, scope_id, reason, subtree_anchor_id) exists'
+);
+SELECT has_function(
+  'prune_scope_revocations',
+  ARRAY['integer'],
+  'prune_scope_revocations(retention_days) exists'
+);
+
+-- ── Fixtures (disjoint user/mailbox ids via mk_account) ──────────────────
+SELECT mk_account('sr-owner') AS owner_mb \gset
+SELECT mk_account('sr-delegate') AS delegate_mb \gset
+SELECT mk_account('sr-admin') AS admin_mb \gset
+SELECT mk_account('sr-fadmin') AS fadmin_mb \gset
+SELECT mk_account('sr-bystander') AS bystander_mb \gset
+SELECT user_id AS owner_uid, email AS owner_email FROM mailboxes WHERE id = :owner_mb \gset
+SELECT user_id AS delegate_uid, email AS delegate_email FROM mailboxes WHERE id = :delegate_mb \gset
+SELECT user_id AS admin_uid FROM mailboxes WHERE id = :admin_mb \gset
+SELECT user_id AS fadmin_uid FROM mailboxes WHERE id = :fadmin_mb \gset
+SELECT user_id AS bystander_uid FROM mailboxes WHERE id = :bystander_mb \gset
+
+INSERT INTO admin_role_assignments(user_id, role_group_id, granted_by)
+VALUES (:admin_uid, 1, :admin_uid)
+ON CONFLICT DO NOTHING;
+
+-- Active channel + drive space + mailbox delegate for anti-spoofing tests
+SELECT chat_channel_create(:owner_uid, 'sr-live-chan') AS live_ch \gset
+SELECT chat_member_add(:owner_uid, :live_ch, :delegate_uid);
+SELECT drive_space_create(:owner_uid, 'sr-live-space', 'regular') AS live_space \gset
+SELECT drive_member_grant(:owner_uid, :live_space, :delegate_uid, 'editor');
+SELECT drive_member_grant(:owner_uid, :live_space, :fadmin_uid, 'editor');
+SELECT drive_node_create(:owner_uid, :live_space, NULL, 'folder', 'sr-spoof-folder') AS spoof_folder \gset
+INSERT INTO public.drive_access_invalidations
+  (space_id, principal_kind, principal_id, anchor_node_id, resulting_epoch, reason)
+VALUES
+  (:live_space, 'user', :delegate_uid, :spoof_folder, 1, 'tree_move');
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+VALUES (:owner_mb, :delegate_uid, 'full_access', :owner_uid);
+INSERT INTO calendars (mailbox_id, name, color)
+VALUES (:owner_mb, 'SR Live Cal', '#654321') RETURNING id AS live_cal \gset
+INSERT INTO calendar_acls (calendar_id, user_id, permission)
+VALUES (:live_cal, :delegate_uid, 'read');
+
+-- ── setjoin_app RLS denial, reserved notify channel, anti-spoofing, caller authz ──
+SAVEPOINT app_role_checks;
+SET LOCAL ROLE setjoin_app;
+
+SELECT throws_ok(
+  $$ SELECT count(*) FROM public.scope_revocations $$,
+  '42501',
+  NULL,
+  'setjoin_app direct SELECT on scope_revocations is denied'
+);
+SELECT throws_ok(
+  $$ INSERT INTO public.scope_revocations (user_id, scope_kind, scope_id, reason) VALUES (1, 'mailbox', 1, 'forged') $$,
+  '42501',
+  NULL,
+  'setjoin_app direct INSERT on scope_revocations is denied'
+);
+SELECT throws_ok(
+  $$ DELETE FROM public.scope_revocations $$,
+  '42501',
+  NULL,
+  'setjoin_app direct DELETE on scope_revocations is denied'
+);
+SELECT throws_ok(
+  $$ SELECT app_notify_enqueue_intent('scope_revoked', '999') $$,
+  'BZ040',
+  NULL,
+  'setjoin_app direct app_notify_enqueue_intent on reserved scope_revoked raises BZ040'
+);
+SELECT throws_ok(
+  $$ SELECT prune_scope_revocations(30) $$,
+  '42501',
+  NULL,
+  'setjoin_app cannot invoke worker-only prune_scope_revocations'
+);
+
+-- Authenticate as owner_uid under setjoin_app to verify live-membership check:
+SELECT set_config('app.current_user_id', :'owner_uid', true);
+SELECT set_config('app.current_mailbox_id', :'owner_mb', true);
+
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'channel', %s, 'spoofed') $$, :delegate_uid, :live_ch),
+  '42501',
+  NULL,
+  'setjoin_app cannot spoof emit_scope_revoked for active channel member'
+);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'space', %s, 'spoofed') $$, :delegate_uid, :live_space),
+  '42501',
+  NULL,
+  'setjoin_app cannot spoof emit_scope_revoked for active drive space member'
+);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'mailbox', %s, 'spoofed') $$, :delegate_uid, :owner_mb),
+  '42501',
+  NULL,
+  'setjoin_app cannot spoof emit_scope_revoked for active mailbox delegate'
+);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'space', %s, 'spoofed', %s) $$, :delegate_uid, :live_space, :spoof_folder),
+  '42501',
+  NULL,
+  'setjoin_app cannot spoof emit_scope_revoked with subtree_anchor_id'
+);
+
+-- Authenticate as unrelated bystander_uid under setjoin_app: must NOT flood
+-- scope_revocations even for non-member targets on scopes they do not own/admin.
+SELECT set_config('app.current_user_id', :'bystander_uid', true);
+SELECT set_config('app.current_mailbox_id', :'bystander_mb', true);
+
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'channel', %s, 'spam') $$, :fadmin_uid, :live_ch),
+  '42501',
+  NULL,
+  'unrelated setjoin_app caller cannot spam emit_scope_revoked on foreign channel'
+);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'space', %s, 'spam') $$, :bystander_uid + 99999, :live_space),
+  '42501',
+  NULL,
+  'unrelated setjoin_app caller cannot spam emit_scope_revoked on foreign drive space'
+);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'mailbox', %s, 'spam') $$, :fadmin_uid, :owner_mb),
+  '42501',
+  NULL,
+  'unrelated setjoin_app caller cannot spam emit_scope_revoked on foreign mailbox'
+);
+
+-- Unrelated admin in admin_role_assignments running as setjoin_app must NOT
+-- be allowed to emit mailbox revocations on foreign mailboxes.
+SELECT set_config('app.current_user_id', :'admin_uid', true);
+SELECT set_config('app.current_mailbox_id', :'admin_mb', true);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'mailbox', %s, 'admin_spam') $$, :fadmin_uid, :owner_mb),
+  '42501',
+  NULL,
+  'non-privileged admin_role_assignments caller cannot emit foreign mailbox revocation'
+);
+
+-- Calendar grantee running as setjoin_app must NOT self-emit calendar_share_revoked
+-- while still holding an active non-freebusy calendar_acls grant.
+SELECT set_config('app.current_user_id', :'delegate_uid', true);
+SELECT set_config('app.current_mailbox_id', :'delegate_mb', true);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'mailbox', %s, 'calendar_share_revoked') $$, :delegate_uid, :owner_mb),
+  '42501',
+  NULL,
+  'calendar grantee cannot self-emit calendar_share_revoked while holding live calendar_acls grant'
+);
+
+-- Non-privileged self-target calls must verify scope existence (channel & space)
+-- and deduplicate repeated emissions within 5 seconds.
+SELECT set_config('app.current_user_id', :'bystander_uid', true);
+SELECT set_config('app.current_mailbox_id', :'bystander_mb', true);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'channel', 999999999, 'self_nonexistent') $$, :bystander_uid),
+  '42501',
+  NULL,
+  'non-privileged self-target channel revocation rejects nonexistent channel'
+);
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'space', 999999999, 'self_nonexistent') $$, :bystander_uid),
+  '42501',
+  NULL,
+  'non-privileged self-target space revocation rejects nonexistent space'
+);
+SELECT is(
+  emit_scope_revoked(:bystander_uid, 'channel', :live_ch, 'self_dedup'),
+  emit_scope_revoked(:bystander_uid, 'channel', :live_ch, 'self_dedup'),
+  'repeated non-privileged self-target emit_scope_revoked within 5s returns existing id without duplicating'
+);
+
+ROLLBACK TO SAVEPOINT app_role_checks;
+RELEASE SAVEPOINT app_role_checks;
+DELETE FROM calendar_acls WHERE calendar_id = :live_cal AND user_id = :delegate_uid;
+
+-- Privileged caller also rejected when subtree_anchor_id only has tree_move (non-revoking)
+SELECT throws_ok(
+  format($$ SELECT emit_scope_revoked(%s, 'space', %s, 'bad_tree_move', %s) $$, :delegate_uid, :live_space, :spoof_folder),
+  '42501',
+  NULL,
+  'emit_scope_revoked rejects subtree_anchor_id backed only by non-revoking tree_move'
+);
+
+-- ── 1. mailbox_delegate_revoke ───────────────────────────────────────────
+SELECT mailbox_delegate_revoke(:owner_uid, :owner_mb, :delegate_uid);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'mailbox'
+      AND scope_id = :owner_mb AND reason = 'delegate_revoked'),
+  1,
+  'mailbox_delegate_revoke commits durable scope_revocations row'
+);
+SELECT is(
+  last_notify_payload('scope_revoked'),
+  (SELECT max(id)::text FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'mailbox'
+      AND scope_id = :owner_mb AND reason = 'delegate_revoked'),
+  'mailbox_delegate_revoke emits opaque scope_revoked row-id pointer bell'
+);
+
+-- ── 2. jmap_calendar_share_set (downgrade, revoke, & owner self-ACL regression) ──
+INSERT INTO calendars (mailbox_id, name, color)
+VALUES (:owner_mb, 'SR Cal', '#123456') RETURNING id AS sr_cal \gset
+SELECT jmap_calendar_share_set(
+  :owner_mb, :sr_cal,
+  jsonb_build_array(jsonb_build_object('userEmail', :'delegate_email', 'level', 'read')),
+  '[]'::jsonb
+);
+SELECT jmap_calendar_share_set(
+  :owner_mb, :sr_cal,
+  jsonb_build_array(jsonb_build_object('userEmail', :'delegate_email', 'level', 'freebusy')),
+  '[]'::jsonb
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'mailbox'
+      AND scope_id = :owner_mb AND reason = 'calendar_share_revoked'),
+  1,
+  'jmap_calendar_share_set downgrade to freebusy commits durable scope_revocations row'
+);
+SELECT jmap_calendar_share_set(
+  :owner_mb, :sr_cal,
+  jsonb_build_array(jsonb_build_object('userEmail', :'delegate_email', 'level', 'read')),
+  '[]'::jsonb
+);
+SELECT jmap_calendar_share_set(
+  :owner_mb, :sr_cal,
+  '[]'::jsonb,
+  jsonb_build_array(jsonb_build_object('userEmail', :'delegate_email'))
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'mailbox'
+      AND scope_id = :owner_mb AND reason = 'calendar_share_revoked'),
+  2,
+  'jmap_calendar_share_set revoke commits durable scope_revocations row'
+);
+-- Owner removing a redundant self-ACL on their own calendar must NOT trip 42501!
+INSERT INTO calendar_acls (calendar_id, user_id, permission)
+VALUES (:sr_cal, :owner_uid, 'admin')
+ON CONFLICT (calendar_id, user_id) DO UPDATE SET permission = 'admin';
+SELECT lives_ok(
+  format(
+    $$ SELECT jmap_calendar_share_set(%s, %s, '[]'::jsonb, jsonb_build_array(jsonb_build_object('userEmail', %L))) $$,
+    :owner_mb, :sr_cal, :'owner_email'
+  ),
+  'jmap_calendar_share_set removing owner self-ACL succeeds without false 42501'
+);
+
+-- ── 3 & 4. drive_folder_member_revoke + drive_member_revoke (+ secondary access pin) ──
+SELECT drive_node_create(:owner_uid, :live_space, NULL, 'folder', 'sr-subtree-folder') AS sr_folder \gset
+SELECT drive_folder_admin_grant(:owner_uid, :sr_folder, :fadmin_uid);
+SELECT drive_folder_member_revoke(:fadmin_uid, :live_space, :sr_folder, :delegate_uid);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'space'
+      AND scope_id = :live_space AND reason = 'member_revoked'),
+  1,
+  'drive_folder_member_revoke commits durable space scope_revocations row'
+);
+
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+VALUES (:live_space, :delegate_uid, 'viewer', :owner_uid);
+SELECT drive_member_revoke(:owner_uid, :live_space, :delegate_uid);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'space'
+      AND scope_id = :live_space AND reason = 'member_revoked'),
+  2,
+  'drive_member_revoke commits durable space scope_revocations row'
+);
+
+-- Regression pin: drive_member_revoke succeeds without 42501 when target retains
+-- secondary space access (e.g. admin with drive.view permission).
+SELECT drive_member_grant(:owner_uid, :live_space, :admin_uid, 'viewer');
+SELECT lives_ok(
+  format($$ SELECT drive_member_revoke(%s, %s, %s) $$, :owner_uid, :live_space, :admin_uid),
+  'drive_member_revoke succeeds without false 42501 when target retains secondary space access'
+);
+
+-- ── 5. chat_member_remove (+ bound drive space) ──────────────────────────
+SELECT chat_space_ensure(:owner_uid, :live_ch) AS bound_space \gset
+SELECT chat_member_remove(:owner_uid, :live_ch, :delegate_uid);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'channel'
+      AND scope_id = :live_ch AND reason = 'member_removed'),
+  1,
+  'chat_member_remove commits durable channel scope_revocations row'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'space'
+      AND scope_id = :bound_space AND reason = 'channel_member_removed'),
+  1,
+  'chat_member_remove commits durable bound drive space scope_revocations row'
+);
+
+-- ── 6. meeting_kick (+ provisioned chat channel + bound drive space) ─────
+SELECT meeting_create(:owner_uid, 'SR Kick Meeting') AS m_json \gset
+SELECT (:'m_json'::jsonb ->> 'meetingId')::bigint AS sr_meeting_id \gset
+SELECT (:'m_json'::jsonb ->> 'chatChannelId')::bigint AS sr_meet_ch \gset
+SELECT chat_space_ensure(:owner_uid, :sr_meet_ch) AS sr_meet_space \gset
+SELECT meeting_join(:delegate_uid, :sr_meeting_id);
+SELECT meeting_kick(:owner_uid, :sr_meeting_id, 'u:' || :delegate_uid);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'channel'
+      AND scope_id = :sr_meet_ch AND reason = 'meeting_kicked'),
+  1,
+  'meeting_kick commits durable channel scope_revocations row for provisioned chat'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'space'
+      AND scope_id = :sr_meet_space AND reason = 'meeting_kicked'),
+  1,
+  'meeting_kick commits durable space scope_revocations row for bound drive space'
+);
+
+-- ── 7. guest_set_status('disable') + guest_expire_due (chat + direct + meeting-bound Drive) ──
+INSERT INTO domains (name, is_local) VALUES ('sr-guest-host.example', TRUE)
+ON CONFLICT (name) DO NOTHING;
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'sr-guest-admin', id, 'sr-guest-admin@sr-guest-host.example', 'SR Guest Admin', TRUE
+FROM domains WHERE name = 'sr-guest-host.example'
+RETURNING id AS sr_gadmin_id \gset
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'sr-guest@ext.example', id, 'sr-guest@ext.example', 'SR Guest', TRUE
+FROM domains WHERE name = 'guest.invalid'
+RETURNING id AS sr_guest_id \gset
+INSERT INTO users (username, domain_id, email, display_name, enabled)
+SELECT 'sr-guest-exp@ext.example', id, 'sr-guest-exp@ext.example', 'SR Guest Exp', TRUE
+FROM domains WHERE name = 'guest.invalid'
+RETURNING id AS sr_gexp_id \gset
+INSERT INTO admin_role_groups (name, permissions)
+VALUES ('sr-guest-managers', ARRAY['guests.manage']);
+INSERT INTO admin_role_assignments (user_id, role_group_id, granted_by, eligible)
+SELECT :sr_gadmin_id, rg.id, :sr_gadmin_id, FALSE
+FROM admin_role_groups rg WHERE rg.name = 'sr-guest-managers';
+INSERT INTO guest_accounts
+  (user_id, invited_email, invited_by, invited_by_email, sponsor_user_id,
+   host_domain_id, status, expires_at)
+SELECT :sr_guest_id, 'sr-guest@ext.example', :sr_gadmin_id,
+       'sr-guest-admin@sr-guest-host.example', :sr_gadmin_id,
+       d.id, 'active', now() + interval '1 day'
+FROM domains d WHERE d.name = 'sr-guest-host.example';
+INSERT INTO guest_accounts
+  (user_id, invited_email, invited_by, invited_by_email, sponsor_user_id,
+   host_domain_id, status, expires_at)
+SELECT :sr_gexp_id, 'sr-guest-exp@ext.example', :sr_gadmin_id,
+       'sr-guest-admin@sr-guest-host.example', :sr_gadmin_id,
+       d.id, 'active', now() - interval '1 minute'
+FROM domains d WHERE d.name = 'sr-guest-host.example';
+
+SELECT chat_channel_create(:sr_gadmin_id, 'sr-guest-ch') AS sr_gch \gset
+INSERT INTO chat_channel_members (channel_id, user_id, role)
+VALUES (:sr_gch, :sr_guest_id, 'member'), (:sr_gch, :sr_gexp_id, 'member');
+SELECT chat_space_ensure(:sr_gadmin_id, :sr_gch) AS sr_gspace \gset
+-- Also give the guest a direct Drive space AND a meeting-bound Drive space!
+SELECT drive_space_create(:sr_gadmin_id, 'sr-guest-direct-space', 'regular') AS sr_gdirect_space \gset
+INSERT INTO drive_space_members (space_id, user_id, role, granted_by)
+VALUES (:sr_gdirect_space, :sr_guest_id, 'viewer', :sr_gadmin_id),
+       (:sr_gdirect_space, :sr_gexp_id, 'viewer', :sr_gadmin_id);
+INSERT INTO meetings (title, owner_user_id, state)
+VALUES ('SR Guest Meet', :sr_gadmin_id, 'live') RETURNING id AS sr_gmeet \gset
+INSERT INTO meeting_participants (meeting_id, user_id, identity, role)
+VALUES (:sr_gmeet, :sr_guest_id, 'u:' || :sr_guest_id, 'member');
+INSERT INTO drive_spaces (name, owner_user_id, meeting_id)
+VALUES ('sr-guest-meet-space', :sr_gadmin_id, :sr_gmeet) RETURNING id AS sr_gmeet_space \gset
+
+SELECT guest_set_status(:sr_gadmin_id, :sr_guest_id, 'disable', NULL);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :sr_guest_id AND scope_kind = 'channel'
+      AND scope_id = :sr_gch AND reason = 'guest_disabled'),
+  1,
+  'guest_set_status(disable) commits durable channel scope_revocations row'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :sr_guest_id AND scope_kind = 'space'
+      AND scope_id = :sr_gspace AND reason = 'guest_disabled'),
+  1,
+  'guest_set_status(disable) commits durable chat-bound drive space scope_revocations row'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :sr_guest_id AND scope_kind = 'space'
+      AND scope_id = :sr_gdirect_space AND reason = 'guest_disabled'),
+  1,
+  'guest_set_status(disable) commits durable direct drive space scope_revocations row'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :sr_guest_id AND scope_kind = 'space'
+      AND scope_id = :sr_gmeet_space AND reason = 'guest_disabled'),
+  1,
+  'guest_set_status(disable) commits durable meeting-bound drive space scope_revocations row'
+);
+
+-- guest_expire_due routes through guest_set_status('expire') and emits revocations!
+SELECT guest_expire_due(50);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :sr_gexp_id AND scope_kind = 'channel'
+      AND scope_id = :sr_gch AND reason = 'guest_expired'),
+  1,
+  'guest_expire_due commits durable channel scope_revocations row'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :sr_gexp_id AND scope_kind = 'space'
+      AND scope_id = :sr_gdirect_space AND reason = 'guest_expired'),
+  1,
+  'guest_expire_due commits durable direct drive space scope_revocations row'
+);
+
+-- ── 8 & 9. mailbox_lifecycle_transition + mailbox_lifecycle_effect_apply ─
+UPDATE feature_toggles SET enabled = TRUE WHERE key = 'feature.mailbox_lifecycle_retention';
+SELECT mk_account('sr-lifecycle-target') AS lc_mb \gset
+SELECT (mailbox_lifecycle_read(:lc_mb) ->> 'generation')::bigint AS lc_gen \gset
+SELECT gen_random_uuid() AS lc_op \gset
+SELECT mailbox_lifecycle_transition(
+  :admin_uid, :lc_mb, :'lc_op', 'suspend', :lc_gen, repeat('a', 64), 'sync test suspend'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id IS NULL AND scope_kind = 'mailbox'
+      AND scope_id = :lc_mb AND reason = 'mailbox_suspended'),
+  1,
+  'mailbox_lifecycle_transition(suspend) commits scope-wide (user_id IS NULL) revocation row'
+);
+
+INSERT INTO mailbox_delegates (mailbox_id, user_id, permission, granted_by)
+VALUES (:lc_mb, :delegate_uid, 'read', :admin_uid);
+SELECT gen_random_uuid() AS eff_op \gset
+INSERT INTO mailbox_lifecycle_operations(
+  operation_id, mailbox_id, action, actor_user_id, expected_generation,
+  request_digest, before_digest, after_digest, result)
+VALUES (:'eff_op', :lc_mb, 'suspend', :admin_uid, :lc_gen + 1,
+  repeat('1', 64), repeat('2', 64), repeat('3', 64), '{}');
+INSERT INTO mailbox_lifecycle_effects(operation_id, mailbox_id, effect_kind)
+VALUES (:'eff_op', :lc_mb, 'revoke_delegates')
+RETURNING id AS eff_id \gset
+UPDATE mailbox_lifecycle_effects
+   SET state = 'claimed', claimed_by = 'sr-worker', lease_until = statement_timestamp() + interval '1 minute'
+ WHERE id = :eff_id;
+SELECT mailbox_lifecycle_effect_apply('sr-worker', :eff_id);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations
+    WHERE user_id = :delegate_uid AND scope_kind = 'mailbox'
+      AND scope_id = :lc_mb AND reason = 'mailbox_delegates_revoked'),
+  1,
+  'mailbox_lifecycle_effect_apply(revoke_delegates) commits per-delegate revocation row'
+);
+
+-- ── 10. prune_scope_revocations clamps UP to MAX(offline_policies) ───────
+INSERT INTO offline_policies (name, scope_type, enabled, max_offline_days)
+VALUES ('sr-60d-window', 'global', TRUE, 60);
+INSERT INTO public.scope_revocations (occurred_at, user_id, scope_kind, scope_id, reason)
+VALUES
+  (now() - interval '45 days', :delegate_uid, 'mailbox', :owner_mb, 'sr_keep_45d'),
+  (now() - interval '75 days', :delegate_uid, 'mailbox', :owner_mb, 'sr_prune_75d');
+
+SELECT prune_scope_revocations(7) AS pruned_cnt \gset
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations WHERE reason = 'sr_keep_45d'),
+  1,
+  'prune_scope_revocations clamps retention UP to max_offline_days (45d row preserved under 60d policy)'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.scope_revocations WHERE reason = 'sr_prune_75d'),
+  0,
+  'prune_scope_revocations deletes rows older than clamped retention window (75d row pruned)'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

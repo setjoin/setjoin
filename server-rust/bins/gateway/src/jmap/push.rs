@@ -27,6 +27,10 @@ use tokio_tungstenite::{
 pub struct WebSocketRoute<K: KeySource + 'static> {
     pub commands: Arc<JmapCommands<K>>,
     pub hub: Arc<super::hub::PushHub>,
+    pub sync_hub: Option<Arc<super::sync_hub::SyncWakeupHub>>,
+    pub(super) disable_sync_hub: bool,
+    pub(super) direct_dsn: String,
+    pub(super) lazy_sync_hub: Arc<std::sync::Mutex<Option<Arc<super::sync_hub::SyncWakeupHub>>>>,
     pub registry: setjoin_jmap::connections::ConnectionRegistry,
     pub production: bool,
     pub allowed_host: String,
@@ -36,17 +40,57 @@ pub struct WebSocketRoute<K: KeySource + 'static> {
     devices: Arc<super::device_cache::DeviceCache>,
 }
 impl<K: KeySource + 'static> WebSocketRoute<K> {
-    pub fn with_device_cache(mut self,devices:Arc<super::device_cache::DeviceCache>)->Self{self.devices=devices;self}
+    pub fn with_device_cache(mut self, devices: Arc<super::device_cache::DeviceCache>) -> Self {
+        self.devices = devices;
+        self
+    }
 
     pub fn with_listen_hub(mut self, hub: setjoin_pg::ListenHub) -> Self {
+        let worker_exec = self
+            .commands
+            .worker
+            .clone()
+            .unwrap_or_else(|| self.commands.exec.clone());
+        self.disable_sync_hub = false;
+        self.sync_hub = Some(super::sync_hub::SyncWakeupHub::with_listen_hub(
+            hub.clone(),
+            self.commands.exec.clone(),
+            worker_exec,
+        ));
         self.hub = super::hub::PushHub::with_listen_hub(hub);
         self
+    }
+
+    pub fn with_sync_hub(mut self, sync_hub: Arc<super::sync_hub::SyncWakeupHub>) -> Self {
+        self.disable_sync_hub = false;
+        self.sync_hub = Some(sync_hub);
+        self
+    }
+
+    pub fn without_sync_hub(mut self) -> Self {
+        self.disable_sync_hub = true;
+        self.sync_hub = None;
+        self
+    }
+
+    pub(super) fn resolve_sync_hub(&self) -> Option<Arc<super::sync_hub::SyncWakeupHub>> {
+        if self.disable_sync_hub {
+            return None;
+        }
+        if let Some(hub) = &self.sync_hub {
+            return Some(hub.clone());
+        }
+        resolve_lazy_sync_hub(&self.lazy_sync_hub, &self.direct_dsn, &self.commands)
     }
 
     pub fn new(commands: Arc<JmapCommands<K>>, direct_dsn: String) -> Self {
         Self {
             commands,
-            hub: super::hub::PushHub::new(direct_dsn),
+            hub: super::hub::PushHub::new(direct_dsn.clone()),
+            sync_hub: None,
+            disable_sync_hub: false,
+            direct_dsn,
+            lazy_sync_hub: Arc::new(std::sync::Mutex::new(None)),
             registry: Default::default(),
             production: false,
             allowed_host: String::new(),
@@ -56,6 +100,33 @@ impl<K: KeySource + 'static> WebSocketRoute<K> {
             devices: Default::default(),
         }
     }
+}
+
+pub(super) fn resolve_lazy_sync_hub<K: KeySource + 'static>(
+    slot: &std::sync::Mutex<Option<Arc<super::sync_hub::SyncWakeupHub>>>,
+    direct_dsn: &str,
+    commands: &JmapCommands<K>,
+) -> Option<Arc<super::sync_hub::SyncWakeupHub>> {
+    if direct_dsn.trim().is_empty() {
+        return None;
+    }
+    let mut guard = slot
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(existing) = guard.as_ref() {
+        return Some(existing.clone());
+    }
+    let worker_exec = commands
+        .worker
+        .clone()
+        .unwrap_or_else(|| commands.exec.clone());
+    let created = super::sync_hub::SyncWakeupHub::from_direct_dsn(
+        direct_dsn,
+        commands.exec.clone(),
+        worker_exec,
+    )?;
+    *guard = Some(created.clone());
+    Some(created)
 }
 pub(super) struct Permit(pub(super) Arc<AtomicUsize>);
 impl Drop for Permit {
@@ -70,15 +141,27 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
     }
     fn shutdown(&self) {
         self.registry.shutdown();
+        if let Some(hub) = &self.sync_hub {
+            hub.shutdown();
+        }
+        if let Some(hub) = self
+            .lazy_sync_hub
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+        {
+            hub.shutdown();
+        }
     }
     fn handle(
         &self,
         mut request: Request<Body>,
         context: RequestContext,
     ) -> BoxFuture<Response<Body>> {
-        let (commands, hub, registry, clients, devices, worker) = (
+        let (commands, hub, sync_hub, registry, clients, devices, worker) = (
             self.commands.clone(),
             self.hub.clone(),
+            self.resolve_sync_hub(),
             self.registry.clone(),
             self.clients.clone(),
             self.devices.clone(),
@@ -357,6 +440,31 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                 {
                     return;
                 }
+                let (restart_tx, mut restart_rx) =
+                    tokio::sync::watch::channel::<Option<&'static str>>(None);
+                // Keep a clone of `restart_tx` alive for the full socket lifetime
+                // so when `sync_hub` is `None` (legacy fallback), `restart_rx`
+                // never resolves to `Err(RecvError)` and closes the socket.
+                let _restart_tx_keepalive = restart_tx.clone();
+                let restart_close: Arc<dyn Fn(&'static str) + Send + Sync> = Arc::new(move |r| {
+                    let _ = restart_tx.send(Some(r));
+                });
+                let (hub_guard, mut hub_control_rx, hub_wakeups, mut hub_ephemeral_rx) =
+                    match sync_hub.as_ref().map(|sh| {
+                        sh.register_connection(
+                            user,
+                            Some(mailbox),
+                            identity.is_guest(),
+                            restart_close,
+                        )
+                        .split()
+                    }) {
+                        Some((g, c, w, e)) => (Some(g), Some(c), Some(w), Some(e)),
+                        None => (None, None, None, None),
+                    };
+                let (attach_reply_tx, mut attach_reply_rx) =
+                    tokio::sync::mpsc::channel::<String>(16);
+                let attach_sem = Arc::new(tokio::sync::Semaphore::new(4));
                 let mut batch = Vec::new();
                 let mut deadline = None;
                 let mut pong = tokio::time::Instant::now();
@@ -370,7 +478,95 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                 );
                 loop {
                     let message = tokio::select! {
+                        biased;
                         _=closed.changed()=>break,
+                        res = restart_rx.changed(), if hub_guard.is_some() => {
+                            if res.is_ok() {
+                                let reason = restart_rx.borrow().unwrap_or("connection restart required");
+                                let _ = socket
+                                    .close(Some(CloseFrame {
+                                        code: CloseCode::Restart,
+                                        reason: reason.into(),
+                                    }))
+                                    .await;
+                                break;
+                            }
+                            continue;
+                        }
+                        ctrl = async {
+                            match hub_control_rx.as_mut() {
+                                Some(rx) => rx.recv().await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            let Some(ctrl) = ctrl else { continue };
+                            match ctrl {
+                                super::sync_hub::ControlMessage::ScopeRevoked(ev) => {
+                                    if socket.send(Message::Text(ev.to_ws_frame().into())).await.is_err() {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                super::sync_hub::ControlMessage::SessionRevoked => {
+                                    let _ = socket.send(Message::Text("{\"@type\":\"SessionRevoked\"}\n".into())).await;
+                                    break;
+                                }
+                                super::sync_hub::ControlMessage::OfflineWipe(payload) => {
+                                    if socket.send(Message::Text(payload.into())).await.is_err() {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                super::sync_hub::ControlMessage::Restart(reason) => {
+                                    let _ = socket
+                                        .close(Some(CloseFrame {
+                                            code: CloseCode::Restart,
+                                            reason: reason.into(),
+                                        }))
+                                        .await;
+                                    break;
+                                }
+                            }
+                        }
+                        reply = attach_reply_rx.recv() => {
+                            if let Some(reply) = reply {
+                                if socket.send(Message::Text(reply.into())).await.is_err() {
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
+                        wakeup = async {
+                            match hub_wakeups.as_ref() {
+                                Some(w) => w.next_one().await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            if socket.send(Message::Text(wakeup.to_ws_frame().into())).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                        ephem = async {
+                            match hub_ephemeral_rx.as_mut() {
+                                Some(rx) => rx.recv().await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            if let Some(payload) = ephem {
+                                if socket
+                                    .send(Message::Text(
+                                        format!("{{\"@type\":\"ChatEvent\",\"event\":{payload}}}\n")
+                                            .into(),
+                                    ))
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
                         _=tokio::time::sleep_until(pong+Duration::from_secs(70))=>break,
                         _=ping.tick()=>{if socket.send(Message::Ping(Vec::new().into())).await.is_err(){break}continue},
                         _=revalidate.tick()=>{
@@ -465,6 +661,156 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
                     };
                     let reply=match env.kind.as_str() {
                         "WebSocketPushEnable"=>continue,"WebSocketPushDisable"=>r#"{"@type":"error"}"#.to_owned(),
+                        "ScopeAttach" => {
+                            let Some(raw_scopes) = env.scopes else {
+                                let err = super::ws_request::request_error(
+                                    &env.id,
+                                    "invalidArguments",
+                                    "scopes array is required",
+                                );
+                                if socket.send(Message::Text(err.into())).await.is_err() {
+                                    break;
+                                }
+                                continue;
+                            };
+                            let (Some(sh), Some(conn_id)) = (sync_hub.clone(), hub_guard.as_ref().map(|c| c.id)) else {
+                                let err = super::ws_request::request_error_status(
+                                    &env.id,
+                                    "serverFail",
+                                    503,
+                                    "sync wakeup hub unavailable",
+                                );
+                                if socket.send(Message::Text(err.into())).await.is_err() {
+                                    break;
+                                }
+                                continue;
+                            };
+                            let Ok(permit) = attach_sem.clone().try_acquire_owned() else {
+                                let err = super::ws_request::request_error_status(
+                                    &env.id,
+                                    "limit",
+                                    429,
+                                    "too many concurrent ScopeAttach requests",
+                                );
+                                if socket.send(Message::Text(err.into())).await.is_err() {
+                                    break;
+                                }
+                                continue;
+                            };
+                            let attach_op_seq = sh.begin_attach_op(conn_id);
+                            let reply_tx = attach_reply_tx.clone();
+                            let req_id = env.id.clone();
+                            let cmds = commands.clone();
+                            let ident = identity.clone();
+                            let restart_cb = _restart_tx_keepalive.clone();
+                            tokio::spawn(async move {
+                                let _permit = permit;
+                                let mut valid = Vec::with_capacity(raw_scopes.len());
+                                let mut invalid_denied = Vec::new();
+                                for rs in raw_scopes {
+                                    if let Some(kind) = super::sync_hub::ScopeKind::parse(&rs.scope_kind) {
+                                        valid.push(super::sync_hub::ScopeDescriptor {
+                                            kind,
+                                            raw_id: rs.scope_id,
+                                        });
+                                    } else {
+                                        invalid_denied.push(serde_json::json!({
+                                            "scopeKind": rs.scope_kind,
+                                            "scopeId": rs.scope_id,
+                                            "reason": "invalid_scope_kind"
+                                        }));
+                                    }
+                                }
+                                let outcome = sh
+                                    .attach_scopes_with_seq_checked(
+                                        conn_id,
+                                        &valid,
+                                        attach_op_seq,
+                                        || async {
+                                            cache_denies(&cmds, &ident)
+                                                || setjoin_authz::push::revoked(&cmds.exec, &ident)
+                                                    .await
+                                        },
+                                    )
+                                    .await;
+                                // Session revocation is verified BEFORE installing scopes into
+                                // `scope_index` so a revoked session never becomes routable.
+                                if outcome.session_revoked {
+                                    let _ = restart_cb.send(Some("session revoked during attach"));
+                                    return;
+                                }
+                                let mut res = outcome.result;
+                                if invalid_denied.is_empty() {
+                                    let _ = reply_tx
+                                        .send(super::sync_hub::format_scope_attach_response(
+                                            &req_id, &res,
+                                        ))
+                                        .await;
+                                } else {
+                                    let attached: Vec<serde_json::Value> = res
+                                        .attached
+                                        .drain(..)
+                                        .map(|s| {
+                                            serde_json::json!({
+                                                "scopeKind": s.kind.as_str(),
+                                                "scopeId": s.raw_id
+                                            })
+                                        })
+                                        .collect();
+                                    let mut denied: Vec<serde_json::Value> = res
+                                        .denied
+                                        .drain(..)
+                                        .map(|d| {
+                                            serde_json::json!({
+                                                "scopeKind": d.scope_kind.as_str(),
+                                                "scopeId": d.scope_id,
+                                                "reason": d.reason
+                                            })
+                                        })
+                                        .collect();
+                                    denied.extend(invalid_denied);
+                                    let mut obj = serde_json::Map::new();
+                                    obj.insert("@type".into(), serde_json::json!("ScopeAttachResponse"));
+                                    if !req_id.is_empty() {
+                                        obj.insert("requestId".into(), serde_json::json!(req_id));
+                                    }
+                                    obj.insert("attached".into(), serde_json::Value::Array(attached));
+                                    obj.insert("denied".into(), serde_json::Value::Array(denied));
+                                    let _ = reply_tx.send(serde_json::Value::Object(obj).to_string()).await;
+                                }
+                            });
+                            continue;
+                        }
+                        "ScopeDetach" => {
+                            let Some(raw_scopes) = env.scopes else {
+                                let err = super::ws_request::request_error(
+                                    &env.id,
+                                    "invalidArguments",
+                                    "scopes array is required",
+                                );
+                                if socket.send(Message::Text(err.into())).await.is_err() {
+                                    break;
+                                }
+                                continue;
+                            };
+                            let detached = if let Some(hc) = hub_guard.as_ref() {
+                                let valid: Vec<super::sync_hub::ScopeDescriptor> = raw_scopes
+                                    .into_iter()
+                                    .filter_map(|rs| {
+                                        super::sync_hub::ScopeKind::parse(&rs.scope_kind).map(
+                                            |kind| super::sync_hub::ScopeDescriptor {
+                                                kind,
+                                                raw_id: rs.scope_id,
+                                            },
+                                        )
+                                    })
+                                    .collect();
+                                hc.detach_scopes(&valid)
+                            } else {
+                                Vec::new()
+                            };
+                            super::sync_hub::format_scope_detach_response(&env.id, &detached)
+                        }
                         "Request" => super::ws_request::execute(&commands, &identity, &env).await,
                         _=>r#"{"@type":"error","type":"urn:ietf:params:jmap:error:unknownType","status":400,"detail":"unknown @type"}"#.to_owned(),
                     };
@@ -481,7 +827,10 @@ impl<K: KeySource + 'static> Intercept for WebSocketRoute<K> {
         })
     }
 }
-pub(super) fn cache_denies<K: KeySource>(commands: &JmapCommands<K>, identity: &PushIdentity) -> bool {
+pub(super) fn cache_denies<K: KeySource>(
+    commands: &JmapCommands<K>,
+    identity: &PushIdentity,
+) -> bool {
     commands.denylist.as_ref().is_some_and(|d| {
         !d.loaded()
             || chrono::DateTime::from_timestamp(identity.issued_at(), 0).is_none_or(|iat| {

@@ -1142,3 +1142,10 @@ Workers use the established worker credential; these wrappers add no grants.
 | `worker_schedule_heartbeat` | worker_schedules.sql | Fenced lease extension predicated on `(task_name, fencing_token, lease_owner)` and `lease_expires_at > clock_timestamp()` | `setjoin_worker` (`BZ003` otherwise) | extends `lease_expires_at` |
 | `worker_schedule_complete` | worker_schedules.sql | Fenced completion recording outcome, truncated error (`<= 4096B`), and coalescing `next_due_at >= clock_timestamp()` | `setjoin_worker` (`BZ003` otherwise) | clears lease & advances `next_due_at` |
 | `worker_schedule_release` | worker_schedules.sql | Fenced graceful shutdown handoff clearing lease with `next_due_at <= clock_timestamp()` for `<1s` peer pickup | `setjoin_worker` (`BZ003` otherwise) | releases `worker_schedules` lease |
+
+### Scope-Keyed Sync Wakeups & Durable Scope Revocations (Wave 2.5, #552, V288)
+
+| Function | File | Contract | Authority | Effects |
+|---|---|---|---|---|
+| `emit_scope_revoked` | scope_revocations.sql | Worker-owned `SECURITY DEFINER` (`SET search_path = pg_catalog, public`, `REVOKE ALL FROM PUBLIC`) journal emitter verifying authoritative post-revocation state (`42501` on spoofed live access) before recording into `public.scope_revocations` and enqueuing opaque `'scope_revoked'` pointer bell | `setjoin_app` / `setjoin_worker` | `scope_revocations` row + `notify_intents` `'scope_revoked'` pointer bell |
+| `prune_scope_revocations` | scope_revocations.sql | Worker-only (`work_queue_require_worker`) retention sweep clamping retention UP via `GREATEST(p_retention_days, max_offline_days, 30)` | `setjoin_worker` (`BZ003` otherwise) | deletes expired `scope_revocations` rows |

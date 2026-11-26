@@ -169,4 +169,5 @@ Shared Go UUID identifiers (#455): [contracts](crates/contracts/DOX.md#go-uuid-i
 - `crates/certificates` — shared Go certificate/PEM profile and recipient trust cache; [contract](crates/certificates/DOX.md).
 
 - `crates/calendar-format` — shared Go calendar parser; [contract](crates/calendar-format/DOX.md).
-- `crates/workqueue` (`setjoin-workqueue`, #548/#549) — durable `FOR UPDATE SKIP LOCKED` work queue, `worker_schedules` leases, DLQ operator helpers (`operator` feature), and privileged `worker` feature (isolated from `crates/domains/*` by `scripts/check-rust-family-isolation.py`). `bins/gateway/src/supervisor/` owns `WorkerSupervisor`, boot `BYPASSRLS` checks, durable WORM arming, and legacy drain-then-retire.
+- `crates/workqueue` (`setjoin-workqueue`, #548/#549) — durable work queue, `worker_schedules`, DLQ (`operator`), privileged `worker` (isolated by `check-rust-family-isolation.py`). `bins/gateway/src/supervisor/` owns `WorkerSupervisor` & legacy drain-then-retire.
+- `SyncWakeupHub` (`bins/gateway/src/jmap/sync_hub.rs`, #552) — scope-keyed push hub, `ScopeAttach`/`ScopeDetach`, live `scope_revoked`, guest SSE; see [gateway DOX](bins/gateway/DOX.md).

@@ -227,7 +227,12 @@ impl<K: KeySource> JmapCommands<K> {
         }
         let serialized = body.to_string();
         let body = reply::go_compact(&serialized).unwrap_or(serialized) + "\n";
-        reply::response(body, ctx.identity.proto, id)
+        let mut response = reply::response(body, ctx.identity.proto, id);
+        response.headers_mut().insert(
+            hyper::header::HeaderName::from_static("x-setjoin-sync-wakeup"),
+            hyper::header::HeaderValue::from_static("1"),
+        );
+        response
     }
 }
 
@@ -369,5 +374,10 @@ async fn guest_session(
         "features":{"assist":false,"bundles":false,"external_labels":false,"guest_accounts":false,"guest_invite":false,"mail_search_builder":false,"sender_control_center":false,"shared_mail_work":false,"shared_mail_comments":false},
         "guest":{"allowMeetCreate":create,"allowMeetHost":host,"allowDownload":download},
         "offline":{"allowed":false,"approvalState":"pending","maxOfflineDays":0,"wipeOnLogout":"admin_default","requireApproval":true,"biometricUnlock":false,"windowsSsoUnlock":false}}});
-    reply::response(value.to_string() + "\n", ctx.identity.proto, id)
+    let mut response = reply::response(value.to_string() + "\n", ctx.identity.proto, id);
+    response.headers_mut().insert(
+        hyper::header::HeaderName::from_static("x-setjoin-sync-wakeup"),
+        hyper::header::HeaderValue::from_static("1"),
+    );
+    response
 }

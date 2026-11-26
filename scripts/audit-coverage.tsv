@@ -1201,3 +1201,5 @@ worker_schedules.sql	worker_schedule_complete	EXEMPT	-	fenced periodic schedule 
 worker_schedules.sql	worker_schedule_heartbeat	EXEMPT	-	fenced periodic schedule lease heartbeat; operational transport
 worker_schedules.sql	worker_schedule_register	EXEMPT	-	periodic schedule catalog registration with HA timezone validation; operational metadata
 worker_schedules.sql	worker_schedule_release	EXEMPT	-	fenced graceful shutdown schedule lease handoff; operational transport
+scope_revocations.sql	emit_scope_revoked	EXEMPT	-	durable scope-revocation notification journal emitter called inside audited authority-revoking reducers; operational transport
+scope_revocations.sql	prune_scope_revocations	EXEMPT	-	worker-only retention pruner for scope_revocations; operational maintenance

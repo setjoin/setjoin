@@ -45,6 +45,7 @@ pub mod sse;
 pub mod submission;
 mod submission_actions;
 mod submission_input;
+pub mod sync_hub;
 pub mod transfer;
 mod upload;
 pub mod ws_request;
@@ -678,10 +679,9 @@ impl<K: KeySource> JmapCommands<K> {
                 primary_mailbox_id,
                 REQUEST_AUTHORITY_GENERATION,
             ),
-            Err(_) => MailboxAuthContext::from_authenticated_user(
-                actor_id,
-                REQUEST_AUTHORITY_GENERATION,
-            ),
+            Err(_) => {
+                MailboxAuthContext::from_authenticated_user(actor_id, REQUEST_AUTHORITY_GENERATION)
+            }
         };
         let digest_bytes: [u8; 32] = Sha256::digest(raw_args.as_bytes()).into();
         let digest = Digest(digest_bytes);

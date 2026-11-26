@@ -1544,6 +1544,8 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
         let address=listen.local_addr()?;
         let server=tokio::spawn(gateway.serve(listen));
         let mut listener=db.listen(&format!("chat:{}",account.user)).await?;
+        let mut sync_listener=db.listen("sync").await?;
+        let mut ephemeral_listener=db.listen("chat_ephemeral").await?;
         let mut before=snapshot(&owner,account.user,foreign.user).await?;if route.starts_with("federation_"){before["federation"]=federation_snapshot(&owner,account.user,foreign.user).await?;}if route=="schedule"{before["scheduled_actions"]=scheduled_snapshot(&owner,account.user,foreign.user).await?;}
         if matches!(route,"send"|"poll"){before["message_details"]=message_snapshot(&owner,account.user,foreign.user).await?;}
         if route=="space"{before["drive"]=space_snapshot(&owner,account.user,foreign.user).await?;}
@@ -1591,7 +1593,7 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
             let auth=setjoin_pg::MailboxAuthContext::from_authenticated_session(setjoin_contracts::ids::ActorId::new(account.user).unwrap(),setjoin_contracts::ids::MailboxId::new(account.mailbox).unwrap(),setjoin_contracts::ids::Generation(1));
             let exec=setjoin_pg::ScopedExecutor::from_dsn(db.app.as_deref().unwrap_or(&db.dsn),1).map_err(|e|e.0)?;
             let found=setjoin_pg::lookup_command(&exec,&auth,setjoin_contracts::ids::OperationId(id),setjoin_pg::ReceiptCommand{family:"F12",command:"chat_message_send"}).await.map_err(|e|format!("lookup SQLSTATE {:?}",e.sqlstate))?;assert_eq!(found==setjoin_pg::OperationLookup::Committed,committed);
-            let row=owner.query_one("SELECT c.change_seq,(SELECT count(*) FROM chat_messages WHERE channel_id=c.id),(SELECT count(*) FROM chat_audit_log WHERE channel_id=c.id) FROM chat_channels c WHERE c.id=$1 AND c.created_by=$2",&[&channel,&account.user]).await?;let expected=if committed{1}else{0};assert_eq!(row.get::<_,i64>(0),expected);assert_eq!(row.get::<_,i64>(1),expected);assert_eq!(row.get::<_,i64>(2),0,"frozen-Go send records no Chat chain act");assert_eq!(listener.drain(&owner).await?.len(),expected as usize);
+            let row=owner.query_one("SELECT c.change_seq,(SELECT count(*) FROM chat_messages WHERE channel_id=c.id),(SELECT count(*) FROM chat_audit_log WHERE channel_id=c.id) FROM chat_channels c WHERE c.id=$1 AND c.created_by=$2",&[&channel,&account.user]).await?;let expected=if committed{1}else{0};assert_eq!(row.get::<_,i64>(0),expected);assert_eq!(row.get::<_,i64>(1),expected);assert_eq!(row.get::<_,i64>(2),0,"frozen-Go send records no Chat chain act");assert_eq!(listener.drain(&owner).await?.len(),0,"Wave 2.5 #552: chat_message_send emits zero chat:<uid> fanout");assert_eq!(sync_listener.drain(&owner).await?.len(),expected as usize,"Wave 2.5 #552: chat_message_send emits O(1) sync bell");
             let enriched:i64=owner.query_one("SELECT count(*) FROM chat_messages WHERE channel_id=$1 AND payload IS NOT NULL",&[&channel]).await?.get(0);assert_eq!(enriched,0,"an unknown send must not start detached preview application");
             record_resource("Reaped gofree-chat2 COMMIT-cut proxy; scoped lookup resolved without replay")?;return Ok(());
         }
@@ -1607,6 +1609,8 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
             }
         }
         let notifications=listener.drain(&owner).await?.into_iter().map(|p|serde_json::from_str::<Value>(&p)).collect::<Result<Vec<_>,_>>()?;
+        let sync_bells=sync_listener.drain(&owner).await?;
+        let ephemeral_events=ephemeral_listener.drain(&owner).await?.into_iter().map(|p|serde_json::from_str::<Value>(&p)).collect::<Result<Vec<_>,_>>()?;
         let mut after=snapshot(&owner,account.user,foreign.user).await?;if route.starts_with("federation_"){after["federation"]=federation_snapshot(&owner,account.user,foreign.user).await?;}if route=="schedule"{after["scheduled_actions"]=scheduled_snapshot(&owner,account.user,foreign.user).await?;}if matches!(route,"send"|"poll"){after["message_details"]=message_snapshot(&owner,account.user,foreign.user).await?;}if route=="space"{after["drive"]=space_snapshot(&owner,account.user,foreign.user).await?;}
         if let (Some(first),Some(elapsed))=(budget_window,budget_elapsed) {
             let last=counter_window(&owner,account.user).await?;
@@ -1649,6 +1653,112 @@ async fn run_inner(route: &str, case: &str, mutant: bool, no_notify: bool) -> Re
             // This immutable recording predates the end-of-path fixture-ID rule.
             if route=="update"&&case=="foreign"{if let Some(value)=expected.pointer_mut("/response/body/instance"){let raw=value.as_str().ok_or("invalid recorded instance")?;if raw.strip_prefix("/chat/channels/").is_some_and(|s|s.parse::<i64>().is_ok_and(|n|n>0)){*value="/chat/channels/{id}".into();}}}
             if route=="space"{normalize_space_clock(&mut expected);if case=="success"{for phase in ["before","after"]{if let Some(rows)=expected.pointer_mut(&format!("/effects/{phase}/drive/drive_spaces")).and_then(Value::as_array_mut){for row in rows{if row["chat_channel_id"].as_i64().is_some_and(|id|id>0){row["chat_channel_id"]="<channel>".into();}}}}}}
+            // Wave 2.5 (#552) recorded divergence: notify_chat_state emits O(1)
+            // 'sync' bells (channel:<id>:<seq>) and O(1) 'chat_ephemeral'
+            // typing bells instead of O(members) chat:<uid> fan-out. Verify the
+            // new O(1) notifications strictly while keeping immutable frozen-Go
+            // goldens untouched.
+            if writing {
+                let is_chat_state_event = |e: &Value| -> bool {
+                    matches!(e["recipient"].as_str(), Some("actor" | "foreign"))
+                        && !matches!(
+                            e["payload"]["event"].as_str(),
+                            Some("read" | "member_read")
+                        )
+                };
+                let expected_notify = expected["notify"].as_array().cloned().unwrap_or_default();
+                let expected_typing = expected_notify
+                    .iter()
+                    .any(|e| is_chat_state_event(e) && e["payload"]["event"].as_str() == Some("typing"));
+                let expected_state_events = expected_notify
+                    .iter()
+                    .any(|e| is_chat_state_event(e) && e["payload"]["event"].as_str() != Some("typing"));
+                if expected_typing || expected_state_events {
+                    let unexpected_per_member: Vec<&Value> = observed["notify"]
+                        .as_array()
+                        .map(|arr| arr.iter().filter(|e| is_chat_state_event(e)).collect())
+                        .unwrap_or_default();
+                    if !unexpected_per_member.is_empty() {
+                        return Err(format!(
+                            "/notify unexpected O(members) chat:<uid> fanout under #552: {unexpected_per_member:?}"
+                        )
+                        .into());
+                    }
+                    if expected_typing {
+                        if ephemeral_events.len() != 1
+                            || ephemeral_events[0]["event"].as_str() != Some("typing")
+                        {
+                            return Err(format!(
+                                "/notify expected exactly 1 O(1) chat_ephemeral typing event, got {ephemeral_events:?}"
+                            )
+                            .into());
+                        }
+                    }
+                    if expected_state_events {
+                        let expected_bells: Vec<String> = expected_notify
+                            .iter()
+                            .filter(|e| {
+                                is_chat_state_event(e)
+                                    && e["recipient"].as_str() == Some("actor")
+                                    && e["payload"]["event"].as_str() != Some("typing")
+                            })
+                            .map(|e| {
+                                let ev = e["payload"]["event"].as_str().unwrap_or("");
+                                let seq = if matches!(
+                                    ev,
+                                    "message_created"
+                                        | "message_sent"
+                                        | "message_edited"
+                                        | "message_deleted"
+                                        | "message_delivered"
+                                ) {
+                                    e["payload"]["seq"].as_i64().unwrap_or(0)
+                                } else {
+                                    0
+                                };
+                                format!("channel:{channel}:{seq}")
+                            })
+                            .collect();
+                        if !expected_bells.is_empty() {
+                            // NotifyIntentDrain / Db::listen::drain dedupes identical
+                            // (channel, payload) rows within a single drain batch.
+                            let mut expected_unique = Vec::new();
+                            for b in &expected_bells {
+                                if !expected_unique.contains(b) {
+                                    expected_unique.push(b.clone());
+                                }
+                            }
+                            let matching: Vec<&String> = sync_bells
+                                .iter()
+                                .filter(|b| b.starts_with(&format!("channel:{channel}:")))
+                                .collect();
+                            if matching.len() != expected_unique.len()
+                                || matching
+                                    .iter()
+                                    .zip(expected_unique.iter())
+                                    .any(|(got, want)| *got != want)
+                            {
+                                return Err(format!(
+                                    "/notify sync bells mismatch for channel {channel}: got {sync_bells:?}, expected {expected_unique:?}"
+                                )
+                                .into());
+                            }
+                        } else if sync_bells.is_empty() {
+                            return Err(format!(
+                                "/notify expected O(1) sync bell(s) on channel:{channel}:*, got none"
+                            )
+                            .into());
+                        }
+                    }
+                    // Retain only non-notify_chat_state events (e.g. 'read',
+                    // 'member_read', 'drive') for immutable golden comparison.
+                    expected["notify"] = expected_notify
+                        .into_iter()
+                        .filter(|e| !is_chat_state_event(e))
+                        .collect::<Vec<_>>()
+                        .into();
+                }
+            }
             let comparison=setjoin_conformance::golden::compare(&expected,&observed);
             if mutant {if comparison.is_ok(){return Err("planted mutant survived the oracle".into());}println!("MUTANT-REJECTED: {method} {canonical} :: changed-status");}else{comparison?;println!("GOLDEN-REPLAY: {method} {canonical} :: {route}-{case}");}
         }

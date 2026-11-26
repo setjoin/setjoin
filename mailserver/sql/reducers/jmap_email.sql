@@ -632,6 +632,7 @@ BEGIN
     END LOOP;
     PERFORM app_notify('tag:' || p_mailbox_id, json_build_object(
       'event', 'state_change', 'tag_id', NULL, 'state', v_new_state)::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
   END IF;
 
   RETURN jsonb_build_object(
@@ -728,6 +729,7 @@ BEGIN
     END LOOP;
     PERFORM app_notify('tag:' || p_mailbox_id, json_build_object(
       'event', 'state_change', 'tag_id', NULL, 'state', v_new_state)::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
   END IF;
 
   RETURN jsonb_build_object(

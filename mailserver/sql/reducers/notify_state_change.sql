@@ -65,6 +65,7 @@ BEGIN
       'state',  v_email_state
     )::TEXT
   );
+  PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Email');
 
   RETURN v_email_state;
 END;

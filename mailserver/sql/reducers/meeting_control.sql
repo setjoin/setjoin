@@ -227,6 +227,7 @@ CREATE OR REPLACE FUNCTION meeting_kick(
 DECLARE
     v_target_breakout bigint; v_current_room text; v_parent uuid;
     v_removed_channel bigint; v_removed_user bigint; v_removed_role text;
+    v_kicked_user bigint; v_bound_space bigint;
 BEGIN
     PERFORM meeting_require_authority(p_meeting_id, p_user_id);
 
@@ -305,6 +306,11 @@ BEGIN
         -- only when a row was actually removed (a kick on a channel the
         -- target was never a member of, or a huddle-bound channel they
         -- never joined per V131, writes nothing).
+        IF v_removed_channel IS NOT NULL THEN
+            PERFORM public.emit_scope_revoked(
+                v_removed_user, 'channel', v_removed_channel, 'meeting_kicked', NULL
+            );
+        END IF;
         IF v_removed_channel IS NOT NULL
            AND COALESCE((SELECT enabled FROM feature_toggles
                          WHERE key = 'feature.chat_compliance'), FALSE) THEN
@@ -312,6 +318,19 @@ BEGIN
               'member', v_removed_user, NULL,
               jsonb_build_object('userId', v_removed_user, 'role', v_removed_role), NULL, NULL);
         END IF;
+        v_kicked_user := substring(p_identity FROM 3)::bigint;
+        FOR v_bound_space IN
+            SELECT s.id
+              FROM public.drive_spaces s
+             WHERE s.meeting_id = p_meeting_id
+                OR (v_removed_channel IS NOT NULL AND s.chat_channel_id = v_removed_channel)
+        LOOP
+            IF NOT public.drive_user_has_space_access(v_kicked_user, v_bound_space) THEN
+                PERFORM public.emit_scope_revoked(
+                    v_kicked_user, 'space', v_bound_space, 'meeting_kicked', NULL
+                );
+            END IF;
+        END LOOP;
     END IF;
 
     PERFORM notify_meet_state(p_meeting_id, 'participant_kicked', jsonb_build_object('identity', p_identity));

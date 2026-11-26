@@ -54,10 +54,10 @@ SELECT is(
   federation_typing_notify('bravo.test', jsonb_build_object(
     'op', 'typing', 'fromAddr', 'bob-typing@bravo.test', 'toAddr', 'alice-typing@alpha.test')),
   '{"ok":true,"relay":false}'::jsonb, 'DM shape: honest key + matching stream peer resolves, relay false');
-SELECT is(notify_count(format('chat:%s', 84001)), 1, 'the local DM member gets exactly one typing push');
-SELECT is(last_notify_event(format('chat:%s', 84001)), 'typing', 'the push event is typing');
+SELECT is(notify_count('chat_ephemeral'), 1, 'the local DM emits exactly one O(1) chat_ephemeral typing push');
+SELECT is(last_notify_event('chat_ephemeral'), 'typing', 'the push event is typing');
 SELECT is(
-  (last_notify_payload(format('chat:%s', 84001))::jsonb) ? 'fromAddr', false,
+  (last_notify_payload('chat_ephemeral')::jsonb) ? 'fromAddr', false,
   'the local push payload carries NO fromAddr/identity key (non-attributed, Q5 symmetry with local typing)');
 
 -- spoofed fromAddr domain (asserted domain != stream-authenticated peer): drop.
@@ -96,8 +96,8 @@ SELECT is(
   'hub shape: a live (non-left) roster member resolves with relay:true');
 SELECT is(
   (SELECT count(*)::int FROM _test_notify_log
-    WHERE channel = format('chat:%s', 84001) AND (payload::jsonb ->> 'event') = 'typing'),
-  2, 'the hub channel owner gets a second typing push (first was the DM case above)');
+    WHERE channel = 'chat_ephemeral' AND (payload::jsonb ->> 'event') = 'typing'),
+  2, 'the hub channel emits a second typing push on chat_ephemeral (first was the DM case above)');
 
 -- an uninvited domain: drop.
 SELECT is(
@@ -148,8 +148,8 @@ SELECT is(
   'spoke shape: the bound hub resolves, relay:false (a spoke never re-relays)');
 SELECT is(
   (SELECT count(*)::int FROM _test_notify_log
-    WHERE channel = format('chat:%s', 84001) AND (payload::jsonb ->> 'event') = 'typing'),
-  3, 'the spoke mirror owner gets a third typing push');
+    WHERE channel = 'chat_ephemeral' AND (payload::jsonb ->> 'event') = 'typing'),
+  3, 'the spoke mirror emits a third typing push on chat_ephemeral');
 
 -- wrong stream peer (not the bound hub): drop.
 SELECT is(

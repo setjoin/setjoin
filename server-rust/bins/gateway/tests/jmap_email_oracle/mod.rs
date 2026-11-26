@@ -836,9 +836,16 @@ fn normalize_headers(
     raw_len: usize,
     normalized_len: usize,
     names: &Names,
+    is_session_route: bool,
 ) -> Result<Value, BoxError> {
     let mut result = serde_json::Map::new();
     for name in headers.keys() {
+        // Wave 2.5 (#552): additive sync-wakeup opt-in capability header ONLY on
+        // /.well-known/jmap; omit on that route when comparing against immutable
+        // frozen-Go session goldens so bodies & goldens stay untouched.
+        if is_session_route && name == "x-setjoin-sync-wakeup" {
+            continue;
+        }
         let mut values = Vec::new();
         for value in headers.get_all(name) {
             let value = value.to_str()?;
@@ -1403,6 +1410,7 @@ async fn execute(
             raw_responses[shaped.len()].2.len(),
             normalized.len(),
             names,
+            spec.route == "GET /.well-known/jmap",
         )?;
         shaped.push(json!({"status":status, "headers":headers, "body":normalized}));
     }

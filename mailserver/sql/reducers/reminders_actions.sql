@@ -37,6 +37,7 @@ BEGIN
         (COALESCE(p_detail, '{}'::JSONB)
            || jsonb_build_object('event', COALESCE(p_event, 'reminder_changed'),
                                  'state', v_state))::TEXT);
+    PERFORM public.emit_wakeup_bell('sync', 'mailbox:' || p_mailbox_id || ':0:Reminder');
     RETURN v_state;
 END;
 $$ LANGUAGE plpgsql;

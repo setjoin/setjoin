@@ -33,7 +33,7 @@ SELECT chat_pin_toggle(921, :msg_id) AS pinned \gset
 SELECT is(:'pinned'::boolean, true, 'owner pin toggles to true');
 SELECT is((SELECT count(*)::int FROM chat_message_pins
             WHERE channel_id = :ch_id AND message_id = :msg_id), 1, 'pin row inserted');
-SELECT is(last_notify_event('chat:922'), 'message_pinned', 'pin fans out message_pinned');
+SELECT ok(last_notify_payload('sync') LIKE format('channel:%s:%%', :ch_id), 'pin emits O(1) sync bell for channel');
 
 -- ── unpin is COLLECTIVE: a different owner/admin (not the original pinner)
 -- may unpin. Promote 922 to admin first.

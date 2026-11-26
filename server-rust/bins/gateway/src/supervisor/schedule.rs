@@ -113,6 +113,24 @@ pub fn catalog_tasks(schedule_tz: &str) -> Vec<ScheduledTask> {
         .collect()
 }
 
+/// Wave 2+ native supervised maintenance tasks outside the frozen Go 31-task
+/// `cron_catalog::CATALOG` (`#552` `scope_revocations` retention sweep).
+pub fn wave2_maintenance_tasks(schedule_tz: &str) -> Vec<ScheduledTask> {
+    vec![ScheduledTask {
+        spec: ScheduleSpec {
+            task_name: "prune-scope-revocations".to_owned(),
+            schedule_spec: "35 4 * * *".to_owned(),
+            timeout_secs: 60,
+            schedule_tz: schedule_tz.to_owned(),
+            credential: ScheduleCredential::Worker,
+        },
+        handler: ScheduleHandler::Sql {
+            sql: "SELECT public.prune_scope_revocations(30)",
+            credential: ScheduleCredential::Worker,
+        },
+    }]
+}
+
 /// Parse a schedule spec (`@every <N>s|m|h` or 5-field UTC cron `m h dom mon dow`)
 /// and compute the next strictly-future UTC instant after `now_utc`.
 pub fn next_due_utc(spec: &str, now_utc: DateTime<Utc>) -> Result<DateTime<Utc>, String> {

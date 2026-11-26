@@ -43,6 +43,9 @@ BEGIN
     SELECT * INTO v_bump FROM public.drive_acl_bump(
       p_space_id,'user',p_grantee,NULL,'member_revoke');
   END IF;
+  IF NOT public.drive_user_has_space_access(p_grantee, p_space_id) THEN
+    PERFORM public.emit_scope_revoked(p_grantee, 'space', p_space_id, 'member_revoked', NULL);
+  END IF;
   PERFORM drive_notify_change(p_space_id, 0, 'member');
 END;
 $$ LANGUAGE plpgsql;

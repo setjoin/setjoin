@@ -37,6 +37,9 @@ BEGIN
 
   PERFORM drive_access_audit(p_user_id, p_space_id, 'member.revoke', 'member', p_grantee, NULL,
     jsonb_build_object('userId', p_grantee), NULL, 'folder-admin');
+  IF NOT public.drive_user_has_space_access(p_grantee, p_space_id) THEN
+    PERFORM public.emit_scope_revoked(p_grantee, 'space', p_space_id, 'member_revoked', NULL);
+  END IF;
   PERFORM drive_notify_change(p_space_id, 0, 'member');
 END;
 $$;

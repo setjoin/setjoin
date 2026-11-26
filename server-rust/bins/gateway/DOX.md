@@ -1195,3 +1195,12 @@ requires `kerberos.enabled` + readable keytab (`kerberos.keytab`, fallback
 account lockout (`check_account_lockout`), fail-closed guest refusal before `event='login'`,
 TOTP refusal, and `RuntimeGate::enforce_kerberos` (`Proof::kerberos`). Tests:
 `tests/dav_negotiate_auth.rs`, `tests/delete_gate.rs`.
+
+## Scope-keyed `SyncWakeupHub` and live `scope_revoked` detachment (#552)
+
+`src/jmap/sync_hub.rs` multiplexes five `ListenHub` channels (`sync` cap 2048, `scope_revoked` cap 4096, `drive_access` cap 1024, `group_membership_changed` cap 1024, `chat_ephemeral` cap 1024) per process:
+- **Opt-in & wire compatibility:** `GET /.well-known/jmap` advertises `X-Setjoin-Sync-Wakeup: 1` without altering JMAP Session JSON bodies; `/jmap/ws` sends no unsolicited `SyncReady` frame on connect and handles `ScopeAttach` / `ScopeDetach` (`MAX_ATTACHED_SCOPES = 512`, `"primary"` mailbox alias, string `scopeId`/`subtreeAnchorId`, partial denials in `ScopeAttachResponse`).
+- **Batched off-loop authorization:** `ScopeAttach` runs up to 3 batched `= ANY($2::bigint[])` `UserPrincipal`-scoped queries (`ATTACH_AUTH_DEADLINE = 5s`), enforcing owner/`read`/`full_access` vs `manage_calendar`/`calendar_acls` (`Calendar`/`CalendarEvent` only) vs denied `send_as`/`send_on_behalf`, keeping scopes unroutable until authorized, and re-checking revocation watermarks post-attach.
+- **Priority control rail vs coalescing wakeup rail:** `ScopeRevoked` / `SessionRevoked` / `offline.wipe` flow on a dedicated cap-64 rail that closes with `CloseCode::Restart` on overflow (never dropping revocations), while `SyncWakeup` coalesces per-connection (`MAX(seq)` for `space`/`channel`, `0` for `mailbox`, `<= 64` `dataTypes`).
+- **Live revocation & `ResyncRequired`:** Reads `public.scope_revocations` (or `drive_access_invalidations`, ignoring grants and `tree_move`) on the worker pool and re-verifies live effective access before detaching (preventing spoofed or post-regrant revokes). `ListenEvent::ResyncRequired` replays missed `scope_revocations` rows and re-verifies every attached scope (fail-closed `CloseCode::Restart` on DB error).
+- **Guest SSE & retention:** `/jmap/eventsource` auto-attaches up to 512 authorized Chat channels and Drive spaces (`drive_user_has_space_access`), emits named `sync_wakeup` and priority `scope_revoked` events exempt from the 16-event per-channel cap, and `supervisor/schedule.rs::wave2_maintenance_tasks` registers `prune-scope-revocations` (`prune_scope_revocations(30)`). Tests: `tests/sync_wakeup_hub.rs`.

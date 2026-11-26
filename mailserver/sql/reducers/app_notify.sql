@@ -56,6 +56,11 @@ BEGIN
       USING ERRCODE = 'BZ040',
             HINT = '{"type":"invalid_notify_channel"}';
   END IF;
+  IF p_channel = 'scope_revoked' THEN
+    RAISE EXCEPTION 'app_notify_enqueue_intent: channel scope_revoked is reserved for emit_scope_revoked'
+      USING ERRCODE = 'BZ040',
+            HINT = '{"type":"reserved_notify_channel"}';
+  END IF;
   IF octet_length(v_payload) > 7900 THEN
     RAISE EXCEPTION 'app_notify_enqueue_intent: payload exceeds 7900 bytes'
       USING ERRCODE = 'BZ040',

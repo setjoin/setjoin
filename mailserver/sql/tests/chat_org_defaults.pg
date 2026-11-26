@@ -34,8 +34,8 @@ SELECT is((SELECT count(*)::int FROM org_default_channels WHERE channel_id = :ge
 SELECT is((SELECT count(*)::int FROM chat_channel_members
             WHERE channel_id = :gen_ch AND user_id = :existing_id), 1,
   'mark backfills an EXISTING (pre-mark) enabled user');
-SELECT is(last_notify_event(format('chat:%s', :existing_id)), 'member_added',
-  'backfill fans out member_added to the backfilled user');
+SELECT is(last_notify_payload('sync'), format('channel:%s:0', :gen_ch),
+  'backfill emits O(1) sync bell for the org-default channel');
 
 -- ── idempotent re-mark: no duplicate catalog row, no duplicate membership ─
 SELECT lives_ok(format($$ SELECT chat_org_default_set(%s, %s, true) $$, :admin_id, :gen_ch),

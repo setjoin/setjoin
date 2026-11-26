@@ -536,39 +536,40 @@ pub async fn run_with_options(
                 .filter_map(|name| name.strip_prefix("cron:"))
                 .filter(|name| !(work_queue.is_some() && *name == "dispatch-scheduled-actions"))
                 .collect();
-            if !requested.is_empty() {
-                let mut tasks = Vec::new();
-                for name in requested {
-                    let Some((spec_str, timeout_secs)) = crate::workers::go_task_spec(name) else {
-                        return Err(format!("cron:{name} has no Rust implementation yet"));
-                    };
-                    let Some(sql) = crate::cron_catalog::statement(name) else {
-                        return Err(format!("cron:{name} has no Rust implementation yet"));
-                    };
-                    let cred = match crate::cron_catalog::credential(name)
-                        .unwrap_or(crate::cron_catalog::Credential::Worker)
-                    {
-                        crate::cron_catalog::Credential::Worker => {
-                            setjoin_workqueue::ScheduleCredential::Worker
-                        }
-                        crate::cron_catalog::Credential::Owner => {
-                            setjoin_workqueue::ScheduleCredential::Owner
-                        }
-                    };
-                    tasks.push(crate::supervisor::schedule::ScheduledTask {
-                        spec: setjoin_workqueue::ScheduleSpec {
-                            task_name: name.to_owned(),
-                            schedule_spec: spec_str,
-                            timeout_secs: timeout_secs.clamp(1, 600) as i32,
-                            schedule_tz: "UTC".to_owned(),
-                            credential: cred,
-                        },
-                        handler: crate::supervisor::schedule::ScheduleHandler::Sql {
-                            sql,
-                            credential: cred,
-                        },
-                    });
-                }
+            let mut tasks = Vec::new();
+            for name in requested {
+                let Some((spec_str, timeout_secs)) = crate::workers::go_task_spec(name) else {
+                    return Err(format!("cron:{name} has no Rust implementation yet"));
+                };
+                let Some(sql) = crate::cron_catalog::statement(name) else {
+                    return Err(format!("cron:{name} has no Rust implementation yet"));
+                };
+                let cred = match crate::cron_catalog::credential(name)
+                    .unwrap_or(crate::cron_catalog::Credential::Worker)
+                {
+                    crate::cron_catalog::Credential::Worker => {
+                        setjoin_workqueue::ScheduleCredential::Worker
+                    }
+                    crate::cron_catalog::Credential::Owner => {
+                        setjoin_workqueue::ScheduleCredential::Owner
+                    }
+                };
+                tasks.push(crate::supervisor::schedule::ScheduledTask {
+                    spec: setjoin_workqueue::ScheduleSpec {
+                        task_name: name.to_owned(),
+                        schedule_spec: spec_str,
+                        timeout_secs: timeout_secs.clamp(1, 600) as i32,
+                        schedule_tz: "UTC".to_owned(),
+                        credential: cred,
+                    },
+                    handler: crate::supervisor::schedule::ScheduleHandler::Sql {
+                        sql,
+                        credential: cred,
+                    },
+                });
+            }
+            tasks.extend(crate::supervisor::schedule::wave2_maintenance_tasks("UTC"));
+            if !tasks.is_empty() {
                 let runner = crate::supervisor::schedule::ScheduleRunner::new(
                     tasks,
                     crate::supervisor::schedule::ScheduleRunnerConfig::default(),
